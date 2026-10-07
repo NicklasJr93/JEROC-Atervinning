@@ -601,6 +601,7 @@ async function swipeCard(
   distance: number,
   vertical = 0,
 ) {
+  await card.scrollIntoViewIfNeeded();
   const area = await card.boundingBox();
   const session = await page.context().newCDPSession(page);
   const x = area!.x + area!.width - 28,

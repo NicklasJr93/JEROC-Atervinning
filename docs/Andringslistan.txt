@@ -300,5 +300,19 @@ Status: Genomförd i mobilappen v0.2.3.
   ordning i Vägningar samt äldre utkast som sparas igen.
 - Fem berörda mobiltester, produktionsbygge och Expo-typkontroll passerade.
 
+018 – FÖRSTA KONTORSWEBBEN
+Status: Genomförd som kontorsdemo v0.1.0, separat från mobilversion v0.2.3.
+- Publiceras på /kontor via samma GitHub-repository och Render-tjänst.
+- Dashboard med klickbara köer: nya, komplettering, attest och utbetalning.
+- Viktkort med kund, referens/ursprung, priser, betalningsuppgift och ID-knapp.
+- Prisändringar, attest och demoutbetalning får spårbar historik.
+- Valbara demoanvändare: medarbetare, VD och systemadmin; moment styrs av behörighet.
+- Maxbelopp för attest och villkor för egen attest kontrolleras.
+- VD kan administrera medarbetare och VD, men inte systemadmin.
+- Låsta kort ändras inte; rättelseutkast länkas till kund och original.
+- Lokal kontorsdemo; riktig inloggning, databas, mobil/kontorssynkning,
+  bank, Swish, Visma och fullständiga rättelse-/saldoflöden är nästa steg.
+- Se docs/office-demo.md för demokonton och testflöden.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

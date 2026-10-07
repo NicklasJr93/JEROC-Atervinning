@@ -80,3 +80,8 @@ Behåll befintligt byggkommando, npm start och Expo-token.
 Stäng JEROC-vyn i Expo Go och öppna samma QR-länk igen. Om gammal layout
 visas, ladda om appen. Profil visar Demokonto · v0.2.0. Logga ut och in
 för att prova det nya lösenordssteget. Datorn behöver inte vara igång.
+
+## Kontorswebben
+
+Första kontorsdemon finns på `/kontor`, med klickbar dashboard och demoanvändare.
+[Demokonton, flöden och avgränsningar](docs/office-demo.md). Mobilappen ligger kvar på sin befintliga adress.

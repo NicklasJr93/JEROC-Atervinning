@@ -98,3 +98,12 @@ test('web demo stays available while Expo Go waits for account setup', async () 
   assert.equal(qr.status, 200);
   assert.equal(qr.headers.get('content-type'), 'image/svg+xml');
 });
+
+test('serves office and mobile aliases without exposing other routes', async () => {
+ for (const path of ['/kontor','/kontor/','/mobil']) {
+  const response=await fetch(base+path);
+  assert.equal(response.status,200,path);
+  assert.match(response.headers.get('content-type'),/text\/html/);
+ }
+ assert.equal((await fetch(base+'/kontor/private')).status,404);
+});
