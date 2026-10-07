@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: jeroc-gardsapp-demo
+    runtime: static
+    branch: main
+    buildCommand: npm ci --no-audit --no-fund && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "24.19.0"
