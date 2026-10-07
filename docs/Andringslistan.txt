@@ -59,5 +59,20 @@ Status: Godkänd och låst mockup. Väntar på implementation.
 - Historik/inskickade ska fortsatt följa demon: inget skickas till kontoret.
 - Ingen bottenmeny läggs till under själva flödet för en ny vägning.
 
+004 – VÄGNINGSSÄTT MED DIREKTVAL
+Status: Godkänd och låst mockup. Väntar på implementation.
+Mockup: docs/mockups/mobil/02_Vagningssatt_Direktval.png
+Godkänd designversion: 2026-10-07, Git-commit cdc42ca.
+- Både Materialvåg och Fordonsvåg är omarkerade när sidan öppnas.
+- Ett tryck på ett alternativ väljer vägningssätt och går direkt till
+  nästa steg i motsvarande flöde.
+- Ta bort den separata fortsättknappen; inget andra knapptryck behövs.
+- Visa hjälpraden ”Tryck på ett alternativ för att fortsätta.”
+- Visa en kompakt informationsruta under valen:
+  Rubrik: ”Ska något vägas separat?”
+  Text: ”Ta bort material som ska vägas separat från lasten innan bilen vägs.”
+- Behåll tillbakaknappen och titeln Vägningssätt enligt mockupen.
+- Ingen logga eller bottenmeny på denna sida i vägningsflödet.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.
