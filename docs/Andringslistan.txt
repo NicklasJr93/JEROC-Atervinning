@@ -186,5 +186,19 @@ Verifiering av v0.2.0
 - Automatisk webbläsarverifiering ersätter inte användarens slutliga Expo Go-test
   på den fysiska telefonen, särskilt för touchkänslan.
 
+010 – SPARAD INFART TILL HEM, UTAN SEPARAT FORDONSLISTA
+Status: Planerad och godkänd. Inte genomförd i appen ännu.
+- Ta bort Pågående fordon som separat vy.
+- Efter Spara infart går användaren direkt till hemskärmen.
+- Visa en kort bekräftelse där, exempelvis:
+  ”Infarten sparad · ABC123 väntar på utvägning.”
+- Fordonet visas under Pågående vägningar på hem, märkt
+  Väntar på utvägning. Ett tryck på kortet öppnar utfarten.
+- Öppna inte utfarten automatiskt efter sparad infart; kunden ska
+  först hinna lasta av.
+- Tillbakapilen från utfarten går till hemskärmen.
+- Den gemensamma listan Vägningar behåller påbörjade vägningar och historik.
+- Detta är en planerad ändring till nästa uppdatering, utan kodändring nu.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.
