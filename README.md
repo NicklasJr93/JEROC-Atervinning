@@ -16,6 +16,8 @@ Om Mac inte tillåter att `.command`-filen körs: öppna Terminal i den uppackad
 
 ### Testa på din mobil
 
+Du kan även testa i **Expo Go** med en QR-kod: använd `Windows_Starta_JEROC_Expo.cmd` eller `Mac_Starta_JEROC_Expo.command`. [Expo-instruktioner](expo/README.md).
+
 Datorn och mobilen ska vara på samma wifi. Startfönstret skriver ut datorns nätverksadress, exempelvis `http://192.168.1.10:4173`. Öppna den adress som visas i mobilens webbläsare. Tillåt åtkomst på det privata nätverket om datorns brandvägg frågar. Appen använder inga externa API:er eller kontorsanslutningar.
 
 Utkast finns i **den webbläsare och på den enhet där du skapade dem**. De synkas inte mellan mobil och dator. Behåll samma adress och port när du fortsätter ett test; webbläsarlagring är knuten till adressen. Rensar du webbplatsdata försvinner utkasten.

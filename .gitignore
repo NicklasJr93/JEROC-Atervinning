@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.expo/
+.export-check/
 test-results/
 playwright-report/
 *.log
