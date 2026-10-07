@@ -16,7 +16,7 @@ Om Mac inte tillåter att `.command`-filen körs: öppna Terminal i den uppackad
 
 ### Testa på din mobil
 
-För att testa utan att datorn är igång kan webbappen publiceras som en **Static Site på Render**. Projektets `render.yaml` innehåller inställningarna. [Koppla GitHub och publicera på Render](docs/render.md).
+För att testa utan att datorn är igång kan webbappen publiceras som en **Web Service på Render**. Projektets `render.yaml` innehåller inställningarna. [Koppla GitHub och publicera på Render](docs/render.md).
 
 Du kan även testa i **Expo Go** med en QR-kod: använd `Windows_Starta_JEROC_Expo.cmd` eller `Mac_Starta_JEROC_Expo.command`. [Expo-instruktioner](expo/README.md).
 
@@ -46,12 +46,15 @@ npm run dev
 
 Appen körs på port 5173 under utveckling. Produktionsbygget kan testas med `npm run build` och `npm run preview` på port 4173. Demodata lagras lokalt; ingen serverdatabas eller produktionsinloggning har kopplats in. Strukturer för artikelrader, fordonsunderlag och kunder finns i `src/model.ts` och `src/data.ts` inför den framtida gemensamma backenddelen.
 
+För Render och annan serverdrift: kör `npm run build` och sedan `npm start`. Node-servern i `server/index.mjs` serverar webbbygget från `dist` på `0.0.0.0` och den port som miljövariabeln `PORT` anger (lokalt 3000). `/healthz` används för hälsokontroll. Framtida API-funktioner kan läggas i samma tjänst; de finns ännu inte i demon. Databaslagring kopplas in separat senare.
+
 ### Kontrollera flöden
 
 ```sh
 npx playwright install chromium
 npm test
 npm run build
+npm run test:server
 ```
 
 Playwright använder systemets Chromium om `/usr/bin/chromium` finns, annars Playwrights Chromium. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` kan ange en egen webbläsare. Testerna provar flöden, viktberäkningar, sparning efter omladdning, kundbyte, lagringsfel och att inga externa anrop sker.

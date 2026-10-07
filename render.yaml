@@ -1,10 +1,13 @@
 services:
   - type: web
     name: jeroc-gardsapp-demo
-    runtime: static
+    runtime: node
+    plan: free
+    region: frankfurt
     branch: main
-    buildCommand: npm ci --no-audit --no-fund && npm run build
-    staticPublishPath: dist
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_VERSION
         value: "24.19.0"
