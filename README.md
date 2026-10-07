@@ -1,6 +1,6 @@
 # JEROC · Mobilappen
 
-Första körbara demon av gårdsappen, byggd efter de godkända mockuperna. Inloggning, materialval med stora referensbilder, materialvägning, fordonsvägning, kundval, referens/ursprungsadress, lokal utkastlagring och en separat prislista.
+**Version 0.2.0** av gårdsappen, byggd efter de godkända mockuperna. Inloggning, materialval med stora referensbilder, materialvägning, fordonsvägning, kundval, referens/ursprungsadress, lokal utkastlagring och en separat prislista.
 
 **Det här är en lokal demo. Ingenting skickas till kontoret.** Företag, kunder, priser och exempelvägningar är fiktiva. Demoinloggningen är till för flödestest och är inte produktionsautentisering. Använd testuppgifter.
 
@@ -28,14 +28,14 @@ Utkast finns i **den webbläsare och på den enhet där du skapade dem**. De syn
 
 ## Flöden att prova
 
-- **Materialvägning:** starta invägning → välj kategori/artikel → jämför de fyra referensbilderna → ange vikt → lägg till fler material → sammanställning → spara färdig vägning. Kortet stannar bland utkasten.
-- **Fordonsvåg:** välj fordonsvåg → registreringsnummer/material/infartsvikt → spara infart → öppna under Pågående fordon → utfartsvikt → eventuellt viktavdrag med orsak → sammanställning.
+- **Materialvägning:** starta invägning → välj kategori/artikel → jämför de fyra referensbilderna → ange vikt → lägg till fler material → sammanställning → spara färdig vägning. Kortet låses och visas under Vägningar → Historik / inskickade.
+- **Fordonsvåg:** välj fordonsvåg → registreringsnummer/material/infartsvikt → spara infart → öppna under Pågående vägningar → utfartsvikt → eventuellt viktavdrag med orsak → sammanställning.
 - **Separat vikt på samma kort:** ta av exempelvis koppar före första fordonsvägningen. Lägg till kopparn med vanliga materialvalet. `2 004 − 1 880 = 124 kg` järnskrot och `12 kg` separat koppar ger `136 kg` totalt.
 - **Viktavdrag:** öppna exempelbilen ABC123. `12 450 − 11 600 = 850 kg`; avdrag `20 kg`, orsak `Betongrester`, ger `830 kg` material. Vågens originalvärden finns kvar i Vågunderlag.
 - **Kund:** välj en befintlig demokund eller skapa en ny. Referens och ursprungsadress blir tillgängliga först när en kund är vald. Sparade uppgifter kan väljas eller egna skrivas in; byte av kund rensar tidigare referens/ursprung.
-- **Utkast:** pausa en påbörjad vikt, ladda om sidan och fortsätt. Ofullständiga kort kan inte markeras färdiga. Profil → Återställ demodata återställer exemplen efter en bekräftelse.
+- **Utkast:** spara en materialrad med Nästa material eller Färdigvägt, stäng appen och fortsätt från utkastet. Preliminär inmatning sparas också separat efter en kort paus; tillbaka eller X lägger inte till den som materialrad. Ofullständiga kort kan inte markeras färdiga. Profil → Återställ demodata återställer exemplen efter en bekräftelse.
 - **Prislista:** sök och läs allmänna A/B/C-priser. Inga prisnivåer eller priser hanteras i vägningsflödet.
-- **Lösenord:** profilens byte visar demo av formuläret. Ändringen gäller bara medan appen är öppen; omladdning återställer `Demo123!`.
+- **Lösenord:** efter varje demoinloggning visas lösenordsbyte innan hemskärmen. Byte finns även under Profil. Ändringen gäller bara medan appen är öppen; omladdning återställer `Demo123!`.
 
 Det finns ingen bottenmeny i vägningsflödet och inga kundbilder/bilagor eller Övrigt-material i denna demo. Referensbilderna är genererade exempelbilder för prototypen; inför riktig drift ska artikelregler och bilder fastställas av JEROC.
 
@@ -61,8 +61,22 @@ npm run test:server
 
 Playwright använder systemets Chromium om `/usr/bin/chromium` finns, annars Playwrights Chromium. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` kan ange en egen webbläsare. Testerna provar flöden, viktberäkningar, sparning efter omladdning, kundbyte, lagringsfel och att inga externa anrop sker.
 
-Bygget, de åtta flödestesterna och den gemensamma startfunktionen har körts i Linux-miljön. Windows- och Mac-startfilerna har inte körts på respektive operativsystem här.
+Bygget, de 15 flödestesterna och den gemensamma startfunktionen har körts i Linux-miljön. Windows- och Mac-startfilerna har inte körts på respektive operativsystem här.
 
 [Bilder från den körbara mobilappen](docs/mobile-demo/README.md)
 
 [Tidigare fordonsmockuper och PDF-exempel](docs/mockups/fordonsvag/README.md)
+
+## Uppdatering till version 0.2.0
+
+Alla godkända ändringar och deras status finns i [ÄL](docs/Andringslistan.txt).
+Klartvyn, låst historik och fordonsflödets kundkoppling ingår också.
+Tidigare utkast och kunder kan läsas med samma lagringsnyckel; befintliga
+färdiga kort visas nu som låsta. Återställ inte demodata för att uppdatera.
+
+På Render: låt automatisk publicering av main bli Live. Om automatisk
+publicering är avstängd, välj Manual Deploy → Deploy latest commit.
+Behåll befintligt byggkommando, npm start och Expo-token.
+Stäng JEROC-vyn i Expo Go och öppna samma QR-länk igen. Om gammal layout
+visas, ladda om appen. Profil visar Demokonto · v0.2.0. Logga ut och in
+för att prova det nya lösenordssteget. Datorn behöver inte vara igång.

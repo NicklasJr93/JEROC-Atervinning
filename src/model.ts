@@ -64,6 +64,7 @@ const customerSchema = z.object({
   address: z.string().optional(),
   references: z.array(z.string()),
   origins: z.array(z.string()),
+  registrations: z.array(z.string()).optional(),
 });
 export const storeSchema = z
   .object({
@@ -81,6 +82,11 @@ export const storeSchema = z
   });
 export type DemoData = { version: 1; drafts: Draft[]; customers: Customer[] };
 export const STORE_KEY = 'jeroc.mobile.demo.v1';
+export const APP_VERSION = '0.2.0';
+export const normalizeRegistration = (value: string) =>
+  value.toUpperCase().replace(/[\s-]/g, '');
+export const draftPath = (draft: Draft) =>
+  `/weigh/${draft.id}/${draft.status !== 'ready' && draft.mode === 'vehicle' && !draft.rows.some((r) => r.method === 'vehicle' && r.tare != null) ? 'vehicle' : 'summary'}`;
 export const id = () =>
   typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()

@@ -20,12 +20,11 @@ import { kilos } from './model';
 
 export function Logo() {
   return (
-    <div className="logo" aria-label="JEROC Återvinning">
-      <span>
-        JEROC<span className="logo-loop">∞</span>
-      </span>
-      <small>Återvinning</small>
-    </div>
+    <img
+      className="company-logo"
+      src="/images/jeroc-logo.png"
+      alt="JEROC Återvinning"
+    />
   );
 }
 export function Photo({
@@ -63,10 +62,12 @@ export function Header({
   title,
   back = '/',
   children,
+  onBack,
 }: {
   title: string;
   back?: string;
   children?: ReactNode;
+  onBack?: () => void;
 }) {
   const navigate = useNavigate();
   return (
@@ -75,12 +76,12 @@ export function Header({
         type="button"
         className="icon-button"
         aria-label="Tillbaka"
-        onClick={() => navigate(back)}
+        onClick={onBack ?? (() => navigate(back))}
       >
         <ArrowLeft />
       </button>
       <h1>{title}</h1>
-      {children ?? <DemoBadge />}
+      {children}
     </header>
   );
 }
@@ -157,7 +158,7 @@ export function Nav() {
   const navigate = useNavigate();
   const items: { path: string; label: string; icon: LucideIcon }[] = [
     { path: '/', label: 'Hem', icon: Home },
-    { path: '/drafts', label: 'Utkast', icon: List },
+    { path: '/drafts', label: 'Vägningar', icon: List },
     { path: '/prices', label: 'Prislista', icon: FileText },
     { path: '/profile', label: 'Profil', icon: UserRound },
   ];
@@ -166,7 +167,12 @@ export function Nav() {
       {items.map(({ path, label, icon: Icon }) => (
         <button
           key={path}
-          className={location.pathname === path ? 'active' : ''}
+          className={
+            location.pathname === path ||
+            (path === '/drafts' && location.pathname.endsWith('/summary'))
+              ? 'active'
+              : ''
+          }
           onClick={() => navigate(path)}
         >
           <Icon size={22} />

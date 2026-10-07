@@ -22,13 +22,20 @@ import { VehiclePage, PendingPage } from './pages/Vehicle';
 import { CustomerPage, NewCustomerPage, ReferencePage } from './pages/Customer';
 
 export function App() {
-  const { loggedIn, storageError } = useDemo();
+  const { loggedIn, passwordRequired, storageError, data } = useDemo();
   const location = useLocation();
+  const draftId = location.pathname.match(/^\/weigh\/([^/]+)/)?.[1];
+  const locked = data.drafts.find((d) => d.id === draftId)?.status === 'ready';
+  const fixed =
+    !loggedIn ||
+    passwordRequired ||
+    ['/', '/password'].includes(location.pathname) ||
+    location.pathname.includes('/weight/');
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${fixed ? 'fixed-screen' : ''}`}>
       <div className="demo-strip">
         <span className="status-dot" /> Demo · Inget skickas till kontoret
       </div>
@@ -39,6 +46,10 @@ export function App() {
       )}
       {!loggedIn ? (
         <Login />
+      ) : passwordRequired ? (
+        <PasswordPage />
+      ) : locked && !/\/(summary|done)$/.test(location.pathname) ? (
+        <Navigate to={`/weigh/${draftId}/summary`} replace />
       ) : (
         <Routes>
           <Route path="/" element={<HomePage />} />

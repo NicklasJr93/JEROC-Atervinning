@@ -188,10 +188,12 @@ export type Customer = {
   address?: string;
   references: string[];
   origins: string[];
+  registrations?: string[];
 };
 export const initialCustomers: Customer[] = [
   {
     id: 'customer-build',
+    registrations: ['ABC123'],
     name: 'Bygg & Riv AB',
     type: 'Företag',
     number: '559123-7890',

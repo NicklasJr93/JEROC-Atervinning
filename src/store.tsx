@@ -1,8 +1,16 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   STORE_KEY,
   seedDemo,
   storeSchema,
+  isComplete,
+  normalizeRegistration,
   type DemoData,
   type Draft,
 } from './model';
@@ -25,6 +33,7 @@ type Context = {
   data: DemoData;
   storageError: string;
   loggedIn: boolean;
+  passwordRequired: boolean;
   login: (name: string, password: string) => boolean;
   logout: () => void;
   saveDraft: (draft: Draft) => boolean;
@@ -32,11 +41,13 @@ type Context = {
   addCustomer: (customer: Customer, draft?: Draft) => boolean;
   reset: () => boolean;
   changePassword: (current: string, next: string) => boolean;
+  linkRegistration: (customerId: string, registration: string) => boolean;
 };
 const DemoContext = createContext<Context | null>(null);
 export function DemoProvider({ children }: { children: ReactNode }) {
   const [initial] = useState(load);
   const [data, setData] = useState(initial.data);
+  const dataRef = useRef(data);
   const [storageError, setError] = useState(initial.error);
   const [blocked, setBlocked] = useState(Boolean(initial.error));
   const [loggedIn, setLoggedIn] = useState(() => {
@@ -47,10 +58,18 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     }
   });
   const [password, setPassword] = useState('Demo123!');
+  const [passwordRequired, setPasswordRequired] = useState(() => {
+    try {
+      return sessionStorage.getItem('jeroc.demo.password-required') === 'yes';
+    } catch {
+      return false;
+    }
+  });
   function persist(next: DemoData, force = false) {
     if (blocked && !force) return false;
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(next));
+      dataRef.current = next;
       setData(next);
       setError('');
       setBlocked(false);
@@ -66,12 +85,19 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     data,
     storageError,
     loggedIn,
+    passwordRequired,
     login(name, provided) {
-      if (name.trim().toLowerCase() !== 'niklas' || provided !== password)
+      if (
+        name.trim().toLowerCase() !== 'niklas' ||
+        (provided !== password && provided !== 'Demo123!')
+      )
         return false;
+      setPassword(provided);
       setLoggedIn(true);
+      setPasswordRequired(true);
       try {
         sessionStorage.setItem('jeroc.demo.login', 'yes');
+        sessionStorage.setItem('jeroc.demo.password-required', 'yes');
       } catch {
         /* Login still works for this open tab. */
       }
@@ -79,13 +105,25 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     },
     logout() {
       setLoggedIn(false);
+      setPasswordRequired(false);
       try {
         sessionStorage.removeItem('jeroc.demo.login');
+        sessionStorage.removeItem('jeroc.demo.password-required');
       } catch {
         /* State is already cleared. */
       }
     },
     saveDraft(draft) {
+      const data = dataRef.current;
+      if (data.drafts.find((d) => d.id === draft.id)?.status === 'ready') {
+        setError('Vägningen är färdig och låst. Den kan inte ändras.');
+        return false;
+      }
+      if (
+        draft.status === 'ready' &&
+        (!isComplete(draft) || draft.pendingWeight || draft.vehicleInput)
+      )
+        return false;
       const saved = {
         ...draft,
         status: draft.rows.some(
@@ -104,12 +142,21 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       });
     },
     removeDraft(draftId) {
+      const data = dataRef.current;
+      if (data.drafts.find((d) => d.id === draftId)?.status === 'ready')
+        return false;
       return persist({
         ...data,
         drafts: data.drafts.filter((d) => d.id !== draftId),
       });
     },
     addCustomer(customer, draft) {
+      const data = dataRef.current;
+      if (
+        draft &&
+        data.drafts.find((d) => d.id === draft.id)?.status === 'ready'
+      )
+        return false;
       return persist({
         ...data,
         customers: [...data.customers, customer],
@@ -134,7 +181,34 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     changePassword(current, next) {
       if (current !== password) return false;
       setPassword(next);
+      setPasswordRequired(false);
+      try {
+        sessionStorage.removeItem('jeroc.demo.password-required');
+      } catch {
+        /* Demo can continue in this tab. */
+      }
       return true;
+    },
+    linkRegistration(customerId, registration) {
+      const data = dataRef.current;
+      const plate = normalizeRegistration(registration);
+      if (
+        !/^[A-ZÅÄÖ0-9]{2,12}$/.test(plate) ||
+        !data.customers.some((c) => c.id === customerId)
+      )
+        return false;
+      return persist({
+        ...data,
+        customers: data.customers.map((c) => ({
+          ...c,
+          registrations: [
+            ...(c.registrations ?? []).filter(
+              (r) => normalizeRegistration(r) !== plate,
+            ),
+            ...(c.id === customerId ? [plate] : []),
+          ],
+        })),
+      });
     },
   };
   return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>;

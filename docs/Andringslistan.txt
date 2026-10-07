@@ -4,6 +4,9 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
+Aktuell appversion: 0.2.0. Punkterna 001–009 är genomförda.
+Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
+
 Arbetssätt
 ÄL är vår förkortning för ÄndringsListan.
 ”Lägg till det i ÄL” eller ”Lägg till det i Ändringslistan” betyder:
@@ -20,7 +23,7 @@ Logga: docs/mockups/mobil/assets/JEROC_Logga_Transparent.png
 Den godkända mockupen finns kvar i den angivna Git-versionen även vid framtida ändringar.
 
 001 – INLOGGNING
-Status: Godkänd och låst mockup. Väntar på implementation.
+Status: Genomförd i mobilappen v0.2.0. Godkänd design behålls som referens.
 - Fast sida; hela sidan ska inte behöva scrollas i normalläget.
 - Kompakt layout enligt den godkända mockupen.
 - Använd den godkända blå/gröna JEROC-loggan, mindre och centrerad på vitt.
@@ -30,7 +33,7 @@ Status: Godkänd och låst mockup. Väntar på implementation.
 - Behåll knappen ”Öppna demokontot” under inloggningsdelen.
 
 002 – BYT LÖSENORD EFTER INLOGGNING
-Status: Godkänd och låst mockup. Väntar på implementation.
+Status: Genomförd i mobilappen v0.2.0. Godkänd design behålls som referens.
 - Visa lösenordsbyte efter inloggning, före hemskärmen.
 - I demon får detta steg visas varje gång demokontot loggar in.
 - Steget är en del av demoflödet; det innebär inte att verklig autentisering byggs.
@@ -41,7 +44,7 @@ Status: Godkänd och låst mockup. Väntar på implementation.
 - Knapp: ”Spara och fortsätt”, som leder vidare till hemskärmen.
 
 003 – HEMSKÄRM OCH GEMENSAM VÄGNINGSLISTA
-Status: Godkänd och låst mockup. Väntar på implementation.
+Status: Genomförd i mobilappen v0.2.0. Godkänd design behålls som referens.
 - Fast hemskärm; vid en lång lista scrollar bara listytan.
 - Ta bort stora välkomstkortet, bilden, ”Hej Niklas” och loggan på hemskärmen.
 - Kompakt rubrik/plats och profilinitialer uppe till höger enligt mockupen.
@@ -60,7 +63,7 @@ Status: Godkänd och låst mockup. Väntar på implementation.
 - Ingen bottenmeny läggs till under själva flödet för en ny vägning.
 
 004 – VÄGNINGSSÄTT MED DIREKTVAL
-Status: Godkänd och låst mockup. Väntar på implementation.
+Status: Genomförd i mobilappen v0.2.0. Godkänd design behålls som referens.
 Mockup: docs/mockups/mobil/02_Vagningssatt_Direktval.png
 Godkänd designversion: 2026-10-07, Git-commit cdc42ca.
 - Både Materialvåg och Fordonsvåg är omarkerade när sidan öppnas.
@@ -75,7 +78,7 @@ Godkänd designversion: 2026-10-07, Git-commit cdc42ca.
 - Ingen logga eller bottenmeny på denna sida i vägningsflödet.
 
 005 – MATERIALDETALJ MED SVEPKARUSELL OCH FASTA KONTROLLER
-Status: Godkänd och låst mockup. Väntar på implementation.
+Status: Genomförd i mobilappen v0.2.0. Godkänd design behålls som referens.
 Mockup: docs/mockups/mobil/03_Materialdetalj_Svepkarusell.png
 Godkänd designversion: 2026-10-07, Git-commit 820785d.
 - Materialvalets tre steg benämns Översikten, Underkategorisidan och
@@ -99,14 +102,15 @@ Godkänd designversion: 2026-10-07, Git-commit 820785d.
 - Ingen logga eller bottenmeny på denna sida i vägningsflödet.
 
 006 – ANGE VIKT: FAST SKÄRM, SPARANDE OCH AVBRYT
-Status: Godkänd design. Väntar på implementation och buggundersökning.
+Status: Genomförd i mobilappen v0.2.0. Godkänd design behålls som referens.
 Mockup: docs/mockups/mobil/04_Ange_Vikt.png (version med rött X).
 - Fast skärm utan sidscroll; material, viktfält, siffertangenter och
   de två huvudknapparna ska rymmas i mobilens tillgängliga yta.
 - Åtgärda klippningen av siffror intill kg i viktfältet: tillräcklig
   bredd, avstånd, padding och rad-/teckenhöjd även för längre vikter.
 - Undersök och åtgärda missade snabba tangenttryck på mobilen, särskilt
-  när olika siffror trycks växelvis. Orsaken är ännu inte fastställd.
+  när olika siffror trycks växelvis. Genomfört: direkt pointerhantering,
+  synkron inmatningsreferens och fördröjt sparande av preliminär inmatning.
   Verifiera att varje avsiktligt tryck registreras en gång i rätt ordning,
   även i Expo Go på telefonen.
 - Inmatad vikt är preliminär. Lägg inte till en materialrad förrän
@@ -132,6 +136,55 @@ Mockup: docs/mockups/mobil/04_Ange_Vikt.png (version med rött X).
 - Bekräftat avbrott lägger inte till aktuell rad och kastar dess inmatning.
   Tidigare sparade materialrader och vägningens utkast bevaras.
 - Ingen logga eller bottenmeny på viktskärmen.
+
+007 – KLARTVY OCH LÅST HISTORIK
+Status: Genomförd i mobilappen v0.2.0.
+Mockup: docs/mockups/mobil/05_Klart_Historik_Fordonsvag.png
+- Sammanställning, kundval, referens och ursprung behåller sina godkända flöden.
+- Spara färdig vägning låser kortet och flyttar det till Historik / inskickade.
+- Kortet är skrivskyddat när det öppnas igen. Inga knappar för Spara utkast,
+  Spara färdig vägning, ändra material, ta bort material eller byta kund.
+- Gamla redigeringslänkar leder till den låsta sammanställningen.
+  Lagringsfunktionerna avvisar också ändring eller borttagning av färdiga kort.
+- Klartvyn visar bekräftelse och vägningens sammanfattning samt bottenmeny.
+- Ta bort Öppna sparad vägning, Ny vägning och extra startsidesknapp från klartvyn.
+- Hem används för att starta nytt och Vägningar för att öppna historiken.
+- Historik är fortfarande lokal demo: inget skickas till kontoret.
+- Rättelser hör till det separat planerade kontorsflödet och införs inte i gårdsappen här.
+
+008 – FORDONSVÅG: TYDLIGARE INFART OCH KUNDKOPPLING
+Status: Genomförd i mobilappen v0.2.0.
+Mockup: docs/mockups/mobil/05_Klart_Historik_Fordonsvag.png
+- Ordning: Registreringsnummer, material på fordonsvågen, vikt vid infart,
+  därefter separat avsnitt Material som vägs separat, sedan Spara infart.
+- Den separata knappen heter Lägg till separat material och skiljs visuellt
+  från valet av material på fordonsvågen.
+- Påminnelsen om att ta bort separat material ligger före infartsvikten.
+- Kund kan föreslås från ett sparat registreringsnummer; kunden visas upptill
+  och kan bytas manuellt. Ingen obekräftad vikt eller utbetalning skapas av matchningen.
+- På kundkortet för en fordonsvägning finns möjlighet att koppla aktuellt
+  registreringsnummer till kunden för kommande vägningar.
+- Referens och ursprungsadress fylls i vid utfarten, efter vald kund.
+
+009 – FORDONSVÅG: KUND ÖVERST VID UTFART
+Status: Genomförd i mobilappen v0.2.0.
+Mockup: docs/mockups/mobil/05_Klart_Historik_Fordonsvag.png
+- Visa vald kund överst och registreringsnumret mindre under.
+- Utan vald kund visas registreringsnumret och Välj kund.
+- Kunden kan bytas; referens och ursprungsadress ligger direkt under vald kund.
+- Sparade kundreferenser och adresser kan väljas, egna uppgifter kan skrivas in.
+- Behåll infartsvikt, utfartsvikt, eventuellt avdrag med orsak och materialvikt.
+- Separat vägda material ligger på samma kort och ingår i totalvikten.
+- Färdigvägt sparar utfarten och går till sammanställningen, där kortet
+  fortfarande är utkast tills användaren väljer Spara färdig vägning.
+
+Verifiering av v0.2.0
+- Mobiltester: 15 flöden inklusive snabba växelvisa tryck, X/tillbaka utan nya rader,
+  låsta färdiga vägningar, fordonskundkoppling, svep och fasta kontroller.
+- Fast layout kontrollerad vid 390x844 och 375x667.
+- Befintlig lokal lagring behålls; ingen återställning av demodata krävs.
+- Automatisk webbläsarverifiering ersätter inte användarens slutliga Expo Go-test
+  på den fysiska telefonen, särskilt för touchkänslan.
 
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

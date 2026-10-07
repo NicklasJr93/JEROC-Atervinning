@@ -21,15 +21,19 @@ import { id, type Draft } from '../model';
 import { MissingDraft, useDraft } from './shared';
 
 const returnPage = (draft: Draft) =>
-  `/weigh/${draft.id}/${draft.mode === 'vehicle' && !draft.rows.some((r) => r.method === 'vehicle' && r.tare != null) ? 'vehicle' : 'summary'}`;
+  `/weigh/${draft.id}/${draft.mode === 'vehicle' && (Boolean(draft.vehicleInput) || !draft.rows.some((r) => r.method === 'vehicle' && r.tare != null)) ? 'vehicle' : 'summary'}`;
 export function CustomerPage() {
-  const { draft, data, saveDraft } = useDraft();
+  const { draft, data, saveDraft, linkRegistration } = useDraft();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [choosing, setChoosing] = useState(false);
+  const [linked, setLinked] = useState(false);
   if (!draft) return <MissingDraft />;
   const selected = data.customers.find((c) => c.id === draft.customerId);
   const showSelected = selected && !choosing;
+  const registration =
+    draft.vehicleInput?.registration ||
+    draft.rows.find((r) => r.method === 'vehicle')?.registration;
   const listed = data.customers.filter((c) =>
     `${c.name} ${c.number} ${c.phone}`
       .toLowerCase()
@@ -99,6 +103,30 @@ export function CustomerPage() {
                 reference={draft.reference}
                 origin={draft.origin}
               />
+              {registration && (
+                <div className="stack tight">
+                  <p className="field-help">
+                    Kundens fordon:{' '}
+                    {selected.registrations?.join(', ') ||
+                      'Ingen sparad koppling'}
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (linkRegistration(selected.id, registration))
+                        setLinked(true);
+                    }}
+                  >
+                    Koppla {registration} till kunden
+                  </Button>
+                  {linked && (
+                    <Notice tone="green">
+                      Registreringsnumret är kopplat till kunden för kommande
+                      vägningar.
+                    </Notice>
+                  )}
+                </div>
+              )}
               <Notice>
                 Kunden är vald. Referens och ursprungsadress kan nu hämtas från
                 kundens sparade uppgifter eller skrivas in.

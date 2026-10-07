@@ -1,14 +1,20 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Check, ChevronRight, Clock3, Plus, Save, Truck } from 'lucide-react';
+import {
+  Check,
+  ChevronRight,
+  Clock3,
+  Plus,
+  Save,
+  Truck,
+  X,
+} from 'lucide-react';
 import {
   Button,
-  CustomerLink,
   Empty,
   Header,
   Notice,
   Photo,
-  ReferenceLink,
   Search,
   Total,
 } from '../components';
@@ -16,6 +22,7 @@ import { articleById } from '../data';
 import {
   dateTime,
   kilos,
+  normalizeRegistration,
   parseWeight,
   vehicleError,
   type Draft,
@@ -53,11 +60,34 @@ export function VehiclePage() {
     0,
     Math.round((net - (deduction ?? 0)) * 1000) / 1000,
   );
+  const customer = data.customers.find((c) => c.id === draft.customerId);
   function update(field: keyof typeof input, value: string) {
     const next = { ...input, [field]: value };
     setInput(next);
     setError('');
-    saveDraft({ ...draft!, vehicleInput: next });
+    let customerId = draft!.customerId;
+    if (field === 'registration' && !exit) {
+      const previous = data.customers.find((c) =>
+        c.registrations?.some(
+          (r) =>
+            normalizeRegistration(r) ===
+            normalizeRegistration(input.registration),
+        ),
+      );
+      const match = data.customers.find((c) =>
+        c.registrations?.some(
+          (r) => normalizeRegistration(r) === normalizeRegistration(value),
+        ),
+      );
+      if (!customerId || previous?.id === customerId) customerId = match?.id;
+    }
+    saveDraft({
+      ...draft!,
+      vehicleInput: next,
+      customerId,
+      reference: customerId === draft!.customerId ? draft!.reference : '',
+      origin: customerId === draft!.customerId ? draft!.origin : '',
+    });
   }
   function commit(e: FormEvent) {
     e.preventDefault();
@@ -66,7 +96,7 @@ export function VehiclePage() {
       return;
     }
     const registration = input.registration.trim().toUpperCase();
-    if (!/^[A-ZÅÄÖ0-9 -]{2,12}$/.test(registration)) {
+    if (!/^[A-ZÅÄÖ0-9]{2,12}$/.test(normalizeRegistration(registration))) {
       setError('Ange fordonets registreringsnummer.');
       return;
     }
@@ -79,8 +109,8 @@ export function VehiclePage() {
           d.rows.some(
             (r) =>
               r.method === 'vehicle' &&
-              r.registration.replace(/\s/g, '') ===
-                registration.replace(/\s/g, ''),
+              normalizeRegistration(r.registration) ===
+                normalizeRegistration(registration),
           ),
       )
     ) {
@@ -136,28 +166,99 @@ export function VehiclePage() {
       <Header
         title={`Fordonsvåg · ${exit ? 'Utfart' : 'Infart'}`}
         back={exit ? '/pending' : '/'}
-      />
+      >
+        <button
+          className="icon-button red-text"
+          aria-label="Stäng fordonskort"
+          onClick={() => navigate('/')}
+        >
+          <X />
+        </button>
+      </Header>
       <main className="page-body vehicle-page">
         <p className="eyebrow">INVÄGNING #{draft.number}</p>
         <form onSubmit={commit} className="stack">
-          <label>
-            Registreringsnummer
-            <div className="registration-input">
-              <input
-                value={input.registration}
-                maxLength={12}
-                placeholder="ABC123"
-                onChange={(e) =>
-                  update('registration', e.target.value.toUpperCase())
-                }
-                readOnly={exit}
-                autoCapitalize="characters"
-              />
-              <Truck size={24} />
-            </div>
-          </label>
+          {!exit && (
+            <>
+              {' '}
+              <label>
+                Registreringsnummer
+                <div className="registration-input">
+                  <input
+                    value={input.registration}
+                    maxLength={12}
+                    placeholder="ABC123"
+                    onChange={(e) =>
+                      update('registration', e.target.value.toUpperCase())
+                    }
+                    readOnly={exit}
+                    autoCapitalize="characters"
+                  />
+                  <Truck size={24} />
+                </div>
+              </label>
+            </>
+          )}
+          {(exit || customer) && (
+            <section className="vehicle-customer">
+              <div className="heading-row">
+                <div>
+                  <h2>
+                    {customer?.name ?? (input.registration || 'Kund ej vald')}
+                  </h2>
+                  <small>
+                    {input.registration}
+                    {customer ? ' · Vald kund' : ' · Ingen kundkoppling hittad'}
+                  </small>
+                </div>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => navigate(`/weigh/${draft.id}/customer`)}
+                >
+                  {customer ? 'Byt kund' : 'Välj kund'}
+                </button>
+              </div>
+              {exit && customer && (
+                <div className="stack tight">
+                  <label>
+                    Referens (valfritt)
+                    <input
+                      list="vehicle-references"
+                      value={draft.reference}
+                      placeholder="Projekt eller märkning"
+                      onChange={(e) =>
+                        saveDraft({ ...draft, reference: e.target.value })
+                      }
+                    />
+                  </label>
+                  <datalist id="vehicle-references">
+                    {customer.references.map((r) => (
+                      <option key={r} value={r} />
+                    ))}
+                  </datalist>
+                  <label>
+                    Materialets ursprungsadress (valfritt)
+                    <input
+                      list="vehicle-origins"
+                      value={draft.origin}
+                      placeholder="Gatuadress, postnummer och ort"
+                      onChange={(e) =>
+                        saveDraft({ ...draft, origin: e.target.value })
+                      }
+                    />
+                  </label>
+                  <datalist id="vehicle-origins">
+                    {customer.origins.map((o) => (
+                      <option key={o} value={o} />
+                    ))}
+                  </datalist>
+                </div>
+              )}
+            </section>
+          )}
           <div>
-            <label className="field-title">Material på fordonet</label>
+            <label className="field-title">Material på fordonsvågen</label>
             <button
               className="material-choice"
               type="button"
@@ -191,9 +292,10 @@ export function VehiclePage() {
           </div>
           {!exit && (
             <>
-              <Button variant="outline" icon={Plus} onClick={add}>
-                Lägg till material
-              </Button>
+              <Notice>
+                Ta bort material som ska vägas separat från lasten innan bilen
+                vägs.
+              </Notice>
               <label>
                 Vikt vid infart
                 <div className="kg-input">
@@ -206,10 +308,15 @@ export function VehiclePage() {
                   <span>kg</span>
                 </div>
               </label>
-              <p className="field-help">
-                Andra material tas av före första fordonsvägningen och vägs
-                separat.
-              </p>
+              <section className="separate-section">
+                <h2>Material som vägs separat</h2>
+                <Button variant="outline" icon={Plus} onClick={add}>
+                  Lägg till separat material
+                </Button>
+                <p className="field-help">
+                  Registrera material som tagits bort före infarten.
+                </p>
+              </section>
             </>
           )}
           {exit && (
@@ -312,7 +419,7 @@ export function VehiclePage() {
           )}
           {exit && (
             <Button variant="outline" icon={Plus} onClick={add}>
-              Lägg till material
+              Lägg till separat material
             </Button>
           )}
           {draft.pendingWeight && (
@@ -331,27 +438,20 @@ export function VehiclePage() {
               </button>
             </Notice>
           )}
-          <CustomerLink draftId={draft.id} customerId={draft.customerId} />
-          <ReferenceLink
-            draftId={draft.id}
-            customerId={draft.customerId}
-            reference={draft.reference}
-            origin={draft.origin}
-          />
           {error && <Notice tone="red">{error}</Notice>}
           <Button
             type="submit"
             icon={exit ? Check : Save}
             disabled={Boolean(exit && draft.pendingWeight)}
           >
-            {exit ? 'Färdigvägd' : 'Spara infart'}
+            {exit ? 'Färdigvägt' : 'Spara infart'}
           </Button>
           <button
             type="button"
             className="text-button"
             onClick={() => {
               if (saveDraft({ ...draft, vehicleInput: input }))
-                navigate(exit ? '/pending' : '/drafts');
+                navigate('/drafts');
             }}
           >
             <Save size={16} /> Spara och pausa

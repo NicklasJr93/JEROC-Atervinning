@@ -5,12 +5,9 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
-  FileText,
-  List,
   LockKeyhole,
   LogOut,
   MapPin,
-  Plus,
   Scale,
   Truck,
   UserRound,
@@ -31,7 +28,15 @@ import {
 } from '../components';
 import { useDemo } from '../store';
 import { articleById, articles } from '../data';
-import { dateTime, kilos, money, totalWeight, type Draft } from '../model';
+import {
+  APP_VERSION,
+  draftPath,
+  dateTime,
+  kilos,
+  money,
+  totalWeight,
+  type Draft,
+} from '../model';
 
 export function Login() {
   const { login } = useDemo();
@@ -43,7 +48,7 @@ export function Login() {
   const [help, setHelp] = useState(false);
   function enter(user: string, pw: string) {
     if (login(user, pw)) {
-      navigate('/');
+      navigate('/password');
       setError('');
     } else
       setError(
@@ -56,28 +61,10 @@ export function Login() {
   }
   return (
     <main className="login-page">
-      <div className="login-hero">
-        <Logo />
-        <div>
-          <span className="eyebrow">GÅRDSAPPEN</span>
-          <h1>
-            Enklare vägning.
-            <br />
-            Från första kilo.
-          </h1>
-          <p>
-            Material, vikter och underlag.
-            <br />
-            Allt på samma kort.
-          </p>
-        </div>
-      </div>
+      <div className="login-hero" aria-hidden="true" />
       <section className="login-card">
-        <div className="heading-row">
-          <h2>Välkommen in</h2>
-          <DemoBadge />
-        </div>
-        <p className="muted">Logga in och börja testa gårdsflödet.</p>
+        <Logo />
+        <h1>Logga in</h1>
         <form onSubmit={submit} className="stack">
           <label>
             Användarnamn
@@ -118,20 +105,11 @@ export function Login() {
           </Button>
         </form>
         <button className="text-button" onClick={() => setHelp(true)}>
-          Hjälp med lösenord
+          Glömt lösenord?
         </button>
-        <div className="demo-login">
-          <span className="eyebrow">PROVA UTAN KRÅNGEL</span>
-          <p>
-            Demokonto: <strong>niklas</strong> · <strong>Demo123!</strong>
-          </p>
-          <Button variant="outline" onClick={() => enter('niklas', 'Demo123!')}>
-            Öppna demokontot <ChevronRight size={18} />
-          </Button>
-          <small>
-            Fiktiva uppgifter. Vägningar sparas bara i din webbläsare.
-          </small>
-        </div>
+        <Button variant="outline" onClick={() => enter('niklas', 'Demo123!')}>
+          Öppna demokontot
+        </Button>
       </section>
       {help && (
         <Modal title="Hjälp med lösenord" onClose={() => setHelp(false)}>
@@ -148,14 +126,19 @@ export function Login() {
 export function HomePage() {
   const { data } = useDemo();
   const navigate = useNavigate();
-  const pending = data.drafts.filter((d) => d.status === 'awaiting-exit');
-  const drafts = data.drafts.filter((d) => d.status !== 'awaiting-exit');
+  const ongoing = data.drafts
+    .filter((d) => d.status !== 'ready')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return (
     <>
-      <main className="home-page">
+      <main className="home-page compact-home">
         <header className="home-header">
-          <Logo />
-          <DemoBadge />
+          <div>
+            <h1>Gårdsappen</h1>
+            <p>
+              <MapPin size={14} /> Gårdsplan · Norrtälje
+            </p>
+          </div>
           <button
             className="avatar-button"
             aria-label="Öppna profil"
@@ -164,109 +147,67 @@ export function HomePage() {
             NN
           </button>
         </header>
-        <section className="home-hero">
-          <div>
-            <span className="eyebrow">REDO FÖR EN NY DAG</span>
-            <h1>
-              Hej Niklas<span className="greeting-dot">.</span>
-            </h1>
-            <p>
-              <MapPin size={16} /> Gårdsplan
-            </p>
-          </div>
-          <span className="yard-label">
-            <span /> Gårdsappen
+        <button className="hero-action" onClick={() => navigate('/new')}>
+          <span className="hero-action-icon">
+            <Scale size={33} />
           </span>
-        </section>
-        <div className="home-content">
-          <button className="hero-action" onClick={() => navigate('/new')}>
-            <span className="hero-action-icon">
-              <Scale size={33} strokeWidth={1.6} />
-            </span>
-            <span>
-              <strong>Starta invägning</strong>
-              <small>Välj material och ange vikt</small>
-            </span>
-            <ChevronRight />
-          </button>
-          <div className="quick-actions">
-            <button
-              className="quick-action"
-              onClick={() => navigate('/drafts')}
-            >
-              <span className="quick-icon blue">
-                <List size={25} />
-              </span>
-              <strong>Mina utkast</strong>
-              <small>{drafts.length} sparade vägningar</small>
-              <span className="corner-count">{drafts.length}</span>
-            </button>
-            <button
-              className="quick-action"
-              onClick={() => navigate('/prices')}
-            >
-              <span className="quick-icon green">
-                <FileText size={25} />
-              </span>
-              <strong>Prislista</strong>
-              <small>Aktuella A-, B- & C-priser</small>
-              <ChevronRight size={18} className="corner-arrow" />
-            </button>
-          </div>
-          <div className="section-title">
-            <h2>
-              Pågående fordon <span>{pending.length}</span>
-            </h2>
-            <button
-              className="text-button"
-              onClick={() => navigate('/pending')}
-            >
-              Visa alla <ChevronRight size={15} />
-            </button>
-          </div>
-          {pending.length ? (
-            <div className="stack tight">
-              {pending.slice(0, 3).map((d) => (
-                <PendingMini key={d.id} draft={d} />
-              ))}
-            </div>
-          ) : (
+          <span>
+            <strong>Starta invägning</strong>
+            <small>Ny vägning av material eller fordon</small>
+          </span>
+          <ChevronRight />
+        </button>
+        <div className="section-title">
+          <h2>
+            Pågående vägningar <span>{ongoing.length}</span>
+          </h2>
+        </div>
+        <div className="ongoing-list" aria-label="Pågående vägningar">
+          {ongoing.map((draft) => (
+            <OngoingCard key={draft.id} draft={draft} />
+          ))}
+          {!ongoing.length && (
             <div className="quiet-card">
-              <Truck size={24} />
-              <span>Inga fordon väntar på utfart.</span>
+              <Scale size={24} />
+              Inga pågående vägningar.
             </div>
           )}
-          <div className="home-note">
-            <span className="status-dot" />
-            <div>
-              <strong>Du testar i demoläge</strong>
-              <p>Utkast stannar på den här enheten.</p>
-            </div>
-          </div>
         </div>
+        <p className="field-help">Tryck på en vägning för att fortsätta.</p>
       </main>
       <Nav />
     </>
   );
 }
-function PendingMini({ draft }: { draft: Draft }) {
+function OngoingCard({ draft }: { draft: Draft }) {
+  const { data } = useDemo();
   const navigate = useNavigate();
-  const row = draft.rows.find((r) => r.method === 'vehicle');
-  if (!row || row.method !== 'vehicle') return null;
-  const article = articleById(row.articleId);
+  const vehicle = draft.rows.find((r) => r.method === 'vehicle');
+  const article = draft.rows[0] && articleById(draft.rows[0].articleId);
+  const customer = data.customers.find((c) => c.id === draft.customerId);
   return (
-    <button
-      className="pending-mini"
-      onClick={() => navigate(`/weigh/${draft.id}/vehicle`)}
-    >
-      <Photo index={article.photos[0]} label={article.name} />
+    <button className="pending-mini" onClick={() => navigate(draftPath(draft))}>
+      {vehicle ? <Truck size={26} /> : <Scale size={26} />}
       <span className="pending-copy">
-        <strong>{row.registration}</strong>
+        <strong>
+          {vehicle?.registration ||
+            customer?.name ||
+            `Vägning #${draft.number}`}
+        </strong>
+        <span
+          className={`badge ${draft.status === 'awaiting-exit' ? 'amber' : 'blue'}`}
+        >
+          {draft.status === 'awaiting-exit' ? 'Väntar på utvägning' : 'Utkast'}
+        </span>
         <small>
-          {article.name} · {kilos(row.gross ?? 0)} kg
+          {article?.name ?? 'Material ej valt'} ·{' '}
+          {vehicle && vehicle.tare == null
+            ? `Invägt ${kilos(vehicle.gross ?? 0)}`
+            : kilos(totalWeight(draft))}{' '}
+          kg
         </small>
+        <small>Sparad {dateTime(draft.updatedAt)}</small>
       </span>
-      <span className="badge amber">Väntar på utfart</span>
       <ChevronRight size={17} />
     </button>
   );
@@ -275,37 +216,59 @@ export function DraftsPage() {
   const { data, removeDraft } = useDemo();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
+  const [history, setHistory] = useState(false);
   const [deleting, setDeleting] = useState<Draft | null>(null);
   const drafts = data.drafts
-    .filter((d) => d.status !== 'awaiting-exit')
+    .filter((d) => (d.status === 'ready') === history)
     .filter((d) =>
-      `${d.number} ${data.customers.find((c) => c.id === d.customerId)?.name ?? ''}`
+      `${d.number} ${data.customers.find((c) => c.id === d.customerId)?.name ?? ''} ${d.rows
+        .filter((r) => r.method === 'vehicle')
+        .map((r) => r.registration)
+        .join(' ')}`
         .toLowerCase()
         .includes(search.toLowerCase()),
     )
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return (
     <>
-      <Header title="Mina utkast" />
+      <Header title="Vägningar" />
       <main className="page-body with-nav">
+        <div className="customer-tabs" role="tablist" aria-label="Vägningar">
+          <button
+            role="tab"
+            aria-selected={!history}
+            className={!history ? 'selected' : ''}
+            onClick={() => setHistory(false)}
+          >
+            Påbörjade / utkast
+          </button>
+          <button
+            role="tab"
+            aria-selected={history}
+            className={history ? 'selected' : ''}
+            onClick={() => setHistory(true)}
+          >
+            Historik / inskickade
+          </button>
+        </div>
         <Search
           value={search}
           setValue={setSearch}
-          placeholder="Sök utkast eller kund"
+          placeholder="Sök vägning, kund eller registreringsnummer"
         />
-        <p className="section-caption">SPARAT PÅ DEN HÄR ENHETEN</p>
         <div className="stack">
           {drafts.map((d) => (
             <article className="draft-card" key={d.id}>
               <div className="heading-row">
                 <h2>
-                  #{d.number} <span className="muted">·</span>{' '}
-                  {kilos(totalWeight(d))} kg
+                  #{d.number} · {kilos(totalWeight(d))} kg
                 </h2>
-                <span
-                  className={`badge ${d.status === 'ready' ? 'green' : 'amber'}`}
-                >
-                  {d.status === 'ready' ? 'Färdig · demo' : 'Utkast'}
+                <span className={`badge ${history ? 'green' : 'amber'}`}>
+                  {history
+                    ? 'Färdig · låst'
+                    : d.status === 'awaiting-exit'
+                      ? 'Väntar på utvägning'
+                      : 'Utkast'}
                 </span>
               </div>
               <p>
@@ -317,45 +280,36 @@ export function DraftsPage() {
                 Senast sparat {dateTime(d.updatedAt)}
               </small>
               <div className="draft-actions">
-                <Button
-                  variant="blue"
-                  onClick={() =>
-                    navigate(
-                      `/weigh/${d.id}/${d.mode === 'vehicle' && !d.rows.some((r) => r.method === 'vehicle' && r.tare != null) ? 'vehicle' : 'summary'}`,
-                    )
-                  }
-                >
-                  Fortsätt <ChevronRight size={18} />
+                <Button variant="blue" onClick={() => navigate(draftPath(d))}>
+                  {history ? 'Visa vägning' : 'Fortsätt'}{' '}
+                  <ChevronRight size={18} />
                 </Button>
-                <button
-                  className="delete-draft"
-                  aria-label={`Ta bort utkast ${d.number}`}
-                  onClick={() => setDeleting(d)}
-                >
-                  Ta bort
-                </button>
+                {!history && (
+                  <button
+                    className="delete-draft"
+                    aria-label={`Ta bort utkast ${d.number}`}
+                    onClick={() => setDeleting(d)}
+                  >
+                    Ta bort
+                  </button>
+                )}
               </div>
             </article>
           ))}
         </div>
         {!drafts.length && (
           <Empty
-            title="Inga utkast här"
+            title={history ? 'Ingen historik ännu' : 'Inga utkast här'}
             text={
               search
                 ? 'Prova en annan sökning.'
                 : 'Dina sparade vägningar visas här.'
             }
-            action={
-              <Button icon={Plus} onClick={() => navigate('/new')}>
-                Starta invägning
-              </Button>
-            }
           />
         )}
         <Notice>
-          Även färdiga demovägningar är lokala utkast. Ingenting har skickats
-          till kontoret.
+          Vägningarna sparas på den här enheten. Inget skickas till kontoret i
+          demon.
         </Notice>
       </main>
       <Nav />
@@ -458,7 +412,7 @@ export function ProfilePage() {
           </div>
           <div>
             <span>Konto</span>
-            <strong>Demokonto</strong>
+            <strong>Demokonto · v{APP_VERSION}</strong>
           </div>
         </div>
         <MenuRow
@@ -515,8 +469,9 @@ export function ProfilePage() {
   );
 }
 export function PasswordPage() {
-  const { changePassword } = useDemo();
-  const [current, setCurrent] = useState('');
+  const { changePassword, passwordRequired, logout } = useDemo();
+  const navigate = useNavigate();
+  const [current, setCurrent] = useState(passwordRequired ? 'Demo123!' : '');
   const [next, setNext] = useState('');
   const [repeat, setRepeat] = useState('');
   const [error, setError] = useState('');
@@ -542,6 +497,10 @@ export function PasswordPage() {
       return;
     }
     setError('');
+    if (passwordRequired) {
+      navigate('/');
+      return;
+    }
     setSuccess(true);
     setCurrent('');
     setNext('');
@@ -549,12 +508,21 @@ export function PasswordPage() {
   }
   return (
     <>
-      <Header title="Byt lösenord" back="/profile" />
-      <main className="page-body">
-        <Notice>
-          I demon gäller ändringen tills sidan laddas om. Därefter används
-          Demo123! igen.
-        </Notice>
+      <Header
+        title="Byt lösenord"
+        back={passwordRequired ? '/' : '/profile'}
+        onBack={
+          passwordRequired
+            ? () => {
+                logout();
+                navigate('/');
+              }
+            : undefined
+        }
+      />
+      <main className="page-body password-page">
+        <h2>Välj ditt nya lösenord</h2>
+        <p className="muted">Byt lösenord innan du fortsätter.</p>
         <form className="stack" onSubmit={submit}>
           <label>
             Nuvarande lösenord
@@ -603,7 +571,7 @@ export function PasswordPage() {
             </Notice>
           )}
           <Button type="submit" icon={Check}>
-            Spara lösenord
+            {passwordRequired ? 'Spara och fortsätt' : 'Spara lösenord'}
           </Button>
         </form>
       </main>
