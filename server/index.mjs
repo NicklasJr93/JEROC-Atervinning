@@ -5,6 +5,7 @@ import { extname, isAbsolute, relative, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { proxyExpo, startExpoGo } from './expo-go.mjs';
+import { createPricingApi } from './pricing-api.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -43,16 +44,19 @@ function reply(res, status, body) {
   res.end(body);
 }
 async function handle(req, res) {
+  let pathname;
+  let url;
+  try {
+    url = new URL(req.url, 'http://localhost');
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    reply(res, 400, 'Invalid URL');
+    return;
+  }
+  if (await pricingApi(req, res, url)) return;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.setHeader('Allow', 'GET, HEAD');
     reply(res, 405, 'Method not allowed');
-    return;
-  }
-  let pathname;
-  try {
-    pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-  } catch {
-    reply(res, 400, 'Invalid URL');
     return;
   }
   if (pathname === '/healthz') {
@@ -123,6 +127,7 @@ const server = createServer((req, res) => {
     else reply(res, 500, 'Server error');
   });
 });
+const pricingApi = createPricingApi();
 const expoGo = startExpoGo({ onFailure: () => {
   console.error('Expo-servern har stannat. Startar om tjänsten.');
   stop(1);

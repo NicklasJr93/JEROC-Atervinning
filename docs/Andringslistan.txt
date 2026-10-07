@@ -314,5 +314,36 @@ Status: Genomförd som kontorsdemo v0.1.0, separat från mobilversion v0.2.3.
   bank, Swish, Visma och fullständiga rättelse-/saldoflöden är nästa steg.
 - Se docs/office-demo.md för demokonton och testflöden.
 
+019 – JOBBA SOM OCH BEHÖRIGHETER
+Status: Genomförd i kontorsdemo v0.2.0.
+- Systemadmin väljer Jobba som i övre högra hörnet och kan avsluta läget.
+- Menyer, moment, attestgräns och egen attest följer exakt vald användare.
+- Historik visar både den inloggade och den utförande användaren.
+- Separat läs/ändra LME, artikeladministration och kundprisadministration.
+- VD kan inte ändra systemadmin eller ge högre attestgräns än sin egen.
+
+020 – SERVERBASERAD PRISMOTOR, LME CASH OCH ARTIKLAR
+Status: Genomförd i kontorsdemo v0.2.0; databas och mobilkoppling senare.
+- Manuell LME Cash USD/ton, USD/SEK, giltighetsdatum och historik.
+- Artiklar med bilder, kategori, materialinfo, LME/manuell bas och ABC-formler.
+- Volymgränser per artikel, kundens rullande 12 månader inklusive aktuell leverans.
+- Kundundantag: fastpris, +/-kr mot ABC eller eget procentavdrag från LME.
+- Serverberäkning på kundval; Beräkna priser för redigerbara viktkort.
+- Oföränderliga prisögonblicksbilder vid beredning och versioner vid komplettering.
+- Underlag prissätts efter inlämningsdatum; låsta kort räknas inte om.
+- Serverns prisregler och arkiv ligger i minnet och återställs vid omstart/deploy.
+
+021 – KONTORSVYER EFTER MOCKUPERNA
+Status: Genomförd i kontorsdemo v0.2.0.
+- Kompakt översikt med snabbåtgärder, dagstatistik och vald kortförhandsvisning.
+- Material, kundvolym och prisregel i viktkortets underlag.
+- Kundkontakt samt referens/ursprung under kundkortet; kompakt betalning/ID.
+- Attest och utbetalningar med egna nyckeltal, statusfilter och förhandsvisning.
+- CSV för filtrerad kö bakom rapportbehörighet och med prisrättighetskontroll.
+- Artikel- och LME-vyer använder samma formspråk och verkliga demoåtgärder.
+- Gemensam lokal Windows/Mac-start visar både mobil och kontor med prismotor.
+- Verifierat: 22 mobilflöden, 9 kontorsflöden, 28 servertester, bygge och Expo-typkontroll.
+- Bank/Swish/Visma, riktig inloggning, databas och mobil/kontorssynkning är inte aktiverade.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

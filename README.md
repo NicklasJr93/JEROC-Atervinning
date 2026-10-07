@@ -1,6 +1,6 @@
 # JEROC · Mobilappen
 
-**Version 0.2.0** av gårdsappen, byggd efter de godkända mockuperna. Inloggning, materialval med stora referensbilder, materialvägning, fordonsvägning, kundval, referens/ursprungsadress, lokal utkastlagring och en separat prislista.
+**Version 0.2.3** av gårdsappen, byggd efter de godkända mockuperna. Inloggning, materialval med stora referensbilder, materialvägning, fordonsvägning, kundval, referens/ursprungsadress, lokal utkastlagring och en separat prislista.
 
 **Det här är en lokal demo. Ingenting skickas till kontoret.** Företag, kunder, priser och exempelvägningar är fiktiva. Demoinloggningen är till för flödestest och är inte produktionsautentisering. Använd testuppgifter.
 
@@ -43,12 +43,13 @@ Det finns ingen bottenmeny i vägningsflödet och inga kundbilder/bilagor eller 
 
 ```sh
 npm ci
+npm run build
 npm run dev
 ```
 
-Appen körs på port 5173 under utveckling. Produktionsbygget kan testas med `npm run build` och `npm run preview` på port 4173. Demodata lagras lokalt; ingen serverdatabas eller produktionsinloggning har kopplats in. Strukturer för artikelrader, fordonsunderlag och kunder finns i `src/model.ts` och `src/data.ts` inför den framtida gemensamma backenddelen.
+Appen körs på port 5173 under utveckling. `npm run dev` startar även Node-serverns prismotor på port 3000; Vite skickar `/api` dit. Produktionsbygget kan testas med `npm run build` och `npm run preview` på port 4173. Demodata lagras lokalt; ingen serverdatabas eller produktionsinloggning har kopplats in. Strukturer för artikelrader, fordonsunderlag och kunder finns i `src/model.ts` och `src/data.ts` inför den framtida gemensamma backenddelen.
 
-För Render och annan serverdrift: kör `npm run build` och sedan `npm start`. Node-servern i `server/index.mjs` serverar webbbygget från `dist` på `0.0.0.0` och den port som miljövariabeln `PORT` anger (lokalt 3000). `/healthz` används för hälsokontroll. Framtida API-funktioner kan läggas i samma tjänst; de finns ännu inte i demon. Databaslagring kopplas in separat senare.
+För Render och annan serverdrift: kör `npm run build` och sedan `npm start`. Node-servern i `server/index.mjs` serverar webbbygget från `dist` på `0.0.0.0` och den port som miljövariabeln `PORT` anger (lokalt 3000). `/healthz` används för hälsokontroll. Kontorets prismotor finns nu på `/api/pricing/` i samma tjänst. Manuella LME Cash-priser och prisregler sparas i serverns minne. Databaslagring kopplas in separat senare.
 
 ### Kontrollera flöden
 
@@ -83,5 +84,5 @@ för att prova det nya lösenordssteget. Datorn behöver inte vara igång.
 
 ## Kontorswebben
 
-Första kontorsdemon finns på `/kontor`, med klickbar dashboard och demoanvändare.
+Kontorsdemo **0.2.0** finns på `/kontor`, med dashboard, Jobba som, manuella LME Cash-priser och en serverbaserad prismotor. Ingen extra Render-tjänst behövs.
 [Demokonton, flöden och avgränsningar](docs/office-demo.md). Mobilappen ligger kvar på sin befintliga adress.

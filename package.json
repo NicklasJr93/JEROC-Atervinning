@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node server/index.mjs",
-    "dev": "vite --host 0.0.0.0",
+    "dev": "node scripts/start-dev.mjs",
     "build": "tsc -b && vite build",
     "build:render": "npm run build && npm --prefix expo ci --include=dev --no-audit --no-fund && npm run expo:check",
     "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort",

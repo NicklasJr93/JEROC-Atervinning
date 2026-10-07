@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export const OFFICE_VERSION = '0.1.0';
+export const OFFICE_VERSION = '0.2.0';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
   view: 'Se vägningar och kunder',
@@ -11,6 +11,10 @@ export const permissionNames = {
   priceC: 'Se C-priser',
   customerPrices: 'Se kundpriser',
   changePrice: 'Ändra pris på vägning',
+  lmeRead: 'Läsa LME Cash-priser',
+  lmeWrite: 'Ändra LME Cash-priser',
+  articlesEdit: 'Skapa och ändra artiklar',
+  customerPriceEdit: 'Hantera kundanpassade skrotpriser',
   paymentDetails: 'Hantera betalningsuppgifter',
   verifyId: 'Verifiera ID',
   attest: 'Attestera',
@@ -37,11 +41,18 @@ const rowSchema = z.object({
   weight: z.number().positive(),
   tier: z.enum(['A', 'B', 'C', 'Eget']),
   price: z.number().nonnegative(),
+  volumeBefore: z.number().nonnegative().optional(),
+  volumeWithDelivery: z.number().nonnegative().optional(),
+  source: z.string().optional(),
+  manualOverride: z.boolean().optional(),
+  pricePending: z.boolean().optional(),
 });
 const auditSchema = z.object({
   at: z.string(),
   actor: z.string(),
   text: z.string(),
+  actualUserId: z.string().optional(),
+  effectiveUserId: z.string().optional(),
 });
 const cardSchema = z.object({
   id: z.number(),
@@ -61,6 +72,11 @@ const cardSchema = z.object({
   idVerified: z.boolean(),
   preparedBy: z.string().optional(),
   approvedBy: z.string().optional(),
+  pricingSnapshotId: z.string().optional(),
+  pricedAt: z.string().optional(),
+  pricingTotal: z.number().nonnegative().optional(),
+  financialPending: z.boolean().optional(),
+  pricingRowsPending: z.boolean().optional(),
   audit: z.array(auditSchema),
 });
 export type OfficeCard = z.infer<typeof cardSchema>;
@@ -93,8 +109,13 @@ export const can = (user: OfficeUser, right: Permission) =>
     ? user.level !== 'Medarbetare'
     : user.level !== 'Medarbetare' || user.permissions.includes(right);
 export const amount = (card: OfficeCard) =>
-  Math.round(card.rows.reduce((sum, r) => sum + r.weight * r.price, 0) * 100) /
-  100;
+  card.pricingTotal ??
+  Math.round(
+    card.rows.reduce(
+      (sum, r) => sum + Math.round(r.weight * r.price * 100) / 100,
+      0,
+    ) * 100,
+  ) / 100;
 export const weight = (card: OfficeCard) =>
   card.rows.reduce((sum, r) => sum + r.weight, 0);
 export function seedOffice(): OfficeData {
@@ -114,6 +135,7 @@ export function seedOffice(): OfficeData {
         'priceC',
         'customerPrices',
         'changePrice',
+        'lmeRead',
         'paymentDetails',
         'verifyId',
         'corrections',

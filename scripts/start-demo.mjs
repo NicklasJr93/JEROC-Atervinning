@@ -48,25 +48,17 @@ function npm(args) {
   }
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
-console.log('\nJEROC Återvinning · Mobilapp / demo\n');
+console.log('\nJEROC Återvinning · Mobilapp & kontor / demo\n');
 console.log('1/3 Installerar projektets låsta beroenden…');
 npm(['ci', '--no-audit', '--no-fund']);
-console.log('\n2/3 Bygger mobilappen…');
+console.log('\n2/3 Bygger mobilappen och kontorswebben…');
 npm(['run', 'build']);
 console.log('\n3/3 Startar appen…');
-const server = spawn(
-  process.execPath,
-  [
-    resolve(root, 'node_modules/vite/bin/vite.js'),
-    'preview',
-    '--host',
-    '0.0.0.0',
-    '--port',
-    String(port),
-    '--strictPort',
-  ],
-  { cwd: root, stdio: 'inherit' },
-);
+const server = spawn(process.execPath, [resolve(root, 'server/index.mjs')], {
+  cwd: root,
+  stdio: 'inherit',
+  env: { ...process.env, PORT: String(port), EXPO_GO_ENABLED: 'false' },
+});
 let stopping = false;
 let exitCode = 0;
 function stop(signal = 'SIGTERM') {
@@ -103,7 +95,8 @@ if (!ready) {
   stop();
 } else {
   console.log(`\nKlart! Öppna ${url}`);
-  console.log('Demokonto: niklas / Demo123!');
+  console.log('Mobilens demokonto: niklas / Demo123!');
+  console.log(`Kontorswebben: ${url}/kontor · välj ett demokonto där`);
   const addresses = new Set(
     Object.values(networkInterfaces())
       .flat()
@@ -113,7 +106,7 @@ if (!ready) {
   for (const address of addresses)
     console.log(`På mobilen i samma wifi: http://${address}:${port}`);
   console.log(
-    '\nInget skickas till kontoret. Utkast sparas i den webbläsare där du testar.',
+    '\nMobilutkast sparas i webbläsaren. Kontorets prisregler sparas i serverns minne under denna körning.',
   );
   console.log('Låt det här fönstret vara öppet. Stoppa appen med Ctrl+C.\n');
   if (!process.argv.includes('--no-open')) {

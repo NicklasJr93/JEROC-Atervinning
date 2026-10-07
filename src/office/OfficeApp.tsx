@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -17,8 +17,10 @@ import {
   Printer,
   Plus,
   X,
+  TrendingUp,
+  Download,
 } from 'lucide-react';
-import { initialCustomers, articles, articleById } from '../data';
+import { initialCustomers, articleById } from '../data';
 import { money, kilos } from '../model';
 import {
   OFFICE_VERSION,
@@ -35,6 +37,19 @@ import {
   type OfficeCard,
   type Permission,
 } from './model';
+import PricingWorkspace from './PricingWorkspace';
+import {
+  pricingRequest,
+  type PricingState,
+  type PricingQuote,
+} from './pricing-client';
+import {
+  QueueSummary,
+  QuickActions,
+  DailyWeights,
+  CardPreview,
+  exportOfficeCsv,
+} from './OfficeOverview';
 import './office.css';
 const fmt = (s: string) =>
   new Intl.DateTimeFormat('sv-SE', {
@@ -42,6 +57,19 @@ const fmt = (s: string) =>
     timeStyle: 'short',
     timeZone: 'Europe/Stockholm',
   }).format(new Date(s));
+const rowVisible = (u: OfficeUser, r: OfficeCard['rows'][number]) =>
+  !r.pricePending &&
+  can(u, 'prices') &&
+  can(
+    u,
+    r.tier === 'Eget' ? 'customerPrices' : (`price${r.tier}` as Permission),
+  );
+const cardMoneyVisible = (u: OfficeUser, c: OfficeCard) =>
+  !c.financialPending &&
+  (can(u, 'reports') ||
+    can(u, 'attest') ||
+    can(u, 'pay') ||
+    c.rows.every((r) => rowVisible(u, r)));
 const customerName = (c: OfficeCard) =>
   initialCustomers.find((x) => x.id === c.customerId)?.name ?? 'Kund saknas';
 export function OfficeApp() {
@@ -61,6 +89,8 @@ export function OfficeApp() {
     }
   });
   const [data, setData] = useState<OfficeData>(initial.data);
+  const dataRef = useRef(data);
+  dataRef.current = data;
   const [error, setError] = useState(initial.error);
   const [blocked, setBlocked] = useState(Boolean(initial.error));
   const [userId, setUserId] = useState<string | undefined>(() => {
@@ -70,18 +100,146 @@ export function OfficeApp() {
       return undefined;
     }
   });
+  const [actingId, setActingId] = useState<string>(() => {
+    try {
+      return sessionStorage.getItem('jeroc.office.acting') ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const [previewId, setPreviewId] = useState<number | undefined>(1412);
+  const [pricing, setPricing] = useState<PricingState>();
+  const [priceBusy, setPriceBusy] = useState(false);
+  const [pricingError, setPricingError] = useState('');
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
   const location = useLocation(),
     navigate = useNavigate();
-  const user = data.users.find((u) => u.id === userId);
+  const actualUser = data.users.find((u) => u.id === userId);
+  const user =
+    actualUser?.level === 'Systemadmin' && actingId
+      ? (data.users.find((u) => u.id === actingId) ?? actualUser)
+      : actualUser;
+  const principalRef = useRef('');
+  principalRef.current = `${actualUser?.id ?? ''}:${user?.id ?? ''}`;
+  const acting = Boolean(actualUser && user && actualUser.id !== user.id);
+  const auditActor = user
+    ? `${acting ? `${actualUser!.name} som ` : ''}${user.name} · Kontor Norrtälje`
+    : '';
+  function workAs(id: string) {
+    if (actualUser?.level !== 'Systemadmin') return;
+    try {
+      sessionStorage.setItem('jeroc.office.acting', id);
+      setActingId(id);
+      setSearch('');
+      setMessage('');
+      setPreviewId(undefined);
+      navigate('/dashboard');
+    } catch {
+      setError('Tillåt sessionslagring för att använda Jobba som.');
+    }
+  }
   const section = location.pathname.split('/')[1] || 'dashboard';
   const selectedId = Number(location.pathname.split('/')[2]);
   const selected = data.cards.find((c) => c.id === selectedId);
+  useEffect(() => {
+    let current = true;
+    setPricing(undefined);
+    if (user && actualUser && (can(user, 'prices') || can(user, 'lmeRead')))
+      pricingRequest<PricingState>(
+        section === 'weighings' && selected
+          ? `state?at=${new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(selected.date))}`
+          : 'state',
+        user,
+        actualUser,
+      )
+        .then((state) => {
+          if (current) {
+            setPricing(state);
+            setPricingError('');
+          }
+        })
+        .catch((e: Error) => {
+          if (current) setPricingError(e.message);
+        });
+    return () => {
+      current = false;
+    };
+  }, [userId, actingId, section, selectedId]);
+  const pendingPrices = data.cards
+    .filter(
+      (c) =>
+        c.pricingSnapshotId && (c.financialPending || c.pricingRowsPending),
+    )
+    .map((c) => `${c.id}:${c.pricingSnapshotId}`)
+    .join(',');
+  useEffect(() => {
+    let current = true;
+    if (!user || !actualUser || !pendingPrices) return;
+    const pending = dataRef.current.cards.filter(
+      (c) =>
+        c.pricingSnapshotId && (c.financialPending || c.pricingRowsPending),
+    );
+    Promise.all(
+      pending.map(async (card) => {
+        const archive = await pricingRequest<{
+          snapshots: (PricingQuote & { id: string })[];
+        }>(`snapshots?cardId=${card.id}`, user, actualUser);
+        const snapshot = archive.snapshots.find(
+          (entry) => entry.id === card.pricingSnapshotId,
+        );
+        return { card, snapshot };
+      }),
+    )
+      .then((results) => {
+        if (!current) return;
+        const live = dataRef.current;
+        let changed = false;
+        const cards = live.cards.map((card) => {
+          const snapshot = results.find(
+            (result) => result.card.id === card.id,
+          )?.snapshot;
+          if (
+            !snapshot ||
+            card.pricingSnapshotId !== snapshot.id ||
+            snapshot.total == null ||
+            snapshot.rows.length !== card.rows.length
+          )
+            return card;
+          const rowsPending = snapshot.rows.some((r) => r.price == null);
+          if (!card.financialPending && rowsPending) return card;
+          changed = true;
+          return {
+            ...card,
+            pricingTotal: snapshot.total,
+            financialPending: false,
+            pricingRowsPending: rowsPending,
+            rows: snapshot.rows.map((r, i) => ({
+              ...card.rows[i],
+              price: r.price ?? card.rows[i].price,
+              pricePending: r.price == null,
+              tier: r.tier === 'Special' ? ('Eget' as const) : r.tier,
+              volumeBefore: r.volumeBefore ?? card.rows[i].volumeBefore,
+              volumeWithDelivery:
+                r.volumeWithDelivery ?? card.rows[i].volumeWithDelivery,
+              source: r.source,
+            })),
+          };
+        });
+        if (changed) persist({ ...live, cards });
+      })
+      .catch(() => {
+        /* A restricted reader keeps financial actions locked until an authorized reader can fetch the snapshot. */
+      });
+    return () => {
+      current = false;
+    };
+  }, [userId, actingId, pendingPrices]);
   function persist(next: OfficeData, force = false) {
     if (blocked && !force) return false;
     try {
       localStorage.setItem(officeKey, JSON.stringify(officeSchema.parse(next)));
+      dataRef.current = next;
       setData(next);
       setError('');
       setBlocked(false);
@@ -95,7 +253,11 @@ export function OfficeApp() {
   }
   function login(id: string) {
     try {
+      if (!blocked && !localStorage.getItem(officeKey))
+        persist(dataRef.current);
       sessionStorage.setItem('jeroc.office.user', id);
+      sessionStorage.removeItem('jeroc.office.acting');
+      setActingId('');
       setUserId(id);
       navigate('/dashboard');
     } catch {
@@ -104,8 +266,9 @@ export function OfficeApp() {
   }
   function update(card: OfficeCard, text: string, right: Permission) {
     if (!user || !can(user, right)) return false;
-    const old = data.cards.find((c) => c.id === card.id);
-    if (!old) return false;
+    const live = dataRef.current;
+    const old = live.cards.find((c) => c.id === card.id);
+    if (!old || (right === 'pay' && old.financialPending)) return false;
     if (
       ['ready', 'paid'].includes(old.status) &&
       !(right === 'pay' && old.status === 'ready' && card.status === 'paid')
@@ -117,6 +280,7 @@ export function OfficeApp() {
       right === 'attest' &&
       card.status === 'ready' &&
       (old.status !== 'attest' ||
+        old.financialPending ||
         amount(old) > user.maxAttest ||
         (!user.ownAttest && old.preparedBy === user.id))
     )
@@ -127,15 +291,167 @@ export function OfficeApp() {
         ...old.audit,
         {
           at: new Date().toISOString(),
-          actor: `${user.name} · Kontor Norrtälje`,
+          actor: auditActor,
+          actualUserId: actualUser?.id,
+          effectiveUserId: user.id,
           text,
         },
       ],
     };
     return persist({
-      ...data,
-      cards: data.cards.map((c) => (c.id === card.id ? saved : c)),
+      ...live,
+      cards: live.cards.map((c) => (c.id === card.id ? saved : c)),
     });
+  }
+  async function calculatePrices(
+    card: OfficeCard,
+    customerId = card.customerId,
+    customerChange = false,
+  ) {
+    if (
+      !user ||
+      !actualUser ||
+      !can(user, customerChange ? 'customers' : 'changePrice')
+    )
+      return;
+    const principalId = principalRef.current;
+    setPriceBusy(true);
+    try {
+      const quote = await pricingRequest<PricingQuote>(
+        'quote',
+        user,
+        actualUser,
+        {
+          customerId,
+          deliveredAt: card.date,
+          excludeCardId: String(card.id),
+          rows: card.rows.map(({ articleId, weight }) => ({
+            articleId,
+            weight,
+          })),
+        },
+      );
+      if (principalRef.current !== principalId) return;
+      const live = dataRef.current.cards.find((c) => c.id === card.id);
+      if (!live || live.audit.length !== card.audit.length) {
+        setMessage(
+          'Kortet ändrades under beräkningen. Beräkna priser på nytt.',
+        );
+        return;
+      }
+      const rows = quote.rows.map((r, i) => ({
+        ...card.rows[i],
+        price: r.price ?? card.rows[i].price,
+        pricePending: r.price == null,
+        tier: r.tier === 'Special' ? ('Eget' as const) : r.tier,
+        volumeBefore: r.volumeBefore ?? undefined,
+        volumeWithDelivery: r.volumeWithDelivery ?? undefined,
+        source: r.source,
+        manualOverride: false,
+      }));
+      update(
+        {
+          ...card,
+          customerId,
+          reference: customerChange ? '' : card.reference,
+          origin: customerChange ? '' : card.origin,
+          rows,
+          pricedAt: card.date,
+          pricingTotal: quote.total ?? undefined,
+          financialPending: quote.total == null,
+          pricingRowsPending: quote.rows.some((r) => r.price == null),
+        },
+        customerChange
+          ? `Kund vald: ${initialCustomers.find((c) => c.id === customerId)?.name ?? 'Kund saknas'}. Priser beräknade vid inlämningen.`
+          : 'Priser räknade av servern: artikelregler, rullande 12 månader och kundundantag.',
+        customerChange ? 'customers' : 'changePrice',
+      );
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : 'Priserna kunde inte beräknas.',
+      );
+    } finally {
+      setPriceBusy(false);
+    }
+  }
+  async function prepareCard(card: OfficeCard) {
+    if (!user || !actualUser || !can(user, 'prepare') || priceBusy) return;
+    const principalId = principalRef.current;
+    setPriceBusy(true);
+    try {
+      const archive = await pricingRequest<{ snapshots: { id: string }[] }>(
+        `snapshots?cardId=${card.id}`,
+        user,
+        actualUser,
+      );
+      const previousSnapshot = archive.snapshots.at(-1);
+      const snapshot = await pricingRequest<PricingQuote & { id: string }>(
+        'snapshots',
+        user,
+        actualUser,
+        {
+          cardId: String(card.id),
+          ...(previousSnapshot
+            ? { supersedesSnapshotId: previousSnapshot.id }
+            : {}),
+          customerId: card.customerId,
+          deliveredAt: card.date,
+          excludeCardId: String(card.id),
+          rows: card.rows.map((r) => ({
+            articleId: r.articleId,
+            weight: r.weight,
+            ...(can(user, 'changePrice') && (r.manualOverride || !r.source)
+              ? {
+                  override: {
+                    price: r.price,
+                    tier: r.tier,
+                    reason: r.manualOverride
+                      ? 'Spårbar prisändring på viktkort'
+                      : 'Befintligt prissatt demounderlag',
+                  },
+                }
+              : {}),
+          })),
+        },
+      );
+      if (principalRef.current !== principalId) return;
+      const rows = snapshot.rows.map((r, i) => ({
+        ...card.rows[i],
+        price: r.price ?? card.rows[i].price,
+        pricePending: r.price == null,
+        tier:
+          r.tier === 'Special'
+            ? ('Eget' as const)
+            : (r.tier as OfficeCard['rows'][number]['tier']),
+        volumeBefore: r.volumeBefore ?? undefined,
+        volumeWithDelivery: r.volumeWithDelivery ?? undefined,
+        source: r.source,
+      }));
+      if (
+        update(
+          {
+            ...card,
+            rows,
+            status: 'attest',
+            preparedBy: user.id,
+            pricingSnapshotId: snapshot.id,
+            pricedAt: card.date,
+            pricingTotal: snapshot.total ?? undefined,
+            financialPending: snapshot.total == null,
+            pricingRowsPending: snapshot.rows.some((r) => r.price == null),
+          },
+          'Underlaget färdigställt. Serverns prisögonblicksbild låst vid inlämningsdatum och skickat för attest.',
+          'prepare',
+        )
+      )
+        setMessage('Kortet väntar nu på attest.');
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : 'Underlaget kunde inte låsas.',
+      );
+    } finally {
+      setPriceBusy(false);
+    }
   }
   const editable =
     selected && !['attest', 'ready', 'paid'].includes(selected.status);
@@ -152,6 +468,12 @@ export function OfficeApp() {
       right: 'prices',
     },
     {
+      id: 'lme',
+      name: 'LME Cash',
+      icon: TrendingUp,
+      right: 'lmeRead',
+    },
+    {
       id: 'corrections',
       name: 'Rättelser',
       icon: History,
@@ -164,11 +486,12 @@ export function OfficeApp() {
     navigate(`/weighings/${id}`);
   }
   const filter =
-    section === 'attest'
+    new URLSearchParams(location.search).get('status') ??
+    (section === 'attest'
       ? 'attest'
       : section === 'payments'
         ? 'ready'
-        : new URLSearchParams(location.search).get('status');
+        : undefined);
   const cards = data.cards
     .filter((c) => !filter || c.status === filter)
     .filter((c) =>
@@ -177,8 +500,18 @@ export function OfficeApp() {
         .includes(search.toLowerCase()),
     )
     .sort((a, b) => b.id - a.id);
+  const pricingAccess =
+    user &&
+    (can(user, 'prices') ||
+      can(user, 'articlesEdit') ||
+      can(user, 'customerPrices') ||
+      can(user, 'customerPriceEdit'));
   const allowed =
-    section === 'weighings' ? 'view' : nav.find((n) => n.id === section)?.right;
+    section === 'weighings'
+      ? 'view'
+      : section === 'prices' && pricingAccess
+        ? undefined
+        : nav.find((n) => n.id === section)?.right;
   if (!user)
     return (
       <div className="office office-login">
@@ -235,7 +568,9 @@ export function OfficeApp() {
         <span className="office-eyebrow">KONTORSÖVERSIKT</span>
         <nav>
           {nav
-            .filter((n) => can(user, n.right))
+            .filter((n) =>
+              n.id === 'prices' ? pricingAccess : can(user, n.right),
+            )
             .map((n) => (
               <button
                 className={section === n.id ? 'active' : ''}
@@ -262,6 +597,8 @@ export function OfficeApp() {
           <button
             onClick={() => {
               sessionStorage.removeItem('jeroc.office.user');
+              sessionStorage.removeItem('jeroc.office.acting');
+              setActingId('');
               setUserId(undefined);
               setSearch('');
             }}
@@ -289,6 +626,25 @@ export function OfficeApp() {
               }}
             />
           </label>
+          {actualUser?.level === 'Systemadmin' && (
+            <label className="office-work-as">
+              Jobba som
+              <select
+                aria-label="Jobba som"
+                value={acting ? user.id : ''}
+                onChange={(e) => workAs(e.target.value)}
+              >
+                <option value="">Systemadmin · egen behörighet</option>
+                {data.users
+                  .filter((u) => u.id !== actualUser.id)
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
           <div className="office-user">
             <span className="office-avatar">
               {user.name
@@ -307,6 +663,24 @@ export function OfficeApp() {
           Demo · Inga riktiga betalningar eller kontorsöverföringar · Separat
           från gårdsappens lokala data
         </div>
+        {acting && (
+          <div className="office-acting-banner" role="status">
+            <ShieldCheck size={17} />
+            <span>
+              <strong>Jobbar som {user.name}</strong> · {user.level}
+              {can(user, 'attest')
+                ? ` · Attestgräns ${money(user.maxAttest)} kr`
+                : ''}
+              <small>
+                Inloggad som {actualUser!.name}. Åtgärder sparar båda namnen i
+                historiken.
+              </small>
+            </span>
+            <button onClick={() => workAs('')}>
+              Avsluta Jobba som <X size={14} />
+            </button>
+          </div>
+        )}
         <main className="office-main">
           {error && (
             <div className="office-alert" role="alert">
@@ -353,72 +727,150 @@ export function OfficeApp() {
                 </div>
                 <Status status={selected.status} />
               </div>
+              {pricingError && editable && (
+                <div className="office-alert" role="alert">
+                  {pricingError}
+                </div>
+              )}
               <div className="office-detail-grid">
                 <div>
                   <section className="office-panel">
                     <div className="office-panel-heading">
                       <h2>Material & prissättning</h2>
                       <strong>{kilos(weight(selected))} kg</strong>
+                      {editable && can(user, 'changePrice') && (
+                        <button
+                          className="office-link"
+                          disabled={priceBusy || !selected.customerId}
+                          onClick={() => calculatePrices(selected)}
+                        >
+                          Beräkna priser
+                        </button>
+                      )}
                     </div>
                     <div className="office-info">
-                      Pris vid inlämningen · Fiktiva exempelpriser per artikel
+                      Prisdatum {fmt(selected.date)} ·{' '}
+                      {selected.pricingSnapshotId
+                        ? 'Låst prisögonblicksbild'
+                        : 'Serverns artikelregler och kundpriser'}
                     </div>
-                    <table className="office-table">
-                      <thead>
-                        <tr>
-                          <th>Material</th>
-                          <th>Vikt</th>
-                          {can(user, 'prices') && (
-                            <>
-                              <th>Prisregel</th>
-                              <th>kr/kg</th>
-                              <th>Belopp</th>
-                            </>
-                          )}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selected.rows.map((r, i) => (
-                          <tr key={i}>
-                            <td>
-                              <span className="office-material">
-                                <MaterialImage id={r.articleId} />
-                                {articleById(r.articleId).name}
-                              </span>
-                            </td>
-                            <td>{kilos(r.weight)} kg</td>
+                    <div className="office-table-wrap">
+                      <table className="office-table">
+                        <thead>
+                          <tr>
+                            <th>Material</th>
+                            <th>Vikt</th>
                             {can(user, 'prices') && (
                               <>
-                                <td>
-                                  {r.tier === 'Eget' ? 'Engångspris' : r.tier}
-                                </td>
-                                <td>{money(r.price)}</td>
-                                <td>{money(r.weight * r.price)}</td>
+                                <th>Volym 12 mån</th>
+                                <th>Prisregel</th>
+                                <th>kr/kg</th>
+                                <th>Belopp</th>
                               </>
                             )}
-                            {editable && can(user, 'changePrice') && (
-                              <td>
-                                <PriceEditor
-                                  row={r}
-                                  onSave={(tier, price) =>
-                                    update(
-                                      {
-                                        ...selected,
-                                        rows: selected.rows.map((x, j) =>
-                                          j === i ? { ...x, tier, price } : x,
-                                        ),
-                                      },
-                                      `Pris för ${articleById(r.articleId).name} ändrat från ${r.tier} ${money(r.price)} till ${tier} ${money(price)} kr/kg.`,
-                                      'changePrice',
-                                    )
-                                  }
-                                />
-                              </td>
-                            )}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {selected.rows.map((r, i) => (
+                            <tr key={i}>
+                              <td>
+                                <span className="office-material">
+                                  <MaterialImage id={r.articleId} />
+                                  {articleById(r.articleId).name}
+                                </span>
+                              </td>
+                              <td>{kilos(r.weight)} kg</td>
+                              {can(user, 'prices') && (
+                                <>
+                                  <td>
+                                    {!can(user, 'customerPrices') ||
+                                    r.volumeWithDelivery == null
+                                      ? '–'
+                                      : `${kilos(r.volumeWithDelivery)} kg`}
+                                    <small>
+                                      {!can(user, 'customerPrices')
+                                        ? 'Kundprisbehörighet krävs'
+                                        : r.volumeBefore == null
+                                          ? 'Beräkna för volymunderlag'
+                                          : `Före: ${kilos(r.volumeBefore)} kg`}
+                                    </small>
+                                  </td>
+                                  <td>
+                                    <span className="office-rule">
+                                      {rowVisible(user, r)
+                                        ? r.tier === 'Eget'
+                                          ? r.manualOverride
+                                            ? 'Engångspris'
+                                            : 'Kundpris'
+                                          : `${r.tier}-pris`
+                                        : 'Dolt pris'}
+                                    </span>
+                                    <small>
+                                      {rowVisible(user, r)
+                                        ? (r.source ?? 'Befintligt underlag')
+                                        : 'Behörighet saknas'}
+                                    </small>
+                                  </td>
+                                  <td>
+                                    {rowVisible(user, r) ? money(r.price) : '–'}
+                                  </td>
+                                  <td>
+                                    {rowVisible(user, r)
+                                      ? money(r.weight * r.price)
+                                      : '–'}
+                                  </td>
+                                </>
+                              )}
+                              {(editable || selected.status === 'attest') &&
+                                can(user, 'changePrice') &&
+                                rowVisible(user, r) && (
+                                  <td>
+                                    <PriceEditor
+                                      row={r}
+                                      disabled={priceBusy}
+                                      user={user}
+                                      rates={
+                                        pricing?.articles.find(
+                                          (a) => a.id === r.articleId,
+                                        )?.prices
+                                      }
+                                      onSave={(tier, price) =>
+                                        update(
+                                          {
+                                            ...selected,
+                                            status:
+                                              selected.status === 'attest'
+                                                ? 'complement'
+                                                : selected.status,
+                                            pricingTotal: undefined,
+                                            financialPending: false,
+                                            pricingRowsPending: false,
+                                            rows: selected.rows.map((x, j) =>
+                                              j === i
+                                                ? {
+                                                    ...x,
+                                                    tier,
+                                                    price,
+                                                    manualOverride: true,
+                                                    pricePending: false,
+                                                    source:
+                                                      'Manuellt engångsval',
+                                                  }
+                                                : x,
+                                            ),
+                                          },
+                                          `Pris för ${articleById(r.articleId).name} ändrat från ${r.tier} ${money(r.price)} till ${tier} ${money(price)} kr/kg.`,
+                                          'changePrice',
+                                        )
+                                      }
+                                    />
+                                  </td>
+                                )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                     {selected.gross != null && (
                       <div className="office-scale-facts">
                         <span>
@@ -426,6 +878,12 @@ export function OfficeApp() {
                         </span>
                         <span>
                           Utfart<strong>{kilos(selected.tare ?? 0)} kg</strong>
+                        </span>
+                        <span>
+                          Nettovikt före avdrag
+                          <strong>
+                            {kilos(selected.gross - (selected.tare ?? 0))} kg
+                          </strong>
                         </span>
                         <span>
                           Avdrag
@@ -442,6 +900,11 @@ export function OfficeApp() {
                     <h2>Spårbarhet</h2>
                     <ol className="office-audit">
                       {selected.audit
+                        .filter(
+                          (a) =>
+                            !a.text.startsWith('Pris för') ||
+                            can(user, 'changePrice'),
+                        )
                         .slice()
                         .reverse()
                         .map((a, i) => (
@@ -465,20 +928,25 @@ export function OfficeApp() {
                       Kund
                       <select
                         aria-label="Kund på vägningen"
-                        disabled={!editable || !can(user, 'customers')}
-                        value={selected.customerId ?? ''}
-                        onChange={(e) =>
-                          update(
-                            {
-                              ...selected,
-                              customerId: e.target.value || undefined,
-                              reference: '',
-                              origin: '',
-                            },
-                            `Kund ändrad från ${customerName(selected)} till ${initialCustomers.find((c) => c.id === e.target.value)?.name ?? 'Kund saknas'}.`,
-                            'customers',
-                          )
+                        disabled={
+                          priceBusy || !editable || !can(user, 'customers')
                         }
+                        value={selected.customerId ?? ''}
+                        onChange={(e) => {
+                          if (e.target.value)
+                            calculatePrices(selected, e.target.value, true);
+                          else
+                            update(
+                              {
+                                ...selected,
+                                customerId: undefined,
+                                reference: '',
+                                origin: '',
+                              },
+                              'Kund borttagen från underlaget.',
+                              'customers',
+                            );
+                        }}
                       >
                         <option value="">Välj kund</option>
                         {initialCustomers.map((c) => (
@@ -488,10 +956,47 @@ export function OfficeApp() {
                         ))}
                       </select>
                     </label>
+                    {selected.customerId && (
+                      <div className="office-customer-contact">
+                        <span className="office-customer-symbol">
+                          <Users size={22} />
+                        </span>
+                        <div>
+                          <strong>{customerName(selected)}</strong>
+                          <small>
+                            {
+                              initialCustomers.find(
+                                (c) => c.id === selected.customerId,
+                              )?.number
+                            }{' '}
+                            ·{' '}
+                            {
+                              initialCustomers.find(
+                                (c) => c.id === selected.customerId,
+                              )?.type
+                            }
+                          </small>
+                        </div>
+                        <dl>
+                          <dt>Telefon</dt>
+                          <dd>
+                            {initialCustomers.find(
+                              (c) => c.id === selected.customerId,
+                            )?.phone || '–'}
+                          </dd>
+                          <dt>E-post</dt>
+                          <dd>
+                            {initialCustomers.find(
+                              (c) => c.id === selected.customerId,
+                            )?.email || '–'}
+                          </dd>
+                        </dl>
+                      </div>
+                    )}
                     <DetailFields
                       key={`${selected.id}-${selected.customerId}`}
                       card={selected}
-                      disabled={!editable || !can(user, 'prepare')}
+                      disabled={priceBusy || !editable || !can(user, 'prepare')}
                       save={(reference, origin) =>
                         update(
                           { ...selected, reference, origin },
@@ -507,7 +1012,7 @@ export function OfficeApp() {
                       <PaymentField
                         key={`${selected.id}-${selected.status}`}
                         card={selected}
-                        disabled={!editable}
+                        disabled={priceBusy || !editable}
                         save={(payment) =>
                           update(
                             { ...selected, payment },
@@ -536,6 +1041,7 @@ export function OfficeApp() {
                       !selected.idVerified && (
                         <button
                           className="office-btn outline"
+                          disabled={priceBusy}
                           onClick={() =>
                             update(
                               { ...selected, idVerified: true },
@@ -550,7 +1056,14 @@ export function OfficeApp() {
                   </section>
                   <section className="office-panel">
                     <h2>Sammanställning</h2>
-                    {can(user, 'prices') || can(user, 'reports') ? (
+                    {selected.financialPending && (
+                      <p className="office-small">
+                        Beloppet finns i serverns prisunderlag. En användare med
+                        ekonomibehörighet behöver läsa in det före attest och
+                        utbetalning.
+                      </p>
+                    )}
+                    {cardMoneyVisible(user, selected) ? (
                       <div className="office-total">
                         <span>Att betala ut</span>
                         <strong>{money(amount(selected))} kr</strong>
@@ -565,24 +1078,12 @@ export function OfficeApp() {
                       <button
                         className="office-btn"
                         disabled={
+                          priceBusy ||
                           !selected.customerId ||
                           !selected.idVerified ||
                           !selected.payment
                         }
-                        onClick={() => {
-                          if (
-                            update(
-                              {
-                                ...selected,
-                                status: 'attest',
-                                preparedBy: user.id,
-                              },
-                              'Underlaget färdigställt och skickat för attest.',
-                              'prepare',
-                            )
-                          )
-                            setMessage('Kortet väntar nu på attest.');
-                        }}
+                        onClick={() => prepareCard(selected)}
                       >
                         Skicka för attest <ChevronRight size={16} />
                       </button>
@@ -604,6 +1105,7 @@ export function OfficeApp() {
                         <button
                           className="office-btn"
                           disabled={
+                            selected.financialPending ||
                             amount(selected) > user.maxAttest ||
                             (!user.ownAttest && selected.preparedBy === user.id)
                           }
@@ -654,7 +1156,9 @@ export function OfficeApp() {
                     {selected.status === 'ready' && can(user, 'pay') && (
                       <button
                         className="office-btn"
+                        disabled={selected.financialPending}
                         onClick={() => {
+                          if (selected.financialPending) return;
                           if (
                             window.confirm(
                               `Registrera en DEMOutbetalning på ${money(amount(selected))} kr? Ingen betalning skickas.`,
@@ -705,7 +1209,7 @@ export function OfficeApp() {
                             articleId,
                             weightDelta,
                             reason,
-                            actor: user.name,
+                            actor: auditActor,
                             at: new Date().toISOString(),
                           };
                           if (
@@ -783,60 +1287,35 @@ export function OfficeApp() {
                         .filter((c) => c.status !== 'paid')
                         .sort((a, b) => b.id - a.id)}
                       showMoney={can(user, 'prices') || can(user, 'reports')}
+                      user={user}
                       open={open}
+                      selectedId={previewId}
+                      onSelect={setPreviewId}
                     />
                   </section>
-                  <section className="office-panel office-flow">
-                    <h2>Från invägning till utbetalning</h2>
-                    <div>
-                      {[
-                        'Granska underlag',
-                        'Kund, betalning & ID',
-                        'Attest med beloppsgräns',
-                        'Registrera utbetalning',
-                      ].map((s, i) => (
-                        <span key={s}>
-                          <i>{i + 1}</i>
-                          {s}
-                          {i < 3 && <ChevronRight size={16} />}
-                        </span>
-                      ))}
-                    </div>
-                    <p>
-                      Attesterade och utbetalda kort är låsta. Rättelser
-                      behåller originalet.
-                    </p>
-                  </section>
+                  {data.cards.find((c) => c.id === previewId) && (
+                    <CardPreview
+                      card={data.cards.find((c) => c.id === previewId)!}
+                      user={user}
+                      onOpen={open}
+                    />
+                  )}
                 </div>
                 <aside>
-                  <section className="office-panel">
-                    <h2>Dina behörigheter</h2>
-                    <p>{user.level}</p>
-                    <div className="office-permission-tags">
-                      {Object.keys(permissionNames)
-                        .filter((p) => can(user, p as Permission))
-                        .map((p) => (
-                          <span key={p}>
-                            {permissionNames[p as Permission]}
-                          </span>
-                        ))}
-                    </div>
-                    {can(user, 'attest') && (
-                      <p className="office-small">
-                        Attest upp till{' '}
-                        <strong>{money(user.maxAttest)} kr</strong>
-                        <br />
-                        Egen attest:{' '}
-                        {user.ownAttest ? 'Tillåten' : 'Inte tillåten'}
-                      </p>
-                    )}
-                  </section>
+                  <QuickActions user={user} onNavigate={navigate} />
+                  <DailyWeights cards={data.cards} />
                   <section className="office-panel">
                     <h2>Senaste aktivitet</h2>
                     <ol className="office-audit">
                       {data.cards
                         .flatMap((c) =>
                           c.audit.map((a) => ({ ...a, cardId: c.id })),
+                        )
+                        .filter(
+                          (a) =>
+                            !a.text.startsWith('Pris för') ||
+                            (can(user, 'changePrice') &&
+                              can(user, 'customerPrices')),
                         )
                         .sort((a, b) => b.at.localeCompare(a.at))
                         .slice(0, 5)
@@ -882,36 +1361,66 @@ export function OfficeApp() {
                         : 'Alla viktkort från gårdsplan.'}
                   </p>
                 </div>
+                {can(user, 'reports') && (
+                  <button
+                    className="office-btn outline"
+                    onClick={() => exportOfficeCsv(cards, user)}
+                  >
+                    <Download size={16} />
+                    Exportera kö
+                  </button>
+                )}
               </div>
-              {section === 'weighings' && (
+              {(section === 'attest' || section === 'payments') && (
+                <QueueSummary cards={data.cards} user={user} mode={section} />
+              )}
+              {['weighings', 'attest', 'payments'].includes(section) && (
                 <div className="office-filters">
                   <button
                     className={!filter ? 'active' : ''}
-                    onClick={() => navigate('/weighings')}
+                    onClick={() => navigate(`/${section}?status=`)}
                   >
                     Alla
                   </button>
-                  {Object.entries(statusNames).map(([s, label]) => (
-                    <button
-                      key={s}
-                      className={filter === s ? 'active' : ''}
-                      onClick={() => navigate(`/weighings?status=${s}`)}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                  {Object.entries(statusNames)
+                    .filter(
+                      ([s]) =>
+                        section === 'weighings' ||
+                        (section === 'payments'
+                          ? ['ready', 'paid'].includes(s)
+                          : ['attest', 'complement', 'ready'].includes(s)),
+                    )
+                    .map(([s, label]) => (
+                      <button
+                        key={s}
+                        className={filter === s ? 'active' : ''}
+                        onClick={() => navigate(`/${section}?status=${s}`)}
+                      >
+                        {label}
+                      </button>
+                    ))}
                 </div>
               )}
               <section className="office-panel">
                 <CardTable
                   cards={cards}
                   showMoney={can(user, 'prices') || can(user, 'reports')}
+                  user={user}
                   open={open}
+                  selectedId={previewId}
+                  onSelect={setPreviewId}
                 />
                 {!cards.length && (
                   <p>Inga vägningar matchar den här kön eller sökningen.</p>
                 )}
               </section>
+              {cards.find((c) => c.id === previewId) && (
+                <CardPreview
+                  card={cards.find((c) => c.id === previewId)!}
+                  user={user}
+                  onOpen={open}
+                />
+              )}
             </>
           ) : section === 'customers' ? (
             <>
@@ -959,55 +1468,43 @@ export function OfficeApp() {
                       ))}
                   </tbody>
                 </table>
+                {can(user, 'customerPrices') && (
+                  <button
+                    className="office-btn outline"
+                    onClick={() => navigate('/prices?tab=customer-prices')}
+                  >
+                    Kundanpassade skrotpriser
+                  </button>
+                )}
                 <p className="office-small">
                   Kundregistret är fiktivt. I första versionen kopplar du kunder
                   till viktkort; fullständig kundadministration kommer senare.
                 </p>
               </section>
             </>
-          ) : section === 'prices' ? (
-            <>
-              <h1>Artiklar & priser</h1>
-              <p>Allmänna exempelpriser · kr/kg · skrivskyddad översikt</p>
-              <section className="office-panel">
-                <table className="office-table">
-                  <thead>
-                    <tr>
-                      <th>Artikel</th>
-                      {(['priceA', 'priceB', 'priceC'] as const).map(
-                        (right, i) =>
-                          can(user, right) && (
-                            <th key={right}>{['A', 'B', 'C'][i]}</th>
-                          ),
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {articles
-                      .filter((a) =>
-                        a.name.toLowerCase().includes(search.toLowerCase()),
-                      )
-                      .map((a) => (
-                        <tr key={a.id}>
-                          <td>
-                            <span className="office-material">
-                              <MaterialImage id={a.id} />
-                              {a.name}
-                            </span>
-                          </td>
-                          {a.prices.map(
-                            (p, i) =>
-                              can(
-                                user,
-                                (['priceA', 'priceB', 'priceC'] as const)[i],
-                              ) && <td key={i}>{money(p)}</td>,
-                          )}
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </section>
-            </>
+          ) : ['prices', 'lme'].includes(section) ? (
+            <PricingWorkspace
+              user={user}
+              actualUser={actualUser!}
+              onNotice={setMessage}
+              section={
+                section === 'lme'
+                  ? 'lme'
+                  : new URLSearchParams(location.search).get('tab') ===
+                      'customer-prices'
+                    ? 'customer-prices'
+                    : 'articles'
+              }
+              onSectionChange={(next) =>
+                navigate(
+                  next === 'lme'
+                    ? '/lme'
+                    : next === 'customer-prices'
+                      ? '/prices?tab=customer-prices'
+                      : '/prices',
+                )
+              }
+            />
           ) : section === 'corrections' ? (
             <>
               <h1>Rättelseutkast</h1>
@@ -1067,9 +1564,19 @@ export function OfficeApp() {
             <UserAdmin
               users={data.users}
               actor={user}
-              save={(users) => {
+              save={async (users) => {
                 if (!can(user, 'users')) return false;
-                return persist({ ...data, users });
+                try {
+                  await pricingRequest('users', user, actualUser!, { users });
+                  return persist({ ...data, users });
+                } catch (e) {
+                  setMessage(
+                    e instanceof Error
+                      ? e.message
+                      : 'Behörigheterna kunde inte sparas på servern.',
+                  );
+                  return false;
+                }
               }}
             />
           ) : (
@@ -1095,6 +1602,8 @@ export function OfficeApp() {
                   persist(seedOffice(), true)
                 ) {
                   sessionStorage.removeItem('jeroc.office.user');
+                  sessionStorage.removeItem('jeroc.office.acting');
+                  setActingId('');
                   setUserId(undefined);
                   navigate('/dashboard');
                 }
@@ -1135,11 +1644,17 @@ function MaterialImage({ id }: { id: string }) {
 function CardTable({
   cards,
   showMoney,
+  user,
   open,
+  selectedId,
+  onSelect,
 }: {
   cards: OfficeCard[];
   showMoney: boolean;
+  user: OfficeUser;
   open: (id: number) => void;
+  selectedId?: number;
+  onSelect?: (id: number) => void;
 }) {
   return (
     <div className="office-table-wrap">
@@ -1156,9 +1671,22 @@ function CardTable({
         </thead>
         <tbody>
           {cards.map((c) => (
-            <tr key={c.id}>
+            <tr
+              key={c.id}
+              className={selectedId === c.id ? 'office-row-selected' : ''}
+              onClick={() => onSelect?.(c.id)}
+            >
               <td>
-                <strong>#{c.id}</strong>
+                <button
+                  className="office-link"
+                  aria-label={`Förhandsvisa viktkort ${c.id}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect?.(c.id);
+                  }}
+                >
+                  #{c.id}
+                </button>
                 <small>{fmt(c.date)}</small>
               </td>
               <td>
@@ -1170,7 +1698,11 @@ function CardTable({
               <td>
                 {kilos(weight(c))} kg<small>{c.rows.length} material</small>
               </td>
-              {showMoney && <td>{money(amount(c))} kr</td>}
+              {showMoney && (
+                <td>
+                  {cardMoneyVisible(user, c) ? `${money(amount(c))} kr` : '–'}
+                </td>
+              )}
               <td>
                 <Status status={c.status} />
               </td>
@@ -1192,8 +1724,14 @@ function CardTable({
 }
 function PriceEditor({
   row,
+  disabled,
+  user,
+  rates,
   onSave,
 }: {
+  disabled: boolean;
+  user: OfficeUser;
+  rates?: Record<'A' | 'B' | 'C', number | null>;
   row: OfficeCard['rows'][number];
   onSave: (tier: OfficeCard['rows'][number]['tier'], price: number) => boolean;
 }) {
@@ -1217,19 +1755,23 @@ function PriceEditor({
           const t = e.target.value as typeof tier;
           setTier(t);
           if (t !== 'Eget')
-            setPrice(
-              String(
-                articleById(row.articleId).prices[['A', 'B', 'C'].indexOf(t)],
-              ),
-            );
+            setPrice(String(rates?.[t as 'A' | 'B' | 'C'] ?? row.price));
         }}
       >
-        {['A', 'B', 'C', 'Eget'].map((t) => (
-          <option key={t}>{t}</option>
-        ))}
+        {['A', 'B', 'C', 'Eget']
+          .filter((t) => t === 'Eget' || can(user, `price${t}` as Permission))
+          .map((t) => (
+            <option
+              key={t}
+              disabled={t !== 'Eget' && rates?.[t as 'A' | 'B' | 'C'] == null}
+            >
+              {t}
+            </option>
+          ))}
       </select>
       <input
         aria-label="Engångspris kr/kg"
+        readOnly={tier !== 'Eget'}
         value={price}
         onChange={(e) => setPrice(e.target.value)}
         inputMode="decimal"
@@ -1244,7 +1786,15 @@ function PriceEditor({
       </button>
     </form>
   ) : (
-    <button className="office-link" onClick={() => setOpen(true)}>
+    <button
+      className="office-link"
+      disabled={disabled}
+      onClick={() => {
+        setTier(row.tier);
+        setPrice(String(row.price));
+        setOpen(true);
+      }}
+    >
       Ändra pris
     </button>
   );
@@ -1300,7 +1850,7 @@ function DetailFields({
           ))}
       </datalist>
       {!disabled && (
-        <button className="office-btn outline">
+        <button className="office-btn outline" disabled={!card.customerId}>
           Spara referens & ursprung
         </button>
       )}
@@ -1400,28 +1950,34 @@ function UserAdmin({
 }: {
   users: OfficeUser[];
   actor: OfficeUser;
-  save: (u: OfficeUser[]) => boolean;
+  save: (u: OfficeUser[]) => Promise<boolean>;
 }) {
   const [selected, setSelected] = useState(users[0]),
-    [notice, setNotice] = useState('');
+    [notice, setNotice] = useState(''),
+    [saving, setSaving] = useState(false);
   const editable =
     actor.level === 'Systemadmin' || selected.level !== 'Systemadmin';
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     if (
       !editable ||
       selected.maxAttest < 0 ||
+      (actor.level !== 'Systemadmin' && selected.maxAttest > actor.maxAttest) ||
       !Number.isFinite(selected.maxAttest)
     )
       return;
+    setSaving(true);
     if (
-      save(
+      await save(
         users.some((u) => u.id === selected.id)
           ? users.map((u) => (u.id === selected.id ? selected : u))
           : [...users, selected],
       )
     )
-      setNotice('Behörigheterna har sparats i kontorsdemon.');
+      setNotice(
+        'Behörigheterna har sparats i kontorsdemon och på prismotorns demoserver.',
+      );
+    setSaving(false);
   }
   return (
     <>
@@ -1489,7 +2045,7 @@ function UserAdmin({
             <label>
               Kontonivå
               <select
-                disabled={!editable}
+                disabled={!editable || selected.id === actor.id}
                 value={selected.level}
                 onChange={(e) =>
                   setSelected({
@@ -1518,8 +2074,20 @@ function UserAdmin({
                       setSelected({
                         ...selected,
                         permissions: e.target.checked
-                          ? [...selected.permissions, key as Permission]
-                          : selected.permissions.filter((p) => p !== key),
+                          ? [
+                              ...new Set([
+                                ...selected.permissions,
+                                key as Permission,
+                                ...(key === 'lmeWrite'
+                                  ? ['lmeRead' as const]
+                                  : []),
+                              ]),
+                            ]
+                          : selected.permissions.filter(
+                              (p) =>
+                                p !== key &&
+                                !(key === 'lmeRead' && p === 'lmeWrite'),
+                            ),
                       })
                     }
                   />
@@ -1532,6 +2100,9 @@ function UserAdmin({
               <input
                 type="number"
                 min="0"
+                max={
+                  actor.level === 'Systemadmin' ? undefined : actor.maxAttest
+                }
                 step="0.01"
                 value={selected.maxAttest}
                 disabled={!editable}
@@ -1554,7 +2125,7 @@ function UserAdmin({
               />
               Får attestera egna förberedda kort
             </label>
-            <button className="office-btn" disabled={!editable}>
+            <button className="office-btn" disabled={!editable || saving}>
               Spara behörigheter
             </button>
           </form>

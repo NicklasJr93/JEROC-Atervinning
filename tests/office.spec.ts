@@ -21,7 +21,12 @@ test('kontorets granskning, prishistorik, attest och demoutbetalning fungerar ut
 }) => {
   const external: string[] = [];
   page.on('request', (r) => {
-    if (r.method() !== 'GET' && r.method() !== 'HEAD') external.push(r.url());
+    if (
+      r.method() !== 'GET' &&
+      r.method() !== 'HEAD' &&
+      new URL(r.url()).origin !== 'http://127.0.0.1:5173'
+    )
+      external.push(r.url());
   });
   await login(page, 'Kajsa Nilsson');
   await page
@@ -41,10 +46,10 @@ test('kontorets granskning, prishistorik, attest och demoutbetalning fungerar ut
     .first()
     .click();
   await page.getByLabel('Prisalternativ').selectOption('Eget');
-  await page.getByLabel('Engångspris kr/kg').fill('80');
+  await page.getByLabel('Engångspris kr/kg').fill('50');
   await page.getByRole('button', { name: 'Spara pris', exact: true }).click();
   await expect(page.locator('.office-audit').first()).toContainText(
-    'ändrat från A 82,00 till Eget 80,00',
+    'ändrat från Eget 84,00 till Eget 50,00',
   );
   await page.getByRole('button', { name: /Skicka för attest/ }).click();
   await expect(page.getByRole('status')).toContainText('väntar nu på attest');
@@ -125,6 +130,7 @@ test('behörigheter och egen attest styrs av VD och rättelseutkast bevarar lås
   await page
     .getByRole('button', { name: 'Spara behörigheter', exact: true })
     .click();
+  await expect(page.getByText(/Behörigheterna har sparats/)).toBeVisible();
   await changeUser(page, 'Kajsa Nilsson');
   await page
     .getByRole('button', { name: 'Öppna viktkort 2039', exact: true })

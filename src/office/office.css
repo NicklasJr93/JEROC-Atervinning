@@ -940,3 +940,202 @@
 .office-search svg {
   flex-shrink: 0;
 }
+
+/* Kontorsdemo 0.2: samma kompakta arbetsyta som de godkända mockuperna. */
+.office-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+}
+.office .office-work-as {
+  margin: 0;
+  min-width: 170px;
+  font-size: 10px;
+  color: #607995;
+}
+.office-work-as select {
+  margin-top: 3px;
+  padding: 6px 9px;
+  font-size: 11px;
+}
+.office-acting-banner {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: #edf2ff;
+  color: #335889;
+  padding: 12px 28px;
+  border-bottom: 1px solid #d6e2fa;
+}
+.office-acting-banner small {
+  display: block;
+  margin-top: 3px;
+  color: #68809f;
+}
+.office-acting-banner button {
+  margin-left: auto;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  background: white;
+  border: 1px solid #cadaef;
+  color: #275db0;
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+.office-rule {
+  display: inline-block;
+  color: #158557;
+  background: #e9f8ef;
+  padding: 4px 7px;
+  border-radius: 5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.office-detail-grid .office-table th,
+.office-detail-grid .office-table td {
+  padding: 11px 7px;
+}
+.office-detail-grid .office-table small {
+  max-width: 150px;
+  white-space: normal;
+}
+.office-row-selected td {
+  background: #edf5ff;
+}
+.office-table tbody tr:has(button[aria-label^='Förhandsvisa']) {
+  cursor: pointer;
+}
+.office-table tbody tr:hover td {
+  background: #f4f8fe;
+}
+.office-customer-contact {
+  padding: 15px;
+  margin-top: 14px;
+  background: #f5f9ff;
+  border: 1px solid #e3edf9;
+  border-radius: 10px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.office-customer-symbol {
+  background: #e5f0ff;
+  color: #0b6bea;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+}
+.office-customer-contact small {
+  display: block;
+  font-size: 10px;
+  color: #7489a3;
+  margin-top: 5px;
+}
+.office-customer-contact dl {
+  width: 100%;
+  margin: 4px 0 0;
+  display: grid;
+  grid-template-columns: 55px minmax(0, 1fr);
+  gap: 6px;
+  font-size: 10px;
+}
+.office-customer-contact dt {
+  color: #7b8fa8;
+}
+.office-customer-contact dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.office-scale-facts {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.office-scale-facts span:last-child {
+  background: #e9f8ef;
+}
+.office-scale-facts span:last-child strong {
+  color: #158653;
+}
+@media (min-width: 1380px) {
+  .office-detail-grid {
+    grid-template-columns: minmax(0, 1.55fr) minmax(235px, 0.85fr) minmax(
+        215px,
+        0.8fr
+      );
+    gap: 16px;
+    align-items: start;
+  }
+  .office-detail-grid > div:first-child {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+  }
+  .office-detail-grid > div:last-child {
+    display: contents;
+  }
+  .office-detail-grid > div:last-child > .office-panel:first-child {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  .office-detail-grid > div:last-child > .office-panel:nth-child(2) {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .office-detail-grid > div:last-child > .office-panel:nth-child(3) {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  .office-detail-grid > div:last-child > .office-panel:nth-child(4) {
+    grid-column: 2;
+    grid-row: 3;
+  }
+  .office-detail-grid .office-panel {
+    padding: 18px;
+  }
+  .office-detail-grid .office-table {
+    font-size: 11px;
+  }
+  .office-detail-grid .office-table th {
+    font-size: 9px;
+  }
+  .office-detail-grid .office-material {
+    gap: 6px;
+    min-width: 110px;
+  }
+  .office-detail-grid .office-total {
+    padding: 10px;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .office-detail-grid .office-total strong {
+    font-size: 21px;
+  }
+}
+@media (max-width: 1000px) {
+  .office-topbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 76px;
+    padding: 12px 20px;
+  }
+  .office-acting-banner {
+    padding: 12px 20px;
+    flex-wrap: wrap;
+  }
+  .office-scale-facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media print {
+  .office-acting-banner,
+  .office-work-as {
+    display: none;
+  }
+  .office-detail-grid {
+    display: block;
+  }
+  .office-detail-grid > div:last-child {
+    display: block;
+  }
+}
