@@ -6,7 +6,6 @@ import {
   Login,
   HomePage,
   DraftsPage,
-  PricesPage,
   ProfilePage,
   PasswordPage,
 } from './pages/Overview';
@@ -18,6 +17,7 @@ import {
   SummaryPage,
   DonePage,
 } from './pages/Weighing';
+import { PricesPage, ArticlePricesPage } from './pages/Prices';
 import { VehiclePage } from './pages/Vehicle';
 import { CustomerPage, NewCustomerPage, ReferencePage } from './pages/Customer';
 
@@ -30,7 +30,8 @@ export function App() {
     !loggedIn ||
     passwordRequired ||
     ['/', '/password', '/drafts'].includes(location.pathname) ||
-    location.pathname.includes('/weight/');
+    location.pathname.includes('/weight/') ||
+    location.pathname.startsWith('/prices');
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
@@ -56,6 +57,7 @@ export function App() {
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="/drafts" element={<DraftsPage />} />
           <Route path="/prices" element={<PricesPage />} />
+          <Route path="/prices/:articleId" element={<ArticlePricesPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/password" element={<PasswordPage />} />
           <Route path="/new" element={<ModePage />} />

@@ -169,11 +169,18 @@ export function Nav() {
           key={path}
           className={
             location.pathname === path ||
-            (path === '/drafts' && location.pathname.endsWith('/summary'))
+            (path === '/drafts' && location.pathname.endsWith('/summary')) ||
+            (path === '/prices' && location.pathname.startsWith('/prices/'))
               ? 'active'
               : ''
           }
-          onClick={() => navigate(path)}
+          onClick={() =>
+            navigate(
+              path === '/prices' && location.pathname.startsWith('/prices')
+                ? `${path}${location.search}`
+                : path,
+            )
+          }
         >
           <Icon size={22} />
           <span>{label}</span>

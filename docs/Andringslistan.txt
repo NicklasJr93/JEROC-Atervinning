@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell appversion: 0.2.1. Punkterna 001–014 är genomförda.
+Aktuell appversion: 0.2.2. Punkterna 001–016 är genomförda.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
 Arbetssätt
@@ -258,6 +258,34 @@ Verifiering av v0.2.1
 - 9 servertester, produktionsbygge och Expo-typkontroll passerade.
 - Befintliga lokala utkast och historik behålls; lagringsformatet är oförändrat.
 - Svepkänslan behöver slutligen provas i Expo Go på användarens telefon.
+
+015 – ARTIKELPRISER: PRISTREND OCH KUNDJÄMFÖRELSE
+Status: Genomförd i mobilappen v0.2.2.
+Mockup: docs/mockups/mobil/07_Artikelpriser_Utan_Och_Med_Kund.png
+- Tryck på en artikel i prislistan öppnar Artikelpriser för den artikeln.
+- Utan kund: aktuella A/B/C-priser och pristrend med periodval 3, 6 eller 12 månader.
+- Med kund: kundpris idag, prisnivå/specialpris och skillnad mot A, B och C.
+- Pristrenden visas även med kund vald. Den streckade linjen är kundpris
+  idag som jämförelse; den är inte historik över kundens tidigare priser.
+- Kund kan väljas, bytas och tas bort även inne på artikelvyn.
+- Bakpilen återgår till prislistan med kundval och sökning bevarade.
+- Vyn är skrivskyddad och ändrar inga vägningar eller prisregler.
+- Priser och historik är tydligt märkta fiktiva demoexempel.
+  Verklig prishistorik och kontorets prisregler är ännu inte anslutna.
+
+016 – PRISLISTA: KUNDVAL I TITELRAD OCH FAST ÖVERDEL
+Status: Genomförd i mobilappen v0.2.2.
+- Flytta Lägg till kund till höger om titeln Prislista.
+- Med vald kund visas kompakt namn och tydligt kryss på samma plats.
+- Kundnamn kapas visuellt vid behov så titeln och krysset ryms på små skärmar.
+- Bakpil, titel, kundval och sökruta ligger kvar när listan scrollas.
+- Artikelrader är tryckbara och har en diskret pil för att öppna prisöversikten.
+
+Verifiering av v0.2.2
+- 21 mobiltester passerade, inklusive artikelpris, periodbyte, kundjämförelse,
+  bevarad sökning/kund vid tillbaka och fasta kontroller på 375 och 390 px.
+- Produktionsbygge, 9 servertester och Expo-typkontroll passerade.
+- Befintlig lagring av vägningar är oförändrad.
 
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

@@ -752,3 +752,121 @@ test('kundval visar artikelns demopris, kan bytas och kryss återställer A/B/C 
     await page.evaluate(() => localStorage.getItem('jeroc.mobile.demo.v1')),
   ).toBe(before);
 });
+
+test('artikelpriser visar perioder, kundjämförelse och behåller kund och sökning vid tillbaka', async ({
+  page,
+}) => {
+  await login(page);
+  await page
+    .getByRole('navigation')
+    .getByRole('button', { name: 'Prislista' })
+    .click();
+  await page.getByRole('searchbox').fill('Koppar klass 1');
+  await page
+    .getByRole('button', {
+      name: 'Visa priser för Koppar klass 1',
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByRole('heading', { name: 'Aktuella priser' }),
+  ).toBeVisible();
+  await expect(page.locator('.article-current-prices')).toContainText('82,00');
+  await expect(
+    page.getByRole('img', { name: 'A/B/C pristrend, 12 månader', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: '3 mån', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: '3 mån', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    page.getByRole('img', { name: 'A/B/C pristrend, 3 månader', exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Lägg till kund', exact: true })
+    .click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /Bygg & Riv AB/ })
+    .click();
+  await expect(page.locator('.customer-price-highlight')).toContainText(
+    '84,00 kr/kg',
+  );
+  await expect(page.locator('.customer-price-comparison')).toContainText(
+    '+10,20',
+  );
+  await expect(
+    page.getByRole('img', {
+      name: /A\/B\/C pristrend, 3 månader, med kundpris/,
+    }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.locator('.customer-price-highlight')).toContainText(
+    '84,00 kr/kg',
+  );
+  await page.getByRole('button', { name: 'Tillbaka', exact: true }).click();
+  await expect(page.getByRole('searchbox')).toHaveValue('Koppar klass 1');
+  await expect(
+    page.getByRole('button', { name: 'Byt kund i prislistan' }),
+  ).toContainText('Bygg & Riv AB');
+  await page
+    .getByRole('button', {
+      name: 'Visa priser för Koppar klass 1',
+      exact: true,
+    })
+    .click();
+  await page
+    .getByRole('button', { name: 'Ta bort vald kund', exact: true })
+    .click();
+  await expect(page.locator('.customer-price-highlight')).toHaveCount(0);
+  await expect(
+    page.getByRole('heading', { name: 'Aktuella priser' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('img', { name: 'A/B/C pristrend, 12 månader', exact: true }),
+  ).toBeVisible();
+});
+
+for (const width of [375, 390]) {
+  test(`prislistans titel, kundval och sökning är fasta vid scroll ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 667 });
+    await login(page);
+    await page
+      .getByRole('navigation')
+      .getByRole('button', { name: 'Prislista' })
+      .click();
+    const header = page.locator('.prices-fixed-top');
+    const position = await header.boundingBox();
+    const add = await page
+      .getByRole('button', { name: 'Lägg till kund', exact: true })
+      .boundingBox();
+    const title = await page
+      .getByRole('heading', { name: 'Prislista', exact: true })
+      .boundingBox();
+    expect(add!.x).toBeGreaterThan(title!.x + title!.width - 1);
+    await page
+      .locator('.prices-scroll-list')
+      .evaluate((el) => (el.scrollTop = 600));
+    expect((await header.boundingBox())!.y).toBe(position!.y);
+    await expect(page.getByRole('searchbox')).toBeVisible();
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+    await page
+      .getByRole('button', { name: 'Lägg till kund', exact: true })
+      .click();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: /Anderssons Entreprenad/ })
+      .click();
+    await expect(
+      page.getByRole('button', { name: 'Ta bort vald kund' }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+  });
+}

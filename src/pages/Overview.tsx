@@ -11,8 +11,6 @@ import {
   Scale,
   Truck,
   Trash2,
-  X,
-  Plus,
   UserRound,
   RotateCcw,
 } from 'lucide-react';
@@ -26,17 +24,15 @@ import {
   Modal,
   Nav,
   Notice,
-  Photo,
   Search,
 } from '../components';
 import { useDemo } from '../store';
-import { articleById, articles, demoCustomerPrice } from '../data';
+import { articleById } from '../data';
 import {
   APP_VERSION,
   draftPath,
   dateTime,
   kilos,
-  money,
   totalWeight,
   type Draft,
 } from '../model';
@@ -499,155 +495,6 @@ function WeighingCard({
         <ChevronRight size={19} />
       </button>
     </article>
-  );
-}
-export function PricesPage() {
-  const { data } = useDemo();
-  const [customerId, setCustomerId] = useState<string | undefined>();
-  const [choosing, setChoosing] = useState(false);
-  const [customerSearch, setCustomerSearch] = useState('');
-  const customer = data.customers.find((c) => c.id === customerId);
-  const matches = data.customers.filter((c) =>
-    `${c.name} ${c.number}`
-      .toLowerCase()
-      .includes(customerSearch.toLowerCase()),
-  );
-  const [search, setSearch] = useState('');
-  const filtered = articles.filter((a) =>
-    `${a.name} ${a.description}`.toLowerCase().includes(search.toLowerCase()),
-  );
-  return (
-    <>
-      <Header title="Prislista" />
-      <main className="page-body with-nav">
-        <Search
-          value={search}
-          setValue={setSearch}
-          placeholder="Sök material eller artikel"
-        />
-        <div className="price-customer-bar">
-          {customer ? (
-            <>
-              <button
-                className="price-customer-selected"
-                onClick={() => {
-                  setCustomerSearch('');
-                  setChoosing(true);
-                }}
-                aria-label="Byt kund i prislistan"
-              >
-                <UserRound size={17} />
-                <strong>{customer.name}</strong>
-              </button>
-              <button
-                className="icon-button"
-                aria-label="Ta bort vald kund"
-                onClick={() => setCustomerId(undefined)}
-              >
-                <X size={19} />
-              </button>
-            </>
-          ) : (
-            <button
-              className="price-add-customer"
-              onClick={() => {
-                setCustomerSearch('');
-                setChoosing(true);
-              }}
-            >
-              <Plus size={17} />
-              Lägg till kund
-            </button>
-          )}
-        </div>
-        <div className="price-intro">
-          <span className="badge blue">EXEMPELPRISER</span>
-          <span className="muted small">kr / kg</span>
-        </div>
-        <div
-          className={`price-table ${customer ? 'customer-price-table' : ''}`}
-        >
-          <div className="price-head">
-            <span>Artikel</span>
-            {customer ? (
-              <span>Kundpris</span>
-            ) : (
-              <>
-                <span>A</span>
-                <span>B</span>
-                <span>C</span>
-              </>
-            )}
-          </div>
-          {filtered.map((a) => (
-            <div className="price-row" key={a.id}>
-              <div className="price-article">
-                <Photo index={a.photos[0]} label={a.name} />
-                <strong>{a.name}</strong>
-              </div>
-              {customer ? (
-                <span className="customer-price-value">
-                  <strong>
-                    {money(demoCustomerPrice(customer.id, a).price)}
-                  </strong>
-                  <small
-                    className={`badge ${demoCustomerPrice(customer.id, a).source === 'Specialpris' ? 'green' : 'blue'}`}
-                  >
-                    {demoCustomerPrice(customer.id, a).source}
-                  </small>
-                </span>
-              ) : (
-                a.prices.map((price, index) => (
-                  <span className={`price-value tier-${index}`} key={index}>
-                    {money(price)}
-                  </span>
-                ))
-              )}
-            </div>
-          ))}
-        </div>
-        {!filtered.length && (
-          <Empty title="Inga artiklar hittades" text="Prova ett annat namn." />
-        )}
-        <Notice>
-          {customer
-            ? 'Fiktiva kundpriser för demonstration. Varje artikel har egen prisnivå; specialpris går före A/B/C. Kontorets prissättning och volymberäkning är ännu inte anslutna.'
-            : 'Allmän prislista med fiktiva demopriser. Välj en kund för att visa kundens demopriser.'}
-        </Notice>
-      </main>
-      <Nav />
-      {choosing && (
-        <Modal title="Välj kund" onClose={() => setChoosing(false)}>
-          <Search
-            value={customerSearch}
-            setValue={setCustomerSearch}
-            placeholder="Sök kund eller kundnummer"
-          />
-          <div className="price-customer-options">
-            {matches.map((c) => (
-              <button
-                key={c.id}
-                className="customer-choice"
-                onClick={() => {
-                  setCustomerId(c.id);
-                  setChoosing(false);
-                }}
-              >
-                <UserRound size={20} />
-                <span>
-                  <strong>{c.name}</strong>
-                  <small>
-                    {c.type} · {c.number}
-                  </small>
-                </span>
-                <ChevronRight size={18} />
-              </button>
-            ))}
-            {!matches.length && <p className="muted">Ingen kund hittades.</p>}
-          </div>
-        </Modal>
-      )}
-    </>
   );
 }
 export function ProfilePage() {
