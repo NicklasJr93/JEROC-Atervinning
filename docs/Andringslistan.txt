@@ -98,5 +98,40 @@ Godkänd designversion: 2026-10-07, Git-commit 820785d.
   avstånd så att de fasta delarna inte täcker text eller bildinnehåll.
 - Ingen logga eller bottenmeny på denna sida i vägningsflödet.
 
+006 – ANGE VIKT: FAST SKÄRM, SPARANDE OCH AVBRYT
+Status: Godkänd design. Väntar på implementation och buggundersökning.
+Mockup: docs/mockups/mobil/04_Ange_Vikt.png (version med rött X).
+- Fast skärm utan sidscroll; material, viktfält, siffertangenter och
+  de två huvudknapparna ska rymmas i mobilens tillgängliga yta.
+- Åtgärda klippningen av siffror intill kg i viktfältet: tillräcklig
+  bredd, avstånd, padding och rad-/teckenhöjd även för längre vikter.
+- Undersök och åtgärda missade snabba tangenttryck på mobilen, särskilt
+  när olika siffror trycks växelvis. Orsaken är ännu inte fastställd.
+  Verifiera att varje avsiktligt tryck registreras en gång i rätt ordning,
+  även i Expo Go på telefonen.
+- Inmatad vikt är preliminär. Lägg inte till en materialrad förrän
+  användaren trycker på någon av de två huvudknapparna.
+- Tom vikt och 0 kg får inte sparas som materialrad.
+- ”+ Nästa material”: spara giltig materialrad och öppna materialöversikten
+  för nästa material. Förklaring: ”Spara vikten och välj nästa material.”
+- ”Färdigvägt”: spara giltig materialrad och öppna sammanställningen.
+  Förklaring: ”Spara vikten och gå till sammanställningen.”
+- Hjälptext vid viktfältet: ”Spara vikten med någon av knapparna nedan.”
+- Ta bort Spara och stäng och den tidigare extra knappen under den.
+- Vägningen sparas som utkast när raden sparas och ligger kvar tills
+  vägningen slutförs. Det ska gå att stänga appen efter sparandet och
+  fortsätta från utkastet senare. Inget skickas till kontoret i demon.
+- Från sammanställningen ska det gå att lägga till fler material.
+- Tillbakapilen går till materialdetaljen och lägger inte till någon rad,
+  oavsett om vikten är tom, 0 kg eller ett inmatat belopp.
+- Lägg ett diskret rött X uppe till höger för att avbryta aktuell materialrad.
+- X går tillbaka till den pågående vägningens sammanställning om det finns
+  sparade rader; annars går det till materialöversikten.
+- Har användaren matat in en vikt visar X först bekräftelsen
+  ”Avbryt utan att spara vikten?” med valen Fortsätt väga och Avbryt.
+- Bekräftat avbrott lägger inte till aktuell rad och kastar dess inmatning.
+  Tidigare sparade materialrader och vägningens utkast bevaras.
+- Ingen logga eller bottenmeny på viktskärmen.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.
