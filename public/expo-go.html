@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JEROC · Öppna i Expo Go</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f2f7fb;font:16px/1.6 system-ui,sans-serif;color:#16304d;padding:28px 18px}main{max-width:520px;margin:30px auto;background:white;border-radius:20px;padding:30px;box-shadow:0 12px 40px #16304d0c}h1{font-size:27px;line-height:1.2}.brand{font-size:32px;font-weight:900;color:#0874f6}.brand span{color:#008854}p{color:#647b90}a.button{display:block;background:#008854;color:white;text-decoration:none;text-align:center;padding:16px;border-radius:12px;font-weight:700}img{display:block;width:min(100%,260px);margin:24px auto}ol{padding-left:22px}#status{padding:14px;background:#edf5fd;border-radius:12px;font-size:14px}code{font-size:13px;word-break:break-all}.note{font-size:13px}.hidden{display:none}
+  </style>
+</head>
+<body><main>
+  <div class="brand">JEROC <span>∞</span></div>
+  <h1>Öppna gårdsappen i Expo Go</h1>
+  <p>Appen öppnas utan webbläsarens adressfält. Datorn behöver inte vara igång.</p>
+  <ol>
+    <li>Installera senaste Expo Go på mobilen.</li>
+    <li>Logga in med samma Expo-konto som används för serverns Expo-token.</li>
+    <li>Tryck på knappen på mobilen, eller skanna QR-koden med mobilkameran.</li>
+  </ol>
+  <p id="status" role="status">Kontrollerar Expo-servern…</p>
+  <section id="launch" class="hidden">
+    <a class="button" href="exps://jeroc-atervinning.onrender.com/expo">Öppna i Expo Go</a>
+    <img src="/expo-go-qr.svg" alt="QR-kod till JEROC i Expo Go">
+  </section>
+  <p class="note">Demokonto: <strong>niklas / Demo123!</strong>. Inget skickas till kontoret.</p>
+  <p class="note">Om servern går i vila kan första öppningen ta en stund. Försök igen om appen inte öppnas direkt.</p>
+</main>
+<script>
+  async function check() {
+    const status = document.getElementById('status');
+    try {
+      const response = await fetch('/expo/status', {cache:'no-store'});
+      if (!response.ok) throw new Error();
+      const state = await response.json();
+      document.getElementById('launch').classList.toggle('hidden', !state.ready);
+      status.textContent = !state.enabled
+        ? 'Expo Go är inte aktiverat ännu. Lägg EXPO_TOKEN i Render → Environment och använd den nya Build Command från GitHub-instruktionerna.'
+        : state.ready ? 'Expo-servern är startad. Första laddningen bygger appaketet och kan ta en stund.' : 'Expo-servern startar. Den här sidan kontrollerar igen automatiskt.';
+      if (state.enabled && !state.ready) setTimeout(check, 3000);
+    } catch {
+      status.textContent = 'Kunde inte kontrollera Expo-servern. Ladda om sidan och försök igen.';
+    }
+  }
+  check();
+</script>
+</body></html>

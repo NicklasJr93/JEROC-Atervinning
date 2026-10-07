@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "JEROC Gårdsapp",
-    "slug": "jeroc-gardsapp-demo",
+    "slug": "jeroc-atervinning",
+    "owner": "nicklasjrs-team",
     "version": "0.1.0",
     "orientation": "portrait",
     "platforms": ["ios", "android"],

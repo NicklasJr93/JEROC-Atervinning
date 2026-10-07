@@ -96,8 +96,9 @@ export default function App() {
               {editing ? 'Anslut till din demo' : 'Kan inte ansluta'}
             </Text>
             <Text style={styles.copy}>
-              Låt JEROC-startfönstret vara öppet på datorn. Datorn och mobilen
-              ska vara på samma wifi.
+              {process.env.EXPO_PUBLIC_WEB_APP_URL
+                ? 'Kontrollera att mobilen har internet och försök igen.'
+                : 'Låt JEROC-startfönstret vara öppet på datorn. Datorn och mobilen ska vara på samma wifi.'}
             </Text>
             {error ? <Text style={styles.error}>{error}</Text> : null}
             {editing ? (
@@ -166,7 +167,7 @@ export default function App() {
               onError={() => {
                 setLoading(false);
                 setError(
-                  'Demon på datorn svarar inte. Kontrollera anslutningen och försök igen.',
+                  'Demon svarar inte. Kontrollera anslutningen och försök igen.',
                 );
               }}
               onHttpError={(event) => {

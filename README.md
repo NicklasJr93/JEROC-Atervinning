@@ -20,6 +20,8 @@ För att testa utan att datorn är igång kan webbappen publiceras som en **Web 
 
 Du kan även testa i **Expo Go** med en QR-kod: använd `Windows_Starta_JEROC_Expo.cmd` eller `Mac_Starta_JEROC_Expo.command`. [Expo-instruktioner](expo/README.md).
 
+För **Expo Go utan datorn igång**, använd [Render-instruktionerna för Expo-token och QR-kod](docs/render.md#öppna-i-expo-go-utan-datorn). Expo-servern kan köras i samma Web Service. Den startas först när Expo-inloggningen har konfigurerats i Render.
+
 Datorn och mobilen ska vara på samma wifi. Startfönstret skriver ut datorns nätverksadress, exempelvis `http://192.168.1.10:4173`. Öppna den adress som visas i mobilens webbläsare. Tillåt åtkomst på det privata nätverket om datorns brandvägg frågar. Appen använder inga externa API:er eller kontorsanslutningar.
 
 Utkast finns i **den webbläsare och på den enhet där du skapade dem**. De synkas inte mellan mobil och dator. Behåll samma adress och port när du fortsätter ett test; webbläsarlagring är knuten till adressen. Rensar du webbplatsdata försvinner utkasten.

@@ -152,6 +152,7 @@ if (!stopping) {
     'Installera Expo Go på mobilen. Ha dator och mobil på samma wifi.',
   );
   console.log('iPhone: skanna QR-koden med Kamera. Android: skanna i Expo Go.');
+  console.log('På iPhone måste Expo Go och Expo CLI vara inloggade på samma Expo-konto. Logga vid behov in med npx expo login i expo-mappen före starten.');
   console.log('Demokonto: niklas / Demo123! Inget skickas till kontoret.');
   console.log(
     'Låt det här fönstret vara öppet. Ctrl+C stoppar servrarna som denna startfil har startat.\n',
@@ -162,7 +163,7 @@ if (!stopping) {
     {
       cwd: expoRoot,
       stdio: 'inherit',
-      env: { ...process.env, EXPO_OFFLINE: '1', EXPO_NO_TELEMETRY: '1' },
+      env: { ...process.env, EXPO_NO_TELEMETRY: '1' },
     },
     true,
   );

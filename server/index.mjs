@@ -4,6 +4,7 @@ import { stat } from 'node:fs/promises';
 import { extname, isAbsolute, relative, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
+import { proxyExpo, startExpoGo } from './expo-go.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -55,11 +56,26 @@ async function handle(req, res) {
     return;
   }
   if (pathname === '/healthz') {
-    res.writeHead(200, {
+    const ready = !expoGo.enabled || expoGo.ready;
+    res.writeHead(ready ? 200 : 503, {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
     });
-    res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ status: 'ok' }));
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ status: ready ? 'ok' : 'starting' }));
+    return;
+  }
+  if (pathname === '/expo/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ enabled: expoGo.enabled, ready: expoGo.ready }));
+    return;
+  }
+  const nativeManifest = pathname === '/' && (req.headers['expo-platform'] || req.headers['exponent-platform'] || req.headers.accept?.includes('application/expo+json'));
+  if (nativeManifest || ['/manifest', '/index.exp', '/index.bundle', '/index.ts.bundle'].includes(pathname) || pathname === '/expo' || pathname.startsWith('/expo/')) {
+    if (!expoGo.enabled) {
+      reply(res, 503, 'Expo Go är inte aktiverat. Se /expo-go för instruktioner.');
+      return;
+    }
+    proxyExpo(req, res, expoGo);
     return;
   }
   // Serve only the build directory. Future API routes belong before this block.
@@ -67,7 +83,8 @@ async function handle(req, res) {
     reply(res, 404, 'Not found');
     return;
   }
-  const file = resolve(dist, `.${pathname === '/' ? '/index.html' : pathname}`);
+  const staticPath = pathname === '/' ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
+  const file = resolve(dist, `.${staticPath}`);
   const within = relative(dist, file);
   if (within.startsWith('..') || isAbsolute(within)) {
     reply(res, 404, 'Not found');
@@ -106,6 +123,10 @@ const server = createServer((req, res) => {
     else reply(res, 500, 'Server error');
   });
 });
+const expoGo = startExpoGo({ onFailure: () => {
+  console.error('Expo-servern har stannat. Startar om tjänsten.');
+  stop(1);
+} });
 server.on('error', (error) => {
   console.error('Servern kunde inte starta:', error.code);
   process.exit(1);
@@ -114,11 +135,12 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`JEROC demo lyssnar på port ${server.address().port}`);
 });
 let stopping = false;
-function stop() {
+async function stop(code = 0) {
   if (stopping) return;
   stopping = true;
-  server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 10000).unref();
+  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop()]);
+  process.exit(code);
 }
-process.on('SIGTERM', stop);
-process.on('SIGINT', stop);
+process.on('SIGTERM', () => stop());
+process.on('SIGINT', () => stop());

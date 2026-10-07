@@ -11,7 +11,7 @@ let output = '';
 before(async () => {
   child = spawn(process.execPath, ['server/index.mjs'], {
     cwd: fileURLToPath(new URL('../', import.meta.url)),
-    env: { ...process.env, PORT: '0' },
+    env: { ...process.env, PORT: '0', EXPO_GO_ENABLED: 'false' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const abort = AbortSignal.timeout(10000);
@@ -83,4 +83,18 @@ test('rejects writes and malformed URLs', async () => {
   assert.equal(post.headers.get('allow'), 'GET, HEAD');
   const malformed = await fetch(`${base}/%zz`);
   assert.equal(malformed.status, 400);
+});
+test('web demo stays available while Expo Go waits for account setup', async () => {
+  const status = await fetch(`${base}/expo/status`);
+  assert.deepEqual(await status.json(), { enabled: false, ready: false });
+  const manifest = await fetch(`${base}/expo`, { headers: { 'Expo-Platform': 'ios' } });
+  assert.equal(manifest.status, 503);
+  const nativeRoot = await fetch(base, { headers: { 'Expo-Platform': 'android' } });
+  assert.equal(nativeRoot.status, 503);
+  const setup = await fetch(`${base}/expo-go`);
+  assert.equal(setup.status, 200);
+  assert.match(await setup.text(), /exps:\/\/jeroc-atervinning\.onrender\.com\/expo/);
+  const qr = await fetch(`${base}/expo-go-qr.svg`);
+  assert.equal(qr.status, 200);
+  assert.equal(qr.headers.get('content-type'), 'image/svg+xml');
 });

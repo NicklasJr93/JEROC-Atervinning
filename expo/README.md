@@ -4,13 +4,19 @@ Expo-projektet öppnar den befintliga mobilappen i en React Native WebView på i
 
 ## Prova på mobilen
 
+### Utan datorn igång
+
+Webbdemon finns på Render. Expo-servern kan aktiveras i samma tjänst med en personlig Expo-token och det nya byggkommandot. [Följ Render-instruktionerna](../docs/render.md#öppna-i-expo-go-utan-datorn), och öppna sedan [QR-sidan](https://jeroc-atervinning.onrender.com/expo-go). Den blir användbar när servern har byggts om och token har lagts i Render. Att bara koppla GitHub till Expo publicerar inte en fungerande Expo Go-länk.
+
+### Med utvecklingsserver på din dator
+
 1. Installera senaste **Expo Go** från App Store eller Google Play.
 2. Använd hela, uppackade GitHub-projektet på datorn. **Node.js 24 LTS, minst 24.3**, rekommenderas. Node.js 22.13 eller senare i 22-serien fungerar också.
 3. Dubbelklicka på `Windows_Starta_JEROC_Expo.cmd` eller `Mac_Starta_JEROC_Expo.command` i projektets huvudmapp. De installerar beroenden och startar både mobilappens server och Expo.
 4. Ha datorn och mobilen på samma wifi. På iPhone skannar du terminalens QR-kod med Kamera; på Android använder du Expo Go.
 5. I appen klickar du **Öppna demokontot**, eller använder **niklas / Demo123!**.
 
-Låt startfönstret vara öppet medan du testar. QR-koden skapas på din dator; en LAN-kod från molnmiljön går inte att använda från ditt eget wifi. Detta startflöde använder LAN och behöver inget Expo-konto. Expo Go ska stödja SDK 57, som projektet använder.
+Låt startfönstret vara öppet medan du testar. QR-koden skapas på din dator; en LAN-kod från molnmiljön går inte att använda från ditt eget wifi. På fysisk iPhone kräver aktuell Expo Go att Expo CLI och Expo Go är inloggade på samma konto: kör `npx expo login` i `expo`-mappen och logga in med samma konto i mobilen. Expo Go ska stödja SDK 57, som projektet använder.
 
 Om Mac inte kör filen när du dubbelklickar: öppna Terminal i projektmappen och kör `bash Mac_Starta_JEROC_Expo.command`.
 
@@ -26,7 +32,7 @@ Från projektets huvudmapp kan du också köra:
 npm run expo
 ```
 
-Startfilen installerar projektets låsta beroenden och visar QR-koden. Den använder Expos stödda offline-läge för själva LAN-servern så att uppstarten inte behöver kontakta Expo-tjänster. Beroendeinstallationerna behöver internet.
+Startfilen installerar projektets låsta beroenden och visar QR-koden. Beroendeinstallationer och Expo-inloggning behöver internet. Offline-läge används bara vid paketverifiering i molnmiljön, inte som ersättning för iPhones Expo-inloggning.
 
 För att arbeta i Expo-projektet separat, starta först webbdemon på datorn med den vanliga startfilen. Kör sedan i `expo`:
 

@@ -10,9 +10,10 @@
     "start": "node server/index.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
+    "build:render": "npm run build && npm --prefix expo ci --include=dev --no-audit --no-fund && npm run expo:check",
     "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort",
     "test": "playwright test",
-    "test:server": "node --test server/server.test.mjs",
+    "test:server": "node --test server/*.test.mjs",
     "test:ui": "playwright test --ui",
     "expo": "node scripts/start-expo.mjs",
     "expo:check": "npm --prefix expo run typecheck"
