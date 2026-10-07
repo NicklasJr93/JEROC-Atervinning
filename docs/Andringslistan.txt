@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell appversion: 0.2.0. Punkterna 001–009 är genomförda.
+Aktuell appversion: 0.2.1. Punkterna 001–014 är genomförda.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
 Arbetssätt
@@ -187,7 +187,7 @@ Verifiering av v0.2.0
   på den fysiska telefonen, särskilt för touchkänslan.
 
 010 – SPARAD INFART TILL HEM, UTAN SEPARAT FORDONSLISTA
-Status: Planerad och godkänd. Inte genomförd i appen ännu.
+Status: Genomförd i mobilappen v0.2.1.
 - Ta bort Pågående fordon som separat vy.
 - Efter Spara infart går användaren direkt till hemskärmen.
 - Visa en kort bekräftelse där, exempelvis:
@@ -198,10 +198,10 @@ Status: Planerad och godkänd. Inte genomförd i appen ännu.
   först hinna lasta av.
 - Tillbakapilen från utfarten går till hemskärmen.
 - Den gemensamma listan Vägningar behåller påbörjade vägningar och historik.
-- Detta är en planerad ändring till nästa uppdatering, utan kodändring nu.
+- Genomförd tillsammans med 011–013 i v0.2.1.
 
 011 – VÄGNINGAR: TYDLIGA FLIKAR OCH TRYCKBARA KORT
-Status: Planerad och godkänd. Inte genomförd i appen ännu.
+Status: Genomförd i mobilappen v0.2.1.
 Mockup: docs/mockups/mobil/06_Vagningar_Pagaende_Historik.png
 - Flikarna heter Pågående och Historik. Ta bort de dubbla namnen
   Påbörjade / utkast respektive Historik / inskickade.
@@ -214,7 +214,7 @@ Mockup: docs/mockups/mobil/06_Vagningar_Pagaende_Historik.png
   Infartsvikt märks Infart så den inte förväxlas med materialets nettovikt.
 
 012 – PÅGÅENDE: SVEPA FÖR ATT RADERA MED BEKRÄFTELSE
-Status: Planerad och godkänd. Inte genomförd i appen ännu.
+Status: Genomförd i mobilappen v0.2.1.
 - I fliken Pågående kan kort svepas åt vänster. En röd yta med
   papperskorg glider fram med en tydlig raderingsanimation.
 - Ett kort svep visar papperskorgen; tryck på den öppnar bekräftelsen.
@@ -228,7 +228,36 @@ Status: Planerad och godkänd. Inte genomförd i appen ännu.
 - Skilj horisontellt svep från vertikal listscroll och vanligt korttryck,
   så att svep inte samtidigt öppnar kortet eller stör scrollningen.
 - Färdiga vägningar i Historik förblir låsta och kan inte raderas.
-- Ändringarna i 011–012 sparas för nästa uppdatering, utan kodändring nu.
+- Bekräftad radering sparas lokalt och består efter omladdning.
+
+013 – PRISLISTA: KOMPAKT KUNDVAL OCH KUNDENS PRISER
+Status: Genomförd i mobilappen v0.2.1 efter användarens kompletterande instruktion.
+- Lägg till ett kompakt UI-element Lägg till kund i prislistan.
+- När kund valts visas kundens namn och vad just den kunden har för priser.
+- Ett tydligt kryss vid kundvalet tar bort kunden och återgår till
+  den generella prislistan med A/B/C.
+- Kundvalet ska ta liten plats och behålla den lättlästa listvyn.
+- Kundpriserna visas som information; gårdsanvändaren ändrar inte priser här.
+- Kundvyn visar ett pris per artikel och en etikett A, B, C eller Specialpris.
+- Demoexempel: Bygg & Riv AB har specialpris 84 kr/kg för Koppar klass 1
+  och A för Järnskrot; Erik Johansson har B för Koppar klass 1.
+  Övriga artiklar och nya kunder visas med C som fiktivt demoexempel.
+- Priserna är tydligt märkta exempel; kontorets verkliga prisregler, LME och
+  rullande volymberäkning är ännu inte anslutna. Kundval ändrar inga vägningar.
+
+014 – AKTUELL JEROC-LOGGA
+Status: Genomförd i mobilappen v0.2.1.
+- Använd den godkända transparenta loggan på inloggningen, Expo Go:s
+  anslutnings-/felsida, QR-startsidan och webbflikens ikon.
+- Nytt bildfilnamn gör att äldre cachade bilder inte används på dessa ytor.
+- Övriga flödesvyer behåller den godkända layouten utan extra logga.
+
+Verifiering av v0.2.1
+- 18 mobiltester passerade; efter sista layoutjusteringen passerade även
+  de fyra berörda testerna för svep, fasta kontroller, låst historik och kundpris.
+- 9 servertester, produktionsbygge och Expo-typkontroll passerade.
+- Befintliga lokala utkast och historik behålls; lagringsformatet är oförändrat.
+- Svepkänslan behöver slutligen provas i Expo Go på användarens telefon.
 
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

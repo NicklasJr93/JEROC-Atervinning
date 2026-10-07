@@ -236,3 +236,21 @@ export const initialCustomers: Customer[] = [
     origins: [],
   },
 ];
+
+// Fictional customer price examples for the mobile demo, per article.
+// The office pricing engine and rolling volume rules are not connected yet.
+export const demoCustomerPrices: Record<
+  string,
+  Record<string, { tier: 0 | 1 | 2; special?: number }>
+> = {
+  'customer-build': { 'copper-1': { tier: 0, special: 84 }, iron: { tier: 0 } },
+  'customer-erik': { 'copper-1': { tier: 1 } },
+};
+export function demoCustomerPrice(customerId: string, article: Article) {
+  const example = demoCustomerPrices[customerId]?.[article.id];
+  const tier = example?.tier ?? 2;
+  return {
+    price: example?.special ?? article.prices[tier],
+    source: example?.special != null ? 'Specialpris' : ['A', 'B', 'C'][tier],
+  };
+}

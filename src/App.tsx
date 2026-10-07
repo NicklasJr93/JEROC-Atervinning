@@ -18,7 +18,7 @@ import {
   SummaryPage,
   DonePage,
 } from './pages/Weighing';
-import { VehiclePage, PendingPage } from './pages/Vehicle';
+import { VehiclePage } from './pages/Vehicle';
 import { CustomerPage, NewCustomerPage, ReferencePage } from './pages/Customer';
 
 export function App() {
@@ -29,7 +29,7 @@ export function App() {
   const fixed =
     !loggedIn ||
     passwordRequired ||
-    ['/', '/password'].includes(location.pathname) ||
+    ['/', '/password', '/drafts'].includes(location.pathname) ||
     location.pathname.includes('/weight/');
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -59,7 +59,7 @@ export function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/password" element={<PasswordPage />} />
           <Route path="/new" element={<ModePage />} />
-          <Route path="/pending" element={<PendingPage />} />
+          <Route path="/pending" element={<Navigate to="/" replace />} />
           <Route path="/weigh/:draftId/materials" element={<MaterialsPage />} />
           <Route
             path="/weigh/:draftId/materials/:categoryId"

@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useRef, useEffect, type FormEvent } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Check,
   ChevronRight,
@@ -10,6 +10,9 @@ import {
   MapPin,
   Scale,
   Truck,
+  Trash2,
+  X,
+  Plus,
   UserRound,
   RotateCcw,
 } from 'lucide-react';
@@ -27,7 +30,7 @@ import {
   Search,
 } from '../components';
 import { useDemo } from '../store';
-import { articleById, articles } from '../data';
+import { articleById, articles, demoCustomerPrice } from '../data';
 import {
   APP_VERSION,
   draftPath,
@@ -124,6 +127,17 @@ export function Login() {
   );
 }
 export function HomePage() {
+  const location = useLocation();
+  const navigateHome = useNavigate();
+  const [entrySaved, setEntrySaved] = useState<string | undefined>(
+    location.state?.entrySaved,
+  );
+  useEffect(() => {
+    if (!entrySaved) return;
+    navigateHome('/', { replace: true, state: null });
+    const timer = window.setTimeout(() => setEntrySaved(undefined), 6000);
+    return () => window.clearTimeout(timer);
+  }, [entrySaved, navigateHome]);
   const { data } = useDemo();
   const navigate = useNavigate();
   const ongoing = data.drafts
@@ -157,6 +171,11 @@ export function HomePage() {
           </span>
           <ChevronRight />
         </button>
+        {entrySaved && (
+          <div role="status" className="entry-confirmation">
+            Infarten sparad · {entrySaved} väntar på utvägning.
+          </div>
+        )}
         <div className="section-title">
           <h2>
             Pågående vägningar <span>{ongoing.length}</span>
@@ -214,14 +233,19 @@ function OngoingCard({ draft }: { draft: Draft }) {
 }
 export function DraftsPage() {
   const { data, removeDraft } = useDemo();
-  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [history, setHistory] = useState(false);
   const [deleting, setDeleting] = useState<Draft | null>(null);
+  const [reset, setReset] = useState(0);
+  const listRef = useRef<HTMLElement>(null);
+  const navigate = useNavigate();
+  useEffect(() => {
+    listRef.current?.scrollTo(0, 0);
+  }, [history, search]);
   const drafts = data.drafts
     .filter((d) => (d.status === 'ready') === history)
     .filter((d) =>
-      `${d.number} ${data.customers.find((c) => c.id === d.customerId)?.name ?? ''} ${d.rows
+      `${d.number} ${data.customers.find((c) => c.id === d.customerId)?.name ?? ''} ${d.vehicleInput?.registration ?? ''} ${d.rows
         .filter((r) => r.method === 'vehicle')
         .map((r) => r.registration)
         .join(' ')}`
@@ -229,77 +253,68 @@ export function DraftsPage() {
         .includes(search.toLowerCase()),
     )
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  function closeDelete() {
+    setDeleting(null);
+    setReset((r) => r + 1);
+  }
   return (
     <>
-      <Header title="Vägningar" />
-      <main className="page-body with-nav">
-        <div className="customer-tabs" role="tablist" aria-label="Vägningar">
+      <div className="weighings-fixed-top">
+        <Header title="Vägningar">
           <button
-            role="tab"
-            aria-selected={!history}
-            className={!history ? 'selected' : ''}
-            onClick={() => setHistory(false)}
+            className="avatar-button"
+            aria-label="Öppna profil"
+            onClick={() => navigate('/profile')}
           >
-            Påbörjade / utkast
+            NN
           </button>
-          <button
-            role="tab"
-            aria-selected={history}
-            className={history ? 'selected' : ''}
-            onClick={() => setHistory(true)}
-          >
-            Historik / inskickade
-          </button>
+        </Header>
+        <div className="weighings-controls">
+          <div className="customer-tabs" role="tablist" aria-label="Vägningar">
+            <button
+              role="tab"
+              aria-selected={!history}
+              className={!history ? 'selected' : ''}
+              onClick={() => setHistory(false)}
+            >
+              Pågående
+            </button>
+            <button
+              role="tab"
+              aria-selected={history}
+              className={history ? 'selected' : ''}
+              onClick={() => setHistory(true)}
+            >
+              Historik
+            </button>
+          </div>
+          <Search
+            value={search}
+            setValue={setSearch}
+            placeholder="Sök kund, regnummer eller vägning"
+          />
         </div>
-        <Search
-          value={search}
-          setValue={setSearch}
-          placeholder="Sök vägning, kund eller registreringsnummer"
-        />
+      </div>
+      <main
+        ref={listRef}
+        className="weighings-list"
+        aria-label={history ? 'Historik' : 'Pågående vägningar'}
+      >
+        <p className="muted weighings-count">
+          {drafts.length} {history ? 'färdiga' : 'pågående'} vägningar
+        </p>
         <div className="stack">
           {drafts.map((d) => (
-            <article className="draft-card" key={d.id}>
-              <div className="heading-row">
-                <h2>
-                  #{d.number} · {kilos(totalWeight(d))} kg
-                </h2>
-                <span className={`badge ${history ? 'green' : 'amber'}`}>
-                  {history
-                    ? 'Färdig · låst'
-                    : d.status === 'awaiting-exit'
-                      ? 'Väntar på utvägning'
-                      : 'Utkast'}
-                </span>
-              </div>
-              <p>
-                {d.rows.length} material ·{' '}
-                {data.customers.find((c) => c.id === d.customerId)?.name ??
-                  'Kund ej vald'}
-              </p>
-              <small className="muted">
-                Senast sparat {dateTime(d.updatedAt)}
-              </small>
-              <div className="draft-actions">
-                <Button variant="blue" onClick={() => navigate(draftPath(d))}>
-                  {history ? 'Visa vägning' : 'Fortsätt'}{' '}
-                  <ChevronRight size={18} />
-                </Button>
-                {!history && (
-                  <button
-                    className="delete-draft"
-                    aria-label={`Ta bort utkast ${d.number}`}
-                    onClick={() => setDeleting(d)}
-                  >
-                    Ta bort
-                  </button>
-                )}
-              </div>
-            </article>
+            <WeighingCard
+              key={`${d.id}-${reset}`}
+              draft={d}
+              onDelete={() => setDeleting(d)}
+            />
           ))}
         </div>
         {!drafts.length && (
           <Empty
-            title={history ? 'Ingen historik ännu' : 'Inga utkast här'}
+            title={history ? 'Ingen historik ännu' : 'Inga pågående vägningar'}
             text={
               search
                 ? 'Prova en annan sökning.'
@@ -315,27 +330,188 @@ export function DraftsPage() {
       <Nav />
       {deleting && (
         <Modal
-          title={`Ta bort utkast #${deleting.number}?`}
-          onClose={() => setDeleting(null)}
+          title={
+            deleting.status === 'awaiting-exit'
+              ? 'Vill du radera denna pågående fordonsvägning?'
+              : 'Vill du radera detta utkast?'
+          }
+          onClose={closeDelete}
         >
-          <p>Utkastet tas bort från den här enheten.</p>
+          <p>Vägning #{deleting.number} tas bort från den här enheten.</p>
+          <Button variant="outline" onClick={closeDelete}>
+            Nej
+          </Button>
           <Button
             variant="danger"
             onClick={() => {
-              if (removeDraft(deleting.id)) setDeleting(null);
+              if (removeDraft(deleting.id)) closeDelete();
             }}
           >
-            Ta bort utkast
-          </Button>
-          <Button variant="outline" onClick={() => setDeleting(null)}>
-            Behåll utkast
+            Ja, radera
           </Button>
         </Modal>
       )}
     </>
   );
 }
+function WeighingCard({
+  draft,
+  onDelete,
+}: {
+  draft: Draft;
+  onDelete: () => void;
+}) {
+  const { data } = useDemo();
+  const navigate = useNavigate();
+  const [offset, setOffset] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const gesture = useRef({
+    x: 0,
+    y: 0,
+    initial: 0,
+    offset: 0,
+    axis: '',
+    active: false,
+  });
+  const suppressClick = useRef(false);
+  const locked = draft.status === 'ready';
+  const awaiting = draft.status === 'awaiting-exit';
+  const vehicle = draft.rows.find((r) => r.method === 'vehicle');
+  const registration =
+    vehicle?.registration || draft.vehicleInput?.registration;
+  const customer = data.customers.find((c) => c.id === draft.customerId);
+  const askDelete = () => {
+    setOffset(0);
+    onDelete();
+  };
+  return (
+    <article className={`draft-card swipe-card ${locked ? 'locked-card' : ''}`}>
+      {!locked && (
+        <button
+          className="swipe-delete"
+          aria-label={`Radera vägning ${draft.number}`}
+          tabIndex={offset < 0 ? 0 : -1}
+          aria-hidden={offset === 0}
+          onClick={askDelete}
+        >
+          <Trash2 size={24} />
+          <span>Radera</span>
+        </button>
+      )}
+      <button
+        className="weighing-card-content"
+        aria-label={`Öppna vägning ${draft.number}`}
+        style={{
+          transform: `translateX(${offset}px)`,
+          transition: dragging ? 'none' : undefined,
+        }}
+        onPointerDown={(e) => {
+          if (locked || !e.isPrimary || e.button !== 0) return;
+          suppressClick.current = false;
+          gesture.current = {
+            x: e.clientX,
+            y: e.clientY,
+            initial: offset,
+            offset,
+            axis: '',
+            active: true,
+          };
+        }}
+        onPointerMove={(e) => {
+          const g = gesture.current;
+          if (!g.active) return;
+          const dx = e.clientX - g.x,
+            dy = e.clientY - g.y;
+          if (!g.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 8) {
+            g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+            suppressClick.current = true;
+            if (g.axis === 'x') {
+              e.currentTarget.setPointerCapture(e.pointerId);
+              setDragging(true);
+            }
+          }
+          if (g.axis === 'x') {
+            g.offset = Math.max(-170, Math.min(0, g.initial + dx));
+            setOffset(g.offset);
+          }
+        }}
+        onPointerUp={() => {
+          const g = gesture.current;
+          if (!g.active) return;
+          g.active = false;
+          setDragging(false);
+          if (g.axis === 'x') {
+            if (g.offset <= -130) askDelete();
+            else setOffset(g.offset < -35 ? -88 : 0);
+          }
+        }}
+        onPointerCancel={() => {
+          gesture.current.active = false;
+          suppressClick.current = true;
+          setDragging(false);
+          setOffset(0);
+        }}
+        onClick={(e) => {
+          if (suppressClick.current && e.detail !== 0) {
+            suppressClick.current = false;
+            return;
+          }
+          if (offset !== 0) {
+            setOffset(0);
+            return;
+          }
+          navigate(draftPath(draft));
+        }}
+      >
+        <span className="weighing-card-copy">
+          <strong>
+            {customer?.name || registration || `Vägning #${draft.number}`}
+          </strong>
+          <span className="muted">
+            {registration
+              ? `${registration} · Fordonsvåg`
+              : draft.mode === 'vehicle'
+                ? 'Fordonsvåg'
+                : 'Materialvåg'}
+            {!customer && registration ? ' · Kund ej vald' : ''}
+          </span>
+          <span
+            className={`badge ${locked ? 'green' : awaiting ? 'amber' : 'blue'}`}
+          >
+            {locked && <LockKeyhole size={13} />}
+            {locked
+              ? 'Färdig · låst'
+              : awaiting
+                ? 'Väntar på utvägning'
+                : 'Utkast'}
+          </span>
+          <small className="muted">
+            #{draft.number} · {dateTime(draft.updatedAt)}
+            {locked ? ` · ${draft.rows.length} material` : ''}
+          </small>
+        </span>
+        <span className="weighing-card-weight">
+          {awaiting && <small>Infart</small>}
+          <strong>
+            {kilos(awaiting ? (vehicle?.gross ?? 0) : totalWeight(draft))} kg
+          </strong>
+        </span>
+        <ChevronRight size={19} />
+      </button>
+    </article>
+  );
+}
 export function PricesPage() {
+  const { data } = useDemo();
+  const [customerId, setCustomerId] = useState<string | undefined>();
+  const [choosing, setChoosing] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const customer = data.customers.find((c) => c.id === customerId);
+  const matches = data.customers.filter((c) =>
+    `${c.name} ${c.number}`
+      .toLowerCase()
+      .includes(customerSearch.toLowerCase()),
+  );
   const [search, setSearch] = useState('');
   const filtered = articles.filter((a) =>
     `${a.name} ${a.description}`.toLowerCase().includes(search.toLowerCase()),
@@ -349,16 +525,59 @@ export function PricesPage() {
           setValue={setSearch}
           placeholder="Sök material eller artikel"
         />
+        <div className="price-customer-bar">
+          {customer ? (
+            <>
+              <button
+                className="price-customer-selected"
+                onClick={() => {
+                  setCustomerSearch('');
+                  setChoosing(true);
+                }}
+                aria-label="Byt kund i prislistan"
+              >
+                <UserRound size={17} />
+                <strong>{customer.name}</strong>
+              </button>
+              <button
+                className="icon-button"
+                aria-label="Ta bort vald kund"
+                onClick={() => setCustomerId(undefined)}
+              >
+                <X size={19} />
+              </button>
+            </>
+          ) : (
+            <button
+              className="price-add-customer"
+              onClick={() => {
+                setCustomerSearch('');
+                setChoosing(true);
+              }}
+            >
+              <Plus size={17} />
+              Lägg till kund
+            </button>
+          )}
+        </div>
         <div className="price-intro">
           <span className="badge blue">EXEMPELPRISER</span>
           <span className="muted small">kr / kg</span>
         </div>
-        <div className="price-table">
+        <div
+          className={`price-table ${customer ? 'customer-price-table' : ''}`}
+        >
           <div className="price-head">
             <span>Artikel</span>
-            <span>A</span>
-            <span>B</span>
-            <span>C</span>
+            {customer ? (
+              <span>Kundpris</span>
+            ) : (
+              <>
+                <span>A</span>
+                <span>B</span>
+                <span>C</span>
+              </>
+            )}
           </div>
           {filtered.map((a) => (
             <div className="price-row" key={a.id}>
@@ -366,11 +585,24 @@ export function PricesPage() {
                 <Photo index={a.photos[0]} label={a.name} />
                 <strong>{a.name}</strong>
               </div>
-              {a.prices.map((price, index) => (
-                <span className={`price-value tier-${index}`} key={index}>
-                  {money(price)}
+              {customer ? (
+                <span className="customer-price-value">
+                  <strong>
+                    {money(demoCustomerPrice(customer.id, a).price)}
+                  </strong>
+                  <small
+                    className={`badge ${demoCustomerPrice(customer.id, a).source === 'Specialpris' ? 'green' : 'blue'}`}
+                  >
+                    {demoCustomerPrice(customer.id, a).source}
+                  </small>
                 </span>
-              ))}
+              ) : (
+                a.prices.map((price, index) => (
+                  <span className={`price-value tier-${index}`} key={index}>
+                    {money(price)}
+                  </span>
+                ))
+              )}
             </div>
           ))}
         </div>
@@ -378,11 +610,43 @@ export function PricesPage() {
           <Empty title="Inga artiklar hittades" text="Prova ett annat namn." />
         )}
         <Notice>
-          Allmän prislista med fiktiva demopriser. Kundpriser och prissättning
-          hanteras senare på kontoret.
+          {customer
+            ? 'Fiktiva kundpriser för demonstration. Varje artikel har egen prisnivå; specialpris går före A/B/C. Kontorets prissättning och volymberäkning är ännu inte anslutna.'
+            : 'Allmän prislista med fiktiva demopriser. Välj en kund för att visa kundens demopriser.'}
         </Notice>
       </main>
       <Nav />
+      {choosing && (
+        <Modal title="Välj kund" onClose={() => setChoosing(false)}>
+          <Search
+            value={customerSearch}
+            setValue={setCustomerSearch}
+            placeholder="Sök kund eller kundnummer"
+          />
+          <div className="price-customer-options">
+            {matches.map((c) => (
+              <button
+                key={c.id}
+                className="customer-choice"
+                onClick={() => {
+                  setCustomerId(c.id);
+                  setChoosing(false);
+                }}
+              >
+                <UserRound size={20} />
+                <span>
+                  <strong>{c.name}</strong>
+                  <small>
+                    {c.type} · {c.number}
+                  </small>
+                </span>
+                <ChevronRight size={18} />
+              </button>
+            ))}
+            {!matches.length && <p className="muted">Ingen kund hittades.</p>}
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

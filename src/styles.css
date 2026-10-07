@@ -2348,3 +2348,216 @@ dl > div:last-child {
     height: 36px;
   }
 }
+
+/* Version 0.2.1: fixed weighing controls and swipeable cards. */
+.entry-confirmation {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #e8f6ee;
+  color: #087b4a;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.weighings-fixed-top {
+  flex-shrink: 0;
+  background: #fff;
+  z-index: 2;
+}
+.weighings-fixed-top .page-header {
+  min-height: 64px;
+  padding: 10px 16px;
+}
+.weighings-controls {
+  padding: 0 16px 12px;
+}
+.weighings-controls .customer-tabs {
+  margin: 0 0 12px;
+}
+.weighings-controls .search {
+  margin: 0;
+}
+.weighings-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 0 16px calc(92px + env(safe-area-inset-bottom));
+}
+.weighings-count {
+  margin: 4px 0 10px;
+  font-size: 13px;
+}
+.swipe-card.draft-card {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 14px;
+  background: #d82f3c;
+  border: 1px solid #e4eaf2;
+  box-shadow: 0 2px 8px #132c4a05;
+}
+.weighing-card-content {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 132px;
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+  border: 0;
+  border-radius: 13px;
+  background: #fff;
+  text-align: left;
+  color: #101c3d;
+  touch-action: pan-y;
+  transition: transform 180ms ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.weighing-card-content:focus-visible {
+  outline: 2px solid #0064ff;
+  outline-offset: -3px;
+}
+.weighing-card-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+.weighing-card-copy > strong {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.weighing-card-copy > .muted {
+  font-size: 12px;
+}
+.weighing-card-copy .badge {
+  align-self: flex-start;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 11px;
+  white-space: normal;
+}
+.weighing-card-weight {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+.weighing-card-weight small {
+  font-size: 12px;
+  color: #506685;
+}
+.weighing-card-weight strong {
+  font-size: 17px;
+  white-space: nowrap;
+}
+.weighing-card-content > svg {
+  color: #667d99;
+  flex-shrink: 0;
+}
+.swipe-delete {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 88px;
+  background: transparent;
+  color: #fff;
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+}
+.locked-card .weighing-card-content {
+  touch-action: pan-y;
+}
+@media (max-width: 380px) {
+  .weighing-card-content {
+    padding: 12px;
+    gap: 6px;
+  }
+  .weighing-card-weight strong {
+    font-size: 15px;
+  }
+}
+.price-customer-bar {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  margin: -4px 0 10px;
+  gap: 8px;
+}
+.price-add-customer,
+.price-customer-selected {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: #ecf4ff;
+  color: #065ee6;
+  padding: 9px 12px;
+  border-radius: 11px;
+  font-size: 13px;
+}
+.price-customer-selected {
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+}
+.price-customer-selected strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.price-customer-selected svg {
+  flex-shrink: 0;
+}
+.customer-price-table .price-head,
+.customer-price-table .price-row {
+  grid-template-columns: minmax(0, 1fr) 100px;
+}
+.customer-price-value {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 5px;
+}
+.customer-price-value > strong {
+  font-size: 15px;
+}
+.customer-price-value .badge {
+  font-size: 10px;
+}
+.price-customer-options {
+  max-height: 50dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.price-customer-options .customer-choice {
+  width: 100%;
+}
+
+.weighings-controls .customer-tabs button.selected {
+  color: #fff;
+  background: #0667ff;
+}
+.swipe-card.draft-card {
+  background: #fff;
+}
+.weighing-card-content {
+  border-radius: 0;
+}
+.swipe-delete {
+  width: 170px;
+  padding-left: 82px;
+  background: #d82f3c;
+}

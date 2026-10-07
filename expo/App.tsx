@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -88,9 +89,14 @@ export default function App() {
             keyboardShouldPersistTaps="handled"
             automaticallyAdjustKeyboardInsets
           >
-            <Text style={styles.brand}>
-              JEROC<Text style={styles.brandGreen}> ∞</Text>
-            </Text>
+            <Image
+              source={{
+                uri: `${origin || 'https://jeroc-atervinning.onrender.com'}/images/jeroc-logo-v2.png`,
+              }}
+              style={styles.brandLogo}
+              resizeMode="contain"
+              accessibilityLabel="JEROC Återvinning"
+            />
             <Text style={styles.subtitle}>Gårdsappen · Expo-demo</Text>
             <Text style={styles.title}>
               {editing ? 'Anslut till din demo' : 'Kan inte ansluta'}
@@ -206,13 +212,7 @@ const styles = StyleSheet.create({
   },
   loadingText: { color: '#6f869b', fontSize: 14 },
   connection: { flexGrow: 1, justifyContent: 'center', padding: 28, gap: 14 },
-  brand: {
-    color: '#0874f6',
-    fontSize: 36,
-    fontWeight: '900',
-    letterSpacing: -2,
-  },
-  brandGreen: { color: '#008854', letterSpacing: 0 },
+  brandLogo: { width: 240, height: 104, alignSelf: 'center', marginBottom: 8 },
   subtitle: { color: '#7b90a3', fontSize: 13, marginBottom: 18 },
   title: { color: '#16304d', fontSize: 25, fontWeight: '700' },
   copy: { color: '#6f869b', fontSize: 14, lineHeight: 22 },

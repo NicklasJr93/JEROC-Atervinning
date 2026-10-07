@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   Check,
   ChevronRight,
@@ -9,15 +9,7 @@ import {
   Truck,
   X,
 } from 'lucide-react';
-import {
-  Button,
-  Empty,
-  Header,
-  Notice,
-  Photo,
-  Search,
-  Total,
-} from '../components';
+import { Button, Header, Notice, Photo, Total } from '../components';
 import { articleById } from '../data';
 import {
   dateTime,
@@ -25,10 +17,8 @@ import {
   normalizeRegistration,
   parseWeight,
   vehicleError,
-  type Draft,
   type VehicleRow,
 } from '../model';
-import { useDemo } from '../store';
 import { MissingDraft, useDraft } from './shared';
 
 export function VehiclePage() {
@@ -156,17 +146,14 @@ export function VehiclePage() {
         rows: draft!.rows.map((r) => (r.id === row.id ? savedRow : r)),
       })
     )
-      navigate(
-        exit ? `/weigh/${draft!.id}/summary` : `/pending?just=${draft!.id}`,
-      );
+      navigate(exit ? `/weigh/${draft!.id}/summary` : '/', {
+        state: exit ? undefined : { entrySaved: registration },
+      });
   }
   const add = () => navigate(`/weigh/${draft.id}/materials?back=vehicle`);
   return (
     <>
-      <Header
-        title={`Fordonsvåg · ${exit ? 'Utfart' : 'Infart'}`}
-        back={exit ? '/pending' : '/'}
-      >
+      <Header title={`Fordonsvåg · ${exit ? 'Utfart' : 'Infart'}`} back="/">
         <button
           className="icon-button red-text"
           aria-label="Stäng fordonskort"
@@ -459,107 +446,5 @@ export function VehiclePage() {
         </form>
       </main>
     </>
-  );
-}
-export function PendingPage() {
-  const { data } = useDemo();
-  const navigate = useNavigate();
-  const [search, setSearch] = useState('');
-  const [params] = useSearchParams();
-  const pending = data.drafts
-    .filter((d) => d.status === 'awaiting-exit')
-    .filter((d) =>
-      d.rows.some(
-        (r) =>
-          r.method === 'vehicle' &&
-          r.registration.toLowerCase().includes(search.toLowerCase()),
-      ),
-    );
-  return (
-    <>
-      <Header title="Pågående fordon" />
-      <main className="page-body">
-        <p className="intro">Gårdsplan · Lokalt i demon</p>
-        {params.get('just') && (
-          <Notice tone="green">
-            Infartsvikten är sparad. Öppna fordonet när det är dags att
-            registrera utfart.
-          </Notice>
-        )}
-        <Search
-          value={search}
-          setValue={setSearch}
-          placeholder="Sök registreringsnummer"
-        />
-        <div className="stack">
-          {pending.map((d) => (
-            <PendingCard draft={d} key={d.id} />
-          ))}
-        </div>
-        {!pending.length && (
-          <Empty
-            title="Inga fordon hittades"
-            text={
-              search
-                ? 'Prova ett annat registreringsnummer.'
-                : 'Här visas fordon som har en sparad infartsvikt.'
-            }
-            action={
-              <Button icon={Plus} onClick={() => navigate('/new')}>
-                Starta invägning
-              </Button>
-            }
-          />
-        )}
-      </main>
-    </>
-  );
-}
-function PendingCard({ draft }: { draft: Draft }) {
-  const { data } = useDemo();
-  const navigate = useNavigate();
-  const row = draft.rows.find((r): r is VehicleRow => r.method === 'vehicle');
-  if (!row) return null;
-  const article = articleById(row.articleId);
-  return (
-    <article className="pending-card">
-      <div className="heading-row">
-        <div className="pending-card-title">
-          <Photo index={article.photos[0]} label={article.name} />
-          <div>
-            <h2>{row.registration}</h2>
-            <p>{article.name}</p>
-          </div>
-        </div>
-        <span className="badge amber">Väntar på utfart</span>
-      </div>
-      <dl>
-        <div>
-          <dt>Infart</dt>
-          <dd>{kilos(row.gross ?? 0)} kg</dd>
-        </div>
-        <div>
-          <dt>Registrerad</dt>
-          <dd>{row.entryAt && dateTime(row.entryAt)}</dd>
-        </div>
-        <div>
-          <dt>Kund</dt>
-          <dd>
-            {data.customers.find((c) => c.id === draft.customerId)?.name ??
-              'Ej vald'}
-          </dd>
-        </div>
-        <div>
-          <dt>Invägd av</dt>
-          <dd>Niklas · Gårdsplan</dd>
-        </div>
-      </dl>
-      <Button
-        variant="blue"
-        onClick={() => navigate(`/weigh/${draft.id}/vehicle`)}
-      >
-        Registrera utfart <ChevronRight size={18} />
-      </Button>
-    </article>
   );
 }

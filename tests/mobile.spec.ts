@@ -114,8 +114,9 @@ test('fordonsvikt 124 och separat koppar 12 summeras till 136 på samma kort', a
   await page.getByRole('button', { name: 'Färdigvägt' }).click();
   await expect(page.getByLabel('Vikt vid infart')).toHaveValue('2004');
   await page.getByRole('button', { name: 'Spara infart' }).click();
-  const pending = page.locator('.pending-card').filter({ hasText: 'GHI456' });
-  await pending.getByRole('button', { name: /Registrera utfart/ }).click();
+  await expect(page.getByRole('heading', { name: 'Gårdsappen' })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('GHI456');
+  await page.locator('.pending-mini').filter({ hasText: 'GHI456' }).click();
   await page.getByLabel('Vikt vid utfart').fill('2005');
   await page.getByRole('button', { name: 'Färdigvägt', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText(
@@ -151,6 +152,7 @@ test('fordonsviktavdrag kräver orsak och lämnar spårbart vågunderlag', async
   await expect(page.getByRole('alert')).toContainText('Ange en orsak');
   await page.getByLabel('Orsak', { exact: true }).fill('Betongrester');
   await page.getByRole('button', { name: 'Färdigvägt', exact: true }).click();
+  await expect(page).toHaveURL(/\/summary$/);
   await expect(page.getByTestId('total-weight')).toHaveText('830 kg');
   await page.locator('.evidence summary').click();
   await expect(page.locator('.evidence')).toContainText('12 450 kg');
@@ -164,8 +166,9 @@ test('fordonsviktavdrag kräver orsak och lämnar spårbart vågunderlag', async
   await page
     .locator('.draft-card')
     .filter({ hasText: '#1416' })
-    .getByRole('button', { name: /Fortsätt/ })
+    .getByRole('button', { name: /Öppna vägning/ })
     .click();
+  await expect(page).toHaveURL(/\/summary$/);
   await expect(page.getByTestId('total-weight')).toHaveText('830 kg');
 });
 
@@ -210,7 +213,7 @@ test('ny kund väljs och byte av kund rensar den gamla kundens referens', async 
   await page
     .locator('.draft-card')
     .filter({ hasText: '#1414' })
-    .getByRole('button', { name: /Fortsätt/ })
+    .getByRole('button', { name: /Öppna vägning/ })
     .click();
   await page.getByRole('button', { name: /Lägg till kund/ }).click();
   await page
@@ -269,7 +272,7 @@ test('lagringsfel stoppar klarmarkering och visar fel i stället för framgång'
   await page
     .locator('.draft-card')
     .filter({ hasText: '#1414' })
-    .getByRole('button', { name: /Fortsätt/ })
+    .getByRole('button', { name: /Öppna vägning/ })
     .click();
   await page.evaluate(() => {
     Storage.prototype.setItem = () => {
@@ -413,8 +416,8 @@ test('färdig vägning är låst även via gamla redigeringslänkar', async ({
     .getByRole('navigation')
     .getByRole('button', { name: 'Vägningar' })
     .click();
-  await page.getByRole('tab', { name: 'Historik / inskickade' }).click();
-  await page.getByRole('button', { name: 'Visa vägning' }).click();
+  await page.getByRole('tab', { name: 'Historik' }).click();
+  await page.getByRole('button', { name: /Öppna vägning/ }).click();
   await expect(page.getByText('Färdig · låst', { exact: true })).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Spara färdig vägning' }),
@@ -461,11 +464,7 @@ test('kundens sparade registreringsnummer föreslår kund och utfarten visar ref
     page.getByLabel('Referens (valfritt)', { exact: true }),
   ).toHaveCount(0);
   await page.getByRole('button', { name: 'Spara infart' }).click();
-  await page
-    .locator('.pending-card')
-    .filter({ hasText: 'JKL789' })
-    .getByRole('button', { name: /Registrera utfart/ })
-    .click();
+  await page.locator('.pending-mini').filter({ hasText: 'JKL789' }).click();
   await page.getByRole('button', { name: 'Välj kund', exact: true }).click();
   await page
     .locator('.customer-choice')
@@ -595,3 +594,161 @@ for (const viewport of [
     ).toBeTruthy();
   });
 }
+
+async function swipeCard(
+  page: Page,
+  card: ReturnType<Page['locator']>,
+  distance: number,
+  vertical = 0,
+) {
+  const area = await card.boundingBox();
+  const session = await page.context().newCDPSession(page);
+  const x = area!.x + area!.width - 28,
+    y = area!.y + area!.height / 2;
+  await session.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x, y }],
+  });
+  for (let step = 1; step <= 5; step++) {
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [
+        { x: x - (distance * step) / 5, y: y - (vertical * step) / 5 },
+      ],
+    });
+  }
+  await session.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await session.detach();
+}
+
+test('svep visar radering, kräver bekräftelse och behåller utkast vid Nej', async ({
+  page,
+}) => {
+  await login(page);
+  await page
+    .getByRole('navigation')
+    .getByRole('button', { name: 'Vägningar' })
+    .click();
+  await expect(
+    page.getByRole('tab', { name: 'Pågående', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    page.getByRole('button', { name: 'Fortsätt', exact: true }),
+  ).toHaveCount(0);
+  const draft = page.getByRole('button', {
+    name: 'Öppna vägning 1414',
+    exact: true,
+  });
+  await swipeCard(page, draft, 65);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page
+    .getByRole('button', { name: 'Radera vägning 1414', exact: true })
+    .click();
+  await expect(page.getByRole('dialog')).toContainText(
+    'Vill du radera detta utkast?',
+  );
+  await page.getByRole('button', { name: 'Nej', exact: true }).click();
+  await expect(draft).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+  await swipeCard(page, draft, 155);
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Ja, radera', exact: true }).click();
+  await expect(draft).toHaveCount(0);
+  await page.reload();
+  await expect(draft).toHaveCount(0);
+  await swipeCard(
+    page,
+    page.getByRole('button', { name: 'Öppna vägning 1416', exact: true }),
+    155,
+  );
+  await expect(page.getByRole('dialog')).toContainText(
+    'Vill du radera denna pågående fordonsvägning?',
+  );
+  await page.getByRole('button', { name: 'Stäng', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Öppna vägning 1416', exact: true }),
+  ).toBeVisible();
+});
+
+test('vägningsflikar och sök står kvar vid scroll, historik saknar radering', async ({
+  page,
+}) => {
+  await login(page);
+  await page
+    .getByRole('navigation')
+    .getByRole('button', { name: 'Vägningar' })
+    .click();
+  const controls = await page.locator('.weighings-controls').boundingBox();
+  const list = page.locator('.weighings-list');
+  await swipeCard(
+    page,
+    page.getByRole('button', { name: 'Öppna vägning 1414', exact: true }),
+    0,
+    100,
+  );
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(
+    page.getByRole('heading', { name: 'Vägningar', exact: true }),
+  ).toBeVisible();
+  await list.evaluate((el) => {
+    const spacer = document.createElement('div');
+    spacer.style.height = '1800px';
+    el.appendChild(spacer);
+    el.scrollTop = 900;
+  });
+  expect((await page.locator('.weighings-controls').boundingBox())!.y).toBe(
+    controls!.y,
+  );
+  await expect(
+    page.getByPlaceholder('Sök kund, regnummer eller vägning'),
+  ).toBeVisible();
+  expect(await list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await page.getByRole('tab', { name: 'Historik', exact: true }).click();
+  await expect(page.locator('.swipe-delete')).toHaveCount(0);
+});
+
+test('kundval visar artikelns demopris, kan bytas och kryss återställer A/B/C utan att ändra vägningar', async ({
+  page,
+}) => {
+  await login(page);
+  const before = await page.evaluate(() =>
+    localStorage.getItem('jeroc.mobile.demo.v1'),
+  );
+  await page
+    .getByRole('navigation')
+    .getByRole('button', { name: 'Prislista' })
+    .click();
+  await page.getByRole('searchbox').fill('Koppar klass 1');
+  await page
+    .getByRole('button', { name: 'Lägg till kund', exact: true })
+    .click();
+  await page.getByPlaceholder('Sök kund eller kundnummer').fill('Bygg');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /Bygg & Riv AB/ })
+    .click();
+  await expect(page.locator('.price-row')).toContainText('84,00');
+  await expect(page.locator('.price-row')).toContainText('Specialpris');
+  await expect(page.locator('.price-head')).toContainText('Kundpris');
+  await page.getByRole('button', { name: 'Byt kund i prislistan' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /Erik Johansson/ })
+    .click();
+  await expect(page.locator('.price-row')).toContainText('73,80');
+  await expect(page.locator('.price-row .badge')).toHaveText('B');
+  await page.getByRole('searchbox').fill('Järnskrot');
+  await expect(page.locator('.price-row')).toContainText('1,92');
+  await expect(page.locator('.price-row .badge')).toHaveText('C');
+  await page.getByRole('button', { name: 'Ta bort vald kund' }).click();
+  await expect(page.locator('.price-row .price-value')).toHaveCount(3);
+  await expect(
+    page.getByRole('button', { name: 'Lägg till kund', exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => localStorage.getItem('jeroc.mobile.demo.v1')),
+  ).toBe(before);
+});

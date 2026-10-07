@@ -22,7 +22,7 @@ export function Logo() {
   return (
     <img
       className="company-logo"
-      src="/images/jeroc-logo.png"
+      src="/images/jeroc-logo-v2.png"
       alt="JEROC Återvinning"
     />
   );

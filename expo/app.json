@@ -3,7 +3,7 @@
     "name": "JEROC Gårdsapp",
     "slug": "jeroc-atervinning",
     "owner": "nicklasjrs-team",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "orientation": "portrait",
     "platforms": [
       "ios",
