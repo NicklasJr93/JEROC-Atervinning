@@ -37,6 +37,7 @@ type Context = {
   login: (name: string, password: string) => boolean;
   logout: () => void;
   saveDraft: (draft: Draft) => boolean;
+  markDraftActive: (draftId: string) => boolean;
   removeDraft: (draftId: string) => boolean;
   addCustomer: (customer: Customer, draft?: Draft) => boolean;
   reset: () => boolean;
@@ -132,6 +133,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
           ? ('awaiting-exit' as const)
           : draft.status,
         updatedAt: new Date().toISOString(),
+        activityOrder:
+          Math.max(0, ...data.drafts.map((d) => d.activityOrder ?? 0)) + 1,
       };
       const found = data.drafts.some((d) => d.id === saved.id);
       return persist({
@@ -139,6 +142,19 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         drafts: found
           ? data.drafts.map((d) => (d.id === saved.id ? saved : d))
           : [...data.drafts, saved],
+      });
+    },
+    markDraftActive(draftId) {
+      const data = dataRef.current;
+      const draft = data.drafts.find((d) => d.id === draftId);
+      if (!draft || draft.status === 'ready') return false;
+      const activityOrder =
+        Math.max(0, ...data.drafts.map((d) => d.activityOrder ?? 0)) + 1;
+      return persist({
+        ...data,
+        drafts: data.drafts.map((d) =>
+          d.id === draftId ? { ...d, activityOrder } : d,
+        ),
       });
     },
     removeDraft(draftId) {

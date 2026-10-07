@@ -870,3 +870,55 @@ for (const width of [375, 390]) {
     ).toBeLessThanOrEqual(width);
   });
 }
+
+test('senast sparad infart och senast öppnat utkast ligger överst även med äldre demokort från framtiden', async ({
+  page,
+}) => {
+  await login(page);
+  await page.locator('.ongoing-list .pending-mini').first().click();
+  await page.goto('/');
+  await page.evaluate(() => {
+    const key = 'jeroc.mobile.demo.v1';
+    const data = JSON.parse(localStorage.getItem(key)!);
+    for (const draft of data.drafts) {
+      draft.updatedAt = '2099-01-01T00:00:00.000Z';
+      delete draft.activityOrder;
+    }
+    localStorage.setItem(key, JSON.stringify(data));
+  });
+  await page.reload();
+  await start(page, true);
+  await page.getByLabel('Registreringsnummer').fill('GHI789');
+  await page.getByRole('button', { name: /Välj material/ }).click();
+  await choose(page, 'Järn', 'Järnskrot');
+  await page.getByLabel('Vikt vid infart').fill('3240');
+  await page.getByRole('button', { name: 'Spara infart', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Gårdsappen', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator('.ongoing-list .pending-mini').first(),
+  ).toContainText('GHI789');
+  await page.reload();
+  await expect(
+    page.locator('.ongoing-list .pending-mini').first(),
+  ).toContainText('GHI789');
+  await page
+    .getByRole('navigation')
+    .getByRole('button', { name: 'Vägningar' })
+    .click();
+  await expect(page.locator('.weighing-card-content').first()).toContainText(
+    'GHI789',
+  );
+  await page
+    .getByRole('button', { name: 'Öppna vägning 1414', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Spara utkast', exact: true }).click();
+  await page
+    .getByRole('navigation')
+    .getByRole('button', { name: 'Hem', exact: true })
+    .click();
+  await expect(
+    page.locator('.ongoing-list .pending-mini').first(),
+  ).toContainText('#1414');
+});

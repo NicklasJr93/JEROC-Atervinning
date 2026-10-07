@@ -31,6 +31,7 @@ import { articleById } from '../data';
 import {
   APP_VERSION,
   draftPath,
+  recentDraftFirst,
   dateTime,
   kilos,
   totalWeight,
@@ -138,7 +139,7 @@ export function HomePage() {
   const navigate = useNavigate();
   const ongoing = data.drafts
     .filter((d) => d.status !== 'ready')
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    .sort(recentDraftFirst);
   return (
     <>
       <main className="home-page compact-home">
@@ -195,13 +196,19 @@ export function HomePage() {
   );
 }
 function OngoingCard({ draft }: { draft: Draft }) {
-  const { data } = useDemo();
+  const { data, markDraftActive } = useDemo();
   const navigate = useNavigate();
   const vehicle = draft.rows.find((r) => r.method === 'vehicle');
   const article = draft.rows[0] && articleById(draft.rows[0].articleId);
   const customer = data.customers.find((c) => c.id === draft.customerId);
   return (
-    <button className="pending-mini" onClick={() => navigate(draftPath(draft))}>
+    <button
+      className="pending-mini"
+      onClick={() => {
+        markDraftActive(draft.id);
+        navigate(draftPath(draft));
+      }}
+    >
       {vehicle ? <Truck size={26} /> : <Scale size={26} />}
       <span className="pending-copy">
         <strong>
@@ -248,7 +255,7 @@ export function DraftsPage() {
         .toLowerCase()
         .includes(search.toLowerCase()),
     )
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    .sort(recentDraftFirst);
   function closeDelete() {
     setDeleting(null);
     setReset((r) => r + 1);
@@ -357,7 +364,7 @@ function WeighingCard({
   draft: Draft;
   onDelete: () => void;
 }) {
-  const { data } = useDemo();
+  const { data, markDraftActive } = useDemo();
   const navigate = useNavigate();
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -456,6 +463,7 @@ function WeighingCard({
             setOffset(0);
             return;
           }
+          if (!locked) markDraftActive(draft.id);
           navigate(draftPath(draft));
         }}
       >

@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell appversion: 0.2.2. Punkterna 001–016 är genomförda.
+Aktuell appversion: 0.2.3. Punkterna 001–017 är genomförda.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
 Arbetssätt
@@ -286,6 +286,19 @@ Verifiering av v0.2.2
   bevarad sökning/kund vid tillbaka och fasta kontroller på 375 och 390 px.
 - Produktionsbygge, 9 servertester och Expo-typkontroll passerade.
 - Befintlig lagring av vägningar är oförändrad.
+
+017 – SENASTE PÅGÅENDE VÄGNING ÖVERST
+Status: Genomförd i mobilappen v0.2.3.
+- Efter Spara infart ligger den inkommande fordonsvägningen överst på hem.
+- Senast sparat eller öppnat utkast ligger också överst bland pågående vägningar.
+- Hem och fliken Pågående använder samma aktivitetsordning.
+- Ordningen sparas lokalt och behålls efter omladdning, även om gamla demokort
+  har samma eller senare tidsstämpel. Verkliga sparade klockslag ändras inte.
+- Att öppna ett färdigt, låst kort ändrar inte kortet eller dess aktivitetsordning.
+- Tidigare utkast och historik bevaras; inga demodata behöver återställas.
+- Nytt flödestest verifierar Spara infart → överst på hem, omladdning,
+  ordning i Vägningar samt äldre utkast som sparas igen.
+- Fem berörda mobiltester, produktionsbygge och Expo-typkontroll passerade.
 
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

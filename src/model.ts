@@ -29,6 +29,7 @@ export const draftSchema = z.object({
   status: z.enum(['draft', 'awaiting-exit', 'ready']),
   createdAt: z.string(),
   updatedAt: z.string(),
+  activityOrder: z.number().int().nonnegative().optional(),
   rows: z.array(rowSchema),
   customerId: z.string().optional(),
   reference: z.string(),
@@ -82,7 +83,7 @@ export const storeSchema = z
   });
 export type DemoData = { version: 1; drafts: Draft[]; customers: Customer[] };
 export const STORE_KEY = 'jeroc.mobile.demo.v1';
-export const APP_VERSION = '0.2.2';
+export const APP_VERSION = '0.2.3';
 export const normalizeRegistration = (value: string) =>
   value.toUpperCase().replace(/[\s-]/g, '');
 export const draftPath = (draft: Draft) =>
@@ -256,4 +257,12 @@ export function seedDemo(): DemoData {
       },
     ],
   };
+}
+
+export function recentDraftFirst(a: Draft, b: Draft): number {
+  return (
+    (b.activityOrder ?? 0) - (a.activityOrder ?? 0) ||
+    Date.parse(b.updatedAt) - Date.parse(a.updatedAt) ||
+    b.number - a.number
+  );
 }

@@ -1,7 +1,7 @@
 {
   "name": "jeroc-expo-demo",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.2.3",
   "main": "index.ts",
   "engines": {
     "node": "^22.13.0 || ^24.3.0 || >=25.0.0"
