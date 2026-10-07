@@ -74,5 +74,29 @@ Godkänd designversion: 2026-10-07, Git-commit cdc42ca.
 - Behåll tillbakaknappen och titeln Vägningssätt enligt mockupen.
 - Ingen logga eller bottenmeny på denna sida i vägningsflödet.
 
+005 – MATERIALDETALJ MED SVEPKARUSELL OCH FASTA KONTROLLER
+Status: Godkänd och låst mockup. Väntar på implementation.
+Mockup: docs/mockups/mobil/03_Materialdetalj_Svepkarusell.png
+Godkänd designversion: 2026-10-07, Git-commit 820785d.
+- Materialvalets tre steg benämns Översikten, Underkategorisidan och
+  Materialdetalj (exempelvis Koppar klass 1).
+- De första två stegens befintliga utformning behålls.
+- På materialdetaljen behålls den stora referensbilden.
+- Ta bort raden med miniatyrbilder och karusellens höger-/vänsterknappar.
+- Byt exempelbild genom att svepa åt höger eller vänster på den stora bilden.
+- Visa indikatorprickar ovanpå bildens nederkant: en prick per exempelbild.
+  Aktuell bild har en tydlig vit prick; övriga prickar är mer genomskinliga.
+  Indikatorn uppdateras när användaren byter bild.
+- Behåll rutorna Ingår och Ingår inte samt materialets väljknapp.
+- Komplettering till mockupen: titel och tillbakaknapp är sticky upptill,
+  ovanför bilden, och ligger kvar när innehållet scrollas.
+- Materialets väljknapp är sticky nedtill och alltid tillgänglig, även
+  när de gröna eller röda informationsrutorna innehåller mycket text.
+- Bild och materialinformation scrollas mellan de fasta kontrollerna.
+  Användaren behöver bara scrolla för att läsa mer, inte för att hitta knappen.
+- Ge innehållet och kontrollerna plats för mobilens safe areas och rätt
+  avstånd så att de fasta delarna inte täcker text eller bildinnehåll.
+- Ingen logga eller bottenmeny på denna sida i vägningsflödet.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.
