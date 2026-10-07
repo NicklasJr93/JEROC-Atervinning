@@ -368,10 +368,10 @@ Status: Planerad. Godkänd 2026-10-07; ingen koduppdatering beställd ännu.
 
 023 – BETALNINGSSÄTT PÅ INVÄGNINGSKORTET ENLIGT MOCKUP
 Status: Planerad enligt användarens förtydligande 2026-10-07. Ingen kodändring ännu.
-Mockup (designförslag): docs/mockups/kontor/01_Invagning_Betalningssatt.png
+Godkänd mockup 2026-10-07: docs/mockups/kontor/01_Invagning_Betalningssatt.png
 - Huvudbilden visar Bankkonto valt på invägningskortet före attest.
   Närbilder under visar samma ruta med Swish, Kontant och Kreditfaktura valt.
-  Bilden är ett designförslag och låses först efter användarens godkännande.
+  Användaren har godkänt bilden; den behålls som designunderlag för nästa uppdatering.
 - Ändringen gäller rutan Utbetalning & ID när kontoret kompletterar
   invägningskortet före attest, inte en ny utbetalningsvy.
 - Ersätt det gemensamma fritextfältet med kompakta, tydliga metodval enligt
