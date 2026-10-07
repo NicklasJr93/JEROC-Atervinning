@@ -12,7 +12,7 @@ kompakta val med metodens inmatningsfält direkt under. Gemensam manuell
 ID-kontroll ligger kvar. Rutan används när invägningskortet kompletteras före
 attest.
 
-## Kundlista – nytt designförslag
+## Kundlista – godkänd mockup
 
 [Öppna kundlistan](02_Kundlista.png)
 
@@ -25,7 +25,7 @@ attest.
 
 ![Kundlista](02_Kundlista.png)
 
-## Kundkort – nytt designförslag
+## Kundkort, Översikt – godkänd mockup
 
 [Öppna kundkortet](03_Kundkort_Oversikt.png)
 
@@ -42,8 +42,10 @@ attest.
 
 ![Kundkort](03_Kundkort_Oversikt.png)
 
-Kundvyerna är designförslag för granskning, ännu inte godkända som låst design
-eller införda som en beställd koduppdatering i ÄL. Fullständigt kundkort,
-saldo-/rättelseflöde och kundadministration finns ännu inte i den publicerade
-kontorsdemon. Vid genomförande ska statistik, kundpriser, betalningsuppgifter
-och ändringsknappar följa användarens behörigheter.
+Kundlistan och kundkortets Översikt är godkända som designunderlag 2026-10-07
+och dokumenterade i ÄL 024 som planerade ändringar. Detaljmockuper för de
+övriga fyra kundflikarna återstår; användaren vill först få flikarna
+presenterade i text. Ingen koduppdatering är beställd här. Fullständigt
+kundkort, saldo-/rättelseflöde och kundadministration finns ännu inte i den
+publicerade kontorsdemon. Vid genomförande ska statistik, kundpriser,
+betalningsuppgifter och ändringsknappar följa användarens behörigheter.

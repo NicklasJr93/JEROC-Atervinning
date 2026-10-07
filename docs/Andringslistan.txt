@@ -397,5 +397,33 @@ Godkänd mockup 2026-10-07: docs/mockups/kontor/01_Invagning_Betalningssatt.png
 - Befintliga sparade fritextuppgifter ska bevaras vid en framtida uppdatering.
   Inga riktiga betalningar, bankkopplingar eller fakturaintegrationer ingår här.
 
+024 – KUNDLISTA OCH KUNDKORTETS ÖVERSIKT
+Status: Planerad. Båda mockuperna godkända 2026-10-07; ingen koduppdatering ännu.
+Godkänd kundlista: docs/mockups/kontor/02_Kundlista.png
+Godkänt kundkort, Översikt: docs/mockups/kontor/03_Kundkort_Oversikt.png
+- Menyn Kunder visar kundregistret med sökning på namn, organisationsnummer,
+  kundnummer och registreringsnummer, kundtypfilter samt senaste aktivitet.
+- Listan visar senaste inlämning, vikt under rullande 12 månader, öppna
+  viktkort, saldo och antal kundanpassade prisregler. Hela raden öppnar kunden.
+- Kundkortet behåller Kunder markerat i huvudmenyn. Till kundlistan återgår
+  till listan med sökning och filter bevarade.
+- Flikar på kundkortet: Översikt, Vägningar, Priser, Uppgifter & betalning
+  samt Rättelser & saldo.
+- Översikt visar tydlig rullande tolvmånadersperiod, nettovikt, antal
+  inlämningar, avräknat värde efter rättelser, utbetalt och viktgraf per månad.
+- Materialöversikten visar volym och A/B/C-nivå per artikel, kundens faktiska
+  prisregel samt nästa volymgräns. Kunden får ingen gemensam A/B/C-nivå.
+- Visa senaste viktkort med aktuell status och länk, kontaktuppgifter,
+  betalningsprofil, referenser, ursprungsadresser och registrerade fordon.
+- Visa kundsaldo och rättelser med länk till originalvägningen. Rättelser
+  ingår redan i korrigerad vikt, värde och saldo och ska inte räknas dubbelt.
+- Låsta underlag och tidigare utbetalningar behåller sin historik när
+  kunduppgifter eller kundprisregler ändras.
+- Statistik, kundpriser, betalningsuppgifter och ändringsåtgärder följer
+  användarens behörigheter. Mockuperna visar ett konto med full åtkomst.
+- Användaren vill se detaljmockuper för de övriga flikarna. Flikarna ska
+  först presenteras i text; inga ytterligare bilder eller kodändringar nu.
+- Se docs/mockups/kontor/README.md för bildlänkar och fiktiva exempelbelopp.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.
