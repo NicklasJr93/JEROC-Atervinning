@@ -421,8 +421,27 @@ Godkänt kundkort, Översikt: docs/mockups/kontor/03_Kundkort_Oversikt.png
   kunduppgifter eller kundprisregler ändras.
 - Statistik, kundpriser, betalningsuppgifter och ändringsåtgärder följer
   användarens behörigheter. Mockuperna visar ett konto med full åtkomst.
-- Användaren vill se detaljmockuper för de övriga flikarna. Flikarna ska
-  först presenteras i text; inga ytterligare bilder eller kodändringar nu.
+- Flikarna har presenterats i text. Användaren har därefter beställt en
+  komplett mockupserie för alla fem flikar; ingen koduppdatering är beställd.
+- Godkänd Översikt behålls. De fyra nya detaljmockuperna är designförslag
+  för granskning och låses först efter användarens godkännande:
+  docs/mockups/kontor/04_Kundkort_Vagningar.png
+  docs/mockups/kontor/05_Kundkort_Priser.png
+  docs/mockups/kontor/06_Kundkort_Uppgifter_Betalning.png
+  docs/mockups/kontor/07_Kundkort_Rattelser_Saldo.png
+- Vägningar visar hela kundens historik, statusfilter och länkar till
+  viktkort. Materialvärde skiljs från faktiskt utbetalt efter kvittning.
+- Priser visar A/B/C-jämförelse, volymnivå per artikel, kundprisregler,
+  prisutveckling och spårbar ändringshistorik med giltighetsdatum.
+- Uppgifter & betalning samlar kontakt, sparad betalningsprofil enligt
+  ÄL 023, referenser, ursprungsadresser och registrerade fordon.
+- Rättelser & saldo visar saldoposter, hänvisning till originalviktkort,
+  rättelseunderlag, ansvarig person, kontor och tid. Ett positivt
+  rättelseutkast visas separat och ingår först efter godkännande.
+- Seriens kvittningsexempel: R-003 ger -8 400 kr. Vägning #2039 ger
+  +16 100 kr och betalningen blir 7 700 kr efter avräkning av minussaldot.
+  Senare vägning #2041 ger +8 400 kr kvar att betala. Kvittningen ska inte
+  dras av ytterligare en gång i saldohistoriken.
 - Se docs/mockups/kontor/README.md för bildlänkar och fiktiva exempelbelopp.
 
 Nästa feedback
