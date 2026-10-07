@@ -345,5 +345,57 @@ Status: Genomförd i kontorsdemo v0.2.0.
 - Verifierat: 22 mobilflöden, 9 kontorsflöden, 28 servertester, bygge och Expo-typkontroll.
 - Bank/Swish/Visma, riktig inloggning, databas och mobil/kontorssynkning är inte aktiverade.
 
+022 – ARBETSKÖER, HISTORIK OCH RÄTT MENY PÅ VIKTKORT
+Status: Planerad. Godkänd 2026-10-07; ingen koduppdatering beställd ännu.
+- Invägningar visar nya kort och kort som behöver kompletteras i sin aktiva kö.
+- Attest visar kort som väntar på attest i sin aktiva kö.
+- Utbetalningar visar attesterade kort som är klara för utbetalning i sin aktiva kö.
+- Vid statusändring flyttas kortet till nästa arbetskö och försvinner från den
+  föregående aktiva kön. Demoutbetalda kort visas i historiken.
+- Varje meny får en underflik Historik för kort som gått vidare. Invägningarnas
+  historik ska även kunna användas för att söka upp alla kort vid kundfrågor.
+- När ett kort öppnas från Attest eller Utbetalningar behålls rätt markerad
+  huvudmeny. Tillbakaknappen leder till listan där kortet öppnades, med dess
+  sökning och valda underflik kvar. Kortdetaljen ska inte alltid markera Invägningar.
+- Visa aktuell status och spårbar information om vem som färdigställt,
+  attesterat eller registrerat utbetalningen samt när det skedde.
+- Ett kort som väntar i en kö ska inte visa en påhittad ansvarig person.
+  Visa kön tills en faktisk handläggare finns registrerad.
+- Historiksökning ger inte nya rättigheter att attestera, betala ut eller ändra
+  låsta kort. Befintliga behörigheter och attestgränser fortsätter gälla.
+- Attesterade och demoutbetalda underlag är fortsatt låsta; ändringar görs
+  via rättelseflödet och tidigare historik bevaras.
+
+023 – BETALNINGSSÄTT PÅ INVÄGNINGSKORTET ENLIGT MOCKUP
+Status: Planerad enligt användarens förtydligande 2026-10-07. Ingen kodändring ännu.
+Mockup (designförslag): docs/mockups/kontor/01_Invagning_Betalningssatt.png
+- Huvudbilden visar Bankkonto valt på invägningskortet före attest.
+  Närbilder under visar samma ruta med Swish, Kontant och Kreditfaktura valt.
+  Bilden är ett designförslag och låses först efter användarens godkännande.
+- Ändringen gäller rutan Utbetalning & ID när kontoret kompletterar
+  invägningskortet före attest, inte en ny utbetalningsvy.
+- Ersätt det gemensamma fritextfältet med kompakta, tydliga metodval enligt
+  mockupen: Bankkonto, Swish, Kontant och Kreditfaktura.
+- Ett klick väljer betalningssättet och visar direkt de relevanta fälten
+  under metodvalet. Inget separat navigationssteg behövs för att lägga in dem.
+- Bankkonto: bank, clearingnummer, kontonummer och kontohavare.
+- Swish: telefonnummer och mottagare. Valet ska fungera i det visuella
+  demoflödet även utan en ansluten Swish-tjänst.
+- Kontant: tydlig markering av kontant som betalningssätt; inga kontofält.
+- Kreditfaktura behålls som eget ekonomival enligt mockupen. Valet i denna
+  ruta skapar eller skickar inte någon faktisk kreditfaktura.
+- Hämta kundens sparade betalningsuppgifter när sådana finns och tillåt
+  behörig kontorspersonal att komplettera dem direkt i samma ruta.
+- Visa bara fälten för det valda betalningssättet. Bevara pågående inmatning
+  vid byte mellan metoder och visa tydligt vilket betalningssätt som sparats.
+- Metod och tillhörande uppgifter sparas på kortet och följer med till attest.
+  Saknade obligatoriska uppgifter ska markeras vid respektive fält.
+- Den manuella ID-kontrollen och knappen Verifiera ID ligger kvar under
+  betalningsuppgifterna; ingen automatisk ID- eller mottagarverifiering införs.
+- Behörigheten att hantera betalningsuppgifter gäller även de nya fälten.
+  Attesterade och demoutbetalda kort behåller låsta betalningsuppgifter.
+- Befintliga sparade fritextuppgifter ska bevaras vid en framtida uppdatering.
+  Inga riktiga betalningar, bankkopplingar eller fakturaintegrationer ingår här.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.
