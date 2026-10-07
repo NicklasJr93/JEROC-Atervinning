@@ -5,7 +5,9 @@ Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
 Arbetssätt
-”Lägg till det i Ändringslistan” betyder: dokumentera ändringen här,
+ÄL är vår förkortning för ÄndringsListan.
+”Lägg till det i ÄL” eller ”Lägg till det i Ändringslistan” betyder:
+dokumentera ändringen här,
 utan att börja bygga eller ändra appens kod.
 Godkända mockuper är låsta som designbeslut tills användaren ber om en ändring.
 När användaren beställer genomförandet används denna lista som underlag.
