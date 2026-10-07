@@ -200,5 +200,35 @@ Status: Planerad och godkänd. Inte genomförd i appen ännu.
 - Den gemensamma listan Vägningar behåller påbörjade vägningar och historik.
 - Detta är en planerad ändring till nästa uppdatering, utan kodändring nu.
 
+011 – VÄGNINGAR: TYDLIGA FLIKAR OCH TRYCKBARA KORT
+Status: Planerad och godkänd. Inte genomförd i appen ännu.
+Mockup: docs/mockups/mobil/06_Vagningar_Pagaende_Historik.png
+- Flikarna heter Pågående och Historik. Ta bort de dubbla namnen
+  Påbörjade / utkast respektive Historik / inskickade.
+- Pågående samlar utkast och fordon som väntar på utvägning.
+- Historik visar färdiga, låsta vägningar.
+- Flikarna och sökrutan ligger kvar upptill när listan scrollas.
+- Ta bort Fortsätt-knappen. Hela kortet öppnar vägningen vid ett tryck,
+  med en diskret högerpil som visar att det går att öppna.
+- Visa kund eller registreringsnummer, datum, vikt och tydlig status.
+  Infartsvikt märks Infart så den inte förväxlas med materialets nettovikt.
+
+012 – PÅGÅENDE: SVEPA FÖR ATT RADERA MED BEKRÄFTELSE
+Status: Planerad och godkänd. Inte genomförd i appen ännu.
+- I fliken Pågående kan kort svepas åt vänster. En röd yta med
+  papperskorg glider fram med en tydlig raderingsanimation.
+- Ett kort svep visar papperskorgen; tryck på den öppnar bekräftelsen.
+- Ett längre svep förbi raderingströskeln och släpp öppnar samma
+  bekräftelse. Svepet i sig raderar aldrig vägningen.
+- För ett vanligt utkast: ”Vill du radera detta utkast?”
+- För en sparad infart: ”Vill du radera denna pågående fordonsvägning?”
+- Knappar: Nej och Ja, radera. Radering sker först efter Ja, radera.
+- Vid Nej eller avbruten bekräftelse återgår kortet till sitt vanliga läge
+  och vägningen behålls.
+- Skilj horisontellt svep från vertikal listscroll och vanligt korttryck,
+  så att svep inte samtidigt öppnar kortet eller stör scrollningen.
+- Färdiga vägningar i Historik förblir låsta och kan inte raderas.
+- Ändringarna i 011–012 sparas för nästa uppdatering, utan kodändring nu.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.
