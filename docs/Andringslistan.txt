@@ -1,0 +1,61 @@
+JEROC – ÄNDRINGSLISTAN
+
+Syfte
+Här samlas planerade ändringar så att de kan genomföras tillsammans vid
+nästa uttryckligen beställda koduppdatering.
+
+Arbetssätt
+”Lägg till det i Ändringslistan” betyder: dokumentera ändringen här,
+utan att börja bygga eller ändra appens kod.
+Godkända mockuper är låsta som designbeslut tills användaren ber om en ändring.
+När användaren beställer genomförandet används denna lista som underlag.
+Efter genomförande dokumenteras vad som är klart och vad som återstår.
+Uppladdning av denna fil eller en mockup betyder inte att appen har uppdaterats.
+
+Godkänd designversion: 2026-10-07, Git-commit 3f626be.
+Mockup: docs/mockups/mobil/01_Login_Losenord_Hem.png
+Logga: docs/mockups/mobil/assets/JEROC_Logga_Transparent.png
+Den godkända mockupen finns kvar i den angivna Git-versionen även vid framtida ändringar.
+
+001 – INLOGGNING
+Status: Godkänd och låst mockup. Väntar på implementation.
+- Fast sida; hela sidan ska inte behöva scrollas i normalläget.
+- Kompakt layout enligt den godkända mockupen.
+- Använd den godkända blå/gröna JEROC-loggan, mindre och centrerad på vitt.
+- Loggan visas på inloggningssidan.
+- Behåll användarnamn, lösenord, Logga in och Glömt lösenord.
+- Ta bort extra text/kort som ”Prova utan krångel” och demokontouppgifter.
+- Behåll knappen ”Öppna demokontot” under inloggningsdelen.
+
+002 – BYT LÖSENORD EFTER INLOGGNING
+Status: Godkänd och låst mockup. Väntar på implementation.
+- Visa lösenordsbyte efter inloggning, före hemskärmen.
+- I demon får detta steg visas varje gång demokontot loggar in.
+- Steget är en del av demoflödet; det innebär inte att verklig autentisering byggs.
+- Fast sida enligt mockupen, utan logga eller bottenmeny.
+- Fält: Nuvarande lösenord, Nytt lösenord, Bekräfta nytt lösenord.
+- Visa kraven enligt mockupen: minst 8 tecken, en stor och en liten bokstav,
+  minst en siffra.
+- Knapp: ”Spara och fortsätt”, som leder vidare till hemskärmen.
+
+003 – HEMSKÄRM OCH GEMENSAM VÄGNINGSLISTA
+Status: Godkänd och låst mockup. Väntar på implementation.
+- Fast hemskärm; vid en lång lista scrollar bara listytan.
+- Ta bort stora välkomstkortet, bilden, ”Hej Niklas” och loggan på hemskärmen.
+- Kompakt rubrik/plats och profilinitialer uppe till höger enligt mockupen.
+- Behåll den tydliga gröna knappen ”Starta invägning”.
+- Ta bort separata genvägsboxar för ”Mina utkast” och ”Prislista”.
+- Under startknappen visas ”Pågående vägningar”.
+- Samla både vanliga vägningsutkast och fordonsvägningar som väntar på
+  utvägning i denna lista.
+- Kort visar relevant kund eller registreringsnummer, typ, status,
+  material/vikt och tid enligt mockupen.
+- Tryck på en pågående vägning för att fortsätta den.
+- Bottenmeny: Hem, Vägningar, Prislista, Profil.
+- Byt namnet på tidigare utkastmenyn till ”Vägningar”.
+- Vägningar får flikarna ”Påbörjade / utkast” och ”Historik / inskickade”.
+- Historik/inskickade ska fortsatt följa demon: inget skickas till kontoret.
+- Ingen bottenmeny läggs till under själva flödet för en ny vägning.
+
+Nästa feedback
+Nya godkända ändringar läggs till som nya numrerade poster här.
