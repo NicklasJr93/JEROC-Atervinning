@@ -1529,7 +1529,7 @@ export function OfficeApp() {
                   </section>
                 </div>
                 <div>
-                  <section className="office-panel">
+                  <section className="office-panel office-card-customer">
                     <h2>Kund, referens & ursprung</h2>
                     <label>
                       Kund
@@ -1603,7 +1603,7 @@ export function OfficeApp() {
                       }
                     />
                   </section>
-                  <section className="office-panel">
+                  <section className="office-panel office-card-payment">
                     <h2>Utbetalning & ID</h2>
                     {can(user, 'paymentDetails') ||
                     can(user, 'pay') ||
@@ -1674,7 +1674,7 @@ export function OfficeApp() {
                     onRefresh={terminalDemo.refresh}
                     onNotice={setMessage}
                   />}
-                  <section className="office-panel">
+                  <section className="office-panel office-card-summary">
                     <h2>Sammanställning</h2>
                     {selected.financialPending && (
                       <p className="office-small">

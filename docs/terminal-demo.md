@@ -77,6 +77,11 @@ Vid manuell demoutbetalning jämförs belopp och kvittning med den kundgodkända
 
 ## Automatiska kontroller
 
+Layoutfix 2026-10-09: den breda kortvyn använder namngivna paneler för
+kolumnplacering. Betalning, kundgodkännande och sammanställning ligger
+samlade till höger även när en panel tillkommer. Layouten har kontrollerats
+på 1440 och 2056 pixlars skärmbredd, tillsammans med befintliga kötester.
+
 Kör server-, webb-, bygg- och Expo-kontroller enligt [kontorsdokumentationen](office-demo.md). För terminaldelen kan de riktade kontrollerna köras separat:
 
 ```sh

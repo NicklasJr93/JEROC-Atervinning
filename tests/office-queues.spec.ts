@@ -63,6 +63,25 @@ test('arbetsköerna visar bara sina aktiva kort och kortdetaljer behåller rätt
   await expectQueue(page, [2041], [2039]);
 });
 
+test('kundgodkännande och sammanställning ligger under betalningen på breda skärmar', async ({ page }, testInfo) => {
+  await login(page, 'Lars Andersson');
+  await page.goto('/kontor#/weighings/1416');
+  for (const width of [1440, 2056]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const customer = await page.locator('.office-card-customer').boundingBox();
+    const payment = await page.locator('.office-card-payment').boundingBox();
+    const approval = await page.locator('.approval-controls').boundingBox();
+    const summary = await page.locator('.office-card-summary').boundingBox();
+    expect(customer && payment && approval && summary).toBeTruthy();
+    expect(payment!.x).toBeGreaterThanOrEqual(customer!.x + customer!.width);
+    expect(Math.abs(approval!.x - payment!.x)).toBeLessThan(1);
+    expect(Math.abs(summary!.x - payment!.x)).toBeLessThan(1);
+    expect(approval!.y).toBeGreaterThanOrEqual(payment!.y + payment!.height);
+    expect(summary!.y).toBeGreaterThanOrEqual(approval!.y + approval!.height);
+  }
+  await page.screenshot({ path: testInfo.outputPath('desktop-layout.png'), fullPage: true });
+});
+
 test('attest flyttar kortet till utbetalningskön och kontorets historik visar spårbar status utan extra rättigheter', async ({
   page,
 }) => {
