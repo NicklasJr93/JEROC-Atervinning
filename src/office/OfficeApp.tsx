@@ -21,6 +21,26 @@ import {
   Download,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
+import OfficeDocument from './OfficeDocument';
+import CustomerWorkspace from './CustomerWorkspace';
+import PaymentEditor from './PaymentEditor';
+import CorrectionsWorkspace from './CorrectionsWorkspace';
+import {
+  cardRoute,
+  inQueue,
+  workflowSections,
+  safeAuditText,
+} from './workflow';
+import {
+  migrateOffice,
+  createCorrectionDraft,
+  submitCorrection,
+  approveCorrection,
+  recordPayment,
+  settlementPreview,
+  paymentSummary,
+  validPaymentDetails,
+} from './customer-model';
 import { money, kilos } from '../model';
 import {
   OFFICE_VERSION,
@@ -36,12 +56,15 @@ import {
   type OfficeUser,
   type OfficeCard,
   type Permission,
+  type OfficeCustomer,
+  type PaymentDetails,
 } from './model';
 import PricingWorkspace from './PricingWorkspace';
 import {
   pricingRequest,
   type PricingState,
   type PricingQuote,
+  type PricingSnapshot,
 } from './pricing-client';
 import {
   QueueSummary,
@@ -71,13 +94,24 @@ const cardMoneyVisible = (u: OfficeUser, c: OfficeCard) =>
     can(u, 'pay') ||
     c.rows.every((r) => rowVisible(u, r)));
 const customerName = (c: OfficeCard) =>
-  initialCustomers.find((x) => x.id === c.customerId)?.name ?? 'Kund saknas';
+  c.customerSnapshot?.name ??
+  initialCustomers.find((x) => x.id === c.customerId)?.name ??
+  'Kund saknas';
 export function OfficeApp() {
+  useEffect(() => {
+    const previous = document.title;
+    document.title = 'JEROC · Kontoret';
+    return () => {
+      document.title = previous;
+    };
+  }, []);
   const [initial] = useState(() => {
     try {
       const raw = localStorage.getItem(officeKey);
       return {
-        data: raw ? officeSchema.parse(JSON.parse(raw)) : seedOffice(),
+        data: raw
+          ? migrateOffice(JSON.parse(raw))
+          : migrateOffice(seedOffice()),
         error: '',
       };
     } catch {
@@ -141,13 +175,37 @@ export function OfficeApp() {
   }
   const section = location.pathname.split('/')[1] || 'dashboard';
   const selectedId = Number(location.pathname.split('/')[2]);
-  const selected = data.cards.find((c) => c.id === selectedId);
+  const selected = workflowSections.includes(section)
+    ? data.cards.find((c) => c.id === selectedId)
+    : undefined;
+  const query = new URLSearchParams(location.search);
+  const historyTab = query.get('tab') === 'history';
+  const selectedCustomer =
+    selected?.customerSnapshot ??
+    data.customers.find((c) => c.id === selected?.customerId);
+  let selectedSettlement: ReturnType<typeof settlementPreview> | undefined;
+  if (selected && ['ready', 'balance', 'paid'].includes(selected.status)) {
+    try {
+      selectedSettlement = settlementPreview(data, selected.id);
+    } catch {
+      /* Locked pricing must finish loading before payment. */
+    }
+  }
+  const actorContext = user
+    ? { user, actualUser, office: 'Kontor Norrtälje', actor: auditActor }
+    : undefined;
+  const [documentType, setDocumentType] = useState<'settlement' | 'receipt'>();
+  const [payBalance, setPayBalance] = useState(false);
+  useEffect(() => {
+    setPayBalance(false);
+    setDocumentType(undefined);
+  }, [selectedId, userId, actingId]);
   useEffect(() => {
     let current = true;
     setPricing(undefined);
     if (user && actualUser && (can(user, 'prices') || can(user, 'lmeRead')))
       pricingRequest<PricingState>(
-        section === 'weighings' && selected
+        workflowSections.includes(section) && selected
           ? `state?at=${new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(selected.date))}`
           : 'state',
         user,
@@ -270,7 +328,7 @@ export function OfficeApp() {
     const old = live.cards.find((c) => c.id === card.id);
     if (!old || (right === 'pay' && old.financialPending)) return false;
     if (
-      ['ready', 'paid'].includes(old.status) &&
+      ['ready', 'paid', 'balance'].includes(old.status) &&
       !(right === 'pay' && old.status === 'ready' && card.status === 'paid')
     ) {
       setMessage('Kortet är låst. Ändringar ska göras genom ett rättelsekort.');
@@ -278,7 +336,7 @@ export function OfficeApp() {
     }
     if (
       right === 'attest' &&
-      card.status === 'ready' &&
+      ['ready', 'balance'].includes(card.status) &&
       (old.status !== 'attest' ||
         old.financialPending ||
         amount(old) > user.maxAttest ||
@@ -317,6 +375,16 @@ export function OfficeApp() {
     const principalId = principalRef.current;
     setPriceBusy(true);
     try {
+      if (customerId && can(user, 'customers')) {
+        const customer = dataRef.current.customers.find(
+          (c) => c.id === customerId,
+        );
+        if (customer)
+          await pricingRequest('customers', user, actualUser, {
+            id: customer.id,
+            name: customer.name,
+          });
+      }
       const quote = await pricingRequest<PricingQuote>(
         'quote',
         user,
@@ -353,6 +421,18 @@ export function OfficeApp() {
         {
           ...card,
           customerId,
+          customerSnapshot: customerChange ? undefined : card.customerSnapshot,
+          paymentDetails: customerChange
+            ? dataRef.current.customers.find((c) => c.id === customerId)
+                ?.paymentProfile
+            : card.paymentDetails,
+          payment: customerChange
+            ? paymentSummary(
+                dataRef.current.customers.find((c) => c.id === customerId)
+                  ?.paymentProfile,
+              )
+            : card.payment,
+          idVerified: customerChange ? false : card.idVerified,
           reference: customerChange ? '' : card.reference,
           origin: customerChange ? '' : card.origin,
           rows,
@@ -362,7 +442,7 @@ export function OfficeApp() {
           pricingRowsPending: quote.rows.some((r) => r.price == null),
         },
         customerChange
-          ? `Kund vald: ${initialCustomers.find((c) => c.id === customerId)?.name ?? 'Kund saknas'}. Priser beräknade vid inlämningen.`
+          ? `Kund vald: ${dataRef.current.customers.find((c) => c.id === customerId)?.name ?? 'Kund saknas'}. Priser beräknade vid inlämningen.`
           : 'Priser räknade av servern: artikelregler, rullande 12 månader och kundundantag.',
         customerChange ? 'customers' : 'changePrice',
       );
@@ -375,7 +455,20 @@ export function OfficeApp() {
     }
   }
   async function prepareCard(card: OfficeCard) {
-    if (!user || !actualUser || !can(user, 'prepare') || priceBusy) return;
+    if (
+      !user ||
+      !actualUser ||
+      !can(user, 'prepare') ||
+      priceBusy ||
+      blocked ||
+      !['new', 'complement'].includes(card.status) ||
+      !card.customerId ||
+      !card.idVerified ||
+      !(
+        validPaymentDetails(card.paymentDetails) || Boolean(card.payment.trim())
+      )
+    )
+      return;
     const principalId = principalRef.current;
     setPriceBusy(true);
     try {
@@ -434,6 +527,9 @@ export function OfficeApp() {
             rows,
             status: 'attest',
             preparedBy: user.id,
+            customerSnapshot: dataRef.current.customers.find(
+              (c) => c.id === card.customerId,
+            ),
             pricingSnapshotId: snapshot.id,
             pricedAt: card.date,
             pricingTotal: snapshot.total ?? undefined,
@@ -443,8 +539,14 @@ export function OfficeApp() {
           'Underlaget färdigställt. Serverns prisögonblicksbild låst vid inlämningsdatum och skickat för attest.',
           'prepare',
         )
-      )
+      ) {
         setMessage('Kortet väntar nu på attest.');
+        navigate(
+          can(user, 'attest')
+            ? `/attest/${card.id}`
+            : `/weighings/${card.id}?tab=history`,
+        );
+      }
     } catch (e) {
       setMessage(
         e instanceof Error ? e.message : 'Underlaget kunde inte låsas.',
@@ -454,7 +556,8 @@ export function OfficeApp() {
     }
   }
   const editable =
-    selected && !['attest', 'ready', 'paid'].includes(selected.status);
+    selected &&
+    !['attest', 'ready', 'paid', 'balance'].includes(selected.status);
   const nav = [
     { id: 'dashboard', name: 'Översikt', icon: LayoutDashboard, right: 'view' },
     { id: 'weighings', name: 'Invägningar', icon: Scale, right: 'view' },
@@ -482,24 +585,279 @@ export function OfficeApp() {
     { id: 'users', name: 'Användare', icon: ShieldCheck, right: 'users' },
   ] as const;
   function open(id: number) {
+    if (!user) return;
+    const card = dataRef.current.cards.find((c) => c.id === id);
+    if (!card) return;
     setMessage('');
-    navigate(`/weighings/${id}`);
+    navigate(
+      workflowSections.includes(section)
+        ? `/${section}/${id}${location.search}`
+        : cardRoute(card, user),
+    );
   }
-  const filter =
-    new URLSearchParams(location.search).get('status') ??
-    (section === 'attest'
-      ? 'attest'
-      : section === 'payments'
-        ? 'ready'
-        : undefined);
+  const filter = query.get('status') || undefined;
   const cards = data.cards
+    .filter((c) => inQueue(c, section, historyTab))
     .filter((c) => !filter || c.status === filter)
     .filter((c) =>
-      `${c.id} ${customerName(c)} ${c.reference} ${c.registration ?? ''}`
+      `${c.id} ${c.customerSnapshot?.name ?? data.customers.find((x) => x.id === c.customerId)?.name ?? ''} ${c.reference} ${c.origin} ${c.registration ?? ''}`
         .toLowerCase()
         .includes(search.toLowerCase()),
     )
     .sort((a, b) => b.id - a.id);
+  async function saveCustomer(customer: OfficeCustomer) {
+    if (!user || !actualUser || blocked) return false;
+    const previous = dataRef.current.customers.find(
+      (c) => c.id === customer.id,
+    );
+    const contactPart = (c: OfficeCustomer) => {
+      const { paymentProfile: _profile, audit: _audit, ...contact } = c;
+      return JSON.stringify(contact);
+    };
+    const contactChanged =
+      !previous || contactPart(previous) !== contactPart(customer);
+    const paymentChanged =
+      JSON.stringify(previous?.paymentProfile) !==
+      JSON.stringify(customer.paymentProfile);
+    if (
+      (contactChanged && !can(user, 'customers')) ||
+      (paymentChanged && !can(user, 'paymentDetails'))
+    ) {
+      setMessage('Du saknar behörighet för ändringen av kunduppgifterna.');
+      return false;
+    }
+    const principal = principalRef.current;
+    try {
+      if (can(user, 'customers'))
+        await pricingRequest('customers', user, actualUser, {
+          id: customer.id,
+          name: customer.name,
+        });
+      if (principalRef.current !== principal) return false;
+      const live = dataRef.current;
+      const currentCustomer = live.customers.find((c) => c.id === customer.id);
+      if (
+        previous &&
+        JSON.stringify(currentCustomer) !== JSON.stringify(previous)
+      ) {
+        setMessage(
+          'Kunden ändrades under sparandet. Öppna kunduppgifterna igen innan du sparar.',
+        );
+        return false;
+      }
+      const savedCustomer = {
+        ...customer,
+        audit: [
+          ...(previous?.audit ?? []),
+          {
+            at: new Date().toISOString(),
+            actor: auditActor,
+            text:
+              contactChanged && paymentChanged
+                ? 'Kunduppgifter och betalningsprofil uppdaterade.'
+                : paymentChanged
+                  ? 'Betalningsprofil uppdaterad.'
+                  : 'Kunduppgifter uppdaterade.',
+            actualUserId: actualUser.id,
+            effectiveUserId: user.id,
+          },
+        ],
+      };
+      return persist({
+        ...live,
+        customers: live.customers.some((c) => c.id === customer.id)
+          ? live.customers.map((c) =>
+              c.id === customer.id ? savedCustomer : c,
+            )
+          : [...live.customers, savedCustomer],
+      });
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Kunden kunde inte sparas.');
+      return false;
+    }
+  }
+  async function createCorrection(input: {
+    cardId: number;
+    articleId: string;
+    weightDelta: number;
+    reason: string;
+    document?: string;
+  }) {
+    if (!actorContext || blocked) return false;
+    try {
+      return persist(
+        createCorrectionDraft(dataRef.current, input, actorContext),
+      );
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : 'Rättelsen kunde inte skapas.',
+      );
+      return false;
+    }
+  }
+  async function sendCorrection(id: number) {
+    if (!actorContext || blocked) return false;
+    try {
+      return persist(submitCorrection(dataRef.current, id, actorContext));
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : 'Rättelsen kunde inte skickas.',
+      );
+      return false;
+    }
+  }
+  async function approveCorrectionCard(id: number) {
+    if (!actorContext || !user || !actualUser || blocked || priceBusy)
+      return false;
+    const live = dataRef.current;
+    const principal = principalRef.current;
+    try {
+      const next = approveCorrection(live, id, actorContext);
+      const correction = live.corrections.find((c) => c.id === id)!;
+      const original = live.cards.find((c) => c.id === correction.cardId)!;
+      if (correction.status === 'approved') return true;
+      setPriceBusy(true);
+      // The server validates the full immutable fingerprint before returning its
+      // permission-filtered view, including for attesters without row-price access.
+      const source = await pricingRequest<PricingSnapshot>(
+        'legacy-snapshots',
+        user,
+        actualUser,
+        {
+          cardId: String(original.id),
+          customerId: original.customerId,
+          deliveredAt: original.date,
+          preparedBy: original.preparedBy,
+          rows: original.rows.map((r) => ({
+            articleId: r.articleId,
+            weight: r.weight,
+            price: r.price,
+            tier: r.tier,
+          })),
+        },
+      );
+      if (
+        source.customerId !== original.customerId ||
+        source.deliveredAt !== original.date ||
+        source.rows.length !== original.rows.length ||
+        source.rows.some(
+          (row, index) =>
+            row.articleId !== original.rows[index].articleId ||
+            row.weight !== original.rows[index].weight ||
+            (row.price != null && row.price !== original.rows[index].price),
+        )
+      )
+        throw new Error(
+          'Serverns originalunderlag skiljer sig från det låsta kortet. Rättelsen sparades inte.',
+        );
+      const approvedSnapshot = await pricingRequest<PricingSnapshot>(
+        'approved-corrections',
+        user,
+        actualUser,
+        {
+          sourceSnapshotId: source.id,
+          cardId:
+            correction.serverId ??
+            `correction-${correction.cardId}-${correction.id}-${correction.at}`,
+          rows: [
+            {
+              articleId: correction.articleId,
+              weightDelta: correction.weightDelta,
+            },
+          ],
+          reason: correction.reason,
+          correctedAt: correction.at,
+          creatorId: correction.effectiveUserId,
+          submittedBy: correction.submittedBy,
+          document: correction.document,
+        },
+      );
+      const expected = next.corrections.find((c) => c.id === id)!;
+      if (
+        approvedSnapshot.total !== expected.amountDelta ||
+        approvedSnapshot.rows.length !== 1 ||
+        approvedSnapshot.rows[0].weight !== correction.weightDelta ||
+        approvedSnapshot.customerId !== correction.customerId
+      )
+        throw new Error(
+          'Rättelsens låsta belopp stämmer inte mellan server och kundkort.',
+        );
+      if (principalRef.current !== principal) return false;
+      if (dataRef.current !== live) {
+        setMessage('Uppgifterna ändrades under granskningen. Försök igen.');
+        return false;
+      }
+      const canonicalAudit = (entry: OfficeCard['audit'][number]) => ({
+        ...entry,
+        at: approvedSnapshot.at,
+        actualUserId: approvedSnapshot.actor,
+        effectiveUserId: approvedSnapshot.actingUser,
+        actor: `${approvedSnapshot.actor !== approvedSnapshot.actingUser ? `${live.users.find((u) => u.id === approvedSnapshot.actor)?.name ?? approvedSnapshot.actor} som ` : ''}${live.users.find((u) => u.id === approvedSnapshot.actingUser)?.name ?? approvedSnapshot.actingUser} · Kontor Norrtälje`,
+      });
+      const canonical = {
+        ...next,
+        corrections: next.corrections.map((c) =>
+          c.id === id
+            ? {
+                ...c,
+                approvedBy: approvedSnapshot.approvedBy,
+                approvedAt: approvedSnapshot.at,
+                audit: (c.audit ?? []).map((a, i) =>
+                  i === (c.audit?.length ?? 0) - 1 ? canonicalAudit(a) : a,
+                ),
+              }
+            : c,
+        ),
+        cards: next.cards.map((c) =>
+          c.sourceCorrectionId === id
+            ? {
+                ...c,
+                approvedBy: approvedSnapshot.approvedBy,
+                date: approvedSnapshot.at,
+                audit: c.audit.map(canonicalAudit),
+              }
+            : c,
+        ),
+      };
+      return persist(canonical);
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : 'Rättelsen kunde inte godkännas.',
+      );
+      return false;
+    } finally {
+      setPriceBusy(false);
+    }
+  }
+  function payCard(card: OfficeCard, details?: PaymentDetails) {
+    if (!actorContext || blocked) return false;
+    try {
+      const preview = settlementPreview(dataRef.current, card.id);
+      if (
+        !window.confirm(
+          `Registrera en DEMOutbetalning på ${money(preview.net)} kr? Kvittning ${money(preview.offset)} kr. Ingen betalning skickas.`,
+        )
+      )
+        return false;
+      if (
+        !persist(recordPayment(dataRef.current, card.id, actorContext, details))
+      )
+        return false;
+      setMessage(
+        'Demoutbetalningen är registrerad med underlag. Ingen betalning skickades.',
+      );
+      navigate(`/payments/${card.id}?tab=history`);
+      setPayBalance(false);
+      return true;
+    } catch (e) {
+      setMessage(
+        e instanceof Error
+          ? e.message
+          : 'Utbetalningen kunde inte registreras.',
+      );
+      return false;
+    }
+  }
   const pricingAccess =
     user &&
     (can(user, 'prices') ||
@@ -507,11 +865,15 @@ export function OfficeApp() {
       can(user, 'customerPrices') ||
       can(user, 'customerPriceEdit'));
   const allowed =
-    section === 'weighings'
-      ? 'view'
-      : section === 'prices' && pricingAccess
-        ? undefined
-        : nav.find((n) => n.id === section)?.right;
+    section === 'corrections' &&
+    user &&
+    (can(user, 'corrections') || can(user, 'attest'))
+      ? undefined
+      : section === 'weighings'
+        ? 'view'
+        : section === 'prices' && pricingAccess
+          ? undefined
+          : nav.find((n) => n.id === section)?.right;
   if (!user)
     return (
       <div className="office office-login">
@@ -569,7 +931,11 @@ export function OfficeApp() {
         <nav>
           {nav
             .filter((n) =>
-              n.id === 'prices' ? pricingAccess : can(user, n.right),
+              n.id === 'prices'
+                ? pricingAccess
+                : n.id === 'corrections'
+                  ? can(user, 'corrections') || can(user, 'attest')
+                  : can(user, n.right),
             )
             .map((n) => (
               <button
@@ -622,7 +988,7 @@ export function OfficeApp() {
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
-                if (section === 'dashboard') navigate('/weighings');
+                if (section === 'dashboard') navigate('/weighings?tab=history');
               }}
             />
           </label>
@@ -703,14 +1069,18 @@ export function OfficeApp() {
               <h1>Behörighet saknas</h1>
               <p>Ditt konto har inte åtkomst till denna vy.</p>
             </section>
-          ) : selected && section === 'weighings' ? (
+          ) : selected && workflowSections.includes(section) ? (
             <>
               <button
                 className="office-back"
-                onClick={() => navigate('/weighings')}
+                onClick={() => navigate(`/${section}${location.search}`)}
               >
                 <ArrowLeft size={16} />
-                Till invägningar
+                {section === 'attest'
+                  ? 'Till attest'
+                  : section === 'payments'
+                    ? 'Till utbetalningar'
+                    : 'Till invägningar'}
               </button>
               <div className="office-title">
                 <div>
@@ -898,6 +1268,38 @@ export function OfficeApp() {
                   </section>
                   <section className="office-panel">
                     <h2>Spårbarhet</h2>
+                    <div className="office-process-trace">
+                      {selected.preparedBy && (
+                        <span>
+                          Förberett av{' '}
+                          <strong>
+                            {data.users.find(
+                              (u) => u.id === selected.preparedBy,
+                            )?.name ?? selected.preparedBy}
+                          </strong>
+                        </span>
+                      )}
+                      {selected.approvedBy && (
+                        <span>
+                          Attesterat av{' '}
+                          <strong>
+                            {data.users.find(
+                              (u) => u.id === selected.approvedBy,
+                            )?.name ?? selected.approvedBy}
+                          </strong>
+                        </span>
+                      )}
+                      {data.payments
+                        .filter((p) => p.cardId === selected.id)
+                        .map((p) => (
+                          <span key={p.id}>
+                            Utbetalt av <strong>{p.actor}</strong>
+                            <small>
+                              {fmt(p.date)} · {p.reference}
+                            </small>
+                          </span>
+                        ))}
+                    </div>
                     <ol className="office-audit">
                       {selected.audit
                         .filter(
@@ -911,7 +1313,7 @@ export function OfficeApp() {
                           <li key={i}>
                             <i />
                             <div>
-                              <strong>{a.text}</strong>
+                              <strong>{safeAuditText(user, a.text)}</strong>
                               <small>
                                 {a.actor} · {fmt(a.at)}
                               </small>
@@ -940,8 +1342,12 @@ export function OfficeApp() {
                               {
                                 ...selected,
                                 customerId: undefined,
+                                customerSnapshot: undefined,
                                 reference: '',
                                 origin: '',
+                                paymentDetails: undefined,
+                                payment: '',
+                                idVerified: false,
                               },
                               'Kund borttagen från underlaget.',
                               'customers',
@@ -949,7 +1355,7 @@ export function OfficeApp() {
                         }}
                       >
                         <option value="">Välj kund</option>
-                        {initialCustomers.map((c) => (
+                        {data.customers.map((c) => (
                           <option value={c.id} key={c.id}>
                             {c.name}
                           </option>
@@ -962,40 +1368,26 @@ export function OfficeApp() {
                           <Users size={22} />
                         </span>
                         <div>
-                          <strong>{customerName(selected)}</strong>
+                          <strong>
+                            {selectedCustomer?.name ?? customerName(selected)}
+                          </strong>
                           <small>
-                            {
-                              initialCustomers.find(
-                                (c) => c.id === selected.customerId,
-                              )?.number
-                            }{' '}
-                            ·{' '}
-                            {
-                              initialCustomers.find(
-                                (c) => c.id === selected.customerId,
-                              )?.type
-                            }
+                            {selectedCustomer?.number} ·{' '}
+                            {selectedCustomer?.type}
                           </small>
                         </div>
                         <dl>
                           <dt>Telefon</dt>
-                          <dd>
-                            {initialCustomers.find(
-                              (c) => c.id === selected.customerId,
-                            )?.phone || '–'}
-                          </dd>
+                          <dd>{selectedCustomer?.phone || '–'}</dd>
                           <dt>E-post</dt>
-                          <dd>
-                            {initialCustomers.find(
-                              (c) => c.id === selected.customerId,
-                            )?.email || '–'}
-                          </dd>
+                          <dd>{selectedCustomer?.email || '–'}</dd>
                         </dl>
                       </div>
                     )}
                     <DetailFields
                       key={`${selected.id}-${selected.customerId}`}
                       card={selected}
+                      customer={selectedCustomer}
                       disabled={priceBusy || !editable || !can(user, 'prepare')}
                       save={(reference, origin) =>
                         update(
@@ -1008,15 +1400,25 @@ export function OfficeApp() {
                   </section>
                   <section className="office-panel">
                     <h2>Utbetalning & ID</h2>
-                    {can(user, 'paymentDetails') ? (
-                      <PaymentField
-                        key={`${selected.id}-${selected.status}`}
-                        card={selected}
-                        disabled={priceBusy || !editable}
-                        save={(payment) =>
+                    {can(user, 'paymentDetails') ||
+                    can(user, 'pay') ||
+                    can(user, 'attest') ? (
+                      <PaymentEditor
+                        key={`${selected.id}-${selected.customerId}`}
+                        value={selected.paymentDetails}
+                        legacy={selected.payment}
+                        customerName={selectedCustomer?.name}
+                        disabled={
+                          priceBusy || !editable || !can(user, 'paymentDetails')
+                        }
+                        onSave={(paymentDetails) =>
                           update(
-                            { ...selected, payment },
-                            'Betalningsuppgift ändrad i demon.',
+                            {
+                              ...selected,
+                              paymentDetails,
+                              payment: paymentSummary(paymentDetails),
+                            },
+                            'Betalningssätt och betalningsuppgifter sparade.',
                             'paymentDetails',
                           )
                         }
@@ -1114,16 +1516,32 @@ export function OfficeApp() {
                               update(
                                 {
                                   ...selected,
-                                  status: 'ready',
+                                  status:
+                                    selected.paymentDetails?.method ===
+                                    'balance'
+                                      ? 'balance'
+                                      : 'ready',
                                   approvedBy: user.id,
                                 },
-                                'Kortet attesterat och klart för utbetalning.',
+                                selected.paymentDetails?.method === 'balance'
+                                  ? 'Kortet attesterat. Beloppet sparat på kundens saldo.'
+                                  : 'Kortet attesterat och klart för utbetalning.',
                                 'attest',
                               )
-                            )
+                            ) {
                               setMessage(
-                                'Attesterat. Kortet ligger under Utbetalningar.',
+                                selected.paymentDetails?.method === 'balance'
+                                  ? 'Attesterat. Beloppet ligger på kundens saldo.'
+                                  : 'Attesterat. Kortet ligger under Utbetalningar.',
                               );
+                              navigate(
+                                selected.paymentDetails?.method === 'balance'
+                                  ? `/payments/${selected.id}?tab=history`
+                                  : can(user, 'pay')
+                                    ? `/payments/${selected.id}`
+                                    : `/attest/${selected.id}?tab=history`,
+                              );
+                            }
                           }}
                         >
                           Attestera
@@ -1153,31 +1571,71 @@ export function OfficeApp() {
                         </button>
                       </>
                     )}
-                    {selected.status === 'ready' && can(user, 'pay') && (
-                      <button
-                        className="office-btn"
-                        disabled={selected.financialPending}
-                        onClick={() => {
-                          if (selected.financialPending) return;
-                          if (
-                            window.confirm(
-                              `Registrera en DEMOutbetalning på ${money(amount(selected))} kr? Ingen betalning skickas.`,
-                            ) &&
-                            update(
-                              { ...selected, status: 'paid' },
-                              'Utbetalning registrerad i DEMO. Ingen banktransaktion genomförd.',
-                              'pay',
-                            )
-                          )
-                            setMessage(
-                              'Demoutbetalningen är registrerad. Ingen betalning skickades.',
-                            );
-                        }}
-                      >
-                        Registrera demoutbetalning
-                      </button>
-                    )}
-                    {['ready', 'paid'].includes(selected.status) && (
+                    {['ready', 'balance'].includes(selected.status) &&
+                      can(user, 'pay') &&
+                      selectedSettlement && (
+                        <>
+                          <div className="office-settlement">
+                            <span>
+                              Viktkortets belopp{' '}
+                              <strong>{money(amount(selected))} kr</strong>
+                            </span>
+                            <span>
+                              Kvittning av minussaldo{' '}
+                              <strong>
+                                −{money(selectedSettlement.offset)} kr
+                              </strong>
+                            </span>
+                            {selectedSettlement.negativeCorrectionIds.length >
+                              0 && (
+                              <small>
+                                Rättelser{' '}
+                                {selectedSettlement.negativeCorrectionIds
+                                  .map((id) => `R-${id}`)
+                                  .join(', ')}
+                              </small>
+                            )}
+                            <span>
+                              Att betala ut{' '}
+                              <strong>
+                                {money(selectedSettlement.net)} kr
+                              </strong>
+                            </span>
+                          </div>
+                          {selected.status === 'ready' && (
+                            <button
+                              className="office-btn"
+                              disabled={selected.financialPending || priceBusy}
+                              onClick={() => payCard(selected)}
+                            >
+                              Registrera demoutbetalning
+                            </button>
+                          )}
+
+                          {selected.status === 'balance' && !payBalance && (
+                            <button
+                              className="office-btn"
+                              onClick={() => setPayBalance(true)}
+                            >
+                              Betala ut från saldo
+                            </button>
+                          )}
+                          {selected.status === 'balance' && payBalance && (
+                            <PaymentEditor
+                              allowBalance={false}
+                              customerName={selectedCustomer?.name}
+                              value={
+                                data.customers.find(
+                                  (c) => c.id === selected.customerId,
+                                )?.paymentProfile
+                              }
+                              buttonLabel="Registrera utbetalning"
+                              onSave={(details) => payCard(selected, details)}
+                            />
+                          )}
+                        </>
+                      )}
+                    {['ready', 'paid', 'balance'].includes(selected.status) && (
                       <>
                         <p className="office-lock">
                           <ShieldCheck size={16} />
@@ -1185,41 +1643,46 @@ export function OfficeApp() {
                         </p>
                         <button
                           className="office-btn outline"
-                          onClick={() => window.print()}
+                          disabled={!cardMoneyVisible(user, selected)}
+                          onClick={() => setDocumentType('settlement')}
                         >
                           <Printer size={16} />
-                          Skriv ut demounderlag
+                          Avräkningsnota
                         </button>
+                        {selected.status === 'paid' && (
+                          <button
+                            className="office-btn outline"
+                            disabled={!cardMoneyVisible(user, selected)}
+                            onClick={() => setDocumentType('receipt')}
+                          >
+                            <Printer size={16} />
+                            Utbetalningskvitto
+                          </button>
+                        )}
                       </>
                     )}
                   </section>
-                  {['ready', 'paid'].includes(selected.status) &&
+                  {['ready', 'paid', 'balance'].includes(selected.status) &&
                     can(user, 'corrections') && (
                       <CorrectionForm
                         card={selected}
-                        onSave={(articleId, weightDelta, reason) => {
-                          const next = {
-                            id:
-                              Math.max(
-                                0,
-                                ...data.corrections.map((c) => c.id),
-                              ) + 1,
-                            cardId: selected.id,
-                            customerId: selected.customerId!,
-                            articleId,
-                            weightDelta,
-                            reason,
-                            actor: auditActor,
-                            at: new Date().toISOString(),
-                          };
+                        onSave={async (
+                          articleId,
+                          weightDelta,
+                          reason,
+                          document,
+                        ) => {
                           if (
-                            persist({
-                              ...data,
-                              corrections: [...data.corrections, next],
+                            await createCorrection({
+                              cardId: selected.id,
+                              articleId,
+                              weightDelta,
+                              reason,
+                              document,
                             })
                           ) {
                             setMessage(
-                              'Rättelseutkast skapat. Originalet är oförändrat; saldon och statistik påverkas först när ett framtida rättelseflöde godkänner det.',
+                              'Rättelseutkast skapat. Originalet är oförändrat tills rättelsen godkänns.',
                             );
                             navigate('/corrections');
                           }
@@ -1249,7 +1712,15 @@ export function OfficeApp() {
                   (s, i) => (
                     <button
                       key={s}
-                      onClick={() => navigate(`/weighings?status=${s}`)}
+                      onClick={() =>
+                        navigate(
+                          s === 'attest' && can(user, 'attest')
+                            ? '/attest'
+                            : s === 'ready' && can(user, 'pay')
+                              ? '/payments'
+                              : `/weighings?${['attest', 'ready'].includes(s) ? 'tab=history&' : ''}status=${s}`,
+                        )
+                      }
                     >
                       <span className={`office-metric-icon metric-${i}`}>
                         <Scale size={21} />
@@ -1283,6 +1754,7 @@ export function OfficeApp() {
                       </button>
                     </div>
                     <CardTable
+                      customers={data.customers}
                       cards={data.cards
                         .filter((c) => c.status !== 'paid')
                         .sort((a, b) => b.id - a.id)}
@@ -1295,6 +1767,7 @@ export function OfficeApp() {
                   </section>
                   {data.cards.find((c) => c.id === previewId) && (
                     <CardPreview
+                      customers={data.customers}
                       card={data.cards.find((c) => c.id === previewId)!}
                       user={user}
                       onOpen={open}
@@ -1330,7 +1803,7 @@ export function OfficeApp() {
                                 Vägning #{a.cardId}
                               </button>
                               <small>
-                                {a.text}
+                                {safeAuditText(user, a.text)}
                                 <br />
                                 {a.actor}
                               </small>
@@ -1358,7 +1831,9 @@ export function OfficeApp() {
                       ? `Din attestgräns: ${money(user.maxAttest)} kr. Kort över gränsen visas men kan inte godkännas.`
                       : section === 'payments'
                         ? 'Attesterade kort som är klara för utbetalning i demon.'
-                        : 'Alla viktkort från gårdsplan.'}
+                        : historyTab
+                          ? 'Sök alla viktkort och följ var de finns i arbetsflödet.'
+                          : 'Nya kort och underlag som behöver kompletteras.'}
                   </p>
                 </div>
                 {can(user, 'reports') && (
@@ -1374,35 +1849,68 @@ export function OfficeApp() {
               {(section === 'attest' || section === 'payments') && (
                 <QueueSummary cards={data.cards} user={user} mode={section} />
               )}
-              {['weighings', 'attest', 'payments'].includes(section) && (
-                <div className="office-filters">
-                  <button
-                    className={!filter ? 'active' : ''}
-                    onClick={() => navigate(`/${section}?status=`)}
-                  >
-                    Alla
-                  </button>
-                  {Object.entries(statusNames)
-                    .filter(
-                      ([s]) =>
-                        section === 'weighings' ||
-                        (section === 'payments'
-                          ? ['ready', 'paid'].includes(s)
-                          : ['attest', 'complement', 'ready'].includes(s)),
-                    )
-                    .map(([s, label]) => (
-                      <button
-                        key={s}
-                        className={filter === s ? 'active' : ''}
-                        onClick={() => navigate(`/${section}?status=${s}`)}
-                      >
-                        {label}
-                      </button>
-                    ))}
+              <div className="office-queue-controls">
+                <div
+                  role="tablist"
+                  aria-label="Vägningskö"
+                  className="office-filters"
+                >
+                  {['Aktiva', 'Historik'].map((label, i) => (
+                    <button
+                      key={label}
+                      role="tab"
+                      aria-selected={historyTab === Boolean(i)}
+                      className={historyTab === Boolean(i) ? 'active' : ''}
+                      onClick={() => {
+                        setPreviewId(undefined);
+                        navigate(`/${section}${i ? '?tab=history' : ''}`);
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
-              )}
+                <div className="office-queue-search">
+                  <label className="office-search">
+                    <Search size={17} />
+                    <input
+                      aria-label="Sök i kön"
+                      placeholder="Sök viktkort, kund, registrering eller referens…"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                  </label>
+                  <select
+                    aria-label="Filtrera status"
+                    value={filter ?? ''}
+                    onChange={(e) => {
+                      const q = new URLSearchParams(location.search);
+                      e.target.value
+                        ? q.set('status', e.target.value)
+                        : q.delete('status');
+                      navigate(`/${section}?${q}`);
+                    }}
+                  >
+                    <option value="">Alla statusar</option>
+                    {Object.entries(statusNames)
+                      .filter(([status]) =>
+                        data.cards.some(
+                          (c) =>
+                            c.status === status &&
+                            inQueue(c, section, historyTab),
+                        ),
+                      )
+                      .map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
               <section className="office-panel">
                 <CardTable
+                  customers={data.customers}
                   cards={cards}
                   showMoney={can(user, 'prices') || can(user, 'reports')}
                   user={user}
@@ -1416,6 +1924,7 @@ export function OfficeApp() {
               </section>
               {cards.find((c) => c.id === previewId) && (
                 <CardPreview
+                  customers={data.customers}
                   card={cards.find((c) => c.id === previewId)!}
                   user={user}
                   onOpen={open}
@@ -1423,65 +1932,17 @@ export function OfficeApp() {
               )}
             </>
           ) : section === 'customers' ? (
-            <>
-              <h1>Kunder</h1>
-              <section className="office-panel">
-                <table className="office-table">
-                  <thead>
-                    <tr>
-                      <th>Kund</th>
-                      <th>Typ</th>
-                      <th>Kontakt</th>
-                      <th>Vägningar</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {initialCustomers
-                      .filter((c) =>
-                        c.name.toLowerCase().includes(search.toLowerCase()),
-                      )
-                      .map((c) => (
-                        <tr key={c.id}>
-                          <td>
-                            <strong>{c.name}</strong>
-                            <small>{c.number}</small>
-                          </td>
-                          <td>{c.type}</td>
-                          <td>{c.phone}</td>
-                          <td>
-                            <button
-                              className="office-link"
-                              onClick={() => {
-                                setSearch(c.name);
-                                navigate('/weighings');
-                              }}
-                            >
-                              Visa{' '}
-                              {
-                                data.cards.filter((x) => x.customerId === c.id)
-                                  .length
-                              }{' '}
-                              viktkort
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-                {can(user, 'customerPrices') && (
-                  <button
-                    className="office-btn outline"
-                    onClick={() => navigate('/prices?tab=customer-prices')}
-                  >
-                    Kundanpassade skrotpriser
-                  </button>
-                )}
-                <p className="office-small">
-                  Kundregistret är fiktivt. I första versionen kopplar du kunder
-                  till viktkort; fullständig kundadministration kommer senare.
-                </p>
-              </section>
-            </>
+            <CustomerWorkspace
+              data={data}
+              user={user}
+              actualUser={actualUser!}
+              onSaveCustomer={saveCustomer}
+              onOpenCard={open}
+              onNotice={setMessage}
+              onCreateCorrection={createCorrection}
+              onSubmitCorrection={sendCorrection}
+              onApproveCorrection={approveCorrectionCard}
+            />
           ) : ['prices', 'lme'].includes(section) ? (
             <PricingWorkspace
               user={user}
@@ -1506,60 +1967,14 @@ export function OfficeApp() {
               }
             />
           ) : section === 'corrections' ? (
-            <>
-              <h1>Rättelseutkast</h1>
-              <p>
-                Spårbara utkast kopplade till original och kund. Godkännande,
-                saldo och volymjustering byggs i nästa steg.
-              </p>
-              <section className="office-panel">
-                {!data.corrections.length ? (
-                  <p>
-                    Inga rättelseutkast ännu. Öppna ett låst kort för att skapa
-                    ett utkast.
-                  </p>
-                ) : (
-                  <table className="office-table">
-                    <thead>
-                      <tr>
-                        <th>Rättelse</th>
-                        <th>Original</th>
-                        <th>Material / viktändring</th>
-                        <th>Orsak</th>
-                        <th>Skapad av</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.corrections.map((c) => (
-                        <tr key={c.id}>
-                          <td>R-{c.id} · Utkast</td>
-                          <td>
-                            <button
-                              className="office-link"
-                              onClick={() => open(c.cardId)}
-                            >
-                              #{c.cardId}
-                            </button>
-                          </td>
-                          <td>
-                            {articleById(c.articleId).name}
-                            <small>
-                              {c.weightDelta > 0 ? '+' : ''}
-                              {kilos(c.weightDelta)} kg
-                            </small>
-                          </td>
-                          <td>{c.reason}</td>
-                          <td>
-                            {c.actor}
-                            <small>{fmt(c.at)}</small>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </section>
-            </>
+            <CorrectionsWorkspace
+              data={data}
+              user={user}
+              onOpenCard={open}
+              onSubmit={sendCorrection}
+              onApprove={approveCorrectionCard}
+              busy={priceBusy}
+            />
           ) : section === 'users' ? (
             <UserAdmin
               users={data.users}
@@ -1589,6 +2004,21 @@ export function OfficeApp() {
                 Till översikten
               </button>
             </section>
+          )}
+          {documentType && selected && cardMoneyVisible(user, selected) && (
+            <OfficeDocument
+              card={selected}
+              customer={selectedCustomer}
+              payment={data.payments.find((p) => p.cardId === selected.id)}
+              showRowPrice={(row) => rowVisible(user, row)}
+              showPaymentDetails={
+                can(user, 'paymentDetails') ||
+                can(user, 'pay') ||
+                can(user, 'attest')
+              }
+              type={documentType}
+              onClose={() => setDocumentType(undefined)}
+            />
           )}
           <footer className="office-footer">
             JEROC Kontorsdemo {OFFICE_VERSION} · Lokal testdata ·{' '}
@@ -1643,6 +2073,7 @@ function MaterialImage({ id }: { id: string }) {
 }
 function CardTable({
   cards,
+  customers,
   showMoney,
   user,
   open,
@@ -1650,6 +2081,7 @@ function CardTable({
   onSelect,
 }: {
   cards: OfficeCard[];
+  customers?: OfficeCustomer[];
   showMoney: boolean;
   user: OfficeUser;
   open: (id: number) => void;
@@ -1690,7 +2122,11 @@ function CardTable({
                 <small>{fmt(c.date)}</small>
               </td>
               <td>
-                <strong>{customerName(c)}</strong>
+                <strong>
+                  {c.customerSnapshot?.name ??
+                    customers?.find((x) => x.id === c.customerId)?.name ??
+                    customerName(c)}
+                </strong>
                 <small>
                   {c.weigher} · {c.yard}
                 </small>
@@ -1801,11 +2237,13 @@ function PriceEditor({
 }
 function DetailFields({
   card,
+  customer,
   disabled,
   save,
 }: {
   card: OfficeCard;
   disabled: boolean;
+  customer?: OfficeCustomer;
   save: (r: string, o: string) => boolean;
 }) {
   const [reference, setReference] = useState(card.reference),
@@ -1827,11 +2265,9 @@ function DetailFields({
         />
       </label>
       <datalist id="office-reference">
-        {initialCustomers
-          .find((c) => c.id === card.customerId)
-          ?.references.map((r) => (
-            <option value={r} key={r} />
-          ))}
+        {customer?.references.map((r) => (
+          <option value={r} key={r} />
+        ))}
       </datalist>
       <label>
         Ursprungsadress
@@ -1843,11 +2279,9 @@ function DetailFields({
         />
       </label>
       <datalist id="office-origin">
-        {initialCustomers
-          .find((c) => c.id === card.customerId)
-          ?.origins.map((r) => (
-            <option value={r} key={r} />
-          ))}
+        {customer?.origins.map((r) => (
+          <option value={r} key={r} />
+        ))}
       </datalist>
       {!disabled && (
         <button className="office-btn outline" disabled={!card.customerId}>
@@ -1857,49 +2291,22 @@ function DetailFields({
     </form>
   );
 }
-function PaymentField({
-  card,
-  disabled,
-  save,
-}: {
-  card: OfficeCard;
-  disabled: boolean;
-  save: (p: string) => boolean;
-}) {
-  const [payment, setPayment] = useState(card.payment);
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (payment.trim()) save(payment.trim());
-      }}
-    >
-      <label>
-        Betalningsuppgift (demo)
-        <input
-          disabled={disabled}
-          value={payment}
-          onChange={(e) => setPayment(e.target.value)}
-          placeholder="Bankkonto / Swish · fiktiva uppgifter"
-          required
-        />
-      </label>
-      {!disabled && (
-        <button className="office-btn outline">Spara betalningsuppgift</button>
-      )}
-    </form>
-  );
-}
 function CorrectionForm({
   card,
   onSave,
 }: {
   card: OfficeCard;
-  onSave: (a: string, w: number, r: string) => void;
+  onSave: (
+    a: string,
+    w: number,
+    r: string,
+    document?: string,
+  ) => void | Promise<void>;
 }) {
   const [article, setArticle] = useState(card.rows[0].articleId),
     [delta, setDelta] = useState(''),
-    [reason, setReason] = useState('');
+    [reason, setReason] = useState(''),
+    [document, setDocument] = useState('');
   return (
     <section className="office-panel">
       <h2>Skapa rättelseutkast</h2>
@@ -1908,7 +2315,7 @@ function CorrectionForm({
           e.preventDefault();
           const n = Number(delta.replace(',', '.'));
           if (delta.trim() && Number.isFinite(n) && n !== 0 && reason.trim())
-            onSave(article, n, reason.trim());
+            onSave(article, n, reason.trim(), document.trim());
         }}
       >
         <label>
@@ -1936,6 +2343,14 @@ function CorrectionForm({
             required
             value={reason}
             onChange={(e) => setReason(e.target.value)}
+          />
+        </label>
+        <label>
+          Rättelseunderlag
+          <input
+            value={document}
+            onChange={(e) => setDocument(e.target.value)}
+            placeholder="Exempel RU-003"
           />
         </label>
         <button className="office-btn outline">Skapa rättelseutkast</button>

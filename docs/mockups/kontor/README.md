@@ -129,3 +129,5 @@ de väntar på designgodkännande. Ingen koduppdatering är beställd här. Full
 kundkort, saldo-/rättelseflöde och kundadministration finns ännu inte i den
 publicerade kontorsdemon. Vid genomförande ska statistik, kundpriser,
 betalningsuppgifter och ändringsknappar följa användarens behörigheter.
+
+Senaste byggbeslut: alla fem kundflikar är godkända. I appversion 0.3.0 ersätts mockupernas Kreditfaktura av **Spara på saldo**. Underlagen visar exempeldata; appen räknar statistik från sparade demokort.

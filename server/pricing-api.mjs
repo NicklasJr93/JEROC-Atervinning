@@ -68,6 +68,20 @@ export function createPricingApi({ store = createPricingStore() } = {}) {
         );
       } else if (
         (req.method === 'GET' || req.method === 'HEAD') &&
+        route === 'customer-preview'
+      ) {
+        json(
+          res,
+          200,
+          store.customerPreview(
+            principal,
+            url.searchParams.get('customerId'),
+            url.searchParams.get('at') ?? undefined,
+          ),
+          req.method === 'HEAD',
+        );
+      } else if (
+        (req.method === 'GET' || req.method === 'HEAD') &&
         route === 'snapshots'
       ) {
         json(
@@ -91,6 +105,9 @@ export function createPricingApi({ store = createPricingStore() } = {}) {
           snapshots: store.snapshot,
           corrections: store.correct,
           users: store.saveUsers,
+          customers: store.saveCustomer,
+          'legacy-snapshots': store.restoreLegacySnapshot,
+          'approved-corrections': store.approveCorrection,
         };
         if (!Object.hasOwn(actions, route))
           throw new PricingError('API-vyn finns inte.', 404);
@@ -98,13 +115,22 @@ export function createPricingApi({ store = createPricingStore() } = {}) {
         const result = actions[route](payload, principal);
         json(
           res,
-          route === 'snapshots' || route === 'corrections' ? 201 : 200,
+          [
+            'snapshots',
+            'legacy-snapshots',
+            'corrections',
+            'approved-corrections',
+          ].includes(route)
+            ? 201
+            : 200,
           result,
         );
       } else {
         res.setHeader(
           'Allow',
-          route === 'state' || route === 'snapshots'
+          route === 'state' ||
+            route === 'snapshots' ||
+            route === 'customer-preview'
             ? 'GET, HEAD, POST'
             : 'POST',
         );

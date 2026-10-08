@@ -346,7 +346,7 @@ Status: Genomförd i kontorsdemo v0.2.0.
 - Bank/Swish/Visma, riktig inloggning, databas och mobil/kontorssynkning är inte aktiverade.
 
 022 – ARBETSKÖER, HISTORIK OCH RÄTT MENY PÅ VIKTKORT
-Status: Planerad. Godkänd 2026-10-07; ingen koduppdatering beställd ännu.
+Status: Genomförd i kontorsdemo 0.3.0. Byggbeställning 2026-10-07, verifierad 2026-10-08.
 - Invägningar visar nya kort och kort som behöver kompletteras i sin aktiva kö.
 - Attest visar kort som väntar på attest i sin aktiva kö.
 - Utbetalningar visar attesterade kort som är klara för utbetalning i sin aktiva kö.
@@ -367,23 +367,25 @@ Status: Planerad. Godkänd 2026-10-07; ingen koduppdatering beställd ännu.
   via rättelseflödet och tidigare historik bevaras.
 
 023 – BETALNINGSSÄTT PÅ INVÄGNINGSKORTET ENLIGT MOCKUP
-Status: Planerad enligt användarens förtydligande 2026-10-07. Ingen kodändring ännu.
+Status: Genomförd i kontorsdemo 0.3.0. Fjärde valet ändrat till Spara på saldo enligt senaste besked.
 Godkänd mockup 2026-10-07: docs/mockups/kontor/01_Invagning_Betalningssatt.png
 - Huvudbilden visar Bankkonto valt på invägningskortet före attest.
-  Närbilder under visar samma ruta med Swish, Kontant och Kreditfaktura valt.
+  Närbilder under visar samma ruta med Swish, Kontant och det tidigare fjärde alternativet.
+  Senaste beslut ersätter Kreditfaktura med Spara på saldo i appen.
   Användaren har godkänt bilden; den behålls som designunderlag för nästa uppdatering.
 - Ändringen gäller rutan Utbetalning & ID när kontoret kompletterar
   invägningskortet före attest, inte en ny utbetalningsvy.
 - Ersätt det gemensamma fritextfältet med kompakta, tydliga metodval enligt
-  mockupen: Bankkonto, Swish, Kontant och Kreditfaktura.
+  mockupen: Bankkonto, Swish, Kontant och Spara på saldo.
 - Ett klick väljer betalningssättet och visar direkt de relevanta fälten
   under metodvalet. Inget separat navigationssteg behövs för att lägga in dem.
 - Bankkonto: bank, clearingnummer, kontonummer och kontohavare.
 - Swish: telefonnummer och mottagare. Valet ska fungera i det visuella
   demoflödet även utan en ansluten Swish-tjänst.
 - Kontant: tydlig markering av kontant som betalningssätt; inga kontofält.
-- Kreditfaktura behålls som eget ekonomival enligt mockupen. Valet i denna
-  ruta skapar eller skickar inte någon faktisk kreditfaktura.
+- Spara på saldo håller kvar det attesterade beloppet på kunden utan någon
+  utbetalning. Senare utbetalning väljer faktiskt Bankkonto, Swish eller Kontant.
+  Det låsta originalets betalningsval ändras inte; faktiska uppgifter sparas i betalningsjournalen.
 - Hämta kundens sparade betalningsuppgifter när sådana finns och tillåt
   behörig kontorspersonal att komplettera dem direkt i samma ruta.
 - Visa bara fälten för det valda betalningssättet. Bevara pågående inmatning
@@ -398,7 +400,7 @@ Godkänd mockup 2026-10-07: docs/mockups/kontor/01_Invagning_Betalningssatt.png
   Inga riktiga betalningar, bankkopplingar eller fakturaintegrationer ingår här.
 
 024 – KUNDLISTA OCH KUNDKORTETS ÖVERSIKT
-Status: Planerad. Båda mockuperna godkända 2026-10-07; ingen koduppdatering ännu.
+Status: Genomförd i kontorsdemo 0.3.0. Alla fem kundflikar godkända och beställda för bygge 2026-10-07.
 Godkänd kundlista: docs/mockups/kontor/02_Kundlista.png
 Godkänt kundkort, Översikt: docs/mockups/kontor/03_Kundkort_Oversikt.png
 - Menyn Kunder visar kundregistret med sökning på namn, organisationsnummer,
@@ -421,10 +423,8 @@ Godkänt kundkort, Översikt: docs/mockups/kontor/03_Kundkort_Oversikt.png
   kunduppgifter eller kundprisregler ändras.
 - Statistik, kundpriser, betalningsuppgifter och ändringsåtgärder följer
   användarens behörigheter. Mockuperna visar ett konto med full åtkomst.
-- Flikarna har presenterats i text. Användaren har därefter beställt en
-  komplett mockupserie för alla fem flikar; ingen koduppdatering är beställd.
-- Godkänd Översikt behålls. De fyra nya detaljmockuperna är designförslag
-  för granskning och låses först efter användarens godkännande:
+- Alla fem flikar har godkänts och byggts. Översikt behålls som designgrund
+  tillsammans med de fyra godkända detaljmockuperna:
   docs/mockups/kontor/04_Kundkort_Vagningar.png
   docs/mockups/kontor/05_Kundkort_Priser.png
   docs/mockups/kontor/06_Kundkort_Uppgifter_Betalning.png
@@ -443,6 +443,22 @@ Godkänt kundkort, Översikt: docs/mockups/kontor/03_Kundkort_Oversikt.png
   Senare vägning #2041 ger +8 400 kr kvar att betala. Kvittningen ska inte
   dras av ytterligare en gång i saldohistoriken.
 - Se docs/mockups/kontor/README.md för bildlänkar och fiktiva exempelbelopp.
+
+025 – RÄTTELSEKORT, SALDO OCH UTSKRIFTSUNDERLAG
+Status: Genomförd i kontorsdemo 0.3.0 enligt godkända tidigare saldo- och rättelsebeslut.
+- Utkast anger originalkort, artikel, signerad viktändring, orsak och rättelseunderlag.
+- Skicka till attest och godkänn med maxbelopp och spärr för egen attest.
+- Minus ändrar kundens saldo, korrigerad statistik och artikelvolym vid ursprungsdatum.
+- Plus skapar ett eget klart utbetalningskort; materialet räknas endast en gång.
+- Originalkortet och gamla utbetalningar bevaras. Skapare, kontor, underlag och attest sparas.
+- Nästa betalning kvittar minussaldo och visar rättelse och originalkort; endast faktisk
+  nettoutbetalning dras av i saldot. Flera obetalda kort ger inte dubbla kvittningar.
+- Återförsök av godkännande och betalning skapar inte dubbla poster.
+- Låsta kort har utskrivbar A4-avräkningsnota och betalda kort har utbetalningskvitto.
+- Befintlig webbläsardata migreras utan att gamla kort och fritextuppgifter raderas.
+- Detta är fortfarande demodata: ingen bank/Swish/Visma, databas eller mobil/kontorssynkning.
+- Verifierat: 53 webb-/modelltester, 38 servertester, produktionsbygge, Expo-typkontroll
+  och utskrivbar avräkningsnota i A4. Rättelse-ID är unikt även efter återställning.
 
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

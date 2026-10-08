@@ -36,9 +36,10 @@ test('kontorets granskning, prishistorik, attest och demoutbetalning fungerar ut
     page.getByRole('button', { name: /Skicka för attest/ }),
   ).toBeDisabled();
   await page.getByLabel('Kund på vägningen').selectOption('customer-build');
-  await page
-    .getByLabel('Betalningsuppgift (demo)', { exact: true })
-    .fill('Bankkonto · demo 8327 / ****7890');
+  await page.getByRole('button', { name: 'Bankkonto', exact: true }).click();
+  await page.getByLabel('Clearingnummer', { exact: true }).fill('8327');
+  await page.getByLabel('Kontonummer', { exact: true }).fill('1234567890');
+  await page.getByLabel('Kontohavare', { exact: true }).fill('Bygg & Riv AB');
   await page.getByRole('button', { name: 'Spara betalningsuppgift' }).click();
   await page.getByRole('button', { name: 'Verifiera ID', exact: true }).click();
   await page

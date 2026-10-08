@@ -84,5 +84,5 @@ för att prova det nya lösenordssteget. Datorn behöver inte vara igång.
 
 ## Kontorswebben
 
-Kontorsdemo **0.2.0** finns på `/kontor`, med dashboard, Jobba som, manuella LME Cash-priser och en serverbaserad prismotor. Ingen extra Render-tjänst behövs.
+Kontorsdemo **0.3.0** finns på `/kontor`, med dashboard, Jobba som, manuella LME Cash-priser och en serverbaserad prismotor. Ingen extra Render-tjänst behövs.
 [Demokonton, flöden och avgränsningar](docs/office-demo.md). Mobilappen ligger kvar på sin befintliga adress.

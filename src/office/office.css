@@ -1139,3 +1139,208 @@
     display: block;
   }
 }
+
+/* Working queues retain their controls while the list scrolls. */
+.office-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.office-queue-controls {
+  position: sticky;
+  top: 76px;
+  z-index: 15;
+  background: #f5f8fc;
+  padding: 12px 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e1e9f1;
+}
+.office-queue-controls .office-filters {
+  margin-bottom: 10px;
+}
+.office-queue-search {
+  display: flex;
+  gap: 12px;
+}
+.office-queue-search .office-search {
+  flex: 1;
+  max-width: none;
+}
+.office-queue-search select {
+  max-width: 250px;
+}
+.office-settlement {
+  display: grid;
+  gap: 9px;
+  border: 1px solid #dce8ee;
+  border-radius: 12px;
+  padding: 14px;
+  margin: 14px 0;
+  background: #f5faf8;
+}
+.office-settlement > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.office-settlement > span:last-child {
+  padding-top: 10px;
+  border-top: 1px solid #dce8ee;
+  font-weight: 700;
+}
+.office-process-trace {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e5ecf2;
+  margin-bottom: 16px;
+}
+.office-process-trace span {
+  display: grid;
+  gap: 4px;
+  color: #62728b;
+}
+.office-process-trace strong {
+  color: #1a314e;
+}
+.status-balance {
+  color: #6b40af;
+  background: #f0eaff;
+}
+.office-document-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  overflow-y: auto;
+  background: #16283bbb;
+  padding: 28px;
+}
+.office-document-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+.office-document {
+  width: min(100%, 794px);
+  min-height: 1000px;
+  margin: auto;
+  padding: 46px;
+  background: white;
+  box-shadow: 0 12px 60px #0003;
+  color: #21344b;
+}
+.office-document header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  border-bottom: 3px solid #177a55;
+  padding-bottom: 22px;
+}
+.office-document header img {
+  width: 170px;
+  height: auto;
+}
+.office-document header span {
+  font-size: 11px;
+  color: #6d7d8f;
+}
+.office-document h1 {
+  font-size: 26px;
+  margin: 6px 0;
+}
+.office-document h2 {
+  font-size: 14px;
+  margin: 18px 0 8px;
+}
+.office-document p {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.office-document-parties {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+.office-document-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 18px 0;
+}
+.office-document-facts dt {
+  color: #65788d;
+  font-size: 11px;
+}
+.office-document-facts dd {
+  margin: 4px 0;
+}
+.office-document table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.office-document th,
+.office-document td {
+  padding: 12px 8px;
+  border-bottom: 1px solid #dbe6ed;
+  text-align: right;
+}
+.office-document th:first-child,
+.office-document td:first-child {
+  text-align: left;
+}
+.office-document-totals {
+  margin: 18px 0;
+  padding: 14px;
+  background: #eef8f3;
+}
+.office-document-totals p {
+  display: flex;
+  justify-content: space-between;
+}
+.office-document footer {
+  margin-top: 30px;
+  padding-top: 14px;
+  border-top: 1px solid #dce6ed;
+  font-size: 11px;
+  color: #62748b;
+}
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+  body:has(.office-document-overlay) .office-sidebar,
+  body:has(.office-document-overlay) .office-topbar,
+  body:has(.office-document-overlay) .office-acting-banner,
+  body:has(.office-document-overlay)
+    .office-main
+    > :not(.office-document-overlay) {
+    display: none !important;
+  }
+  body:has(.office-document-overlay) .office-workspace {
+    margin: 0;
+    width: 100%;
+  }
+  body:has(.office-document-overlay) .office-main {
+    padding: 0;
+  }
+  .office-document-overlay {
+    position: static;
+    padding: 0;
+    background: white;
+    overflow: visible;
+  }
+  .office-document-actions {
+    display: none !important;
+  }
+  .office-document {
+    width: 100%;
+    min-height: 0;
+    padding: 8mm;
+    box-shadow: none;
+  }
+}

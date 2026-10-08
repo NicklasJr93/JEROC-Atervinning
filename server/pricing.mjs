@@ -160,6 +160,24 @@ const snapshotSchema = quoteSchema.extend({
   cardId: z.union([z.string().min(1).max(100), z.number().int().nonnegative()]),
   supersedesSnapshotId: id.optional(),
 });
+const customerSchema = z.object({ id, name: text });
+const legacySnapshotSchema = z.object({
+  cardId: z.union([z.string().min(1).max(100), z.number().int().nonnegative()]),
+  customerId: id,
+  deliveredAt,
+  preparedBy: id.optional(),
+  rows: z
+    .array(
+      z.object({
+        articleId: id,
+        weight: finite.positive().max(1e9),
+        price: nonnegative,
+        tier: z.enum(['A', 'B', 'C', 'Special', 'Eget']),
+      }),
+    )
+    .min(1)
+    .max(100),
+});
 const correctionSchema = z.object({
   sourceSnapshotId: id,
   cardId: z.union([z.string().min(1).max(100), z.number().int().nonnegative()]),
@@ -177,6 +195,9 @@ const correctionSchema = z.object({
     .max(100),
   reason: z.string().trim().min(1).max(1000),
   correctedAt: deliveredAt,
+  creatorId: id.optional(),
+  submittedBy: id.optional(),
+  document: z.string().trim().max(1000).default(''),
 });
 const userSchema = z.object({
   id,
@@ -202,8 +223,10 @@ const validate = (schema, value) => {
     );
   return result.data;
 };
-export const money = (value) =>
-  Math.round((value + Number.EPSILON) * 100) / 100;
+export const money = (value) => {
+  const rounded = Math.round((Math.abs(value) + Number.EPSILON) * 100) / 100;
+  return rounded ? Math.sign(value) * rounded : 0;
+};
 const copy = (value) => structuredClone(value);
 const stockholmDate = new Intl.DateTimeFormat('sv-SE', {
   timeZone: 'Europe/Stockholm',
@@ -598,6 +621,7 @@ export function createPricingStore({ now = () => new Date() } = {}) {
       cardId,
       customerId,
       deliveredAt: '2026-10-07T08:41:00Z',
+      preparedBy: 'kajsa',
       rows: copy(rows),
       total: money(rows.reduce((sum, row) => sum + row.weight * row.price, 0)),
       weight: rows.reduce((sum, row) => sum + row.weight, 0),
@@ -723,7 +747,7 @@ export function createPricingStore({ now = () => new Date() } = {}) {
         .reduce((sum, entry) => sum + entry.weightDelta, 0),
     );
   }
-  function fullQuote(input, principalValue) {
+  function fullQuote(input, principalValue, { includeDelivery = true } = {}) {
     const request = validate(quoteSchema, input);
     if (
       request.customerId &&
@@ -754,7 +778,8 @@ export function createPricingStore({ now = () => new Date() } = {}) {
         request.excludeCardId,
       );
       const volumeWithDelivery =
-        volumeBefore + deliveryWeights.get(row.articleId);
+        volumeBefore +
+        (includeDelivery ? deliveryWeights.get(row.articleId) : 0);
       const volumeTier = !request.customerId
         ? 'C'
         : volumeWithDelivery >= article.thresholds.A
@@ -869,9 +894,15 @@ export function createPricingStore({ now = () => new Date() } = {}) {
   function read(principalValue, asOfDate = day(now().toISOString())) {
     validate(date, asOfDate);
     if (
-      !['prices', 'lmeRead', 'articlesEdit', 'customerPriceEdit', 'users'].some(
-        (right) => can(principalValue.user, right),
-      )
+      ![
+        'view',
+        'customers',
+        'prices',
+        'lmeRead',
+        'articlesEdit',
+        'customerPriceEdit',
+        'users',
+      ].some((right) => can(principalValue.user, right))
     )
       throw new PricingError('Du saknar behörighet att öppna prismotorn.', 403);
     const editor = can(principalValue.user, 'articlesEdit');
@@ -929,7 +960,9 @@ export function createPricingStore({ now = () => new Date() } = {}) {
       customers:
         can(principalValue.user, 'customerPrices') ||
         can(principalValue.user, 'customerPriceEdit') ||
-        can(principalValue.user, 'prepare')
+        can(principalValue.user, 'prepare') ||
+        can(principalValue.user, 'view') ||
+        can(principalValue.user, 'customers')
           ? state.customers
           : [],
       users: can(principalValue.user, 'users') ? state.users : [],
@@ -971,6 +1004,73 @@ export function createPricingStore({ now = () => new Date() } = {}) {
     state.lme.push(row);
     state.audit.push(copy(row));
     return read(principalValue);
+  }
+  function saveCustomer(input, principalValue) {
+    demand(principalValue, 'customers');
+    const customer = validate(customerSchema, input);
+    const index = state.customers.findIndex((item) => item.id === customer.id);
+    if (index >= 0 && state.customers[index].name === customer.name)
+      return { customer: copy(customer), memoryOnly: true };
+    if (index >= 0) state.customers[index] = copy(customer);
+    else state.customers.push(copy(customer));
+    state.audit.push({
+      customerId: customer.id,
+      ...stamp(
+        principalValue,
+        index >= 0 ? 'Kundnamn ändrat' : 'Kund registrerad',
+      ),
+    });
+    return { customer: copy(customer), memoryOnly: true };
+  }
+  function customerPreview(
+    principalValue,
+    customerId,
+    at = day(now().toISOString()),
+  ) {
+    if (
+      !can(principalValue.user, 'customerPrices') &&
+      !can(principalValue.user, 'customerPriceEdit')
+    )
+      throw new PricingError('Du saknar behörighet att läsa kundpriser.', 403);
+    validate(id, customerId);
+    validate(date, at);
+    if (!state.customers.some((customer) => customer.id === customerId))
+      throw new PricingError(
+        'Kunden finns inte i prismotorns demoregister.',
+        422,
+      );
+    const articleIds = [
+      ...new Set(state.articleHistory.map((article) => article.id)),
+    ].filter((articleId) => {
+      const article = latest(
+        state.articleHistory,
+        (item) => item.id === articleId,
+        at,
+      );
+      return article?.active;
+    });
+    if (!articleIds.length)
+      return { customerId, deliveredAt: at, rows: [], memoryOnly: true };
+    const result = readableQuote(
+      fullQuote(
+        {
+          customerId,
+          deliveredAt: at,
+          rows: articleIds.map((articleId) => ({ articleId, weight: 1 })),
+        },
+        principalValue,
+        { includeDelivery: false },
+      ),
+      principalValue,
+    );
+    // This is a read-only current-price view, not a new delivery. The volume
+    // tier uses only recorded deliveries and signed approved corrections.
+    return {
+      customerId,
+      deliveredAt: at,
+      rows: result.rows.map((row) => ({ ...row, weight: 0 })),
+      memoryOnly: true,
+    };
   }
   function saveArticle(input, principalValue) {
     demand(principalValue, 'articlesEdit');
@@ -1059,6 +1159,7 @@ export function createPricingStore({ now = () => new Date() } = {}) {
       id: randomUUID(),
       cardId: String(request.cardId),
       requestFingerprint,
+      preparedBy: principalValue.user.id,
       ...(existing ? { supersedesSnapshotId: existing.id } : {}),
       ...stamp(
         principalValue,
@@ -1112,14 +1213,92 @@ export function createPricingStore({ now = () => new Date() } = {}) {
       .filter((entry) => cardId == null || entry.cardId === String(cardId))
       .map((entry) => readableQuote(entry, principalValue));
   }
-  function correct(input, principalValue) {
-    demand(principalValue, 'corrections');
+  function restoreLegacySnapshot(input, principalValue) {
+    demand(principalValue, 'attest');
+    const request = validate(legacySnapshotSchema, input);
+    if (!state.customers.some((item) => item.id === request.customerId))
+      throw new PricingError(
+        'Kunden finns inte i prismotorns demoregister.',
+        422,
+      );
+    if (
+      request.preparedBy &&
+      !state.users.some((item) => item.id === request.preparedBy)
+    )
+      throw new PricingError('Kortets registrerade kontorist saknas.', 422);
+    for (const item of request.rows)
+      articleAt(item.articleId, day(request.deliveredAt));
+    const existing = state.snapshots
+      .filter((entry) => entry.cardId === String(request.cardId))
+      .at(-1);
+    const fingerprint = (entry) =>
+      JSON.stringify({
+        customerId: entry.customerId,
+        deliveredAt: entry.deliveredAt,
+        rows: entry.rows.map(({ articleId, weight, price, tier }) => ({
+          articleId,
+          weight,
+          price,
+          // Office cards use Eget for the server's Special tier. Treat only
+          // those equivalent labels alike; the frozen financial tuple stays strict.
+          tier: tier === 'Special' ? 'Eget' : tier,
+        })),
+      });
+    if (existing) {
+      if (fingerprint(existing) !== fingerprint(request))
+        throw new PricingError(
+          'Kortets frysta original skiljer sig från det sparade prisunderlaget.',
+          409,
+        );
+      return readableQuote(existing, principalValue);
+    }
+    // Demo migration only: recover an already locked local original after an
+    // in-memory server restart. Never quote today's rules to rewrite its price.
+    const row = {
+      ...copy(request),
+      cardId: String(request.cardId),
+      id: randomUUID(),
+      total: money(
+        request.rows.reduce(
+          (sum, item) => sum + money(item.weight * item.price),
+          0,
+        ),
+      ),
+      weight: request.rows.reduce((sum, item) => sum + item.weight, 0),
+      memoryOnly: true,
+      ...stamp(principalValue, 'Fryst demounderlag återställt'),
+    };
+    state.snapshots.push(copy(row));
+    for (const item of row.rows)
+      state.ledger.push({
+        id: randomUUID(),
+        snapshotId: row.id,
+        cardId: row.cardId,
+        customerId: row.customerId,
+        articleId: item.articleId,
+        weightDelta: item.weight,
+        amountDelta: money(item.weight * item.price),
+        deliveredAt: row.deliveredAt,
+        recordedAt: row.at,
+        kind: 'delivery',
+      });
+    state.audit.push(copy(row));
+    return readableQuote(row, principalValue);
+  }
+  function correct(input, principalValue, approvalOnly = false) {
+    if (!approvalOnly) demand(principalValue, 'corrections');
+    demand(principalValue, 'attest');
     const request = validate(correctionSchema, input);
     const source = state.snapshots.find(
       (entry) => entry.id === request.sourceSnapshotId,
     );
     if (!source)
       throw new PricingError('Ursprungligt prisunderlag saknas.', 422);
+    if (source.sourceSnapshotId)
+      throw new PricingError(
+        'Rättelsen måste hänvisa till originalkortet, inte ett annat rättelsekort.',
+        422,
+      );
     const currentSource = state.snapshots
       .filter((entry) => entry.cardId === source.cardId)
       .at(-1);
@@ -1131,8 +1310,41 @@ export function createPricingStore({ now = () => new Date() } = {}) {
     const existing = state.snapshots.find(
       (entry) => entry.cardId === String(request.cardId),
     );
-    if (existing)
-      throw new PricingError('Rättelsekortets nummer finns redan.', 409);
+    const requestFingerprint = JSON.stringify(request);
+    if (existing) {
+      if (existing.requestFingerprint === requestFingerprint)
+        return readableQuote(existing, principalValue);
+      throw new PricingError(
+        'Rättelsekortets nummer används av ett annat underlag.',
+        409,
+      );
+    }
+    if (
+      request.creatorId &&
+      !state.users.some((item) => item.id === request.creatorId)
+    )
+      throw new PricingError(
+        'Rättelsekortets registrerade skapare saknas.',
+        422,
+      );
+    if (
+      request.submittedBy &&
+      !state.users.some((item) => item.id === request.submittedBy)
+    )
+      throw new PricingError(
+        'Rättelsekortets registrerade inlämnare saknas.',
+        422,
+      );
+    const preparedBy = request.creatorId ?? source.preparedBy;
+    if (
+      !principalValue.user.ownAttest &&
+      (preparedBy === principalValue.user.id ||
+        request.submittedBy === principalValue.user.id)
+    )
+      throw new PricingError(
+        'Du får inte attestera dina egna rättelsekort.',
+        403,
+      );
     // Validate all rows before changing any state, including repeated article rows.
     const deltas = new Map();
     for (const item of request.rows)
@@ -1182,6 +1394,14 @@ export function createPricingStore({ now = () => new Date() } = {}) {
         sourceSnapshotId: source.id,
       };
     });
+    const total = money(
+      rows.reduce((sum, item) => sum + money(item.weight * item.price), 0),
+    );
+    if (Math.abs(total) > principalValue.user.maxAttest)
+      throw new PricingError(
+        'Rättelsens belopp överstiger din attestgräns.',
+        403,
+      );
     const row = {
       id: randomUUID(),
       cardId: String(request.cardId),
@@ -1190,13 +1410,16 @@ export function createPricingStore({ now = () => new Date() } = {}) {
       correctedAt: request.correctedAt,
       sourceSnapshotId: source.id,
       reason: request.reason,
+      document: request.document,
+      preparedBy,
+      submittedBy: request.submittedBy,
+      approvedBy: principalValue.user.id,
+      requestFingerprint,
       rows,
-      total: money(
-        rows.reduce((sum, item) => sum + money(item.weight * item.price), 0),
-      ),
+      total,
       weight: rows.reduce((sum, item) => sum + item.weight, 0),
       memoryOnly: true,
-      ...stamp(principalValue, 'Rättelsekort skapat'),
+      ...stamp(principalValue, 'Rättelsekort attesterat'),
     };
     state.snapshots.push(copy(row));
     for (const item of rows)
@@ -1284,12 +1507,17 @@ export function createPricingStore({ now = () => new Date() } = {}) {
     can,
     read,
     saveLme,
+    saveCustomer,
+    customerPreview,
     saveArticle,
     saveSpecial,
     quote,
     snapshot,
     snapshots,
+    restoreLegacySnapshot,
     correct,
+    approveCorrection: (input, principalValue) =>
+      correct(input, principalValue, true),
     saveUsers,
     volume,
   };

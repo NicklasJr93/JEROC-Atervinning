@@ -1,4 +1,4 @@
-# JEROC kontorsdemo 0.2.0
+# JEROC kontorsdemo 0.3.0
 
 Öppna https://jeroc-atervinning.onrender.com/kontor. Samma repository och Render-tjänst används. Befintligt byggkommando, `npm start` och Expo-token behålls. Mobilappen är fortsatt version 0.2.3 på `/`; Expo Go fungerar som tidigare.
 
@@ -31,13 +31,25 @@ Serverns demovolym kommer från registrerade prisunderlag, inklusive exempeldata
 
 När underlaget skickas för attest sparar servern en oföränderlig prisögonblicksbild. Senare LME- eller artikeländringar ändrar inte den. Manuella ABC-val och engångspriser sparas med pris före/efter i viktkortets historik. Om ett kort som väntar på attest behöver prisändras återgår det till komplettering. När ett återlämnat kort bereds igen sparas en ny version; den gamla finns kvar och volym dubbelräknas inte.
 
-Attest kontrollerar maxbelopp och egen attest. Attesterade och demoutbetalda kort är låsta. Rättelsevyn skapar fortfarande **utkast** utan att ändra det låsta originalet. Serverns prismotor har förberedda, testade funktioner för positiva/negativa rättelseposter och korrigerad volym, men godkännande, saldo och kvittning är ännu inte inkopplade i kontorsflödet.
+Attest kontrollerar maxbelopp och egen attest. Låsta kort flyttas mellan **Invägningar**, **Attest** och **Utbetalningar**, med egna flikar **Aktiva** och **Historik**. Invägningarnas historik kan söka alla kort. Öppning och tillbakagång behåller rätt huvudmeny, filter och sökning.
+
+## Kunder, betalningsval och saldo
+
+Kundlistan söker även kundnummer och registreringsnummer, filtrerar kundtyp och visar faktisk aktivitet. Kundkortet har **Översikt**, **Vägningar**, **Priser**, **Uppgifter & betalning** samt **Rättelser & saldo**. Kontaktuppgifter, referenser, ursprungsadresser, registrerade fordon och betalningsprofil kan sparas av behörig personal. Tolvmånadersstatistiken räknar frysta inlämningar och godkända rättelser; påbörjade underlag visas som öppna kort. Artikelvolym och prisnivå hålls separata per artikel.
+
+Betalningsrutan på invägningskortet har **Bankkonto**, **Swish**, **Kontant** och **Spara på saldo**. Det sista alternativet ersätter Kreditfaktura i tidigare mockuper. Bank- och Swish-fält valideras och kundens sparade profil kan hämtas. ID-kontrollen är manuell på varje kort. Ett kort med Spara på saldo blir efter attest ett låst saldokort utan betalningspost. Från historiken kan beloppet senare demoutbetalas med ett faktiskt betalningssätt. Originalets val bevaras.
+
+Ett rättelsekort innehåller originalkort, material, plus/minus kg, orsak och underlag. Efter granskning skickas det för attest. Godkännande kontrollerar beloppsgräns, egen attest och återstående materialmängd. Minus justerar saldo och kundstatistik. Plus skapar ett separat klart utbetalningskort och påverkar statistiken en gång. Volymen korrigeras vid originalets inlämningsdatum. Originalkortet redigeras aldrig.
+
+Vid nästa demoutbetalning kvittas kvarvarande minussaldo; nettobelopp och hänvisningar till rättelser visas. Kvittningen är en informationspost och dras inte av från saldot en gång till. Godkännanden och betalningsregistreringar tål upprepade anrop utan dubbelposter.
+
+Låsta kort har **Avräkningsnota** och betalda kort har **Utbetalningskvitto**, med en utskrivbar A4-vy. Välj Skriv ut / spara som PDF i webbläsaren. Företagsuppgifter och bokföringsunderlag är märkta demo; momsregler och konton behöver beslutas före skarp drift.
 
 ## Lagring och avgränsning
 
-Prisregler, LME, kundundantag, serverbehörigheter och prisarkiv ligger i **serverns minne**. De delas mellan kontorswebbens besökare och återställs till exempeldata när Render startar om eller publicerar en ny version. Databas byggs senare enligt beslut. Viktkort, rättelseutkast och lokal användarvy sparas separat i webbläsarens `jeroc.office.demo.v1`.
+Prisregler, LME, kundundantag, serverbehörigheter och prisarkiv ligger i **serverns minne**. De delas mellan kontorswebbens besökare och återställs till exempeldata när Render startar om eller publicerar en ny version. Databas byggs senare enligt beslut. Viktkort, kunder, rättelsekort, betalningsjournal och lokal användarvy sparas separat i webbläsarens `jeroc.office.demo.v1`.
 
-Demokontona är valbara exempel; API:t kontrollerar rättigheter för dessa identiteter, men det är inte en riktig inloggning. Använd enbart testuppgifter. Lokal användarkonfiguration kan behöva sparas på servern igen efter en omstart. Återställ kontorsdemo återställer bara webbläsarens kontorsdata, inte serverns gemensamma priser eller mobilens sparade kort.
+Demokontona är valbara exempel; API:t kontrollerar rättigheter för dessa identiteter, men det är inte en riktig inloggning. Sparade lokala kunder kan behöva registreras i prismotorn av kontoret igen efter en serveromstart; gamla frysta prisunderlag återställs bara när de stämmer exakt med låsta originalkort. Använd enbart testuppgifter. Lokal användarkonfiguration kan behöva sparas på servern igen efter en omstart. Återställ kontorsdemo återställer bara webbläsarens kontorsdata, inte serverns gemensamma priser eller mobilens sparade kort.
 
 Mobilens prislista är ännu inte kopplad till servern. Gårdsappens vägningar och konton synkas inte till kontoret. Ingen bank, Swish eller Visma är ansluten. Registrera demoutbetalning skickar ingen transaktion. Utskrift är ett märkt demounderlag.
 
@@ -47,4 +59,4 @@ Mobilens prislista är ännu inte kopplad till servern. Gårdsappens vägningar 
 
 Kör `npm run test:server`, `npm test -- --workers=1`, `npm run build` och `npm run expo:check`. Pristesterna omfattar Cash/valuta, historiska datum, volym per artikel inklusive aktuell leverans, kundundantag, oföränderliga/versionerade prisunderlag, rättelseposter och serverns demobehörigheter. Webbtesterna omfattar kontorsflödet, Jobba som och attestgräns, LME läs/ändra, sparad prissättning och fortsatt mobilflöde.
 
-Verifierat för v0.2.0: 22 mobilflöden, 9 kontorsflöden och 28 servertester passerade, liksom produktionsbygge och Expo-typkontroll. Ny artikel och prisberäkning verifierades genom gränssnittet; den gemensamma Windows/Mac-startfunktionen kördes i Linux med kontor och API på 4173. Startfilerna har inte körts på Windows eller macOS här.
+Verifierat för v0.3.0: 53 Playwright-tester (22 mobilflöden, 19 kontorsflöden och 12 rena modelltester), 38 servertester, produktionsbygge och Expo-typkontroll. Kundkortets fem flikar har granskats i webbläsaren utan JavaScriptfel eller sidöverflöde. Avräkningsnotan verifierades som en A4-PDF på en sida. Rättelser i båda riktningar, saldokvittning, historik, egen attest och unika rättelse-ID ingår i kontrollerna. Ett mobiltest kördes om efter en kollision i testverktygets artefaktmapp och passerade. Startfilerna har inte körts på Windows eller macOS här.

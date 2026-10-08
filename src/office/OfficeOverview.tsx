@@ -17,6 +17,7 @@ import {
   statusNames,
   weight,
   type OfficeCard,
+  type OfficeCustomer,
   type OfficeUser,
   type Permission,
 } from './model';
@@ -299,14 +300,19 @@ export function DailyWeights({ cards }: { cards: OfficeCard[] }) {
 
 export function CardPreview({
   card,
+  customers,
   user,
   onOpen,
 }: {
   card: OfficeCard;
+  customers?: OfficeCustomer[];
   user: OfficeUser;
   onOpen: (id: number) => void;
 }) {
-  const customer = initialCustomers.find((item) => item.id === card.customerId);
+  const customer =
+    card.customerSnapshot ??
+    customers?.find((item) => item.id === card.customerId) ??
+    initialCustomers.find((item) => item.id === card.customerId);
   const moneyVisible = totalVisible(user, card);
   return (
     <section
@@ -484,8 +490,10 @@ export function exportOfficeCsv(
       const line: (string | number)[] = [
         card.id,
         deliveryDay(card.date),
-        initialCustomers.find((customer) => customer.id === card.customerId)
-          ?.name ?? 'Kund saknas',
+        card.customerSnapshot?.name ??
+          initialCustomers.find((customer) => customer.id === card.customerId)
+            ?.name ??
+          'Kund saknas',
         card.weigher,
         card.yard,
         statusNames[card.status],

@@ -72,6 +72,7 @@ export type QuoteRow = {
   weight: number;
   price: number | null;
   tier: PriceTier | 'Special' | 'Eget';
+  volumeTier?: PriceTier;
   prices?: Record<PriceTier, number | null>;
   volumeBefore: number | null;
   volumeWithDelivery: number | null;
@@ -87,6 +88,27 @@ export type PricingQuote = {
   weight: number;
   deliveredAt: string;
   customerId?: string;
+  memoryOnly: boolean;
+};
+export type PricingSnapshot = PricingQuote & {
+  id: string;
+  cardId: string;
+  sourceSnapshotId?: string;
+  supersedesSnapshotId?: string;
+  correctedAt?: string;
+  reason?: string;
+  document?: string;
+  preparedBy?: string;
+  submittedBy?: string;
+  approvedBy?: string;
+  at: string;
+  actor?: string;
+  actingUser?: string;
+};
+export type CustomerPricePreview = {
+  customerId: string;
+  deliveredAt: string;
+  rows: QuoteRow[];
   memoryOnly: boolean;
 };
 export async function pricingRequest<T>(

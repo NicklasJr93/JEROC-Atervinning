@@ -1,5 +1,6 @@
 import { z } from 'zod';
-export const OFFICE_VERSION = '0.2.0';
+import { initialCustomers } from '../data';
+export const OFFICE_VERSION = '0.3.0';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
   view: 'Se vägningar och kunder',
@@ -19,7 +20,7 @@ export const permissionNames = {
   verifyId: 'Verifiera ID',
   attest: 'Attestera',
   pay: 'Registrera demoutbetalning',
-  corrections: 'Skapa rättelseutkast',
+  corrections: 'Skapa och hantera rättelser',
   reports: 'Se ekonomisk översikt',
   users: 'Hantera användare',
 } as const;
@@ -54,10 +55,62 @@ const auditSchema = z.object({
   actualUserId: z.string().optional(),
   effectiveUserId: z.string().optional(),
 });
+export type OfficeAudit = z.infer<typeof auditSchema>;
+export const paymentDetailsSchema = z.object({
+  method: z.enum(['bank', 'swish', 'cash', 'balance']),
+  bank: z.string().optional(),
+  clearing: z.string().optional(),
+  account: z.string().optional(),
+  holder: z.string().optional(),
+  phone: z.string().optional(),
+  recipient: z.string().optional(),
+});
+export type PaymentDetails = z.infer<typeof paymentDetailsSchema>;
+const customerSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  type: z.enum(['Företag', 'Privatperson', 'BRF']),
+  number: z.string(),
+  customerNumber: z.string(),
+  phone: z.string(),
+  email: z.string(),
+  address: z.string().default(''),
+  postalCode: z.string().default(''),
+  city: z.string().default(''),
+  contactPerson: z.string().default(''),
+  references: z.array(z.string()).default([]),
+  origins: z.array(z.string()).default([]),
+  registrations: z.array(z.string()).default([]),
+  paymentProfile: paymentDetailsSchema.optional(),
+  audit: z.array(auditSchema).default([]),
+});
+export type OfficeCustomer = z.infer<typeof customerSchema>;
+export function seedOfficeCustomers(): OfficeCustomer[] {
+  return initialCustomers.map((customer, index) => ({
+    ...customer,
+    customerNumber: `K-${String(1001 + index)}`,
+    address: customer.address ?? '',
+    postalCode: '',
+    city: '',
+    contactPerson: '',
+    registrations: [...(customer.registrations ?? [])],
+    references: [...customer.references],
+    origins: [...customer.origins],
+    paymentProfile: {
+      method: 'bank',
+      bank: 'Demobank',
+      clearing: '8327',
+      account: '1234567890',
+      holder: customer.name,
+    },
+    audit: [],
+  }));
+}
 const cardSchema = z.object({
   id: z.number(),
   customerId: z.string().optional(),
-  status: z.enum(['new', 'complement', 'attest', 'ready', 'paid']),
+  customerSnapshot: customerSchema.optional(),
+  status: z.enum(['new', 'complement', 'attest', 'ready', 'paid', 'balance']),
   yard: z.string(),
   weigher: z.string(),
   date: z.string(),
@@ -69,9 +122,13 @@ const cardSchema = z.object({
   deduction: z.number().optional(),
   rows: z.array(rowSchema),
   payment: z.string(),
+  paymentDetails: paymentDetailsSchema.optional(),
   idVerified: z.boolean(),
   preparedBy: z.string().optional(),
   approvedBy: z.string().optional(),
+  paidAt: z.string().optional(),
+  kind: z.enum(['delivery', 'correction']).optional(),
+  sourceCorrectionId: z.number().optional(),
   pricingSnapshotId: z.string().optional(),
   pricedAt: z.string().optional(),
   pricingTotal: z.number().nonnegative().optional(),
@@ -80,21 +137,53 @@ const cardSchema = z.object({
   audit: z.array(auditSchema),
 });
 export type OfficeCard = z.infer<typeof cardSchema>;
+const correctionSchema = z.object({
+  id: z.number(),
+  serverId: z.string().max(100).optional(),
+  cardId: z.number(),
+  customerId: z.string(),
+  articleId: z.string(),
+  weightDelta: z.number(),
+  reason: z.string(),
+  actor: z.string(),
+  at: z.string(),
+  status: z.enum(['draft', 'attest', 'approved']).optional(),
+  unitPrice: z.number().nonnegative().optional(),
+  amountDelta: z.number().optional(),
+  document: z.string().optional(),
+  office: z.string().optional(),
+  actualUserId: z.string().optional(),
+  effectiveUserId: z.string().optional(),
+  submittedBy: z.string().optional(),
+  approvedBy: z.string().optional(),
+  approvedAt: z.string().optional(),
+  resultCardId: z.number().optional(),
+  audit: z.array(auditSchema).optional(),
+});
+export type OfficeCorrection = z.infer<typeof correctionSchema>;
+const paymentSchema = z.object({
+  id: z.string(),
+  cardId: z.number(),
+  customerId: z.string(),
+  amount: z.number().nonnegative(),
+  offset: z.number().nonnegative(),
+  method: z.enum(['bank', 'swish', 'cash']),
+  date: z.string(),
+  reference: z.string(),
+  actor: z.string(),
+  office: z.string(),
+  actualUserId: z.string().optional(),
+  effectiveUserId: z.string().optional(),
+  paymentDetails: paymentDetailsSchema.optional(),
+  correctionIds: z.array(z.number()).optional(),
+});
+export type OfficePayment = z.infer<typeof paymentSchema>;
 export const officeSchema = z.object({
   users: z.array(userSchema),
   cards: z.array(cardSchema),
-  corrections: z.array(
-    z.object({
-      id: z.number(),
-      cardId: z.number(),
-      customerId: z.string(),
-      articleId: z.string(),
-      weightDelta: z.number(),
-      reason: z.string(),
-      actor: z.string(),
-      at: z.string(),
-    }),
-  ),
+  customers: z.array(customerSchema).default(seedOfficeCustomers),
+  payments: z.array(paymentSchema).default([]),
+  corrections: z.array(correctionSchema),
 });
 export type OfficeData = z.infer<typeof officeSchema>;
 export const statusNames = {
@@ -103,6 +192,7 @@ export const statusNames = {
   attest: 'Väntar på attest',
   ready: 'Klar för utbetalning',
   paid: 'Demoutbetald',
+  balance: 'Sparat på saldo',
 };
 export const can = (user: OfficeUser, right: Permission) =>
   right === 'users'
@@ -196,6 +286,8 @@ export function seedOffice(): OfficeData {
   };
   return {
     users,
+    customers: seedOfficeCustomers(),
+    payments: [],
     corrections: [],
     cards: [
       {
