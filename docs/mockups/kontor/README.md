@@ -131,3 +131,56 @@ publicerade kontorsdemon. Vid genomförande ska statistik, kundpriser,
 betalningsuppgifter och ändringsknappar följa användarens behörigheter.
 
 Senaste byggbeslut: alla fem kundflikar är godkända. I appversion 0.3.0 ersätts mockupernas Kreditfaktura av **Spara på saldo**. Underlagen visar exempeldata; appen räknar statistik från sparade demokort.
+
+## Containrar & kärl – designförslag 2026-10-08
+
+[Öppna kartvyn](08_Containrar_Karl.png)
+
+Karta med utställda containrar och kärl, sökning, typ- och statusfilter samt
+växling till lista. Det valda kärlet visar kund, adress, kontakt, bokad åtgärd,
+avtal, platsinformation och historik. Kärl kan hanteras individuellt med eget
+nummer; flera kärl och adresser kan höra till samma kund.
+
+Kartans färger visar läget för nästa åtgärd: grönt för utställd, gult för
+hämtning begärd, blått för bokad och rött för försenad. En bokning flyttar
+inte kärlet: C-014 står kvar hos kunden fram till genomfört byte, och C-027
+är det reserverade ersättningskärlet. Fyllnadsgrad ska anges manuellt när
+den behövs, inte presenteras som en automatisk sensormätning.
+
+![Containrar & kärl](08_Containrar_Karl.png)
+
+## Transportplanering – designförslag 2026-10-08
+
+[Öppna kalendern](09_Transportplanering.png)
+
+Veckokalender med rader för förare och fordon, val för dag/vecka/lista och
+en kö med uppdrag som behöver planeras. Vald arbetsorder visar kund,
+adress, åtgärd, material, kärlnummer, tid, förare, fordon och instruktioner.
+Kalenderns egen statusförklaring visar Planerad, På väg och Klar.
+
+Planeringen ska omfatta både hämtning, byte och utställning. En hämtning av
+en batterilåda behöver exempelvis inte vara ett containerbyte. Återkommande
+avtal och extra beställningar skapar arbetsordrar i samma planering.
+
+![Transportplanering](09_Transportplanering.png)
+
+### Gemensamt exempel i de två transportmockuperna
+
+| Uppgift | Exempeldata |
+| --- | --- |
+| Arbetsorder | AO-1042, bokat extrabyte |
+| Kund | Roslagens Däck & Service AB |
+| Plats | Industrivägen 8, Norrtälje |
+| Tid | Torsdag 8 oktober 2026, 10:00–11:00 |
+| Förare / fordon | Kalle Johansson / ABC123, lastväxlare |
+| Kärl | Hämta C-014, ställ ut C-027, däckcontainer 20 m³ |
+| Ordinarie schema | Byte varannan onsdag, nästa byte 14 oktober |
+
+Extrabyten ändrar inte det ordinarie schemat. Kartans detaljkort länkar till
+arbetsordern, och arbetsordern länkar tillbaka till kärlet på kartan. Efter
+genomfört byte flyttas C-027 till kunden och C-014 tas hem med historiken
+bevarad. Senare kan transporten länkas till en vägning; materialets vikt
+registreras när det faktiskt vägs.
+
+De här två bilderna är för designgranskning. De innebär ingen ändring i
+appen och har ännu inte lagts in som godkända byggpunkter i ÄL.
