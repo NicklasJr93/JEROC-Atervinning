@@ -8,10 +8,12 @@ import {
 } from './types';
 import './transport-map.css';
 
+interface TransportMapOrder extends TransportOrder { preliminary?: boolean }
+
 interface TransportMapProps {
-  orders: TransportOrder[];
+  orders: TransportMapOrder[];
   drivers: TransportDriver[];
-  focusDriverId: string;
+  selectedDriverIds: string[];
   hoveredId: string | null;
   selectedId: string | null;
   onHover: (id: string | null, sourceId?: string) => void;
@@ -28,6 +30,7 @@ interface MapPinElements {
   symbol: SVGGElement;
   tooltip: HTMLDivElement;
   tooltipTitle: HTMLSpanElement;
+  tooltipState: HTMLSpanElement;
   tooltipDetails: HTMLSpanElement;
 }
 
@@ -74,6 +77,7 @@ function makePin(id: string): MapPinElements {
   button.dataset.orderId = id;
   button.dataset.testid = `transport-pin-${id}`;
   const svg = svgElement('svg', { viewBox: '0 0 44 54', 'aria-hidden': 'true' });
+  const artwork = svgElement('g', { class: 'transport-map-pin-art' });
   const contour = svgElement('path', {
     d: PIN_PATH, fill: 'none', stroke: UNASSIGNED_COLOR, 'stroke-width': '6',
     'stroke-linejoin': 'round', class: 'transport-map-pin-contour',
@@ -86,15 +90,18 @@ function makePin(id: string): MapPinElements {
     fill: 'none', stroke: '#ffffff', 'stroke-width': '1.8',
     'stroke-linecap': 'round', 'stroke-linejoin': 'round',
   });
-  svg.append(contour, fill, symbol);
+  artwork.append(contour, fill, symbol);
+  svg.append(artwork);
   button.append(svg);
   const tooltip = document.createElement('div');
   const tooltipTitle = document.createElement('span');
   tooltipTitle.className = 'transport-map-tooltip-title';
+  const tooltipState = document.createElement('span');
+  tooltipState.className = 'transport-map-tooltip-state';
   const tooltipDetails = document.createElement('span');
   tooltipDetails.className = 'transport-map-tooltip-details';
-  tooltip.append(tooltipTitle, tooltipDetails);
-  return { button, contour, fill, symbol, tooltip, tooltipTitle, tooltipDetails };
+  tooltip.append(tooltipTitle, tooltipState, tooltipDetails);
+  return { button, contour, fill, symbol, tooltip, tooltipTitle, tooltipState, tooltipDetails };
 }
 
 function clockTime(minutes: number) {
@@ -121,7 +128,7 @@ function driverColor(driver?: TransportDriver) {
 }
 
 export default function TransportMap(props: TransportMapProps) {
-  const { orders, drivers, focusDriverId, hoveredId, selectedId, focusRequest, pickingLocation } = props;
+  const { orders, drivers, selectedDriverIds, hoveredId, selectedId, focusRequest, pickingLocation } = props;
   const mapElement = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markers = useRef(new Map<string, MarkerEntry>());
@@ -129,8 +136,10 @@ export default function TransportMap(props: TransportMapProps) {
   const latestProps = useRef(props);
   latestProps.current = props;
   const [tilesUnavailable, setTilesUnavailable] = useState(false);
-  const validOrders = orders.filter(hasCoordinates);
-  const missingCoordinates = orders.length - validOrders.length;
+  const visibleOrders = orders.filter((order) => !order.driverId || selectedDriverIds.includes(order.driverId));
+  const validOrders = visibleOrders.filter(hasCoordinates);
+  const missingCoordinates = visibleOrders.length - validOrders.length;
+  const hiddenDriverCount = drivers.filter((driver) => !selectedDriverIds.includes(driver.id)).length;
 
   useLayoutEffect(() => {
     if (!mapElement.current) return;
@@ -139,7 +148,8 @@ export default function TransportMap(props: TransportMapProps) {
       scrollWheelZoom: false, keyboard: true, attributionControl: true,
     });
     mapRef.current = map;
-    const initialOrders = latestProps.current.orders.filter(hasCoordinates);
+    const initialOrders = latestProps.current.orders.filter((order) => hasCoordinates(order)
+      && (!order.driverId || latestProps.current.selectedDriverIds.includes(order.driverId)));
     if (initialOrders.length) {
       map.fitBounds(L.latLngBounds(initialOrders.map((order) => [order.lat, order.lng])), {
         padding: [48, 48], maxZoom: 14, animate: false,
@@ -199,14 +209,16 @@ export default function TransportMap(props: TransportMapProps) {
     const map = mapRef.current;
     if (!map) return;
     if (hoveredId) lastRaisedId.current = hoveredId;
-    const existingIds = new Set(orders.filter(hasCoordinates).map((order) => order.id));
+    const visibleOrders = orders.filter((order) => hasCoordinates(order)
+      && (!order.driverId || selectedDriverIds.includes(order.driverId)));
+    const existingIds = new Set(visibleOrders.map((order) => order.id));
     markers.current.forEach((entry, id) => {
       if (!existingIds.has(id)) {
         entry.marker.remove();
         markers.current.delete(id);
       }
     });
-    orders.filter(hasCoordinates).forEach((order) => {
+    visibleOrders.forEach((order) => {
       let entry = markers.current.get(order.id);
       if (!entry) {
         const elements = makePin(order.id);
@@ -250,24 +262,25 @@ export default function TransportMap(props: TransportMapProps) {
       }
       const highlighted = order.id === hoveredId;
       const selected = order.id === selectedId;
-      const muted = Boolean(focusDriverId && order.driverId && order.driverId !== focusDriverId);
       entry.button.classList.toggle('is-unbooked', order.status === 'unbooked');
+      entry.button.classList.toggle('is-preliminary', Boolean(order.preliminary));
       entry.button.classList.toggle('is-hovered', highlighted);
       entry.button.classList.toggle('is-selected', selected);
-      entry.button.classList.toggle('is-muted', muted && !highlighted && !selected);
       entry.button.setAttribute('aria-pressed', String(selected));
       entry.button.tabIndex = pickingLocation ? -1 : 0;
       entry.button.setAttribute('aria-label',
-        `${order.id}, ${order.customerName}, ${actionLabels[order.action]}, ${vesselTypes[order.vesselType].label}, ${transportStatusLabels[order.status]}, ${timeLabel(order)}${driver ? `, ${driver.name}` : ', ingen förare tilldelad'}`);
+        `${order.id}, ${order.customerName}, ${actionLabels[order.action]}, ${vesselTypes[order.vesselType].label}, ${order.preliminary ? 'Preliminär bokning' : transportStatusLabels[order.status]}, ${timeLabel(order)}${driver ? `, ${driver.name}` : ', ingen förare tilldelad'}`);
       entry.tooltipTitle.textContent = `${order.id} · ${order.customerName}`;
-      entry.tooltipDetails.textContent = `${transportStatusLabels[order.status]} · ${timeLabel(order)}${driver ? ` · ${driver.name}` : ''}`;
+      entry.tooltipState.textContent = order.preliminary ? 'Preliminär bokning · ej verkställd' : '';
+      entry.tooltipState.hidden = !order.preliminary;
+      entry.tooltipDetails.textContent = `${order.preliminary ? '' : `${transportStatusLabels[order.status]} · `}${timeLabel(order)}${driver ? ` · ${driver.name}` : ''}`;
       // Keep its stacking order while moving from the linked list to the pin.
       // Removing the highlight must not put a nearby pin under the pointer.
-      entry.marker.setZIndexOffset(highlighted ? 3000 : selected ? 2000 : order.id === lastRaisedId.current ? 1000 : muted ? -100 : 0);
+      entry.marker.setZIndexOffset(highlighted ? 3000 : selected ? 2000 : order.id === lastRaisedId.current ? 1000 : 0);
       if (!pickingLocation && (highlighted || selected)) entry.marker.openTooltip();
       else entry.marker.closeTooltip();
     });
-  }, [orders, drivers, focusDriverId, hoveredId, selectedId, pickingLocation]);
+  }, [orders, drivers, selectedDriverIds, hoveredId, selectedId, pickingLocation]);
 
   useEffect(() => {
     if (!focusRequest) return;
@@ -291,7 +304,7 @@ export default function TransportMap(props: TransportMapProps) {
     <div ref={mapElement} className="transport-map-canvas" aria-label="Interaktiv karta över arbetsordrarnas platser" />
     <div className="transport-map-toolbar">
       <div className="transport-map-title"><MapPin size={15} /><strong>Arbetsordrar på kartan</strong><span>{validOrders.length} platser</span></div>
-      <button type="button" className="transport-map-fit" onClick={frameOrders} disabled={!validOrders.length}><Navigation size={13} /> Visa alla</button>
+      <button type="button" className="transport-map-fit" onClick={frameOrders} disabled={!validOrders.length} aria-label="Visa alla platser i valt förarurval"><Navigation size={13} /> Visa platser</button>
     </div>
     {pickingLocation && <div className="transport-map-picking-notice" role="status"><MapPin size={14} /> Klicka på kartan för att välja plats</div>}
     <div className="transport-map-legend" aria-label="Kartans färgförklaring">
@@ -299,13 +312,16 @@ export default function TransportMap(props: TransportMapProps) {
         {Object.entries(vesselTypes).map(([type, value]) => <span className="transport-map-legend-item" key={type}><i className="transport-map-fill-key" style={{ background: value.color }} />{value.label}</span>)}
       </div>
       <div className="transport-map-legend-group"><span className="transport-map-legend-label">Kontur = förare</span>
-        {drivers.map((driver) => <span key={driver.id} className={`transport-map-legend-item${focusDriverId && focusDriverId !== driver.id ? ' is-muted' : ''}`}><i className="transport-map-driver-key" style={{ borderColor: driverColor(driver) }} />{driver.name.split(' ')[0]}</span>)}
+        {drivers.filter((driver) => selectedDriverIds.includes(driver.id)).map((driver) => <span key={driver.id} className="transport-map-legend-item"><i className="transport-map-driver-key" style={{ borderColor: driverColor(driver) }} />{driver.name.split(' ')[0]}</span>)}
         <span className="transport-map-legend-item"><i className="transport-map-driver-key" style={{ borderColor: UNASSIGNED_COLOR }} />Ej tilldelad</span>
       </div>
-      <div className="transport-map-legend-group"><span className="transport-map-legend-item"><i className="transport-map-booking-key" />Bokat</span><span className="transport-map-legend-item"><i className="transport-map-booking-key is-unbooked" />Obokat · pulserar</span></div>
+      <div className="transport-map-legend-group"><span className="transport-map-legend-item"><i className="transport-map-booking-key" />Bokat</span><span className="transport-map-legend-item"><i className="transport-map-booking-key is-unbooked" />Obokat · skakar</span>
+        {validOrders.some((order) => order.preliminary) && <span className="transport-map-legend-item"><i className="transport-map-booking-key is-preliminary" />Preliminärt</span>}
+        {hiddenDriverCount > 0 && <span className="transport-map-filter-note">{hiddenDriverCount} {hiddenDriverCount === 1 ? 'förare dold' : 'förare dolda'} · välj i planeraren</span>}
+      </div>
     </div>
     {tilesUnavailable && <div className="transport-map-notice" role="status">Kartbakgrunden kunde inte laddas. Arbetsordrarnas nålar fungerar fortfarande.</div>}
-    {!validOrders.length && <div className="transport-map-empty" role="status"><MapPin size={24} /><strong>{orders.length ? 'Arbetsordrarna saknar kartposition' : 'Inga arbetsordrar i vald vy'}</strong><span>{orders.length ? 'Välj plats på kartan i arbetsorderns uppgifter.' : 'Välj ett annat datum eller skapa ett nytt uppdrag.'}</span></div>}
+    {!validOrders.length && <div className="transport-map-empty" role="status"><MapPin size={24} /><strong>{visibleOrders.length ? 'Arbetsordrarna saknar kartposition' : 'Inga arbetsordrar i vald vy'}</strong><span>{visibleOrders.length ? 'Välj plats på kartan i arbetsorderns uppgifter.' : hiddenDriverCount ? 'Välj fler förare i planeraren eller visa ett annat datum.' : 'Välj ett annat datum eller skapa ett nytt uppdrag.'}</span></div>}
     {missingCoordinates > 0 && <div className="transport-map-coordinate-notice" role="status">{missingCoordinates} uppdrag saknar kartposition och visas i listan.</div>}
   </section>;
 }

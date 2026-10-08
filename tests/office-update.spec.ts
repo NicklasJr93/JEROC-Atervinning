@@ -234,6 +234,10 @@ test('kontorist utan kundprisbehörighet kan förbereda ett kort med dolda volym
     await page
       .getByRole('button', { name: 'Verifiera ID', exact: true })
       .click();
+    await page.getByLabel('Ursprungsadress', { exact: true }).fill('Ängsvägen 19');
+    await page
+      .getByRole('button', { name: 'Spara referens & ursprung', exact: true })
+      .click();
     await page.getByRole('button', { name: /Skicka för attest/ }).click();
     await expect(page.getByRole('status')).toContainText('väntar nu på attest');
     const saved = await page.evaluate(() =>

@@ -330,6 +330,16 @@ export function OfficeApp() {
     const old = live.cards.find((c) => c.id === card.id);
     if (!old || (right === 'pay' && old.financialPending)) return false;
     if (
+      old.status !== 'attest' &&
+      card.status === 'attest' &&
+      (!card.origin.trim() || !old.origin.trim())
+    ) {
+      setMessage(
+        'Fyll i och spara ursprungsadressen innan vägningen skickas för attest.',
+      );
+      return false;
+    }
+    if (
       ['ready', 'paid', 'balance'].includes(old.status) &&
       !(right === 'pay' && old.status === 'ready' && card.status === 'paid')
     ) {
@@ -471,6 +481,12 @@ export function OfficeApp() {
       )
     )
       return;
+    if (!card.origin.trim()) {
+      setMessage(
+        'Fyll i och spara ursprungsadressen innan vägningen skickas för attest.',
+      );
+      return;
+    }
     const principalId = principalRef.current;
     setPriceBusy(true);
     try {
@@ -1545,6 +1561,7 @@ export function OfficeApp() {
                         disabled={
                           priceBusy ||
                           !selected.customerId ||
+                          !selected.origin.trim() ||
                           !selected.idVerified ||
                           !selected.payment
                         }
@@ -1555,11 +1572,13 @@ export function OfficeApp() {
                     )}
                     {editable &&
                       (!selected.customerId ||
+                        !selected.origin.trim() ||
                         !selected.idVerified ||
                         !selected.payment) && (
                         <p className="office-small">
-                          Välj kund, kontrollera ID och fyll i
-                          betalningsuppgifter före attest.
+                          Välj kund, fyll i ursprungsadress och
+                          betalningsuppgifter samt kontrollera ID före attest.
+                          Referens är valfri.
                         </p>
                       )}
                     {selected.status === 'attest' && can(user, 'attest') && (
@@ -2320,8 +2339,9 @@ function DetailFields({
       }}
     >
       <label>
-        Referens
+        Referens <span className="office-small">(valfri)</span>
         <input
+          aria-label="Referens"
           disabled={disabled || !card.customerId}
           value={reference}
           onChange={(e) => setReference(e.target.value)}
@@ -2334,14 +2354,27 @@ function DetailFields({
         ))}
       </datalist>
       <label>
-        Ursprungsadress
+        Ursprungsadress <span className="office-small">(krävs före attest)</span>
         <input
+          aria-label="Ursprungsadress"
+          aria-describedby={!disabled ? 'office-origin-requirement' : undefined}
+          aria-invalid={
+            !disabled && card.customerId && !origin.trim() ? true : undefined
+          }
           disabled={disabled || !card.customerId}
           value={origin}
           onChange={(e) => setOrigin(e.target.value)}
           list="office-origin"
+          placeholder="Gatuadressen där materialet kommer ifrån"
         />
       </label>
+      {!disabled && (
+        <p className="office-small" id="office-origin-requirement">
+          {!origin.trim()
+            ? 'Ursprungsadress saknas. Fyll i och spara gatuadressen före attest.'
+            : 'Ursprungsadressen anger var materialet kommer ifrån. Spara uppgifterna före attest.'}
+        </p>
+      )}
       <datalist id="office-origin">
         {customer?.origins.map((r) => (
           <option value={r} key={r} />

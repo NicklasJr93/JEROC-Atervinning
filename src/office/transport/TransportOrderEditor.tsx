@@ -113,7 +113,7 @@ export default function TransportOrderEditor({
     ? Number(start.slice(0, 2)) * 60 + Number(start.slice(3))
     : Number.NaN;
   const title = mode === 'create' ? 'Ny arbetsorder' : mode === 'book' ? 'Boka arbetsorder' : 'Redigera arbetsorder';
-  const submitLabel = mode === 'create' ? 'Spara arbetsorder' : mode === 'book' ? 'Bekräfta bokning' : 'Spara ändringar';
+  const submitLabel = mode === 'create' ? 'Spara arbetsorder' : mode === 'book' || order?.preliminary || (order?.status === 'unbooked' && booked) ? 'Spara planering' : 'Spara ändringar';
 
   useEffect(() => {
     mounted.current = true;
@@ -345,7 +345,7 @@ export default function TransportOrderEditor({
 
         <fieldset>
           <legend><CalendarDays size={15} /> Bokning</legend>
-          {mode !== 'book' && (!order || order.status === 'unbooked') && <label className="transport-book-switch"><input type="checkbox" checked={booked} onChange={(event) => setBooked(event.target.checked)} /> Boka direkt i planeraren</label>}
+          {mode !== 'book' && (!order || order.status === 'unbooked') && <label className="transport-book-switch"><input type="checkbox" checked={booked} onChange={(event) => setBooked(event.target.checked)} /> Planera preliminär bokning</label>}
           {booked ? <>
             <div className="transport-editor-grid">
               <label>Datum<input type="date" required value={date} onChange={(event) => setDate(event.target.value)} /></label>
@@ -362,6 +362,7 @@ export default function TransportOrderEditor({
               if (error) onError('');
             }}><option value="">Välj fordon</option>{data.vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.registration} · {vehicle.name}</option>)}</select></label>
             {Number.isFinite(startMinute) && <p className="transport-editor-booking-summary"><Clock3 size={14} /> {start}–{timeLabel(startMinute + draft.durationMinutes)} · {durationLabel(draft.durationMinutes)}</p>}
+            {(!order || order.status === 'unbooked' || order.preliminary) && <p className="transport-editor-help">Bokningen visas preliminärt i kalendern. Verkställ med knappen ovanför arbetsytan.</p>}
           </> : <>
             <label>Önskad dag <span className="transport-optional">valfritt</span><input type="date" value={draft.requestedDate ?? ''} onChange={(event) => setField('requestedDate', event.target.value || undefined)} /></label>
             <p className="transport-editor-help">Arbetet hamnar i listan Obokade och kan dras in i planeraren senare.</p>

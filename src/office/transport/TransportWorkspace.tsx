@@ -4,9 +4,11 @@ import { can, type OfficeCustomer, type OfficeUser } from '../model';
 import TransportMap from './TransportMap';
 import TransportCalendar from './TransportCalendar';
 import TransportOrderEditor from './TransportOrderEditor';
-import { transportKey, transportSchema, seedTransport, today, monday, addDays, timeLabel, durationLabel, applyTransportChange, saveTransportOrder, validateTransportPlan, undoTransportChange, distanceKm } from './model';
+import { transportKey, transportSchema, seedTransport, today, monday, addDays, timeLabel, durationLabel, applyTransportChange, saveTransportOrder, validateTransportPlan, undoTransportChange, distanceKm, effectiveTransportOrders, stageTransportPlan, removePreliminary, commitPreliminaryBookings, savePreliminaryOrder, transportPlanOf, expireTransportConfirmations } from './model';
 import { vesselTypes, actionLabels, transportStatusLabels, type TransportData, type TransportOrder, type TransportPlan, type TransportDraft, type TransportChange, type TransportActor, type CalendarProposal, type TransportFocusRequest } from './types';
 import './transport.css';
+import TransportIntegrations from './TransportIntegrations';
+import { useTransportOutbox } from './integrations-client';
 
 type Panel = { kind: 'details' | 'edit'; id: string } | { kind: 'book'; id: string; plan: TransportPlan } | { kind: 'create' } | null;
 type Props = {
@@ -39,7 +41,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const [date, setDate] = useState(today);
   const [view, setView] = useState<'day' | 'week'>('day');
   const [layout, setLayout] = useState<'both' | 'map' | 'plan'>('both');
-  const [focusDriverId, setFocusDriverId] = useState('oskar');
+  const [selectedDriverIds, setSelectedDriverIds] = useState(() => initial.data.drivers.map(driver => driver.id));
   const [vesselFilter, setVesselFilter] = useState('');
   const [showDone, setShowDone] = useState(false);
   const [search, setSearch] = useState('');
@@ -57,6 +59,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const [calendarFocus, setCalendarFocus] = useState<TransportFocusRequest>();
   const [mapRatio, setMapRatio] = useState(56);
   const mainRef = useRef<HTMLDivElement>(null);
+  const queueDragGhost = useRef<HTMLCanvasElement>(null);
   const picker = useRef<((coords: { lat: number; lng: number }) => void) | null>(null);
   const [picking, setPicking] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -66,8 +69,11 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
     canPlan: planning, actualUserId: actualUser.id, effectiveUserId: user.id,
     actor: (actualUser.id === user.id ? user.name : actualUser.name + ' som ' + user.name) + ' · Kontor Norrtälje',
   };
+  const outbox = useTransportOutbox(data.events, actor);
   const selectedId = panel && 'id' in panel ? panel.id : null;
-  const selected = data.orders.find(order => order.id === selectedId);
+  const projectedOrders = effectiveTransportOrders(data);
+  const preliminaryOrders = projectedOrders.filter(order => order.preliminary);
+  const selected = projectedOrders.find(order => order.id === selectedId);
   const editor = panel && ['create', 'edit', 'book'].includes(panel.kind);
 
   useEffect(() => {
@@ -97,6 +103,19 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
     if (!planning && editor) { setPanel(null); setPicking(false); picker.current = null; }
   }, [planning, editor]);
   useEffect(() => {
+    if (!planning) return;
+    function expireRequests() {
+      const previous = live.current;
+      if (!previous.orders.some(order => order.confirmation?.status === 'requested' && Date.parse(order.confirmation.expiresAt) <= Date.now())) return;
+      try {
+        const next = expireTransportConfirmations(previous, actor);
+        if (next.revision !== previous.revision && save(next, previous)) setUndo(null);
+      } catch (reason) { setError(reason instanceof Error ? reason.message : 'Kundförfrågan kunde inte uppdateras.'); }
+    }
+    expireRequests(); const timer = setInterval(expireRequests, 30000);
+    return () => clearInterval(timer);
+  }, [planning, actualUser.id, user.id]);
+  useEffect(() => {
     function escape(event: KeyboardEvent) {
       if (event.key !== 'Escape') return;
       if (picking) { picker.current = null; setPicking(false); return; }
@@ -111,8 +130,22 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   }
   function openOrder(id: string) {
     if (picking) return;
+    if (panel?.kind === 'details' && panel.id === id) { closePanel(); return; }
     if (editor && !window.confirm('Stäng formuläret? Osparade uppgifter försvinner.')) return;
     setPanel({ kind: 'details', id }); setProfileOpen(false); if (!blocked) setError('');
+  }
+  function updatePlanning(transform: (previous: TransportData) => TransportData, message: string) {
+    try {
+      const previous = live.current;
+      const next = transform(previous);
+      if (!save(next, previous)) return false;
+      setUndo(next.revision !== previous.revision ? previous : null); setNotice(message); return true;
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Planeringen kunde inte sparas.'); return false;
+    }
+  }
+  function toggleDriver(id: string) {
+    setSelectedDriverIds(ids => ids.includes(id) ? ids.filter(other => other !== id) : [...ids, id]);
   }
   function save(next: TransportData, expected: TransportData): boolean {
     try {
@@ -153,10 +186,10 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   }
   const startDay = view === 'week' ? monday(date) : date;
   const endDay = view === 'week' ? addDays(startDay, 6) : date;
-  const visibleOrders = data.orders.filter(order =>
+  const visibleOrders = projectedOrders.filter(order =>
     (!vesselFilter || order.vesselType === vesselFilter) &&
-    (showDone || order.status !== 'done') &&
-    (order.status === 'unbooked' || Boolean(order.date && order.date >= startDay && order.date <= endDay)),
+    (showDone || !['done', 'cancelled'].includes(order.status)) &&
+    (order.status === 'unbooked' || (order.status === 'cancelled' && !order.date) || Boolean(order.date && order.date >= startDay && order.date <= endDay)),
   );
   const queue = visibleOrders.filter(order => order.status === 'unbooked' &&
     [order.id, order.customerName, order.address, order.city, order.material, order.pickupVessel, order.replacementVessel].join(' ').toLocaleLowerCase('sv-SE').includes(search.toLocaleLowerCase('sv-SE')),
@@ -164,12 +197,12 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const mapOrders = visibleOrders.filter(order => order.status !== 'unbooked' || queue.some(item => item.id === order.id));
   function nearest(order: TransportOrder) {
     const candidate = visibleOrders.filter(other => other.id !== order.id && other.status === 'booked' && other.driverId &&
-      (!focusDriverId || other.driverId === focusDriverId))
+      selectedDriverIds.includes(other.driverId))
       .sort((a, b) => distanceKm(order, a) - distanceKm(order, b))[0];
     return candidate ? { order: candidate, distance: distanceKm(order, candidate) } : undefined;
   }
   function planFor(proposal: CalendarProposal): TransportPlan {
-    const order = live.current.orders.find(item => item.id === proposal.id);
+    const order = effectiveTransportOrders(live.current).find(item => item.id === proposal.id);
     const driver = live.current.drivers.find(item => item.id === proposal.driverId);
     return {
       date: proposal.date, startMinute: proposal.startMinute, durationMinutes: proposal.durationMinutes,
@@ -180,24 +213,25 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   function validateProposal(proposal: CalendarProposal) {
     if (!planning) return 'Du saknar behörighet att planera transporter.';
     const order = live.current.orders.find(item => item.id === proposal.id);
-    if (!order || ['on_way', 'done'].includes(order.status)) return 'Ett påbörjat eller klart uppdrag kan inte flyttas.';
+    if (!order || ['on_way', 'done', 'cancelled'].includes(order.status)) return 'Ett påbörjat, klart eller avbrutet uppdrag kan inte flyttas.';
     return validateTransportPlan(live.current, proposal.id, planFor(proposal));
   }
   function propose(proposal: CalendarProposal) {
     const issue = validateProposal(proposal);
     if (issue) { setError(issue); return; }
     const plan = planFor(proposal);
-    if (proposal.kind === 'book') {
-      setPanel({ kind: 'book', id: proposal.id, plan }); setError('');
+    if (proposal.kind === 'book' || live.current.preliminary[proposal.id]) {
+      updatePlanning(previous => stageTransportPlan(previous, proposal.id, plan, actor), proposal.id + ' · Preliminär bokning sparad.');
     } else {
       change({ type: 'reschedule', id: proposal.id, plan }, proposal.id + (proposal.kind === 'resize' ? ' · Tidsåtgång uppdaterad.' : ' · Bokning flyttad.'));
     }
     setDraggedOrderId(null);
+    setHoveredId(null);
   }
   function book(order: TransportOrder, relative?: 'before' | 'after') {
     if (!planning) return;
     const nearby = nearest(order);
-    const driver = data.drivers.find(item => item.id === (nearby?.order.driverId ?? focusDriverId)) ?? data.drivers[0];
+    const driver = data.drivers.find(item => item.id === (nearby?.order.driverId ?? selectedDriverIds[0])) ?? data.drivers[0];
     let startMinute = 9 * 60;
     let plannedDate = date;
     if (nearby && relative) {
@@ -216,22 +250,30 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
     if (!panel) return false;
     const current = panel;
     const previousIds = new Set(data.orders.map(order => order.id));
-    let result = false;
-    if (current.kind === 'create') {
-      result = change({ type: 'create', draft, repeat: options.repeat }, 'Arbetsordern har skapats.', false);
-    } else if ('id' in current) {
-      try {
-        const previous = live.current;
-        const next = saveTransportOrder(previous, current.id, draft, actor, options.scope);
-        result = save(next, previous);
-        if (result) {
-          setUndo(next.revision !== previous.revision ? previous : null);
-          setNotice(current.kind === 'book' ? current.id + ' har bokats.' : current.id + ' har uppdaterats.');
+    const intendedPlan = draft.status === 'booked' ? transportPlanOf({ ...draft, id: '', audit: [], updatedAt: '', bookingVersion: 0 }) : undefined;
+    const unbookedDraft: TransportDraft = { ...draft, status: 'unbooked', date: undefined, startMinute: undefined, driverId: undefined, vehicleId: undefined };
+    const result = updatePlanning(previous => {
+      let next: TransportData;
+      if (current.kind === 'create') {
+        next = applyTransportChange(previous, { type: 'create', draft: intendedPlan ? { ...unbookedDraft, requestedDate: intendedPlan.date } : draft, repeat: options.repeat }, actor);
+        if (intendedPlan) {
+          const interval = options.repeat === 'weekly' ? 7 : options.repeat === 'biweekly' ? 14 : 0;
+          next.orders.filter(order => !previousIds.has(order.id)).forEach((order, index) => {
+            next = stageTransportPlan(next, order.id, { ...intendedPlan, date: addDays(intendedPlan.date, index * interval) }, actor);
+          });
         }
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : 'Arbetsordern kunde inte sparas.');
-      }
-    }
+      } else if ('id' in current) {
+        if (previous.preliminary[current.id]) {
+          next = savePreliminaryOrder(previous, current.id, draft, actor, options.scope);
+        } else if (intendedPlan && previous.orders.find(order => order.id === current.id)?.status === 'unbooked') {
+          next = saveTransportOrder(previous, current.id, unbookedDraft, actor, options.scope);
+          next = stageTransportPlan(next, current.id, intendedPlan, actor);
+        } else {
+          next = saveTransportOrder(previous, current.id, draft, actor, options.scope);
+        }
+      } else return previous;
+      return next.revision === previous.revision ? previous : { ...next, revision: previous.revision + 1 };
+    }, intendedPlan && (current.kind === 'create' || current.kind === 'book' || selected?.preliminary) ? 'Preliminär planering sparad. Verkställ när tiderna är klara.' : 'Arbetsordern har sparats.');
     if (result) {
       const id = current.kind === 'create' ? live.current.orders.find(order => !previousIds.has(order.id))?.id : 'id' in current ? current.id : undefined;
       setPanel(id ? { kind: 'details', id } : null); setPicking(false); picker.current = null;
@@ -241,13 +283,14 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   }
   function showOnMap(order: TransportOrder) {
     if (order.date) setDate(order.date);
-    setVesselFilter(''); if (order.status === 'done') setShowDone(true);
+    setVesselFilter(''); if (['done', 'cancelled'].includes(order.status)) setShowDone(true);
+    if (order.driverId) setSelectedDriverIds(ids => ids.includes(order.driverId!) ? ids : [...ids, order.driverId!]);
     if (layout === 'plan') setLayout('both');
     setMapFocus({ id: order.id, nonce: Date.now() });
   }
   function showInCalendar(order: TransportOrder) {
     if (!order.date) return;
-    setDate(order.date); setVesselFilter(''); if (order.status === 'done') setShowDone(true);
+    setDate(order.date); setVesselFilter(''); if (['done', 'cancelled'].includes(order.status)) setShowDone(true);
     if (layout === 'map') setLayout('both');
     setCalendarFocus({ id: order.id, nonce: Date.now() });
   }
@@ -263,6 +306,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const nearby = selected?.status === 'unbooked' ? nearest(selected) : undefined;
   return (
     <section className="transport-workspace" data-testid="transport-workspace">
+      <canvas className="transport-drag-ghost" ref={queueDragGhost} width={1} height={1} aria-hidden="true" />
       <header className="transport-toolbar">
         <button className="transport-back" onClick={onExit}><ArrowLeft size={17} /><span>Till kontoret</span></button>
         <h1>Transportplanering</h1>
@@ -277,11 +321,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
           <button aria-pressed={view === 'day'} className={view === 'day' ? 'active' : ''} onClick={() => setView('day')}>Dag</button>
           <button aria-pressed={view === 'week'} className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>Vecka</button>
         </div>
-        <label className="transport-driver-focus"><span className="sr-only">Förarfokus</span>
-          <select aria-label="Förarfokus" value={focusDriverId} onChange={event => setFocusDriverId(event.target.value)}>
-            <option value="">Alla förare</option>
-            {data.drivers.map(driver => <option key={driver.id} value={driver.id}>Fokus: {driver.name}</option>)}
-          </select></label>
+        <button aria-label="Visa alla förare på kartan" onClick={() => setSelectedDriverIds(data.drivers.map(driver => driver.id))}>Alla förare <small>{selectedDriverIds.length}/{data.drivers.length}</small></button>
         <select className="transport-layout-select" aria-label="Visa arbetsyta" value={layout} onChange={event => setLayout(event.target.value as typeof layout)}>
           <option value="both">Karta + planering</option><option value="map">Endast karta</option><option value="plan">Endast planering</option>
         </select>
@@ -293,7 +333,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
       {profileOpen && <div className="transport-profile-popover"><strong>{user.name}</strong><span>{user.level} · {planning ? 'Planeringsbehörighet' : 'Läsbehörighet'}</span>
         {actualUser.id !== user.id && <p>Inloggad som {actualUser.name}</p>}{workAsControl}</div>}
       {helpOpen && <div className="transport-help-popover"><button aria-label="Stäng information" onClick={() => setHelpOpen(false)}><X size={17} /></button>
-        <strong>Transportdemo · Sparas i denna webbläsare</strong><p>Karta, planerare och arbetsordrar visar samma uppgifter. Kontur visar förare, fyllning visar kärltyp. Obokade nålar pulserar mjukt.</p>
+        <strong>Transportdemo · Sparas i denna webbläsare</strong><p>Karta, planerare och arbetsordrar visar samma uppgifter. Kontur visar förare, fyllning visar kärltyp. Obokade nålar skakar kort. Klicka på förarnas namn för att välja vilka nålar du ser.</p>
         <p>Restid bedöms manuellt. Förslagen visar närhet på kartan; de beräknar ingen körväg. Gemensam databas och förarapp kopplas på senare.</p></div>}
       {((error && !editor) || (!error && notice)) && <div className={'transport-message ' + (error ? 'error' : '')} role={error ? 'alert' : 'status'}>
         <span>{error || notice}</span>
@@ -305,14 +345,23 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
         }}>Återställ transportdemo</button>}
         {!blocked && <button aria-label="Stäng transportmeddelande" onClick={() => { setError(''); setNotice(''); }}><X size={16} /></button>}
       </div>}
+      {layout === 'map' && <div className="transport-map-driver-controls" aria-label="Förare på kartan">{data.drivers.map(driver => <button key={driver.id} aria-pressed={selectedDriverIds.includes(driver.id)} onClick={() => toggleDriver(driver.id)}><i style={{ background: driver.color }} />{driver.name}</button>)}</div>}
+      {preliminaryOrders.length > 0 && <div className="transport-planning-bar" aria-label="Preliminära bokningar">
+        <div><strong>{preliminaryOrders.length} {preliminaryOrders.length === 1 ? 'preliminär bokning' : 'preliminära bokningar'}</strong><span>Inte verkställda ännu · sparas som planeringsutkast</span></div>
+        <div className="transport-planning-orders">{preliminaryOrders.map(order => <button key={order.id} onClick={() => { setPanel({ kind: 'details', id: order.id }); showInCalendar(order); }}>{order.id} · {timeLabel(order.startMinute!)}</button>)}</div>
+        {planning && <button className="transport-primary" onClick={() => {
+          if (editor) { setError('Spara eller stäng formuläret innan du verkställer bokningarna.'); return; }
+          updatePlanning(previous => commitPreliminaryBookings(previous, actor), preliminaryOrders.length + ' ' + (preliminaryOrders.length === 1 ? 'bokning har' : 'bokningar har') + ' verkställts.');
+        }}>{preliminaryOrders.length === 1 ? 'Bekräfta bokning' : 'Verkställ bokningar (' + preliminaryOrders.length + ')'}</button>}
+      </div>}
       <div className="transport-body">
         <div className={'transport-main layout-' + layout} ref={mainRef} style={{ gridTemplateRows: layout === 'both' ? mapRatio + 'fr 10px ' + (100 - mapRatio) + 'fr' : 'minmax(0, 1fr)' }}>
-          {layout !== 'plan' && <TransportMap orders={mapOrders} drivers={data.drivers} focusDriverId={focusDriverId} hoveredId={hoveredId} selectedId={selectedId}
+          {layout !== 'plan' && <TransportMap orders={mapOrders} drivers={data.drivers} selectedDriverIds={selectedDriverIds} hoveredId={hoveredId} selectedId={selectedId}
             onHover={(id, source) => hoverOrder(id, source, 'map')} onSelect={openOrder} focusRequest={mapFocus} pickingLocation={picking} onPickLocation={coords => { picker.current?.(coords); picker.current = null; setPicking(false); }} />}
           {layout === 'both' && <div className="transport-divider" role="separator" aria-label="Fördela yta mellan karta och planerare" aria-orientation="horizontal"
             aria-valuemin={25} aria-valuemax={75} aria-valuenow={Math.round(mapRatio)} tabIndex={0} onPointerDown={resizeSplit}
             onKeyDown={event => { if (['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); setMapRatio(value => Math.max(25, Math.min(75, value + (event.key === 'ArrowUp' ? -5 : 5)))); } }}><span /></div>}
-          {layout !== 'map' && <TransportCalendar orders={visibleOrders} drivers={data.drivers} vehicles={data.vehicles} date={date} view={view} focusDriverId={focusDriverId}
+          {layout !== 'map' && <TransportCalendar orders={visibleOrders} drivers={data.drivers} vehicles={data.vehicles} date={date} view={view} selectedDriverIds={selectedDriverIds} onToggleDriver={toggleDriver}
             hoveredId={hoveredId} selectedId={selectedId} draggedOrderId={draggedOrderId} onHover={(id, source) => hoverOrder(id, source, 'calendar')} onSelect={openOrder} onDragOrder={setDraggedOrderId}
             onPropose={propose} validateProposal={validateProposal} canPlan={planning} focusRequest={calendarFocus} />}
         </div>
@@ -324,7 +373,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
             : selected && panel?.kind === 'details' ? <div className="transport-details">
               <div className="transport-side-heading"><div><span className="transport-eyebrow">ARBETSORDER</span><h2>Arbetsorder {selected.id}</h2></div>
                 <button aria-label="Stäng arbetsorder" onClick={closePanel}><X size={19} /></button></div>
-              <span className={'transport-state state-' + selected.status}>{transportStatusLabels[selected.status]}</span>
+              <span className={'transport-state state-' + (selected.preliminary ? 'preliminary' : selected.status)}>{selected.preliminary ? 'Preliminär bokning' : transportStatusLabels[selected.status]}</span>
               <h3>{selected.customerName}</h3>
               <p className="transport-detail-address"><MapPin size={15} /><span>{selected.address}<br />{selected.city}</span></p>
               {selected.contact && <p>{selected.contact}{selected.phone && <><br /><a href={'tel:' + selected.phone}>{selected.phone}</a></>}</p>}
@@ -336,7 +385,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
                 {selected.replacementVessel && <><dt>Ställ ut</dt><dd>{selected.replacementVessel}</dd></>}
                 <dt>Tidsåtgång</dt><dd><Clock3 size={15} />{durationLabel(selected.durationMinutes)}</dd>
               </dl></div>
-              {selected.status !== 'unbooked' ? <div className="transport-detail-section"><h4>Planering</h4>
+              {selected.date && selected.startMinute !== undefined ? <div className="transport-detail-section"><h4>{selected.preliminary ? 'Preliminär planering' : 'Planering'}</h4>
                 <p><CalendarDays size={16} />{readableDate(selected.date!)}</p><p><Clock3 size={16} />{timeLabel(selected.startMinute!)}–{timeLabel(selected.startMinute! + selected.durationMinutes)}</p>
                 <p><i className="transport-driver-dot" style={{ borderColor: currentDriver?.color }} />{currentDriver?.name}</p><p><Truck size={16} />{currentVehicle?.registration} · {currentVehicle?.name}</p>
               </div> : <div className="transport-detail-section"><h4>Önskemål</h4><p>{selected.requestedDate ? readableDate(selected.requestedDate) : 'Ingen särskild dag angiven'}</p></div>}
@@ -349,16 +398,23 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
               <div className="transport-detail-actions">
                 {planning && selected.status === 'unbooked' && <button className="transport-primary" onClick={() => book(selected)}><CalendarCheck size={17} />Boka uppdrag</button>}
                 {planning && ['unbooked', 'booked'].includes(selected.status) && <button onClick={() => { setPanel({ kind: 'edit', id: selected.id }); setError(''); }}><Pencil size={16} />Redigera</button>}
-                {planning && selected.status === 'booked' && <><button onClick={() => {
+                {planning && selected.preliminary && <button onClick={() => updatePlanning(previous => removePreliminary(previous, selected.id, actor), selected.id + ' är åter obokad.')}>Ta bort preliminär bokning</button>}
+                {planning && selected.status === 'booked' && !selected.preliminary && <><button onClick={() => {
                   if (!window.confirm('Avboka ' + selected.id + '? Arbetsordern finns kvar bland obokade arbeten.')) return;
                   change({ type: 'unbook', id: selected.id }, selected.id + ' finns nu bland obokade arbeten.');
                 }}>Avboka</button><button onClick={() => change({ type: 'status', id: selected.id, status: 'on_way' }, selected.id + ' · Föraren är på väg.')}>Markera på väg</button></>}
-                {planning && ['booked', 'on_way'].includes(selected.status) && <button onClick={() => {
+                {planning && !selected.preliminary && ['booked', 'on_way'].includes(selected.status) && <button onClick={() => {
                   if (window.confirm('Markera ' + selected.id + ' som klart? Uppdraget låses för planeringsändringar.')) change({ type: 'status', id: selected.id, status: 'done' }, selected.id + ' har slutförts.');
                 }}>Markera klart</button>}
+                {planning && ['unbooked', 'booked', 'on_way'].includes(selected.status) && <button className="transport-cancel-order" onClick={() => {
+                  const reason = window.prompt('Orsak till att avbryta ' + selected.id + '? Arbetsordern och historiken sparas.');
+                  if (reason === null) return;
+                  change({ type: 'cancel', id: selected.id, reason }, selected.id + ' har avbrutits.');
+                }}>Avbryt arbetsorder</button>}
                 <button onClick={() => showOnMap(selected)}><Navigation size={16} />Visa på karta</button>
                 {selected.date && <button onClick={() => showInCalendar(selected)}><CalendarDays size={16} />Visa i planeraren</button>}
               </div>
+              <TransportIntegrations data={data} actor={actor} selectedOrder={selected} outbox={outbox} onChange={(next, message) => updatePlanning(() => next, message)} onError={setError} />
               <details className="transport-audit"><summary>Historik · {selected.audit.length}</summary>
                 {selected.audit.slice().reverse().map((entry, index) => <div key={entry.at + ':' + index}><strong>{entry.text}</strong><span>{entry.actor}</span>
                   <time>{new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Stockholm' }).format(new Date(entry.at))}</time></div>)}</details>
@@ -367,7 +423,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
               <label className="transport-queue-search"><Search size={17} /><input aria-label="Sök obokade arbeten" placeholder="Sök uppdrag…" value={search} onChange={event => setSearch(event.target.value)} /></label>
               <div className="transport-queue-filters"><select aria-label="Filtrera kärltyp" value={vesselFilter} onChange={event => setVesselFilter(event.target.value)}><option value="">Alla kärltyper</option>
                 {Object.entries(vesselTypes).map(([key, type]) => <option value={key} key={key}>{type.label}</option>)}</select>
-                <label><input type="checkbox" checked={showDone} onChange={event => setShowDone(event.target.checked)} />Visa klara</label></div>
+                <label><input type="checkbox" checked={showDone} onChange={event => setShowDone(event.target.checked)} />Visa avslutade</label></div>
               <div className="transport-queue-list">
                 {queue.map(order => {
                   const close = nearest(order);
@@ -375,7 +431,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
                   return <div key={order.id} role="button" tabIndex={0} data-testid={'transport-queue-' + order.id} data-order-id={order.id}
                     className={'transport-queue-card ' + (hoveredId === order.id ? 'is-hovered' : '')}
                     style={{ '--vessel-color': vesselTypes[order.vesselType].color } as CSSProperties}
-                    draggable={planning} onDragStart={event => { event.dataTransfer.setData('application/jeroc-order', order.id); event.dataTransfer.effectAllowed = 'move'; setDraggedOrderId(order.id); setHoveredId(order.id); }}
+                    draggable={planning} onDragStart={event => { event.dataTransfer.setData('application/jeroc-order', order.id); event.dataTransfer.effectAllowed = 'move'; if (queueDragGhost.current) event.dataTransfer.setDragImage(queueDragGhost.current, 0, 0); setDraggedOrderId(order.id); hoverOrder(order.id); }}
                     onDragEnd={() => { setDraggedOrderId(null); hoverOrder(null, order.id); }}
                     onMouseEnter={() => hoverOrder(order.id)} onMouseLeave={() => hoverOrder(null, order.id)} onFocus={() => hoverOrder(order.id)} onBlur={() => hoverOrder(null, order.id)}
                     onClick={() => openOrder(order.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openOrder(order.id); } }}>
@@ -387,7 +443,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
                 })}
                 {!queue.length && <div className="transport-empty"><CalendarCheck size={28} /><strong>{search || vesselFilter ? 'Inga matchande arbeten' : 'Alla arbeten är planerade'}</strong><span>{search || vesselFilter ? 'Prova en annan sökning eller kärltyp.' : 'Nya arbetsordrar hamnar här tills de bokas.'}</span></div>}
               </div>
-              <p className="transport-queue-hint"><GripVertical size={18} /><span>Klicka för detaljer{planning && <><br />Dra till kalendern för att boka</>}</span></p>
+              <p className="transport-queue-hint"><GripVertical size={18} /><span>Klicka för detaljer{planning && <><br />Dra till kalendern, justera och verkställ</>}</span></p>
             </div>}
         </aside>
       </div>

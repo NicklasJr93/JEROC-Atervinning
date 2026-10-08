@@ -85,6 +85,7 @@
 
 .transport-map-marker { background: transparent; border: 0; }
 .transport-map-pin {
+  position: relative;
   display: block;
   width: 44px;
   height: 54px;
@@ -95,13 +96,24 @@
   cursor: pointer;
   transform-origin: 50% 92%;
   filter: drop-shadow(0 2px 2px #24384b66);
-  transition: opacity .14s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
-.transport-map-pin svg { width: 44px; height: 54px; display: block; overflow: visible; }
-.transport-map-pin.is-unbooked .transport-map-pin-fill { animation: transport-map-unbooked-pulse 3s ease-in-out infinite; }
-.transport-map-pin.is-muted { opacity: .26; }
+.transport-map-pin svg { width: 44px; height: 54px; display: block; overflow: visible; pointer-events: none; }
+.transport-map-pin-art { transform-origin: 22px 49px; }
+.transport-map-pin.is-unbooked .transport-map-pin-art { animation: transport-map-unbooked-shake 2.5s ease-in-out infinite; }
+.transport-map-pin.is-preliminary::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #e64b5d;
+  pointer-events: none;
+}
 .transport-map-pin.is-hovered,
 .transport-map-pin.is-selected,
 .transport-map-pin:focus-visible {
@@ -112,9 +124,11 @@
 }
 .transport-map-pin.is-selected { filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 5px #fff) drop-shadow(0 0 5px #174978); }
 
-@keyframes transport-map-unbooked-pulse {
-  0%, 100% { fill-opacity: .4; }
-  50% { fill-opacity: .8; }
+@keyframes transport-map-unbooked-shake {
+  0%, 18%, 100% { transform: translateX(0) rotate(0); }
+  3%, 9% { transform: translateX(-2px) rotate(-5deg); }
+  6%, 12% { transform: translateX(2px) rotate(5deg); }
+  15% { transform: translateX(-1px) rotate(-2deg); }
 }
 
 .transport-map-tooltip.leaflet-tooltip {
@@ -132,6 +146,8 @@
   pointer-events: none;
 }
 .transport-map-tooltip-title { display: block; font-size: 12px; font-weight: 650; }
+.transport-map-tooltip-state { display: inline-block; margin-top: 4px; padding: 2px 6px; border-radius: 4px; color: #b9273b; background: #ffedf0; font-size: 10px; font-weight: 650; }
+.transport-map-tooltip-state[hidden] { display: none; }
 .transport-map-tooltip-details { display: block; color: #738398; font-size: 10px; margin-top: 3px; }
 .transport-map-tooltip.leaflet-tooltip-top:before { border-top-color: #ffffff; }
 
@@ -161,11 +177,12 @@
 .transport-map-legend-group { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
 .transport-map-legend-label { color: #7b899b; font-size: 10px; }
 .transport-map-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.transport-map-legend-item.is-muted { opacity: .45; }
+.transport-map-filter-note { color: #738398; font-size: 10px; }
 .transport-map-fill-key { width: 8px; height: 8px; border-radius: 3px; }
 .transport-map-driver-key { width: 10px; height: 10px; border: 2px solid; border-radius: 50%; }
 .transport-map-booking-key { width: 10px; height: 10px; border: 2px solid #718196; border-radius: 50%; background: #a1b0c0; }
-.transport-map-booking-key.is-unbooked { border-style: dashed; background: #a1b0c066; }
+.transport-map-booking-key.is-unbooked { border-style: dashed; background: #a1b0c0; }
+.transport-map-booking-key.is-preliminary { border-color: #e64b5d; background: #ffdee3; }
 
 .transport-map-notice,
 .transport-map-coordinate-notice {
@@ -208,8 +225,7 @@
 .transport-map-empty span { font-size: 11px; line-height: 1.5; }
 
 @media (prefers-reduced-motion: reduce) {
-  .transport-map-pin { transition: none; }
-  .transport-map-pin.is-unbooked .transport-map-pin-fill { animation: none; fill-opacity: .6; }
+  .transport-map-pin.is-unbooked .transport-map-pin-art { animation: none; }
 }
 
 @media (max-width: 850px) {

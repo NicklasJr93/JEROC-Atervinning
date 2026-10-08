@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import {
   addDays, applyTransportChange, distanceKm, durationLabel, monday, saveTransportOrder, seedTransport,
   timeLabel, transportSchema, undoTransportChange, validateTransportPlan,
+  stageTransportPlan, removePreliminary, commitPreliminaryBookings, effectiveTransportOrders,
+  savePreliminaryOrder, requestTransportConfirmation, respondTransportConfirmation, expireTransportConfirmations,
 } from '../src/office/transport/model';
 import type { TransportActor, TransportData, TransportDraft, TransportPlan } from '../src/office/transport/types';
 import { can, seedOffice } from '../src/office/model';
@@ -260,4 +262,222 @@ test('transportbehörigheter migreras en gång för demokonton och återställs 
   expect(can(reloaded.users.find((user) => user.id === 'kajsa')!, 'transportPlan')).toBe(false);
   expect(can(reloaded.users.find((user) => user.id === 'kajsa')!, 'transportRead')).toBe(false);
   expect(can(reloaded.users.find((user) => user.id === 'anna')!, 'transportRead')).toBe(false);
+});
+
+test('äldre v1-data läses utan att skapa retroaktiva events eller preliminära bokningar', () => {
+  const old = JSON.parse(JSON.stringify(fixture()));
+  delete old.events; delete old.preliminary;
+  old.orders.forEach((entry: Record<string, unknown>) => { delete entry.bookingVersion; });
+  const migrated = transportSchema.parse(old);
+  expect(migrated.events).toEqual([]);
+  expect(migrated.preliminary).toEqual({});
+  expect(migrated.orders.every((entry) => entry.bookingVersion === 0)).toBe(true);
+});
+
+test('preliminärt kort reserverar tid och sparas efter omladdning utan verklig bokning eller integrationshändelse', () => {
+  const data = fixture(), before = structuredClone(data);
+  const staged = stageTransportPlan(data, 'AO-1043', plan(), actor);
+  expect(order(staged, 'AO-1043')).toMatchObject({ status: 'unbooked', bookingVersion: 0 });
+  expect(order(staged, 'AO-1043').date).toBeUndefined();
+  expect(staged.preliminary['AO-1043']).toEqual(plan());
+  expect(effectiveTransportOrders(staged).find((entry) => entry.id === 'AO-1043')).toMatchObject({ status: 'booked', preliminary: true, startMinute: 660 });
+  expect(staged.events).toEqual([]);
+  expect(staged.revision).toBe(data.revision + 1);
+  expect(transportSchema.parse(JSON.parse(JSON.stringify(staged))).preliminary).toEqual(staged.preliminary);
+  expect(data).toEqual(before);
+});
+
+test('flera preliminära arbeten kontrolleras mot både verkliga och preliminära förare och fordon', () => {
+  const staged = stageTransportPlan(fixture(), 'AO-1043', plan(), actor), before = structuredClone(staged);
+  expect(() => stageTransportPlan(staged, 'AO-1044', plan({ startMinute: 675 }), actor)).toThrow(/redan bokad/);
+  expect(() => stageTransportPlan(staged, 'AO-1044', plan({ driverId: 'maria', startMinute: 660 }), actor)).toThrow(/JKL 234/);
+  expect(() => applyTransportChange(staged, { type: 'reschedule', id: 'AO-1100', plan: plan() }, actor)).toThrow(/redan bokad/);
+  expect(staged).toEqual(before);
+  const second = stageTransportPlan(staged, 'AO-1044', plan({ startMinute: 720 }), actor);
+  expect(Object.keys(second.preliminary)).toEqual(['AO-1043', 'AO-1044']);
+});
+
+test('preliminär flytt och resize ändrar bara reservationen, inklusive vald förare och fordon', () => {
+  const first = stageTransportPlan(fixture(), 'AO-1043', plan(), actor);
+  const changed = stageTransportPlan(first, 'AO-1043', plan({ startMinute: 900, durationMinutes: 90, driverId: 'maria', vehicleId: 'vehicle-maria' }), actor);
+  expect(changed.preliminary['AO-1043']).toMatchObject({ startMinute: 900, durationMinutes: 90, driverId: 'maria', vehicleId: 'vehicle-maria' });
+  expect(order(changed, 'AO-1043').durationMinutes).toBe(60);
+  expect(changed.events).toHaveLength(0);
+  expect(stageTransportPlan(changed, 'AO-1043', changed.preliminary['AO-1043'], actor)).toBe(changed);
+});
+
+test('borttagen preliminär bokning frigör tiden och ångra återställer reservationen utan events', () => {
+  const first = stageTransportPlan(fixture(), 'AO-1043', plan(), actor);
+  const removed = removePreliminary(first, 'AO-1043', actor);
+  expect(removed.preliminary).toEqual({});
+  expect(validateTransportPlan(removed, 'AO-1044', plan())).toBeNull();
+  const restored = undoTransportChange(removed, first, actor);
+  expect(restored.preliminary['AO-1043']).toEqual(plan());
+  expect(restored.events).toEqual([]);
+  expect(order(restored, 'AO-1043').audit.at(-1)?.text).toContain('ångrad');
+});
+
+test('verkställ flera bokningar är en atomär revision och en bokningshändelse per arbete', () => {
+  const first = stageTransportPlan(fixture(), 'AO-1043', plan(), actor);
+  const staged = stageTransportPlan(first, 'AO-1044', plan({ startMinute: 720, durationMinutes: 90 }), actor);
+  const committed = commitPreliminaryBookings(staged, actor);
+  expect(committed.revision).toBe(staged.revision + 1);
+  expect(committed.preliminary).toEqual({});
+  expect(order(committed, 'AO-1043')).toMatchObject({ status: 'booked', bookingVersion: 1, startMinute: 660 });
+  expect(order(committed, 'AO-1044')).toMatchObject({ status: 'booked', bookingVersion: 1, startMinute: 720, durationMinutes: 90 });
+  expect(committed.events.map((entry) => [entry.type, entry.orderId])).toEqual([['work_order.booked', 'AO-1043'], ['work_order.booked', 'AO-1044']]);
+  expect(new Set(committed.events.map((entry) => entry.id)).size).toBe(2);
+  expect(commitPreliminaryBookings(committed, actor)).toBe(committed);
+  expect(staged.events).toEqual([]);
+});
+
+test('hela gruppen avvisas utan sidoeffekter om sparad reservation har fått en tidskrock', () => {
+  const staged = stageTransportPlan(fixture(), 'AO-1043', plan(), actor);
+  const corrupt = structuredClone(staged);
+  corrupt.preliminary['AO-1044'] = plan({ startMinute: 675 });
+  const before = structuredClone(corrupt);
+  expect(transportSchema.safeParse(corrupt).success).toBe(false);
+  expect(() => commitPreliminaryBookings(corrupt, actor)).toThrow(/redan bokad/);
+  expect(corrupt).toEqual(before);
+});
+
+test('preliminärt editorkort sparar metadata och reservation utan att verkställa eller notifiera', () => {
+  const data = stageTransportPlan(fixture(), 'AO-1043', plan(), actor);
+  const saved = savePreliminaryOrder(data, 'AO-1043', {
+    ...editorDraft(data, 'AO-1043'), ...plan({ startMinute: 900, durationMinutes: 90 }), status: 'booked', contact: 'Elin',
+  }, actor);
+  expect(saved.revision).toBe(data.revision + 1);
+  expect(order(saved, 'AO-1043')).toMatchObject({ status: 'unbooked', contact: 'Elin', durationMinutes: 90 });
+  expect(saved.preliminary['AO-1043']).toMatchObject({ startMinute: 900, durationMinutes: 90 });
+  expect(saved.events).toHaveLength(0);
+  const undone = undoTransportChange(saved, data, actor);
+  expect(order(undone, 'AO-1043').contact).toBe(order(data, 'AO-1043').contact);
+  expect(undone.events).toEqual([]);
+  const committed = commitPreliminaryBookings(saved, actor);
+  expect(committed.events).toHaveLength(1);
+  expect(committed.events[0].type).toBe('work_order.booked');
+  expect(committed.events[0].afterPlan?.durationMinutes).toBe(90);
+});
+
+test('läsa-behörighet ger inte rätt att reservera, ändra, ta bort eller verkställa gruppen', () => {
+  const data = stageTransportPlan(fixture(), 'AO-1043', plan(), actor), denied = { ...actor, canPlan: false };
+  expect(() => stageTransportPlan(data, 'AO-1043', plan({ startMinute: 900 }), denied)).toThrow(/behörighet/);
+  expect(() => removePreliminary(data, 'AO-1043', denied)).toThrow(/behörighet/);
+  expect(() => commitPreliminaryBookings(data, denied)).toThrow(/behörighet/);
+  expect(() => savePreliminaryOrder(data, 'AO-1043', editorDraft(data, 'AO-1043'), denied)).toThrow(/behörighet/);
+});
+
+test('bokningshändelser innehåller föregående och ny tid, kund och effektiv samt faktisk användare', () => {
+  const booked = applyTransportChange(fixture(), { type: 'book', id: 'AO-1043', plan: plan() }, actor);
+  const changed = applyTransportChange(booked, { type: 'reschedule', id: 'AO-1043', plan: plan({ startMinute: 900 }) }, actor);
+  expect(changed.events.at(-1)).toMatchObject({ type: 'work_order.rescheduled', orderId: 'AO-1043', bookingVersion: 2,
+    customer: { id: 'customer-andersson', name: 'Anderssons Verkstad' }, driver: { id: 'oskar', name: 'Oskar' },
+    beforePlan: plan(), afterPlan: plan({ startMinute: 900 }), actor: actor.actor, actualUserId: actor.actualUserId, effectiveUserId: actor.effectiveUserId,
+  });
+  expect(applyTransportChange(changed, { type: 'reschedule', id: 'AO-1043', plan: plan({ startMinute: 900 }) }, actor)).toBe(changed);
+});
+
+test('editorns sammansatta bokning emitterar en final bokning utan dubbla mellan-events', () => {
+  const data = fixture();
+  const saved = saveTransportOrder(data, 'AO-1043', { ...editorDraft(data, 'AO-1043'), ...plan(), status: 'booked', contact: 'Elin', durationMinutes: 90 }, actor);
+  expect(saved.events).toHaveLength(1);
+  expect(saved.events[0]).toMatchObject({ type: 'work_order.booked', afterPlan: { ...plan(), durationMinutes: 90 } });
+  const modified = saveTransportOrder(saved, 'AO-1043', { ...editorDraft(saved, 'AO-1043'), startMinute: 900, durationMinutes: 60 }, actor);
+  expect(modified.events.at(-1)?.type).toBe('work_order.rescheduled');
+  expect(modified.events).toHaveLength(2);
+});
+
+test('avbokning, på väg och slutförande har separata händelser', () => {
+  const data = fixture();
+  const unbooked = applyTransportChange(data, { type: 'unbook', id: 'AO-1042' }, actor);
+  expect(unbooked.events.at(-1)?.type).toBe('work_order.booking_cancelled');
+  let active = applyTransportChange(data, { type: 'status', id: 'AO-1042', status: 'on_way' }, actor);
+  active = applyTransportChange(active, { type: 'status', id: 'AO-1042', status: 'done' }, actor);
+  expect(active.events.map((entry) => entry.type)).toEqual(['work_order.en_route', 'work_order.completed']);
+});
+
+test('avbruten arbetsorder behåller underlag och historik, kräver orsak och frigör tid', () => {
+  const data = fixture(), before = structuredClone(data);
+  expect(() => applyTransportChange(data, { type: 'cancel', id: 'AO-1042', reason: ' ' }, actor)).toThrow(/orsak/);
+  const cancelled = applyTransportChange(data, { type: 'cancel', id: 'AO-1042', reason: 'Kunden behöver ingen hämtning.' }, actor);
+  expect(order(cancelled, 'AO-1042')).toMatchObject({ status: 'cancelled', date: day, startMinute: 600, pickupVessel: 'C-014' });
+  expect(cancelled.events.at(-1)).toMatchObject({ type: 'work_order.cancelled', reason: 'Kunden behöver ingen hämtning.' });
+  expect(validateTransportPlan(cancelled, 'AO-1043', plan({ driverId: 'kalle', vehicleId: 'vehicle-kalle', startMinute: 600 }))).toBeNull();
+  expect(() => applyTransportChange(cancelled, { type: 'edit', id: 'AO-1042', patch: { notes: 'ändrat' } }, actor)).toThrow(/avbruten/);
+  expect(data).toEqual(before);
+});
+
+test('ånger raderar aldrig integrationshistorik och skapar en spårbar mot-händelse', () => {
+  const data = fixture(), booked = applyTransportChange(data, { type: 'book', id: 'AO-1043', plan: plan() }, actor);
+  const undone = undoTransportChange(booked, data, actor);
+  expect(undone.events.slice(0, booked.events.length)).toEqual(booked.events);
+  expect(undone.events.at(-1)).toMatchObject({ type: 'work_order.booking_cancelled', bookingVersion: 2, reason: 'Senaste planeringsändringen ångrades.' });
+  const staged = stageTransportPlan(data, 'AO-1043', plan(), actor);
+  const afterCommit = commitPreliminaryBookings(staged, actor);
+  const restored = undoTransportChange(afterCommit, staged, actor);
+  expect(restored.preliminary['AO-1043']).toEqual(plan());
+  expect(order(restored, 'AO-1043').status).toBe('unbooked');
+  expect(restored.events.map((entry) => entry.type)).toEqual(['work_order.booked', 'work_order.booking_cancelled']);
+});
+
+test('kundbekräftelse är separat från bokningsstatus och kan besvaras en gång', () => {
+  const expires = new Date(Date.now() + 3600000).toISOString();
+  const requested = requestTransportConfirmation(fixture(), 'AO-1042', expires, actor);
+  const confirmation = order(requested, 'AO-1042').confirmation!;
+  expect(confirmation).toMatchObject({ status: 'requested', bookingVersion: 0 });
+  expect(requested.events.at(-1)?.type).toBe('work_order.confirmation_requested');
+  expect(requestTransportConfirmation(requested, 'AO-1042', expires, actor)).toBe(requested);
+  const accepted = respondTransportConfirmation(requested, 'AO-1042', confirmation.id, confirmation.bookingVersion, true, actor);
+  expect(order(accepted, 'AO-1042')).toMatchObject({ status: 'booked', confirmation: { status: 'accepted' } });
+  expect(accepted.events.at(-1)?.type).toBe('work_order.confirmation_accepted');
+  expect(() => respondTransportConfirmation(accepted, 'AO-1042', confirmation.id, confirmation.bookingVersion, true, actor)).toThrow(/gäller inte/);
+  const declined = respondTransportConfirmation(requested, 'AO-1042', confirmation.id, confirmation.bookingVersion, false, actor);
+  expect(order(declined, 'AO-1042')).toMatchObject({ status: 'booked', confirmation: { status: 'declined' } });
+  expect(declined.events.at(-1)?.type).toBe('work_order.confirmation_declined');
+});
+
+test('ombokning gör tidigare kundlänk inaktuell och avvisar sena eller felaktiga svar', () => {
+  const requested = requestTransportConfirmation(fixture(), 'AO-1042', new Date(Date.now() + 3600000).toISOString(), actor);
+  const old = order(requested, 'AO-1042').confirmation!;
+  const moved = applyTransportChange(requested, { type: 'reschedule', id: 'AO-1042', plan: plan({ driverId: 'kalle', vehicleId: 'vehicle-kalle', startMinute: 900 }) }, actor);
+  expect(order(moved, 'AO-1042')).toMatchObject({ bookingVersion: 1, confirmation: { status: 'expired' } });
+  expect(moved.events.slice(-2).map((entry) => entry.type)).toEqual(['work_order.confirmation_expired', 'work_order.rescheduled']);
+  expect(() => respondTransportConfirmation(moved, 'AO-1042', old.id, old.bookingVersion, true, actor)).toThrow(/gäller inte/);
+  expect(() => respondTransportConfirmation(requested, 'AO-1042', 'annan-förfrågan', 0, true, actor)).toThrow(/gäller inte/);
+  expect(() => requestTransportConfirmation(fixture(), 'AO-1043', new Date(Date.now() + 3600000).toISOString(), actor)).toThrow(/Verkställ/);
+});
+
+test('utgången svarstid blir en idempotent event och kan inte godkännas', () => {
+  const requested = requestTransportConfirmation(fixture(), 'AO-1042', new Date(Date.now() + 60000).toISOString(), actor);
+  const expired = expireTransportConfirmations(requested, actor, new Date(Date.now() + 120000).toISOString());
+  expect(order(expired, 'AO-1042').confirmation?.status).toBe('expired');
+  expect(expired.events.at(-1)?.type).toBe('work_order.confirmation_expired');
+  expect(expireTransportConfirmations(expired, actor, new Date(Date.now() + 120000).toISOString())).toBe(expired);
+  const confirmation = order(expired, 'AO-1042').confirmation!;
+  expect(() => respondTransportConfirmation(expired, 'AO-1042', confirmation.id, confirmation.bookingVersion, true, actor)).toThrow(/gäller inte/);
+});
+
+test('integrationshistorik avvisar duplicerade eventidentiteter vid omladdning', () => {
+  const booked = applyTransportChange(fixture(), { type: 'book', id: 'AO-1043', plan: plan() }, actor);
+  const corrupt = structuredClone(booked);
+  corrupt.events.push(corrupt.events[0]);
+  expect(transportSchema.safeParse(corrupt).success).toBe(false);
+});
+
+test('byte av kund eller plats ogiltigförklarar tidigare kundförfrågan även när tiden är oförändrad', () => {
+  const requested = requestTransportConfirmation(fixture(), 'AO-1042', new Date(Date.now() + 3600000).toISOString(), actor);
+  const old = order(requested, 'AO-1042').confirmation!;
+  const changed = applyTransportChange(requested, { type: 'edit', id: 'AO-1042', patch: { customerName: 'Annan kund', address: 'Annan gata 3' } }, actor);
+  expect(order(changed, 'AO-1042')).toMatchObject({ bookingVersion: 1, confirmation: { status: 'expired' } });
+  expect(changed.events.slice(-2).map((entry) => entry.type)).toEqual(['work_order.confirmation_expired', 'work_order.updated']);
+  expect(() => respondTransportConfirmation(changed, 'AO-1042', old.id, old.bookingVersion, true, actor)).toThrow(/gäller inte/);
+});
+
+test('ny förfrågan efter utgången svarstid bevarar den gamla förfrågans utgångshändelse', () => {
+  const requested = requestTransportConfirmation(fixture(), 'AO-1042', new Date(Date.now() + 60000).toISOString(), actor);
+  const passed = structuredClone(requested);
+  order(passed, 'AO-1042').confirmation!.expiresAt = new Date(Date.now() - 1000).toISOString();
+  const renewed = requestTransportConfirmation(passed, 'AO-1042', new Date(Date.now() + 3600000).toISOString(), actor);
+  expect(renewed.events.slice(-2).map((entry) => entry.type)).toEqual(['work_order.confirmation_expired', 'work_order.confirmation_requested']);
+  expect(order(renewed, 'AO-1042').confirmation?.id).not.toBe(order(passed, 'AO-1042').confirmation?.id);
 });

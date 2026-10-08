@@ -4,7 +4,8 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell appversion: 0.2.3. Punkterna 001–017 är genomförda.
+Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.5.0.
+Punkterna 001–032 är genomförda; 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
 Arbetssätt
@@ -462,7 +463,7 @@ Status: Genomförd i kontorsdemo 0.3.0 enligt godkända tidigare saldo- och rät
   och utskrivbar avräkningsnota i A4. Rättelse-ID är unikt även efter återställning.
 
 026 – OBLIGATORISK URSPRUNGSPLATS INFÖR ATTEST, VALFRI REFERENS
-Status: Planerad. Godkänd 2026-10-08; endast dokumenterad i ÄL, ingen appkod ändrad.
+Status: Genomförd i kontorsdemo 0.5.0. Beställd för bygge 2026-10-08.
 - En vägning får inte skickas för attest eller få status Väntar på attest
   utan ifylld ursprungsplats, alltså gatuadressen där materialet kommer ifrån.
 - Tomt fält eller enbart blanksteg räknas som saknad ursprungsplats.
@@ -503,6 +504,92 @@ Godkänd design: docs/mockups/kontor/10_Transportledning_Arbetsvy.png
 - Närhetsförslag är fågelväg och justerbar manuell tid, ingen ruttmotor.
   Fortfarande demo i samma repository/Render-tjänst; ingen gemensam
   databas, förarapp eller komplett kärlhantering ingår i denna version.
+
+028 – TYDLIGARE KARTNÅLAR OCH FLERVAL AV FÖRARE
+Status: Genomförd i kontorsdemo 0.5.0 efter godkänd feedback.
+- Nålar för ej valda förare ska döljas helt i stället för att tonas ned.
+  Utgångspunkt enligt återkopplingen är helt dolda; användaren nämnde
+  10 procent synlighet som alternativ.
+- Obokade nålar ska få en tydligare kort skakning med paus, i stället
+  för den långsamma pulsen. Klickytan ska ligga still och reducerad
+  rörelse ska respekteras.
+- Ersätt valet av en aktiv förare med klickbara förar-/fordonsceller
+  i planeraren. Hela cellen med namn och initialer kan väljas/avväljas.
+- Flera förare kan vara valda samtidigt, exempelvis två av tre.
+  Visa tydligt vilka som är valda. Förarcellerna ligger kvar så att
+  någon alltid kan väljas tillbaka; urvalet styr nålarna på kartan.
+
+029 – ETT SYNLIGT KORT UNDER DRAGNING OCH TIDSÄNDRING
+Status: Genomförd i kontorsdemo 0.5.0.
+- När ett obokat arbete dras från högerlistan in i planeraren ersätts
+  det stora dragkortet av ett kalenderkort på den föreslagna tiden.
+- Kalenderkortets längd motsvarar arbetsorderns tidsåtgång och visar
+  den föreslagna start- och sluttiden.
+- Vid flytt eller tidsändring av ett befintligt kalenderkort visas
+  bara förhandsvisningen, inte både original och en streckad kopia.
+- Avbruten dragning återställer ursprungsläget utan bokningsändring.
+
+030 – REDIGERBARA PRELIMINÄRA BOKNINGAR
+Status: Genomförd i kontorsdemo 0.5.0, inklusive flera preliminära
+bokningar enligt beställningen att genomföra alla ändringar i ÄL.
+- Ett släppt obokat uppdrag ligger kvar som ett ljusrött kalenderkort
+  märkt Preliminär bokning medan bokningen ännu inte verkställts.
+- Det preliminära kortet kan flyttas mellan tider och förare samt
+  förlängas eller kortas som vanliga kort.
+- Uppdraget tas samtidigt bort från högerlistan; det ska bara visas
+  en gång. Tar man bort preliminär bokning återgår uppdraget till kön.
+- Krockkontroll räknar både preliminära och verkställda bokningar,
+  inklusive förare, fordon och tillåtna kärltyper.
+- Flera obokade arbeten kan placeras som röda kort.
+  En central knapp Verkställ bokningar (antal) verkställer gruppen.
+  För ett kort är föreslagen knapptext Bekräfta bokning.
+- Preliminär planering sparas som utkast så att omladdning inte
+  tappar arbetet. Det är ännu ingen verklig bokning.
+
+031 – FÖRBERED INTEGRATIONSHÄNDELSER OCH KUNDAVISERINGAR
+Status: Genomförd integrationsförberedelse i kontorsdemo 0.5.0.
+Inga utskick eller externa integrationer aktiveras i denna version.
+- Förbered händelser för arbetsorder skapad, bokad, ombokad, bokning
+  avbokad, arbetsorder avbruten, förare på väg och arbete slutfört.
+- Förbered bokningsförfrågan och kundens svar: godkänd, nekad eller
+  utgången. Avisering kan senare ange föreslagen tid och en svarslänk.
+- Kundexempel: Vi är på väg; ärendet ombokades till X; godkänn den
+  föreslagna tiden genom att trycka Ja på denna länk.
+- Preliminär planering och dragförhandsvisning ska inte skicka
+  bokningsaviseringar. Händelser skapas vid verkställd förändring.
+- Varje händelse ska kunna kopplas till arbetsorder, kund, förare,
+  tidigare/ny tid, orsak och ansvarig person, även vid Jobba som.
+- Serverförberedelsen har unikt händelse-ID, leveranskö och
+  återförsök utan dubbla aviseringar; en händelse per arbetsorder
+  efter att en gruppbokning har verkställts.
+- Kundförfrågan har giltighetstid, bokningsversion och egen status
+  för Inväntar svar/Godkänd/Nekad/Utgången. Kundens Ja/Nej-vy kan
+  förhandsvisas i demon; ändrad bokning gör gammal förfrågan inaktuell.
+- Händelser ligger kvar lokalt och förbereds med återförsök i serverns
+  minnesbaserade utkorg. Samma ID skapar inte en andra köpost.
+- API:t kan endast förbereda och läsa utkorgen; leveransadaptern är
+  avstängd. Behörigheter och Jobba som kontrolleras på servern.
+- Varaktig databas, riktiga publika svarslänkar och vald SMS-/e-posttjänst
+  kopplas i ett senare steg. Inga riktiga kundmeddelanden skickas.
+
+032 – KLICK IGEN FÖR ATT AVMARKERA ARBETSORDER
+Status: Genomförd i kontorsdemo 0.5.0 efter godkänd feedback.
+- Klick på en pinnål eller ett kalenderkort väljer arbetsordern
+  och öppnar dess detaljpanel.
+- Klick på samma arbetsorder igen avmarkerar den, stänger detaljerna
+  och visar högerlistan med obokade arbeten igen.
+- Valet är gemensamt mellan karta och planerare: samma arbetsorder
+  ska kunna avmarkeras från båda, även om den valdes i den andra vyn.
+- Klick på en annan arbetsorder byter valet. X och Escape fortsätter
+  att kunna stänga detaljer och ta bort det bestående valet.
+- Tillfällig hover och bestående klickval ska skiljas åt visuellt.
+  Klick för att avmarkera ska inte kasta ett öppet redigeringsutkast.
+
+Releasekontroll 0.5.0
+115 Playwright-kontroller passerade (112 i hela sviten och tre tillägg),
+47 servertester, produktionsbygge och Expo-typkontroll. Ursprungskrav,
+förarval, dragning, preliminära grupper, omladdning, kundsvar och
+idempotenta serveråterförsök ingår. Äldre lokala transportdata migreras.
 
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

@@ -6,6 +6,8 @@ import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { proxyExpo, startExpoGo } from './expo-go.mjs';
 import { createPricingApi } from './pricing-api.mjs';
+import { createPricingStore } from './pricing.mjs';
+import { createTransportIntegrationsApi } from './transport-integrations.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -54,6 +56,7 @@ async function handle(req, res) {
     return;
   }
   if (await pricingApi(req, res, url)) return;
+  if (await transportIntegrationsApi(req, res, url)) return;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.setHeader('Allow', 'GET, HEAD');
     reply(res, 405, 'Method not allowed');
@@ -127,7 +130,9 @@ const server = createServer((req, res) => {
     else reply(res, 500, 'Server error');
   });
 });
-const pricingApi = createPricingApi();
+const principalStore = createPricingStore();
+const pricingApi = createPricingApi({ store: principalStore });
+const transportIntegrationsApi = createTransportIntegrationsApi({ principalStore });
 const expoGo = startExpoGo({ onFailure: () => {
   console.error('Expo-servern har stannat. Startar om tjänsten.');
   stop(1);

@@ -42,6 +42,10 @@ test('kontorets granskning, prishistorik, attest och demoutbetalning fungerar ut
   await page.getByLabel('Kontohavare', { exact: true }).fill('Bygg & Riv AB');
   await page.getByRole('button', { name: 'Spara betalningsuppgift' }).click();
   await page.getByRole('button', { name: 'Verifiera ID', exact: true }).click();
+  await page.getByLabel('Ursprungsadress', { exact: true }).fill('Ängsvägen 19');
+  await page
+    .getByRole('button', { name: 'Spara referens & ursprung', exact: true })
+    .click();
   await page
     .getByRole('button', { name: 'Ändra pris', exact: true })
     .first()
