@@ -267,13 +267,13 @@
   color: #597495;
   flex-shrink: 0;
 }
-.customer-tabs {
+.office-customers .customer-tabs {
   display: flex;
   border-bottom: 1px solid #dce7f6;
   gap: 8px;
   overflow-x: auto;
 }
-.customer-tabs button {
+.office-customers .customer-tabs button {
   border: 0;
   border-bottom: 3px solid transparent;
   background: none;
@@ -282,7 +282,7 @@
   white-space: nowrap;
   font-size: 12px;
 }
-.customer-tabs button.active {
+.office-customers .customer-tabs button.active {
   color: #0866ed;
   font-weight: 650;
   border-bottom-color: #0866ed;
@@ -795,7 +795,7 @@
   padding: 0;
 }
 .customer-list-tools,
-.customer-tabs,
+.office-customers .customer-tabs,
 .customer-sticky-tools {
   scrollbar-width: thin;
 }
@@ -897,7 +897,7 @@
     width: 45px;
     height: 45px;
   }
-  .customer-tabs button {
+  .office-customers .customer-tabs button {
     padding: 12px 9px;
     font-size: 11px;
   }
