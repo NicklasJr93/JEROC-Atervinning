@@ -4,8 +4,8 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.5.0.
-Punkterna 001–032 är genomförda; 031 avser förberedelse utan utskick.
+Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.6.0.
+Punkterna 001–033 är genomförda; 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
 Arbetssätt
@@ -590,6 +590,40 @@ Releasekontroll 0.5.0
 47 servertester, produktionsbygge och Expo-typkontroll. Ursprungskrav,
 förarval, dragning, preliminära grupper, omladdning, kundsvar och
 idempotenta serveråterförsök ingår. Äldre lokala transportdata migreras.
+
+033 – KUNDTERMINALER OCH KUNDGODKÄNNANDEN
+Status: Genomförd terminaldemo i kontorsversion 0.6.0 efter beställningen
+att börja koda. Render behöver DATABASE_URL innan terminalerna kan provas.
+- Systemadmin har en egen meny Terminaler: skapa namn/inloggning,
+  lösenord och anläggning; byt namn, återställ lösenord, avaktivera och
+  avsluta även en offline terminalsession för att byta enhet.
+- /terminal på samma domän fungerar i mobilens/iPadens webbläsare.
+  Eget terminalkonto, välkomstskärm och en aktiv enhet per konto.
+- Kontoret väljer anläggning och personligt terminalförval i överdelen.
+  Visa för kund skickar en fryst avräkningsversion till rätt ledig terminal.
+- Ny gemensam kö Kundgodkännanden mellan Invägningar och Attest,
+  med Aktiva/Historik, sök/filter, väntande antal och liveuppdatering.
+- Kunden granskar, begär ändring eller väljer fysisk legitimation.
+  Kundens Okej väntar på personalens bekräftelse och är ingen attest.
+- Kundgodkänd aktuell version krävs före separat intern JEROC-attest.
+  Återkallelse/ändring kräver en ny kundgranskning. Original sparas.
+- Beständig serverlagring: PostgreSQL på Render, SQLite lokalt.
+  Atomisk terminalreservation, hashade lösenord, cookie-sessioner,
+  frysta versioner och spårbar historik. Gamla lokala testkort raderas inte.
+- BankID, SMS, e-post och Visma är enbart visuella förberedelser.
+  Inga meddelanden, banköverföringar eller bokföringsanrop görs.
+  Utbetalningar är fortsatt manuell demoregistrering.
+- Kontorets personalkonton är fortfarande valbara demokonton, inte
+  produktionsinloggning. Endast testuppgifter används i denna version.
+- Databasinställning och teststeg finns i docs/terminal-demo.md.
+
+Releasekontroll 0.6.0
+118 olika Playwright-kontroller passerade (115 befintliga och tre nya
+terminalflöden), 63 servertester, produktionsbygge och Expo-typkontroll.
+PostgreSQL-adaptern och samtidiga reservationer har även provats mot
+PostgreSQL 17 i en separat lokal testdatabas. Render-databasen återstår
+att skapa och ansluta genom DATABASE_URL; inga externa integrationer
+har aktiverats.
 
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

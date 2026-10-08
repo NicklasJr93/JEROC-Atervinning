@@ -1,8 +1,16 @@
-# JEROC kontorsdemo 0.5.0
+# JEROC kontorsdemo 0.6.0
 
 Öppna https://jeroc-atervinning.onrender.com/kontor. Samma repository och Render-tjänst används. Befintligt byggkommando, `npm start` och Expo-token behålls. Mobilappen är fortsatt version 0.2.3 på `/`; Expo Go fungerar som tidigare.
 
 [Skärmbilder från version 0.2.0](office-demo/v0.2.0/README.md)
+
+[Kundterminaler 0.6.0: Render-databas, terminalkonton och test från mobil](terminal-demo.md)
+
+## Kundterminaler och kundgodkännanden
+
+Systemadmin kan skapa terminalkonton under **Terminaler**. Kunden öppnar `/terminal` på mobil, iPad eller touchskärm och loggar in med ett eget terminalkonto. Kontoristen visar en fryst avräkningsversion på en ledig terminal på kortets anläggning. Kundens begäran om fysisk ID-kontroll måste bekräftas av behörig personal innan kortet går till intern attest. **Kundgodkännanden**, mellan Invägningar och Attest, samlar Aktiva/Historik och uppdateras från gemensam serverlagring. Anläggning och personligt terminalförval kan väljas i överdelen.
+
+På Render kräver den nya terminaldelen PostgreSQL och servervariabeln `DATABASE_URL`. Lokalt används `.data/terminal-demo.sqlite` om PostgreSQL inte konfigurerats. Ingen tillfällig disk- eller minnesreserv används för terminalärenden på Render. Befintliga lokala viktkort bevaras och kopieras till terminaltjänsten först vid kundvisning. Kontorets användarval är fortfarande uttrycklig demoautentisering. BankID/SMS/e-post/Visma är inte anslutna; betalning fortsätter som manuell demoregistrering. Se [terminaldokumentationen](terminal-demo.md) för installation, lagringsgränser och testflöde.
 
 ## Prova uppdateringen
 
@@ -65,7 +73,7 @@ Låsta kort har **Avräkningsnota** och betalda kort har **Utbetalningskvitto**,
 
 ## Lagring och avgränsning
 
-Prisregler, LME, kundundantag, serverbehörigheter, prisarkiv och transporternas demoutkorg ligger i **serverns minne**. De delas mellan kontorswebbens besökare och återställs till exempeldata när Render startar om eller publicerar en ny version. Databas byggs senare enligt beslut. Viktkort, kunder, rättelsekort, betalningsjournal och lokal användarvy sparas separat i webbläsarens `jeroc.office.demo.v1`.
+Prisregler, LME, kundundantag, serverbehörigheter, prisarkiv och transporternas demoutkorg ligger i **serverns minne**. De delas mellan kontorswebbens besökare och återställs till exempeldata när Render startar om eller publicerar en ny version. Den nya terminaldelen lagrar däremot terminaler, sessioner, frysta avräkningar och kundgodkännanden i gemensam PostgreSQL/SQLite, enligt [terminaldokumentationen](terminal-demo.md). Övriga viktkort, kunder, rättelsekort, betalningsjournal och lokal användarvy sparas separat i webbläsarens `jeroc.office.demo.v1`; kontorister tar också emot gemensamma terminalkort från servern. Full migration av hela ekonomiregistret är inte genomförd i denna demo.
 
 Demokontona är valbara exempel; API:t kontrollerar rättigheter för dessa identiteter, men det är inte en riktig inloggning. Sparade lokala kunder kan behöva registreras i prismotorn av kontoret igen efter en serveromstart; gamla frysta prisunderlag återställs bara när de stämmer exakt med låsta originalkort. Använd enbart testuppgifter. Lokal användarkonfiguration kan behöva sparas på servern igen efter en omstart. Återställ kontorsdemo återställer bara webbläsarens kontorsdata, inte serverns gemensamma priser eller mobilens sparade kort.
 

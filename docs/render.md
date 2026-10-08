@@ -4,7 +4,7 @@
 
 1. Logga in på ditt Render-konto via länken ovan.
 2. Om Render ber om GitHub-åtkomst, koppla ditt GitHub-konto och ge tillgång till **NicklasJr93/JEROC-Atervinning**. För ett privat projekt måste Render kunna läsa just detta repository.
-3. Skapa en Blueprint från `main`. Konfigurationen i `render.yaml` skapar **jeroc-gardsapp-demo** som en **Node Web Service**, med Free-plan och Frankfurt som region. Ingen databas behövs för demon.
+3. Skapa en Blueprint från `main`. Konfigurationen i `render.yaml` skapar **jeroc-gardsapp-demo** som en **Node Web Service**, med Free-plan och Frankfurt som region. Mobil- och befintliga kontorsvyer kan öppnas utan databas. Den nya terminaldelen behöver PostgreSQL enligt [terminalinstruktionerna](terminal-demo.md#render-anslut-gemensam-lagring).
 4. Starta publiceringen och vänta tills bygget är klart. Render visar då tjänstens faktiska `https://….onrender.com`-adress.
 5. Öppna den adressen i mobilens webbläsare. Tryck **Öppna demokontot**, eller logga in med **niklas / Demo123!**. Datorn behöver inte vara igång.
 
@@ -23,7 +23,7 @@ Om länken inte förväljer projektet: välj **New → Blueprint** i Render och 
 | Environment Variable | `NODE_VERSION=24.19.0` |
 | Health Check Path | `/healthz` |
 
-Klicka **Deploy Web Service** när inställningarna är klara. Node-servern lyssnar på den `PORT` som Render ger den och serverar det färdiga webbbygget. Web Service gör det möjligt att senare lägga webbappen och kontorets API i samma tjänst. Databasen blir en separat ansluten tjänst när gemensam lagring byggs. Den ingår ännu inte i demon.
+Klicka **Deploy Web Service** när inställningarna är klara. Node-servern lyssnar på den `PORT` som Render ger den och serverar det färdiga webbbygget. Kontoret, mobilen och `/terminal` använder samma tjänst. För terminalkonton och kundgodkännanden ansluts en separat PostgreSQL-databas genom servervariabeln `DATABASE_URL`; det kräver inget nytt GitHub-repository.
 
 Free-tjänsten kan gå i vila när den inte används; första öppningen kan då ta längre tid. Appen använder adresser med `#`, så sidornas navigering behöver ingen separat serverregel.
 

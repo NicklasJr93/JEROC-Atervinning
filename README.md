@@ -4,6 +4,8 @@
 
 **Det här är en lokal demo. Ingenting skickas till kontoret.** Företag, kunder, priser och exempelvägningar är fiktiva. Demoinloggningen är till för flödestest och är inte produktionsautentisering. Använd testuppgifter.
 
+Kontorsappen är nu **0.6.0**, med egna kundterminalkonton på `/terminal` och gemensamma kundgodkännanden. [Terminaler: Render-inställning och teststeg](docs/terminal-demo.md). Gårdsappen är fortfarande en separat lokal demo; Visma, BankID, SMS och e-post är inte anslutna.
+
 ## Starta på Windows eller Mac
 
 1. Ha **Node.js 22.12 eller senare** installerat. Node.js 24 LTS fungerar. npm ska följa med Node.js.
