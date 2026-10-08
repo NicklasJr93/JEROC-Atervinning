@@ -365,6 +365,18 @@
   background: #fff4e5;
   color: #ba812e;
 }
+.status-customer {
+  background: #fff4df;
+  color: #98691e;
+}
+.office-document-approval {
+  background: #ecf8ef;
+  border: 1px solid #cce9d4;
+  border-radius: 8px;
+  padding: 9px 12px;
+  margin-bottom: 16px;
+}
+.office-document-approval h2 { margin: 0 0 5px; }
 .status-attest {
   background: #f0edff;
   color: #7961ca;

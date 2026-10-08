@@ -5,11 +5,15 @@ import { OfficeApp } from './office/OfficeApp';
 import { App } from './App';
 import { DemoProvider } from './store';
 import './styles.css';
+const TerminalApp = React.lazy(() => import('./terminal/TerminalApp'));
+const pagePath = window.location.pathname.replace(/\/$/, '');
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <HashRouter>
-      {window.location.pathname.replace(/\/$/, '') === '/kontor' ? (
+      {pagePath === '/terminal' ? (
+        <React.Suspense fallback={<div role="status">Öppnar kundterminal…</div>}><TerminalApp /></React.Suspense>
+      ) : pagePath === '/kontor' ? (
         <OfficeApp />
       ) : (
         <DemoProvider>

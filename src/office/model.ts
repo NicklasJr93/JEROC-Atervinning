@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.5.0';
+export const OFFICE_VERSION = '0.6.0';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
   view: 'Se vägningar och kunder',
@@ -24,6 +24,7 @@ export const permissionNames = {
   reports: 'Se ekonomisk översikt',
   transportRead: 'Läsa transportplanering',
   transportPlan: 'Skapa, boka och ändra transporter',
+  customerApprovalRead: 'Läsa kundgodkännanden',
   users: 'Hantera användare',
 } as const;
 export type Permission = keyof typeof permissionNames;
@@ -112,7 +113,14 @@ const cardSchema = z.object({
   id: z.number(),
   customerId: z.string().optional(),
   customerSnapshot: customerSchema.optional(),
-  status: z.enum(['new', 'complement', 'attest', 'ready', 'paid', 'balance']),
+  status: z.enum(['new', 'complement', 'customer', 'attest', 'ready', 'paid', 'balance']),
+  siteId: z.string().optional(),
+  customerApproval: z.object({
+    id: z.string(), version: z.number().int().positive(),
+    status: z.enum(['waiting', 'id_requested', 'approved', 'change_requested', 'cancelled', 'expired', 'attested']),
+    updatedAt: z.string(), approvedBy: z.string().optional(), approvedAt: z.string().optional(),
+    attestedBy: z.string().optional(), attestedAt: z.string().optional(),
+  }).optional(),
   yard: z.string(),
   weigher: z.string(),
   date: z.string(),
@@ -182,6 +190,7 @@ const paymentSchema = z.object({
 export type OfficePayment = z.infer<typeof paymentSchema>;
 export const officeSchema = z.object({
   transportPermissionsVersion: z.number().int().min(0).max(1).default(0),
+  terminalDemoPermissionsVersion: z.number().int().min(0).max(1).optional(),
   users: z.array(userSchema),
   cards: z.array(cardSchema),
   customers: z.array(customerSchema).default(seedOfficeCustomers),
@@ -192,6 +201,7 @@ export type OfficeData = z.infer<typeof officeSchema>;
 export const statusNames = {
   new: 'Ny från gården',
   complement: 'Behöver kompletteras',
+  customer: 'Inväntar kundgodkännande',
   attest: 'Väntar på attest',
   ready: 'Klar för utbetalning',
   paid: 'Demoutbetald',
@@ -234,6 +244,7 @@ export function seedOffice(): OfficeData {
         'corrections',
         'transportRead',
         'transportPlan',
+        'customerApprovalRead',
       ],
       maxAttest: 0,
       ownAttest: false,
@@ -253,6 +264,7 @@ export function seedOffice(): OfficeData {
         'pay',
         'reports',
         'transportRead',
+        'customerApprovalRead',
       ],
       maxAttest: 25000,
       ownAttest: false,
@@ -292,6 +304,7 @@ export function seedOffice(): OfficeData {
   };
   return {
     transportPermissionsVersion: 1,
+    terminalDemoPermissionsVersion: 1,
     users,
     customers: seedOfficeCustomers(),
     payments: [],

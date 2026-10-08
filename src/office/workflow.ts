@@ -1,7 +1,7 @@
 import { can, type OfficeCard, type OfficeUser } from './model';
 
-export type WorkflowSection = 'weighings' | 'attest' | 'payments';
-export const workflowSections = ['weighings', 'attest', 'payments'];
+export type WorkflowSection = 'weighings' | 'customer-approvals' | 'attest' | 'payments';
+export const workflowSections = ['weighings', 'customer-approvals', 'attest', 'payments'];
 export function safeAuditText(user: OfficeUser, text: string) {
   if (
     text.startsWith('Pris för') &&
@@ -23,6 +23,9 @@ export function safeAuditText(user: OfficeUser, text: string) {
   return text;
 }
 export function inQueue(card: OfficeCard, section: string, history: boolean) {
+  if (section === 'customer-approvals') return Boolean(card.customerApproval) && (history
+    ? ['approved', 'attested', 'cancelled'].includes(card.customerApproval!.status)
+    : ['waiting', 'id_requested', 'change_requested', 'expired'].includes(card.customerApproval!.status));
   if (section === 'weighings')
     return history || ['new', 'complement'].includes(card.status);
   if (section === 'attest')
@@ -35,6 +38,7 @@ export function inQueue(card: OfficeCard, section: string, history: boolean) {
     : card.status === 'ready';
 }
 export function cardRoute(card: OfficeCard, user: OfficeUser) {
+  if (card.status === 'customer' && can(user, 'customerApprovalRead')) return `/customer-approvals/${card.id}`;
   if (card.status === 'attest' && can(user, 'attest'))
     return `/attest/${card.id}`;
   if (['ready', 'paid', 'balance'].includes(card.status) && can(user, 'pay'))

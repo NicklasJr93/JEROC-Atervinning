@@ -20,12 +20,20 @@ import {
   TrendingUp,
   Download,
   Truck,
+  Monitor,
+  ClipboardCheck,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
 import CustomerWorkspace from './CustomerWorkspace';
 import PaymentEditor from './PaymentEditor';
 import CorrectionsWorkspace from './CorrectionsWorkspace';
+import TerminalWorkspace, { TerminalSelectors } from './TerminalWorkspace';
+import CustomerApprovalsWorkspace from './CustomerApprovalsWorkspace';
+import ApprovalControls from './ApprovalControls';
+import { useTerminalDemo } from './useTerminalDemo';
+import { terminalDemoApi } from './terminal-demo-client';
+import type { TerminalApproval } from './terminal-demo-types';
 const TransportWorkspace = lazy(() => import('./transport/TransportWorkspace'));
 import {
   cardRoute,
@@ -95,6 +103,9 @@ const cardMoneyVisible = (u: OfficeUser, c: OfficeCard) =>
     can(u, 'attest') ||
     can(u, 'pay') ||
     c.rows.every((r) => rowVisible(u, r)));
+const approvalMoneyVisible = (u: OfficeUser) =>
+  ['reports', 'attest', 'pay'].some(right => can(u, right as Permission)) ||
+  ['prices', 'priceA', 'priceB', 'priceC', 'customerPrices'].every(right => can(u, right as Permission));
 const customerName = (c: OfficeCard) =>
   c.customerSnapshot?.name ??
   initialCustomers.find((x) => x.id === c.customerId)?.name ??
@@ -159,6 +170,51 @@ export function OfficeApp() {
   const principalRef = useRef('');
   principalRef.current = `${actualUser?.id ?? ''}:${user?.id ?? ''}`;
   const acting = Boolean(actualUser && user && actualUser.id !== user.id);
+  const terminalDemo = useTerminalDemo(actualUser, user);
+  const [siteFilter, setSiteFilter] = useState('all');
+  const [selectedTerminalId, setSelectedTerminalId] = useState('');
+  const terminalSyncedUser = useRef('');
+  useEffect(() => { setSelectedTerminalId(''); }, [user?.id, siteFilter]);
+  useEffect(() => {
+    if (!terminalDemo.state || !user) return;
+    const principalKey = `${actualUser?.id}:${user.id}`;
+    const principalChanged = terminalSyncedUser.current !== principalKey;
+    terminalSyncedUser.current = principalKey;
+    const latest = new Map<number, TerminalApproval>();
+    for (const approval of terminalDemo.state.approvals) {
+      const previous = latest.get(approval.cardId);
+      if (!previous || approval.version > previous.version ||
+        (approval.version === previous.version && approval.updatedAt > previous.updatedAt)) latest.set(approval.cardId, approval);
+    }
+    const live = dataRef.current;
+    let changed = false;
+    const cards = [...live.cards];
+    for (const approval of latest.values()) {
+      const index = cards.findIndex(card => card.id === approval.cardId);
+      const existing = index < 0 ? undefined : cards[index];
+      if (existing?.customerApproval?.id === approval.id && existing.customerApproval.updatedAt >= approval.updatedAt &&
+        (!principalChanged || ['new', 'complement'].includes(existing.status))) continue;
+      const projected = officeSchema.shape.cards.element.parse({
+        ...approval.snapshot.card,
+        siteId: approval.siteId,
+        customerSnapshot: approval.snapshot.customer,
+        customerApproval: {
+          id: approval.id, version: approval.version, status: approval.status, updatedAt: approval.updatedAt,
+          approvedBy: approval.approvedBy, approvedAt: approval.approvedAt,
+          attestedBy: approval.attestedBy, attestedAt: approval.attestedAt,
+        },
+      });
+      // An unchanged server review must never undo a later manual demo payment.
+      if (existing?.customerApproval?.id === approval.id && ['paid', 'balance'].includes(existing.status) && approval.status === 'attested') {
+        projected.status = existing.status;
+        projected.paidAt = existing.paidAt;
+        projected.audit = existing.audit;
+      }
+      if (index < 0) cards.push(projected); else cards[index] = projected;
+      changed = true;
+    }
+    if (changed) persist({ ...live, cards });
+  }, [terminalDemo.state, user?.id, actualUser?.id]);
   const auditActor = user
     ? `${acting ? `${actualUser!.name} som ` : ''}${user.name} · Kontor Norrtälje`
     : '';
@@ -185,6 +241,14 @@ export function OfficeApp() {
   const selectedCustomer =
     selected?.customerSnapshot ??
     data.customers.find((c) => c.id === selected?.customerId);
+  const selectedApproval = selected?.customerApproval
+    ? terminalDemo.state?.approvals.find(item => item.id === selected.customerApproval?.id)
+    : undefined;
+  const cardSiteId = (card: OfficeCard) => card.siteId ?? (/rimbo/i.test(card.yard) ? 'rimbo' : 'norrtalje');
+  const selectedSiteId = selected ? cardSiteId(selected) : siteFilter === 'all' ? 'norrtalje' : siteFilter;
+  const preferredTerminalId = selectedTerminalId || terminalDemo.state?.defaults.find(item => item.userId === user?.id && item.siteId === selectedSiteId)?.terminalId ||
+    (terminalDemo.state?.terminals.filter(item => item.active && item.siteId === selectedSiteId).length === 1
+      ? terminalDemo.state.terminals.find(item => item.active && item.siteId === selectedSiteId)?.id : '') || '';
   let selectedSettlement: ReturnType<typeof settlementPreview> | undefined;
   if (selected && ['ready', 'balance', 'paid'].includes(selected.status)) {
     try {
@@ -329,6 +393,19 @@ export function OfficeApp() {
     const live = dataRef.current;
     const old = live.cards.find((c) => c.id === card.id);
     if (!old || (right === 'pay' && old.financialPending)) return false;
+    if (card.status === 'attest' && old.customerApproval &&
+      !['approved', 'attested'].includes(old.customerApproval.status)) {
+      setMessage('Kunden måste godkänna den aktuella avräkningen före attest.');
+      return false;
+    }
+    if (old.status === 'customer' && right !== 'verifyId') {
+      setMessage('Avsluta kundvisningen innan underlaget ändras.');
+      return false;
+    }
+    if (old.customerApproval?.status === 'approved' && right !== 'attest') {
+      setMessage('Återkalla kundgodkännandet innan avräkningen ändras. Kunden behöver sedan godkänna en ny version.');
+      return false;
+    }
     if (
       old.status !== 'attest' &&
       card.status === 'attest' &&
@@ -466,7 +543,7 @@ export function OfficeApp() {
       setPriceBusy(false);
     }
   }
-  async function prepareCard(card: OfficeCard) {
+  async function prepareCard(card: OfficeCard, terminal?: { id: string; siteId: string }) {
     if (
       !user ||
       !actualUser ||
@@ -475,17 +552,21 @@ export function OfficeApp() {
       blocked ||
       !['new', 'complement'].includes(card.status) ||
       !card.customerId ||
-      !card.idVerified ||
+      (!terminal && !card.idVerified) ||
       !(
         validPaymentDetails(card.paymentDetails) || Boolean(card.payment.trim())
       )
     )
-      return;
+      return false;
+    if (!terminal && card.customerApproval) {
+      setMessage('Skicka den ändrade avräkningen för ett nytt kundgodkännande.');
+      return false;
+    }
     if (!card.origin.trim()) {
       setMessage(
         'Fyll i och spara ursprungsadressen innan vägningen skickas för attest.',
       );
-      return;
+      return false;
     }
     const principalId = principalRef.current;
     setPriceBusy(true);
@@ -538,6 +619,27 @@ export function OfficeApp() {
         volumeWithDelivery: r.volumeWithDelivery ?? undefined,
         source: r.source,
       }));
+      if (terminal) {
+        const customer = dataRef.current.customers.find(item => item.id === card.customerId) ?? card.customerSnapshot;
+        if (!customer || snapshot.total == null || rows.some(row => row.pricePending)) throw new Error('Kund och fullständiga priser krävs för kundvisningen.');
+        const frozen: OfficeCard = {
+          ...card, rows, siteId: terminal.siteId, pricingSnapshotId: snapshot.id,
+          pricedAt: card.date, pricingTotal: snapshot.total, financialPending: false, pricingRowsPending: false,
+          preparedBy: user.id, customerSnapshot: customer,
+          paymentDetails: card.paymentDetails ?? customer.paymentProfile,
+        };
+        const preview = settlementPreview({ ...dataRef.current, cards: dataRef.current.cards.map(item => item.id === card.id ? { ...frozen, status: 'ready' as const } : item) }, card.id);
+        await terminalDemoApi.send({
+          card: frozen, customer, terminalId: terminal.id, siteId: terminal.siteId,
+          rows: rows.map(row => ({ articleId: row.articleId, name: articleById(row.articleId).name, weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })),
+          offset: preview.offset, correctionIds: preview.negativeCorrectionIds,
+          idempotencyKey: `review-${snapshot.id}-${terminal.id}`,
+        });
+        await terminalDemo.refresh();
+        setMessage('Avräkningen visas på kundterminalen. Inväntar kundens svar.');
+        navigate(`/customer-approvals/${card.id}`);
+        return true;
+      }
       if (
         update(
           {
@@ -564,21 +666,24 @@ export function OfficeApp() {
             ? `/attest/${card.id}`
             : `/weighings/${card.id}?tab=history`,
         );
+        return true;
       }
     } catch (e) {
       setMessage(
         e instanceof Error ? e.message : 'Underlaget kunde inte låsas.',
       );
+      return false;
     } finally {
       setPriceBusy(false);
     }
   }
   const editable =
     selected &&
-    !['attest', 'ready', 'paid', 'balance'].includes(selected.status);
+    !['customer', 'attest', 'ready', 'paid', 'balance'].includes(selected.status);
   const nav = [
     { id: 'dashboard', name: 'Översikt', icon: LayoutDashboard, right: 'view' },
     { id: 'weighings', name: 'Invägningar', icon: Scale, right: 'view' },
+    { id: 'customer-approvals', name: 'Kundgodkännanden', icon: ClipboardCheck, right: 'customerApprovalRead' },
     { id: 'attest', name: 'Attest', icon: BadgeCheck, right: 'attest' },
     { id: 'payments', name: 'Utbetalningar', icon: Wallet, right: 'pay' },
     { id: 'customers', name: 'Kunder', icon: Users, right: 'view' },
@@ -602,6 +707,7 @@ export function OfficeApp() {
       right: 'corrections',
     },
     { id: 'users', name: 'Användare', icon: ShieldCheck, right: 'users' },
+    { id: 'terminals', name: 'Terminaler', icon: Monitor, right: 'users' },
   ] as const;
   function open(id: number) {
     if (!user) return;
@@ -615,7 +721,8 @@ export function OfficeApp() {
     );
   }
   const filter = query.get('status') || undefined;
-  const cards = data.cards
+  const visibleCards = data.cards.filter(c => siteFilter === 'all' || cardSiteId(c) === siteFilter);
+  const cards = visibleCards
     .filter((c) => inQueue(c, section, historyTab))
     .filter((c) => !filter || c.status === filter)
     .filter((c) =>
@@ -892,6 +999,12 @@ export function OfficeApp() {
     if (!actorContext || blocked) return false;
     try {
       const preview = settlementPreview(dataRef.current, card.id);
+      if (card.customerApproval) {
+        const review = terminalDemo.state?.approvals.find(item => item.id === card.customerApproval?.id);
+        if (!review || review.status !== 'attested') throw new Error('Läs in JEROC:s attest från terminaltjänsten innan demoutbetalningen registreras.');
+        if (preview.gross !== review.snapshot.gross || preview.offset !== review.snapshot.offset || preview.net !== review.snapshot.net)
+          throw new Error('Saldot har ändrats sedan kundgodkännandet. Ingen demoutbetalning registrerades. Skillnaden behöver hanteras genom rättelse.');
+      }
       if (
         !window.confirm(
           `Registrera en DEMOutbetalning på ${money(preview.net)} kr? Kvittning ${money(preview.offset)} kr. Ingen betalning skickas.`,
@@ -923,6 +1036,7 @@ export function OfficeApp() {
       can(user, 'articlesEdit') ||
       can(user, 'customerPrices') ||
       can(user, 'customerPriceEdit'));
+  const terminalAdminDenied = section === 'terminals' && user?.level !== 'Systemadmin';
   const allowed =
     section === 'corrections' &&
     user &&
@@ -943,8 +1057,8 @@ export function OfficeApp() {
           </span>
           <h1>Välkommen till kontoret</h1>
           <p>
-            Prova arbetsflödet med ett demokonto. Uppgifterna sparas bara i den
-            här webbläsaren.
+            Prova arbetsflödet med ett demokonto. Kundterminaler och
+            kundgodkännanden delas mellan datorn och mobilen.
           </p>
           {error && <p role="alert">{error}</p>}
           <div className="office-demo-users">
@@ -1010,7 +1124,9 @@ export function OfficeApp() {
         <nav>
           {nav
             .filter((n) =>
-              n.id === 'prices'
+              n.id === 'terminals'
+                ? user.level === 'Systemadmin'
+                : n.id === 'prices'
                 ? pricingAccess
                 : n.id === 'corrections'
                   ? can(user, 'corrections') || can(user, 'attest')
@@ -1030,9 +1146,10 @@ export function OfficeApp() {
                 {n.name}
                 {n.id === 'attest' && (
                   <span>
-                    {data.cards.filter((c) => c.status === 'attest').length}
+                    {visibleCards.filter((c) => c.status === 'attest').length}
                   </span>
                 )}
+                {n.id === 'customer-approvals' && <span>{visibleCards.filter(c => c.customerApproval && ['waiting', 'id_requested'].includes(c.customerApproval.status)).length}</span>}
               </button>
             ))}
         </nav>
@@ -1071,6 +1188,9 @@ export function OfficeApp() {
               }}
             />
           </label>
+          <TerminalSelectors state={terminalDemo.state} userId={user.id} siteId={siteFilter}
+            onSiteChange={setSiteFilter} terminalId={preferredTerminalId} onTerminalChange={setSelectedTerminalId}
+            onRefresh={terminalDemo.refresh} onNotice={setMessage} />
           {actualUser?.level === 'Systemadmin' && (
             <label className="office-work-as">
               Jobba som
@@ -1105,8 +1225,8 @@ export function OfficeApp() {
           </div>
         </header>
         <div className="office-demo-notice">
-          Demo · Inga riktiga betalningar eller kontorsöverföringar · Separat
-          från gårdsappens lokala data
+          Demo · Kundterminaler och kundgodkännanden delas via servern ·
+          Utbetalningar hanteras manuellt · Gårdsappen är fortsatt separat
         </div>
         {acting && (
           <div className="office-acting-banner" role="status">
@@ -1143,7 +1263,7 @@ export function OfficeApp() {
               </button>
             </div>
           )}
-          {allowed && typeof allowed === 'string' && !can(user, allowed) ? (
+          {terminalAdminDenied || (allowed && !can(user, allowed)) ? (
             <section className="office-panel">
               <h1>Behörighet saknas</h1>
               <p>Ditt konto har inte åtkomst till denna vy.</p>
@@ -1157,6 +1277,8 @@ export function OfficeApp() {
                 <ArrowLeft size={16} />
                 {section === 'attest'
                   ? 'Till attest'
+                  : section === 'customer-approvals'
+                    ? 'Till kundgodkännanden'
                   : section === 'payments'
                     ? 'Till utbetalningar'
                     : 'Till invägningar'}
@@ -1270,7 +1392,7 @@ export function OfficeApp() {
                                   </td>
                                 </>
                               )}
-                              {(editable || selected.status === 'attest') &&
+                              {(editable || (selected.status === 'attest' && !selected.customerApproval)) &&
                                 can(user, 'changePrice') &&
                                 rowVisible(user, r) && (
                                   <td>
@@ -1368,6 +1490,10 @@ export function OfficeApp() {
                           </strong>
                         </span>
                       )}
+                      {selected.customerApproval?.approvedAt && <span>
+                        Kundgodkännande <strong>{selected.customerApproval.approvedBy}</strong>
+                        <small>Fysisk legitimation · version {selected.customerApproval.version} · {fmt(selected.customerApproval.approvedAt)}</small>
+                      </span>}
                       {data.payments
                         .filter((p) => p.cardId === selected.id)
                         .map((p) => (
@@ -1535,6 +1661,19 @@ export function OfficeApp() {
                         </button>
                       )}
                   </section>
+                  {(can(user, 'customerApprovalRead') || can(user, 'prepare')) && <ApprovalControls
+                    approval={selectedApproval}
+                    state={terminalDemo.state}
+                    siteId={selectedSiteId}
+                    terminalId={preferredTerminalId}
+                    canSend={Boolean(editable) && can(user, 'prepare') && approvalMoneyVisible(user) && !priceBusy && Boolean(selected.customerId && selected.origin.trim()) && Boolean(validPaymentDetails(selected.paymentDetails) || selected.payment.trim())}
+                    canConfirmId={can(user, 'prepare') && can(user, 'verifyId')}
+                    canCancel={can(user, 'prepare')}
+                    canSeeMoney={approvalMoneyVisible(user)}
+                    onSend={(terminalId, siteId) => prepareCard(selected, { id: terminalId, siteId })}
+                    onRefresh={terminalDemo.refresh}
+                    onNotice={setMessage}
+                  />}
                   <section className="office-panel">
                     <h2>Sammanställning</h2>
                     {selected.financialPending && (
@@ -1547,7 +1686,7 @@ export function OfficeApp() {
                     {cardMoneyVisible(user, selected) ? (
                       <div className="office-total">
                         <span>Att betala ut</span>
-                        <strong>{money(amount(selected))} kr</strong>
+                        <strong>{money(selectedApproval && ['waiting', 'id_requested', 'approved', 'attested'].includes(selectedApproval.status) ? selectedApproval.snapshot.net : amount(selected))} kr</strong>
                       </div>
                     ) : (
                       <p>
@@ -1555,7 +1694,7 @@ export function OfficeApp() {
                         material
                       </p>
                     )}
-                    {editable && can(user, 'prepare') && (
+                    {editable && !selected.customerApproval && can(user, 'prepare') && (
                       <button
                         className="office-btn"
                         disabled={
@@ -1593,7 +1732,18 @@ export function OfficeApp() {
                             amount(selected) > user.maxAttest ||
                             (!user.ownAttest && selected.preparedBy === user.id)
                           }
-                          onClick={() => {
+                          onClick={async () => {
+                            if (selected.customerApproval) {
+                              try {
+                                await terminalDemoApi.attest(selected.customerApproval.id);
+                                await terminalDemo.refresh();
+                                setMessage('Kortet är JEROC-attesterat. Utbetalningen hanteras manuellt.');
+                                navigate(selected.paymentDetails?.method === 'balance' ? `/payments/${selected.id}?tab=history` : `/payments/${selected.id}`);
+                              } catch (failure) {
+                                setMessage(failure instanceof Error ? failure.message : 'Kortet kunde inte attesteras.');
+                              }
+                              return;
+                            }
                             if (
                               update(
                                 {
@@ -1639,18 +1789,28 @@ export function OfficeApp() {
                             Du får inte attestera ett kort du själv förberett.
                           </p>
                         )}
-                        <button
+                        {(!selected.customerApproval || can(user, 'prepare')) && <button
                           className="office-btn outline"
-                          onClick={() =>
+                          onClick={async () => {
+                            if (selected.customerApproval) {
+                              try {
+                                await terminalDemoApi.cancel(selected.customerApproval.id);
+                                await terminalDemo.refresh();
+                                setMessage('Kundgodkännandet har återkallats. Komplettera kortet och visa en ny version för kunden.');
+                              } catch (failure) {
+                                setMessage(failure instanceof Error ? failure.message : 'Kortet kunde inte returneras.');
+                              }
+                              return;
+                            }
                             update(
                               { ...selected, status: 'complement' },
                               'Returnerat för komplettering.',
                               'attest',
-                            )
-                          }
+                            );
+                          }}
                         >
                           Returnera för komplettering
-                        </button>
+                        </button>}
                       </>
                     )}
                     {['ready', 'balance'].includes(selected.status) &&
@@ -1810,7 +1970,7 @@ export function OfficeApp() {
                       <span>
                         <small>{statusNames[s]}</small>
                         <strong>
-                          {data.cards.filter((c) => c.status === s).length}
+                          {visibleCards.filter((c) => c.status === s).length}
                         </strong>
                         <em>
                           Visa kön <ChevronRight size={12} />
@@ -1837,7 +1997,7 @@ export function OfficeApp() {
                     </div>
                     <CardTable
                       customers={data.customers}
-                      cards={data.cards
+                      cards={visibleCards
                         .filter((c) => c.status !== 'paid')
                         .sort((a, b) => b.id - a.id)}
                       showMoney={can(user, 'prices') || can(user, 'reports')}
@@ -1858,7 +2018,7 @@ export function OfficeApp() {
                 </div>
                 <aside>
                   <QuickActions user={user} onNavigate={navigate} />
-                  <DailyWeights cards={data.cards} />
+                  <DailyWeights cards={visibleCards} />
                   <section className="office-panel">
                     <h2>Senaste aktivitet</h2>
                     <ol className="office-audit">
@@ -1929,7 +2089,7 @@ export function OfficeApp() {
                 )}
               </div>
               {(section === 'attest' || section === 'payments') && (
-                <QueueSummary cards={data.cards} user={user} mode={section} />
+                <QueueSummary cards={visibleCards} user={user} mode={section} />
               )}
               <div className="office-queue-controls">
                 <div
@@ -2013,6 +2173,13 @@ export function OfficeApp() {
                 />
               )}
             </>
+          ) : section === 'customer-approvals' ? (
+            <CustomerApprovalsWorkspace state={terminalDemo.state} siteId={siteFilter} onOpenCard={open}
+              loading={terminalDemo.loading} error={terminalDemo.error} configurationRequired={terminalDemo.configurationRequired}
+              onRefresh={terminalDemo.refresh} canSeeMoney={approvalMoneyVisible(user)} />
+          ) : section === 'terminals' ? (
+            <TerminalWorkspace state={terminalDemo.state} loading={terminalDemo.loading} error={terminalDemo.error}
+              configurationRequired={terminalDemo.configurationRequired} onRefresh={terminalDemo.refresh} onNotice={setMessage} />
           ) : section === 'customers' ? (
             <CustomerWorkspace
               data={data}

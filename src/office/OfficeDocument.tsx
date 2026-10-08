@@ -112,6 +112,13 @@ export default function OfficeDocument({
             </div>
           )}
         </dl>
+        {card.customerApproval?.approvedAt && <section className="office-document-approval">
+          <h2>Kundgodkänd &amp; JEROC-attesterad</h2>
+          <p>Kundgodkännande med fysisk legitimation · version {card.customerApproval.version}<br />
+            Bekräftat av {card.customerApproval.approvedBy} · {new Date(card.customerApproval.approvedAt).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' })}<br />
+            {card.customerApproval.attestedAt && <>JEROC-attest: {card.customerApproval.attestedBy} · {new Date(card.customerApproval.attestedAt).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' })}</>}
+          </p>
+        </section>}
         <table>
           <thead>
             <tr>

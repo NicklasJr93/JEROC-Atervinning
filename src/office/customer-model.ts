@@ -109,11 +109,19 @@ export function canSeeMoney(user: OfficeUser): boolean {
 /** Schema defaults add new collections without deleting existing cards or old drafts. */
 export function migrateOffice(input: unknown): OfficeData {
   const parsed = officeSchema.parse(input);
+  const upgradedUsers = parsed.users.map((user) => ({
+    ...user,
+    permissions: parsed.terminalDemoPermissionsVersion !== 1 &&
+      ['kajsa', 'anna'].includes(user.id) && user.permissions.includes('view')
+      ? [...new Set([...user.permissions, 'customerApprovalRead' as const])]
+      : user.permissions,
+  }));
   return {
     ...parsed,
     transportPermissionsVersion: 1,
+    terminalDemoPermissionsVersion: 1,
     users: parsed.transportPermissionsVersion === 0
-      ? parsed.users.map(user => {
+      ? upgradedUsers.map(user => {
           // One-time upgrade of the known demo accounts; custom users retain their rights.
           const extra = user.id === 'kajsa' && user.permissions.includes('prepare')
             ? ['transportRead', 'transportPlan'] as const
@@ -121,7 +129,7 @@ export function migrateOffice(input: unknown): OfficeData {
               ? ['transportRead'] as const : [];
           return { ...user, permissions: [...new Set([...user.permissions, ...extra])] };
         })
-      : parsed.users,
+      : upgradedUsers,
     cards: parsed.cards.map((card) => {
       const customer = parsed.customers.find(
         (item) => item.id === card.customerId,
