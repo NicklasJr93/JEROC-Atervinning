@@ -194,3 +194,53 @@ registreras när det faktiskt vägs.
 
 De här två bilderna är för designgranskning. De innebär ingen ändring i
 appen och har ännu inte lagts in som godkända byggpunkter i ÄL.
+
+## Transportledning – arbetsvy med karta, designförslag 2026-10-08
+
+[Öppna arbetsvyn](10_Transportledning_Arbetsvy.png)
+
+Senaste layoutförslaget samlar karta, dagsplanering och obokade arbeten i
+en arbetsyta som fyller skärmen. Kontorets sidomeny och globala sökrad
+ersätts av en smal verktygsrad med Till kontoret, datum, Idag, Dag/Vecka,
+förarfokus, visningsval och Nytt uppdrag. Kartan ligger ovanför en bred
+dagsplanerare; gränsen mellan dem kan dras för att fördela ytan. Obokade
+arbeten ligger i högerkolumnen och kan dras till kalendern.
+
+Kartan följer vald period och visar både bokade uppdrag och obokade arbeten.
+Pinnålarnas två färger har skilda betydelser:
+
+| Visuell del | Betydelse i exemplet |
+| --- | --- |
+| Ytterkontur | Förare: Oskar röd, Kalle lila, Maria turkos |
+| Grå ytterkontur | Ingen förare tilldelad |
+| Blå fyllning | Bokat uppdrag |
+| Gul fyllning | Obokat uppdrag |
+
+En vit avgränsning skiljer konturen från fyllningen. Förarfärgerna återkommer
+vid kalenderns förarrader och förklaras separat från bokningsstatus. Kartan
+visar arbetsordrar; konturens röda färg betyder Oskar, inte försenat kärl.
+Namn och bokningsstatus ska också stå i uppdragsinformationen när den öppnas.
+
+Förarvalet heter **Fokus: Oskar**, eftersom andra förares uppdrag syns
+nedtonade medan Oskars och de otilldelade arbetena framhävs. Markering av
+kort eller nål ska följa med mellan karta, kalender och kö.
+
+I detta exempel har Oskar fordon JKL234 och arbetsorder **AO-1101**,
+ett bokat byte hos Roslagens Metallservice på Verkstadsvägen 4 i Norrtälje
+kl. 10:00–11:00. Obokade **AO-1043** avser en batterilåda hos Anderssons
+Verkstad på Verkstadsvägen 12 och har uppskattad tidsåtgång 30 minuter.
+Den gula nålen ligger nära Oskars bokade stopp och har grå kontur eftersom
+uppdraget ännu saknar förare. Kortet finns kvar i kön och inte i kalendern.
+**Boka efter** ska öppna ett förslag där tid, restid, förare och lämpligt
+fordon kontrolleras före bekräftelse. Närhet och tidsåtgång är exempeldata
+i denna mockup; automatisk ruttoptimering ingår inte i designbeslutet.
+
+AO-1042 ligger fortfarande hos Kalle/ABC123 kl. 10:00–11:00, så de tidigare
+mockupernas exempel hänger ihop. Klick på ett uppdrag öppnar detaljer vid
+behov; ett tydligt X stänger dem. Kartan och kalendern kan även visas var
+för sig när mer yta behövs.
+
+![Transportledning – arbetsvy](10_Transportledning_Arbetsvy.png)
+
+Detta är en mockup för granskning, inte en appuppdatering eller en ny
+godkänd byggpunkt i ÄL.
