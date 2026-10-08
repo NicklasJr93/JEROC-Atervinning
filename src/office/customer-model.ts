@@ -111,6 +111,17 @@ export function migrateOffice(input: unknown): OfficeData {
   const parsed = officeSchema.parse(input);
   return {
     ...parsed,
+    transportPermissionsVersion: 1,
+    users: parsed.transportPermissionsVersion === 0
+      ? parsed.users.map(user => {
+          // One-time upgrade of the known demo accounts; custom users retain their rights.
+          const extra = user.id === 'kajsa' && user.permissions.includes('prepare')
+            ? ['transportRead', 'transportPlan'] as const
+            : user.id === 'anna' && user.permissions.includes('view')
+              ? ['transportRead'] as const : [];
+          return { ...user, permissions: [...new Set([...user.permissions, ...extra])] };
+        })
+      : parsed.users,
     cards: parsed.cards.map((card) => {
       const customer = parsed.customers.find(
         (item) => item.id === card.customerId,

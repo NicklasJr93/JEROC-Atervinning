@@ -471,5 +471,38 @@ Status: Planerad. Godkänd 2026-10-08; endast dokumenterad i ÄL, ingen appkod �
   kontrolleras även vid själva statusövergången, inte bara i knappens utseende.
 - Utkast och underlag som behöver kompletteras kan sparas innan ursprungsplatsen fyllts i.
 
+027 – TRANSPORTPLANERING, GEMENSAM KARTA OCH PLANERARE
+Status: Genomförd i kontorsdemo 0.4.0. Beställd för kod och publicering 2026-10-08.
+Godkänd design: docs/mockups/kontor/10_Transportledning_Arbetsvy.png
+- Egen meny Transportplanering, med helskärmsyta utan kontorets sidomeny
+  och globala sökfält. Till kontoret tar tillbaka till översikten.
+- Karta, dag-/veckoplanerare och obokade arbeten visar samma arbetsordrar.
+  Dagvyn har tid i sidled, veckovyn nedåt. Högerpanelen öppnar detaljer
+  eller skapa/redigera/boka, och återgår till kön med X eller Escape.
+- Konturfärg anger förare; fyllning och symbol anger kärltyp. Obokade
+  nålar har streckad kontur och fyllning som pulserar mellan 40–80 procent.
+  Bokade nålar är stilla. Reducerad rörelse respekteras.
+- Hover/fokus markerar samma arbetsorder i karta, kalender och kö utan
+  automatisk panorering. Klick öppnar samma uppgifter från alla tre.
+- Förarfokus, datum, kärltypfilter, Visa klara, enbart karta/planerare
+  och dragbar fördelning av yta mellan karta och kalender.
+- Ny arbetsorder får 60 minuter. Formuläret kan ändra tidsåtgång,
+  kontakt, kund, adress, kärl, material, förare, fordon och bokning.
+  Platsen hittas med adressökning eller väljs direkt på kartan.
+- Dra obokat arbete till kalendern för tid/förare och bokningsbekräftelse.
+  Dra bokat kort för att flytta, högerkant/nederkant för ändrad sluttid.
+  Steg om 15 minuter, minsta tid 15 minuter; starten bevaras vid resize.
+- Förare och fordon kontrolleras mot tidskrockar. Kärltyp måste passa
+  fordonet. Påbörjade och klara uppdrag kan inte planeras om.
+- Avbokning behåller arbetsordern. Vecko-/tvåveckorsserie skapar fyra
+  förekomster; redigera denna eller framtida utan att ändra klara uppdrag.
+- Ändringshistorik visar tid, person och Jobba som-identitet. Ångra
+  bevarar spåret. Lokal lagring och andra webbläsarflikar hanteras.
+- Separata Läs transportplanering och Planera transporter; planera
+  inkluderar läsrätt. Kajsa planerar, Anna läser, VD/Systemadmin gör båda.
+- Närhetsförslag är fågelväg och justerbar manuell tid, ingen ruttmotor.
+  Fortfarande demo i samma repository/Render-tjänst; ingen gemensam
+  databas, förarapp eller komplett kärlhantering ingår i denna version.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

@@ -1,4 +1,4 @@
-# JEROC kontorsdemo 0.3.0
+# JEROC kontorsdemo 0.4.0
 
 Öppna https://jeroc-atervinning.onrender.com/kontor. Samma repository och Render-tjänst används. Befintligt byggkommando, `npm start` och Expo-token behålls. Mobilappen är fortsatt version 0.2.3 på `/`; Expo Go fungerar som tidigare.
 
@@ -12,6 +12,20 @@
 - **Systemadmin:** välj **Jobba som** i övre högra hörnet. Den valda användarens menyer, moment, maxbelopp och egenattestregel gäller. Historiken visar både inloggad och utförande användare. Avsluta Jobba som återställer systemadminläget.
 
 Översikten har arbetsköer, snabbåtgärder, dagstatistik och en förhandsvisning när ett kort väljs. Attest och utbetalningar har egna nyckeltal och statusfilter. Användare med rapportbehörighet kan exportera den filtrerade kön som CSV; materialpriser respekterar prisbehörigheterna.
+
+## Transportplanering
+
+Välj **Transportplanering** i kontorsmenyn, eller öppna `/kontor#/transport`. Kajsa får läsa och planera; Anna får läsa. VD och Systemadmin har full åtkomst. **Läsa transportplanering** och **Skapa, boka och ändra transporter** är separata behörigheter; planera kräver även läsa. Äldre demokonton får dessa rättigheter en gång, så senare borttagna behörigheter återställs inte vid omladdning. Jobba som gäller även i transportvyn.
+
+Arbetsvyn fyller skärmen med en OpenStreetMap-karta, planerare och obokade arbeten. Dagvyn har horisontell tid och veckovyn vertikal tid. Förarfokus tonar ned andra förare; kärlfilter, datum och Visa klara styr kartan och planeraren tillsammans. Ytan mellan karta och planerare kan dras, och endast karta eller endast planerare kan väljas.
+
+Nålens kontur visar förare och fyllningen visar kärltyp. Obokade nålar har streckad kontur och mjukt pulserande fyllning; bokade nålar är stilla. Reducerad rörelse stänger av pulsen. Muspekaren eller tangentbordsfokus markerar samma arbetsorder på kartan, i kön och i kalendern utan att flytta kartan. Klick öppnar samma detaljpanel med kund, adress, kärl, material, kontakt, bokning och historik. Visa på karta och Visa i planeraren flyttar fokus uttryckligen.
+
+Skapa arbetsorder för hämtning, byte eller utställning. Ny tidsåtgång är en timme och kan ändras i steg om 15 minuter. Kundregistret kan användas, eller en kontakt anges manuellt. Adressökning använder Nominatim; platsen kan också väljas direkt på kartan. Ändrad adress kräver en ny platskontroll. Vecko-/tvåveckorsintervall skapar fyra förekomster i demot; framtida förekomster kan redigeras tillsammans utan att påbörjade eller klara uppdrag ändras.
+
+Dra ett obokat arbete till kalendern för förhandsvisning av förare och tid; släpp öppnar bokningsbekräftelsen. Flytta en bokning genom att dra kortet. Dra högerkanten i dagvyn eller nederkanten i veckovyn för att ändra sluttid; början ligger kvar. Ändring och Ångra sparas med vem som gjorde dem. Förare och fordon får inte dubbelbokas, och fordonets tillåtna kärltyper kontrolleras. Avbokning behåller arbetsordern i kön. Påbörjade och klara uppdrag låser planeringen.
+
+Närhetsförslag visar avstånd fågelvägen till en synlig bokning hos vald förare. Boka före/efter lämnar ett justerbart mellanrum på 15 minuter; körväg och verklig restid beräknas ännu inte. Transportdemot använder fiktiva platser i Norrtälje och sparas separat i webbläsarens `jeroc.transport.demo.v1`. Andra flikar uppdateras vid ändring. Andra datorer, förarappar och kundens verkliga kärlregister kopplas först när gemensam lagring byggs. Kartbakgrund och adressökning kräver internet; arbetsorder och kalender kan användas även om kartbakgrunden inte laddas.
 
 Viktkort visar material, prisregel och kundvolym per artikel under senaste 12 månaderna. Kontaktuppgifter, referens och ursprungsadress ligger under kundkortet; betalning och ID ligger i en kompakt egen del. Referens/ursprung kan användas först efter kundval. Fordonsunderlaget visar infart, utfart, netto före avdrag och slutvikt.
 
@@ -57,6 +71,8 @@ Mobilens prislista är ännu inte kopplad till servern. Gårdsappens vägningar 
 
 `npm ci`, `npm run build`, sedan `npm run dev` startar Vite på 5173 och prismotorn på 3000. Vite skickar API-anrop till Node. Windows_Starta_JEROC.cmd och Mac_Starta_JEROC.command installerar och startar samma Node-tjänst lokalt på 4173; öppna `/kontor` för kontorsdemon. `npm start` serverar produktionsbygge och API i samma process; `npm run preview` visar bara det statiska bygget och saknar prismotorn.
 
-Kör `npm run test:server`, `npm test -- --workers=1`, `npm run build` och `npm run expo:check`. Pristesterna omfattar Cash/valuta, historiska datum, volym per artikel inklusive aktuell leverans, kundundantag, oföränderliga/versionerade prisunderlag, rättelseposter och serverns demobehörigheter. Webbtesterna omfattar kontorsflödet, Jobba som och attestgräns, LME läs/ändra, sparad prissättning och fortsatt mobilflöde.
+Kör `npm run test:server`, `npm test -- --workers=1`, `npm run build` och `npm run expo:check`. Starta utvecklingsservern med färsk demodata före en ny full testomgång; API-testerna delar serverns minne och några ändrar hela användarregistret. Kör dem i följd för att undvika krockar mellan testkonton. Pristesterna omfattar Cash/valuta, historiska datum, volym per artikel inklusive aktuell leverans, kundundantag, oföränderliga/versionerade prisunderlag, rättelseposter och serverns demobehörigheter. Webbtesterna omfattar kontorsflödet, Jobba som och attestgräns, LME läs/ändra, sparad prissättning och fortsatt mobilflöde.
+
+Transportversionen har 20 modelltester och 9 webbläsartester för bokning, tidskrockar, drag och släpp, tidsändring, Ångra, återkommande uppdrag, sparad historik, karta, behörigheter och Jobba som. Övergång mellan karta och lista kontrollerades dessutom sex gånger i rad. Arbetsvyn granskades vid 1920, 1440 och 1280 pixlars bredd. Produktionsbygge och Expo-typkontroll ingår i releasekontrollen.
 
 Verifierat för v0.3.0: 54 Playwright-tester (22 mobilflöden, 20 kontorsflöden och 12 rena modelltester), 38 servertester, produktionsbygge och Expo-typkontroll. Kundkortets fem flikar har granskats i webbläsaren utan JavaScriptfel eller sidöverflöde. Avräkningsnotan verifierades som en A4-PDF på en sida. Rättelser i båda riktningar, saldokvittning, historik, egen attest och unika rättelse-ID och komplettering av äldre rättelseutkast ingår i kontrollerna. Ett mobiltest kördes om efter en kollision i testverktygets artefaktmapp och passerade. Startfilerna har inte körts på Windows eller macOS här.

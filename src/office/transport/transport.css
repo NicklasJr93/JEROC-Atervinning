@@ -1,0 +1,115 @@
+.transport-workspace{height:100dvh;width:100%;display:flex;flex-direction:column;overflow:hidden;background:#f2f7fc;color:#163051;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px}
+.transport-workspace *{box-sizing:border-box}
+.transport-workspace button,.transport-workspace input,.transport-workspace select,.transport-workspace textarea{font:inherit}
+.transport-workspace button{cursor:pointer}
+.transport-workspace label{flex-direction:row;margin:0}
+.transport-workspace button:disabled{cursor:not-allowed;opacity:.55}
+.transport-workspace button:focus-visible,.transport-workspace [tabindex]:focus-visible,.transport-workspace input:focus-visible,.transport-workspace select:focus-visible{outline:3px solid #a4cbff;outline-offset:2px}
+.transport-toolbar{display:flex;align-items:center;gap:12px;flex-shrink:0;height:64px;padding:8px 16px;background:#fff;border-bottom:1px solid #dee8f5;z-index:800;overflow-x:auto}
+.transport-toolbar h1{font-size:18px;letter-spacing:-.45px;white-space:nowrap;margin:0 12px 0 0}
+.transport-toolbar button,.transport-toolbar select{border:1px solid #d9e5f5;color:#16375c;background:#fff;border-radius:8px;min-height:36px;white-space:nowrap;padding:8px 12px}
+.transport-toolbar button:hover{background:#f2f7ff}
+.transport-back{display:flex;align-items:center;gap:6px;border:0!important;padding-left:0!important}
+.transport-date{display:flex;gap:7px;align-items:center}
+.transport-date>button{padding:7px}
+.transport-date label{position:relative;white-space:nowrap;font-weight:650;display:flex;align-items:center;min-width:165px;justify-content:center}
+.transport-date input{position:absolute;inset:0;width:100%;opacity:0;cursor:pointer}
+.transport-segment{display:flex;padding:2px;border:1px solid #dbe6f3;border-radius:8px;background:#f6f9ff}
+.transport-segment button{border:0;min-height:32px;padding:7px 17px;background:transparent}
+.transport-segment .active{background:#0867ef;color:#fff}
+.transport-toolbar .transport-segment .active:hover{background:#0758ce;color:#fff}
+.transport-toolbar .transport-driver-focus{display:flex;align-items:center;flex:0 0 155px;gap:0;padding:0}
+.transport-toolbar .transport-driver-focus select{width:155px;min-width:155px;min-height:36px;height:36px;padding:7px 10px}
+.transport-toolbar .transport-layout-select{flex:0 0 170px;width:170px;min-width:170px;max-width:170px;min-height:36px;height:36px;padding:7px 10px}
+.transport-toolbar .transport-primary,.transport-primary{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid #0867ef;border-radius:8px;padding:10px 13px;background:#0867ef;color:#fff;font-weight:600}
+.transport-primary:hover{background:#0758ce!important;color:#fff}
+.transport-new{margin-left:auto}
+.transport-toolbar .transport-profile-button{border-radius:50%;min-width:36px;width:36px;padding:0;background:#0968f2;color:#fff;border:0}
+.transport-toolbar .transport-help-button{border:0;padding:8px;color:#7a8eac}
+.transport-readonly{display:flex;align-items:center;gap:5px;padding:5px 8px;color:#687f9d;background:#edf3fa;border-radius:7px;white-space:nowrap;margin-left:auto}
+.transport-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 322px;gap:12px;padding:12px}
+.transport-main{display:grid;min-height:0;min-width:0}
+.transport-main>section,.transport-main>.transport-map,.transport-main>.transport-calendar{min-height:0;min-width:0}
+.transport-divider{cursor:row-resize;display:flex;align-items:center;justify-content:center;touch-action:none}
+.transport-divider span{width:35px;height:5px;border-top:2px solid #a2b6d1;border-bottom:2px solid #a2b6d1}
+.transport-side{min-width:0;min-height:0;border:1px solid #deE8f5;background:#fff;border-radius:12px;overflow:hidden}
+.transport-queue{height:100%;display:flex;flex-direction:column}
+.transport-side-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:18px 18px 12px}
+.transport-side-heading h2{margin:0;font-size:19px;letter-spacing:-.5px}
+.transport-side-heading h2>span{display:inline-flex;align-items:center;justify-content:center;background:#eaf3ff;border-radius:50%;width:26px;height:26px;font-size:14px;color:#0867ef;margin-left:5px}
+.transport-side-heading button{padding:5px;background:none;border:0;color:#7290b0}
+.transport-workspace .transport-queue-search{display:flex;flex-direction:row;align-items:center;gap:7px;margin:0 16px 10px;border:1px solid #dfe9f5;border-radius:8px;padding:9px 10px;color:#778cad;background:#f8fbff}
+.transport-workspace .transport-queue-search input{border:0;outline:none;width:100%;background:none;min-width:0;min-height:22px;height:22px;padding:0;margin:0;color:#163051}
+.transport-queue-filters{display:flex;align-items:center;gap:8px;margin:0 16px 10px}
+.transport-workspace .transport-queue-filters select{border:1px solid #e1e9f4;border-radius:6px;min-width:0;min-height:30px;height:30px;padding:6px;color:#5a7291;background:#fff;font-size:11px;flex:1}
+.transport-queue-filters label{display:flex;align-items:center;gap:3px;font-size:10px;color:#7c90a9;white-space:nowrap}
+.transport-queue-list{padding:0 16px 12px;overflow:auto;flex:1;min-height:0}
+.transport-queue-card{border:1px solid #dce7f5;border-radius:10px;padding:13px 13px 12px;margin-bottom:12px;background:#fff;cursor:pointer;transition:box-shadow .12s,border-color .12s}
+.transport-queue-card:hover,.transport-queue-card.is-hovered{box-shadow:0 0 0 2px #cfE2ff;border-color:#78b0ff}
+.transport-queue-card[draggable=true]{cursor:grab}
+.transport-queue-card[draggable=true]:active{cursor:grabbing}
+.transport-queue-card-title{display:flex;align-items:center;gap:8px;margin-bottom:9px;color:#254d79}
+.transport-queue-card-title strong{font-size:16px;color:#17304f}
+.transport-queue-card-title i{height:11px;width:11px;border-radius:50%;background:var(--vessel-color)}
+.transport-queue-card-title>svg:last-child{margin-left:auto}
+.transport-queue-card h3{font-size:13px;display:flex;align-items:center;gap:5px;margin:0 0 5px}
+.transport-queue-customer{font-size:12px;font-weight:550}
+.transport-queue-card p{display:flex;gap:5px;align-items:flex-start;font-size:11px;color:#6f85a1;line-height:1.5;margin:9px 0}
+.transport-queue-card p svg{flex-shrink:0;margin-top:1px}
+.transport-queue-duration{display:flex;gap:5px;align-items:center;font-size:11px;color:#647e9e}
+.transport-nearby-label{display:inline-block;background:#eef4fd;border-radius:6px;padding:4px 7px;font-size:10px;color:#587494;margin-top:10px}
+.transport-queue-hint{display:flex;gap:7px;align-items:center;padding:12px;margin:8px 16px 16px;background:#f0f7ff;color:#3570b6;border-radius:8px;font-size:11px;line-height:1.6}
+.transport-details{height:100%;overflow:auto;padding:0 17px 20px}
+.transport-details .transport-side-heading{padding-left:0;padding-right:0}
+.transport-details .transport-side-heading h2{font-size:16px;letter-spacing:-.3px}
+.transport-eyebrow{color:#91a1b7;font-size:9px;letter-spacing:1px;font-weight:650}
+.transport-state{display:inline-block;border-radius:6px;padding:4px 8px;background:#eaf3ff;color:#0866eb;font-size:11px;margin:3px 0 10px}
+.transport-state.state-unbooked{background:#f5f0e8;color:#9a702f}
+.transport-state.state-on_way{background:#fff0db;color:#b77b17}
+.transport-state.state-done{background:#e9f7ed;color:#25854f}
+.transport-details h3{font-size:16px;margin:5px 0 10px}
+.transport-details p{font-size:12px;color:#667f9e;line-height:1.7;margin:7px 0}
+.transport-detail-address{display:flex;align-items:flex-start;gap:6px}
+.transport-detail-address svg{margin-top:3px;flex-shrink:0}
+.transport-details a{color:#1673ed;text-decoration:none}
+.transport-detail-section{border-top:1px solid #e6edf6;margin-top:16px;padding-top:14px}
+.transport-detail-section h4{margin:0 0 11px;font-size:12px}
+.transport-detail-section dl{display:grid;grid-template-columns:68px minmax(0,1fr);margin:0;gap:10px 8px;font-size:12px}
+.transport-detail-section dt{color:#7d91ac}
+.transport-detail-section dd{margin:0;display:flex;gap:5px;align-items:center}
+.transport-detail-section dd i{height:10px;width:10px;flex-shrink:0;border-radius:50%}
+.transport-detail-section p{display:flex;align-items:center;gap:7px}
+.transport-detail-section p.transport-notes{display:block;white-space:pre-wrap}
+.transport-driver-dot{width:14px;height:14px;border:3px solid;border-radius:50%;display:inline-block}
+.transport-nearby{display:flex;flex-direction:column;gap:7px;background:#f0f6ff;border:1px solid #d9e7f9;border-radius:9px;padding:12px;margin:16px 0;font-size:12px}
+.transport-nearby span,.transport-nearby small{font-size:11px;color:#7790ae;line-height:1.5}
+.transport-nearby>div{display:flex;gap:6px}
+.transport-nearby button{flex:1;background:#fff;border:1px solid #cdddf2;border-radius:6px;padding:7px;color:#1768d1}
+.transport-detail-actions{display:flex;flex-wrap:wrap;gap:7px;margin:16px 0}
+.transport-detail-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;border-radius:7px;border:1px solid #d7e5f7;background:white;color:#236cc5;font-size:11px}
+.transport-detail-actions .transport-primary{width:100%;color:#fff;background:#0867ef;border-color:#0867ef}
+.transport-audit{border-top:1px solid #e5edf7;padding-top:13px;margin-top:16px}
+.transport-audit summary{font-weight:650;cursor:pointer;font-size:12px}
+.transport-audit>div{display:flex;flex-direction:column;gap:5px;margin-top:12px;padding-bottom:12px;border-bottom:1px solid #eff3f9;font-size:11px}
+.transport-audit>div strong{font-weight:500;line-height:1.5}
+.transport-audit span,.transport-audit time{color:#8296ae;font-size:10px}
+.transport-message{display:flex;align-items:center;gap:10px;padding:9px 18px;background:#eaf5ee;border-bottom:1px solid #d2e8da;flex-shrink:0;min-height:38px;color:#357855;font-size:12px}
+.transport-message.error{background:#fff1ef;border-color:#f2d9d4;color:#a84a39}
+.transport-message>span{flex:1}
+.transport-message button{display:inline-flex;gap:5px;align-items:center;color:inherit;background:transparent;border:0;font-weight:650}
+.transport-profile-popover,.transport-help-popover{position:absolute;top:62px;right:15px;z-index:2000;background:white;border:1px solid #dbe7f5;box-shadow:0 8px 30px #17355720;border-radius:10px;padding:16px;width:310px}
+.transport-profile-popover{display:flex;flex-direction:column;gap:10px}
+.transport-profile-popover>span{font-size:12px;color:#7a91b0}
+.transport-profile-popover label{display:flex;flex-direction:column;gap:7px;font-size:12px}
+.transport-profile-popover select{max-width:100%;font-size:12px;padding:7px;border:1px solid #dce7f4;border-radius:6px;background:#fff;color:#16375c}
+.transport-help-popover{width:360px}
+.transport-help-popover>button{position:absolute;top:8px;right:8px;border:0;background:none;color:#7a90aa}
+.transport-help-popover>strong{font-size:12px;display:block;margin-right:15px}
+.transport-help-popover p{font-size:12px;color:#6f85a2;line-height:1.6}
+.transport-empty{display:flex;align-items:center;flex-direction:column;gap:10px;padding:35px 15px;color:#8da3bd;text-align:center}
+.transport-empty strong{font-size:13px;color:#486887}
+.transport-empty span{font-size:11px;line-height:1.6}
+.transport-workspace .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+@media(max-width:1250px){.transport-toolbar{gap:7px;padding:8px 10px}.transport-toolbar h1{font-size:15px;margin-right:5px}.transport-back span{display:none}.transport-toolbar select{max-width:150px}.transport-body{grid-template-columns:minmax(0,1fr) 290px;gap:9px;padding:9px}.transport-date label{min-width:142px}}
+@media(max-width:850px){.transport-toolbar{height:58px}.transport-body{grid-template-columns:minmax(0,1fr) 265px;gap:7px;padding:7px}.transport-toolbar h1{font-size:14px}.transport-side-heading{padding:13px 12px 10px}.transport-side-heading h2{font-size:16px}.transport-queue-list{padding:0 10px 10px}.transport-queue-search,.transport-queue-filters{margin-left:10px;margin-right:10px}}
+@media(max-width:620px){.transport-body{display:flex;flex-direction:column;overflow:auto}.transport-main{min-height:650px;flex:1}.transport-side{min-height:330px;flex-shrink:0;max-height:70dvh}.transport-queue-list{display:flex;gap:10px;overflow:auto}.transport-queue-card{min-width:250px}.transport-toolbar h1{display:none}.transport-profile-popover,.transport-help-popover{max-width:calc(100vw - 24px)}}

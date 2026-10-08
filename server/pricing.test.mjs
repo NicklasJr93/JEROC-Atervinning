@@ -642,6 +642,19 @@ test('VD cannot change Systemadmin and LME write permission requires LME read', 
   );
 });
 
+test('transport permissions can be saved and planning requires reading', () => {
+  const { store, admin } = setup();
+  const users = store.read(admin).users;
+  const withPermissions = (permissions) => users.map(user =>
+    user.id === 'anna' ? { ...user, permissions } : user,
+  );
+  fails(() => store.saveUsers({ users: withPermissions(['view', 'transportPlan']) }, admin));
+  const saved = store.saveUsers({ users: withPermissions(['view', 'transportRead', 'transportPlan']) }, admin);
+  assert.deepEqual(saved.users.find(user => user.id === 'anna').permissions, ['view', 'transportRead', 'transportPlan']);
+  const readonly = store.saveUsers({ users: withPermissions(['view', 'transportRead']) }, admin);
+  assert.deepEqual(readonly.users.find(user => user.id === 'anna').permissions, ['view', 'transportRead']);
+});
+
 test('financial permissions expose authoritative totals while restricted row prices remain hidden', () => {
   const { store, admin, lars } = setup();
   const frozen = store.snapshot(

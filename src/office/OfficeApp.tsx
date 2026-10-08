@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -19,12 +19,14 @@ import {
   X,
   TrendingUp,
   Download,
+  Truck,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
 import CustomerWorkspace from './CustomerWorkspace';
 import PaymentEditor from './PaymentEditor';
 import CorrectionsWorkspace from './CorrectionsWorkspace';
+const TransportWorkspace = lazy(() => import('./transport/TransportWorkspace'));
 import {
   cardRoute,
   inQueue,
@@ -564,6 +566,7 @@ export function OfficeApp() {
     { id: 'attest', name: 'Attest', icon: BadgeCheck, right: 'attest' },
     { id: 'payments', name: 'Utbetalningar', icon: Wallet, right: 'pay' },
     { id: 'customers', name: 'Kunder', icon: Users, right: 'view' },
+    { id: 'transport', name: 'Transportplanering', icon: Truck, right: 'transportRead' },
     {
       id: 'prices',
       name: 'Artiklar & priser',
@@ -959,6 +962,26 @@ export function OfficeApp() {
         </div>
       </div>
     );
+  if (section === 'transport' && can(user, 'transportRead')) {
+    return <Suspense fallback={<div role="status">Öppnar transportplaneringen…</div>}><TransportWorkspace
+      key={actualUser!.id + ':' + user.id}
+      user={user}
+      actualUser={actualUser!}
+      customers={data.customers}
+      officeBlocked={blocked}
+      onExit={() => navigate('/dashboard')}
+      workAsControl={actualUser?.level === 'Systemadmin' ? (
+        <label>Jobba som
+          <select aria-label="Jobba som" value={acting ? user.id : ''} onChange={event => workAs(event.target.value)}>
+            <option value="">Systemadmin · egen behörighet</option>
+            {data.users.filter(candidate => candidate.id !== actualUser.id).map(candidate =>
+              <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
+            )}
+          </select>
+        </label>
+      ) : undefined}
+    /></Suspense>;
+  }
   return (
     <div className="office">
       <aside className="office-sidebar">
@@ -2537,12 +2560,16 @@ function UserAdmin({
                                 ...(key === 'lmeWrite'
                                   ? ['lmeRead' as const]
                                   : []),
+                                ...(key === 'transportPlan'
+                                  ? ['transportRead' as const]
+                                  : []),
                               ]),
                             ]
                           : selected.permissions.filter(
                               (p) =>
                                 p !== key &&
-                                !(key === 'lmeRead' && p === 'lmeWrite'),
+                                !(key === 'lmeRead' && p === 'lmeWrite') &&
+                                !(key === 'transportRead' && p === 'transportPlan'),
                             ),
                       })
                     }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.3.0';
+export const OFFICE_VERSION = '0.4.0';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
   view: 'Se vägningar och kunder',
@@ -22,6 +22,8 @@ export const permissionNames = {
   pay: 'Registrera demoutbetalning',
   corrections: 'Skapa och hantera rättelser',
   reports: 'Se ekonomisk översikt',
+  transportRead: 'Läsa transportplanering',
+  transportPlan: 'Skapa, boka och ändra transporter',
   users: 'Hantera användare',
 } as const;
 export type Permission = keyof typeof permissionNames;
@@ -179,6 +181,7 @@ const paymentSchema = z.object({
 });
 export type OfficePayment = z.infer<typeof paymentSchema>;
 export const officeSchema = z.object({
+  transportPermissionsVersion: z.number().int().min(0).max(1).default(0),
   users: z.array(userSchema),
   cards: z.array(cardSchema),
   customers: z.array(customerSchema).default(seedOfficeCustomers),
@@ -229,6 +232,8 @@ export function seedOffice(): OfficeData {
         'paymentDetails',
         'verifyId',
         'corrections',
+        'transportRead',
+        'transportPlan',
       ],
       maxAttest: 0,
       ownAttest: false,
@@ -247,6 +252,7 @@ export function seedOffice(): OfficeData {
         'attest',
         'pay',
         'reports',
+        'transportRead',
       ],
       maxAttest: 25000,
       ownAttest: false,
@@ -285,6 +291,7 @@ export function seedOffice(): OfficeData {
     ],
   };
   return {
+    transportPermissionsVersion: 1,
     users,
     customers: seedOfficeCustomers(),
     payments: [],

@@ -19,6 +19,7 @@
     "expo:check": "npm --prefix expo run typecheck"
   },
   "dependencies": {
+    "leaflet": "^1.9.4",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",
+    "@types/leaflet": "^1.9.21",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

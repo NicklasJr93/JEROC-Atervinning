@@ -32,6 +32,8 @@ export const permissions = [
   'lmeWrite',
   'articlesEdit',
   'customerPriceEdit',
+  'transportRead',
+  'transportPlan',
 ];
 const finite = z.number().finite();
 const nonnegative = finite.min(0).max(1e9);
@@ -285,6 +287,8 @@ function seedUsers() {
         'verifyId',
         'corrections',
         'lmeRead',
+        'transportRead',
+        'transportPlan',
       ],
       maxAttest: 0,
       ownAttest: false,
@@ -303,6 +307,7 @@ function seedUsers() {
         'attest',
         'pay',
         'reports',
+        'transportRead',
       ],
       maxAttest: 25000,
       ownAttest: false,
@@ -1473,6 +1478,11 @@ export function createPricingStore({ now = () => new Date() } = {}) {
         user.level === 'Medarbetare'
       )
         throw new PricingError('Ändra LME kräver även Läs LME.');
+    for (const user of users)
+      if (user.level === 'Medarbetare' &&
+        user.permissions.includes('transportPlan') &&
+        !user.permissions.includes('transportRead'))
+        throw new PricingError('Planera transporter kräver även Läs transportplanering.');
     if (principalValue.user.level !== 'Systemadmin') {
       const oldAdmins = state.users.filter(
         (user) => user.level === 'Systemadmin',
