@@ -21,6 +21,7 @@
   "dependencies": {
     "leaflet": "^1.9.4",
     "lucide-react": "^0.468.0",
+    "pg": "^8.23.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.0",

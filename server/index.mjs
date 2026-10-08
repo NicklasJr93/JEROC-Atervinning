@@ -8,6 +8,7 @@ import { proxyExpo, startExpoGo } from './expo-go.mjs';
 import { createPricingApi } from './pricing-api.mjs';
 import { createPricingStore } from './pricing.mjs';
 import { createTransportIntegrationsApi } from './transport-integrations.mjs';
+import { createTerminalDemoApi } from './terminal-demo.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -57,6 +58,7 @@ async function handle(req, res) {
   }
   if (await pricingApi(req, res, url)) return;
   if (await transportIntegrationsApi(req, res, url)) return;
+  if (await terminalDemoApi(req, res, url)) return;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.setHeader('Allow', 'GET, HEAD');
     reply(res, 405, 'Method not allowed');
@@ -90,7 +92,7 @@ async function handle(req, res) {
     reply(res, 404, 'Not found');
     return;
   }
-  const staticPath = ['/', '/kontor', '/kontor/', '/mobil', '/mobil/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
+  const staticPath = ['/', '/kontor', '/kontor/', '/mobil', '/mobil/', '/terminal', '/terminal/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
   const file = resolve(dist, `.${staticPath}`);
   const within = relative(dist, file);
   if (within.startsWith('..') || isAbsolute(within)) {
@@ -133,6 +135,7 @@ const server = createServer((req, res) => {
 const principalStore = createPricingStore();
 const pricingApi = createPricingApi({ store: principalStore });
 const transportIntegrationsApi = createTransportIntegrationsApi({ principalStore });
+const terminalDemoApi = createTerminalDemoApi({ principalStore });
 const expoGo = startExpoGo({ onFailure: () => {
   console.error('Expo-servern har stannat. Startar om tjänsten.');
   stop(1);
@@ -149,7 +152,7 @@ async function stop(code = 0) {
   if (stopping) return;
   stopping = true;
   setTimeout(() => process.exit(1), 10000).unref();
-  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop()]);
+  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close()]);
   process.exit(code);
 }
 process.on('SIGTERM', () => stop());

@@ -34,6 +34,7 @@ export const permissions = [
   'customerPriceEdit',
   'transportRead',
   'transportPlan',
+  'customerApprovalRead',
 ];
 const finite = z.number().finite();
 const nonnegative = finite.min(0).max(1e9);
@@ -289,6 +290,7 @@ function seedUsers() {
         'lmeRead',
         'transportRead',
         'transportPlan',
+        'customerApprovalRead',
       ],
       maxAttest: 0,
       ownAttest: false,
@@ -308,6 +310,7 @@ function seedUsers() {
         'pay',
         'reports',
         'transportRead',
+        'customerApprovalRead',
       ],
       maxAttest: 25000,
       ownAttest: false,
@@ -1524,6 +1527,9 @@ export function createPricingStore({ now = () => new Date() } = {}) {
     quote,
     snapshot,
     snapshots,
+    // Internal server-only lookup for a validated customer review. Never exposed
+    // by the pricing API or used to grant the caller additional permissions.
+    getSnapshotForApproval: (snapshotId) => copy(state.snapshots.find((entry) => entry.id === snapshotId) ?? null),
     restoreLegacySnapshot,
     correct,
     approveCorrection: (input, principalValue) =>
