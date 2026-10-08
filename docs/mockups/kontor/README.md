@@ -207,19 +207,35 @@ dagsplanerare; gränsen mellan dem kan dras för att fördela ytan. Obokade
 arbeten ligger i högerkolumnen och kan dras till kalendern.
 
 Kartan följer vald period och visar både bokade uppdrag och obokade arbeten.
-Pinnålarnas två färger har skilda betydelser:
+Efter senaste återkopplingen visar konturen förare, fyllningen kärltyp och
+linjestil/rörelse bokningsstatus. Kärlfärgen behålls när ett uppdrag bokas:
 
 | Visuell del | Betydelse i exemplet |
 | --- | --- |
 | Ytterkontur | Förare: Oskar röd, Kalle lila, Maria turkos |
 | Grå ytterkontur | Ingen förare tilldelad |
-| Blå fyllning | Bokat uppdrag |
-| Gul fyllning | Obokat uppdrag |
+| Blå fyllning | Container |
+| Orange fyllning | Batterilåda |
+| Grön fyllning | Tunna/kärl |
+| Lila fyllning | Bur |
+| Hel kontur, full färg och stilla nål | Bokat uppdrag |
+| Streckad kontur och tonad/pulserande fyllning | Obokat uppdrag |
 
 En vit avgränsning skiljer konturen från fyllningen. Förarfärgerna återkommer
-vid kalenderns förarrader och förklaras separat från bokningsstatus. Kartan
-visar arbetsordrar; konturens röda färg betyder Oskar, inte försenat kärl.
-Namn och bokningsstatus ska också stå i uppdragsinformationen när den öppnas.
+vid kalenderns förarrader. Legendens tre delar förklarar förare, kärltyp
+och bokningsstatus separat. Kartan visar arbetsordrar; konturens röda färg
+betyder Oskar, inte försenat kärl. Namn, kärltyp och bokningsstatus ska också
+stå i uppdragsinformationen när den öppnas. Material och kärlets storlek
+visas i detaljerna. Exempelvis är AO-1045 ett skrotkärl med järnskrot som
+material; dess gröna fyllning betyder kärltyp, inte material.
+
+Planerad animation för obokade uppdrag: en mjuk cykel på cirka tre sekunder
+mellan 40 och 80 procents opacitet i fyllningen. Kontur och etiketter ligger
+kvar tydliga utan att pulsera; nålen ändrar inte storlek. Vid bokning stannar
+pulsen, fyllningen blir helt synlig och konturen blir hel. Med minskad
+rörelse används en stilla tonad fyllning och streckad kontur. PNG-mockupen
+visar en stillbild av det tonade läget, omkring 60 procent, med text som
+förklarar pulsen. Den innehåller ingen faktisk animation.
 
 Förarvalet heter **Fokus: Oskar**, eftersom andra förares uppdrag syns
 nedtonade medan Oskars och de otilldelade arbetena framhävs. Markering av
@@ -229,8 +245,9 @@ I detta exempel har Oskar fordon JKL234 och arbetsorder **AO-1101**,
 ett bokat byte hos Roslagens Metallservice på Verkstadsvägen 4 i Norrtälje
 kl. 10:00–11:00. Obokade **AO-1043** avser en batterilåda hos Anderssons
 Verkstad på Verkstadsvägen 12 och har uppskattad tidsåtgång 30 minuter.
-Den gula nålen ligger nära Oskars bokade stopp och har grå kontur eftersom
-uppdraget ännu saknar förare. Kortet finns kvar i kön och inte i kalendern.
+Den tonade orange nålen ligger nära Oskars bokade stopp och har streckad
+grå kontur eftersom uppdraget är obokat och ännu saknar förare. Kortet finns
+kvar i kön och inte i kalendern.
 **Boka efter** ska öppna ett förslag där tid, restid, förare och lämpligt
 fordon kontrolleras före bekräftelse. Närhet och tidsåtgång är exempeldata
 i denna mockup; automatisk ruttoptimering ingår inte i designbeslutet.
