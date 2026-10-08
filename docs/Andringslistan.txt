@@ -461,5 +461,15 @@ Status: Genomförd i kontorsdemo 0.3.0 enligt godkända tidigare saldo- och rät
 - Verifierat: 54 webb-/modelltester, 38 servertester, produktionsbygge, Expo-typkontroll
   och utskrivbar avräkningsnota i A4. Rättelse-ID är unikt även efter återställning.
 
+026 – OBLIGATORISK URSPRUNGSPLATS INFÖR ATTEST, VALFRI REFERENS
+Status: Planerad. Godkänd 2026-10-08; endast dokumenterad i ÄL, ingen appkod ändrad.
+- En vägning får inte skickas för attest eller få status Väntar på attest
+  utan ifylld ursprungsplats, alltså gatuadressen där materialet kommer ifrån.
+- Tomt fält eller enbart blanksteg räknas som saknad ursprungsplats.
+- Referens är valfri och får inte blockera att vägningen skickas för attest.
+- Visa tydligt vid ursprungsfältet vad som saknas före attest. Kravet ska
+  kontrolleras även vid själva statusövergången, inte bara i knappens utseende.
+- Utkast och underlag som behöver kompletteras kan sparas innan ursprungsplatsen fyllts i.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.
