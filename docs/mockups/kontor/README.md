@@ -153,9 +153,19 @@ den behövs, inte presenteras som en automatisk sensormätning.
 
 [Öppna kalendern](09_Transportplanering.png)
 
-Veckokalender med rader för förare och fordon, val för dag/vecka/lista och
-en kö med uppdrag som behöver planeras. Vald arbetsorder visar kund,
-adress, åtgärd, material, kärlnummer, tid, förare, fordon och instruktioner.
+Uppdaterad layout efter användarens återkoppling 2026-10-08. Mockupen visar
+dagsvyn som standard: förare och fordon på varsin rad och klockslag från
+vänster till höger. Överraden har datum, Idag, Dag/Vecka, förarfilter och
+Nytt uppdrag. Veckovyn planeras med dagar som kolumner och tid uppifrån
+och ner.
+
+**Behöver planeras** ligger i högerkolumnen och ersätter den tidigare
+ständigt öppna arbetsordern AO-1042. Korten visar uppdragstyp, kund, ort
+och uppskattad tidsåtgång. Kalenderkorten visar typ, kund och bokad tid.
+Ett tryck på ett kort i kalendern eller kön öppnar arbetsorderns detaljer
+i ett tillfälligt sidokort. Ett tydligt X stänger detaljerna och återgår
+till kön. Då visas adress, material, kärlnummer, förare, fordon och
+instruktioner vid behov. Obokade kort kan dras till kalendern för bokning.
 Kalenderns egen statusförklaring visar Planerad, På väg och Klar.
 
 Planeringen ska omfatta både hämtning, byte och utställning. En hämtning av
