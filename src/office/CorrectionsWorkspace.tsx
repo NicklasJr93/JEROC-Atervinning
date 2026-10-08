@@ -10,6 +10,7 @@ export default function CorrectionsWorkspace({
   onOpenCard,
   onSubmit,
   onApprove,
+  onSaveDocument,
   busy,
 }: {
   data: OfficeData;
@@ -17,6 +18,7 @@ export default function CorrectionsWorkspace({
   onOpenCard: (id: number) => void;
   onSubmit: (id: number) => Promise<boolean>;
   onApprove: (id: number) => Promise<boolean>;
+  onSaveDocument: (id: number, document: string) => boolean;
   busy: boolean;
 }) {
   const [tab, setTab] = useState('active');
@@ -194,6 +196,37 @@ export default function CorrectionsWorkspace({
         data.corrections.find((c) => c.id === expanded) && (
           <section className="office-panel">
             <h2>Spårbarhet · R-{expanded}</h2>
+            {can(user, 'corrections') &&
+              (data.corrections.find((c) => c.id === expanded)!.status ??
+                'draft') === 'draft' && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const input = e.currentTarget.elements.namedItem(
+                      'document',
+                    ) as HTMLInputElement;
+                    onSaveDocument(expanded, input.value.trim());
+                  }}
+                >
+                  <label>
+                    Rättelseunderlag
+                    <input
+                      key={`${expanded}-${data.corrections.find((c) => c.id === expanded)!.document}`}
+                      name="document"
+                      required
+                      maxLength={1000}
+                      defaultValue={
+                        data.corrections.find((c) => c.id === expanded)!
+                          .document ?? ''
+                      }
+                      placeholder="Exempel RU-003 eller hänvisning till underlag"
+                    />
+                  </label>
+                  <button className="office-btn outline" disabled={busy}>
+                    Spara rättelseunderlag
+                  </button>
+                </form>
+              )}
             <ol className="office-audit">
               {(
                 data.corrections.find((c) => c.id === expanded)!.audit ?? []

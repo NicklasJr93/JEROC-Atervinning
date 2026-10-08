@@ -454,10 +454,11 @@ Status: Genomförd i kontorsdemo 0.3.0 enligt godkända tidigare saldo- och rät
 - Nästa betalning kvittar minussaldo och visar rättelse och originalkort; endast faktisk
   nettoutbetalning dras av i saldot. Flera obetalda kort ger inte dubbla kvittningar.
 - Återförsök av godkännande och betalning skapar inte dubbla poster.
+- Saknat rättelseunderlag kan kompletteras och sparas med historik medan kortet är utkast.
 - Låsta kort har utskrivbar A4-avräkningsnota och betalda kort har utbetalningskvitto.
 - Befintlig webbläsardata migreras utan att gamla kort och fritextuppgifter raderas.
 - Detta är fortfarande demodata: ingen bank/Swish/Visma, databas eller mobil/kontorssynkning.
-- Verifierat: 53 webb-/modelltester, 38 servertester, produktionsbygge, Expo-typkontroll
+- Verifierat: 54 webb-/modelltester, 38 servertester, produktionsbygge, Expo-typkontroll
   och utskrivbar avräkningsnota i A4. Rättelse-ID är unikt även efter återställning.
 
 Nästa feedback

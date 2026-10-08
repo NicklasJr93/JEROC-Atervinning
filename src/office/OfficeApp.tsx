@@ -695,6 +695,46 @@ export function OfficeApp() {
       return false;
     }
   }
+  function saveCorrectionDocument(id: number, document: string) {
+    if (
+      !user ||
+      !actualUser ||
+      !can(user, 'corrections') ||
+      blocked ||
+      !document.trim() ||
+      document.length > 1000
+    )
+      return false;
+    const live = dataRef.current;
+    const old = live.corrections.find((c) => c.id === id);
+    if (!old || (old.status ?? 'draft') !== 'draft') return false;
+    const audit = {
+      at: new Date().toISOString(),
+      actor: auditActor,
+      text: `Rättelseunderlag kompletterat: ${document.trim()}.`,
+      actualUserId: actualUser.id,
+      effectiveUserId: user.id,
+    };
+    if (
+      !persist({
+        ...live,
+        corrections: live.corrections.map((c) =>
+          c.id === id
+            ? {
+                ...c,
+                document: document.trim(),
+                audit: [...(c.audit ?? []), audit],
+              }
+            : c,
+        ),
+      })
+    )
+      return false;
+    setMessage(
+      'Rättelseunderlaget är sparat. Utkastet kan skickas för attest.',
+    );
+    return true;
+  }
   async function sendCorrection(id: number) {
     if (!actorContext || blocked) return false;
     try {
@@ -1972,6 +2012,7 @@ export function OfficeApp() {
               user={user}
               onOpenCard={open}
               onSubmit={sendCorrection}
+              onSaveDocument={saveCorrectionDocument}
               onApprove={approveCorrectionCard}
               busy={priceBusy}
             />
