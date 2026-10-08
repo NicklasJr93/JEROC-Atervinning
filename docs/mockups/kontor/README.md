@@ -261,3 +261,36 @@ för sig när mer yta behövs.
 
 Detta är en mockup för granskning, inte en appuppdatering eller en ny
 godkänd byggpunkt i ÄL.
+
+## Integrationer – designförslag 2026-10-08
+
+[Öppna översikten](11_Integrationer_Oversikt.png) ·
+[Öppna Visma-panelen](12_Integrationer_Visma_Anslutning.png)
+
+Integrationer ligger i kontorets vänstermeny och hanteras av systemadmin.
+Översikten börjar med bokföring: Spiris / Visma eEkonomi kan anslutas i
+det föreslagna flödet, medan Fortnox visas som ett kommande integrationspaket.
+Status, inställningar och överföringshistorik hör till respektive koppling.
+Tomläget visar att ingen tjänst är ansluten och inga underlag är överförda.
+
+Anslut Visma öppnar ett flöde med tre steg: Företag, Överföring och Kontroll.
+Företag väljs efter inloggning och godkännande hos Spiris. Den andra bilden
+visar steg Överföring med ett fiktivt testföretag valt. Där väljs
+inköpsunderlag, genomförda betalningar och godkända rättelser. PDF-underlagen
+följer med. Förvalt överföringsläge är Skicka som utkast för ekonomins
+granskning. Konton, moms och övriga inställningar kontrolleras innan
+kopplingen aktiveras; Bokför direkt är därför ännu inte tillgängligt.
+
+Inköp och betalning hålls isär. En rättelse länkas till originalet och
+Spara på saldo skapar ingen betalningsöverföring. Vid genomförande behöver
+överföringsvalen även kontrollera att relaterade original finns i bokföringen
+och att samma händelse inte överförs flera gånger. Betalningens registrering
+och bankens faktiska transaktion är separata steg.
+
+![Integrationer – översikt](11_Integrationer_Oversikt.png)
+
+![Integrationer – Visma-panel](12_Integrationer_Visma_Anslutning.png)
+
+Bilderna är mockuper för granskning. Ingen appkod, OAuth-koppling eller
+bokföringsöverföring har byggts eller aktiverats, och förslaget har ännu
+inte lagts till som godkänd byggpunkt i ÄL.
