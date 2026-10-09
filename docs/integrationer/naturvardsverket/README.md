@@ -8,6 +8,7 @@ Ingen applikationsfunktion eller myndighetsanslutning aktiveras av denna leveran
 
 | Dokument | Innehåll |
 | --- | --- |
+| [Byggplan i fyra etapper](byggplan.md) | Föreslagen leveransordning, ny extern åkeri-/chaufförsvy och separat startgodkännande för varje etapp. |
 | [API-kontrakt](api-kontrakt.md) | Exakta rapporttyper, fält, platser, svar, rättelser och begränsningar i API:t. |
 | [Certifikatgranskning](certifikatgranskning.md) | Vad ZIP-paketet innehåller, vilken certifikattyp vi behöver och vad som ännu inte är verifierat. |
 | [Mockuper mot API](mockupmatchning.md) | Genomgång av vy 01–11, befintlig kod och nödvändiga kompletteringar. |
