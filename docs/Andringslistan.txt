@@ -4,8 +4,8 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.6.0.
-Punkterna 001–033 är genomförda; 031 avser förberedelse utan utskick.
+Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.7.0.
+Punkterna 001–035 är genomförda; 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
 Arbetssätt
@@ -688,6 +688,19 @@ därefter alla 16 kontroller för kortvy, arbetsköer, uppdatering och kontorsfl
 när ett ofullständigt låst testkort rättats och testexemplen normaliserats.
 Produktionsbygge och Expo-typkontroll passerade. Mottagnings- och miljövyer
 har granskats visuellt. Inga anrop till Naturvårdsverket har gjorts.
+
+036 – MILJÖDELEN FÖLJER KONTORETS INLOGGNING
+Status: Godkänd för ÄL; planerad, ännu inte byggd.
+- Ta bort den separata rutan Anslut till miljödemot, lösenordsfältet och
+  Anslut-knappen från artikelkort, invägningskort och miljörapportering.
+- Användaren ska få miljöåtkomst genom kontorets vanliga inloggning och sina
+  behörigheter. I demon hanteras miljösessionen automatiskt för valt konto.
+- Behåll serverkontroller av miljöbehörighet och anläggning samt spårbarhet
+  med faktisk och utförande användare. Jobba som ska följa vald användare.
+- Byte av konto, utloggning och ändrade rättigheter ska hanteras konsekvent.
+  Automatisk demoanslutning ska fortsatt vara tydligt testläge; riktig
+  personalautentisering ska senare vara gemensam för hela kontorsappen.
+- Ingen anslutning till Naturvårdsverket aktiveras av denna ändring.
 
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.
