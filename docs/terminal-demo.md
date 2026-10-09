@@ -1,8 +1,13 @@
-# JEROC kundterminaldemo 0.6.1
+# JEROC kundterminaldemo 0.7.0
+
+**Nytt resetbeslut i 0.7.0:** gamla testinvägningar och deras godkännandesessioner
+rensas en gång. Terminalkonton, sessioner och förval bevaras; nya kort börjar
+före kundgodkännande och attest. Se [etapp 1](integrationer/naturvardsverket/etapp-1.md).
+Efter denna engångsåterställning bevaras nya kort och godkännanden vid omstart.
 
 Terminalerna använder samma webbdomän och Node-tjänst som kontorsappen. Öppna `/kontor` på kassadatorn och `/terminal` på mobilen, iPaden eller touchskärmen. Ingen native-app eller separat terminalinstallation behövs. En framtida `.se`-domän kan kopplas till samma tjänst; sökvägen förblir `/terminal`.
 
-Det här är en demo med fungerande terminalkonton och gemensamma kundgodkännanden. Kontorets valbara användare och **Jobba som** är fortfarande demoinloggning, inte riktig personalautentisering. Använd testkunder och testuppgifter. BankID, SMS, e-post och Visma är inte anslutna. Utbetalning registreras fortfarande manuellt i kontorsdemon och skickar inga pengar.
+Det här är en demo med fungerande terminalkonton och gemensamma kundgodkännanden. Kontorets valbara användare och **Jobba som** är fortfarande demoinloggning, inte produktionsautentisering av personal. Miljöfunktionerna i 0.7.0 har en separat servervaliderad testlösenordssession enligt [etapp 1](integrationer/naturvardsverket/etapp-1.md). Den sessionen ersätter inte kontorets eller terminalens inloggning. Använd testkunder och testuppgifter. BankID, SMS, e-post och Visma är inte anslutna. Utbetalning registreras fortfarande manuellt i kontorsdemon och skickar inga pengar.
 
 ## Render: anslut gemensam lagring
 
@@ -69,7 +74,7 @@ PostgreSQL/SQLite lagrar terminalkonton med hashade lösenord, hashade sessionst
 
 Terminalen får endast den aktuella kundavräkningens begränsade uppgifter, inte kontorets arbetskö, personnummer eller fullständiga bankuppgifter. Gemensamma databastransaktioner skyddar terminalreservationen och hindrar dubbla aktiva godkännanden. Bekräftat kundgodkännande och den separata interna attesthändelsen sparas server-side för terminalärenden.
 
-Befintliga viktkort och testkunder i `jeroc.office.demo.v1` raderas inte. Ett lokalt kort kopieras till terminaltjänstens gemensamma lager först när det visas för kunden. Kontoret tar sedan emot det gemensamma kortets status, även från en annan dator. Övriga lokala utkast, betalningsjournal, rättelser och transportdemo blir inte automatiskt ett gemensamt produktionsregister genom den här ändringen. Äldre testkort som aldrig skickats till terminalen kan fortsatt provas genom det befintliga attestflödet; terminalgranskade kort måste ha giltigt kundgodkännande före attest.
+I 0.7.0 rensas gamla testinvägningar och deras betalningar, rättelser och kundgodkännanden en gång; testkunder, användare och terminalkonton bevaras. Nya kort **2050–2053** börjar före kundgodkännande och attest. Ett lokalt kort kopieras till terminaltjänstens gemensamma lager när det visas för kunden. Kontoret tar sedan emot det gemensamma kortets status, även från en annan dator. Övriga lokala utkast, betalningsjournal, rättelser och transportdemo blir inte automatiskt ett gemensamt produktionsregister genom den här ändringen. Terminalgranskade kort måste ha giltigt kundgodkännande före attest.
 
 Prisregler och andra befintliga pris-/transport-API-delar är fortfarande minnesbaserad demo. De nya frysta kundavräkningarna i databasen överlever en serveromstart även om dessa andra exempeldata återställs. Kontorets vanliga dokumentutskrift är fortfarande klientbaserad demo, inte ett arkiverat, servergenererat PDF-original eller en bokförd självfaktura.
 

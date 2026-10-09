@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
+  Battery,
   Check,
   ChevronRight,
   Download,
   History,
+  Image as ImageIcon,
   Info,
   Layers3,
   Pencil,
@@ -17,6 +19,7 @@ import {
 } from 'lucide-react';
 import { categories } from '../data';
 import type { OfficeUser, Permission } from './model';
+import EnvironmentalArticlePanel from './EnvironmentalArticlePanel';
 import {
   pricingRequest,
   type CustomerPrice,
@@ -146,7 +149,11 @@ export default function PricingWorkspace({
     {
       id: 'articles',
       name: 'Artiklar & priser',
-      allowed: right(user, 'prices') || right(user, 'articlesEdit'),
+      allowed:
+        right(user, 'prices') ||
+        right(user, 'articlesEdit') ||
+        right(user, 'environmentRead') ||
+        right(user, 'environmentClassify'),
     },
     { id: 'lme', name: 'LME Cash', allowed: right(user, 'lmeRead') },
     {
@@ -258,6 +265,7 @@ export default function PricingWorkspace({
           state={state}
           user={user}
           actualUser={actualUser}
+          onNotice={onNotice}
           busy={busy}
           onCancel={() => setSelected(undefined)}
           onSave={async (body) => {
@@ -387,7 +395,9 @@ export default function PricingWorkspace({
                       ))}
                       <th>Volymgränser</th>
                       <th>Status</th>
-                      {right(user, 'articlesEdit') && <th />}
+                      {(right(user, 'articlesEdit') ||
+                        right(user, 'environmentRead') ||
+                        right(user, 'environmentClassify')) && <th />}
                     </tr>
                   </thead>
                   <tbody>
@@ -434,7 +444,9 @@ export default function PricingWorkspace({
                             {article.active ? 'Aktiv' : 'Inaktiv'}
                           </span>
                         </td>
-                        {right(user, 'articlesEdit') && (
+                        {(right(user, 'articlesEdit') ||
+                          right(user, 'environmentRead') ||
+                          right(user, 'environmentClassify')) && (
                           <td>
                             <button
                               className="office-pricing-edit"
@@ -523,6 +535,19 @@ function ArticlePhoto({
   article: Pick<PriceArticle, 'name' | 'photos'>;
   large?: boolean;
 }) {
+  if (!article.photos.length) {
+    return (
+      <span
+        className={`office-pricing-photo office-pricing-photo-empty ${large ? 'large' : ''}`}
+        role="img"
+        aria-label={`${article.name} – referensbilder saknas`}
+      >
+        {/batter/i.test(article.name)
+          ? <Battery size={large ? 34 : 19} aria-hidden="true" />
+          : <ImageIcon size={large ? 34 : 19} aria-hidden="true" />}
+      </span>
+    );
+  }
   const cell = article.photos[0] ?? 0,
     extra = cell >= 28,
     position = extra ? cell - 28 : cell;
@@ -923,6 +948,7 @@ function ArticleEditor({
   state,
   user,
   actualUser,
+  onNotice,
   busy,
   onCancel,
   onSave,
@@ -931,12 +957,23 @@ function ArticleEditor({
   state: PricingState;
   user: OfficeUser;
   actualUser: OfficeUser;
+  onNotice: (message: string) => void;
   busy: boolean;
   onCancel: () => void;
   onSave: (body: unknown) => Promise<void>;
 }) {
+  const editable = right(user, 'articlesEdit');
+  const canReadPrices = editable || tiers.some((tier) => right(user, `price${tier}`));
   const [draft, setDraft] = useState<PriceArticle>(() => ({
     ...structuredClone(article),
+    // The pricing API deliberately removes formulas for readers. These empty
+    // draft values are never displayed or submitted without editing rights.
+    base: article.base || { type: 'manual', price: 0 },
+    tiers: article.tiers || {
+      A: { discountPercent: 0, adjustmentKr: 0 },
+      B: { discountPercent: 0, adjustmentKr: 0 },
+      C: { discountPercent: 0, adjustmentKr: 0 },
+    },
     effectiveFrom: state.asOfDate,
   }));
   const [includeText, setIncludeText] = useState(article.includes.join('\n'));
@@ -957,7 +994,9 @@ function ArticleEditor({
   const preview = Object.fromEntries(
     tiers.map((tier) => [
       tier,
-      base === null
+      !editable
+        ? article.prices[tier]
+        : base === null
         ? null
         : Math.max(
             0,
@@ -981,13 +1020,10 @@ function ArticleEditor({
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!editable) return;
     setValidation('');
     if (draft.thresholds.A <= draft.thresholds.B) {
       setValidation('A-gränsen måste vara högre än B-gränsen.');
-      return;
-    }
-    if (!draft.photos.length) {
-      setValidation('Välj minst en referensbild för artikeln.');
       return;
     }
     await onSave({
@@ -1018,9 +1054,11 @@ function ArticleEditor({
           {validation}
         </div>
       )}
-      <div className="office-pricing-editor-grid">
+      <div className={`office-pricing-editor-grid ${editable ? '' : 'office-pricing-editor-readonly'} ${canReadPrices ? '' : 'office-pricing-editor-classification-only'}`}>
+        <div className="office-pricing-article-stack">
         <section className="office-panel">
           <h2>Grunduppgifter & referensbilder</h2>
+          <fieldset className="office-pricing-fields" disabled={!editable}>
           <div className="office-pricing-article-identity">
             <ArticlePhoto article={draft} large />
             <div>
@@ -1108,7 +1146,11 @@ function ArticleEditor({
               ))}
             </div>
           )}
-          <small>Upp till sex bilder ur demobiblioteket.</small>
+          <small>
+            {draft.photos.length
+              ? 'Upp till sex bilder ur demobiblioteket.'
+              : 'Exempelartikel – referensbilder saknas.'}
+          </small>
           <label>
             Exempel på vad som ingår
             <textarea
@@ -1137,7 +1179,17 @@ function ArticleEditor({
             />{' '}
             Artikeln är aktiv för invägning
           </label>
+          </fieldset>
         </section>
+        <EnvironmentalArticlePanel
+          articleId={article.id}
+          articleName={article.name}
+          user={user}
+          actualUser={actualUser}
+          onNotice={onNotice}
+        />
+        </div>
+        {editable && (
         <section className="office-panel">
           <h2>Prisbas & A/B/C-formler</h2>
           <div className="office-pricing-segment">
@@ -1313,10 +1365,12 @@ function ArticleEditor({
             B-gränsen.
           </div>
         </section>
+        )}
+        {canReadPrices && (
         <aside className="office-pricing-preview">
           <section className="office-panel">
             <h2>Prisförhandsvisning</h2>
-            <p>Beräknat mot prisbasen för {draft.effectiveFrom}.</p>
+            <p>{editable ? 'Beräknat mot prisbasen' : 'Aktuella artikelpriser'} för {draft.effectiveFrom}.</p>
             {tiers
               .filter((tier) => right(user, `price${tier}`))
               .map((tier) => (
@@ -1330,7 +1384,7 @@ function ArticleEditor({
                   </strong>
                 </div>
               ))}
-            {base === null && (
+            {editable && base === null && (
               <div className="office-pricing-note">
                 LME-pris saknas för valt datum. Registrera en Cash-referens
                 innan artikeln prisberäknas.
@@ -1340,7 +1394,7 @@ function ArticleEditor({
               <Check size={14} /> Befintliga prisbilder på viktkort bevaras.
             </div>
           </section>
-          {article.id && (
+          {article.id && right(user, 'prices') && (
             <QuotePreview
               article={article}
               state={state}
@@ -1366,8 +1420,9 @@ function ArticleEditor({
             ))}
           </section>
         </aside>
+        )}
       </div>
-      {history.length > 0 && (
+      {editable && history.length > 0 && (
         <details className="office-panel office-pricing-history">
           <summary>
             <History size={16} /> Artikelhistorik ({history.length} prisbilder)
@@ -1412,22 +1467,22 @@ function ArticleEditor({
       )}
       <div className="office-pricing-editor-actions">
         <span>
-          <ShieldCheck size={15} /> Ändringen får en ny spårbar prisversion.
+          <ShieldCheck size={15} /> {editable ? 'Ändringen får en ny spårbar prisversion.' : 'Artikeluppgifterna visas i läsläge.'}
         </span>
         <button
           type="button"
           className="office-pricing-plain"
           onClick={onCancel}
         >
-          Avbryt
+          {editable ? 'Avbryt' : 'Tillbaka'}
         </button>
-        <button
+        {editable && <button
           type="submit"
           className="office-pricing-primary"
           disabled={busy}
         >
           <Check size={15} /> {busy ? 'Sparar…' : 'Spara artikel'}
-        </button>
+        </button>}
       </div>
     </form>
   );

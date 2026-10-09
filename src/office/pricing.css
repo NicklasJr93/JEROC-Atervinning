@@ -366,6 +366,14 @@
   height: 112px;
   border-radius: 8px;
 }
+.office-pricing-photo-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #738aab;
+  background: #f0f5fc;
+  border-color: #e0eaf8;
+}
 .office-pricing-tier {
   display: inline-block;
   white-space: nowrap;
@@ -558,6 +566,33 @@
 }
 .office-pricing-editor h2 {
   font-size: 14px;
+}
+.office-pricing-editor-readonly {
+  grid-template-columns: minmax(0, 2fr) minmax(230px, 1fr);
+}
+.office-pricing-editor-classification-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+.office-pricing-fields {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.office-pricing-fields:disabled input,
+.office-pricing-fields:disabled textarea,
+.office-pricing-fields:disabled select {
+  color: #516582;
+  background: #f7f9fd;
+  opacity: 1;
+}
+.office-pricing-article-stack {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+}
+.office-pricing-article-stack > .office-panel {
+  margin-bottom: 0;
 }
 .office-pricing-article-identity {
   display: grid;

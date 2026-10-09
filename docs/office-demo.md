@@ -1,4 +1,28 @@
-# JEROC kontorsdemo 0.6.1
+# JEROC kontorsdemo 0.7.0
+
+## Nytt i 0.7.0 – miljö och mottagning
+
+**Miljö & avfallsklassificering** finns på artikelkortet. **Miljö & mottagning**
+finns på invägningskortet och **Miljörapportering** i vänstermenyn. Uppgifterna
+lagras gemensamt i PostgreSQL på Render, eller lokal SQLite vid utveckling,
+med serverkontrollerade miljösessioner och
+anläggningsbehörigheter. Naturvårdsverket är ännu inte anslutet.
+
+Gamla demoinvägningar, deras betalningar/rättelser och kundgodkännanden ersätts
+en gång med nya kort **2050–2053**, utan förifylld attest eller betalning.
+Kunder, användare, terminalkonton och förval bevaras. Detta nya uttryckliga
+resetbeslut ersätter äldre bevarandebeskrivningar för just testkorten.
+Se [etapp 1 – provflöde, lagring och återställning](integrationer/naturvardsverket/etapp-1.md).
+
+**Releasekontroll 0.7.0:** 85 servertester passerade, inklusive faktisk
+PostgreSQL 18 mot separat lokal testdatabas, samt produktionsbygge och
+Expo-typkontroll. 135 olika Playwright-kontroller är verifierade: 134 i
+fullsviten, därefter samtliga 16 kontroller för kortvy, arbetsköer, uppdatering
+och kontorsflöde efter rättning/normalisering av ett ofullständigt låst
+testkort. Miljöpanelerna har även granskats visuellt. Naturvårdsverket har
+inte anropats; myndighetsleverans byggs först i en separat godkänd etapp.
+
+## Befintliga kontorsfunktioner
 
 Öppna https://jeroc-atervinning.onrender.com/kontor. Samma repository och Render-tjänst används. Befintligt byggkommando, `npm start` och Expo-token behålls. Mobilappen är fortsatt version 0.2.3 på `/`; Expo Go fungerar som tidigare.
 
@@ -14,7 +38,7 @@ Invägningskortet följer [den godkända mockupen](mockups/kontor/13_Invagning_K
 
 Kundgodkännande kan startas först när kunden, priserna, betalningsuppgifterna och en **sparad ursprungsadress** finns. Referens är valfri; osparade ändringar i referens/ursprung måste sparas före kundvisningen. Den separata ID-knappen under betalning är borttagen. Fysisk legitimation bekräftas genom kundgodkännandet på den aktuella versionen.
 
-Behörig personal kan **Attestera direkt på kortet** efter kundgodkännande. Attestgräns och egenattest kontrolleras fortsatt; terminalärenden attesteras på servern. Kundvisning och attest behåller den öppnade sidan och huvudmenyn, medan arbetsköerna uppdateras. Äldre redan färdigställda demokort kan fortfarande attesteras med det befintliga flödet. Nya och kompletterade kort börjar med kundgodkännande.
+Behörig personal kan **Attestera direkt på kortet** efter kundgodkännande. Attestgräns och egenattest kontrolleras fortsatt; terminalärenden attesteras på servern. Kundvisning och attest behåller den öppnade sidan och huvudmenyn, medan arbetsköerna uppdateras. Alla nya demokort börjar före kundgodkännande och intern attest.
 
 Profilen och Systemadmins **Jobba som** finns längst ner i vänstermenyn. Sidhuvud, terminal-/anläggningsväljare, sökfält och arbetsköer är kompaktare. Utbetalning förblir manuell; SMS, e-post, BankID och Visma är inte anslutna. Befintlig Render-databas och miljövariabler återanvänds; inga nya inställningar behövs för denna uppdatering.
 
@@ -22,12 +46,12 @@ Profilen och Systemadmins **Jobba som** finns längst ner i vänstermenyn. Sidhu
 
 Systemadmin kan skapa terminalkonton under **Terminaler**. Kunden öppnar `/terminal` på mobil, iPad eller touchskärm och loggar in med ett eget terminalkonto. Kontoristen visar en fryst avräkningsversion på en ledig terminal på kortets anläggning. Kundens begäran om fysisk ID-kontroll måste bekräftas av behörig personal innan kortet går till intern attest. **Kundgodkännanden**, mellan Invägningar och Attest, samlar Aktiva/Historik och uppdateras från gemensam serverlagring. Anläggning och personligt terminalförval kan väljas i överdelen.
 
-På Render kräver den nya terminaldelen PostgreSQL och servervariabeln `DATABASE_URL`. Lokalt används `.data/terminal-demo.sqlite` om PostgreSQL inte konfigurerats. Ingen tillfällig disk- eller minnesreserv används för terminalärenden på Render. Befintliga lokala viktkort bevaras och kopieras till terminaltjänsten först vid kundvisning. Kontorets användarval är fortfarande uttrycklig demoautentisering. BankID/SMS/e-post/Visma är inte anslutna; betalning fortsätter som manuell demoregistrering. Se [terminaldokumentationen](terminal-demo.md) för installation, lagringsgränser och testflöde.
+På Render kräver terminaldelen PostgreSQL och servervariabeln `DATABASE_URL`. Lokalt används `.data/terminal-demo.sqlite` om PostgreSQL inte konfigurerats. Ingen tillfällig disk- eller minnesreserv används för terminalärenden på Render. Efter engångsåterställningen av gamla testkort bevaras nya lokala viktkort och kopieras till terminaltjänsten vid kundvisning. Kontorets användarval är fortfarande uttrycklig demoautentisering; miljöfunktionerna har en separat lösenordssession. BankID/SMS/e-post/Visma är inte anslutna; betalning fortsätter som manuell demoregistrering. Se [terminaldokumentationen](terminal-demo.md) för installation, lagringsgränser och testflöde.
 
 ## Prova uppdateringen
 
 - **Kajsa Nilsson:** granska viktkort, koppla kund, referens/ursprung, ID och betalningsuppgift. Läsa LME Cash, men inte ändra referenspriser eller artikelregler. Kundval räknar priset via servern. Knappen Beräkna priser uppdaterar ett redigerbart kort enligt reglerna på inlämningsdagen.
-- **Anna Nilsson:** attest högst 25 000 kr, egen attest spärrad, demoutbetalningar. #2039 kan attesteras; #2040 överstiger gränsen. Ingen LME-behörighet.
+- **Anna Nilsson:** attest högst 25 000 kr, egen attest spärrad, demoutbetalningar och läsning av miljöunderlag. Kort måste först ha giltigt kundgodkännande. De nya korten 2050–2053 har ingen förifylld attest. Ingen LME-behörighet.
 - **Lars Andersson (VD):** verksamhetsmoment, artikeladministration, manuella LME-priser, kundprisregler och användare. Attest högst 100 000 kr. Kan inte ändra systemadmin eller tilldela en högre attestgräns än sin egen.
 - **Systemadmin:** öppna profilmenyn längst ner till vänster och välj **Jobba som**. Den valda användarens menyer, moment, maxbelopp och egenattestregel gäller. Historiken visar både inloggad och utförande användare. Avsluta Jobba som återställer systemadminläget.
 
@@ -63,7 +87,7 @@ Kundpriser är en egen flik: fast kr/kg, tillägg/avdrag i kronor mot en vald AB
 
 Volym räknas per kund och artikel över rullande tolv månader. Alla rader med samma artikel på aktuell leverans räknas ihop. Den aktuella leveransen ingår i prisnivån: en ny kund som lämnar 101 kg får A när artikelns A-gräns är 100 kg. Annan artikel påverkas inte. Inlämningsdagen i svensk tid styr vilken historisk prisregel som används.
 
-Serverns demovolym kommer från registrerade prisunderlag, inklusive exempeldata. Lokala gårdsutkast och andra telefoners vägningar kommer inte in förrän gemensam lagring och synkning byggs.
+Serverns demovolym kommer från registrerade prisunderlag. De tidigare färdigställda exemplens volym ingår inte längre; nya kort börjar utan ekonomisk historik. Lokala gårdsutkast och andra telefoners vägningar kommer inte in förrän gemensam lagring och synkning byggs.
 
 ## Prisunderlag och spårbarhet
 
@@ -85,9 +109,9 @@ Låsta kort har **Avräkningsnota** och betalda kort har **Utbetalningskvitto**,
 
 ## Lagring och avgränsning
 
-Prisregler, LME, kundundantag, serverbehörigheter, prisarkiv och transporternas demoutkorg ligger i **serverns minne**. De delas mellan kontorswebbens besökare och återställs till exempeldata när Render startar om eller publicerar en ny version. Den nya terminaldelen lagrar däremot terminaler, sessioner, frysta avräkningar och kundgodkännanden i gemensam PostgreSQL/SQLite, enligt [terminaldokumentationen](terminal-demo.md). Övriga viktkort, kunder, rättelsekort, betalningsjournal och lokal användarvy sparas separat i webbläsarens `jeroc.office.demo.v1`; kontorister tar också emot gemensamma terminalkort från servern. Full migration av hela ekonomiregistret är inte genomförd i denna demo.
+Prisregler, LME, kundundantag, serverbehörigheter, prisarkiv och transporternas demoutkorg ligger i **serverns minne**. De delas mellan kontorswebbens besökare och återställs till exempeldata när Render startar om eller publicerar en ny version. Terminaldelen lagrar däremot terminaler, sessioner, frysta avräkningar och kundgodkännanden i gemensam PostgreSQL/SQLite, enligt [terminaldokumentationen](terminal-demo.md). Miljöklassificeringar, miljösessioner, mottagningar, lager och rapportunderlag lagras också beständigt, enligt [etapp 1](integrationer/naturvardsverket/etapp-1.md). Övriga viktkort, kunder, rättelsekort, betalningsjournal och lokal användarvy sparas separat i webbläsarens `jeroc.office.demo.v1`; kontorister tar också emot gemensamma terminalkort från servern. Full migration av hela ekonomiregistret är inte genomförd i denna demo.
 
-Demokontona är valbara exempel; API:t kontrollerar rättigheter för dessa identiteter, men det är inte en riktig inloggning. Sparade lokala kunder kan behöva registreras i prismotorn av kontoret igen efter en serveromstart; gamla frysta prisunderlag återställs bara när de stämmer exakt med låsta originalkort. Använd enbart testuppgifter. Lokal användarkonfiguration kan behöva sparas på servern igen efter en omstart. Återställ kontorsdemo återställer bara webbläsarens kontorsdata, inte serverns gemensamma priser eller mobilens sparade kort.
+Kontorets vanliga demokonton är valbara exempel; de befintliga demo-API:erna kontrollerar rättigheter för dessa identiteter, men användarvalet är inte en produktionsinloggning. Miljöfunktionerna kräver dessutom sin separata servervaliderade testlösenordssession. Sparade lokala kunder kan behöva registreras i prismotorn av kontoret igen efter en serveromstart; gamla frysta prisunderlag återställs bara när de stämmer exakt med låsta originalkort. Använd enbart testuppgifter. Lokal användarkonfiguration kan behöva sparas på servern igen efter en omstart. Återställ kontorsdemo återställer bara webbläsarens kontorsdata, inte serverns gemensamma priser, miljömottagningar eller mobilens sparade kort.
 
 Mobilens prislista är ännu inte kopplad till servern. Gårdsappens vägningar och konton synkas inte till kontoret. Ingen bank, Swish eller Visma är ansluten. Registrera demoutbetalning skickar ingen transaktion. Utskrift är ett märkt demounderlag.
 

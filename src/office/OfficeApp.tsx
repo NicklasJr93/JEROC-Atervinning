@@ -24,6 +24,8 @@ import {
   ClipboardCheck,
   ChevronDown,
   Calculator,
+  Leaf,
+  Battery,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
@@ -35,6 +37,9 @@ import CustomerApprovalsWorkspace, { ApprovalVersionPreview } from './CustomerAp
 import ApprovalControls from './ApprovalControls';
 import OfficeCardAttest from './OfficeCardAttest';
 import QuickCustomerModal from './QuickCustomerModal';
+import { EnvironmentSessionProvider } from './EnvironmentSession';
+import EnvironmentReceiptPanel from './EnvironmentReceiptPanel';
+import EnvironmentWorkspace from './EnvironmentWorkspace';
 import { useTerminalDemo } from './useTerminalDemo';
 import { terminalDemoApi } from './terminal-demo-client';
 import type { TerminalApproval } from './terminal-demo-types';
@@ -168,7 +173,7 @@ export function OfficeApp() {
       return '';
     }
   });
-  const [previewId, setPreviewId] = useState<number | undefined>(1412);
+  const [previewId, setPreviewId] = useState<number | undefined>(2050);
   const [pricing, setPricing] = useState<PricingState>();
   const [priceBusy, setPriceBusy] = useState(false);
   const [pricingError, setPricingError] = useState('');
@@ -724,6 +729,7 @@ export function OfficeApp() {
       icon: TrendingUp,
       right: 'lmeRead',
     },
+    { id: 'environment', name: 'Miljörapportering', icon: Leaf, right: 'environmentRead' },
     {
       id: 'corrections',
       name: 'Rättelser',
@@ -1081,6 +1087,8 @@ export function OfficeApp() {
     user &&
     (can(user, 'prices') ||
       can(user, 'articlesEdit') ||
+      can(user, 'environmentRead') ||
+      can(user, 'environmentClassify') ||
       can(user, 'customerPrices') ||
       can(user, 'customerPriceEdit'));
   const terminalAdminDenied = section === 'terminals' && user?.level !== 'Systemadmin';
@@ -1160,6 +1168,7 @@ export function OfficeApp() {
     /></Suspense>;
   }
   return (
+    <EnvironmentSessionProvider user={user} actualUser={actualUser!} onNotice={setMessage}>
     <div className="office">
       <aside className="office-sidebar">
         <img
@@ -1261,7 +1270,7 @@ export function OfficeApp() {
 
         </header>
         <div className="office-demo-notice">
-          Demo · Kundterminaler och kundgodkännanden delas via servern ·
+          Demo · Kundgodkännanden och miljömottagningar delas via servern ·
           Utbetalningar hanteras manuellt · Gårdsappen är fortsatt separat
         </div>
         {acting && (
@@ -1624,6 +1633,19 @@ export function OfficeApp() {
                       </p>
                     )}
                   </section>
+                  {can(user, 'environmentRead') && selected.kind !== 'correction' && (
+                    <EnvironmentReceiptPanel key={selected.sourceId ?? selected.id} card={selected} customer={selectedCustomer}
+                      user={user} actualUser={actualUser!} onNotice={setMessage}
+                      onRegistered={(receipt) => {
+                        const live = dataRef.current;
+                        const card = live.cards.find(item => item.sourceId === receipt.sourceId);
+                        if (!card || card.audit.some(entry => entry.text.includes(receipt.id))) return;
+                        persist({ ...live, cards: live.cards.map(item => item.sourceId !== receipt.sourceId ? item : {
+                          ...item, audit: [...item.audit, { at: receipt.createdAt, actor: receipt.createdBy,
+                            text: `Faktisk mottagning registrerad i miljölagret. Original ${receipt.id}.` }],
+                        }) });
+                      }} />
+                  )}
                   {(can(user, 'customerApprovalRead') || can(user, 'prepare')) && <ApprovalControls
                     approval={selectedApproval}
                     state={terminalDemo.state}
@@ -2081,6 +2103,8 @@ export function OfficeApp() {
                 />
               )}
             </>
+          ) : section === 'environment' ? (
+            <EnvironmentWorkspace user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} onOpenCard={open} />
           ) : section === 'customer-approvals' ? (
             <CustomerApprovalsWorkspace state={terminalDemo.state} siteId={siteFilter} onOpenCard={open}
               loading={terminalDemo.loading} error={terminalDemo.error} configurationRequired={terminalDemo.configurationRequired}
@@ -2185,7 +2209,7 @@ export function OfficeApp() {
             />
           )}
           <footer className="office-footer">
-            JEROC Kontorsdemo {OFFICE_VERSION} · Lokal testdata ·{' '}
+            JEROC Kontorsdemo {OFFICE_VERSION} · Testdata ·{' '}
             <button
               className="office-link"
               onClick={() => {
@@ -2209,6 +2233,7 @@ export function OfficeApp() {
         </main>
       </div>
     </div>
+    </EnvironmentSessionProvider>
   );
 }
 function Status({ status }: { status: OfficeCard['status'] }) {
@@ -2222,6 +2247,7 @@ function Status({ status }: { status: OfficeCard['status'] }) {
 function MaterialImage({ id }: { id: string }) {
   const a = articleById(id),
     cell = a.photos[0];
+  if (cell === undefined) return <span className="office-material-image" role="img" aria-label={`${a.name} · referensbild saknas`}><Battery size={24} /></span>;
   return (
     <span
       className="office-material-image"
@@ -2601,6 +2627,7 @@ function UserAdmin({
               name: '',
               level: 'Medarbetare',
               permissions: ['view'],
+              siteIds: actor.siteIds ?? ['norrtalje', 'rimbo'],
               maxAttest: 0,
               ownAttest: false,
             });
@@ -2702,6 +2729,39 @@ function UserAdmin({
                   {label}
                 </label>
               ))}
+            </div>
+            <div role="group" aria-label="Anläggningar">
+              <h3>Anläggningar</h3>
+              <div className="office-permission-grid">
+                {[
+                  { id: 'norrtalje' as const, name: 'Norrtälje' },
+                  { id: 'rimbo' as const, name: 'Rimbo' },
+                ].map((site) => (
+                  <label key={site.id}>
+                    <input
+                      type="checkbox"
+                      disabled={!editable || (actor.level !== 'Systemadmin' &&
+                        !(actor.siteIds ?? ['norrtalje', 'rimbo']).includes(site.id) &&
+                        !(selected.siteIds ?? ['norrtalje', 'rimbo']).includes(site.id))}
+                      checked={(selected.siteIds ?? ['norrtalje', 'rimbo']).includes(site.id)}
+                      onChange={(event) => {
+                        const current: NonNullable<OfficeUser['siteIds']> =
+                          selected.siteIds ?? ['norrtalje', 'rimbo'];
+                        setSelected({
+                          ...selected,
+                          siteIds: event.target.checked
+                            ? [...new Set([...current, site.id])]
+                            : current.filter((id) => id !== site.id),
+                        });
+                      }}
+                    />
+                    {site.name}
+                  </label>
+                ))}
+              </div>
+              <p className="office-muted">
+                Styr åtkomst till kundterminaler och miljöuppgifter. Inga val ger ingen anläggningsåtkomst.
+              </p>
             </div>
             <label>
               Maxbelopp för attest (kr)

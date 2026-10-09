@@ -24,10 +24,10 @@ test('granskning och prishistorik följs av kundgodkännande, intern attest och 
 }) => {
   const fixture = migrateOffice(seedOffice());
   const cardId = 32_000_000 + randomInt(1_000_000);
-  fixture.cards.push({ ...fixture.cards.find(card => card.id === 1412)!, id: cardId });
+  fixture.cards.push({ ...fixture.cards.find(card => card.id === 2051)!, id: cardId, sourceId: randomUUID() });
   await page.addInitScript(data => {
     if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(data));
-  }, fixture);
+  }, migrateOffice(fixture));
   expect((await request.post('/api/terminal-demo/staff-session', { data: { actualUserId: 'admin', effectiveUserId: 'admin' } })).ok()).toBeTruthy();
   const username = `office-flow-${randomUUID().slice(0, 8)}`;
   const terminalResponse = await request.post('/api/terminal-demo/terminals', { data: { name: username, username, password: 'TerminalDemo123!', siteId: 'norrtalje' } });
@@ -110,11 +110,38 @@ test('granskning och prishistorik följs av kundgodkännande, intern attest och 
 });
 
 test('attestgräns stoppar ekonomi, VD får attestera och får inte ändra systemadmin', async ({
-  page,
+  page, request,
 }) => {
-  await login(page, 'Anna Nilsson');
+  const fixture = migrateOffice(seedOffice());
+  const cardId = 34_000_000 + randomInt(1_000_000);
+  fixture.cards.push({
+    ...fixture.cards.find(card => card.id === 2052)!, id: cardId, sourceId: randomUUID(),
+    rows: [{ articleId: 'copper-1', weight: 1000, tier: 'A', price: 82 }],
+    paymentDetails: { method: 'cash', recipient: 'Bygg & Riv AB' },
+  });
+  await page.addInitScript(data => {
+    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(data));
+  }, migrateOffice(fixture));
+  expect((await request.post('/api/terminal-demo/staff-session', { data: { actualUserId: 'admin', effectiveUserId: 'admin' } })).ok()).toBeTruthy();
+  const username = `attest-limit-${randomUUID().slice(0, 8)}`;
+  const response = await request.post('/api/terminal-demo/terminals', { data: { name: username, username, password: 'TerminalDemo123!', siteId: 'norrtalje' } });
+  expect(response.ok()).toBeTruthy();
+  const terminal = await response.json();
+  expect((await request.post('/api/terminal-demo/login', { data: { username, password: 'TerminalDemo123!' } })).ok()).toBeTruthy();
+  try {
+  await login(page, 'Kajsa Nilsson');
+  await page.goto(`/kontor#/weighings/${cardId}`);
+  await page.getByRole('button', { name: 'Visa på kundterminal', exact: true }).click();
+  await page.getByLabel('Terminal för kundgodkännande', { exact: true }).selectOption(terminal.id);
+  await page.getByRole('button', { name: 'Visa på terminal', exact: true }).click();
+  await expect(page.locator('.approval-controls')).toContainText('Inväntar kund');
+  const state = await (await request.get('/api/terminal-demo/state')).json();
+  const approval = state.approvals.find((item: { cardId: number }) => item.cardId === cardId);
+  expect((await request.post(`/api/terminal-demo/approvals/${approval.id}/respond`, { data: { action: 'id_requested', termsAccepted: true } })).ok()).toBeTruthy();
+  expect((await request.post(`/api/terminal-demo/approvals/${approval.id}/confirm-id`, { data: {} })).ok()).toBeTruthy();
+  await changeUser(page, 'Anna Nilsson');
   await page
-    .getByRole('button', { name: 'Öppna viktkort 2040', exact: true })
+    .getByRole('button', { name: `Öppna viktkort ${cardId}`, exact: true })
     .click();
   await expect(
     page.getByRole('button', { name: 'Attestera', exact: true }),
@@ -128,7 +155,7 @@ test('attestgräns stoppar ekonomi, VD får attestera och får inte ändra syste
   ).toBeVisible();
   await changeUser(page, 'Lars Andersson');
   await page
-    .getByRole('button', { name: 'Öppna viktkort 2040', exact: true })
+    .getByRole('button', { name: `Öppna viktkort ${cardId}`, exact: true })
     .click();
   await page.getByRole('button', { name: 'Attestera', exact: true }).click();
   await expect(page.locator('.office-title')).toContainText(
@@ -145,11 +172,26 @@ test('attestgräns stoppar ekonomi, VD får attestera och får inte ändra syste
   await expect(
     page.getByRole('button', { name: 'Spara behörigheter', exact: true }),
   ).toBeDisabled();
+  } finally {
+    await request.patch(`/api/terminal-demo/terminals/${terminal.id}`, { data: { active: false } });
+  }
 });
 
 test('behörigheter och egen attest styrs av VD och rättelseutkast bevarar låst original', async ({
   page,
 }) => {
+  const fixture = migrateOffice(seedOffice());
+  const ownId = 35_000_000 + randomInt(1_000_000);
+  const lockedId = ownId + 1;
+  const approvedAt = '2026-10-09T10:00:00Z';
+  const original = fixture.cards.find(card => card.id === 2052)!;
+  fixture.cards.push({ ...original, id: ownId, sourceId: randomUUID(), status: 'attest', preparedBy: 'kajsa',
+    customerApproval: { id: randomUUID(), version: 1, status: 'approved', updatedAt: approvedAt, approvedAt, approvedBy: 'Personal · UI-test' } });
+  fixture.cards.push({ ...original, id: lockedId, sourceId: randomUUID(), status: 'ready', preparedBy: 'kajsa', approvedBy: 'anna',
+    customerApproval: { id: randomUUID(), version: 1, status: 'attested', updatedAt: approvedAt, approvedAt, approvedBy: 'Personal · UI-test', attestedBy: 'Anna Nilsson', attestedAt: approvedAt } });
+  await page.addInitScript(data => {
+    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(data));
+  }, migrateOffice(fixture));
   await login(page, 'Lars Andersson');
   await page
     .locator('.office-sidebar')
@@ -165,7 +207,7 @@ test('behörigheter och egen attest styrs av VD och rättelseutkast bevarar lås
   await expect(page.getByText(/Behörigheterna har sparats/)).toBeVisible();
   await changeUser(page, 'Kajsa Nilsson');
   await page
-    .getByRole('button', { name: 'Öppna viktkort 2039', exact: true })
+    .getByRole('button', { name: `Öppna viktkort ${ownId}`, exact: true })
     .click();
   await expect(
     page.getByRole('button', { name: 'Attestera', exact: true }),
@@ -173,11 +215,12 @@ test('behörigheter och egen attest styrs av VD och rättelseutkast bevarar lås
   await expect(
     page.getByText('Du får inte attestera ett kort du själv förberett.'),
   ).toBeVisible();
-  await page.goto('/kontor#/weighings/2041');
-  const original = await page.evaluate(() =>
+  await page.goto(`/kontor#/weighings/${lockedId}`);
+  const frozenOriginal = await page.evaluate((id) =>
     JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find(
-      (c: { id: number }) => c.id === 2041,
+      (c: { id: number }) => c.id === id,
     ),
+    lockedId,
   );
   await page.getByLabel('Viktändring, kg', { exact: true }).fill('-100');
   await page
@@ -192,11 +235,11 @@ test('behörigheter och egen attest styrs av VD och rättelseutkast bevarar lås
   const saved = await page.evaluate(() =>
     JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!),
   );
-  expect(saved.cards.find((c: { id: number }) => c.id === 2041)).toEqual(
-    original,
+  expect(saved.cards.find((c: { id: number }) => c.id === lockedId)).toEqual(
+    frozenOriginal,
   );
   expect(saved.corrections[0]).toMatchObject({
-    cardId: 2041,
+    cardId: lockedId,
     customerId: 'customer-build',
     weightDelta: -100,
   });

@@ -26,7 +26,7 @@ test('full prisbehörighet kan färdigställa ett tidigare dolt pris utan prisä
   data.users = users;
   const cardId = 41_000_000 + randomInt(1_000_000);
   data.cards.push({
-    ...data.cards.find(card => card.id === 1418)!, id: cardId, customerId: 'customer-build', origin: 'Testgatan 12, Norrtälje',
+    ...data.cards.find(card => card.id === 2053)!, id: cardId, sourceId: randomUUID(), customerId: 'customer-build', origin: 'Testgatan 12, Norrtälje',
     payment: 'Kontant', paymentDetails: { method: 'cash', recipient: 'Bygg & Riv AB' },
     rows: [{ articleId: 'copper-1', weight: 72, tier: 'C', price: 1, pricePending: true }],
     financialPending: true, pricingRowsPending: true, audit: [],
@@ -109,7 +109,7 @@ test('servern bevarar dolt kundpris men begränsad kontorist kan inte visa ekono
     await page
       .getByRole('button', { name: /Kontorist utan kundpriser/ })
       .click();
-    await page.goto('/kontor#/weighings/1418');
+    await page.goto('/kontor#/weighings/2053');
     await page
       .getByLabel('Kund på vägningen', { exact: true })
       .selectOption('customer-build');
@@ -125,12 +125,12 @@ test('servern bevarar dolt kundpris men begränsad kontorist kan inte visa ekono
     await expect(page.locator('.approval-controls')).toContainText(/behörighet/);
     const locked = await page.request.post('/api/pricing/snapshots', {
       headers: { 'X-Demo-Actor': preparer.id, 'X-Demo-User': preparer.id },
-      data: { cardId: '1418', customerId: 'customer-build', deliveredAt: '2026-10-07T10:41:00Z', excludeCardId: '1418', rows: [{ articleId: 'copper-1', weight: 72 }] },
+      data: { cardId: '2053', customerId: 'customer-build', deliveredAt: '2026-10-09T08:41:00Z', excludeCardId: '2053', rows: [{ articleId: 'copper-1', weight: 72 }] },
     });
     expect(locked.ok()).toBeTruthy();
 
     const authoritative = await page.request.get(
-      '/api/pricing/snapshots?cardId=1418',
+      '/api/pricing/snapshots?cardId=2053',
       { headers },
     );
     expect(authoritative.ok()).toBeTruthy();
@@ -142,7 +142,7 @@ test('servern bevarar dolt kundpris men begränsad kontorist kan inte visa ekono
       .getByRole('button', { name: 'Byt demokonto', exact: true })
       .click();
     await page.getByRole('button', { name: /Anna Nilsson/ }).click();
-    await page.goto('/kontor#/weighings/1418');
+    await page.goto('/kontor#/weighings/2053');
     await expect(page.getByRole('button', { name: 'Attestera', exact: true })).toBeDisabled();
     // A valid price snapshot alone never substitutes for customer approval.
   } finally {

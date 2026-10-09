@@ -17,8 +17,9 @@ async function openDraft(
 ) {
   const fixture = migrateOffice(seedOffice());
   fixture.cards.push({
-    ...fixture.cards.find((card) => card.id === 1416)!,
+    ...fixture.cards.find((card) => card.id === 2052)!,
     id,
+    sourceId: randomUUID(),
     status,
     origin,
     reference: '',

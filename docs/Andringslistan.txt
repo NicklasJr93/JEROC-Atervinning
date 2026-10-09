@@ -658,5 +658,34 @@ terminalflöde, attest på samma kort, attestgränser, prisbehörigheter,
 kundpopup/fullständigt formulär, profilmeny och lodrät spårbarhet.
 Kortvyn och sidhuvudet har också granskats visuellt i webbläsaren.
 
+035 – ETAPP 1: ARTIKELMILJÖ, FAKTISK MOTTAGNING OCH NYA TESTKORT
+Status: Genomförd i kontorsdemo 0.7.0 efter godkänd etappstart.
+- Miljöklassificering på artikelkortet, med farligt avfall, avfallskod,
+  hanteringsinformation och separat ADR-uppgift. Blybatterier: 16 06 01*.
+- Miljö & mottagning på invägningskortet: faktisk mottagningstid, tidigare
+  innehavare, platser och inkommande transportdokument eller avvikelse.
+- Miljörapportering i vänstermenyn: underlag, inkommande lager och frister.
+  Lager skapas för alla mottagna materialrader; miljöunderlag för farliga.
+- Oföränderliga serverlagrade versioner/hash, audit, idempotens och
+  samtidighetskontroll. PostgreSQL på Render; SQLite enbart lokalt.
+- Separat miljösession med offentligt testlösenord och serverkontrollerade
+  rättigheter/anläggningar. Övrig kontorsinloggning är fortsatt demo.
+- Gamla testinvägningar och deras betalningar/rättelser/godkännanden rensas
+  en gång enligt användarens uttryckliga beslut. Fyra nya kort 2050–2053
+  börjar före kundgodkännande och attest. Kunder, användare, terminalkonton,
+  lösenord, sessioner, förval, priser och transportdata bevaras.
+- Miljömottagning är oberoende av kundgodkännande, attest och utbetalning.
+  Ingen myndighetsrapport, Visma, bank eller meddelandeleverans aktiveras.
+- Etapp 2–4 inväntar separat godkännande; extern förarportal byggs senare.
+- Provflöde och lagringsgränser: docs/integrationer/naturvardsverket/etapp-1.md.
+
+Releasekontroll 0.7.0
+85 servertester passerade, inklusive verklig PostgreSQL 18 i separat lokal
+testdatabas. 135 olika Playwright-kontroller är verifierade: 134 i fullsvit,
+därefter alla 16 kontroller för kortvy, arbetsköer, uppdatering och kontorsflöde
+när ett ofullständigt låst testkort rättats och testexemplen normaliserats.
+Produktionsbygge och Expo-typkontroll passerade. Mottagnings- och miljövyer
+har granskats visuellt. Inga anrop till Naturvårdsverket har gjorts.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

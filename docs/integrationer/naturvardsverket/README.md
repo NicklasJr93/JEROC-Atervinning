@@ -2,12 +2,14 @@
 
 Granskning **2026-10-09** inför byggplanering. Aktuell beställning är att
 kontrollera API, testcertifikat och mockupflöden samt samla dokumentationen.
-Ingen applikationsfunktion eller myndighetsanslutning aktiveras av denna leverans.
+Den ursprungliga granskningen aktiverade ingen myndighetsanslutning.
+Etapp 1 har därefter godkänts: [artikelmiljö, mottagning och ny testdata](etapp-1.md).
 
 ## Läs underlaget
 
 | Dokument | Innehåll |
 | --- | --- |
+| [Etapp 1 – leverans och provflöde](etapp-1.md) | Beständig mottagning, artikelklassificering, miljöbehörigheter och engångsåterställning av demoinvägningar. |
 | [Byggplan i fyra etapper](byggplan.md) | Föreslagen leveransordning, ny extern åkeri-/chaufförsvy och separat startgodkännande för varje etapp. |
 | [API-kontrakt](api-kontrakt.md) | Exakta rapporttyper, fält, platser, svar, rättelser och begränsningar i API:t. |
 | [Certifikatgranskning](certifikatgranskning.md) | Vad ZIP-paketet innehåller, vilken certifikattyp vi behöver och vad som ännu inte är verifierat. |
@@ -64,7 +66,7 @@ Ingen applikationsfunktion eller myndighetsanslutning aktiveras av denna leveran
 | API-nycklar | Utdelade av myndigheten enligt användaren; säker serverkonfiguration är inte verifierad. Värden sparas inte här. |
 | Certifikatacceptans | Inte verifierad mot Naturvårdsverkets testserver. |
 | API-anrop | Inget autentiserat kodlisteanrop eller rapportanrop har utförts i denna granskning. |
-| Applikation | Miljömodulen är designunderlag; appkoden är oförändrad i denna leverans. |
+| Applikation | Etapp 1 bygger beständig artikelklassificering och mottagning; myndighetsanslutningen är fortsatt avstängd. Se separat leveransdokument. |
 
 ## Nästa planeringsbeslut
 

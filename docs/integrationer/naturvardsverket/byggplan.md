@@ -1,12 +1,12 @@
 # Byggplan – fyra etapper för farligt avfall och transporter
 
-Förslag 2026-10-09. Bygger vidare på befintlig JEROC-app, databas och godkända
+Plan 2026-10-09. Bygger vidare på befintlig JEROC-app, databas och godkända
 mockuper. **Varje etapp startas först efter användarens uttryckliga godkännande
 av just den etappen.** Publicering av denna plan är inte byggstart.
 
 | Etapp | Leverans | Startstatus |
 | --- | --- | --- |
-| 1 | Gemensam lagring, artikelmiljö och mottagning | Väntar på godkännande. |
+| 1 | Gemensam lagring, artikelmiljö och mottagning | Godkänd byggstart 2026-10-09; se [leverans och provflöde](etapp-1.md). |
 | 2 | Arbetsordrar, utleverans, lager och transportdokument | Väntar på godkännande efter etapp 1. |
 | 3 | Mobilwebb för åkerier, chaufförer och dokumentgranskning | Väntar på godkännande efter etapp 2. |
 | 4 | Rapporteringsmotor och Naturvårdsverkets TEST | Väntar på godkännande efter etapp 3. |
@@ -65,9 +65,9 @@ Omfattning:
 - Länka inkommande transportdokument eller registrera avvikelse. Ingen
   bakdatering av ett saknat dokument. Grundläggande miljökö visar sparat
   underlag och saknade uppgifter; ingen extern sändning sker i etapp 1.
-- Bevara befintliga lokala testkort och terminaldata. Kopiera/importera
-  relevant underlag kontrollerat och idempotent, utan att göra lokalt
-  kortnummer till ett globalt unikt ID.
+- Ersätt gamla testinvägningar enligt det senare uttryckliga resetbeslutet.
+  Bevara övriga register och terminalkonton. Kopiera/importera relevant nytt
+  underlag idempotent utan att göra lokalt kortnummer till globalt unikt ID.
 
 Kontroller: två kontorssessioner ser samma nya miljöpost; den finns kvar efter
 serveromstart; dubbelklick skapar inte dubbla mottagningar/lagerrörelser;
@@ -168,9 +168,15 @@ förfarande för testidentiteten. Det uppladdade ZIP-paketets PDF-brev räcker i
 
 ## Avgränsning för de fyra etapperna
 
+**Nytt uttryckligt beslut 2026-10-09:** gamla demoinvägningskort och deras
+kortanknutna betalningar/rättelser/godkännanden ersätts en gång med nya kort
+utan överhoppad kundgranskning eller attest. Kunder, användare, terminaler och
+övriga register bevaras. Detta ersätter planens tidigare bevarandekrav för just
+testinvägningarna; se generationsmigreringen i [etapp 1](etapp-1.md).
+
 Första spåret är blybatterier och prioriterad roll insamlare. Roller vid egna
 transporter och kundfall utanför det första företagsflödet verifieras innan de
-aktiveras. Befintliga lokala exempeldata ska bevaras och import vara kontrollerad.
+aktiveras. Övriga befintliga lokala exempeldata bevaras och import är kontrollerad.
 
 De fyra etapperna levererar en testbar demo och förberedelse/test mot
 myndigheten. **Produktion, verkliga e-underskrifter och skarp extern

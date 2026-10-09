@@ -16,8 +16,9 @@ function fixture() {
   const prefix = `e2e-${randomUUID().slice(0, 8)}`;
   const firstId = 23_000_000 + randomInt(1_000_000);
   const cards: OfficeCard[] = [0, 1].map(index => ({
-    ...data.cards.find(card => card.id === 1416)!,
+    ...data.cards.find(card => card.id === 2052)!,
     id: firstId + index,
+    sourceId: randomUUID(),
     status: 'new',
     idVerified: false,
     origin: `Testgatan ${index + 1}, Norrtälje`,
