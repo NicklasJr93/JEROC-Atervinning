@@ -294,3 +294,25 @@ och bankens faktiska transaktion är separata steg.
 Bilderna är mockuper för granskning. Ingen appkod, OAuth-koppling eller
 bokföringsöverföring har byggts eller aktiverats, och förslaget har ännu
 inte lagts till som godkänd byggpunkt i ÄL.
+
+## Invägningskort med kundgodkännande och attest – mockup 2026-10-09
+
+[Öppna den uppdaterade mockupen](13_Invagning_Kundgodkannande_Attest_Sparbarhet.png)
+
+Kompakt layout med Material & prissättning, Kund, referens & ursprung och
+Utbetalning överst. Kundgodkännande, Attest och Sammanställning ligger
+under som egna kort över hela innehållets bredd. Behörig personal kan
+attestera direkt på invägningen efter giltigt kundgodkännande, med fortsatt
+kontroll av attestgräns och egenattestregler. Profilen ligger längst ner
+i vänstermenyn och ID-kontrollen hör till kundgodkännandet.
+
+Spårbarheten behåller dagens lodräta händelselista: blå punkt,
+händelsetext och en mindre rad med person, plats och datum/tid.
+Nyaste händelsen visas överst. Panelen får samma fulla bredd som korten
+ovanför och växer nedåt; vid många händelser scrollas sidan.
+
+![Invägningskort med lodrät spårbarhet](13_Invagning_Kundgodkannande_Attest_Sparbarhet.png)
+
+Detta är ett designunderlag med fiktiva exempeldata. Uppladdningen ändrar
+ingen appkod. Den senaste ändringen gäller spårbarhetens bredd och
+lodräta struktur i den tidigare visade mockupen.
