@@ -94,7 +94,7 @@ async function sendToTerminal(page: Page, cardId: number, terminal: DemoTerminal
   await picker.selectOption(terminal.id);
   await page.getByRole('button', { name: 'Visa på terminal', exact: true }).click();
   await expect(page).toHaveURL(before);
-  await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Invägningar(?: \d+)?$/ })).toHaveClass(/active/);
+  await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Invägningar(?: \d+ aktiva kort)?$/ })).toHaveClass(/active/);
   await expect(page.locator('.approval-controls')).toContainText('Inväntar kund');
   return approvalOf(page, cardId);
 }
@@ -194,7 +194,7 @@ test('två terminaler visar egna frysta avräkningar och personalens kontroll f�
     const beforeAttest = page.url();
     await page.getByRole('button', { name: 'Attestera', exact: true }).click();
     await expect(page).toHaveURL(beforeAttest);
-    await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Kundgodkännanden(?: \d+)?$/ })).toHaveClass(/active/);
+    await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Kundgodkännande(?: \d+ aktiva kort)?$/ })).toHaveClass(/active/);
     await expect(page.locator('.office-title')).toContainText('Klar för utbetalning');
     expect((await approvalOf(page, cards[0].id)).status).toBe('attested');
     expect((await page.request.post(`${service}/approvals/${sent.id}/attest`, { data: {} })).status()).toBe(200);
@@ -348,7 +348,7 @@ test('attestbehörighet utan läsning av kundgodkännandekön kan attestera en v
     await page.getByRole('button', { name: new RegExp(attester.name) }).click();
     await page.goto(`/kontor#/weighings/${cards[0].id}`);
     await expect.poll(async () => (await page.request.get(`${service}/state`)).status()).toBe(403);
-    await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Kundgodkännanden/ })).toHaveCount(0);
+    await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Kundgodkännande/ })).toHaveCount(0);
     await expect(page.locator('.approval-controls')).toHaveCount(0);
     const button = page.locator('.office-card-attest').getByRole('button', { name: 'Attestera', exact: true });
     await expect(button).toBeEnabled();
@@ -356,7 +356,7 @@ test('attestbehörighet utan läsning av kundgodkännandekön kan attestera en v
     await button.click();
     await expect(page.locator('.office-title')).toContainText('Klar för utbetalning');
     await expect(page).toHaveURL(before);
-    await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Invägningar(?: \d+)?$/ })).toHaveClass(/active/);
+    await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Invägningar(?: \d+ aktiva kort)?$/ })).toHaveClass(/active/);
     const cached = await page.evaluate(id => JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find((card: { id: number }) => card.id === id), cards[0].id);
     expect(cached).toMatchObject({ status: 'ready', approvedBy: attester.id, customerApproval: { id: sent.id, status: 'attested' } });
     await page.reload();

@@ -131,7 +131,7 @@ export default function OfficeDocument({
           <tbody>
             {card.rows.map((row, i) => (
               <tr key={i}>
-                <td>{articleById(row.articleId).name}</td>
+                <td>{row.articleName ?? articleById(row.articleId)?.name ?? row.articleId}</td>
                 <td>{kilos(row.weight)} kg</td>
                 <td>{showRowPrice(row) ? `${money(row.price)} kr` : '—'}</td>
                 <td>

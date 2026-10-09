@@ -1,4 +1,29 @@
-# JEROC kontorsdemo 0.7.1
+# JEROC kontorsdemo 0.7.2
+
+## Nytt i 0.7.2 – artikelrader och arbetsköer
+
+**Lägg till artikel** vid materialrubriken öppnar artikelval och vikt på ett
+öppet invägningskort. Behörigheten **Lägga till artiklar på öppna invägningar**
+är separat från att ändra artikelregistret. Kajsa får den en gång; VD och
+systemadmin har den enligt befintliga regler. Återkallade rättigheter bevaras.
+Serverns prismotor räknar raderna, befintliga manuella priser bevaras. Dolda
+eller otillgängliga priser markeras som ej färdigberäknade. Kort som väntar
+på kund, är godkända, attesterade eller utbetalda kan inte få nya materialrader.
+
+Prova på **2053**: Lägg till artikel → Blybatterier → ange vikt → Lägg till.
+Miljökortet visas då med den nya farliga avfallsraden. Befintlig mottagning
+på 2050 bevaras och ändras genom **Rätta miljöuppgifter**, aldrig nollställning.
+Kontorets invägningskort är fortfarande lokala demokort; miljömottagning och
+kundgodkännande lagras gemensamt på servern. Detta är ingen ny produktionsauth.
+
+Menyn heter **Kundgodkännande**, med samma ikonstorlek som övriga menyval.
+Arbetsköerna, inklusive Rättelser, visar blå markör endast när aktiva kort finns. Markörens
+antal kommer från samma filter som kön; historik räknas inte.
+
+**Releasekontroll 0.7.2:** 117 servertester inklusive PostgreSQL passerade.
+Hela Playwright-sviten med 150 kontroller passerade, följt av nio riktade
+kontroller för artikelrader, nya registerartiklar, meny och migration.
+Produktionsbygge och Expo-typkontroll passerade; popupen granskades visuellt.
 
 ## Nytt i 0.7.1 – kompakt miljökort
 

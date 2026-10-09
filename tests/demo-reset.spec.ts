@@ -57,3 +57,17 @@ test('miljörättigheter migreras en gång och återkallade rättigheter återko
   const reloaded = migrateOffice(migrated);
   expect(reloaded.users.find((user) => user.id === 'kajsa')!.permissions.some((permission) => permission.startsWith('environment'))).toBe(false);
 });
+
+test('artikelrättigheten läggs till en gång utan att rensa kort eller återställa återkallad behörighet', () => {
+  const previous = seedOffice();
+  previous.weighingArticlePermissionsVersion = undefined;
+  const kajsa = previous.users.find(user => user.id === 'kajsa')!;
+  kajsa.permissions = kajsa.permissions.filter(right => right !== 'weighingAddArticle');
+  previous.cards[0].origin = 'Behåll min testadress';
+  const migrated = migrateOffice(previous);
+  const updated = migrated.users.find(user => user.id === 'kajsa')!;
+  expect(updated.permissions).toContain('weighingAddArticle');
+  expect(migrated.cards[0].origin).toBe('Behåll min testadress');
+  updated.permissions = updated.permissions.filter(right => right !== 'weighingAddArticle');
+  expect(migrateOffice(migrated).users.find(user => user.id === 'kajsa')!.permissions).not.toContain('weighingAddArticle');
+});

@@ -46,3 +46,8 @@
   .quick-customer-fields { grid-template-columns: 1fr; }
   .quick-customer-types button { gap: 5px; font-size: 11px; }
 }
+
+.office-add-article-dialog .quick-customer-fields { margin: 20px 0; }
+.office .office-add-article-dialog select { display: block; width: 100%; height: 40px; margin-top: 6px; padding: 8px 10px; border: 1px solid #dce7f5; border-radius: 7px; color: #203b61; background: #fff; font: inherit; font-size: 12px; font-weight: 400; }
+.office .office-add-article-dialog select:focus-visible { outline: 3px solid #0a69ef25; border-color: #0a69ef; }
+.office-add-article-dialog .office-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 21px; }

@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.7.1';
+export const OFFICE_VERSION = '0.7.2';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
   view: 'Se vägningar och kunder',
   prepare: 'Granska och komplettera',
+  weighingAddArticle: 'Lägga till artiklar på öppna invägningar',
   customers: 'Ändra kunduppgifter',
   prices: 'Öppna prisöversikt',
   priceA: 'Se A-priser',
@@ -47,6 +48,7 @@ const userSchema = z.object({
 export type OfficeUser = z.infer<typeof userSchema>;
 const rowSchema = z.object({
   articleId: z.string(),
+  articleName: z.string().max(300).optional(),
   weight: z.number().positive(),
   tier: z.enum(['A', 'B', 'C', 'Eget']),
   price: z.number().nonnegative(),
@@ -197,6 +199,7 @@ export type OfficePayment = z.infer<typeof paymentSchema>;
 export const officeSchema = z.object({
   transportPermissionsVersion: z.number().int().min(0).max(1).default(0),
   terminalDemoPermissionsVersion: z.number().int().min(0).max(1).optional(),
+  weighingArticlePermissionsVersion: z.number().int().min(0).max(1).optional(),
   environmentPermissionsVersion: z.number().int().min(0).max(1).optional(),
   weighingDemoVersion: z.string().optional(),
   users: z.array(userSchema),
@@ -239,6 +242,7 @@ export function seedOffice(): OfficeData {
       permissions: [
         'view',
         'prepare',
+        'weighingAddArticle',
         'customers',
         'prices',
         'priceA',
@@ -319,6 +323,7 @@ export function seedOffice(): OfficeData {
     transportPermissionsVersion: 1,
     terminalDemoPermissionsVersion: 1,
     environmentPermissionsVersion: 1,
+    weighingArticlePermissionsVersion: 1,
     weighingDemoVersion: OFFICE_WEIGHING_DEMO_VERSION,
     users,
     customers: seedOfficeCustomers(),

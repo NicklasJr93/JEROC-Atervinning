@@ -14,6 +14,7 @@ export const metals = [
 export const permissions = [
   'view',
   'prepare',
+  'weighingAddArticle',
   'customers',
   'prices',
   'priceA',
@@ -281,6 +282,7 @@ function seedUsers() {
       permissions: [
         'view',
         'prepare',
+        'weighingAddArticle',
         'customers',
         'prices',
         'priceA',

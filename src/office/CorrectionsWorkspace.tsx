@@ -117,7 +117,7 @@ export default function CorrectionsWorkspace({
                     )}
                   </td>
                   <td>
-                    {articleById(c.articleId).name}
+                    {data.cards.find(card => card.id === c.cardId)?.rows.find(row => row.articleId === c.articleId)?.articleName ?? articleById(c.articleId)?.name ?? c.articleId}
                     <small>
                       {c.weightDelta > 0 ? '+' : ''}
                       {kilos(c.weightDelta)} kg

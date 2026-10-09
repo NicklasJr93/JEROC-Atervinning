@@ -87,7 +87,7 @@
 .office-sidebar nav button:hover {
   background: #f2f6fc;
 }
-.office-sidebar nav button span {
+.office-sidebar nav button .office-nav-count {
   margin-left: auto;
   background: #0965ec;
   color: white;
@@ -1753,3 +1753,5 @@
     display: block;
   }
 }
+
+.office-sidebar nav button > svg { flex: 0 0 19px; width: 19px; height: 19px; }

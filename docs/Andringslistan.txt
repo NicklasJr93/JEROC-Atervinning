@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.7.1.
+Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.7.2.
 Punkterna 001–035 är genomförda; 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
@@ -718,6 +718,7 @@ Status: Genomförd i kontorsdemo 0.7.1 efter godkänd uppföljning av etapp 1.
   dokument finns, krävs inte (orsak), krävs men saknas (avvikelse), ej kontrollerat.
 - Miljöutkast sparas gemensamt i databas med versionskontroll, utan att skapa
   lager eller rapportunderlag. Samtidig ändring skriver inte över en kollegas utkast.
+  Även slutlig mottagningsbekräftelse kontrollerar att utkastversionen är aktuell.
 - Bekräftad mottagning fryser originalet. Senare miljörättelse sparar ny version,
   orsak, användare och hash. Endast mängdskillnaden justerar fysiskt lager;
   metadata eller priser ändrar inte lagret. Tidigare underlag visas i Historik.
@@ -735,3 +736,22 @@ Kompakt miljökort granskades visuellt utan sidöverflöde eller JavaScriptfel.
 
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.
+
+038 – Artikelrad på öppet invägningskort och sammanhängande kömeny
+Status: Genomförd i kontorsdemo 0.7.2.
+- Textknappen Lägg till artikel vid Material & prissättning öppnar artikelval
+  och positiv vikt. Sparning skapar separat rad och återanvänder serverns priser.
+  Manuella prisundantag på befintliga rader bevaras; ej tillgängliga priser
+  markeras för komplettering. Avbryt sparar ingen rad.
+- Egen behörighet: Lägga till artiklar på öppna invägningar. Kajsa får den vid
+  engångsmigrering; återkallad rättighet återkommer inte. Låsta kort spärras.
+- Bekräftad miljömottagning nollställs inte. Miljörättelse bevarar originalet.
+  En ny batterirad på exempelvis 2053 gör det möjligt att testa ny mottagning.
+- Menynamnet kortas till Kundgodkännande. Alla menyikoner behåller samma storlek.
+- Invägningar, Kundgodkännande, Attest, Utbetalningar och Rättelser visar blå antalmarkör
+  från respektive aktiv kö. Noll kort ger ingen markör eller prick.
+
+Releasekontroll 0.7.2
+117 servertester inklusive PostgreSQL passerade. Hela webbsuiten med 150
+kontroller samt nio riktade artikel-/migrationskontroller passerade.
+Produktionsbygge och Expo-typkontroll passerade. Ingen ny Renderkonfiguration.

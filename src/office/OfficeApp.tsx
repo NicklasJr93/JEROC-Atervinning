@@ -37,6 +37,7 @@ import CustomerApprovalsWorkspace, { ApprovalVersionPreview } from './CustomerAp
 import ApprovalControls from './ApprovalControls';
 import OfficeCardAttest from './OfficeCardAttest';
 import QuickCustomerModal from './QuickCustomerModal';
+import AddWeighingArticleModal from './AddWeighingArticleModal';
 import { EnvironmentSessionProvider } from './EnvironmentSession';
 import EnvironmentReceiptPanel from './EnvironmentReceiptPanel';
 import EnvironmentWorkspace from './EnvironmentWorkspace';
@@ -176,6 +177,7 @@ export function OfficeApp() {
   const [previewId, setPreviewId] = useState<number | undefined>(2050);
   const [pricing, setPricing] = useState<PricingState>();
   const [priceBusy, setPriceBusy] = useState(false);
+  const [addArticleCardId, setAddArticleCardId] = useState<number>();
   const [pricingError, setPricingError] = useState('');
   const [search, setSearch] = useState('');
   const [detailsDirty, setDetailsDirty] = useState(false);
@@ -291,6 +293,7 @@ export function OfficeApp() {
     setPayBalance(false);
     setDocumentType(undefined);
     setQuickCustomerOpen(false);
+    setAddArticleCardId(undefined);
     setApprovalPreview(undefined);
     setDetailsDirty(false);
   }, [selectedId, userId, actingId]);
@@ -301,7 +304,7 @@ export function OfficeApp() {
   useEffect(() => {
     let current = true;
     setPricing(undefined);
-    if (user && actualUser && (can(user, 'prices') || can(user, 'lmeRead')))
+    if (user && actualUser && (can(user, 'prices') || can(user, 'lmeRead') || can(user, 'weighingAddArticle')))
       pricingRequest<PricingState>(
         workflowSections.includes(section) && selected
           ? `state?at=${new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(selected.date))}`
@@ -482,6 +485,44 @@ export function OfficeApp() {
       cards: live.cards.map((c) => (c.id === card.id ? saved : c)),
     });
   }
+  async function addWeighingArticle(articleId: string, kilograms: number) {
+    const current = dataRef.current.cards.find(card => card.id === addArticleCardId);
+    if (!user || !actualUser || blocked || priceBusy || !can(user, 'weighingAddArticle') || !current ||
+      !['new', 'complement'].includes(current.status) || current.kind === 'correction' ||
+      !pricing?.articles.some(article => article.id === articleId && article.active) || !Number.isFinite(kilograms) || kilograms <= 0 || kilograms > 1e9 ||
+      Math.abs(kilograms * 1000 - Math.round(kilograms * 1000)) > 0.0001) return false;
+    const principal = principalRef.current;
+    const rows: OfficeCard['rows'] = [...current.rows, { articleId, articleName: pricing.articles.find(article => article.id === articleId)!.name, weight: kilograms, tier: 'C', price: 0, pricePending: true }];
+    setPriceBusy(true);
+    try {
+      // Hidden prices remain pending; adding weight never grants price visibility.
+      let quote: PricingQuote | undefined;
+      if (can(user, 'prepare') || can(user, 'prices')) {
+        try {
+          quote = await pricingRequest<PricingQuote>('quote', user, actualUser, {
+            customerId: current.customerId, deliveredAt: current.date, excludeCardId: String(current.id),
+            rows: rows.map(row => ({ articleId: row.articleId, weight: row.weight })),
+          });
+        } catch { /* Keep the row as unpriced until an authorized colleague recalculates. */ }
+      }
+      const live = dataRef.current.cards.find(card => card.id === current.id);
+      if (principalRef.current !== principal || !live || live.audit.length !== current.audit.length ||
+        !['new', 'complement'].includes(live.status)) return false;
+      const pricedRows = rows.map((row, index) => {
+        const result = quote?.rows[index];
+        if (!result) return row;
+        return { ...row, price: row.manualOverride ? row.price : result.price ?? row.price, pricePending: row.manualOverride ? false : result.price == null,
+          tier: row.manualOverride ? row.tier : result.tier === 'Special' ? 'Eget' as const : result.tier,
+          volumeBefore: result.volumeBefore ?? undefined, volumeWithDelivery: result.volumeWithDelivery ?? undefined, source: row.manualOverride ? row.source : result.source };
+      });
+      const pending = pricedRows.some(row => row.pricePending);
+      const saved = update({ ...live, rows: pricedRows, pricingSnapshotId: undefined, pricingTotal: pending ? undefined : Math.round(pricedRows.reduce((sum, row) => sum + row.weight * row.price, 0) * 100) / 100,
+        pricedAt: quote ? current.date : undefined, financialPending: pending, pricingRowsPending: pending },
+        `Artikel tillagd: ${pricing.articles.find(article => article.id === articleId)?.name}, ${kilos(kilograms)} kg.`, 'weighingAddArticle');
+      if (saved) { setAddArticleCardId(undefined); setMessage(pending ? 'Artikeln tillagd. Beräkna priser innan kundgodkännande.' : 'Artikeln tillagd och priserna uppdaterade.'); }
+      return saved;
+    } finally { setPriceBusy(false); }
+  }
   async function calculatePrices(
     card: OfficeCard,
     customerId = card.customerId,
@@ -658,7 +699,7 @@ export function OfficeApp() {
       const preview = settlementPreview({ ...dataRef.current, cards: dataRef.current.cards.map(item => item.id === card.id ? { ...frozen, status: 'ready' as const } : item) }, card.id);
       await terminalDemoApi.send({
         card: frozen, customer, terminalId: terminal.id, siteId: terminal.siteId,
-        rows: rows.map(row => ({ articleId: row.articleId, name: articleById(row.articleId).name, weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })),
+        rows: rows.map(row => ({ articleId: row.articleId, name: row.articleName ?? articleById(row.articleId)?.name ?? row.articleId, weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })),
         offset: preview.offset, correctionIds: preview.negativeCorrectionIds,
         idempotencyKey: `review-${snapshot.id}-${terminal.id}`,
       });
@@ -712,7 +753,7 @@ export function OfficeApp() {
   const nav = [
     { id: 'dashboard', name: 'Översikt', icon: LayoutDashboard, right: 'view' },
     { id: 'weighings', name: 'Invägningar', icon: Scale, right: 'view' },
-    { id: 'customer-approvals', name: 'Kundgodkännanden', icon: ClipboardCheck, right: 'customerApprovalRead' },
+    { id: 'customer-approvals', name: 'Kundgodkännande', icon: ClipboardCheck, right: 'customerApprovalRead' },
     { id: 'attest', name: 'Attest', icon: BadgeCheck, right: 'attest' },
     { id: 'payments', name: 'Utbetalningar', icon: Wallet, right: 'pay' },
     { id: 'customers', name: 'Kunder', icon: Users, right: 'view' },
@@ -752,6 +793,8 @@ export function OfficeApp() {
   }
   const filter = query.get('status') || undefined;
   const visibleCards = data.cards.filter(c => siteFilter === 'all' || cardSiteId(c) === siteFilter);
+  const navigationCounts: Record<string, number> = Object.fromEntries(workflowSections.map(section => [section, visibleCards.filter(card => inQueue(card, section, false)).length]));
+  navigationCounts.corrections = data.corrections.filter(correction => correction.status !== 'approved' && visibleCards.some(card => card.id === correction.cardId)).length;
   const cards = visibleCards
     .filter((c) => inQueue(c, section, historyTab))
     .filter((c) => !filter || c.status === filter)
@@ -1192,6 +1235,8 @@ export function OfficeApp() {
               <button
                 className={section === n.id ? 'active' : ''}
                 key={n.id}
+                aria-label={n.name}
+                aria-describedby={navigationCounts[n.id] > 0 ? `office-nav-count-${n.id}` : undefined}
                 onClick={() => {
                   setSearch('');
                   setMessage('');
@@ -1200,12 +1245,11 @@ export function OfficeApp() {
               >
                 <n.icon size={19} />
                 {n.name}
-                {n.id === 'attest' && (
-                  <span>
-                    {visibleCards.filter((c) => c.status === 'attest').length}
+                {navigationCounts[n.id] > 0 && (
+                  <span id={`office-nav-count-${n.id}`} className="office-nav-count" aria-label={`${navigationCounts[n.id]} aktiva kort`}>
+                    {navigationCounts[n.id]}
                   </span>
                 )}
-                {n.id === 'customer-approvals' && <span>{visibleCards.filter(c => c.customerApproval && ['waiting', 'id_requested'].includes(c.customerApproval.status)).length}</span>}
               </button>
             ))}
         </nav>
@@ -1291,11 +1335,14 @@ export function OfficeApp() {
             </button>
           </div>
         )}
+        {addArticleCardId === selected?.id && selected && editable && can(user, 'weighingAddArticle') && <AddWeighingArticleModal
+          articles={pricing?.articles.filter(article => article.active) ?? []} onSave={addWeighingArticle} onClose={() => setAddArticleCardId(undefined)} />}
         {quickCustomerOpen && selected && can(user, 'customers') && <QuickCustomerModal data={data} user={user}
           onSave={customer => selectCreatedCustomer(customer, selected.id, principalRef.current)}
           onOpenFull={draft => {
             setCustomerCreation({ cardId: selected.id, returnRoute: location.pathname + location.search, draft, principal: principalRef.current });
             setQuickCustomerOpen(false);
+      setAddArticleCardId(undefined);
             navigate('/customers/new');
           }} onClose={() => setQuickCustomerOpen(false)} />}
         {approvalPreview && approvalMoneyVisible(user) && <ApprovalVersionPreview approval={approvalPreview}
@@ -1363,6 +1410,7 @@ export function OfficeApp() {
                     <div className="office-panel-heading">
                       <h2>Material & prissättning</h2>
                       <strong>{kilos(weight(selected))} kg</strong>
+                      {editable && selected.kind !== 'correction' && can(user, 'weighingAddArticle') && <button className="office-link office-add-article" disabled={blocked || priceBusy || !pricing} onClick={() => setAddArticleCardId(selected.id)}>Lägg till artikel</button>}
                       {editable && can(user, 'changePrice') && (
                         <button
                           className="office-link"
@@ -1401,7 +1449,7 @@ export function OfficeApp() {
                               <td>
                                 <span className="office-material">
                                   <MaterialImage id={r.articleId} />
-                                  {articleById(r.articleId).name}
+                                  {(r.articleName ?? articleById(r.articleId)?.name ?? r.articleId)}
                                 </span>
                               </td>
                               <td>{kilos(r.weight)} kg</td>
@@ -1484,7 +1532,7 @@ export function OfficeApp() {
                                                 : x,
                                             ),
                                           },
-                                          `Pris för ${articleById(r.articleId).name} ändrat från ${r.tier} ${money(r.price)} till ${tier} ${money(price)} kr/kg.`,
+                                          `Pris för ${(r.articleName ?? articleById(r.articleId)?.name ?? r.articleId)} ändrat från ${r.tier} ${money(r.price)} till ${tier} ${money(price)} kr/kg.`,
                                           'changePrice',
                                         )
                                       }
@@ -2253,13 +2301,13 @@ function Status({ status }: { status: OfficeCard['status'] }) {
 }
 function MaterialImage({ id }: { id: string }) {
   const a = articleById(id),
-    cell = a.photos[0];
-  if (cell === undefined) return <span className="office-material-image" role="img" aria-label={`${a.name} · referensbild saknas`}><Battery size={24} /></span>;
+    cell = a?.photos[0];
+  if (cell === undefined) return <span className="office-material-image" role="img" aria-label={`${a?.name ?? id} · referensbild saknas`}><Battery size={24} /></span>;
   return (
     <span
       className="office-material-image"
       role="img"
-      aria-label={a.name}
+      aria-label={a?.name ?? id}
       style={{
         backgroundImage: `url(${cell >= 28 ? '/images/copper-grades.png' : '/images/materials.png'})`,
         backgroundSize: cell >= 28 ? '400% 300%' : '400% 700%',
@@ -2545,7 +2593,7 @@ function CorrectionForm({
           <select value={article} onChange={(e) => setArticle(e.target.value)}>
             {card.rows.map((r) => (
               <option key={r.articleId} value={r.articleId}>
-                {articleById(r.articleId).name}
+                {(r.articleName ?? articleById(r.articleId)?.name ?? r.articleId)}
               </option>
             ))}
           </select>

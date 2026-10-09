@@ -120,7 +120,8 @@ export function migrateOffice(input: unknown): OfficeData {
         payments: [],
         corrections: [],
       };
-  const upgradedUsers = parsed.users.map((user) => ({
+  const upgradedUsers = parsed.users.map(user => parsed.weighingArticlePermissionsVersion !== 1 && user.id === 'kajsa' && user.permissions.includes('prepare')
+    ? { ...user, permissions: [...new Set([...user.permissions, 'weighingAddArticle' as const])] } : user).map((user) => ({
     ...user,
     permissions: parsed.terminalDemoPermissionsVersion !== 1 &&
       ['kajsa', 'anna'].includes(user.id) && user.permissions.includes('view')
@@ -139,6 +140,7 @@ export function migrateOffice(input: unknown): OfficeData {
     transportPermissionsVersion: 1,
     terminalDemoPermissionsVersion: 1,
     environmentPermissionsVersion: 1,
+    weighingArticlePermissionsVersion: 1,
     users: parsed.transportPermissionsVersion === 0
       ? upgradedUsers.map(user => {
           // One-time upgrade of the known demo accounts; custom users retain their rights.
