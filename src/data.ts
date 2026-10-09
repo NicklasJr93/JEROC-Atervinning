@@ -22,6 +22,7 @@ export const categories: Category[] = [
     photo: 8,
   },
   { id: 'bly', name: 'Bly', description: 'Block, plåt och vikter', photo: 20 },
+  { id: 'batterier', name: 'Batterier', description: 'Blybatterier · separat hantering', photo: 20 },
   { id: 'jarn', name: 'Järn', description: 'Järnskrot och stål', photo: 4 },
   { id: 'kabel', name: 'Kabel', description: 'Isolerad kabel', photo: 24 },
   {
@@ -133,6 +134,16 @@ export const articles: Article[] = [
     excludes: 'Batterier och andra metaller.',
     photos: [20, 21, 22, 23],
     prices: [12, 10.8, 9.6],
+  },
+  {
+    id: 'lead-battery',
+    category: 'batterier',
+    name: 'Blybatterier',
+    description: 'Förbrukade blybatterier · farligt avfall',
+    includes: 'Blybatterier från fordon och verkstäder. Hanteras separat enligt anläggningens instruktioner.',
+    excludes: 'Litiumbatterier, andra batterityper och lösa blydelar.',
+    photos: [],
+    prices: [4, 3.6, 3.2],
   },
   {
     id: 'cable',

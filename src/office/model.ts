@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.6.1';
+export const OFFICE_VERSION = '0.7.0';
+export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
   view: 'Se vägningar och kunder',
@@ -25,6 +26,9 @@ export const permissionNames = {
   transportRead: 'Läsa transportplanering',
   transportPlan: 'Skapa, boka och ändra transporter',
   customerApprovalRead: 'Läsa kundgodkännanden',
+  environmentRead: 'Läsa miljöunderlag och mottagningar',
+  environmentWrite: 'Registrera faktisk mottagning och miljöuppgifter',
+  environmentClassify: 'Ändra artiklars miljöklassificering',
   users: 'Hantera användare',
 } as const;
 export type Permission = keyof typeof permissionNames;
@@ -36,6 +40,7 @@ const userSchema = z.object({
   name: z.string().min(1),
   level: z.enum(['Medarbetare', 'VD', 'Systemadmin']),
   permissions: z.array(permission),
+  siteIds: z.array(z.enum(['norrtalje', 'rimbo'])).max(2).optional(),
   maxAttest: z.number().nonnegative(),
   ownAttest: z.boolean(),
 });
@@ -111,6 +116,7 @@ export function seedOfficeCustomers(): OfficeCustomer[] {
 }
 const cardSchema = z.object({
   id: z.number(),
+  sourceId: z.string().uuid().optional(),
   customerId: z.string().optional(),
   customerSnapshot: customerSchema.optional(),
   status: z.enum(['new', 'complement', 'customer', 'attest', 'ready', 'paid', 'balance']),
@@ -191,6 +197,8 @@ export type OfficePayment = z.infer<typeof paymentSchema>;
 export const officeSchema = z.object({
   transportPermissionsVersion: z.number().int().min(0).max(1).default(0),
   terminalDemoPermissionsVersion: z.number().int().min(0).max(1).optional(),
+  environmentPermissionsVersion: z.number().int().min(0).max(1).optional(),
+  weighingDemoVersion: z.string().optional(),
   users: z.array(userSchema),
   cards: z.array(cardSchema),
   customers: z.array(customerSchema).default(seedOfficeCustomers),
@@ -245,6 +253,8 @@ export function seedOffice(): OfficeData {
         'transportRead',
         'transportPlan',
         'customerApprovalRead',
+        'environmentRead',
+        'environmentWrite',
       ],
       maxAttest: 0,
       ownAttest: false,
@@ -265,6 +275,7 @@ export function seedOffice(): OfficeData {
         'reports',
         'transportRead',
         'customerApprovalRead',
+        'environmentRead',
       ],
       maxAttest: 25000,
       ownAttest: false,
@@ -287,24 +298,28 @@ export function seedOffice(): OfficeData {
     },
   ];
   const base = {
+    siteId: 'norrtalje',
     yard: 'Norrtälje',
     weigher: 'Niklas',
-    date: '2026-10-07T08:41:00Z',
+    date: '2026-10-09T08:41:00Z',
     reference: '',
     origin: '',
-    payment: 'Bankkonto · demo 8327 / ****7890',
-    idVerified: true,
+    payment: '',
+    idVerified: false,
+    kind: 'delivery' as const,
     audit: [
       {
-        at: '2026-10-07T08:41:00Z',
+        at: '2026-10-09T08:41:00Z',
         actor: 'Niklas · Gårdsplan',
-        text: 'Viktkort registrerat i kontorsdemon.',
+        text: 'Ny demoinvägning registrerad. Kundgodkännande och intern attest återstår.',
       },
     ],
   };
   return {
     transportPermissionsVersion: 1,
     terminalDemoPermissionsVersion: 1,
+    environmentPermissionsVersion: 1,
+    weighingDemoVersion: OFFICE_WEIGHING_DEMO_VERSION,
     users,
     customers: seedOfficeCustomers(),
     payments: [],
@@ -312,10 +327,23 @@ export function seedOffice(): OfficeData {
     cards: [
       {
         ...base,
-        id: 1412,
+        id: 2050,
+        sourceId: 'b2640584-c96a-4c16-8744-5d82d8d72050',
+        status: 'new',
+        customerId: 'customer-build',
+        reference: 'Batterier från verkstad · demo',
+        origin: 'Industrivägen 8, 761 41 Norrtälje',
+        payment: 'Bankkonto · demo 8327 / ****7890',
+        rows: [
+          { articleId: 'lead-battery', weight: 250, tier: 'A', price: 4.5 },
+          { articleId: 'copper-1', weight: 12, tier: 'C', price: 65.6 },
+        ],
+      },
+      {
+        ...base,
+        id: 2051,
+        sourceId: '36b56174-7493-4ae8-8da4-f20d84b92051',
         status: 'complement',
-        idVerified: false,
-        payment: '',
         rows: [
           { articleId: 'copper-1', weight: 125, tier: 'A', price: 82 },
           { articleId: 'copper-mixed', weight: 230, tier: 'C', price: 56 },
@@ -324,64 +352,26 @@ export function seedOffice(): OfficeData {
       },
       {
         ...base,
-        id: 1416,
+        id: 2052,
+        sourceId: '69c7b472-ec65-44f0-9aca-0679080f2052',
         status: 'new',
         customerId: 'customer-build',
         registration: 'ABC123',
         gross: 12450,
         tare: 11600,
         deduction: 20,
+        origin: 'Ängsvägen 19, 761 41 Norrtälje',
+        payment: 'Bankkonto · demo 8327 / ****7890',
         rows: [{ articleId: 'iron', weight: 830, tier: 'A', price: 2.4 }],
       },
       {
         ...base,
-        id: 1418,
+        id: 2053,
+        sourceId: '4b4d9b80-eae6-446f-a22f-b21cb1ae2053',
         status: 'new',
         customerId: 'customer-erik',
         idVerified: false,
         rows: [{ articleId: 'copper-1', weight: 72, tier: 'B', price: 73.8 }],
-      },
-      {
-        ...base,
-        id: 2039,
-        status: 'attest',
-        customerId: 'customer-brf',
-        preparedBy: 'kajsa',
-        rows: [
-          { articleId: 'copper-mixed', weight: 230, tier: 'C', price: 56 },
-        ],
-      },
-      {
-        ...base,
-        id: 2040,
-        status: 'attest',
-        customerId: 'customer-build',
-        preparedBy: 'kajsa',
-        rows: [{ articleId: 'copper-1', weight: 500, tier: 'A', price: 82 }],
-      },
-      {
-        ...base,
-        id: 2041,
-        status: 'ready',
-        customerId: 'customer-build',
-        preparedBy: 'kajsa',
-        approvedBy: 'anna',
-        reference: 'Projekt Solbacken',
-        origin: 'Ängsvägen 19',
-        rows: [
-          { articleId: 'copper-1', weight: 125, tier: 'A', price: 82 },
-          { articleId: 'copper-mixed', weight: 230, tier: 'C', price: 56 },
-          { articleId: 'stainless', weight: 130, tier: 'C', price: 14.4 },
-        ],
-      },
-      {
-        ...base,
-        id: 2038,
-        status: 'paid',
-        customerId: 'customer-erik',
-        preparedBy: 'kajsa',
-        approvedBy: 'anna',
-        rows: [{ articleId: 'iron', weight: 124, tier: 'C', price: 1.92 }],
       },
     ],
   };

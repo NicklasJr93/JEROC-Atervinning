@@ -2,6 +2,8 @@ import {
   amount,
   can,
   officeSchema,
+  OFFICE_WEIGHING_DEMO_VERSION,
+  seedOffice,
   type OfficeAudit,
   type OfficeCard,
   type OfficeCorrection,
@@ -106,20 +108,37 @@ export function canSeeMoney(user: OfficeUser): boolean {
   );
 }
 
-/** Schema defaults add new collections without deleting existing cards or old drafts. */
+/** The explicitly requested demo-card reset runs once; master data is preserved. */
 export function migrateOffice(input: unknown): OfficeData {
-  const parsed = officeSchema.parse(input);
+  const loaded = officeSchema.parse(input);
+  const parsed = loaded.weighingDemoVersion === OFFICE_WEIGHING_DEMO_VERSION
+    ? loaded
+    : {
+        ...loaded,
+        weighingDemoVersion: OFFICE_WEIGHING_DEMO_VERSION,
+        cards: seedOffice().cards,
+        payments: [],
+        corrections: [],
+      };
   const upgradedUsers = parsed.users.map((user) => ({
     ...user,
     permissions: parsed.terminalDemoPermissionsVersion !== 1 &&
       ['kajsa', 'anna'].includes(user.id) && user.permissions.includes('view')
       ? [...new Set([...user.permissions, 'customerApprovalRead' as const])]
       : user.permissions,
-  }));
+  })).map((user) => {
+    if (parsed.environmentPermissionsVersion === 1) return user;
+    const extra = user.id === 'kajsa' && user.permissions.includes('prepare')
+      ? ['environmentRead', 'environmentWrite'] as const
+      : user.id === 'anna' && user.permissions.includes('view')
+        ? ['environmentRead'] as const : [];
+    return { ...user, permissions: [...new Set([...user.permissions, ...extra])] };
+  });
   return {
     ...parsed,
     transportPermissionsVersion: 1,
     terminalDemoPermissionsVersion: 1,
+    environmentPermissionsVersion: 1,
     users: parsed.transportPermissionsVersion === 0
       ? upgradedUsers.map(user => {
           // One-time upgrade of the known demo accounts; custom users retain their rights.
@@ -134,12 +153,13 @@ export function migrateOffice(input: unknown): OfficeData {
       const customer = parsed.customers.find(
         (item) => item.id === card.customerId,
       );
+      const withSourceId = card.sourceId ? card : { ...card, sourceId: crypto.randomUUID() };
       const migrated =
         !card.customerSnapshot &&
         customer &&
         ['attest', 'ready', 'paid', 'balance'].includes(card.status)
-          ? { ...card, customerSnapshot: structuredClone(customer) }
-          : card;
+          ? { ...withSourceId, customerSnapshot: structuredClone(customer) }
+          : withSourceId;
       if (card.paymentDetails || !card.payment.trim()) return migrated;
       // Only the known fixture string can inherit the known fixture bank account.
       // Free text and masked real bank accounts require an explicit new selection.

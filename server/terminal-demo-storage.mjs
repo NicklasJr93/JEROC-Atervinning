@@ -8,8 +8,29 @@ export class TerminalDemoError extends Error {
   }
 }
 
+export const TERMINAL_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
+
+/** Explicit, one-time removal of obsolete demo weighing data, not accounts. */
+export function migrateTerminalDemoWeighings(state) {
+  if (state.weighingDemoVersion === TERMINAL_WEIGHING_DEMO_VERSION) return false;
+  const removedApprovals = state.approvals?.length ?? 0;
+  state.approvals = [];
+  state.requests = [];
+  // Reservation is derived from active approvals, so clearing them releases the
+  // display without invalidating the device cookie or the terminal password.
+  state.audit = (state.audit ?? []).filter((entry) =>
+    !entry.approvalId && entry.cardId == null && !entry.action?.startsWith('approval.'));
+  state.weighingDemoVersion = TERMINAL_WEIGHING_DEMO_VERSION;
+  state.revision = (state.revision ?? 0) + 1;
+  state.audit.push({ id: TERMINAL_WEIGHING_DEMO_VERSION, at: new Date().toISOString(),
+    action: 'demo.weighings_reset', removedApprovals,
+    reason: 'Testinvägningar ersatta på uttrycklig begäran; terminalkonton och inställningar bevarade.' });
+  return true;
+}
+
 export const initialTerminalState = () => ({
-  schemaVersion: 1, revision: 0, terminals: [], terminalSessions: [], staffSessions: [],
+  schemaVersion: 1, revision: 0, weighingDemoVersion: TERMINAL_WEIGHING_DEMO_VERSION,
+  terminals: [], terminalSessions: [], staffSessions: [],
   defaults: [], approvals: [], requests: [], audit: [], loginAttempts: [],
 });
 
@@ -42,6 +63,7 @@ export async function createTerminalDemoRepository({ env = process.env, filename
           await client.query('BEGIN');
           const { rows } = await client.query('SELECT state FROM jeroc_terminal_demo WHERE id = 1 FOR UPDATE');
           const state = rows[0].state;
+          migrateTerminalDemoWeighings(state);
           const pending = callback(state);
           const result = pending && typeof pending.then === 'function' ? await pending : pending;
           await client.query('UPDATE jeroc_terminal_demo SET state = $1::jsonb, updated_at = CURRENT_TIMESTAMP WHERE id = 1', [JSON.stringify(state)]);
@@ -68,6 +90,7 @@ export async function createTerminalDemoRepository({ env = process.env, filename
         database.exec('BEGIN IMMEDIATE');
         try {
           const state = JSON.parse(database.prepare('SELECT state FROM jeroc_terminal_demo WHERE id = 1').get().state);
+          migrateTerminalDemoWeighings(state);
           const pending = callback(state);
           const result = pending && typeof pending.then === 'function' ? await pending : pending;
           database.prepare('UPDATE jeroc_terminal_demo SET state = ? WHERE id = 1').run(JSON.stringify(state));

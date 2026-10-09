@@ -11,6 +11,21 @@ test('ett äldre rättelseutkast kan få sitt saknade underlag kompletterat utan
   page,
 }) => {
   const fixture = migrateOffice(seedOffice());
+  const customer = fixture.customers.find((entry) => entry.id === 'customer-erik')!;
+  fixture.cards = [{
+    ...structuredClone(fixture.cards.find((card) => card.id === 2052)!),
+    id: 2038, sourceId: '9001b725-c022-4edf-9bff-ed0300002038', customerId: customer.id, customerSnapshot: structuredClone(customer),
+    status: 'paid', date: '2026-10-07T08:41:00Z',
+    idVerified: true, preparedBy: 'kajsa', approvedBy: 'anna',
+    payment: 'Kontant', paymentDetails: { method: 'cash' },
+    rows: [{ articleId: 'iron', weight: 124, tier: 'C', price: 1.92 }],
+    customerApproval: {
+      id: 'legacy-correction-approved-test', version: 1, status: 'attested',
+      updatedAt: '2026-10-07T09:00:00Z',
+      approvedBy: 'Kajsa Nilsson', approvedAt: '2026-10-07T08:50:00Z',
+      attestedBy: 'Anna Nilsson', attestedAt: '2026-10-07T09:00:00Z',
+    },
+  }];
   fixture.corrections.push({
     id: 77,
     cardId: 2038,

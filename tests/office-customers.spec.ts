@@ -1,6 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
-import { seedOffice } from '../src/office/model';
+import { randomInt, randomUUID } from 'node:crypto';
+import { seedOffice, type OfficeCard, type OfficeData } from '../src/office/model';
 import { customerStats } from '../src/office/customer-model';
+import type { TerminalApproval } from '../src/office/terminal-demo-types';
 
 test.use({
   viewport: { width: 1440, height: 1000 },
@@ -21,6 +23,90 @@ async function openBuildCustomer(page: Page, tab = 'overview') {
   await expect(
     page.getByRole('heading', { name: 'Bygg & Riv AB', exact: true }),
   ).toBeVisible();
+}
+
+function completedTestCard(data: OfficeData, id: number, customerId = 'customer-erik'): OfficeCard {
+  const customer = data.customers.find((entry) => entry.id === customerId)!;
+  return {
+    ...structuredClone(data.cards.find((card) => card.id === 2052)!),
+    id, sourceId: randomUUID(), customerId, customerSnapshot: structuredClone(customer),
+    date: '2026-10-07T08:41:00Z', status: 'paid',
+    idVerified: true, preparedBy: 'kajsa', approvedBy: 'anna', paidAt: '2026-10-07T09:05:00Z',
+    payment: 'Kontant', paymentDetails: { method: 'cash' },
+    rows: [{ articleId: 'iron', weight: 124, tier: 'C', price: 1.92 }],
+    customerApproval: {
+      id: `completed-test-${id}`, version: 1, status: 'attested',
+      updatedAt: '2026-10-07T09:00:00Z',
+      approvedBy: 'Kajsa Nilsson', approvedAt: '2026-10-07T08:50:00Z',
+      attestedBy: 'Anna Nilsson', attestedAt: '2026-10-07T09:00:00Z',
+    },
+    audit: [],
+  };
+}
+
+async function approveBalanceTestCard(page: Page, data: OfficeData) {
+  const password = 'TerminalDemo123!';
+  const username = `balance-${randomUUID().slice(0, 8)}`;
+  const staff = async (id: string) => expect((await page.request.post('/api/terminal-demo/staff-session', {
+    data: { actualUserId: id, effectiveUserId: id },
+  })).ok()).toBeTruthy();
+  await staff('admin');
+  const created = await page.request.post('/api/terminal-demo/terminals', {
+    data: { name: username, username, password, siteId: 'norrtalje' },
+  });
+  expect(created.ok()).toBeTruthy();
+  const terminal = await created.json();
+  expect((await page.request.post('/api/terminal-demo/login', { data: { username, password } })).ok()).toBeTruthy();
+  await staff('kajsa');
+  const customer = {
+    ...structuredClone(data.customers.find((item) => item.id === 'customer-erik')!),
+    id: `balance-customer-${randomUUID()}`,
+  };
+  data.customers.push(customer);
+  expect((await page.request.post('/api/pricing/customers', {
+    headers: { 'X-Demo-Actor': 'kajsa', 'X-Demo-User': 'kajsa' },
+    data: { id: customer.id, name: customer.name },
+  })).ok()).toBeTruthy();
+  const card: OfficeCard = {
+    ...structuredClone(data.cards.find((item) => item.id === 2053)!),
+    id: 48_000_000 + randomInt(1_000_000), sourceId: randomUUID(), customerId: customer.id,
+    origin: 'Testgatan 12, Norrtälje', payment: 'Spara på saldo',
+    paymentDetails: { method: 'balance' },
+  };
+  const frozen = await page.request.post('/api/pricing/snapshots', {
+    headers: { 'X-Demo-Actor': 'kajsa', 'X-Demo-User': 'kajsa' },
+    data: {
+      cardId: String(card.id), customerId: customer.id, deliveredAt: card.date,
+      rows: card.rows.map((row) => ({ articleId: row.articleId, weight: row.weight, override: { price: row.price, tier: row.tier, reason: 'Kontrollerat saldo-test' } })),
+    },
+  });
+  expect(frozen.ok()).toBeTruthy();
+  const snapshot = await frozen.json();
+  card.pricingSnapshotId = snapshot.id;
+  const sent = await page.request.post('/api/terminal-demo/approvals', {
+    data: {
+      card, customer, terminalId: terminal.id, siteId: 'norrtalje',
+      rows: card.rows.map((row) => ({ articleId: row.articleId, name: 'Koppar klass 1', weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })),
+      offset: 0, correctionIds: [], idempotencyKey: `balance-${randomUUID()}`,
+    },
+  });
+  expect(sent.ok()).toBeTruthy();
+  const approval = await sent.json() as TerminalApproval;
+  expect((await page.request.post(`/api/terminal-demo/approvals/${approval.id}/respond`, {
+    data: { action: 'id_requested', termsAccepted: true },
+  })).ok()).toBeTruthy();
+  const approvedResponse = await page.request.post(`/api/terminal-demo/approvals/${approval.id}/confirm-id`, { data: {} });
+  expect(approvedResponse.ok()).toBeTruthy();
+  const approved = await approvedResponse.json() as TerminalApproval;
+  data.cards.push({
+    ...approved.snapshot.card,
+    customerSnapshot: approved.snapshot.customer,
+    customerApproval: {
+      id: approved.id, version: approved.version, status: approved.status, updatedAt: approved.updatedAt,
+      approvedBy: approved.approvedBy, approvedAt: approved.approvedAt,
+    },
+  });
+  return { cardId: card.id, terminalId: terminal.id };
 }
 
 test('kundregistret kan sökas på registreringsnummer och alla fem flikar behåller kundmenyn', async ({
@@ -123,6 +209,11 @@ test('nya kunder och ändrade kontaktuppgifter sparas vid omladdning', async ({
 test('sparad Swishprofil fylls på ett nytt kort utan att skriva om redan attesterade kort', async ({
   page,
 }) => {
+  const data = seedOffice();
+  data.cards.push({ ...completedTestCard(data, 2041, 'customer-build'), status: 'ready' });
+  await page.addInitScript((value) => {
+    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
+  }, data);
   await login(page, 'Kajsa Nilsson');
   const original = await page.evaluate(() =>
     JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find(
@@ -145,7 +236,7 @@ test('sparad Swishprofil fylls på ett nytt kort utan att skriva om redan attest
   await expect(page.getByLabel('Telefonnummer', { exact: true })).toHaveValue(
     '0701234567',
   );
-  await page.goto('/kontor#/weighings/1412');
+  await page.goto('/kontor#/weighings/2051');
   await page
     .getByLabel('Kund på vägningen', { exact: true })
     .selectOption('customer-build');
@@ -167,7 +258,7 @@ test('betalningsmetoder bevarar inmatning och validerar bara den valda metoden',
   page,
 }) => {
   await login(page, 'Kajsa Nilsson');
-  await page.goto('/kontor#/weighings/1412');
+  await page.goto('/kontor#/weighings/2051');
   await page.getByRole('button', { name: 'Bankkonto', exact: true }).click();
   await page.getByLabel('Clearingnummer', { exact: true }).fill('8327');
   await page.getByLabel('Kontonummer', { exact: true }).fill('1234567890');
@@ -194,7 +285,7 @@ test('betalningsmetoder bevarar inmatning och validerar bara den valda metoden',
   const payment = await page.evaluate(
     () =>
       JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find(
-        (entry: { id: number }) => entry.id === 1412,
+        (entry: { id: number }) => entry.id === 2051,
       ).paymentDetails,
   );
   expect(payment).toMatchObject({
@@ -216,7 +307,7 @@ test('betalningsmetoder bevarar inmatning och validerar bara den valda metoden',
   const cash = await page.evaluate(
     () =>
       JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find(
-        (entry: { id: number }) => entry.id === 1412,
+        (entry: { id: number }) => entry.id === 2051,
       ).paymentDetails,
   );
   expect(cash.method).toBe('cash');
@@ -253,20 +344,14 @@ test('spara på saldo efter attest skapar ingen utbetalning och senare kontantut
   page,
 }) => {
   const fixture = seedOffice();
-  const card = fixture.cards.find((entry) => entry.id === 1418)!;
-  Object.assign(card, {
-    status: 'attest',
-    idVerified: true,
-    preparedBy: 'kajsa',
-    payment: 'Spara på saldo',
-    paymentDetails: { method: 'balance' },
-  });
+  const { cardId, terminalId } = await approveBalanceTestCard(page, fixture);
+  try {
   await page.addInitScript((data) => {
     if (!localStorage.getItem('jeroc.office.demo.v1'))
       localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(data));
   }, fixture);
   await login(page, 'Anna Nilsson');
-  await page.goto('/kontor#/attest/1418');
+  await page.goto(`/kontor#/attest/${cardId}`);
   await page.getByRole('button', { name: 'Attestera', exact: true }).click();
   await expect(page.locator('.office-title')).toContainText('Sparat på saldo');
   const held = await page.evaluate(() =>
@@ -274,18 +359,18 @@ test('spara på saldo efter attest skapar ingen utbetalning och senare kontantut
   );
   expect(held.payments).toEqual([]);
   expect(
-    held.cards.find((entry: { id: number }) => entry.id === 1418).status,
+    held.cards.find((entry: { id: number }) => entry.id === cardId).status,
   ).toBe('balance');
   await page
     .locator('.office-sidebar')
     .getByRole('button', { name: 'Utbetalningar', exact: true })
     .click();
   await expect(
-    page.getByRole('button', { name: 'Öppna viktkort 1418', exact: true }),
+    page.getByRole('button', { name: `Öppna viktkort ${cardId}`, exact: true }),
   ).toHaveCount(0);
   await page.getByRole('tab', { name: 'Historik', exact: true }).click();
   await page
-    .getByRole('button', { name: 'Öppna viktkort 1418', exact: true })
+    .getByRole('button', { name: `Öppna viktkort ${cardId}`, exact: true })
     .click();
   await page
     .getByRole('button', { name: 'Betala ut från saldo', exact: true })
@@ -300,30 +385,60 @@ test('spara på saldo efter attest skapar ingen utbetalning och senare kontantut
     JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!),
   );
   expect(paid.payments).toHaveLength(1);
-  expect(paid.payments[0]).toMatchObject({ cardId: 1418, method: 'cash' });
+  expect(paid.payments[0]).toMatchObject({ cardId, method: 'cash' });
   expect(
-    paid.cards.find((entry: { id: number }) => entry.id === 1418)
+    paid.cards.find((entry: { id: number }) => entry.id === cardId)
       .paymentDetails,
   ).toEqual({ method: 'balance' });
   await page.reload();
   await expect(
     page.getByRole('button', { name: 'Betala ut från saldo', exact: true }),
   ).toHaveCount(0);
+  } finally {
+    // Never leave a failed test reserving a terminal. Completed reviews stay in history.
+    await page.request.post('/api/terminal-demo/staff-session', { data: { actualUserId: 'admin', effectiveUserId: 'admin' } });
+    const response = await page.request.get('/api/terminal-demo/state');
+    if (response.ok()) {
+      const state = await response.json();
+      for (const approval of state.approvals as TerminalApproval[]) {
+        if (approval.cardId === cardId && !['attested', 'cancelled'].includes(approval.status)) {
+          await page.request.post(`/api/terminal-demo/approvals/${approval.id}/cancel`, { data: {} });
+        }
+      }
+    }
+    expect((await page.request.patch(`/api/terminal-demo/terminals/${terminalId}`, { data: { active: false } })).ok()).toBeTruthy();
+  }
 });
 
 test('rättelser går via granskning till kundens saldo och pluskort utan att det betalda originalet ändras', async ({
   page,
 }) => {
+  const fixture = seedOffice();
+  const customer = {
+    ...structuredClone(fixture.customers.find((entry) => entry.id === 'customer-erik')!),
+    id: `correction-customer-${randomUUID()}`,
+  };
+  const cardId = 49_000_000 + randomInt(1_000_000);
+  fixture.customers.push(customer);
+  fixture.cards = [completedTestCard(fixture, cardId, customer.id)];
+  expect((await page.request.post('/api/pricing/customers', {
+    headers: { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' },
+    data: { id: customer.id, name: customer.name },
+  })).ok()).toBeTruthy();
+  await page.addInitScript((data) => {
+    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(data));
+  }, fixture);
   await login(page, 'Lars Andersson');
-  await page.goto('/kontor#/payments/2038?tab=history');
-  const original = await page.evaluate(() =>
+  await page.goto(`/kontor#/payments/${cardId}?tab=history`);
+  const original = await page.evaluate((id) =>
     JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find(
-      (card: { id: number }) => card.id === 2038,
+      (card: { id: number }) => card.id === id,
     ),
+    cardId,
   );
 
   async function createAndApprove(delta: string, document: string) {
-    await page.goto('/kontor#/payments/2038?tab=history');
+    await page.goto(`/kontor#/payments/${cardId}?tab=history`);
     await page.getByLabel('Viktändring, kg', { exact: true }).fill(delta);
     await page
       .getByLabel('Orsak / rättelseunderlag', { exact: true })
@@ -358,7 +473,7 @@ test('rättelser går via granskning till kundens saldo och pluskort utan att de
   }
 
   await createAndApprove('-10', 'RU-TEST-MINUS');
-  await page.goto('/kontor#/customers/customer-erik?tab=balance');
+  await page.goto(`/kontor#/customers/${customer.id}?tab=balance`);
   await expect(
     page.getByRole('heading', { name: 'Erik Johansson', exact: true }),
   ).toBeVisible();
@@ -368,11 +483,11 @@ test('rättelser går via granskning till kundens saldo och pluskort utan att de
   let saved = await page.evaluate(() =>
     JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!),
   );
-  expect(saved.cards.find((card: { id: number }) => card.id === 2038)).toEqual(
+  expect(saved.cards.find((card: { id: number }) => card.id === cardId)).toEqual(
     original,
   );
   expect(
-    customerStats(saved, 'customer-erik', '2026-10-08T12:00:00Z'),
+    customerStats(saved, customer.id, '2026-10-08T12:00:00Z'),
   ).toMatchObject({ totalKg: 114, totalValue: 218.88 });
 
   await createAndApprove('5', 'RU-TEST-PLUS');
@@ -389,21 +504,21 @@ test('rättelser går via granskning till kundens saldo och pluskort utan att de
   expect(child).toMatchObject({
     status: 'ready',
     kind: 'correction',
-    customerId: 'customer-erik',
+    customerId: customer.id,
     pricingTotal: 9.6,
   });
-  expect(saved.cards.find((card: { id: number }) => card.id === 2038)).toEqual(
+  expect(saved.cards.find((card: { id: number }) => card.id === cardId)).toEqual(
     original,
   );
   expect(
-    customerStats(saved, 'customer-erik', '2026-10-08T12:00:00Z'),
+    customerStats(saved, customer.id, '2026-10-08T12:00:00Z'),
   ).toMatchObject({
     totalKg: 119,
     totalValue: 228.48,
     weighingCount: 1,
     balance: -9.6,
   });
-  await page.goto('/kontor#/customers/customer-erik?tab=balance');
+  await page.goto(`/kontor#/customers/${customer.id}?tab=balance`);
   await page.getByRole('button', { name: /R-2 · Järnskrot/ }).click();
   await page
     .getByRole('button', { name: 'Öppna utbetalningskort', exact: true })

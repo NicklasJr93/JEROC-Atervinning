@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import {
   seedOffice,
+  OFFICE_WEIGHING_DEMO_VERSION,
+  type OfficeCard,
   type OfficeData,
   type OfficeUser,
 } from '../src/office/model';
@@ -18,7 +20,31 @@ import {
 
 function fixture(): OfficeData {
   const data = seedOffice();
-  data.cards = data.cards.filter((card) => card.id === 2038);
+  // Economic helpers are exercised against an explicit completed test case.
+  // The public demo starts with unapproved cards and contains no paid seed card.
+  const customer = data.customers.find((entry) => entry.id === 'customer-erik')!;
+  const card: OfficeCard = {
+    id: 2038,
+    sourceId: 'f239a9da-6b65-4fdc-a2b8-9ec000002038',
+    customerId: customer.id,
+    customerSnapshot: structuredClone(customer),
+    status: 'paid',
+    siteId: 'norrtalje',
+    customerApproval: {
+      id: 'unit-approved-2038', version: 1, status: 'attested',
+      updatedAt: '2026-10-07T09:00:00Z',
+      approvedBy: 'Kajsa Nilsson', approvedAt: '2026-10-07T08:50:00Z',
+      attestedBy: 'Anna Nilsson', attestedAt: '2026-10-07T09:00:00Z',
+    },
+    yard: 'Norrtälje', weigher: 'Niklas', date: '2026-10-07T08:41:00Z',
+    reference: 'Avslutad enhetstestleverans', origin: 'Testgatan 12, Norrtälje',
+    payment: 'Kontant', paymentDetails: { method: 'cash' },
+    idVerified: true, preparedBy: 'kajsa', approvedBy: 'anna',
+    paidAt: '2026-10-07T09:05:00Z',
+    rows: [{ articleId: 'iron', weight: 124, tier: 'C', price: 1.92 }],
+    audit: [],
+  };
+  data.cards = [card];
   return data;
 }
 
@@ -51,37 +77,37 @@ function negativeCorrection(data: OfficeData, quantity = -100) {
   );
 }
 
-test('gamla kontorsdata migreras utan att befintliga betalningstexter eller låsta viktkort skrivs om', () => {
-  const old = seedOffice();
-  old.cards.find((card) => card.id === 2041)!.payment =
-    'Tidigare betalningsunderlag · konto ****7890';
-  const legacy = { users: old.users, cards: old.cards, corrections: [] };
+test('den godkända demoåterställningen ersätter gamla viktkort och deras ekonomidata en gång men bevarar kunder och användare', () => {
+  const old = fixture();
+  old.customers[0].name = 'Bevarad testkund AB';
+  old.users[0].name = 'Bevarad kontorist';
+  old.cards[0].payment = 'Tidigare betalningsunderlag · konto ****7890';
+  const legacy = {
+    ...old, weighingDemoVersion: undefined,
+    payments: [{ id: 'old-payment', cardId: 2038, customerId: 'customer-erik', date: '2026-10-07T09:05:00Z', amount: 238.08, offset: 0, method: 'cash', actor: 'Anna Nilsson', office: 'Norrtälje', reference: 'Tidigare demo', correctionIds: [] }],
+    corrections: [{ id: 1, cardId: 2038, customerId: 'customer-erik', articleId: 'iron', weightDelta: -10, reason: 'Tidigare demo', document: 'RU-OLD', actor: 'Kajsa Nilsson', at: '2026-10-07T10:00:00Z' }],
+  };
   const migrated = migrateOffice(legacy);
-  expect(migrated.cards.find((card) => card.id === 2041)).toMatchObject(
-    old.cards.find((card) => card.id === 2041)!,
-  );
-  expect(
-    migrated.cards.map((card) => ({
-      id: card.id,
-      status: card.status,
-      payment: card.payment,
-    })),
-  ).toEqual(
-    old.cards.map((card) => ({
-      id: card.id,
-      status: card.status,
-      payment: card.payment,
-    })),
-  );
-  expect(migrated.customers).toHaveLength(old.customers.length);
+  expect(migrated.weighingDemoVersion).toBe(OFFICE_WEIGHING_DEMO_VERSION);
+  expect(migrated.cards.map((card) => card.id)).toEqual([2050, 2051, 2052, 2053]);
+  expect(migrated.cards.every((card) => ['new', 'complement'].includes(card.status))).toBe(true);
+  expect(migrated.cards.every((card) => !card.customerApproval && !card.idVerified && !card.approvedBy)).toBe(true);
+  expect(migrated.customers).toEqual(old.customers);
+  expect(migrated.users.map((user) => ({ id: user.id, name: user.name }))).toEqual(old.users.map((user) => ({ id: user.id, name: user.name })));
   expect(migrated.payments).toEqual([]);
-  expect(migrated.cards.find((card) => card.id === 2041)?.payment).toContain(
-    '****7890',
-  );
+  expect(migrated.corrections).toEqual([]);
+  migrated.cards[0].reference = 'Ny ändring efter återställning';
+  expect(migrateOffice(migrated)).toEqual(migrated);
 });
 
 test('låst kundögonblicksbild bevaras när kundregistret och betalningsprofilen ändras', () => {
-  const migrated = migrateOffice(seedOffice());
+  const fixtureData = fixture();
+  const originalCustomer = fixtureData.customers.find((entry) => entry.id === 'customer-build')!;
+  fixtureData.cards[0] = {
+    ...fixtureData.cards[0], id: 2041, customerId: originalCustomer.id,
+    customerSnapshot: structuredClone(originalCustomer), status: 'ready',
+  };
+  const migrated = migrateOffice(fixtureData);
   const original = structuredClone(
     migrated.cards.find((card) => card.id === 2041)!,
   );
