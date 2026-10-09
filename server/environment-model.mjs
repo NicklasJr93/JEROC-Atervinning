@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { EnvironmentError } from './environment-storage.mjs';
+import { ENVIRONMENT_MUNICIPALITIES, parseOriginAddress } from './environment-address.mjs';
 
 export const ENVIRONMENT_DEMO_PASSWORD = 'JerocDemo2026!';
 export const ENVIRONMENT_SITES = [
@@ -30,17 +31,55 @@ const classificationSchema = z.object({
   if (!value.hazardous && value.wasteCode && !/^\d{6}$/.test(value.wasteCode)) context.addIssue({ code: 'custom', path: ['wasteCode'], message: 'Ange sexsiffrig avfallskod eller lämna tomt.' });
 });
 const weight = z.number().finite().positive().max(1e9).refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 0.00001, 'Vikten får ha högst tre decimaler.');
+const sourceIdSchema = z.string().uuid();
+const addressResolutionSchema = z.object({
+  originAddress: z.string().trim().max(1000), status: z.enum(['resolved', 'needs_address', 'needs_municipality']),
+  provider: z.string().trim().min(1).max(100), resolvedAt: z.string().datetime({ offset: true }).optional(), municipalityConfirmed: z.boolean().optional(),
+}).strict();
+const newDocumentSchema = z.object({
+  status: z.enum(['provided', 'not_required', 'missing', 'unknown']), reference: z.string().trim().max(300).optional(),
+  missingReason: z.string().trim().max(2000).optional(), exemptionReason: z.string().trim().max(2000).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.status === 'missing' && !value.missingReason) context.addIssue({ code: 'custom', path: ['missingReason'], message: 'Beskriv det saknade dokumentet.' });
+  if (value.status === 'not_required' && !value.exemptionReason) context.addIssue({ code: 'custom', path: ['exemptionReason'], message: 'Ange varför transportdokument inte krävs i detta fall.' });
+});
+// Existing saved receipts and Etapp 1 clients stay readable. A missing number
+// never means a missing transport document: the explicit status governs that.
+const legacyDocumentSchema = z.object({ reference: z.string().trim().max(300).optional(), missingReason: z.string().trim().max(2000).optional() }).strict()
+  .refine((value) => Boolean(value.reference?.length || value.missingReason?.length), 'Ange dokumentreferens eller avvikelse för saknat dokument.');
+const documentSchema = z.union([newDocumentSchema, legacyDocumentSchema]);
+const receiptFields = {
+  receivedAt: z.string().max(40).datetime({ offset: true }), rows: z.array(z.object({ articleId: id, weight }).strict()).min(1).max(100),
+  previousHolder: holderSchema, lastPlace: placeSchema, nextPlace: placeSchema, transportMode: z.enum(['road', 'rail', 'sea', 'air']),
+  incomingDocument: documentSchema, originAddress: z.string().trim().min(1).max(1000).optional(), addressResolution: addressResolutionSchema.optional(),
+};
 const receiptSchema = z.object({
   sourceId: z.string().uuid(), cardId: z.number().int().nonnegative(), siteId: z.enum(['norrtalje', 'rimbo']),
-  receivedAt: z.string().max(40).datetime({ offset: true }), rows: z.array(z.object({ articleId: id, weight }).strict()).min(1).max(100),
-  previousHolder: holderSchema, lastPlace: placeSchema, nextPlace: placeSchema,
-  transportMode: z.enum(['road', 'rail', 'sea', 'air']),
-  incomingDocument: z.object({ reference: z.string().trim().max(300).optional(), missingReason: z.string().trim().max(2000).optional() }).strict()
-    .refine((value) => Boolean(value.reference?.length || value.missingReason?.length), 'Ange dokumentreferens eller avvikelse för saknat dokument.'),
+  ...receiptFields,
   idempotencyKey: z.string().trim().min(1).max(100),
 }).strict();
+const correctionSchema = z.object({
+  ...receiptFields, rows: z.array(z.object({ articleId: id, weight }).strict()).max(100),
+  sourceId: sourceIdSchema.optional(), cardId: z.number().int().nonnegative().optional(), siteId: z.enum(['norrtalje', 'rimbo']).optional(),
+  expectedVersion: z.number().int().positive(), reason: z.string().trim().min(1).max(2000), idempotencyKey: z.string().trim().min(1).max(100),
+}).strict();
+const draftPlaceSchema = z.object({ address: z.string().trim().max(300), postalCode: z.string().trim().max(20), city: z.string().trim().max(300), municipalityCode: z.string().trim().max(10) }).strict();
+const draftSchema = z.object({
+  expectedVersion: z.number().int().nonnegative(), sourceId: sourceIdSchema, cardId: z.number().int().nonnegative(), siteId: z.enum(['norrtalje', 'rimbo']),
+  originAddress: z.string().trim().max(1000).default(''), receivedAt: z.string().trim().max(40).default(''),
+  rows: z.array(z.object({ articleId: id, weight }).strict()).max(100).default([]),
+  previousHolder: z.object({ name: z.string().trim().max(300).default(''), number: z.string().trim().max(100).default(''), contactName: optionalText, email: z.string().trim().max(200).default(''), phone: z.string().trim().max(50).default('') }).strict().optional(),
+  lastPlace: draftPlaceSchema.optional(), nextPlace: draftPlaceSchema.optional(), transportMode: z.enum(['road', 'rail', 'sea', 'air']).default('road'),
+  incomingDocument: z.object({ status: z.enum(['provided', 'not_required', 'missing', 'unknown']), reference: z.string().trim().max(300).optional(), missingReason: z.string().trim().max(2000).optional(), exemptionReason: z.string().trim().max(2000).optional() }).strict().default({ status: 'unknown' }),
+  addressResolution: addressResolutionSchema.optional(),
+}).strict();
 const copy = (value) => structuredClone(value);
-export const environmentHash = (value) => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
+const canonicalJsonValue = (value) => Array.isArray(value) ? value.map(canonicalJsonValue)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJsonValue(value[key])])) : value;
+// JSONB changes object-key ordering. Hash semantic JSON with sorted keys, so a
+// reopened PostgreSQL snapshot has exactly the same checksum as its original.
+export const environmentHash = (value) => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(canonicalJsonValue(value))).digest('hex');
+const HASH_FORMAT = 'sha256-canonical-json-v1';
 const secret = () => randomBytes(32).toString('base64url');
 const parse = (schema, value) => {
   const parsed = schema.safeParse(value);
@@ -64,6 +103,77 @@ const currentClassification = (state, articleId) => state.classifications.filter
 const audit = (state, now, principal, action, details = {}) => {
   state.revision += 1;
   state.audit.push({ id: randomUUID(), at: now.toISOString(), actualUserId: principal.actor.id, effectiveUserId: principal.user.id, actor: principal.user.name, action, ...details });
+};
+const documentDeviations = (document) => {
+  const status = document.status ?? (document.reference ? 'provided' : 'missing');
+  if (status === 'missing') return [{ code: 'missing_document', message: document.missingReason }];
+  if (status === 'unknown') return [{ code: 'document_status_pending', message: 'Kontrollera om transportdokument finns eller krävs i detta fall.' }];
+  return [];
+};
+const inputIdentityHash = (input) => {
+  const value = copy(input);
+  // Lookup timestamps are provenance, not a change to the physical receipt.
+  // Two desks resolving the same origin moments apart still share one source.
+  if (value.addressResolution) delete value.addressResolution.resolvedAt;
+  return environmentHash(value);
+};
+const normalizedPhysicalInput = (input) => {
+  const value = copy(input), weights = new Map();
+  for (const row of value.rows) weights.set(row.articleId, (weights.get(row.articleId) ?? 0) + row.weight);
+  value.rows = [...weights].sort(([a], [b]) => a.localeCompare(b)).map(([articleId, weight]) => ({ articleId, weight: Math.round(weight * 1000) / 1000 }));
+  if (value.incomingDocument && !value.incomingDocument.status) value.incomingDocument.status = value.incomingDocument.reference ? 'provided' : 'missing';
+  return inputIdentityHash(value);
+};
+const matchesLegacyPhysicalInput = (receipt, input) => {
+  if (receipt.hashFormat) return false;
+  const { version, operator, previousHash, correctionReason, ...originalInput } = receipt.snapshot;
+  return normalizedPhysicalInput(originalInput) === normalizedPhysicalInput(input);
+};
+const validateOrigin = (input, confirmed) => {
+  if (confirmed && input.originAddress) {
+    const parsed = parseOriginAddress(input.originAddress), sameText = (left, right) => left.trim().normalize('NFKC').toLocaleLowerCase('sv-SE') === right.trim().normalize('NFKC').toLocaleLowerCase('sv-SE');
+    if (!sameText(parsed.address, input.lastPlace.address) || (parsed.postalCode && parsed.postalCode !== input.lastPlace.postalCode)
+      || (parsed.city && !sameText(parsed.city, input.lastPlace.city)))
+      throw new EnvironmentError('Miljöplatsen måste följa kortets ursprungsadress. Kontrollera adressen igen.', 422, 'address_origin_mismatch');
+    if (!ENVIRONMENT_MUNICIPALITIES.some((municipality) => municipality.code === input.lastPlace.municipalityCode))
+      throw new EnvironmentError('Välj en giltig svensk kommun för ursprungsplatsen.', 422, 'municipality_invalid');
+  }
+  if (!input.addressResolution) return; // Backward-compatible Etapp 1 original.
+  if (!input.originAddress || input.addressResolution.originAddress !== input.originAddress)
+    throw new EnvironmentError('Adressuppslaget gäller inte kortets aktuella ursprungsadress. Kontrollera adressen igen.', 422, 'address_origin_mismatch');
+  if (confirmed && input.addressResolution.status !== 'resolved')
+    throw new EnvironmentError('Komplettera ursprungsadressen eller kommunen före mottagningsbekräftelse.', 422, 'address_incomplete');
+};
+const receiptCorrections = (state, receipt) => state.corrections.filter((record) => record.receiptId === receipt.id).sort((a, b) => a.version - b.version);
+const effectiveReceipt = (state, original) => {
+  const history = receiptCorrections(state, original), current = history.at(-1);
+  return copy({ ...original, ...(current ? { version: current.version, snapshot: current.snapshot, hash: current.hash, deviations: current.deviations, receivedAt: current.snapshot.receivedAt,
+    correctedAt: current.createdAt, correctedBy: current.createdBy } : {}), originalSnapshot: original.snapshot, originalHash: original.hash,
+    hashFormat: current?.hashFormat ?? original.hashFormat ?? 'legacy-sha256-json', originalHashFormat: original.hashFormat ?? 'legacy-sha256-json',
+    correctionHistory: history, inventoryIds: [...original.inventoryIds, ...history.flatMap((record) => record.inventoryMovements.map((movement) => movement.id))],
+    reportIds: reportVersions(state, original).at(-1).map((record) => record.id),
+  });
+};
+const reportVersions = (state, receipt) => {
+  const originals = state.reports.filter((record) => record.receiptId === receipt.id);
+  const versions = [{ snapshot: receipt.snapshot, createdAt: receipt.createdAt, hash: receipt.hash }, ...receiptCorrections(state, receipt).map((record) => ({ snapshot: record.snapshot, createdAt: record.createdAt, hash: record.hash }))];
+  let noteDueDate = addSwedishWorkingDays(receipt.receivedAt, 2), reportDueDate = addSwedishWorkingDays(noteDueDate, 2);
+  return versions.map(({ snapshot, createdAt, hash }) => {
+    // A correction may shorten an erroneously late receipt date, but can never
+    // extend the pre-existing environmental clock.
+    const correctedNote = addSwedishWorkingDays(snapshot.receivedAt, 2);
+    noteDueDate = correctedNote < noteDueDate ? correctedNote : noteDueDate;
+    const correctedReport = addSwedishWorkingDays(noteDueDate, 2);
+    reportDueDate = correctedReport < reportDueDate ? correctedReport : reportDueDate;
+    return snapshot.rows.filter((row) => row.classification.hazardous).map((row) => {
+      const original = originals.find((record) => record.articleId === row.articleId);
+      return { ...original, id: original?.id ?? `${receipt.id}:${row.articleId}`, receiptId: receipt.id, sourceId: receipt.sourceId, cardId: receipt.cardId, siteId: receipt.siteId,
+        articleId: row.articleId, wasteCode: row.classification.wasteCode, wasteDescription: row.classification.wasteDescription, weight: row.weight,
+        status: 'incomplete', missingFields: ['Verifierade verksamhetsutövaruppgifter krävs före myndighetsrapportering.'], noteDueDate, reportDueDate,
+        createdAt, version: snapshot.version, receiptVersion: snapshot.version, mode: 'prepared-only', snapshotHash: hash,
+      };
+    });
+  });
 };
 
 /** Calendar days in Sweden, including public holidays. Dates are deliberately
@@ -92,7 +202,7 @@ export function addSwedishWorkingDays(receivedAt, count) {
   return dateNumber(day);
 }
 
-export function createEnvironmentStore({ repository, principalStore, now = () => new Date() }) {
+export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true }) {
   if (!repository || !principalStore) throw new Error('Environment requires durable repository and principal store.');
   const transaction = (operation) => repository.transact((state) => {
     const time = now();
@@ -123,8 +233,44 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     if (!article) throw new EnvironmentError('Artikeln finns inte i artikelregistret.', 422, 'article_not_found');
     return article;
   };
+  const snapshotRows = (rows, previousRows = []) => {
+    const weights = new Map();
+    for (const row of rows) { resolveArticle(row.articleId); weights.set(row.articleId, (weights.get(row.articleId) ?? 0) + row.weight); }
+    return [...weights].map(([articleId, value]) => ({ articleId, weight: parse(weight, Math.round(value * 1000) / 1000), classification: copy(previousRows.find((row) => row.articleId === articleId)?.classification ?? defaultClassification(articleId)) }));
+  };
+  const classifyRows = (state, rows, previousRows = []) => snapshotRows(rows, rows.map((row) => previousRows.find((previous) => previous.articleId === row.articleId)
+    ?? { articleId: row.articleId, classification: currentClassification(state, row.articleId) }));
   return {
     repository,
+    demoSession(payload, previousToken) {
+      if (!demoMode) throw new EnvironmentError('Automatisk demoinloggning är avstängd.', 503, 'demo_disabled');
+      const request = parse(z.object({ userId: id, effectiveUserId: id.optional() }).strict(), payload), token = secret();
+      return transaction((state, time) => {
+        let principal;
+        try { principal = principalStore.principal(request.userId, request.effectiveUserId ?? request.userId); }
+        catch { throw new EnvironmentError('Demokontot eller Jobba som-behörigheten är ogiltig.', 401, 'invalid_credentials'); }
+        if (!['environmentRead', 'environmentWrite', 'environmentClassify'].some((right) => environmentCan(principal, right)))
+          throw new EnvironmentError('Demokontot saknar miljöbehörighet.', 403, 'forbidden');
+        const previous = previousToken && state.sessions.find((record) => record.tokenHash === environmentHash(previousToken));
+        if (previous?.actualUserId === principal.actor.id && previous?.effectiveUserId === principal.user.id)
+          return { token: previousToken, result: sessionResult(previous, principal) };
+        if (previousToken) state.sessions = state.sessions.filter((record) => record.tokenHash !== environmentHash(previousToken));
+        const session = { tokenHash: environmentHash(token), csrfToken: secret(), actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
+          createdAt: time.toISOString(), expiresAt: new Date(time.getTime() + STAFF_AGE).toISOString() };
+        state.sessions.push(session); audit(state, time, principal, 'environment.demo_session');
+        return { token, result: sessionResult(session, principal) };
+      });
+    },
+    authorize(token, right, siteId) { return transaction((state, time) => {
+      const { principal } = principalFor(state, token, time); demand(principal, right); if (siteId) demandSite(principal, siteId);
+    }); },
+    assertIdentity(token, actualUserId, effectiveUserId) { return transaction((state, time) => {
+      const { principal } = principalFor(state, token, time);
+      // These are an expected identity check only. A valid server cookie and
+      // live permissions remain mandatory; headers never authenticate anyone.
+      if ((actualUserId !== undefined && actualUserId !== principal.actor.id) || (effectiveUserId !== undefined && effectiveUserId !== principal.user.id))
+        throw new EnvironmentError('Demokontot ändrades i en annan flik. Läs in ditt aktuella konto innan du sparar.', 403, 'session_identity_mismatch');
+    }); },
     async login(payload, previousToken, remoteAddress = '') {
       const request = parse(z.object({ userId: id, password: z.string().min(1).max(128), effectiveUserId: id.optional() }).strict(), payload);
       const token = secret();
@@ -162,12 +308,51 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       const sites = sitesFor(principal).filter((site) => !filterSite || filterSite === 'all' || site.id === filterSite);
       const visible = new Set(sites.map((site) => site.id));
       const articleIds = new Set(state.classifications.map((record) => record.articleId));
-      return { demo: true, mode: 'prepared-only', revision: state.revision, sites: copy(sites),
+      const originals = state.receipts.filter((record) => visible.has(record.siteId));
+      const reportHistory = [], reports = [];
+      for (const receipt of originals) { const versions = reportVersions(state, receipt); reports.push(...versions.at(-1)); reportHistory.push(...versions.slice(0, -1).flat().map((record) => ({ ...record, status: 'superseded' }))); }
+      return { demo: true, mode: 'prepared-only', revision: state.revision, actualUserId: principal.actor.id, effectiveUserId: principal.user.id, sites: copy(sites),
         classifications: [...articleIds].map((articleId) => copy(currentClassification(state, articleId))),
-        receipts: copy(state.receipts.filter((record) => visible.has(record.siteId))), inventory: copy(state.inventory.filter((record) => visible.has(record.siteId))),
-        reports: copy(state.reports.filter((record) => visible.has(record.siteId))),
+        drafts: copy(state.drafts.filter((record) => visible.has(record.siteId))), corrections: copy(state.corrections.filter((record) => visible.has(record.siteId))),
+        receipts: originals.map((record) => effectiveReceipt(state, record)), inventory: copy([
+          ...state.inventory.filter((record) => visible.has(record.siteId)).map((record) => ({ ...record, classification: state.receipts.find((receipt) => receipt.id === record.receiptId)?.snapshot.rows.find((row) => row.articleId === record.articleId)?.classification })),
+          ...state.corrections.filter((record) => visible.has(record.siteId)).flatMap((record) => record.inventoryMovements),
+        ]), reports: copy(reports), reportHistory: copy(reportHistory),
       };
     }); },
+    draft(sourceId, token) { parse(sourceIdSchema, sourceId); return transaction((state, time) => {
+      const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead');
+      const existing = state.drafts.find((record) => record.sourceId === sourceId);
+      if (!existing) return null; demandSite(principal, existing.siteId); return copy(existing);
+    }); },
+    saveDraft(sourceId, payload, token) {
+      parse(sourceIdSchema, sourceId);
+      const values = payload?.input !== undefined ? parse(z.object({ expectedVersion: z.number().int().nonnegative(), input: z.record(z.unknown()) }).strict(), payload) : undefined;
+      const request = parse(draftSchema, values ? { ...values.input, expectedVersion: values.expectedVersion } : payload);
+      if (request.sourceId !== sourceId) throw new EnvironmentError('Utkastets identitet stämmer inte med kortet.', 422, 'source_conflict');
+      validateOrigin(request, false);
+      return transaction((state, time) => {
+        const { principal } = principalFor(state, token, time); demand(principal, 'environmentWrite'); demandSite(principal, request.siteId);
+        const receipt = state.receipts.find((record) => record.sourceId === sourceId);
+        if (receipt) { demandSite(principal, receipt.siteId); throw new EnvironmentError('Mottagningen är bekräftad. Gör en spårbar miljörättelse.', 409, 'receipt_already_recorded'); }
+        const current = state.drafts.find((record) => record.sourceId === sourceId);
+        if (current) { demandSite(principal, current.siteId); if (current.cardId !== request.cardId) throw new EnvironmentError('Utkastet tillhör ett annat kort.', 409, 'source_conflict'); }
+        if ((current?.version ?? 0) !== request.expectedVersion) throw new EnvironmentError('Utkastet har ändrats av någon annan. Läs in senaste versionen.', 409, 'version_conflict');
+        for (const row of request.rows) resolveArticle(row.articleId);
+        const { expectedVersion, ...input } = request;
+        // A changed canonical origin invalidates old derived municipality data;
+        // a newly matched provenance can safely keep the fresh resolved place.
+        if (current?.input.originAddress !== input.originAddress && !input.addressResolution && input.originAddress) {
+          input.lastPlace = parseOriginAddress(input.originAddress);
+          input.addressResolution = { originAddress: input.originAddress, status: ['address', 'postalCode', 'city'].some((key) => !input.lastPlace[key]) ? 'needs_address' : 'needs_municipality', provider: 'address' };
+        }
+        const draft = { id: sourceId, sourceId, cardId: request.cardId, siteId: request.siteId, version: expectedVersion + 1, input,
+          updatedAt: time.toISOString(), updatedBy: principal.user.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id };
+        state.drafts = state.drafts.filter((record) => record.sourceId !== sourceId); state.drafts.push(draft);
+        audit(state, time, principal, 'environment.draft_saved', { sourceId, cardId: request.cardId, siteId: request.siteId, version: draft.version });
+        return copy(draft);
+      });
+    },
     classification(articleId, token) { return transaction((state, time) => {
       const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead'); parse(id, articleId); resolveArticle(articleId);
       return copy(currentClassification(state, articleId));
@@ -186,30 +371,31 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     },
     receive(payload, token) {
       const request = parse(receiptSchema, payload);
+      validateOrigin(request, true);
       return transaction((state, time) => {
         const { principal } = principalFor(state, token, time); demand(principal, 'environmentWrite'); demandSite(principal, request.siteId);
         if (Date.parse(request.receivedAt) > time.getTime() + 5 * 60 * 1000) throw new EnvironmentError('Faktisk mottagning kan inte ligga i framtiden.', 422, 'future_receipt');
         const { idempotencyKey, ...input } = request;
-        const inputHash = environmentHash(input), key = environmentHash(`${principal.actor.id}:${idempotencyKey}`);
-        const previousRequest = state.requests.find((record) => record.id === key);
-        if (previousRequest && previousRequest.inputHash !== inputHash) throw new EnvironmentError('Samma spara-försök innehåller andra uppgifter.', 409, 'idempotency_conflict');
+        const inputHash = inputIdentityHash(input), key = environmentHash(`${principal.actor.id}:${idempotencyKey}`);
         const existing = state.receipts.find((record) => record.sourceId === request.sourceId);
+        const previousRequest = state.requests.find((record) => record.id === key), legacyMatch = existing && matchesLegacyPhysicalInput(existing, input);
+        if (previousRequest && previousRequest.inputHash !== inputHash && !(legacyMatch && previousRequest.receiptId === existing.id)) throw new EnvironmentError('Samma spara-försök innehåller andra uppgifter.', 409, 'idempotency_conflict');
         if (existing) {
           if (existing.siteId !== request.siteId) throw new EnvironmentError('Mottagningen tillhör en annan anläggning.', 403, 'site_forbidden');
-          if (existing.inputHash !== inputHash) throw new EnvironmentError('Mottagningen är redan registrerad och låst. En fysisk ändring kräver ett separat rättelseflöde.', 409, 'source_conflict');
+          if (existing.inputHash !== inputHash && !legacyMatch) throw new EnvironmentError('Mottagningen är redan registrerad och låst. En fysisk ändring kräver ett separat rättelseflöde.', 409, 'source_conflict');
           if (!previousRequest) state.requests.push({ id: key, inputHash, receiptId: existing.id, createdAt: time.toISOString() });
-          return copy(existing);
+          return effectiveReceipt(state, existing);
         }
-        const weights = new Map();
-        for (const row of request.rows) { resolveArticle(row.articleId); weights.set(row.articleId, (weights.get(row.articleId) ?? 0) + row.weight); }
-        const rows = [...weights].map(([articleId, value]) => ({ articleId, weight: parse(weight, Math.round(value * 1000) / 1000), classification: copy(currentClassification(state, articleId)) }));
+        const draft = state.drafts.find((record) => record.sourceId === request.sourceId);
+        if (draft) { demandSite(principal, draft.siteId); if (draft.cardId !== request.cardId || draft.siteId !== request.siteId) throw new EnvironmentError('Mottagningen stämmer inte med det sparade utkastets kort eller anläggning.', 409, 'source_conflict'); }
+        const rows = classifyRows(state, request.rows);
         const operator = { name: 'JEROC Återvinning AB', number: '5591234567', contactName: 'Miljöansvarig – DEMO', email: 'miljo@example.invalid', phone: '0100000000', demo: true, verified: false };
         const snapshot = { version: 1, ...input, rows, operator };
         const receiptId = randomUUID();
         const receipt = { id: receiptId, sourceId: request.sourceId, cardId: request.cardId, siteId: request.siteId, receivedAt: request.receivedAt,
           createdAt: time.toISOString(), createdBy: principal.user.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
-          version: 1, hash: environmentHash(snapshot), inputHash, status: 'recorded', snapshot,
-          deviations: request.incomingDocument.reference ? [] : [{ code: 'missing_document', message: request.incomingDocument.missingReason }], reportIds: [], inventoryIds: [],
+          version: 1, hash: environmentHash(snapshot), hashFormat: HASH_FORMAT, inputHash, status: 'recorded', snapshot,
+          deviations: documentDeviations(request.incomingDocument), reportIds: [], inventoryIds: [],
         };
         state.receipts.push(receipt);
         for (const row of rows) {
@@ -225,8 +411,54 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
           state.reports.push(report); receipt.reportIds.push(report.id);
         }
         state.requests.push({ id: key, inputHash, receiptId, createdAt: time.toISOString() });
+        state.drafts = state.drafts.filter((record) => record.sourceId !== request.sourceId);
         audit(state, time, principal, 'environment.received', { receiptId, cardId: request.cardId, siteId: request.siteId, sourceId: request.sourceId, hash: receipt.hash });
-        return copy(receipt);
+        return effectiveReceipt(state, receipt);
+      });
+    },
+    correct(receiptId, payload, token) {
+      parse(sourceIdSchema, receiptId);
+      const request = parse(correctionSchema, payload); validateOrigin(request, true);
+      return transaction((state, time) => {
+        const { principal } = principalFor(state, token, time); demand(principal, 'environmentWrite');
+        const original = state.receipts.find((record) => record.id === receiptId);
+        if (!original) throw new EnvironmentError('Mottagningen finns inte.', 404, 'not_found');
+        demandSite(principal, original.siteId);
+        if ((request.sourceId && request.sourceId !== original.sourceId) || (request.siteId && request.siteId !== original.siteId) || (request.cardId !== undefined && request.cardId !== original.cardId))
+          throw new EnvironmentError('En miljörättelse måste avse samma kort och anläggning som originalet.', 409, 'source_conflict');
+        if (Date.parse(request.receivedAt) > time.getTime() + 5 * 60 * 1000) throw new EnvironmentError('Faktisk mottagning kan inte ligga i framtiden.', 422, 'future_receipt');
+        const { idempotencyKey, ...input } = request;
+        const { sourceId: sourceIdentity, cardId: cardIdentity, siteId: siteIdentity, ...correctionIdentity } = input;
+        const inputHash = inputIdentityHash({ operation: 'correction', receiptId, ...correctionIdentity });
+        const key = environmentHash(`${principal.actor.id}:${idempotencyKey}`), previousRequest = state.requests.find((record) => record.id === key);
+        if (previousRequest && previousRequest.inputHash !== inputHash) throw new EnvironmentError('Samma rättelseförsök innehåller andra uppgifter.', 409, 'idempotency_conflict');
+        const priorCorrection = state.corrections.find((record) => record.receiptId === receiptId && record.inputHash === inputHash);
+        if (priorCorrection) {
+          if (!previousRequest) state.requests.push({ id: key, inputHash, receiptId, correctionId: priorCorrection.id, createdAt: time.toISOString() });
+          return effectiveReceipt(state, original);
+        }
+        const current = effectiveReceipt(state, original);
+        if (current.version !== request.expectedVersion) throw new EnvironmentError('Mottagningen har redan rättats. Läs in senaste versionen.', 409, 'version_conflict');
+        const rows = classifyRows(state, request.rows, current.snapshot.rows);
+        const { expectedVersion, reason, sourceId, cardId, siteId, ...correctedValues } = input;
+        const snapshot = { ...current.snapshot, ...correctedValues, rows, version: expectedVersion + 1, previousHash: current.hash, correctionReason: reason };
+        const correctionId = randomUUID(), hash = environmentHash(snapshot), movements = [];
+        const priorGroups = new Map(current.snapshot.rows.map((row) => [row.articleId, row]));
+        const nextGroups = new Map(rows.map((row) => [row.articleId, row]));
+        for (const articleId of new Set([...priorGroups.keys(), ...nextGroups.keys()])) {
+          const before = priorGroups.get(articleId), after = nextGroups.get(articleId), delta = Math.round(((after?.weight ?? 0) - (before?.weight ?? 0)) * 1000) / 1000;
+          if (!delta) continue;
+          const classification = after?.classification ?? before.classification;
+          movements.push({ id: randomUUID(), receiptId, correctionId, sourceId: original.sourceId, cardId: original.cardId, siteId: original.siteId,
+            articleId, wasteCode: classification.wasteCode, classification: copy(classification), weight: delta, receivedAt: request.receivedAt, createdAt: time.toISOString(), kind: 'correction' });
+        }
+        const correction = { id: correctionId, receiptId, sourceId: original.sourceId, cardId: original.cardId, siteId: original.siteId,
+          version: snapshot.version, reason, previousHash: current.hash, hash, hashFormat: HASH_FORMAT, inputHash, snapshot, inventoryMovements: movements, deviations: documentDeviations(snapshot.incomingDocument),
+          createdAt: time.toISOString(), createdBy: principal.user.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id };
+        state.corrections.push(correction); state.requests.push({ id: key, inputHash, receiptId, correctionId, createdAt: time.toISOString() });
+        audit(state, time, principal, 'environment.corrected', { receiptId, correctionId, sourceId: original.sourceId, cardId: original.cardId, siteId: original.siteId,
+          version: correction.version, hash, previousHash: current.hash, reason });
+        return effectiveReceipt(state, original);
       });
     },
   };

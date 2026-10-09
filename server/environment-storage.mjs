@@ -11,16 +11,16 @@ export class EnvironmentError extends Error {
 export const ENVIRONMENT_DEMO_GENERATION = 'demo-weighings-2026-10-09-v2';
 export const initialEnvironmentState = () => ({
   schemaVersion: 1, revision: 0, demoGeneration: ENVIRONMENT_DEMO_GENERATION,
-  credentials: [], sessions: [], classifications: [], receipts: [], inventory: [],
+  credentials: [], sessions: [], classifications: [], drafts: [], receipts: [], corrections: [], inventory: [],
   reports: [], requests: [], audit: [], loginAttempts: [],
 });
-const entities = ['credentials', 'sessions', 'classifications', 'receipts', 'inventory', 'reports', 'requests', 'audit'];
+const entities = ['credentials', 'sessions', 'classifications', 'drafts', 'receipts', 'corrections', 'inventory', 'reports', 'requests', 'audit'];
 const table = (name) => `jeroc_environment_${name}`;
 const metadata = (state) => Object.fromEntries(Object.entries(state).filter(([key]) => !entities.includes(key)));
 const entityKey = (name, value) => name === 'credentials' ? value.userId
   : name === 'sessions' ? value.tokenHash
     : name === 'classifications' ? `${value.articleId}:${value.version}` : value.id;
-const immutableEntities = ['classifications', 'receipts', 'inventory', 'audit'];
+const immutableEntities = ['classifications', 'receipts', 'corrections', 'inventory', 'audit'];
 function demandImmutable(state, previous, allowRewrite) {
   if (allowRewrite) return;
   for (const name of immutableEntities) {
@@ -37,7 +37,7 @@ function migrateState(state) {
   // Explicitly authorized weighing-demo reset. Master classifications and
   // personal credentials/session records survive, and the reset runs once.
   if (state.demoGeneration !== ENVIRONMENT_DEMO_GENERATION) {
-    state.receipts = []; state.inventory = []; state.reports = [];
+    state.drafts = []; state.receipts = []; state.corrections = []; state.inventory = []; state.reports = [];
     state.requests = []; state.audit = [];
     state.demoGeneration = ENVIRONMENT_DEMO_GENERATION;
     state.revision += 1;
@@ -48,6 +48,8 @@ function migrateState(state) {
 function decodeBackup(value) {
   let state;
   try { state = JSON.parse(value); } catch { throw new EnvironmentError('Säkerhetskopian är ogiltig.'); }
+  // Older Etapp 1 backups legitimately have no drafts/corrections yet.
+  if (state && state.schemaVersion === 1) { state.drafts ??= []; state.corrections ??= []; }
   if (!state || state.schemaVersion !== 1 || entities.some((name) => !Array.isArray(state[name])))
     throw new EnvironmentError('Säkerhetskopians struktur eller version är ogiltig.');
   if (new Set(state.receipts.map((receipt) => receipt.sourceId)).size !== state.receipts.length)
@@ -55,6 +57,8 @@ function decodeBackup(value) {
   const receipts = new Set(state.receipts.map((receipt) => receipt.id));
   if ([...state.inventory, ...state.reports].some((record) => !receipts.has(record.receiptId)))
     throw new EnvironmentError('Säkerhetskopian saknar en mottagning.');
+  if (state.corrections.some((record) => !receipts.has(record.receiptId)) || new Set(state.corrections.map((record) => `${record.receiptId}:${record.version}`)).size !== state.corrections.length)
+    throw new EnvironmentError('Säkerhetskopians miljörättelser är ogiltiga.');
   return migrateState(state);
 }
 
@@ -65,6 +69,7 @@ export async function createEnvironmentRepository({ env = process.env, filename 
     'Miljöunderlag behöver PostgreSQL. Lägg till DATABASE_URL i Render.', 503, 'setup_required',
   );
   const migration = await readFile(fileURLToPath(new URL('./migrations/environment-001.sql', import.meta.url)), 'utf8');
+  const followupMigration = await readFile(fileURLToPath(new URL('./migrations/environment-002.sql', import.meta.url)), 'utf8');
   let repository;
   if (env.DATABASE_URL) {
     const { Pool } = await import('pg');
@@ -76,6 +81,7 @@ export async function createEnvironmentRepository({ env = process.env, filename 
       // Serialize first deployment migrations across multiple server instances.
       await migrationClient.query('SELECT pg_advisory_xact_lock(1803299841)');
       await migrationClient.query(migration);
+      await migrationClient.query(followupMigration);
       await migrationClient.query('INSERT INTO jeroc_environment_meta (id, data) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING', [JSON.stringify(metadata(initialEnvironmentState()))]);
       await migrationClient.query('COMMIT');
     } catch (error) {
@@ -110,6 +116,7 @@ export async function createEnvironmentRepository({ env = process.env, filename 
             const key = entityKey(name, record), serialized = JSON.stringify(record);
             if (previous[name].get(key) === serialized) continue;
             if (name === 'receipts') await client.query(`INSERT INTO ${table(name)} (id, source_id, data) VALUES ($1, $2, $3::jsonb) ON CONFLICT (id) DO UPDATE SET source_id = EXCLUDED.source_id, data = EXCLUDED.data`, [key, record.sourceId, serialized]);
+            else if (name === 'corrections') await client.query(`INSERT INTO ${table(name)} (id, receipt_id, version, data) VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`, [key, record.receiptId, record.version, serialized]);
             else if (name === 'inventory' || name === 'reports') await client.query(`INSERT INTO ${table(name)} (id, receipt_id, article_id, data) VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`, [key, record.receiptId, record.articleId, serialized]);
             else await client.query(`INSERT INTO ${table(name)} (id, data) VALUES ($1, $2::jsonb) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`, [key, serialized]);
           }
@@ -128,6 +135,7 @@ export async function createEnvironmentRepository({ env = process.env, filename 
     const database = new DatabaseSync(file);
     database.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     database.exec(migration.replaceAll('JSONB', 'TEXT'));
+    database.exec(followupMigration.replaceAll('JSONB', 'TEXT'));
     database.prepare('INSERT OR IGNORE INTO jeroc_environment_meta (id, data) VALUES (1, ?)').run(JSON.stringify(metadata(initialEnvironmentState())));
     await chmod(file, 0o600);
     let tail = Promise.resolve();
@@ -157,6 +165,7 @@ export async function createEnvironmentRepository({ env = process.env, filename 
               const key = entityKey(name, record), serialized = JSON.stringify(record);
               if (previous[name].get(key) === serialized) continue;
               if (name === 'receipts') database.prepare(`INSERT INTO ${table(name)} (id, source_id, data) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET source_id = excluded.source_id, data = excluded.data`).run(key, record.sourceId, serialized);
+              else if (name === 'corrections') database.prepare(`INSERT INTO ${table(name)} (id, receipt_id, version, data) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET data = excluded.data`).run(key, record.receiptId, record.version, serialized);
               else if (name === 'inventory' || name === 'reports') database.prepare(`INSERT INTO ${table(name)} (id, receipt_id, article_id, data) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET data = excluded.data`).run(key, record.receiptId, record.articleId, serialized);
               else database.prepare(`INSERT INTO ${table(name)} (id, data) VALUES (?, ?) ON CONFLICT (id) DO UPDATE SET data = excluded.data`).run(key, serialized);
             }
