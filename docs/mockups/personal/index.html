@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JEROC – Personal, klickbar mockup</title>
+  <link rel="stylesheet" href="mockup.css">
+  <link rel="stylesheet" href="staffing.css">
+</head>
+<body>
+  <aside class="sidebar" aria-label="Huvudmeny">
+    <img class="logo" src="assets/jeroc-logo.png" alt="JEROC Återvinning">
+    <div class="eyebrow">KONTORSÖVERSIKT</div>
+    <nav id="navigation"></nav>
+    <div class="sidebar-bottom">
+      <div class="signed-in"><span class="avatar">AB</span><div><strong>Anna Berg</strong><small>Gruppledare · Norrtälje</small></div></div>
+      <div class="demo-label"><span></span> Designförslag · Personal</div>
+      <small>Fiktiva uppgifter · Inget sparas i appen</small>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div class="breadcrumbs">Kontoret <span>›</span> Personal <span id="crumb"></span></div>
+      <label class="global-search"><span id="search-icon"></span><input aria-label="Sök i personal" placeholder="Sök person, företag eller kompetens…" data-action="search"></label>
+      <button class="site-picker" data-action="site"><span id="building-icon"></span><span><small>Anläggning</small><strong>Alla anläggningar</strong></span><span id="down-icon"></span></button>
+    </header>
+    <div class="prototype-bar"><span>MOCKUP</span> Personal, behörigheter och bemanning <button data-action="reset">Återställ exempel</button></div>
+    <main id="content"></main>
+  </div>
+  <div id="overlay" hidden></div>
+  <div id="toast" role="status" hidden></div>
+  <script src="assets/icons.js"></script>
+  <script src="profile-views.js"></script>
+  <script src="staffing-views.js"></script>
+  <script src="mockup.js"></script>
+</body>
+</html>
