@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilversion: 0.3.0. Aktuell kontorsversion: 0.8.2.
+Aktuell mobilversion: 0.3.0. Aktuell kontorsversion: 0.8.3.
 Punkterna 001–042 är genomförda; 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
@@ -918,3 +918,9 @@ Releasekontroll 0.8.2
 22 riktade serverkontroller i PostgreSQL, fyra webbläsarflöden och
 produktionsbygget passerade. Kontrollerna täcker kundbyte, sparade dokumentval,
 bekräftelse från båda kortlägen, saknad kommun, två kassor och lagringsgränser.
+
+048 – Lägre hopfällt miljökort
+Status: Genomförd i kontorsdemo 0.8.3 enligt beställning 2026-10-09.
+- Vikt flyttas åt vänster. Lagringsstatus, Visa uppgifter och Bekräfta mottagning
+  visas på samma rad tillsammans med mottagningsstatusen på större skärmar.
+- Responsiv radbrytning på smala skärmar. Oförändrad validering och funktion.

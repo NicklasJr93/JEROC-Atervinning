@@ -1,4 +1,10 @@
-# JEROC kontorsdemo 0.8.2
+# JEROC kontorsdemo 0.8.3
+
+## Nytt i 0.8.3 – lägre hopfällt miljökort
+
+Status, vikt, lagringskontroll, Visa uppgifter och Bekräfta mottagning ligger
+på samma rad på större skärmar. Smalare skärmar radbryter innehållet. Befintlig
+validering och bekräftelseflöde är oförändrade.
 
 ## Nytt i 0.8.2 – enklare mottagningsbekräftelse
 
