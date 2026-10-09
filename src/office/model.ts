@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.6.0';
+export const OFFICE_VERSION = '0.6.1';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
   view: 'Se vägningar och kunder',

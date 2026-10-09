@@ -1,10 +1,22 @@
-# JEROC kontorsdemo 0.6.0
+# JEROC kontorsdemo 0.6.1
 
 Öppna https://jeroc-atervinning.onrender.com/kontor. Samma repository och Render-tjänst används. Befintligt byggkommando, `npm start` och Expo-token behålls. Mobilappen är fortsatt version 0.2.3 på `/`; Expo Go fungerar som tidigare.
 
 [Skärmbilder från version 0.2.0](office-demo/v0.2.0/README.md)
 
-[Kundterminaler 0.6.0: Render-databas, terminalkonton och test från mobil](terminal-demo.md)
+[Kundterminaler: Render-databas, terminalkonton och test från mobil](terminal-demo.md)
+
+## Kompakt kortvy 0.6.1
+
+Invägningskortet följer [den godkända mockupen](mockups/kontor/13_Invagning_Kundgodkannande_Attest_Sparbarhet.png): material/priser, kund/referens/ursprung och utbetalning ligger överst. Kundgodkännande, intern attest och sammanställning har egna rutor i full bredd under. Spårbarheten behåller den lodräta händelselistan med senaste händelsen överst; hela sidan scrollas när historiken blir lång.
+
+**Ny kund** öppnar ett grundformulär på kortet. Spara och välj kund kopplar kunden direkt och beräknar artikelpriserna. Öppna fullständigt kundformulär tar med ifyllda uppgifter och återvänder till samma invägning efter sparande. Behörigheter och kontroll mot befintliga organisations-/personnummer gäller i båda formulären.
+
+Kundgodkännande kan startas först när kunden, priserna, betalningsuppgifterna och en **sparad ursprungsadress** finns. Referens är valfri; osparade ändringar i referens/ursprung måste sparas före kundvisningen. Den separata ID-knappen under betalning är borttagen. Fysisk legitimation bekräftas genom kundgodkännandet på den aktuella versionen.
+
+Behörig personal kan **Attestera direkt på kortet** efter kundgodkännande. Attestgräns och egenattest kontrolleras fortsatt; terminalärenden attesteras på servern. Kundvisning och attest behåller den öppnade sidan och huvudmenyn, medan arbetsköerna uppdateras. Äldre redan färdigställda demokort kan fortfarande attesteras med det befintliga flödet. Nya och kompletterade kort börjar med kundgodkännande.
+
+Profilen och Systemadmins **Jobba som** finns längst ner i vänstermenyn. Sidhuvud, terminal-/anläggningsväljare, sökfält och arbetsköer är kompaktare. Utbetalning förblir manuell; SMS, e-post, BankID och Visma är inte anslutna. Befintlig Render-databas och miljövariabler återanvänds; inga nya inställningar behövs för denna uppdatering.
 
 ## Kundterminaler och kundgodkännanden
 
@@ -17,7 +29,7 @@ På Render kräver den nya terminaldelen PostgreSQL och servervariabeln `DATABAS
 - **Kajsa Nilsson:** granska viktkort, koppla kund, referens/ursprung, ID och betalningsuppgift. Läsa LME Cash, men inte ändra referenspriser eller artikelregler. Kundval räknar priset via servern. Knappen Beräkna priser uppdaterar ett redigerbart kort enligt reglerna på inlämningsdagen.
 - **Anna Nilsson:** attest högst 25 000 kr, egen attest spärrad, demoutbetalningar. #2039 kan attesteras; #2040 överstiger gränsen. Ingen LME-behörighet.
 - **Lars Andersson (VD):** verksamhetsmoment, artikeladministration, manuella LME-priser, kundprisregler och användare. Attest högst 100 000 kr. Kan inte ändra systemadmin eller tilldela en högre attestgräns än sin egen.
-- **Systemadmin:** välj **Jobba som** i övre högra hörnet. Den valda användarens menyer, moment, maxbelopp och egenattestregel gäller. Historiken visar både inloggad och utförande användare. Avsluta Jobba som återställer systemadminläget.
+- **Systemadmin:** öppna profilmenyn längst ner till vänster och välj **Jobba som**. Den valda användarens menyer, moment, maxbelopp och egenattestregel gäller. Historiken visar både inloggad och utförande användare. Avsluta Jobba som återställer systemadminläget.
 
 Översikten har arbetsköer, snabbåtgärder, dagstatistik och en förhandsvisning när ett kort väljs. Attest och utbetalningar har egna nyckeltal och statusfilter. Användare med rapportbehörighet kan exportera den filtrerade kön som CSV; materialpriser respekterar prisbehörigheterna.
 
@@ -39,7 +51,7 @@ Integrationshändelser för skapande, bokning, ombokning, avbokning, avbrott, p�
 
 Arbetsorderns detaljpanel kan förbereda en bokningsförfrågan med svarstid och visa kundens Ja/Nej-vy i demon. Kundens svar har en egen status och ändrar inte bokningsstatus automatiskt. Bokningsversion och giltighetstid avvisar gamla svar; ändrad tid, kund eller bokningsuppgifter gör tidigare förfrågan inaktuell. Riktiga publika svarslänkar, databas och SMS-/e-posttjänst kopplas in senare.
 
-Viktkort visar material, prisregel och kundvolym per artikel under senaste 12 månaderna. Kontaktuppgifter, referens och ursprungsadress ligger under kundkortet; betalning och ID ligger i en kompakt egen del. Referens/ursprung kan användas först efter kundval. Ursprungsadress måste fyllas i och sparas innan kortet skickas för attest; referens är valfri. Ofullständiga utkast kan sparas. Fordonsunderlaget visar infart, utfart, netto före avdrag och slutvikt.
+Viktkort visar material, prisregel och kundvolym per artikel under senaste 12 månaderna. Kontaktuppgifter, referens och ursprungsadress ligger under kundkortet; betalning ligger i en kompakt egen del. Referens/ursprung kan användas först efter kundval. Ursprungsadress måste fyllas i och sparas innan kundgodkännandet startas; referens är valfri. Ofullständiga utkast kan sparas. Fordonsunderlaget visar infart, utfart, netto före avdrag och slutvikt.
 
 ## LME, artiklar och kundpriser
 
@@ -55,7 +67,7 @@ Serverns demovolym kommer från registrerade prisunderlag, inklusive exempeldata
 
 ## Prisunderlag och spårbarhet
 
-När underlaget skickas för attest sparar servern en oföränderlig prisögonblicksbild. Senare LME- eller artikeländringar ändrar inte den. Manuella ABC-val och engångspriser sparas med pris före/efter i viktkortets historik. Om ett kort som väntar på attest behöver prisändras återgår det till komplettering. När ett återlämnat kort bereds igen sparas en ny version; den gamla finns kvar och volym dubbelräknas inte.
+När underlaget visas för kundgodkännande sparar servern en oföränderlig prisögonblicksbild. Senare LME- eller artikeländringar ändrar inte den. Manuella ABC-val och engångspriser sparas med pris före/efter i viktkortets historik. Om ett kundgodkänt kort behöver prisändras återkallas godkännandet och kortet återgår till komplettering. En ny version måste sedan visas för kunden. Gamla versioner finns kvar och volym dubbelräknas inte.
 
 Attest kontrollerar maxbelopp och egen attest. Låsta kort flyttas mellan **Invägningar**, **Attest** och **Utbetalningar**, med egna flikar **Aktiva** och **Historik**. Invägningarnas historik kan söka alla kort. Öppning och tillbakagång behåller rätt huvudmeny, filter och sökning.
 
@@ -63,7 +75,7 @@ Attest kontrollerar maxbelopp och egen attest. Låsta kort flyttas mellan **Inv�
 
 Kundlistan söker även kundnummer och registreringsnummer, filtrerar kundtyp och visar faktisk aktivitet. Kundkortet har **Översikt**, **Vägningar**, **Priser**, **Uppgifter & betalning** samt **Rättelser & saldo**. Kontaktuppgifter, referenser, ursprungsadresser, registrerade fordon och betalningsprofil kan sparas av behörig personal. Tolvmånadersstatistiken räknar frysta inlämningar och godkända rättelser; påbörjade underlag visas som öppna kort. Artikelvolym och prisnivå hålls separata per artikel.
 
-Betalningsrutan på invägningskortet har **Bankkonto**, **Swish**, **Kontant** och **Spara på saldo**. Det sista alternativet ersätter Kreditfaktura i tidigare mockuper. Bank- och Swish-fält valideras och kundens sparade profil kan hämtas. ID-kontrollen är manuell på varje kort. Ett kort med Spara på saldo blir efter attest ett låst saldokort utan betalningspost. Från historiken kan beloppet senare demoutbetalas med ett faktiskt betalningssätt. Originalets val bevaras.
+Betalningsrutan på invägningskortet har **Bankkonto**, **Swish**, **Kontant** och **Spara på saldo**. Det sista alternativet ersätter Kreditfaktura i tidigare mockuper. Bank- och Swish-fält valideras och kundens sparade profil kan hämtas. Manuell ID-kontroll bekräftas i kundgodkännandet på respektive version. Ett kort med Spara på saldo blir efter attest ett låst saldokort utan betalningspost. Från historiken kan beloppet senare demoutbetalas med ett faktiskt betalningssätt. Originalets val bevaras.
 
 Ett rättelsekort innehåller originalkort, material, plus/minus kg, orsak och underlag. Efter granskning skickas det för attest. Godkännande kontrollerar beloppsgräns, egen attest och återstående materialmängd. Minus justerar saldo och kundstatistik. Plus skapar ett separat klart utbetalningskort och påverkar statistiken en gång. Volymen korrigeras vid originalets inlämningsdatum. Originalkortet redigeras aldrig.
 
@@ -86,5 +98,7 @@ Mobilens prislista är ännu inte kopplad till servern. Gårdsappens vägningar 
 Kör `npm run test:server`, `npm test -- --workers=1`, `npm run build` och `npm run expo:check`. Starta utvecklingsservern med färsk demodata före en ny full testomgång; API-testerna delar serverns minne och några ändrar hela användarregistret. Kör dem i följd för att undvika krockar mellan testkonton. Pristesterna omfattar Cash/valuta, historiska datum, volym per artikel inklusive aktuell leverans, kundundantag, oföränderliga/versionerade prisunderlag, rättelseposter och serverns demobehörigheter. Webbtesterna omfattar kontorsflödet, Jobba som och attestgräns, LME läs/ändra, sparad prissättning och fortsatt mobilflöde.
 
 Releasekontrollen omfattar ursprungsadress före attest, preliminära gruppbokningar, flytt/tidsändring, avbruten dragning, förarurval, avmarkering, kundsvar, händelsehistorik, serverutkorg och återförsök. Verifierat för 0.5.0: 115 Playwright-kontroller (112 i hela sviten och tre tillägg), 47 servertester, produktionsbygge och Expo-typkontroll.
+
+Verifierat för **0.6.1**: 129 olika Playwright-kontroller, 64 servertester, produktionsbygge och Expo-typkontroll. Hela Playwright-sviten gav 128 godkända kontroller; en ny geometrikontroll mätte sökfältets inre input i stället för hela kontrollen. Efter rättning passerade alla fyra arbetskötester. Sparad ursprungsadress före kundgodkännande, terminalflöde, attest på samma kort, attestgränser och prisbehörigheter ingår. Kundpopupens fokus och koppling till kortet, övergång till fullständigt formulär, avbruten kundregistrering, profilmeny och växande lodrät spårbarhet har också verifierats. Kortlayout, sidhuvud och arbetsköfält har granskats i webbläsaren vid 1440 och 2056 pixels bredd.
 
 Verifierat för v0.3.0: 54 Playwright-tester (22 mobilflöden, 20 kontorsflöden och 12 rena modelltester), 38 servertester, produktionsbygge och Expo-typkontroll. Kundkortets fem flikar har granskats i webbläsaren utan JavaScriptfel eller sidöverflöde. Avräkningsnotan verifierades som en A4-PDF på en sida. Rättelser i båda riktningar, saldokvittning, historik, egen attest och unika rättelse-ID och komplettering av äldre rättelseutkast ingår i kontrollerna. Ett mobiltest kördes om efter en kollision i testverktygets artefaktmapp och passerade. Startfilerna har inte körts på Windows eller macOS här.

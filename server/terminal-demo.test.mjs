@@ -193,6 +193,23 @@ test('origin, payment, site and canonical pricing are checked server-side before
   assert.equal((await f.service.read(f.kajsa)).approvals.length, 0);
 }));
 
+test('missing or blank origin cannot start customer approval or reserve the terminal', async () => fixture(async (f) => {
+  const terminal = await f.create();
+  const device = await f.service.login({ username: terminal.username, password: 'demolosen123' });
+  const value = f.payload(9000, terminal.id);
+  for (const origin of [undefined, '', ' ', '\t\n']) {
+    await fail(() => f.service.send({ ...value, card: { ...value.card, origin } }, f.kajsa), 400);
+    const state = await f.service.read(f.kajsa);
+    assert.equal(state.approvals.length, 0);
+    assert.equal(state.terminals[0].busy, false);
+    assert.equal((await f.service.session(device.token)).approval, null);
+  }
+  const sent = await f.service.send({ ...value, card: { ...value.card, origin: 'Ängsvägen 19, Norrtälje', reference: '' } }, f.kajsa);
+  assert.equal(sent.status, 'waiting');
+  assert.equal(sent.snapshot.reference, '');
+  assert.equal((await f.service.session(device.token)).approval.id, sent.id);
+}));
+
 test('attest limits, own-attest and changed effective rights are enforced against canonical users', async () => fixture(async (f) => {
   const terminal = await f.create(), login = await f.service.login({ username: terminal.username, password: 'demolosen123' });
   const approval = await f.service.send(f.payload(9000, terminal.id), f.kajsa);

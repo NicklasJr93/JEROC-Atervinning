@@ -8,7 +8,7 @@ import './terminals.css';
 const money = (value: number) => value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK' });
 const time = (value: string) => new Date(value).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-function ApprovalVersionPreview({ approval, siteName, onClose }: { approval: TerminalApproval; siteName: string; onClose: () => void }) {
+export function ApprovalVersionPreview({ approval, siteName, onClose }: { approval: TerminalApproval; siteName: string; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const previous = document.activeElement;

@@ -39,6 +39,9 @@ test('arbetsköerna visar bara sina aktiva kort och kortdetaljer behåller rätt
   await login(page, 'Lars Andersson');
   await menu(page, 'Invägningar').click();
   await expectQueue(page, [1412, 1416, 1418], [2039, 2040, 2041, 2038]);
+  const search = await page.locator('.office-queue-search .office-search').boundingBox();
+  const filter = await page.getByLabel('Filtrera status', { exact: true }).boundingBox();
+  expect(Math.abs(search!.height - filter!.height)).toBeLessThan(1);
 
   await menu(page, 'Attest').click();
   await expectQueue(page, [2039, 2040], [1412, 1416, 1418, 2041, 2038]);
@@ -63,21 +66,34 @@ test('arbetsköerna visar bara sina aktiva kort och kortdetaljer behåller rätt
   await expectQueue(page, [2041], [2039]);
 });
 
-test('kundgodkännande och sammanställning ligger under betalningen på breda skärmar', async ({ page }, testInfo) => {
+test('kundgodkännande, attest och sammanställning har full bredd under de tre översta panelerna', async ({ page }, testInfo) => {
   await login(page, 'Lars Andersson');
   await page.goto('/kontor#/weighings/1416');
   for (const width of [1440, 2056]) {
     await page.setViewportSize({ width, height: 1000 });
+    await expect(page.getByLabel('Anläggning', { exact: true })).toBeVisible();
+    const header = await page.locator('.office-topbar').boundingBox();
+    for (const label of await page.locator('.terminal-top-selector').all()) {
+      const box = (await label.boundingBox())!, select = (await label.locator('select').boundingBox())!;
+      expect(select.y).toBeGreaterThanOrEqual(box.y);
+      expect(select.y + select.height).toBeLessThanOrEqual(box.y + box.height);
+      expect(box.y + box.height).toBeLessThanOrEqual(header!.y + header!.height);
+    }
     const customer = await page.locator('.office-card-customer').boundingBox();
+    const material = await page.locator('.office-card-material').boundingBox();
     const payment = await page.locator('.office-card-payment').boundingBox();
     const approval = await page.locator('.approval-controls').boundingBox();
     const summary = await page.locator('.office-card-summary').boundingBox();
-    expect(customer && payment && approval && summary).toBeTruthy();
+    const attest = await page.locator('.office-card-attest').boundingBox();
+    expect(material && customer && payment && approval && attest && summary).toBeTruthy();
     expect(payment!.x).toBeGreaterThanOrEqual(customer!.x + customer!.width);
-    expect(Math.abs(approval!.x - payment!.x)).toBeLessThan(1);
-    expect(Math.abs(summary!.x - payment!.x)).toBeLessThan(1);
-    expect(approval!.y).toBeGreaterThanOrEqual(payment!.y + payment!.height);
-    expect(summary!.y).toBeGreaterThanOrEqual(approval!.y + approval!.height);
+    for (const panel of [approval, attest, summary]) {
+      expect(Math.abs(panel!.x - material!.x)).toBeLessThan(1);
+      expect(Math.abs(panel!.x + panel!.width - payment!.x - payment!.width)).toBeLessThan(1);
+    }
+    expect(approval!.y).toBeGreaterThanOrEqual(Math.max(...[material, customer, payment].map(panel => panel!.y + panel!.height)));
+    expect(attest!.y).toBeGreaterThanOrEqual(approval!.y + approval!.height);
+    expect(summary!.y).toBeGreaterThanOrEqual(attest!.y + attest!.height);
   }
   await page.screenshot({ path: testInfo.outputPath('desktop-layout.png'), fullPage: true });
 });
@@ -90,11 +106,13 @@ test('attest flyttar kortet till utbetalningskön och kontorets historik visar s
   await page
     .getByRole('button', { name: 'Öppna viktkort 2039', exact: true })
     .click();
+  const before = page.url();
   await page.getByRole('button', { name: 'Attestera', exact: true }).click();
+  await expect(page).toHaveURL(before);
   await expect(page.locator('.office-title')).toContainText(
     'Klar för utbetalning',
   );
-  await expect(menu(page, 'Utbetalningar')).toHaveClass(/active/);
+  await expect(menu(page, 'Attest')).toHaveClass(/active/);
   await menu(page, 'Attest').click();
   await expectQueue(page, [2040], [2039]);
   await menu(page, 'Utbetalningar').click();

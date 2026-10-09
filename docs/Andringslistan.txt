@@ -625,5 +625,38 @@ PostgreSQL 17 i en separat lokal testdatabas. Render-databasen återstår
 att skapa och ansluta genom DATABASE_URL; inga externa integrationer
 har aktiverats.
 
+034 – KOMPAKT KONTORSKORT, KUNDPOPUP OCH ATTEST PÅ SAMMA KORT
+Status: Genomförd i kontorsdemo 0.6.1 efter godkänd mockup och byggplan.
+- Material & prissättning, Kund/referens/ursprung och Utbetalning i en
+  kompakt responsiv överrad. Kundgodkännande, Attest och Sammanställning
+  har egna rutor över hela innehållets bredd.
+- Ny kund öppnar en popup med Företag/BRF/Privatperson och grunduppgifter.
+  Spara och välj kund kopplar kunden till invägningen. Fullständigt
+  kundformulär behåller ifyllda värden och kopplingen till kortet.
+- Kund och sparad ursprungsadress krävs innan kundgodkännande börjar.
+  Referens är valfri. Osparade referens-/ursprungsändringar måste sparas.
+  Servern avvisar tom eller blank ursprungsadress innan reservation.
+- Den fristående ID-knappen under betalning tas bort. Legitimation
+  bekräftas genom kundgodkännande för den aktuella frysta versionen.
+- Behörig personal kan attestera direkt under kundgodkännandet utan att
+  byta meny. Giltigt kundgodkännande, attestgräns och egenattest gäller.
+  Kundvisning och attest behåller kortets sida; arbetsköerna uppdateras.
+- Profilen och Jobba som flyttas till vänstermenyns nedre del. Gemensamt
+  kompakt sidhuvud och jämnhöga sök-/statusfält för kontorets arbetsköer.
+- Spårbarheten har full bredd och behåller dagens lodräta händelser,
+  senaste överst. Rutan växer nedåt och sidan scrollas vid många händelser.
+- Befintliga data och terminalkonton bevaras. Mobilappen/Expo ändras inte.
+  Utbetalningar är manuella; inga externa integrationer aktiveras.
+
+Releasekontroll 0.6.1
+129 olika Playwright-kontroller passerade, 64 servertester,
+produktionsbygge och Expo-typkontroll. Hela sviten gav 128 godkända;
+en ny geometrikontroll mätte sökfältets inre input i stället för hela
+kontrollen. Efter rättning passerade arbetsköns samtliga fyra tester.
+Kontrollerna omfattar sparad ursprungsadress före kundgodkännande,
+terminalflöde, attest på samma kort, attestgränser, prisbehörigheter,
+kundpopup/fullständigt formulär, profilmeny och lodrät spårbarhet.
+Kortvyn och sidhuvudet har också granskats visuellt i webbläsaren.
+
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

@@ -4,7 +4,7 @@
 
 **Det här är en lokal demo. Ingenting skickas till kontoret.** Företag, kunder, priser och exempelvägningar är fiktiva. Demoinloggningen är till för flödestest och är inte produktionsautentisering. Använd testuppgifter.
 
-Kontorsappen är nu **0.6.0**, med egna kundterminalkonton på `/terminal` och gemensamma kundgodkännanden. [Terminaler: Render-inställning och teststeg](docs/terminal-demo.md). Gårdsappen är fortfarande en separat lokal demo; Visma, BankID, SMS och e-post är inte anslutna.
+Kontorsappen är nu **0.6.1**, med kompakt invägningskort, kundpopup och intern attest direkt under kundgodkännandet. Ursprungsadressen måste sparas före kundvisning. Egna kundterminalkonton på `/terminal` och gemensamma kundgodkännanden finns kvar. [Kontorsversionen](docs/office-demo.md) · [Terminaler: Render-inställning och teststeg](docs/terminal-demo.md). Gårdsappen är fortfarande en separat lokal demo; Visma, BankID, SMS och e-post är inte anslutna.
 
 ## Starta på Windows eller Mac
 
@@ -86,5 +86,5 @@ för att prova det nya lösenordssteget. Datorn behöver inte vara igång.
 
 ## Kontorswebben
 
-Kontorsdemo **0.3.0** finns på `/kontor`, med dashboard, Jobba som, manuella LME Cash-priser och en serverbaserad prismotor. Ingen extra Render-tjänst behövs.
+Kontorsdemo **0.6.1** finns på `/kontor`, med kompakt kortvy, kundgodkännande, inlineattest, Jobba som, manuella LME Cash-priser och en serverbaserad prismotor. Ingen extra Render-webbtjänst behövs; terminaldelen använder den redan anslutna PostgreSQL-databasen.
 [Demokonton, flöden och avgränsningar](docs/office-demo.md). Mobilappen ligger kvar på sin befintliga adress.

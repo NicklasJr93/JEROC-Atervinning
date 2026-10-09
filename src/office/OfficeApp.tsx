@@ -22,6 +22,8 @@ import {
   Truck,
   Monitor,
   ClipboardCheck,
+  ChevronDown,
+  Calculator,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
@@ -29,8 +31,10 @@ import CustomerWorkspace from './CustomerWorkspace';
 import PaymentEditor from './PaymentEditor';
 import CorrectionsWorkspace from './CorrectionsWorkspace';
 import TerminalWorkspace, { TerminalSelectors } from './TerminalWorkspace';
-import CustomerApprovalsWorkspace from './CustomerApprovalsWorkspace';
+import CustomerApprovalsWorkspace, { ApprovalVersionPreview } from './CustomerApprovalsWorkspace';
 import ApprovalControls from './ApprovalControls';
+import OfficeCardAttest from './OfficeCardAttest';
+import QuickCustomerModal from './QuickCustomerModal';
 import { useTerminalDemo } from './useTerminalDemo';
 import { terminalDemoApi } from './terminal-demo-client';
 import type { TerminalApproval } from './terminal-demo-types';
@@ -110,6 +114,16 @@ const customerName = (c: OfficeCard) =>
   c.customerSnapshot?.name ??
   initialCustomers.find((x) => x.id === c.customerId)?.name ??
   'Kund saknas';
+const cardFromApproval = (approval: TerminalApproval): OfficeCard => officeSchema.shape.cards.element.parse({
+  ...approval.snapshot.card,
+  siteId: approval.siteId,
+  customerSnapshot: approval.snapshot.customer,
+  customerApproval: {
+    id: approval.id, version: approval.version, status: approval.status, updatedAt: approval.updatedAt,
+    approvedBy: approval.approvedBy, approvedAt: approval.approvedAt,
+    attestedBy: approval.attestedBy, attestedAt: approval.attestedAt,
+  },
+});
 export function OfficeApp() {
   useEffect(() => {
     const previous = document.title;
@@ -159,6 +173,7 @@ export function OfficeApp() {
   const [priceBusy, setPriceBusy] = useState(false);
   const [pricingError, setPricingError] = useState('');
   const [search, setSearch] = useState('');
+  const [detailsDirty, setDetailsDirty] = useState(false);
   const [message, setMessage] = useState('');
   const location = useLocation(),
     navigate = useNavigate();
@@ -194,16 +209,7 @@ export function OfficeApp() {
       const existing = index < 0 ? undefined : cards[index];
       if (existing?.customerApproval?.id === approval.id && existing.customerApproval.updatedAt >= approval.updatedAt &&
         (!principalChanged || ['new', 'complement'].includes(existing.status))) continue;
-      const projected = officeSchema.shape.cards.element.parse({
-        ...approval.snapshot.card,
-        siteId: approval.siteId,
-        customerSnapshot: approval.snapshot.customer,
-        customerApproval: {
-          id: approval.id, version: approval.version, status: approval.status, updatedAt: approval.updatedAt,
-          approvedBy: approval.approvedBy, approvedAt: approval.approvedAt,
-          attestedBy: approval.attestedBy, attestedAt: approval.attestedAt,
-        },
-      });
+      const projected = cardFromApproval(approval);
       // An unchanged server review must never undo a later manual demo payment.
       if (existing?.customerApproval?.id === approval.id && ['paid', 'balance'].includes(existing.status) && approval.status === 'attested') {
         projected.status = existing.status;
@@ -244,6 +250,16 @@ export function OfficeApp() {
   const selectedApproval = selected?.customerApproval
     ? terminalDemo.state?.approvals.find(item => item.id === selected.customerApproval?.id)
     : undefined;
+  const approvalDisabledReason = !selected ? ''
+    : !selected.customerId ? 'Välj eller skapa en kund innan kundgodkännandet startas.'
+    : !selected.origin.trim() ? 'Fyll i och spara ursprungsadressen innan kundgodkännandet startas.'
+    : detailsDirty ? 'Spara referens och ursprungsadress innan kundgodkännandet startas.'
+    : !(validPaymentDetails(selected.paymentDetails) || selected.payment.trim()) ? 'Fyll i och spara betalningsuppgifterna innan kundgodkännandet startas.'
+    : !user || !can(user, 'prepare') || !can(user, 'customerApprovalRead') ? 'Du saknar behörighet att starta kundgodkännande.'
+    : !approvalMoneyVisible(user) ? 'Ekonomibehörighet eller tillgång till samtliga prislistor och kundpriser krävs för kundvisning.'
+    : priceBusy ? 'Prisunderlaget beräknas. Vänta innan kundgodkännandet startas.'
+    : blocked ? 'Uppgifterna kan inte sparas. Åtgärda lagringsfelet innan kundgodkännandet startas.'
+    : '';
   const cardSiteId = (card: OfficeCard) => card.siteId ?? (/rimbo/i.test(card.yard) ? 'rimbo' : 'norrtalje');
   const selectedSiteId = selected ? cardSiteId(selected) : siteFilter === 'all' ? 'norrtalje' : siteFilter;
   const preferredTerminalId = selectedTerminalId || terminalDemo.state?.defaults.find(item => item.userId === user?.id && item.siteId === selectedSiteId)?.terminalId ||
@@ -262,10 +278,21 @@ export function OfficeApp() {
     : undefined;
   const [documentType, setDocumentType] = useState<'settlement' | 'receipt'>();
   const [payBalance, setPayBalance] = useState(false);
+  const [attestBusy, setAttestBusy] = useState(false);
+  const [quickCustomerOpen, setQuickCustomerOpen] = useState(false);
+  const [customerCreation, setCustomerCreation] = useState<{ cardId: number; returnRoute: string; draft: OfficeCustomer; principal: string }>();
+  const [approvalPreview, setApprovalPreview] = useState<TerminalApproval>();
   useEffect(() => {
     setPayBalance(false);
     setDocumentType(undefined);
+    setQuickCustomerOpen(false);
+    setApprovalPreview(undefined);
+    setDetailsDirty(false);
   }, [selectedId, userId, actingId]);
+  useEffect(() => { setCustomerCreation(undefined); }, [userId, actingId]);
+  useEffect(() => {
+    if (location.pathname !== '/customers/new') setCustomerCreation(undefined);
+  }, [location.pathname]);
   useEffect(() => {
     let current = true;
     setPricing(undefined);
@@ -506,7 +533,7 @@ export function OfficeApp() {
         source: r.source,
         manualOverride: false,
       }));
-      update(
+      return update(
         {
           ...card,
           customerId,
@@ -543,28 +570,24 @@ export function OfficeApp() {
       setPriceBusy(false);
     }
   }
-  async function prepareCard(card: OfficeCard, terminal?: { id: string; siteId: string }) {
+  async function prepareCard(card: OfficeCard, terminal: { id: string; siteId: string }) {
     if (
       !user ||
       !actualUser ||
       !can(user, 'prepare') ||
+      !can(user, 'customerApprovalRead') ||
       priceBusy ||
       blocked ||
       !['new', 'complement'].includes(card.status) ||
       !card.customerId ||
-      (!terminal && !card.idVerified) ||
       !(
         validPaymentDetails(card.paymentDetails) || Boolean(card.payment.trim())
       )
     )
       return false;
-    if (!terminal && card.customerApproval) {
-      setMessage('Skicka den ändrade avräkningen för ett nytt kundgodkännande.');
-      return false;
-    }
-    if (!card.origin.trim()) {
+    if (!card.origin.trim() || detailsDirty || !dataRef.current.cards.find(item => item.id === card.id)?.origin.trim()) {
       setMessage(
-        'Fyll i och spara ursprungsadressen innan vägningen skickas för attest.',
+        'Fyll i och spara ursprungsadressen innan kundgodkännandet startas.',
       );
       return false;
     }
@@ -592,7 +615,7 @@ export function OfficeApp() {
           rows: card.rows.map((r) => ({
             articleId: r.articleId,
             weight: r.weight,
-            ...(can(user, 'changePrice') && (r.manualOverride || !r.source)
+            ...(can(user, 'changePrice') && !r.pricePending && (r.manualOverride || !r.source)
               ? {
                   override: {
                     price: r.price,
@@ -619,55 +642,24 @@ export function OfficeApp() {
         volumeWithDelivery: r.volumeWithDelivery ?? undefined,
         source: r.source,
       }));
-      if (terminal) {
-        const customer = dataRef.current.customers.find(item => item.id === card.customerId) ?? card.customerSnapshot;
-        if (!customer || snapshot.total == null || rows.some(row => row.pricePending)) throw new Error('Kund och fullständiga priser krävs för kundvisningen.');
-        const frozen: OfficeCard = {
-          ...card, rows, siteId: terminal.siteId, pricingSnapshotId: snapshot.id,
-          pricedAt: card.date, pricingTotal: snapshot.total, financialPending: false, pricingRowsPending: false,
-          preparedBy: user.id, customerSnapshot: customer,
-          paymentDetails: card.paymentDetails ?? customer.paymentProfile,
-        };
-        const preview = settlementPreview({ ...dataRef.current, cards: dataRef.current.cards.map(item => item.id === card.id ? { ...frozen, status: 'ready' as const } : item) }, card.id);
-        await terminalDemoApi.send({
-          card: frozen, customer, terminalId: terminal.id, siteId: terminal.siteId,
-          rows: rows.map(row => ({ articleId: row.articleId, name: articleById(row.articleId).name, weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })),
-          offset: preview.offset, correctionIds: preview.negativeCorrectionIds,
-          idempotencyKey: `review-${snapshot.id}-${terminal.id}`,
-        });
-        await terminalDemo.refresh();
-        setMessage('Avräkningen visas på kundterminalen. Inväntar kundens svar.');
-        navigate(`/customer-approvals/${card.id}`);
-        return true;
-      }
-      if (
-        update(
-          {
-            ...card,
-            rows,
-            status: 'attest',
-            preparedBy: user.id,
-            customerSnapshot: dataRef.current.customers.find(
-              (c) => c.id === card.customerId,
-            ),
-            pricingSnapshotId: snapshot.id,
-            pricedAt: card.date,
-            pricingTotal: snapshot.total ?? undefined,
-            financialPending: snapshot.total == null,
-            pricingRowsPending: snapshot.rows.some((r) => r.price == null),
-          },
-          'Underlaget färdigställt. Serverns prisögonblicksbild låst vid inlämningsdatum och skickat för attest.',
-          'prepare',
-        )
-      ) {
-        setMessage('Kortet väntar nu på attest.');
-        navigate(
-          can(user, 'attest')
-            ? `/attest/${card.id}`
-            : `/weighings/${card.id}?tab=history`,
-        );
-        return true;
-      }
+      const customer = dataRef.current.customers.find(item => item.id === card.customerId) ?? card.customerSnapshot;
+      if (!customer || snapshot.total == null || rows.some(row => row.pricePending)) throw new Error('Kund och fullständiga priser krävs för kundvisningen.');
+      const frozen: OfficeCard = {
+        ...card, rows, siteId: terminal.siteId, pricingSnapshotId: snapshot.id,
+        pricedAt: card.date, pricingTotal: snapshot.total, financialPending: false, pricingRowsPending: false,
+        preparedBy: user.id, customerSnapshot: customer,
+        paymentDetails: card.paymentDetails ?? customer.paymentProfile,
+      };
+      const preview = settlementPreview({ ...dataRef.current, cards: dataRef.current.cards.map(item => item.id === card.id ? { ...frozen, status: 'ready' as const } : item) }, card.id);
+      await terminalDemoApi.send({
+        card: frozen, customer, terminalId: terminal.id, siteId: terminal.siteId,
+        rows: rows.map(row => ({ articleId: row.articleId, name: articleById(row.articleId).name, weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })),
+        offset: preview.offset, correctionIds: preview.negativeCorrectionIds,
+        idempotencyKey: `review-${snapshot.id}-${terminal.id}`,
+      });
+      await terminalDemo.refresh();
+      setMessage('Avräkningen visas på kundterminalen. Inväntar kundens svar.');
+      return true;
     } catch (e) {
       setMessage(
         e instanceof Error ? e.message : 'Underlaget kunde inte låsas.',
@@ -676,6 +668,38 @@ export function OfficeApp() {
     } finally {
       setPriceBusy(false);
     }
+  }
+  async function attestCard(card: OfficeCard) {
+    if (!user || !actualUser || attestBusy || priceBusy || blocked || !can(user, 'attest')) return;
+    const current = dataRef.current.cards.find(item => item.id === card.id);
+    if (!current || current.status !== 'attest') return;
+    const principal = principalRef.current;
+    setAttestBusy(true);
+    try {
+      if (current.customerApproval) {
+        const attested = await terminalDemoApi.attest(current.customerApproval.id);
+        if (principalRef.current !== principal) return;
+        const live = dataRef.current;
+        if (!persist({ ...live, cards: live.cards.map(item => item.id === current.id ? cardFromApproval(attested) : item) })) return;
+        await terminalDemo.refresh();
+      } else if (!update({ ...current, status: current.paymentDetails?.method === 'balance' ? 'balance' : 'ready', approvedBy: user.id },
+        current.paymentDetails?.method === 'balance' ? 'Kortet attesterat. Beloppet sparat på kundens saldo.' : 'Kortet attesterat och klart för utbetalning.', 'attest')) return;
+      setMessage(current.paymentDetails?.method === 'balance' ? 'JEROC-attesterat. Beloppet ligger på kundens saldo.' : 'Kortet är JEROC-attesterat och klart för manuell utbetalning.');
+      // Keep the current card and its menu context; the shared queues update independently.
+    } catch (failure) {
+      if (principalRef.current === principal) setMessage(failure instanceof Error ? failure.message : 'Kortet kunde inte attesteras.');
+    } finally { setAttestBusy(false); }
+  }
+  async function returnCard(card: OfficeCard) {
+    if (!user || blocked || attestBusy || priceBusy || !can(user, 'attest')) return;
+    if (card.customerApproval) {
+      if (!can(user, 'prepare')) return;
+      try {
+        await terminalDemoApi.cancel(card.customerApproval.id);
+        await terminalDemo.refresh();
+        setMessage('Kundgodkännandet har återkallats. Komplettera kortet och visa en ny version för kunden.');
+      } catch (failure) { setMessage(failure instanceof Error ? failure.message : 'Kortet kunde inte returneras.'); }
+    } else update({ ...card, status: 'complement' }, 'Returnerat för komplettering.', 'attest');
   }
   const editable =
     selected &&
@@ -801,6 +825,29 @@ export function OfficeApp() {
       setMessage(e instanceof Error ? e.message : 'Kunden kunde inte sparas.');
       return false;
     }
+  }
+  async function selectCreatedCustomer(customer: OfficeCustomer, cardId: number, principal: string, alreadySaved = false) {
+    if (!user || blocked || !can(user, 'customers') || principalRef.current !== principal) return false;
+    const card = dataRef.current.cards.find(item => item.id === cardId);
+    if (!card || !['new', 'complement'].includes(card.status)) {
+      setMessage('Kortet är låst. Kunden kan inte kopplas till det.');
+      return false;
+    }
+    if (!alreadySaved && !await saveCustomer(customer)) return false;
+    if (principalRef.current !== principal) return false;
+    const current = dataRef.current.cards.find(item => item.id === cardId);
+    if (!current || !['new', 'complement'].includes(current.status)) return false;
+    const saved = await calculatePrices(current, customer.id, true);
+    if (!saved) return false;
+    setQuickCustomerOpen(false);
+    setMessage('Kunden är skapad och vald på invägningen.');
+    return true;
+  }
+  async function finishCustomerCreation(customer: OfficeCustomer) {
+    if (!customerCreation || !await selectCreatedCustomer(customer, customerCreation.cardId, customerCreation.principal, true)) return false;
+    navigate(customerCreation.returnRoute);
+    setCustomerCreation(undefined);
+    return true;
   }
   async function createCorrection(input: {
     cardId: number;
@@ -1154,6 +1201,26 @@ export function OfficeApp() {
             ))}
         </nav>
         <div className="office-sidebar-bottom">
+          <details className="office-profile-menu office-sidebar-profile">
+            <summary className="office-profile-toggle" aria-label="Öppna profilmeny">
+              <span className="office-avatar">{user.name.split(' ').map(name => name[0]).join('').slice(0, 2)}</span>
+              <span><strong>{user.name}</strong><small>{user.level} · Norrtälje</small></span><ChevronDown size={15} aria-hidden="true" />
+            </summary>
+            <div className="office-profile-dropdown">
+              <strong>{user.name}</strong><p>{user.level} · Kontor Norrtälje</p>
+              {actualUser?.level === 'Systemadmin' && <label className="office-work-as">Jobba som
+                <select aria-label="Jobba som" value={acting ? user.id : ''} onChange={event => {
+                  const menu = event.currentTarget.closest('details');
+                  if (menu) menu.open = false;
+                  workAs(event.target.value);
+                }}>
+                  <option value="">Systemadmin · egen behörighet</option>
+                  {data.users.filter(person => person.id !== actualUser.id).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
+                </select>
+              </label>}
+              {acting && <small>Inloggad som {actualUser!.name}. Åtgärder sparar båda namnen i historiken.</small>}
+            </div>
+          </details>
           <span className="office-online">● Kontorsdemo {OFFICE_VERSION}</span>
           <p>Norrtälje · Alla uppgifter är fiktiva</p>
           <button
@@ -1191,38 +1258,7 @@ export function OfficeApp() {
           <TerminalSelectors state={terminalDemo.state} userId={user.id} siteId={siteFilter}
             onSiteChange={setSiteFilter} terminalId={preferredTerminalId} onTerminalChange={setSelectedTerminalId}
             onRefresh={terminalDemo.refresh} onNotice={setMessage} />
-          {actualUser?.level === 'Systemadmin' && (
-            <label className="office-work-as">
-              Jobba som
-              <select
-                aria-label="Jobba som"
-                value={acting ? user.id : ''}
-                onChange={(e) => workAs(e.target.value)}
-              >
-                <option value="">Systemadmin · egen behörighet</option>
-                {data.users
-                  .filter((u) => u.id !== actualUser.id)
-                  .map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          )}
-          <div className="office-user">
-            <span className="office-avatar">
-              {user.name
-                .split(' ')
-                .map((n) => n[0])
-                .join('')
-                .slice(0, 2)}
-            </span>
-            <span>
-              <strong>{user.name}</strong>
-              <small>{user.level} · Norrtälje</small>
-            </span>
-          </div>
+
         </header>
         <div className="office-demo-notice">
           Demo · Kundterminaler och kundgodkännanden delas via servern ·
@@ -1246,6 +1282,16 @@ export function OfficeApp() {
             </button>
           </div>
         )}
+        {quickCustomerOpen && selected && can(user, 'customers') && <QuickCustomerModal data={data} user={user}
+          onSave={customer => selectCreatedCustomer(customer, selected.id, principalRef.current)}
+          onOpenFull={draft => {
+            setCustomerCreation({ cardId: selected.id, returnRoute: location.pathname + location.search, draft, principal: principalRef.current });
+            setQuickCustomerOpen(false);
+            navigate('/customers/new');
+          }} onClose={() => setQuickCustomerOpen(false)} />}
+        {approvalPreview && approvalMoneyVisible(user) && <ApprovalVersionPreview approval={approvalPreview}
+          siteName={terminalDemo.state?.sites.find(site => site.id === approvalPreview.siteId)?.name ?? approvalPreview.siteId}
+          onClose={() => setApprovalPreview(undefined)} />}
         <main className="office-main">
           {error && (
             <div className="office-alert" role="alert">
@@ -1304,8 +1350,7 @@ export function OfficeApp() {
                 </div>
               )}
               <div className="office-detail-grid">
-                <div>
-                  <section className="office-panel">
+                  <section className="office-panel office-card-material">
                     <div className="office-panel-heading">
                       <h2>Material & prissättning</h2>
                       <strong>{kilos(weight(selected))} kg</strong>
@@ -1467,70 +1512,9 @@ export function OfficeApp() {
                       </div>
                     )}
                   </section>
-                  <section className="office-panel">
-                    <h2>Spårbarhet</h2>
-                    <div className="office-process-trace">
-                      {selected.preparedBy && (
-                        <span>
-                          Förberett av{' '}
-                          <strong>
-                            {data.users.find(
-                              (u) => u.id === selected.preparedBy,
-                            )?.name ?? selected.preparedBy}
-                          </strong>
-                        </span>
-                      )}
-                      {selected.approvedBy && (
-                        <span>
-                          Attesterat av{' '}
-                          <strong>
-                            {data.users.find(
-                              (u) => u.id === selected.approvedBy,
-                            )?.name ?? selected.approvedBy}
-                          </strong>
-                        </span>
-                      )}
-                      {selected.customerApproval?.approvedAt && <span>
-                        Kundgodkännande <strong>{selected.customerApproval.approvedBy}</strong>
-                        <small>Fysisk legitimation · version {selected.customerApproval.version} · {fmt(selected.customerApproval.approvedAt)}</small>
-                      </span>}
-                      {data.payments
-                        .filter((p) => p.cardId === selected.id)
-                        .map((p) => (
-                          <span key={p.id}>
-                            Utbetalt av <strong>{p.actor}</strong>
-                            <small>
-                              {fmt(p.date)} · {p.reference}
-                            </small>
-                          </span>
-                        ))}
-                    </div>
-                    <ol className="office-audit">
-                      {selected.audit
-                        .filter(
-                          (a) =>
-                            !a.text.startsWith('Pris för') ||
-                            can(user, 'changePrice'),
-                        )
-                        .slice()
-                        .reverse()
-                        .map((a, i) => (
-                          <li key={i}>
-                            <i />
-                            <div>
-                              <strong>{safeAuditText(user, a.text)}</strong>
-                              <small>
-                                {a.actor} · {fmt(a.at)}
-                              </small>
-                            </div>
-                          </li>
-                        ))}
-                    </ol>
-                  </section>
-                </div>
-                <div>
                   <section className="office-panel office-card-customer">
                     <h2>Kund, referens & ursprung</h2>
+<div className="office-customer-picker">
                     <label>
                       Kund
                       <select
@@ -1567,6 +1551,9 @@ export function OfficeApp() {
                         ))}
                       </select>
                     </label>
+                    <button className="office-btn" disabled={blocked || priceBusy || !editable || !can(user, 'customers')} onClick={() => setQuickCustomerOpen(true)}><Plus size={16} />Ny kund</button>
+                    </div>
+                    {!selected.customerId && <div className="office-customer-empty"><Users size={26} /><strong>Ingen kund vald ännu</strong><p>Välj en befintlig kund eller skapa en ny kund direkt härifrån.</p></div>}
                     {selected.customerId && (
                       <div className="office-customer-contact">
                         <span className="office-customer-symbol">
@@ -1593,6 +1580,7 @@ export function OfficeApp() {
                       key={`${selected.id}-${selected.customerId}`}
                       card={selected}
                       customer={selectedCustomer}
+                      onDirtyChange={setDetailsDirty}
                       disabled={priceBusy || !editable || !can(user, 'prepare')}
                       save={(reference, origin) =>
                         update(
@@ -1604,7 +1592,7 @@ export function OfficeApp() {
                     />
                   </section>
                   <section className="office-panel office-card-payment">
-                    <h2>Utbetalning & ID</h2>
+                    <h2>Utbetalning</h2>
                     {can(user, 'paymentDetails') ||
                     can(user, 'pay') ||
                     can(user, 'attest') ? (
@@ -1635,38 +1623,15 @@ export function OfficeApp() {
                           : 'Betalningsuppgifter saknas'}
                       </p>
                     )}
-                    <div
-                      className={`office-id ${selected.idVerified ? 'ok' : ''}`}
-                    >
-                      <ShieldCheck size={20} />
-                      {selected.idVerified
-                        ? 'ID kontrollerat'
-                        : 'ID behöver kontrolleras'}
-                    </div>
-                    {editable &&
-                      can(user, 'verifyId') &&
-                      !selected.idVerified && (
-                        <button
-                          className="office-btn outline"
-                          disabled={priceBusy}
-                          onClick={() =>
-                            update(
-                              { ...selected, idVerified: true },
-                              'Legitimation kontrollerad manuellt och ID markerat verifierat.',
-                              'verifyId',
-                            )
-                          }
-                        >
-                          Verifiera ID
-                        </button>
-                      )}
                   </section>
                   {(can(user, 'customerApprovalRead') || can(user, 'prepare')) && <ApprovalControls
                     approval={selectedApproval}
                     state={terminalDemo.state}
                     siteId={selectedSiteId}
                     terminalId={preferredTerminalId}
-                    canSend={Boolean(editable) && can(user, 'prepare') && approvalMoneyVisible(user) && !priceBusy && Boolean(selected.customerId && selected.origin.trim()) && Boolean(validPaymentDetails(selected.paymentDetails) || selected.payment.trim())}
+                    canSend={Boolean(editable) && !approvalDisabledReason}
+                    disabledReason={approvalDisabledReason}
+                    onPreview={selectedApproval && approvalMoneyVisible(user) ? () => setApprovalPreview(selectedApproval) : undefined}
                     canConfirmId={can(user, 'prepare') && can(user, 'verifyId')}
                     canCancel={can(user, 'prepare')}
                     canSeeMoney={approvalMoneyVisible(user)}
@@ -1674,8 +1639,11 @@ export function OfficeApp() {
                     onRefresh={terminalDemo.refresh}
                     onNotice={setMessage}
                   />}
+                  <OfficeCardAttest card={selected} user={user} actualUser={actualUser!} users={data.users}
+                    approval={selectedApproval} busy={attestBusy} blocked={blocked || priceBusy}
+                    onAttest={() => attestCard(selected)} onReturn={() => returnCard(selected)} />
                   <section className="office-panel office-card-summary">
-                    <h2>Sammanställning</h2>
+                    <div className="office-summary-info"><Calculator size={28} aria-hidden="true" /><div><h2>Sammanställning</h2><p>{['ready', 'paid', 'balance'].includes(selected.status) ? 'Attesterat underlag. Utbetalningar registreras manuellt.' : 'Efter kundgodkännande och intern attest blir kortet klart för manuell utbetalning.'}</p></div></div>
                     {selected.financialPending && (
                       <p className="office-small">
                         Beloppet finns i serverns prisunderlag. En användare med
@@ -1693,125 +1661,6 @@ export function OfficeApp() {
                         {kilos(weight(selected))} kg · {selected.rows.length}{' '}
                         material
                       </p>
-                    )}
-                    {editable && !selected.customerApproval && can(user, 'prepare') && (
-                      <button
-                        className="office-btn"
-                        disabled={
-                          priceBusy ||
-                          !selected.customerId ||
-                          !selected.origin.trim() ||
-                          !selected.idVerified ||
-                          !selected.payment
-                        }
-                        onClick={() => prepareCard(selected)}
-                      >
-                        Skicka för attest <ChevronRight size={16} />
-                      </button>
-                    )}
-                    {editable &&
-                      (!selected.customerId ||
-                        !selected.origin.trim() ||
-                        !selected.idVerified ||
-                        !selected.payment) && (
-                        <p className="office-small">
-                          Välj kund, fyll i ursprungsadress och
-                          betalningsuppgifter samt kontrollera ID före attest.
-                          Referens är valfri.
-                        </p>
-                      )}
-                    {selected.status === 'attest' && can(user, 'attest') && (
-                      <>
-                        <p className="office-small">
-                          Din attestgräns: {money(user.maxAttest)} kr
-                        </p>
-                        <button
-                          className="office-btn"
-                          disabled={
-                            selected.financialPending ||
-                            amount(selected) > user.maxAttest ||
-                            (!user.ownAttest && selected.preparedBy === user.id)
-                          }
-                          onClick={async () => {
-                            if (selected.customerApproval) {
-                              try {
-                                await terminalDemoApi.attest(selected.customerApproval.id);
-                                await terminalDemo.refresh();
-                                setMessage('Kortet är JEROC-attesterat. Utbetalningen hanteras manuellt.');
-                                navigate(selected.paymentDetails?.method === 'balance' ? `/payments/${selected.id}?tab=history` : `/payments/${selected.id}`);
-                              } catch (failure) {
-                                setMessage(failure instanceof Error ? failure.message : 'Kortet kunde inte attesteras.');
-                              }
-                              return;
-                            }
-                            if (
-                              update(
-                                {
-                                  ...selected,
-                                  status:
-                                    selected.paymentDetails?.method ===
-                                    'balance'
-                                      ? 'balance'
-                                      : 'ready',
-                                  approvedBy: user.id,
-                                },
-                                selected.paymentDetails?.method === 'balance'
-                                  ? 'Kortet attesterat. Beloppet sparat på kundens saldo.'
-                                  : 'Kortet attesterat och klart för utbetalning.',
-                                'attest',
-                              )
-                            ) {
-                              setMessage(
-                                selected.paymentDetails?.method === 'balance'
-                                  ? 'Attesterat. Beloppet ligger på kundens saldo.'
-                                  : 'Attesterat. Kortet ligger under Utbetalningar.',
-                              );
-                              navigate(
-                                selected.paymentDetails?.method === 'balance'
-                                  ? `/payments/${selected.id}?tab=history`
-                                  : can(user, 'pay')
-                                    ? `/payments/${selected.id}`
-                                    : `/attest/${selected.id}?tab=history`,
-                              );
-                            }
-                          }}
-                        >
-                          Attestera
-                        </button>
-                        {amount(selected) > user.maxAttest && (
-                          <div className="office-alert">
-                            Beloppet överstiger din attestgräns. En användare
-                            med högre gräns behöver attestera.
-                          </div>
-                        )}
-                        {!user.ownAttest && selected.preparedBy === user.id && (
-                          <p>
-                            Du får inte attestera ett kort du själv förberett.
-                          </p>
-                        )}
-                        {(!selected.customerApproval || can(user, 'prepare')) && <button
-                          className="office-btn outline"
-                          onClick={async () => {
-                            if (selected.customerApproval) {
-                              try {
-                                await terminalDemoApi.cancel(selected.customerApproval.id);
-                                await terminalDemo.refresh();
-                                setMessage('Kundgodkännandet har återkallats. Komplettera kortet och visa en ny version för kunden.');
-                              } catch (failure) {
-                                setMessage(failure instanceof Error ? failure.message : 'Kortet kunde inte returneras.');
-                              }
-                              return;
-                            }
-                            update(
-                              { ...selected, status: 'complement' },
-                              'Returnerat för komplettering.',
-                              'attest',
-                            );
-                          }}
-                        >
-                          Returnera för komplettering
-                        </button>}
-                      </>
                     )}
                     {['ready', 'balance'].includes(selected.status) &&
                       can(user, 'pay') &&
@@ -1931,7 +1780,66 @@ export function OfficeApp() {
                         }}
                       />
                     )}
-                </div>
+                  <section className="office-panel office-card-audit">
+                    <h2><History size={21} aria-hidden="true" /> Spårbarhet</h2>
+                    <div className="office-process-trace">
+                      {selected.preparedBy && (
+                        <span>
+                          Förberett av{' '}
+                          <strong>
+                            {data.users.find(
+                              (u) => u.id === selected.preparedBy,
+                            )?.name ?? selected.preparedBy}
+                          </strong>
+                        </span>
+                      )}
+                      {selected.approvedBy && (
+                        <span>
+                          Attesterat av{' '}
+                          <strong>
+                            {data.users.find(
+                              (u) => u.id === selected.approvedBy,
+                            )?.name ?? selected.approvedBy}
+                          </strong>
+                        </span>
+                      )}
+                      {selected.customerApproval?.approvedAt && <span>
+                        Kundgodkännande <strong>{selected.customerApproval.approvedBy}</strong>
+                        <small>Fysisk legitimation · version {selected.customerApproval.version} · {fmt(selected.customerApproval.approvedAt)}</small>
+                      </span>}
+                      {data.payments
+                        .filter((p) => p.cardId === selected.id)
+                        .map((p) => (
+                          <span key={p.id}>
+                            Utbetalt av <strong>{p.actor}</strong>
+                            <small>
+                              {fmt(p.date)} · {p.reference}
+                            </small>
+                          </span>
+                        ))}
+                    </div>
+                    <ol className="office-audit">
+                      {selected.audit
+                        .filter(
+                          (a) =>
+                            !a.text.startsWith('Pris för') ||
+                            can(user, 'changePrice'),
+                        )
+                        .slice()
+                        .reverse()
+                        .map((a, i) => (
+                          <li key={i}>
+                            <i />
+                            <div>
+                              <strong>{safeAuditText(user, a.text)}</strong>
+                              <small>
+                                {a.actor} · {fmt(a.at)}
+                              </small>
+                            </div>
+                          </li>
+                        ))}
+                    </ol>
+                  </section>
               </div>
             </>
           ) : section === 'dashboard' ? (
@@ -2186,6 +2094,12 @@ export function OfficeApp() {
               user={user}
               actualUser={actualUser!}
               onSaveCustomer={saveCustomer}
+              newCustomerDraft={customerCreation?.draft}
+              onNewCustomerComplete={finishCustomerCreation}
+              onNewCustomerCancel={() => {
+                if (customerCreation) navigate(customerCreation.returnRoute);
+                setCustomerCreation(undefined);
+              }}
               onOpenCard={open}
               onNotice={setMessage}
               onCreateCorrection={createCorrection}
@@ -2490,14 +2404,23 @@ function DetailFields({
   customer,
   disabled,
   save,
+  onDirtyChange,
 }: {
   card: OfficeCard;
   disabled: boolean;
   customer?: OfficeCustomer;
   save: (r: string, o: string) => boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [reference, setReference] = useState(card.reference),
     [origin, setOrigin] = useState(card.origin);
+  useEffect(() => {
+    setReference(card.reference);
+    setOrigin(card.origin);
+  }, [card.reference, card.origin]);
+  useEffect(() => {
+    onDirtyChange?.(reference !== card.reference || origin !== card.origin);
+  }, [reference, origin, card.reference, card.origin, onDirtyChange]);
   return (
     <form
       onSubmit={(e) => {
@@ -2521,7 +2444,7 @@ function DetailFields({
         ))}
       </datalist>
       <label>
-        Ursprungsadress <span className="office-small">(krävs före attest)</span>
+        Ursprungsadress <span className="office-small">(krävs före kundgodkännande)</span>
         <input
           aria-label="Ursprungsadress"
           aria-describedby={!disabled ? 'office-origin-requirement' : undefined}
@@ -2538,8 +2461,10 @@ function DetailFields({
       {!disabled && (
         <p className="office-small" id="office-origin-requirement">
           {!origin.trim()
-            ? 'Ursprungsadress saknas. Fyll i och spara gatuadressen före attest.'
-            : 'Ursprungsadressen anger var materialet kommer ifrån. Spara uppgifterna före attest.'}
+            ? 'Ursprungsadress saknas. Fyll i och spara gatuadressen före kundgodkännande.'
+            : reference !== card.reference || origin !== card.origin
+              ? 'Spara ändringarna innan kundgodkännandet startas.'
+              : 'Ursprungsadressen är sparad. Referens är valfri.'}
         </p>
       )}
       <datalist id="office-origin">
@@ -2572,7 +2497,7 @@ function CorrectionForm({
     [reason, setReason] = useState(''),
     [document, setDocument] = useState('');
   return (
-    <section className="office-panel">
+    <section className="office-panel office-card-correction">
       <h2>Skapa rättelseutkast</h2>
       <form
         onSubmit={(e) => {

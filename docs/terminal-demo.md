@@ -1,4 +1,4 @@
-# JEROC kundterminaldemo 0.6.0
+# JEROC kundterminaldemo 0.6.1
 
 Terminalerna använder samma webbdomän och Node-tjänst som kontorsappen. Öppna `/kontor` på kassadatorn och `/terminal` på mobilen, iPaden eller touchskärmen. Ingen native-app eller separat terminalinstallation behövs. En framtida `.se`-domän kan kopplas till samma tjänst; sökvägen förblir `/terminal`.
 
@@ -40,10 +40,10 @@ Om `DATABASE_URL` anges lokalt används PostgreSQL även där. På Render tillå
 2. Ange exempelvis **Kassa 1**, inloggningsnamn **kassa1**, ett eget testlösenord på minst åtta tecken och rätt anläggning. Spara lösenordet separat; appen visar inte ett skapat lösenord i efterhand.
 3. Öppna `https://jeroc-atervinning.onrender.com/terminal` i mobilens eller iPadens webbläsare. Logga in med terminalkontot. Skärmen visar **Välkommen till JEROC – invänta personal**.
 4. Välj kontoristen på datorn och öppna ett redigerbart invägningskort. Koppla kund och komplettera ursprungsadress, material och betalningsuppgifter. För kundgranskningen krävs inte att ID redan har verifierats.
-5. Välj **Visa för kund**, välj den lediga terminalen på kortets anläggning och tryck **Visa på terminal**. Kontoret fryser och sparar den version kunden ska granska. Den visas automatiskt på mobilen; terminalen blir upptagen.
+5. Välj **Visa på kundterminal**, välj den lediga terminalen på kortets anläggning och tryck **Visa på terminal**. Kontoret fryser och sparar den version kunden ska granska. Den visas automatiskt på mobilen; terminalen blir upptagen. Ursprungsadressen måste vara ifylld och sparad före kundvisning.
 6. På mobilen: granska rader, belopp och säljarens intygande. Kryssa uttryckligen i att avräkningen granskats. Välj **Godkänn med legitimation → Okej**.
 7. Terminalen väntar nu på personalen. På datorn: kontrollera testflödet och välj **Bekräfta legitimation & godkännande**. Den extra dialogen bekräftar att personalen gjort kontrollen på plats. Mobilens Okej-knapp är inte ett kundgodkännande i sig.
-8. Kontoret visar **Godkänd av kund** och kortet blir tillgängligt för separat intern attest enligt attestbehörighet, beloppsgräns och egenattestregel. Terminalen återgår till välkomstläget utan att lämna kunduppgifter till nästa besökare.
+8. Kontoret visar **Godkänd av kund** och kortet blir tillgängligt för separat intern attest enligt attestbehörighet, beloppsgräns och egenattestregel. Behörig personal kan attestera direkt i **Attest**-rutan under kundgodkännandet, utan att lämna kortet. Terminalen återgår till välkomstläget utan att lämna kunduppgifter till nästa besökare.
 
 Vid ett skarpt införande ska personalen faktiskt kontrollera legitimationen. Det här testflödet skickar inget BankID-anrop och registreras som personalbekräftad demokontroll, inte BankID-verifierad identitet.
 
@@ -77,10 +77,10 @@ Vid manuell demoutbetalning jämförs belopp och kvittning med den kundgodkända
 
 ## Automatiska kontroller
 
-Layoutfix 2026-10-09: den breda kortvyn använder namngivna paneler för
-kolumnplacering. Betalning, kundgodkännande och sammanställning ligger
-samlade till höger även när en panel tillkommer. Layouten har kontrollerats
-på 1440 och 2056 pixlars skärmbredd, tillsammans med befintliga kötester.
+Layout 0.6.1: namngivna paneler håller material/priser, kund och utbetalning
+i överraden. Kundgodkännande, attest, sammanställning och lodrät spårbarhet
+har full bredd under. Profilen ligger längst ner till vänster. Layouten
+kontrolleras på 1440 och 2056 pixlars skärmbredd tillsammans med kötester.
 
 Kör server-, webb-, bygg- och Expo-kontroller enligt [kontorsdokumentationen](office-demo.md). För terminaldelen kan de riktade kontrollerna köras separat:
 

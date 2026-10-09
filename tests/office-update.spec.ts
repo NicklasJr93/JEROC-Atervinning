@@ -20,6 +20,7 @@ test('Jobba som använder Annas attestgräns och sparar båda personerna i spår
   page,
 }) => {
   await login(page, 'Systemadmin');
+  await page.getByLabel('Öppna profilmeny', { exact: true }).click();
   await page.getByLabel('Jobba som', { exact: true }).selectOption('anna');
   await expect(
     page.getByText('Jobbar som Anna Nilsson', { exact: true }),
@@ -74,6 +75,7 @@ test('Jobba som använder Annas attestgräns och sparar båda personerna i spår
   await expect(
     page.getByText('Jobbar som Anna Nilsson', { exact: true }),
   ).toBeVisible();
+  await page.getByLabel('Öppna profilmeny', { exact: true }).click();
   await page
     .getByRole('button', { name: 'Avsluta Jobba som', exact: true })
     .click();
@@ -198,7 +200,7 @@ test('manuellt Cash-pris räknar om artikelns förhandsvisning och lämnar attes
   }
 });
 
-test('kontorist utan kundprisbehörighet kan förbereda ett kort med dolda volymuppgifter', async ({
+test('kontorist utan kundprisbehörighet ser dolda volymuppgifter och kan inte starta kundvisning', async ({
   page,
 }) => {
   await login(page, 'Lars Andersson');
@@ -231,22 +233,18 @@ test('kontorist utan kundprisbehörighet kan förbereda ett kort med dolda volym
     await expect(
       page.getByText('Kundprisbehörighet krävs', { exact: true }),
     ).toBeVisible();
-    await page
-      .getByRole('button', { name: 'Verifiera ID', exact: true })
-      .click();
     await page.getByLabel('Ursprungsadress', { exact: true }).fill('Ängsvägen 19');
     await page
       .getByRole('button', { name: 'Spara referens & ursprung', exact: true })
       .click();
-    await page.getByRole('button', { name: /Skicka för attest/ }).click();
-    await expect(page.getByRole('status')).toContainText('väntar nu på attest');
+    await expect(page.getByRole('button', { name: 'Visa på kundterminal', exact: true })).toBeDisabled();
     const saved = await page.evaluate(() =>
       JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find(
         (card: { id: number }) => card.id === 1418,
       ),
     );
     expect(saved).toMatchObject({
-      status: 'attest',
+      status: 'new',
       customerId: 'customer-brf',
     });
     expect(saved.rows[0].volumeBefore).toBeUndefined();

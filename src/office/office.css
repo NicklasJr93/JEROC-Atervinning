@@ -39,16 +39,16 @@
   border-right: 1px solid #e7edf5;
   display: flex;
   flex-direction: column;
-  padding: 25px 14px;
+  padding: 20px 12px 16px;
   position: fixed;
   height: 100dvh;
   z-index: 20;
 }
 .office-logo {
   width: 166px;
-  height: 70px;
+  height: 62px;
   object-fit: contain;
-  margin: 0 auto 22px;
+  margin: 0 auto 16px;
 }
 .office-eyebrow {
   display: block;
@@ -64,14 +64,16 @@
 .office-sidebar nav {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
+  min-height: 0;
+  overflow-y: auto;
 }
 .office-sidebar nav button {
   display: flex;
   gap: 12px;
   align-items: center;
   text-align: left;
-  padding: 13px 15px;
+  padding: 11px 13px;
   border: 0;
   border-radius: 9px;
   color: #596d88;
@@ -97,8 +99,8 @@
 }
 .office-sidebar-bottom {
   margin-top: auto;
-  padding: 15px 10px 0;
-  border-top: 1px solid #e7edf5;
+  padding: 12px 8px 0;
+  flex-shrink: 0;
 }
 .office-online {
   color: #158753;
@@ -125,11 +127,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  height: 76px;
+  gap: 12px;
+  min-height: 64px;
   background: #fff;
   border-bottom: 1px solid #e7edf5;
-  padding: 0 28px;
+  padding: 8px 24px;
 }
 .office-topbar > span {
   display: flex;
@@ -184,14 +186,14 @@
   flex-shrink: 0;
 }
 .office-demo-notice {
-  padding: 8px 28px;
+  padding: 6px 24px;
   font-size: 10px;
   background: #eef7f2;
   color: #487863;
   border-bottom: 1px solid #e0ece5;
 }
 .office-main {
-  padding: 26px 28px;
+  padding: 20px 24px;
   max-width: 1660px;
   margin: auto;
 }
@@ -200,10 +202,10 @@
   gap: 20px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 22px;
+  margin-bottom: 16px;
 }
 .office-title p {
-  margin: 8px 0 0;
+  margin: 5px 0 0;
 }
 .office-date {
   font-size: 11px;
@@ -212,8 +214,8 @@
 .office-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 22px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 .office-metrics > button {
   display: flex;
@@ -222,7 +224,7 @@
   border: 1px solid #e5edf6;
   border-radius: 12px;
   background: white;
-  padding: 19px 16px;
+  padding: 16px;
   text-align: left;
   box-shadow: 0 3px 14px #223a5703;
 }
@@ -256,7 +258,7 @@
 }
 .office-metrics strong {
   display: block;
-  font-size: 28px;
+  font-size: 25px;
   line-height: 1.2;
 }
 .office-metrics em {
@@ -277,8 +279,8 @@
   background: #fff;
   border: 1px solid #e4ecf5;
   border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 18px;
+  padding: 16px;
+  margin-bottom: 14px;
   box-shadow: 0 3px 14px #223a5703;
   min-width: 0;
 }
@@ -287,7 +289,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 .office-panel-heading p {
   font-size: 11px;
@@ -467,18 +469,18 @@
 }
 .office-detail-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
 .office-detail-grid .office-panel > h2 {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .office-info {
   background: #edf5ff;
   color: #567caa;
   border-radius: 7px;
   padding: 10px;
-  margin: 12px 0;
+  margin: 10px 0;
   font-size: 10px;
 }
 .office-material {
@@ -497,7 +499,7 @@
   display: block;
   font-size: 11px;
   color: #5c718e;
-  margin: 12px 0;
+  margin: 10px 0;
 }
 .office input:not([type='checkbox']),
 .office select {
@@ -638,7 +640,7 @@
   background: #eaf7ef;
   color: #247b53;
   border-radius: 8px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 .office-message button {
   background: none;
@@ -648,7 +650,7 @@
 .office-filters {
   display: flex;
   gap: 8px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
   flex-wrap: wrap;
 }
 .office-filters button {
@@ -770,7 +772,7 @@
     width: calc(100% - 195px);
   }
   .office-main {
-    padding: 22px 18px;
+    padding: 18px;
   }
   .office-dashboard-grid {
     grid-template-columns: minmax(0, 1fr) 245px;
@@ -784,14 +786,6 @@
   }
   .office-search {
     width: 260px;
-  }
-  .office-detail-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .office-detail-grid > div:last-child {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
   }
 }
 @media (max-width: 900px) {
@@ -849,8 +843,7 @@
   .office-sidebar nav button {
     white-space: nowrap;
   }
-  .office-sidebar > .office-eyebrow,
-  .office-sidebar-bottom {
+  .office-sidebar > .office-eyebrow {
     display: none;
   }
   .office-workspace {
@@ -881,7 +874,6 @@
   .office-panel {
     padding: 15px;
   }
-  .office-detail-grid > div:last-child,
   .office-dashboard-grid > aside,
   .office-user-admin {
     display: block;
@@ -891,9 +883,6 @@
   }
   .office-table {
     min-width: 530px;
-  }
-  .office-detail-grid .office-panel {
-    overflow-x: auto;
   }
   .office-footer {
     flex-wrap: wrap;
@@ -1070,69 +1059,12 @@
 .office-scale-facts span:last-child strong {
   color: #158653;
 }
-@media (min-width: 1380px) {
-  .office-detail-grid {
-    grid-template-columns: minmax(0, 1.55fr) minmax(235px, 0.85fr) minmax(
-        215px,
-        0.8fr
-      );
-    gap: 16px;
-    align-items: start;
-  }
-  .office-detail-grid > div:first-child {
-    grid-column: 1;
-    grid-row: 1 / span 3;
-  }
-  .office-detail-grid > div:last-child {
-    display: contents;
-  }
-  .office-detail-grid > div:last-child > .office-panel {
-    grid-column: 3;
-  }
-  .office-detail-grid > div:last-child > .office-card-customer {
-    grid-column: 2;
-    grid-row: 1 / span 3;
-  }
-  .office-detail-grid > div:last-child > .office-card-payment {
-    grid-column: 3;
-    grid-row: 1;
-  }
-  .office-detail-grid > div:last-child > .approval-controls {
-    grid-column: 3;
-    grid-row: 2;
-  }
-  .office-detail-grid > div:last-child > .office-card-summary {
-    grid-column: 3;
-    grid-row: 3;
-  }
-  .office-detail-grid .office-panel {
-    padding: 18px;
-  }
-  .office-detail-grid .office-table {
-    font-size: 11px;
-  }
-  .office-detail-grid .office-table th {
-    font-size: 9px;
-  }
-  .office-detail-grid .office-material {
-    gap: 6px;
-    min-width: 110px;
-  }
-  .office-detail-grid .office-total {
-    padding: 10px;
-    flex-wrap: wrap;
-    gap: 7px;
-  }
-  .office-detail-grid .office-total strong {
-    font-size: 21px;
-  }
-}
 @media (max-width: 1000px) {
   .office-topbar {
     flex-wrap: wrap;
     height: auto;
-    min-height: 76px;
-    padding: 12px 20px;
+    min-height: 64px;
+    padding: 8px 18px;
   }
   .office-acting-banner {
     padding: 12px 20px;
@@ -1150,9 +1082,6 @@
   .office-detail-grid {
     display: block;
   }
-  .office-detail-grid > div:last-child {
-    display: block;
-  }
 }
 
 /* Working queues retain their controls while the list scrolls. */
@@ -1163,11 +1092,11 @@
 }
 .office-queue-controls {
   position: sticky;
-  top: 76px;
+  top: 64px;
   z-index: 15;
   background: #f5f8fc;
-  padding: 12px 0;
-  margin-bottom: 16px;
+  padding: 10px 0;
+  margin-bottom: 12px;
   border-bottom: 1px solid #e1e9f1;
 }
 .office-queue-controls .office-filters {
@@ -1175,14 +1104,19 @@
 }
 .office-queue-search {
   display: flex;
-  gap: 12px;
+  gap: 10px;
+  align-items: center;
 }
 .office-queue-search .office-search {
   flex: 1;
   max-width: none;
 }
-.office-queue-search select {
+.office .office-queue-search select {
   max-width: 250px;
+  height: 38px;
+  min-height: 38px;
+  margin: 0;
+  padding: 8px 10px;
 }
 .office-settlement {
   display: grid;
@@ -1323,6 +1257,461 @@
   font-size: 11px;
   color: #62748b;
 }
+
+/* Shared office layout: compact card sections and the profile in the sidebar. */
+.office .office-sidebar-profile {
+  position: relative;
+  margin: 0 0 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e7edf5;
+}
+.office .office-profile-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 7px 2px;
+  border-radius: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.office .office-profile-toggle::-webkit-details-marker {
+  display: none;
+}
+.office .office-profile-toggle > span:not(.office-avatar) {
+  min-width: 0;
+  flex: 1;
+}
+.office .office-profile-toggle strong,
+.office .office-profile-toggle small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.office .office-profile-toggle strong {
+  font-size: 11px;
+  color: #203855;
+}
+.office .office-profile-toggle small {
+  font-size: 10px;
+  margin-top: 4px;
+  color: #7387a1;
+}
+.office .office-profile-toggle > svg {
+  color: #6d829e;
+  flex-shrink: 0;
+}
+.office .office-profile-toggle:focus-visible {
+  outline: 2px solid #bed7ff;
+  outline-offset: 2px;
+}
+.office .office-profile-menu[open] .office-profile-toggle {
+  background: #f4f8ff;
+}
+.office .office-profile-dropdown {
+  position: absolute;
+  z-index: 45;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 270px;
+  max-width: calc(100vw - 28px);
+  padding: 14px;
+  border: 1px solid #dae6f6;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 35px #18385824;
+}
+.office .office-profile-dropdown > p {
+  margin: 0 0 10px;
+  font-size: 11px;
+}
+.office .office-profile-dropdown .office-work-as {
+  margin: 0;
+  min-width: 0;
+}
+.office .office-profile-dropdown .office-work-as select {
+  min-height: 38px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  font-size: 11px;
+}
+.office .office-profile-dropdown button {
+  margin-top: 8px;
+}
+.office .office-sidebar-bottom > p {
+  margin: 6px 0 8px;
+}
+.office .office-detail-grid > .office-panel {
+  margin: 0;
+  min-width: 0;
+}
+.office .office-detail-grid > .approval-controls,
+.office .office-card-attest,
+.office .office-card-summary,
+.office .office-card-audit,
+.office .office-card-correction {
+  grid-column: 1 / -1;
+}
+.office .office-detail-grid label:not(.office-search) {
+  margin: 9px 0;
+  font-size: 10px;
+}
+.office .office-detail-grid input:not([type='checkbox']),
+.office .office-detail-grid select {
+  min-height: 37px;
+  min-width: 0;
+  padding: 8px 9px;
+  margin-top: 5px;
+  font-size: 11px;
+}
+.office .office-detail-grid .office-panel-heading {
+  margin-bottom: 10px;
+}
+.office .office-card-material .office-panel-heading h2 {
+  margin-right: auto;
+}
+.office .office-card-material .office-panel-heading strong {
+  white-space: nowrap;
+}
+.office .office-card-material .office-info {
+  padding: 8px 10px;
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.office .office-card-material .office-table th,
+.office .office-card-material .office-table td {
+  padding: 10px 7px;
+}
+.office .office-card-material .office-material {
+  gap: 7px;
+  min-width: 105px;
+}
+.office .office-card-material .office-material-image {
+  width: 36px;
+  height: 40px;
+}
+.office .office-card-material .office-lock {
+  margin: 10px 0 0;
+  color: #7386a0;
+}
+.office .office-card-customer .office-customer-contact {
+  padding: 10px;
+  margin: 10px 0;
+  gap: 7px;
+}
+.office .office-customer-picker {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.office .office-detail-grid .office-customer-picker label {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+}
+.office .office-customer-picker > .office-btn {
+  flex-shrink: 0;
+  min-height: 37px;
+  margin: 0;
+  padding: 8px 9px;
+  white-space: nowrap;
+  gap: 5px;
+}
+.office .office-customer-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 112px;
+  padding: 16px 12px;
+  margin: 10px 0;
+  background: #f7faff;
+  border: 1px solid #e4edf9;
+  border-radius: 8px;
+  text-align: center;
+}
+.office .office-customer-empty > svg {
+  color: #7895b9;
+}
+.office .office-customer-empty strong {
+  font-size: 11px;
+}
+.office .office-customer-empty p {
+  margin: 0;
+  max-width: 260px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.office .office-card-customer .office-customer-contact dl {
+  margin-top: 2px;
+  gap: 5px;
+}
+.office .office-card-payment .office-payment-methods {
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.office .office-card-payment .office-payment-methods button {
+  min-height: 37px;
+  padding: 7px 8px;
+  gap: 6px;
+  font-size: 10px;
+}
+.office .office-card-payment .office-payment-methods button svg {
+  width: 16px;
+  height: 16px;
+}
+.office .office-card-payment .office-payment-fields {
+  gap: 9px;
+}
+.office .office-card-payment .office-payment-fields label {
+  margin: 0;
+}
+.office .office-card-summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.office .office-summary-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 240px;
+  flex: 1;
+}
+.office .office-summary-info > svg {
+  color: #0866ed;
+  flex-shrink: 0;
+}
+.office .office-summary-info > div {
+  min-width: 0;
+}
+.office .office-card-summary .office-summary-info h2 {
+  margin: 0;
+}
+.office .office-summary-info p {
+  margin: 4px 0 0;
+  font-size: 11px;
+}
+.office .office-card-summary .office-total {
+  gap: 24px;
+  min-width: 270px;
+  margin: 0;
+  padding: 12px 14px;
+}
+.office .office-card-summary .office-total strong {
+  font-size: 23px;
+  white-space: nowrap;
+}
+.office .office-card-summary > .office-settlement,
+.office .office-card-summary > .office-payment-editor,
+.office .office-card-summary > .office-lock,
+.office .office-card-summary > .office-small {
+  flex-basis: 100%;
+  margin: 0;
+}
+.office .office-card-summary > .office-payment-editor {
+  max-width: 640px;
+}
+.office .office-card-summary > .office-btn {
+  margin: 0;
+}
+.office .office-card-attest {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  border-left: 4px solid #0866ed;
+  padding: 13px 16px;
+}
+.office .office-attest-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 230px;
+}
+.office .office-attest-info > svg {
+  flex-shrink: 0;
+  color: #0866ed;
+}
+.office .office-attest-info h2 {
+  margin: 0;
+}
+.office .office-attest-info p {
+  margin: 4px 0 0;
+  font-size: 11px;
+}
+.office .office-attest-limit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  background: #f5f9ff;
+  border: 1px solid #e1ebfa;
+  border-radius: 8px;
+  color: #6b809e;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.office .office-attest-limit strong {
+  display: block;
+  color: #254567;
+  font-size: 13px;
+}
+.office .office-attest-action {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.office .office-attest-action .office-btn {
+  margin: 0;
+  min-height: 43px;
+  padding: 10px 18px;
+  background: #008653;
+  border-color: #008653;
+}
+.office .office-attest-action .office-btn:disabled {
+  background: #eaf0f6;
+  border-color: #eaf0f6;
+}
+.office .office-attest-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 20px;
+  font-size: 10px;
+  color: #6c7f96;
+  background: #f0f4f9;
+}
+.office .office-attest-status.ready,
+.office .office-card-attest.is-attested .office-attest-status {
+  color: #18804e;
+  background: #e9f7ef;
+}
+.office .office-card-attest.is-attested {
+  border-left-color: #18804e;
+}
+.office .office-card-audit h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.office .office-card-audit .office-process-trace:empty {
+  display: none;
+}
+.office .office-card-audit .office-process-trace {
+  margin: 8px 0 12px;
+  padding-bottom: 10px;
+}
+.office .office-card-audit .office-audit {
+  margin-top: 12px;
+  gap: 14px;
+  overflow: visible;
+}
+.office .office-card-audit .office-audit li {
+  min-width: 0;
+}
+.office .office-card-audit .office-audit li > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.office .office-card-audit .office-audit small {
+  margin-top: 3px;
+}
+.office .office-card-correction > form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+.office .office-detail-grid .office-card-correction > form > label {
+  margin: 0;
+}
+.office .office-card-correction > form > button {
+  justify-self: start;
+  margin: 0;
+}
+@media (max-width: 1000px) {
+  .office .office-queue-controls {
+    position: static;
+  }
+}
+@media (min-width: 851px) and (max-width: 1179px) {
+  .office .office-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .office .office-card-material {
+    grid-column: 1 / -1;
+  }
+}
+@media (min-width: 1180px) {
+  .office .office-detail-grid {
+    grid-template-columns: minmax(0, 1.85fr) minmax(0, 1fr) minmax(0, 0.85fr);
+    align-items: stretch;
+  }
+  .office .office-card-material {
+    grid-column: 1;
+  }
+  .office .office-card-customer {
+    grid-column: 2;
+  }
+  .office .office-card-payment {
+    grid-column: 3;
+  }
+}
+@media (max-width: 850px) {
+  .office .office-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 650px) {
+  .office .office-sidebar-bottom {
+    display: block;
+    padding: 8px 0 0;
+  }
+  .office .office-sidebar-profile {
+    max-width: 230px;
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border: 0;
+  }
+  .office .office-sidebar-bottom > .office-online,
+  .office .office-sidebar-bottom > p {
+    display: none;
+  }
+  .office .office-profile-dropdown {
+    top: calc(100% + 6px);
+    bottom: auto;
+  }
+  .office .office-queue-search {
+    flex-wrap: wrap;
+  }
+  .office .office-queue-search select {
+    max-width: none;
+    width: 100%;
+  }
+  .office .office-card-summary .office-total {
+    min-width: 0;
+    width: 100%;
+  }
+  .office .office-summary-info,
+  .office .office-attest-info {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+  .office .office-attest-action {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .office .office-card-correction > form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 @media print {
   @page {
     size: A4;
@@ -1357,5 +1746,10 @@
     min-height: 0;
     padding: 8mm;
     box-shadow: none;
+  }
+  .office .office-detail-grid,
+  .office .office-card-summary,
+  .office .office-card-attest {
+    display: block;
   }
 }

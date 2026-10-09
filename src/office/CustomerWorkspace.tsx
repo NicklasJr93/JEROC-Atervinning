@@ -56,6 +56,7 @@ import {
 } from './pricing-client';
 import PaymentEditor from './PaymentEditor';
 import { safeAuditText } from './workflow';
+import { cleanCustomerDraft, createCustomerDraft, customerDraftError } from './customer-form';
 import './customer.css';
 
 type CorrectionInput = {
@@ -70,6 +71,9 @@ export type CustomerWorkspaceProps = {
   user: OfficeUser;
   actualUser: OfficeUser;
   onSaveCustomer: (customer: OfficeCustomer) => boolean | Promise<boolean>;
+  newCustomerDraft?: OfficeCustomer;
+  onNewCustomerComplete?: (customer: OfficeCustomer) => boolean | Promise<boolean>;
+  onNewCustomerCancel?: () => void;
   onOpenCard: (id: number) => void;
   onNotice: (message: string) => void;
   onCreateCorrection: (input: CorrectionInput) => boolean | Promise<boolean>;
@@ -129,23 +133,6 @@ const hasPrices = (user: OfficeUser) =>
   can(user, 'prices') ||
   can(user, 'customerPrices') ||
   can(user, 'customerPriceEdit');
-const makeCustomer = (data: OfficeData): OfficeCustomer => ({
-  id: `customer-${crypto.randomUUID()}`,
-  name: '',
-  type: 'Företag',
-  number: '',
-  customerNumber: `K-${Math.max(1000, ...data.customers.map((c) => Number(c.customerNumber.replace(/\D/g, '')) || 0)) + 1}`,
-  phone: '',
-  email: '',
-  address: '',
-  postalCode: '',
-  city: '',
-  contactPerson: '',
-  references: [],
-  origins: [],
-  registrations: [],
-  audit: [],
-});
 const quoteVisible = (user: OfficeUser, row: QuoteRow) =>
   row.price != null &&
   (row.tier === 'Special' || row.tier === 'Eget'
@@ -246,7 +233,8 @@ function csvFile(name: string, rows: (string | number)[][]) {
   URL.revokeObjectURL(url);
 }
 export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
-  const { data, user, actualUser, onSaveCustomer, onOpenCard, onNotice } =
+  const { data, user, actualUser, onSaveCustomer, onOpenCard, onNotice,
+    newCustomerDraft, onNewCustomerComplete, onNewCustomerCancel } =
     props;
   const location = useLocation(),
     navigate = useNavigate();
@@ -265,10 +253,10 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
     [refresh, setRefresh] = useState(0);
   const [editing, setEditing] = useState(false),
     [months, setMonths] = useState(12);
-  const [freshCustomer, setFreshCustomer] = useState(() => makeCustomer(data));
+  const [freshCustomer, setFreshCustomer] = useState(() => createCustomerDraft(data, newCustomerDraft));
   useEffect(() => {
-    if (isNew) setFreshCustomer(makeCustomer(data));
-  }, [isNew]);
+    if (isNew) setFreshCustomer(createCustomerDraft(data, newCustomerDraft));
+  }, [isNew, newCustomerDraft]);
   const listQuery = new URLSearchParams();
   if (search) listQuery.set('q', search);
   if (type) listQuery.set('type', type);
@@ -350,17 +338,26 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
     if (!(await onSaveCustomer(c))) return false;
     onNotice(isNew ? 'Kunden är skapad.' : 'Kunduppgifterna är sparade.');
     setEditing(false);
-    if (isNew) navigate(`/customers/${encodeURIComponent(c.id)}?tab=details`);
+    if (isNew) {
+      if (newCustomerDraft && onNewCustomerComplete) {
+        if (!(await onNewCustomerComplete(c))) return false;
+      }
+      else navigate(`/customers/${encodeURIComponent(c.id)}?tab=details`);
+    }
     return true;
+  }
+  function cancelNewCustomer() {
+    if (newCustomerDraft && onNewCustomerCancel) onNewCustomerCancel();
+    else navigate(listUrl);
   }
   if (isNew)
     return (
       <div className="office-customers">
         <button
           className="office-link customer-back"
-          onClick={() => navigate(listUrl)}
+          onClick={cancelNewCustomer}
         >
-          <ArrowLeft size={15} /> Till kundlistan
+          <ArrowLeft size={15} /> {newCustomerDraft ? 'Till invägningen' : 'Till kundlistan'}
         </button>
         <h1>Skapa kund</h1>
         <p>
@@ -369,10 +366,12 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
         </p>
         {can(user, 'customers') ? (
           <CustomerDetails
+            key={freshCustomer.id}
             customer={freshCustomer}
+            customers={data.customers}
             user={user}
             onSave={save}
-            onCancel={() => navigate(listUrl)}
+            onCancel={cancelNewCustomer}
             fresh
           />
         ) : (
@@ -678,6 +677,7 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
         <CustomerDetails
           key={`${customer.id}/${principal}`}
           customer={customer}
+          customers={data.customers}
           user={user}
           onSave={save}
           onCancel={() => {
@@ -1307,6 +1307,7 @@ function SavedList({
 }
 function CustomerDetails({
   customer,
+  customers,
   user,
   onSave,
   onCancel,
@@ -1314,6 +1315,7 @@ function CustomerDetails({
   editing = false,
 }: {
   customer: OfficeCustomer;
+  customers: OfficeCustomer[];
   user: OfficeUser;
   onSave: (customer: OfficeCustomer) => Promise<boolean>;
   onCancel: () => void;
@@ -1332,14 +1334,16 @@ function CustomerDetails({
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!edit || busy) return;
-    if (!draft.name.trim()) {
-      setError('Ange kundens namn.');
+    const customer = cleanCustomerDraft(draft);
+    const validationError = customerDraftError(customer, customers);
+    if (validationError) {
+      setError(validationError);
       return;
     }
     setBusy(true);
     setError('');
     try {
-      if (!(await onSave({ ...draft, name: draft.name.trim() })))
+      if (!(await onSave(customer)))
         setError('Kunduppgifterna kunde inte sparas.');
     } finally {
       setBusy(false);
@@ -1464,7 +1468,12 @@ function CustomerDetails({
                   setError('Spara kundens namn innan betalningsprofilen.');
                   return false;
                 }
-                const updated = { ...draft, paymentProfile: details };
+                const updated = cleanCustomerDraft({ ...draft, paymentProfile: details });
+                const validationError = customerDraftError(updated, customers);
+                if (validationError) {
+                  setError(validationError);
+                  return false;
+                }
                 const saved = await onSave(updated);
                 if (saved) setDraft(updated);
                 return saved;

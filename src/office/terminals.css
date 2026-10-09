@@ -1,4 +1,4 @@
-.terminal-workspace-title,.terminal-title-actions,.terminal-card-heading,.terminal-card-actions,.terminal-summary,.terminal-top-selectors,.terminal-top-selector,.terminal-dialog-heading,.terminal-dialog-actions,.approval-list-tools,.approval-tabs,.approval-search,.approval-terminal-name,.approval-info-line,.approval-controls-actions,.approval-channel-options,.approval-live { display:flex; align-items:center; gap:12px; }
+.terminal-workspace-title,.terminal-title-actions,.terminal-card-heading,.terminal-card-actions,.terminal-summary,.terminal-top-selectors,.terminal-top-selector,.terminal-dialog-heading,.terminal-dialog-actions,.approval-list-tools,.approval-tabs,.approval-search,.approval-terminal-name,.approval-info-line,.approval-controls-actions,.approval-live { display:flex; align-items:center; gap:12px; }
 .terminal-workspace-title { justify-content:space-between; }
 .terminal-title-actions { flex-wrap:wrap; }
 .terminal-title-actions a { text-decoration:none; }
@@ -41,12 +41,12 @@
 .terminal-dialog label small { display:block; color:#7c8da4; line-height:1.6; margin-top:5px; }
 .terminal-error { background:#fff0ef; border:1px solid #f4d2cf; color:#b4473c; padding:10px 12px; border-radius:8px; line-height:1.5; margin:12px 0; }
 .terminal-top-selectors { margin-left:auto; gap:9px; }
-.office-topbar:has(.terminal-top-selectors) { height: auto; min-height: 76px; flex-wrap: wrap; padding-block: 10px; gap: 12px; }
+.office-topbar:has(.terminal-top-selectors) { height:64px; min-height:64px; padding-block:8px; gap:12px; }
 .office-topbar:has(.terminal-top-selectors) > .office-search { flex: 1; min-width: 170px; max-width: 320px; }
-.office label.terminal-top-selector { display:flex; align-items:center; gap:8px; margin:0; border:1px solid #e2eaf5; background:#f9fbfe; padding:7px 9px; border-radius:9px; color:#0866ed; }
-.terminal-top-selector span { min-width:110px; }
+.office .office-topbar label.terminal-top-selector { display:flex; flex-direction:row; align-items:center; gap:8px; margin:0; height:46px; border:1px solid #e2eaf5; background:#f9fbfe; padding:7px 9px; border-radius:9px; color:#0866ed; }
+.terminal-top-selector span { display:flex; flex-direction:column; min-width:110px; }
 .terminal-top-selector small { display:block; font-size:9px; color:#8392a8; line-height:1; }
-.office .terminal-top-selector select { display:block; padding:3px 14px 0 0; border:0; background:transparent; border-radius:0; margin:0; width:100%; font-size:11px; font-weight:600; }
+.office .terminal-top-selector select { display:block; min-height:0; height:22px; line-height:1.2; padding:3px 14px 0 0; border:0; background:transparent; border-radius:0; margin:0; width:100%; font-size:11px; font-weight:600; }
 .approval-live { font-size:11px; color:#70927d; white-space:nowrap; }
 .approval-list-panel { padding:0; overflow:hidden; }
 .approval-list-tools { padding:16px 18px; background:#fff; flex-wrap:wrap; border-bottom:1px solid #edf2f8; }
@@ -54,9 +54,9 @@
 .approval-tabs button { display:flex; gap:7px; background:transparent; border:0; padding:9px 12px; border-radius:6px; color:#7b8ca5; font-weight:600; }
 .approval-tabs button.active { color:#0866ed; background:#fff; box-shadow:0 2px 5px #182b4810; }
 .approval-tabs span { border-radius:20px; background:#e6edf8; font-size:10px; padding:1px 5px; }
-.office label.approval-search { display:flex; align-items:center; gap:7px; background:#f8fafd; border:1px solid #e5edf5; padding:9px 11px; border-radius:8px; margin:0 0 0 auto; min-width:230px; flex:1; }
-.office .approval-search input { border:0; padding:0; background:transparent; margin:0; outline:0; }
-.office .approval-list-tools>select,.office .approval-list-tools>input { width:auto; margin:0; padding:9px; font-size:11px; }
+.office .approval-list-tools label.approval-search { display:flex; flex-direction:row; align-items:center; gap:7px; background:#f8fafd; border:1px solid #e5edf5; padding:9px 11px; border-radius:8px; margin:0 0 0 auto; min-width:230px; height:38px; flex:1; }
+.office .approval-list-tools .approval-search input { min-height:0; height:20px; border:0; padding:0; background:transparent; margin:0; outline:0; }
+.office .approval-list-tools>select,.office .approval-list-tools>input { width:auto; min-height:38px; height:38px; margin:0; padding:9px; font-size:11px; }
 .approval-table td { padding:17px 12px; }
 .approval-table td>strong { display:block; margin-top:4px; }
 .approval-table .approval-amount { white-space:nowrap; font-weight:650; }
@@ -65,8 +65,8 @@
 .approval-cancelled { color:#7a879c; background:#f0f3f8; }
 .approval-terminal-name { font-size:11px; gap:5px; }
 .approval-change-comment { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.approval-version-facts { display:grid; gap:6px; margin-top:14px; }
-.approval-version-facts strong { font-size:22px; color:#168350; }
+.approval-version-facts { display:flex; align-items:center; flex-wrap:wrap; gap:9px 16px; margin-top:9px; color:#607997; font-size:11px; }
+.approval-version-facts strong { font-size:13px; color:#168350; }
 .approval-version-facts small { font-size:10px; color:#8997ab; }
 .approval-info-line { align-items:flex-start; gap:7px; font-size:11px; }
 .approval-info-line svg { flex-shrink:0; margin-top:2px; }
@@ -76,12 +76,28 @@
 .approval-change-request p { color:#725f53; margin-bottom:6px; }
 .approval-change-request small { display:block; color:#9e8c7e; font-size:10px; }
 .approval-controls-actions { flex-wrap:wrap; gap:6px; }
-.approval-send-panel { padding:16px; background:#f8fbff; border:1px solid #e1eaf7; border-radius:9px; margin-top:15px; }
-.approval-send-panel h2 { font-size:13px; }
-.approval-channel-options { gap:6px; margin:15px 0 8px; }
-.approval-channel-options>span,.approval-channel-options>button { display:flex; flex:1; gap:5px; align-items:center; justify-content:center; border:1px solid #e1e7f0; background:#f1f4f8; color:#8b9bb0; border-radius:8px; padding:9px 5px; font-size:10px; flex-wrap:wrap; }
-.approval-channel-options>span.selected { color:#0866ed; background:#eef5ff; border-color:#b4d1fa; }
-.approval-channel-options small { display:block; font-size:8px; width:100%; text-align:center; }
+.approval-controls-actions:not(:empty) { margin-top:10px; }
+.office .approval-controls { padding:16px; margin:0; }
+.approval-controls-heading { display:flex; align-items:center; gap:12px; }
+.approval-heading-icon { display:grid; place-items:center; flex-shrink:0; width:39px; height:39px; color:#0866ed; background:#edf5ff; border-radius:50%; }
+.approval-heading-icon.approved { color:#168350; background:#e8f7ed; }
+.approval-heading-copy { flex:1; min-width:0; }
+.office .approval-heading-copy h2 { margin:0; font-size:15px; }
+.office .approval-heading-copy p { margin:4px 0 0; font-size:11px; line-height:1.45; }
+.approval-controls-heading .approval-status { gap:5px; }
+.approval-not-sent { color:#768da8; background:#f0f4fa; }
+.approval-preview { flex-shrink:0; }
+.approval-channel-tiles { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:12px; }
+.office .approval-channel-tile { display:flex; align-items:center; justify-content:center; gap:12px; min-height:60px; padding:11px 14px; border:1px solid #cce0fb; border-radius:8px; background:#f5f9ff; color:#0866ed; text-align:left; }
+.approval-channel-tile svg { flex-shrink:0; }
+.approval-channel-tile span { display:block; min-width:0; }
+.approval-channel-tile strong { display:block; font-size:12px; line-height:1.4; }
+.approval-channel-tile small { display:block; font-size:10px; line-height:1.4; margin-top:3px; color:#7898c1; }
+.office .approval-channel-tile:disabled { color:#8ba2c3; background:#f7faff; border-color:#e0eaf7; cursor:default; }
+.approval-channel-tile:disabled small { color:#91a7c2; }
+.approval-channel-tile:not(:disabled):hover { background:#eaf3ff; border-color:#9fc5f7; }
+.office .approval-requirements { margin:10px 0 0; font-size:11px; color:#8d7951; }
+.approval-send-dialog { width:min(100%,500px); }
 .approval-version-actions { display:grid; gap:10px; justify-items:start; min-width:145px; }
 .approval-version-backdrop { position:fixed; inset:0; z-index:120; display:flex; align-items:center; justify-content:center; padding:24px; background:#14294570; }
 .approval-version-dialog { width:min(100%,820px); max-height:calc(100dvh - 48px); overflow:auto; background:#fff; border-radius:16px; padding:25px; box-shadow:0 20px 60px #12243c30; }
@@ -91,4 +107,5 @@
 .approval-version-dialog .approval-version-readonly { font-size:12px; line-height:1.6; color:#66829b; border-radius:8px; padding:11px 13px; background:#f3f7fc; margin-top:20px; }
 .approval-version-dialog .approval-version-terms { color:#8a98aa; font-size:11px; margin:15px 0 0; }
 @media(max-width:1200px) { .terminal-grid { grid-template-columns:1fr; } .terminal-top-selector span { min-width:88px; } .terminal-top-selectors { gap:5px; } .terminal-workspace-title { align-items:flex-start; } }
-@media(max-width:800px) { .terminal-workspace-title { flex-direction:column; } .terminal-summary { gap:14px; padding:13px; } .terminal-service-notice { flex-wrap:wrap; } .terminal-service-notice .office-btn { margin-left:0; } .terminal-top-selectors { width:100%; margin-left:0; } .terminal-top-selector { flex:1; } .office label.approval-search { min-width:100%; margin-left:0; } .approval-list-tools>select { flex:1; } .approval-list-tools { gap:9px; } .terminal-modal-backdrop { padding:12px; } .terminal-dialog { padding:21px; } }
+@media(max-width:1000px) { .office-topbar:has(.terminal-top-selectors) { height:auto; min-height:64px; flex-wrap:wrap; } }
+@media(max-width:800px) { .terminal-workspace-title { flex-direction:column; } .terminal-summary { gap:14px; padding:13px; } .terminal-service-notice { flex-wrap:wrap; } .terminal-service-notice .office-btn { margin-left:0; } .terminal-top-selectors { width:100%; margin-left:0; } .terminal-top-selector { flex:1; } .office .approval-list-tools label.approval-search { min-width:100%; margin-left:0; } .approval-list-tools>select { flex:1; } .approval-list-tools { gap:9px; } .terminal-modal-backdrop { padding:12px; } .terminal-dialog { padding:21px; } .approval-controls-heading { flex-wrap:wrap; gap:9px; } .approval-heading-copy { min-width:calc(100% - 50px); } .approval-controls-heading .approval-status { margin-left:48px; } .approval-channel-tiles { grid-template-columns:1fr; } .office .approval-channel-tile { justify-content:flex-start; min-height:58px; } }

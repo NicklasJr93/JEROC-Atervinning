@@ -86,12 +86,14 @@ async function approvalOf(page: Page, cardId: number): Promise<TerminalApproval>
 
 async function sendToTerminal(page: Page, cardId: number, terminal: DemoTerminal) {
   await page.goto(`/kontor#/weighings/${cardId}`);
-  await page.getByRole('button', { name: /^(Visa för kund|Visa ny version för kund)$/ }).click();
+  const before = page.url();
+  await page.getByRole('button', { name: /^Visa (på kundterminal|ny version på kundterminal)$/ }).click();
   const picker = page.getByLabel('Terminal för kundgodkännande', { exact: true });
   await expect(picker.locator(`option[value="${terminal.id}"]`)).toBeEnabled();
   await picker.selectOption(terminal.id);
   await page.getByRole('button', { name: 'Visa på terminal', exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/customer-approvals/${cardId}$`));
+  await expect(page).toHaveURL(before);
+  await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Invägningar(?: \d+)?$/ })).toHaveClass(/active/);
   await expect(page.locator('.approval-controls')).toContainText('Inväntar kund');
   return approvalOf(page, cardId);
 }
@@ -188,7 +190,10 @@ test('två terminaler visar egna frysta avräkningar och personalens kontroll f�
     expect(approved.snapshot.hash).toBe(sent.snapshot.hash);
     expect((await page.request.post(`${service}/approvals/${sent.id}/confirm-id`, { data: {} })).status()).toBe(200);
     await expect(page.getByRole('button', { name: 'Attestera', exact: true })).toBeEnabled();
+    const beforeAttest = page.url();
     await page.getByRole('button', { name: 'Attestera', exact: true }).click();
+    await expect(page).toHaveURL(beforeAttest);
+    await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Kundgodkännanden(?: \d+)?$/ })).toHaveClass(/active/);
     await expect(page.locator('.office-title')).toContainText('Klar för utbetalning');
     expect((await approvalOf(page, cards[0].id)).status).toBe('attested');
     expect((await page.request.post(`${service}/approvals/${sent.id}/attest`, { data: {} })).status()).toBe(200);
@@ -222,7 +227,7 @@ test('ändringsbegäran kräver ny granskning och gamla terminalåtgärder kan i
     await expect(page.locator('.approval-change-request')).toContainText('kontrollera vågens avläsning');
     expect((await approvalOf(page, cards[0].id)).status).toBe('change_requested');
     expect((await page.request.post(`${service}/approvals/${original.id}/attest`, { data: {} })).status()).toBe(409);
-    await expect(page.getByRole('button', { name: 'Attestera', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Attestera', exact: true })).toBeDisabled();
 
     await page.getByLabel('Referens', { exact: true }).fill(`${prefix} rättad referens`);
     await page.getByRole('button', { name: 'Spara referens & ursprung', exact: true }).click();
@@ -309,5 +314,62 @@ test('en terminal tillåter en enhet åt gången och avaktivering tar bort kundv
   } finally {
     await cleanup(page, terminals, cards.map(card => card.id));
     await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('attestbehörighet utan läsning av kundgodkännandekön kan attestera en verkligt godkänd version från samma kort', async ({ page, browser, baseURL, request }) => {
+  const { data, cards, prefix } = fixture();
+  const headers = { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' };
+  const originalResponse = await request.get('/api/pricing/state', { headers });
+  expect(originalResponse.ok()).toBeTruthy();
+  const originalUsers = (await originalResponse.json()).users;
+  const attester = { id: `${prefix}-attester`, name: `${prefix} Attesterare`, level: 'Medarbetare' as const,
+    permissions: ['view', 'attest'] as const, maxAttest: 1000, ownAttest: false };
+  expect((await request.post('/api/pricing/users', { headers, data: { users: [...originalUsers, attester] } })).ok()).toBeTruthy();
+  data.users.push({ ...attester, permissions: [...attester.permissions] });
+  await page.addInitScript(value => {
+    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
+  }, data);
+  let terminal: DemoTerminal | undefined;
+  let mobile: Awaited<ReturnType<typeof mobileTerminal>> | undefined;
+  let approvalId: string | undefined;
+  try {
+    await loginOffice(page);
+    terminal = await createTerminal(page, prefix, '1');
+    mobile = await mobileTerminal(browser, baseURL!, terminal);
+    const sent = await sendToTerminal(page, cards[0].id, terminal);
+    approvalId = sent.id;
+    expect((await mobile.page.request.post(`${service}/approvals/${sent.id}/respond`, { data: { action: 'id_requested', termsAccepted: true } })).ok()).toBeTruthy();
+    expect((await page.request.post(`${service}/approvals/${sent.id}/confirm-id`, { data: {} })).ok()).toBeTruthy();
+    await expect(page.locator('.approval-controls')).toContainText('Godkänd av kund');
+    await expect.poll(async () => page.evaluate(id => JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find((card: { id: number }) => card.id === id)?.customerApproval?.status, cards[0].id)).toBe('approved');
+    await page.getByRole('button', { name: 'Byt demokonto', exact: true }).click();
+    await page.getByRole('button', { name: new RegExp(attester.name) }).click();
+    await page.goto(`/kontor#/weighings/${cards[0].id}`);
+    await expect.poll(async () => (await page.request.get(`${service}/state`)).status()).toBe(403);
+    await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Kundgodkännanden/ })).toHaveCount(0);
+    await expect(page.locator('.approval-controls')).toHaveCount(0);
+    const button = page.locator('.office-card-attest').getByRole('button', { name: 'Attestera', exact: true });
+    await expect(button).toBeEnabled();
+    const before = page.url();
+    await button.click();
+    await expect(page.locator('.office-title')).toContainText('Klar för utbetalning');
+    await expect(page).toHaveURL(before);
+    await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Invägningar(?: \d+)?$/ })).toHaveClass(/active/);
+    const cached = await page.evaluate(id => JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find((card: { id: number }) => card.id === id), cards[0].id);
+    expect(cached).toMatchObject({ status: 'ready', approvedBy: attester.id, customerApproval: { id: sent.id, status: 'attested' } });
+    await page.reload();
+    await expect(page.locator('.office-title')).toContainText('Klar för utbetalning');
+    await expect(page.locator('.office-card-attest')).toContainText('JEROC-attesterad');
+  } finally {
+    expect((await request.post(`${service}/staff-session`, { data: { actualUserId: 'admin', effectiveUserId: 'admin' } })).ok()).toBeTruthy();
+    if (approvalId) {
+      const state = await (await request.get(`${service}/state`)).json() as TerminalDemoState;
+      const approval = state.approvals.find(item => item.id === approvalId);
+      if (approval && approval.status !== 'attested') await request.post(`${service}/approvals/${approvalId}/cancel`, { data: {} });
+    }
+    if (terminal) await request.patch(`${service}/terminals/${terminal.id}`, { data: { active: false } });
+    await mobile?.context.close();
+    expect((await request.post('/api/pricing/users', { headers, data: { users: originalUsers } })).ok()).toBeTruthy();
   }
 });
