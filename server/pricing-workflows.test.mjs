@@ -266,7 +266,9 @@ test('a local Eget label matches its frozen Special source without repricing or 
   );
   assert.equal(credit.total, -84);
   assert.equal(credit.rows[0].tier, 'Special');
-  assert.equal(store.volume(source.customerId, 'copper-1', '2026-10-07'), 725);
+  // The fresh demo contains no historical seed deliveries. Only this original
+  // and its signed correction contribute to the customer's physical volume.
+  assert.equal(store.volume(source.customerId, 'copper-1', '2026-10-07'), 100);
   assert.deepEqual(store.snapshots(lars, source.cardId)[0], source);
 });
 

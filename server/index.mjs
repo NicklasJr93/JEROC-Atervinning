@@ -9,6 +9,7 @@ import { createPricingApi } from './pricing-api.mjs';
 import { createPricingStore } from './pricing.mjs';
 import { createTransportIntegrationsApi } from './transport-integrations.mjs';
 import { createTerminalDemoApi } from './terminal-demo.mjs';
+import { createEnvironmentApi } from './environment-api.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -59,6 +60,7 @@ async function handle(req, res) {
   if (await pricingApi(req, res, url)) return;
   if (await transportIntegrationsApi(req, res, url)) return;
   if (await terminalDemoApi(req, res, url)) return;
+  if (await environmentApi(req, res, url)) return;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.setHeader('Allow', 'GET, HEAD');
     reply(res, 405, 'Method not allowed');
@@ -136,6 +138,7 @@ const principalStore = createPricingStore();
 const pricingApi = createPricingApi({ store: principalStore });
 const transportIntegrationsApi = createTransportIntegrationsApi({ principalStore });
 const terminalDemoApi = createTerminalDemoApi({ principalStore });
+const environmentApi = createEnvironmentApi({ principalStore });
 const expoGo = startExpoGo({ onFailure: () => {
   console.error('Expo-servern har stannat. Startar om tjänsten.');
   stop(1);
@@ -152,7 +155,7 @@ async function stop(code = 0) {
   if (stopping) return;
   stopping = true;
   setTimeout(() => process.exit(1), 10000).unref();
-  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close()]);
+  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close(), environmentApi.close()]);
   process.exit(code);
 }
 process.on('SIGTERM', () => stop());

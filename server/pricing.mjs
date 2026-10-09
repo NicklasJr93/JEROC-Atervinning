@@ -35,6 +35,9 @@ export const permissions = [
   'transportRead',
   'transportPlan',
   'customerApprovalRead',
+  'environmentRead',
+  'environmentWrite',
+  'environmentClassify',
 ];
 const finite = z.number().finite();
 const nonnegative = finite.min(0).max(1e9);
@@ -207,6 +210,7 @@ const userSchema = z.object({
   name: text,
   level: z.enum(['Medarbetare', 'VD', 'Systemadmin']),
   permissions: z.array(z.enum(permissions)).max(permissions.length),
+  siteIds: z.array(z.enum(['norrtalje', 'rimbo'])).max(2).optional(),
   maxAttest: nonnegative,
   ownAttest: z.boolean(),
 });
@@ -291,6 +295,8 @@ function seedUsers() {
         'transportRead',
         'transportPlan',
         'customerApprovalRead',
+        'environmentRead',
+        'environmentWrite',
       ],
       maxAttest: 0,
       ownAttest: false,
@@ -311,6 +317,7 @@ function seedUsers() {
         'reports',
         'transportRead',
         'customerApprovalRead',
+        'environmentRead',
       ],
       maxAttest: 25000,
       ownAttest: false,
@@ -447,6 +454,18 @@ const articleSeeds = [
     'lead',
     15,
     [12, 10.8, 9.6],
+  ],
+  [
+    'lead-battery',
+    'bly',
+    'Blybatterier',
+    'Uttjänta blybatterier · demoartikel utan referensbilder',
+    'Hela uttjänta blybatterier som hanteras på anvisad mottagningsplats.',
+    'Litiumbatterier, lösa batterivätskor och blandat batteriavfall.',
+    [],
+    null,
+    5.625,
+    [4.5, 4.05, 3.6],
   ],
   [
     'cable',
@@ -596,61 +615,8 @@ export function createPricingStore({ now = () => new Date() } = {}) {
     note: 'Kundens avtalade exempelpris',
     ...stamp(seedPrincipal, 'Exempelavtal'),
   });
-  // Only completed/attestable deliveries count. Drafts never inflate volume.
-  for (const [cardId, customerId, rows] of [
-    [
-      '2038',
-      'customer-erik',
-      [{ articleId: 'iron', weight: 124, price: 1.92, tier: 'C' }],
-    ],
-    [
-      '2039',
-      'customer-brf',
-      [{ articleId: 'copper-mixed', weight: 230, price: 56, tier: 'C' }],
-    ],
-    [
-      '2040',
-      'customer-build',
-      [{ articleId: 'copper-1', weight: 500, price: 82, tier: 'A' }],
-    ],
-    [
-      '2041',
-      'customer-build',
-      [
-        { articleId: 'copper-1', weight: 125, price: 82, tier: 'A' },
-        { articleId: 'copper-mixed', weight: 230, price: 56, tier: 'C' },
-        { articleId: 'stainless', weight: 130, price: 14.4, tier: 'C' },
-      ],
-    ],
-  ]) {
-    const snapshotId = randomUUID();
-    const snapshot = {
-      id: snapshotId,
-      cardId,
-      customerId,
-      deliveredAt: '2026-10-07T08:41:00Z',
-      preparedBy: 'kajsa',
-      rows: copy(rows),
-      total: money(rows.reduce((sum, row) => sum + row.weight * row.price, 0)),
-      weight: rows.reduce((sum, row) => sum + row.weight, 0),
-      memoryOnly: true,
-      ...stamp(seedPrincipal, 'Befintligt demokort'),
-    };
-    state.snapshots.push(snapshot);
-    for (const row of rows)
-      state.ledger.push({
-        id: randomUUID(),
-        snapshotId,
-        cardId,
-        customerId,
-        articleId: row.articleId,
-        weightDelta: row.weight,
-        amountDelta: money(row.weight * row.price),
-        deliveredAt: snapshot.deliveredAt,
-        recordedAt: snapshot.at,
-        kind: 'delivery',
-      });
-  }
+  // Fresh demo cards have no approval or financial booking yet. Historical
+  // volumes arise from real demo workflow actions, never invented attestations.
   const can = (user, permission) =>
     permission === 'users'
       ? user.level !== 'Medarbetare'
@@ -908,6 +874,8 @@ export function createPricingStore({ now = () => new Date() } = {}) {
         'prices',
         'lmeRead',
         'articlesEdit',
+        'environmentRead',
+        'environmentClassify',
         'customerPriceEdit',
         'users',
       ].some((right) => can(principalValue.user, right))
@@ -1456,6 +1424,13 @@ export function createPricingStore({ now = () => new Date() } = {}) {
       input,
     ).users.map((user) => ({
       ...user,
+      // Older clients omitted this optional field. Preserve an existing site
+      // restriction rather than silently widening it to every demo site.
+      ...(user.siteIds !== undefined
+        ? { siteIds: [...new Set(user.siteIds)] }
+        : state.users.find((entry) => entry.id === user.id)?.siteIds !== undefined
+          ? { siteIds: copy(state.users.find((entry) => entry.id === user.id).siteIds) }
+          : {}),
       permissions:
         user.level === 'Medarbetare'
           ? [...new Set(user.permissions)]
@@ -1500,6 +1475,13 @@ export function createPricingStore({ now = () => new Date() } = {}) {
         throw new PricingError('VD får inte ändra Systemadmin-konton.', 403);
       for (const user of users) {
         const previous = state.users.find((entry) => entry.id === user.id);
+        const actorSites = principalValue.user.siteIds ?? ['norrtalje', 'rimbo'];
+        const previousSites = previous?.siteIds ?? ['norrtalje', 'rimbo'];
+        const requestedSites = user.siteIds ?? ['norrtalje', 'rimbo'];
+        const sitesChanged = !previous ||
+          JSON.stringify([...previousSites].sort()) !== JSON.stringify([...requestedSites].sort());
+        if (sitesChanged && requestedSites.some((siteId) => !actorSites.includes(siteId)))
+          throw new PricingError('VD får inte ge åtkomst till en anläggning utanför sin egen behörighet.', 403);
         if (
           user.level !== 'Systemadmin' &&
           user.maxAttest > principalValue.user.maxAttest &&
@@ -1530,6 +1512,12 @@ export function createPricingStore({ now = () => new Date() } = {}) {
     // Internal server-only lookup for a validated customer review. Never exposed
     // by the pricing API or used to grant the caller additional permissions.
     getSnapshotForApproval: (snapshotId) => copy(state.snapshots.find((entry) => entry.id === snapshotId) ?? null),
+    // Server-only metadata for environmental validation; no price privilege or
+    // pricing output is needed to record an article's physical receipt.
+    getArticleForEnvironment: (articleId) => {
+      const article = latest(state.articleHistory, (entry) => entry.id === articleId, day(now().toISOString()));
+      return article ? { id: article.id, name: article.name, active: article.active } : null;
+    },
     restoreLegacySnapshot,
     correct,
     approveCorrection: (input, principalValue) =>
