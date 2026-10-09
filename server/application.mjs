@@ -297,8 +297,9 @@ export function createApplicationService({ repository, env = process.env, projec
                 state.mobile.drafts.push(copy); mobileToOffice(state, copy, p);
               }
             } else if (domain === 'office') {
-              demand(p, 'prepare');
+              if (!can(p, 'prepare')) importConflicts += imported.cards.length;
               for (const card of imported.cards) {
+                if (!can(p, 'prepare')) continue;
                 if (!visible(p, card)) continue;
                 const index = state.office.cards.findIndex(old => old.sourceId === card.sourceId || old.id === card.id);
                 const untouched = index >= 0 && equal(state.office.cards[index], state.metadata.officeSeed?.cards.find(old => old.id === card.id));
@@ -311,10 +312,10 @@ export function createApplicationService({ repository, env = process.env, projec
             }
             if (domain === 'transport' && !equal(state.transport, state.metadata.transportSeed) && !equal(state.transport, imported)) importConflicts++;
             if (domain === 'transport' && equal(state.transport, state.metadata.transportSeed)) {
-              demand(p, 'transportPlan'); state.transport = imported;
+              if (can(p, 'transportPlan')) state.transport = imported; else importConflicts++;
             }
             if (domain !== 'transport') for (const customer of imported.customers) if (!state.office.customers.some(old => old.id === customer.id)) {
-              demand(p, 'customers');
+              if (!can(p, 'customers')) { importConflicts++; continue; }
               state.office.customers.push(officeSchema.shape.customers.removeDefault().element.parse({ ...customer, customerNumber: customer.customerNumber ?? customer.id, audit: customer.audit ?? [] }));
             }
             audit.push({ action: 'legacy.import.archived', domain, hash, actualUserId: p.actor.id, effectiveUserId: p.user.id });

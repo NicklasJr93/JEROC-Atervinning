@@ -86,3 +86,10 @@ test('restricted preparer adds a material without receiving or overwriting hidde
  const base=(await a(office,undefined,'kajsa')).data;assert.ok(base.cards.every(card=>card.rows.every(row=>row.price===0)));assert.ok(base.customers.every(customer=>!customer.paymentProfile));const next=structuredClone(base);next.cards[0].rows.push({articleId:'iron',weight:5,price:0,tier:'C',pricePending:true});
  await post(a,office,base,next,'kajsa');const saved=(await a(office)).data.cards[0];assert.equal(saved.rows.length,next.cards[0].rows.length);assert.ok(saved.rows[0].price>0);assert.equal(saved.rows.at(-1).weight,5);
 }));
+
+test('a read-only office can archive old local data without gaining write privileges or blocking login',async()=>fixture(async({a})=>{
+ const legacy=(await a(office)).data;legacy.cards[0].origin='Unprivileged import';
+ const result=await a(office,{kind:'import',data:legacy},'anna');assert.equal(result.status,200,result.error);assert.ok(result.importConflicts>0);
+ assert.notEqual((await a(office)).data.cards[0].origin,'Unprivileged import');
+ const next=structuredClone(result.data);next.cards[0].origin='Forbidden update';assert.equal((await a(office,{base:result.data,next},'anna')).status,403);
+}));

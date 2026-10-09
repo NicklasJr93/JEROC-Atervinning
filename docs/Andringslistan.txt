@@ -873,8 +873,8 @@ Status: Planerad uppdatering. Ska inte byggas i denna release.
 - Sentry för webb, server och Expo utreds/införs separat med sekretessfilter.
 
 Releasekontroll 0.8.0 / 0.3.0
-10 nya kontroller i riktig PostgreSQL och 79 riktade regressionskontroller
-passerade (89 serverkontroller totalt). Sex riktade webbläsarflöden passerade:
+11 nya kontroller i riktig PostgreSQL och 79 riktade regressionskontroller
+passerade (90 serverkontroller totalt). Sex riktade webbläsarflöden passerade:
 mobil till kontor, trasig cache, två terminaler med separat attest, omsändning
 och två planeringsflöden. Produktionsbygge och Expo-typkontroll passerade.
 Backup/återställning är enbart planerad, ingen extern leverans aktiveras.
