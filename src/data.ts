@@ -201,6 +201,8 @@ export type Customer = {
   origins: string[];
   registrations?: string[];
 };
+// Synthetic format-only identity for local demos; never verified or sent to NVV.
+export const demoPrivateIdentityNumber = '19900101-0000';
 export const initialCustomers: Customer[] = [
   {
     id: 'customer-build',
@@ -240,7 +242,7 @@ export const initialCustomers: Customer[] = [
     id: 'customer-erik',
     name: 'Erik Johansson',
     type: 'Privatperson',
-    number: 'Demo · privatperson',
+    number: demoPrivateIdentityNumber,
     phone: '070-000 45 67',
     email: '',
     references: [],

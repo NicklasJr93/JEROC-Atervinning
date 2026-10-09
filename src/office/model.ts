@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.7.2';
+export const OFFICE_VERSION = '0.7.3';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -199,6 +199,7 @@ export type OfficePayment = z.infer<typeof paymentSchema>;
 export const officeSchema = z.object({
   transportPermissionsVersion: z.number().int().min(0).max(1).default(0),
   terminalDemoPermissionsVersion: z.number().int().min(0).max(1).optional(),
+  demoPrivateIdentityVersion: z.number().int().min(0).max(1).optional(),
   weighingArticlePermissionsVersion: z.number().int().min(0).max(1).optional(),
   environmentPermissionsVersion: z.number().int().min(0).max(1).optional(),
   weighingDemoVersion: z.string().optional(),
@@ -324,6 +325,7 @@ export function seedOffice(): OfficeData {
     terminalDemoPermissionsVersion: 1,
     environmentPermissionsVersion: 1,
     weighingArticlePermissionsVersion: 1,
+    demoPrivateIdentityVersion: 1,
     weighingDemoVersion: OFFICE_WEIGHING_DEMO_VERSION,
     users,
     customers: seedOfficeCustomers(),

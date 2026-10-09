@@ -1,3 +1,4 @@
+import { demoPrivateIdentityNumber } from '../data';
 import {
   amount,
   can,
@@ -120,6 +121,8 @@ export function migrateOffice(input: unknown): OfficeData {
         payments: [],
         corrections: [],
       };
+  const migratedCustomers = parsed.customers.map(customer => parsed.demoPrivateIdentityVersion !== 1 && customer.id === 'customer-erik' && customer.number === 'Demo · privatperson'
+    ? { ...customer, number: demoPrivateIdentityNumber } : customer);
   const upgradedUsers = parsed.users.map(user => parsed.weighingArticlePermissionsVersion !== 1 && user.id === 'kajsa' && user.permissions.includes('prepare')
     ? { ...user, permissions: [...new Set([...user.permissions, 'weighingAddArticle' as const])] } : user).map((user) => ({
     ...user,
@@ -141,6 +144,8 @@ export function migrateOffice(input: unknown): OfficeData {
     terminalDemoPermissionsVersion: 1,
     environmentPermissionsVersion: 1,
     weighingArticlePermissionsVersion: 1,
+    demoPrivateIdentityVersion: 1,
+    customers: migratedCustomers,
     users: parsed.transportPermissionsVersion === 0
       ? upgradedUsers.map(user => {
           // One-time upgrade of the known demo accounts; custom users retain their rights.
@@ -152,7 +157,7 @@ export function migrateOffice(input: unknown): OfficeData {
         })
       : upgradedUsers,
     cards: parsed.cards.map((card) => {
-      const customer = parsed.customers.find(
+      const customer = migratedCustomers.find(
         (item) => item.id === card.customerId,
       );
       const withSourceId = card.sourceId ? card : { ...card, sourceId: crypto.randomUUID() };

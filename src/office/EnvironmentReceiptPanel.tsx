@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, FileText, Leaf, LockKeyhole, Pencil, Save, X } from 'lucide-react';
-import { articles } from '../data';
+import { articles, demoPrivateIdentityNumber } from '../data';
 import type { OfficeCard, OfficeCustomer, OfficeUser } from './model';
 import { environmentApi } from './environment-client';
 import type { EnvironmentalAddressResolution, EnvironmentalDraftInput, EnvironmentalParty, EnvironmentalPlace, EnvironmentalReceipt, EnvironmentalReceiptInput, EnvironmentalTransportMode, IncomingEnvironmentalDocument } from './environment-types';
@@ -39,7 +39,7 @@ const rowSignature = (rows: { articleId: string; weight: number }[]) => {
 function newForm(card: OfficeCard, customer?: OfficeCustomer): ReceiptForm {
   return {
     siteId: card.siteId ?? (card.yard.toLowerCase().includes('rimbo') ? 'rimbo' : 'norrtalje'), receivedAt: initialReceiptTime(card),
-    previousHolder: { name: customer?.name ?? '', number: customer?.number ?? '', contactName: customer?.contactPerson ?? '', email: customer?.email ?? '', phone: customer?.phone ?? '' },
+    previousHolder: { name: customer?.name ?? '', number: customer?.id === 'customer-erik' && customer.number === 'Demo · privatperson' ? demoPrivateIdentityNumber : customer?.number ?? '', contactName: customer?.contactPerson ?? '', email: customer?.email ?? '', phone: customer?.phone ?? '' },
     originAddress: card.origin || '', lastPlace: blankPlace(), nextPlace: blankPlace(), transportMode: 'road', incomingDocument: { status: 'unknown', reference: '' },
     addressResolution: { originAddress: card.origin || '', status: 'needs_address', provider: 'unresolved' },
   };
@@ -53,13 +53,16 @@ function fromInput(input: EnvironmentalDraftInput, fallback: ReceiptForm): Recei
   };
 }
 function validPlace(place: EnvironmentalPlace) { return Boolean(place.address.trim() && place.city.trim() && /^\d{5}$/.test(place.postalCode.replace(/\s/g, '')) && /^\d{4}$/.test(place.municipalityCode)); }
+function validHolderNumber(number: string) { return /^(?:\d{10}|\d{12}|[A-Z]{2}[A-Z0-9]{2,30})$/.test(number.trim().replace(/[\s-]/g, '')); }
+const holderNumberMessage = 'Ange ett giltigt org-/personnummer med 10 eller 12 siffror, eller ett utländskt nummer med landskod.';
 function Fact({ title, children, editor = false }: { title: string; children: ReactNode; editor?: boolean }) { return <div className={editor ? 'environment-row-editor' : undefined}><dt>{title}</dt><dd>{children}</dd></div>; }
 function Materials({ rows }: { rows: { articleId: string; weight: number }[] }) { return <div className="environment-material-lines">{rows.map((row, index) => <span key={`${row.articleId}/${index}`}><strong>{materialName(row.articleId)}</strong><b>{environmentWeight(row.weight)}</b></span>)}</div>; }
 
-export default function EnvironmentReceiptPanel({ card, customer, user, actualUser, onNotice, onRegistered, onOriginChange, canChangeOrigin = false }: {
+export default function EnvironmentReceiptPanel({ card, customer, user, actualUser, onNotice, onRegistered, onOriginChange, canChangeOrigin = false, guidance, onGuidanceState }: {
   card: OfficeCard; customer?: OfficeCustomer; user: OfficeUser; actualUser: OfficeUser;
   onNotice: (message: string) => void; onRegistered?: (receipt: EnvironmentalReceipt) => void;
   onOriginChange?: (origin: string) => boolean; canChangeOrigin?: boolean;
+  guidance?: 'focus' | 'muted'; onGuidanceState?: (state: { visible: boolean; received: boolean; canConfirm: boolean }) => void;
 }) {
   const { state, refresh, session } = useEnvironmentSession();
   const sourceId = card.sourceId ?? '';
@@ -90,6 +93,9 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
   const identityRef = useRef(receiptIdentity); identityRef.current = receiptIdentity;
   const dialogRef = useRef<HTMLElement>(null);
   const editable = hasEnvironmentPermission(user, 'environmentWrite');
+  const guidanceVisible = Boolean(state && (receipt || classifiedRows.length > 0));
+  const received = Boolean(receipt);
+  const canConfirm = guidanceVisible && !received && editable && Boolean(session && sourceId);
   const editing = !receipt || correcting;
   const reports = useMemo(() => state?.reports.filter(report => report.receiptId === receipt?.id) ?? [], [state?.reports, receipt?.id]);
   const site = state?.sites.find(item => item.id === form.siteId);
@@ -97,6 +103,7 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
   const snapshotForm = (value: EnvironmentalReceipt) => fromInput({ ...value.snapshot, originAddress: value.snapshot.originAddress ?? value.snapshot.lastPlace.address }, newForm(card, customer));
 
   function updateForm(updater: (previous: ReceiptForm) => ReceiptForm) { dirtyRef.current = true; setDirty(true); setError(''); setForm(updater); }
+  useEffect(() => { onGuidanceState?.({ visible: guidanceVisible, received, canConfirm }); }, [onGuidanceState, guidanceVisible, received, canConfirm]);
   useEffect(() => {
     setForm(newForm(card, customer)); setOriginEdit(card.origin || ''); setExpanded(false); setEditSection(null); setCorrecting(false); setCorrectionReason(''); setConfirmOpen(false); setShowContacts(false); setError(''); setSavedAt(''); setBusy(false);
     dirtyRef.current = false; setDirty(false); hydratedRef.current = ''; draftVersionRef.current = 0; requestKey.current = crypto.randomUUID();
@@ -108,6 +115,7 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
     if (receipt) setForm(snapshotForm(receipt));
     else if (draft) {
       const loaded = fromInput(draft.input, newForm(card, customer));
+      if (loaded.previousHolder.name === 'Erik Johansson' && loaded.previousHolder.number === 'Demo · privatperson') loaded.previousHolder = { ...loaded.previousHolder, number: demoPrivateIdentityNumber };
       // The weighing card remains the source even if another cashier changed it after this draft was saved.
       setForm(loaded.originAddress === (card.origin || '') ? loaded : { ...loaded, originAddress: card.origin || '', lastPlace: blankPlace(), addressResolution: { originAddress: card.origin || '', status: 'needs_address', provider: 'unresolved' } });
       setSavedAt(draft.updatedAt);
@@ -126,7 +134,7 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
     setForm(previous => {
       const holder = previous.previousHolder;
       if ((holder.name && holder.name !== previousCustomer?.name) || (holder.number && holder.number !== previousCustomer?.number)) return previous;
-      return { ...previous, previousHolder: { name: customer?.name ?? '', number: customer?.number ?? '', contactName: customer?.contactPerson ?? '', email: customer?.email ?? '', phone: customer?.phone ?? '' } };
+      return { ...previous, previousHolder: newForm(card, customer).previousHolder };
     });
   }, [customer, editing, receipt]);
   useEffect(() => {
@@ -159,6 +167,7 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
   }
   function validateConfirmation() {
     if (!form.previousHolder.name.trim() || !form.previousHolder.number.trim()) return 'Komplettera tidigare innehavare med namn och org-/personnummer.';
+    if (!validHolderNumber(form.previousHolder.number)) return holderNumberMessage;
     if (!form.originAddress.trim() || form.addressResolution.status !== 'resolved' || !validPlace(form.lastPlace)) return 'Komplettera ursprungsadressen eller välj rätt kommun. Övriga adressuppgifter hämtas automatiskt.';
     if (!validPlace(form.nextPlace)) return 'Mottagande anläggning saknar fullständig adress. Komplettera anläggningens uppgifter.';
     if (form.incomingDocument.status === 'missing' && !form.incomingDocument.missingReason?.trim()) return 'Beskriv avvikelsen när ett obligatoriskt transportdokument saknas.';
@@ -207,7 +216,9 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
         ? await environmentApi.correct(receipt.id, { ...input, expectedVersion: receipt.version, reason: correctionReason.trim(), idempotencyKey: requestKey.current })
         : await environmentApi.receive({ ...input, expectedDraftVersion: draftVersionRef.current, idempotencyKey: requestKey.current });
       if (identityRef.current !== expectedIdentity) return;
-      dirtyRef.current = false; setDirty(false); setCorrecting(false); setConfirmOpen(false); setEditSection(null); setForm(snapshotForm(received)); await refresh(); onRegistered?.(received);
+      dirtyRef.current = false; setDirty(false); setCorrecting(false); setConfirmOpen(false); setEditSection(null); setForm(snapshotForm(received)); await refresh();
+      if (identityRef.current !== expectedIdentity) return;
+      setExpanded(false); onRegistered?.(received);
       onNotice(correcting ? `Miljömottagning rättad till version ${received.version}. Original och lagerjustering är sparade.` : `Mottagning registrerad för INV-${received.cardId}. Miljöunderlag och lagerrörelse är sparade.`);
     } catch (failure) { if (identityRef.current === expectedIdentity) setError(environmentFailure(failure)); }
     finally { if (identityRef.current === expectedIdentity) setBusy(false); }
@@ -226,9 +237,11 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
     return editing && editable && allowed && <button type="button" className="office-link environment-inline-edit" aria-label={label} disabled={busy} onClick={() => { setEditSection(previous => previous === section ? null : section); if (section === 'origin') setOriginEdit(card.origin || ''); }}><Pencil size={12} />Ändra</button>;
   }
 
-  return <section className="office-panel environment-panel environment-receipt-panel" aria-label="Miljö och mottagning">
+  if (state && !receipt && classifiedRows.length === 0) return null;
+
+  return <section className={`office-panel environment-panel environment-receipt-panel${guidance ? ` office-guidance-${guidance}` : ''}`} aria-label="Miljö och mottagning">
     <header className="environment-heading"><span className="environment-icon"><Leaf size={22} /></span><div><h2>Miljö & mottagning</h2><p>Material och ursprung återanvänds från viktkortet. Mottagningen sparas separat från kundgodkännandet.</p></div>{session && (receipt || classifiedRows.length > 0) && <button type="button" className="environment-toggle" aria-expanded={expanded} aria-label={expanded ? 'Dölj mottagningsuppgifter' : 'Visa mottagningsuppgifter'} onClick={() => setExpanded(value => !value)}>{expanded ? <ChevronUp size={19} /> : <ChevronDown size={19} />}</button>}</header>
-    <EnvironmentAccessBoundary>{!state ? <p>Hämtar miljöuppgifter…</p> : !receipt && classifiedRows.length === 0 ? <p className="environment-muted">Ingen artikel på kortet är klassificerad som farligt avfall. Ingen miljömottagning krävs här.</p> : <>
+    <EnvironmentAccessBoundary>{!state ? <p>Hämtar miljöuppgifter…</p> : <>
       <div className="environment-receipt-summary"><div><span className={`environment-pill ${receipt && !correcting ? 'success' : 'warning'}`}>{receipt && !correcting && <CheckCircle2 size={14} />}{correcting ? 'Miljörättelse · utkast' : receipt ? 'Mottagning registrerad' : draft ? 'Utkast sparat' : 'Inväntar mottagningsbekräftelse'}</span><small>{receipt ? `${environmentTime(receipt.receivedAt)} · ${state.sites.find(item => item.id === receipt.siteId)?.name}` : 'Ingen lagerregistrering förrän mottagningen bekräftas.'}</small></div><div><strong>{environmentWeight(receipt && !correcting ? receipt.snapshot.rows.filter(row => row.classification.hazardous).reduce((sum, row) => sum + row.weight, 0) : hazardousWeight)}</strong><small>{receipt && !correcting ? `Version ${receipt.version} · ${reports.length} miljöunderlag · ej skickat` : classifiedRows.map(row => formatWasteCode(row.classification!.wasteCode)).join(', ')}</small></div><button type="button" className="office-btn outline" onClick={() => setExpanded(value => !value)}><FileText size={14} />{expanded ? 'Dölj uppgifter' : 'Visa uppgifter'}</button></div>
       {receipt && !correcting && receipt.deviations.map(deviation => <div className="environment-alert" key={deviation.code}><CircleAlert size={16} />{deviation.message}</div>)}
       {cardDiffers && !correcting && <div className="environment-alert"><CircleAlert size={16} /><span>Viktkortet har ändrats. Material, vikt eller ursprungsadress skiljer sig från den registrerade miljömottagningen. Granska uppgifterna och gör en spårbar miljörättelse.</span>{editable && <button type="button" className="office-link" onClick={beginCorrection}>Rätta miljöuppgifter</button>}</div>}

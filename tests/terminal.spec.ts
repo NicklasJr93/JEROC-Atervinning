@@ -206,6 +206,110 @@ test('två terminaler visar egna frysta avräkningar och personalens kontroll f�
   }
 });
 
+test('avslutad kundvisning kan skickas igen oförändrad till samma terminal med en ny granskningsversion', async ({ page, browser, baseURL }) => {
+  const { data, cards, prefix } = fixture();
+  // Both sends must use the same pricing request: an initial manual override
+  // would create a different snapshot on resend and hide the idempotency bug.
+  cards[0].rows[0].source = 'Volympris';
+  const terminals: DemoTerminal[] = [];
+  let mobile: Awaited<ReturnType<typeof mobileTerminal>> | undefined;
+  await page.addInitScript(value => {
+    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
+  }, data);
+  try {
+    await loginOffice(page);
+    terminals.push(await createTerminal(page, prefix, '1'));
+    mobile = await mobileTerminal(browser, baseURL!, terminals[0]);
+    const pricingRequest = page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/api/pricing/snapshots'));
+    const original = await sendToTerminal(page, cards[0].id, terminals[0]);
+    expect((await pricingRequest).postDataJSON().rows[0]).not.toHaveProperty('override');
+    expect(original.snapshot.card.pricingSnapshotId).toBeTruthy();
+    await expect(mobile.page.getByText(`Invägningskort INV-${cards[0].id}`, { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Avsluta kundvisning', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Avsluta visningen', exact: true }).click();
+    await expect(mobile.page.getByRole('heading', { name: 'Invänta personal', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Visa ny version på kundterminal', exact: true })).toBeEnabled();
+    expect((await approvalOf(page, cards[0].id)).status).toBe('cancelled');
+
+    const resent = await sendToTerminal(page, cards[0].id, terminals[0]);
+    expect(resent.id).not.toBe(original.id);
+    expect(resent.version).toBe(original.version + 1);
+    expect(resent.snapshot.card.pricingSnapshotId).toBe(original.snapshot.card.pricingSnapshotId);
+    expect(resent.snapshot.rows).toEqual(original.snapshot.rows);
+    const state = await stateOf(page);
+    expect(state.approvals.filter(approval => approval.cardId === cards[0].id)).toHaveLength(2);
+    expect(state.approvals.find(approval => approval.id === original.id)?.status).toBe('cancelled');
+    expect(state.terminals.find(terminal => terminal.id === terminals[0].id)?.activeApprovalId).toBe(resent.id);
+    await expect(mobile.page.getByRole('heading', { name: 'Granska och godkänn din avräkning', exact: true })).toBeVisible();
+    await expect(mobile.page.getByText(`Invägningskort INV-${cards[0].id}`, { exact: true })).toBeVisible();
+    await expect(mobile.page.locator('.settlement-preliminary')).toContainText(`Version ${resent.version}`);
+    await expect(mobile.page.locator('.terminal-material-table')).toContainText('83 kg');
+    expect((await (await mobile.page.request.get(`${service}/session`)).json()).approval.id).toBe(resent.id);
+
+    await page.goto('/kontor#/customer-approvals');
+    await page.getByLabel('Sök kundgodkännanden', { exact: true }).fill(String(cards[0].id));
+    await page.getByRole('tab', { name: /^Historik/ }).click();
+    const historical = page.getByRole('row').filter({ has: page.getByRole('button', {
+      name: `Granska avräkningsversion ${original.version} för invägning ${cards[0].id}`, exact: true,
+    }) });
+    await expect(historical).toContainText('Avbruten');
+    await expect(historical).toContainText('Tidigare version');
+  } finally {
+    await cleanup(page, terminals, cards.map(card => card.id));
+    await mobile?.context.close();
+  }
+});
+
+test('misslyckade terminalutskick visar felet i den öppna dialogen och kan återförsökas utan dubbletter', async ({ page, browser, baseURL }) => {
+  const { data, cards, prefix } = fixture();
+  cards[0].rows[0].source = 'Volympris';
+  const terminals: DemoTerminal[] = [];
+  let mobile: Awaited<ReturnType<typeof mobileTerminal>> | undefined;
+  const sendKeys: string[] = [];
+  const failureMessage = 'Terminal upptagen. Välj en annan terminal.';
+  await page.addInitScript(value => {
+    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
+  }, data);
+  try {
+    await loginOffice(page);
+    terminals.push(await createTerminal(page, prefix, '1'));
+    mobile = await mobileTerminal(browser, baseURL!, terminals[0]);
+    await page.goto(`/kontor#/weighings/${cards[0].id}`);
+    await page.route('**/api/terminal-demo/approvals', async route => {
+      sendKeys.push(route.request().postDataJSON().idempotencyKey);
+      await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: failureMessage, code: 'terminal_busy' }) });
+    });
+    await page.getByRole('button', { name: 'Visa på kundterminal', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Visa avräkning för kunden', exact: true });
+    await dialog.getByLabel('Terminal för kundgodkännande', { exact: true }).selectOption(terminals[0].id);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await dialog.getByRole('button', { name: 'Visa på terminal', exact: true }).click();
+      await expect(dialog.getByRole('alert')).toHaveText(failureMessage);
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByRole('button', { name: 'Visa på terminal', exact: true })).toBeEnabled();
+      await expect(page.getByText('Avräkningen visas på kundterminalen. Inväntar kundens svar.', { exact: true })).toHaveCount(0);
+      expect((await stateOf(page)).approvals.filter(approval => approval.cardId === cards[0].id)).toHaveLength(0);
+      await expect(mobile.page.getByRole('heading', { name: 'Invänta personal', exact: true })).toBeVisible();
+    }
+    expect(sendKeys).toHaveLength(2);
+    expect(sendKeys[1]).toBe(sendKeys[0]);
+
+    await page.unroute('**/api/terminal-demo/approvals');
+    await dialog.getByRole('button', { name: 'Visa på terminal', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.locator('.approval-controls')).toContainText('Inväntar kund');
+    const state = await stateOf(page);
+    const approvals = state.approvals.filter(approval => approval.cardId === cards[0].id);
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]).toMatchObject({ status: 'waiting', version: 1 });
+    await expect(mobile.page.getByText(`Invägningskort INV-${cards[0].id}`, { exact: true })).toBeVisible();
+  } finally {
+    await cleanup(page, terminals, cards.map(card => card.id));
+    await mobile?.context.close();
+  }
+});
+
 test('ändringsbegäran kräver ny granskning och gamla terminalåtgärder kan inte godkänna en ny version', async ({ page, browser, baseURL }) => {
   const { data, cards, prefix } = fixture();
   const terminals: DemoTerminal[] = [];

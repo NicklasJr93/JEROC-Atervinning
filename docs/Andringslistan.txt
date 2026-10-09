@@ -4,8 +4,8 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.7.2.
-Punkterna 001–035 är genomförda; 031 avser förberedelse utan utskick.
+Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.7.3.
+Punkterna 001–042 är genomförda; 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
 Arbetssätt
@@ -755,3 +755,58 @@ Releasekontroll 0.7.2
 117 servertester inklusive PostgreSQL passerade. Hela webbsuiten med 150
 kontroller samt nio riktade artikel-/migrationskontroller passerade.
 Produktionsbygge och Expo-typkontroll passerade. Ingen ny Renderkonfiguration.
+
+039 – Fäll ihop miljökort efter bekräftad mottagning
+Status: Genomförd i kontorsdemo 0.7.3.
+- När mottagningsbekräftelsen har sparats utan fel fälls ett expanderat
+  Miljö & mottagning ihop till sin kompakta sammanställning.
+- Kortet kan öppnas igen för granskning och spårbar miljörättelse.
+- Vid fel behålls kortet öppet så att uppgifterna kan kompletteras.
+- Samma beteende gäller efter sparad miljörättelse. Original och historik bevaras.
+
+040 – Visa ny kundgodkännandeversion efter avbruten terminalvisning
+Status: Genomförd i kontorsdemo 0.7.3.
+- Efter avbruten kundvisning ska Visa ny version på kundterminal fungera
+  även när kund, artiklar, vikter och priser är oförändrade.
+- Orsak: samma prisögonblicksbild och terminal återanvänder utskicks-ID från
+  föregående försök. Servern svarar 409 idempotency_conflict och inget visas.
+  Ändrat pris skapar ett nytt prisunderlag och kringgår felet, men ska inte krävas.
+- Ett nytt kundgodkännandeförsök får ett eget utskicks-ID, medan omsändning av
+  samma försök vid nätverksfel återanvänder sitt ID för att undvika dubletter.
+- Misslyckat utskick ska visa begripligt fel i den öppna terminaldialogen.
+  Visa framgång och stäng dialogen först när en aktuell kundvisning bekräftats.
+- Riktad kontroll: skicka, avbryt, skicka oförändrat underlag igen; ny version
+  visas på samma lediga terminal och avbruten version bevaras i historiken.
+
+041 – Visuell flödesguidning och miljökort endast när det behövs
+Status: Genomförd i kontorsdemo 0.7.3 enligt godkänd uppföljning.
+- Nästa tillgängliga moment får en diskret pulserande blå kontur. Övriga
+  momentkort blir cirka 15 procent mer transparenta och är fortfarande klickbara.
+- Ingen extra text som Börja här, Starta här eller Nästa steg visas.
+- Guidningen följer sparade kund-/ursprungs- och betalningsuppgifter,
+  kundgodkännande, miljömottagning och intern attest samt användarens behörigheter.
+  Material, sammanställning och spårbarhet får ingen sådan markering.
+- Guidningen är visuell och inför inga nya lås eller beroenden. Fysisk mottagning
+  är fortfarande separat från kundgodkännande och ekonomi. Låsta kort guidas inte.
+- Minskad rörelse enligt enhetens inställning ger stilla kontur utan pulsering.
+- Miljökortet döljs när inga artiklar är klassificerade som farligt avfall.
+  Det visas när en sådan artikel läggs till. Finns redan en registrerad mottagning
+  visas kortet fortsatt för granskning och spårbarhet även om artiklarna ändras.
+
+042 – Demoidentitet och begriplig validering vid miljömottagning
+Status: Genomförd i kontorsdemo 0.7.3.
+- Eriks tidigare textmarkör Demo · privatperson ersätts en gång av ett syntetiskt
+  personnummer i demoformat. Egna ändrade kundnummer bevaras.
+- Nya och ännu obekräftade miljöunderlag från det gamla Erik-exemplet normaliseras.
+  Redan frysta avräkningar och bekräftade mottagningsoriginal skrivs inte om.
+- Felaktigt org-/personnummer ger begriplig svensk återkoppling före bekräftelse
+  och i servervalideringen. Nummerformat kontrolleras; demon verifierar inte identitet.
+- Inga testkort, mottagningar eller historik raderas. Mobil/Expo är fortsatt
+  separat lokal demo. Inga Naturvårdsverks-, BankID-, Visma- eller meddelandeanrop
+  aktiveras och inga nya Renderinställningar krävs.
+
+Releasekontroll 0.7.3
+35 riktade servertester inklusive PostgreSQL och 24 riktade webbläsarkontroller
+passerade. Produktionsbygge och Expo-typkontroll passerade. Ingen datarensning
+eller ny Renderkonfiguration. Kontrollerna täcker oförändrad terminalomsändning,
+felåterförsök, hopfällning/miljörättelse, visuell guidning och bevarade snapshot.

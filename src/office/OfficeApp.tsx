@@ -181,6 +181,7 @@ export function OfficeApp() {
   const [pricingError, setPricingError] = useState('');
   const [search, setSearch] = useState('');
   const [detailsDirty, setDetailsDirty] = useState(false);
+  const [environmentGuidance, setEnvironmentGuidance] = useState<{ cardId: number; sourceId?: string; visible: boolean; received: boolean; canConfirm: boolean }>();
   const [message, setMessage] = useState('');
   const location = useLocation(),
     navigate = useNavigate();
@@ -675,7 +676,7 @@ export function OfficeApp() {
           })),
         },
       );
-      if (principalRef.current !== principalId) return;
+      if (principalRef.current !== principalId) return false;
       const rows = snapshot.rows.map((r, i) => ({
         ...card.rows[i],
         price: r.price ?? card.rows[i].price,
@@ -697,20 +698,20 @@ export function OfficeApp() {
         paymentDetails: card.paymentDetails ?? customer.paymentProfile,
       };
       const preview = settlementPreview({ ...dataRef.current, cards: dataRef.current.cards.map(item => item.id === card.id ? { ...frozen, status: 'ready' as const } : item) }, card.id);
-      await terminalDemoApi.send({
+      const sentReview = await terminalDemoApi.send({
         card: frozen, customer, terminalId: terminal.id, siteId: terminal.siteId,
         rows: rows.map(row => ({ articleId: row.articleId, name: row.articleName ?? articleById(row.articleId)?.name ?? row.articleId, weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })),
         offset: preview.offset, correctionIds: preview.negativeCorrectionIds,
-        idempotencyKey: `review-${snapshot.id}-${terminal.id}`,
+        idempotencyKey: `review-${snapshot.id}-${terminal.id}-${card.customerApproval?.version ?? 0}`,
       });
+      if (!['waiting', 'id_requested'].includes(sentReview.status)) throw new Error('Kundvisningen kunde inte startas. Läs in kortet och försök igen.');
       await terminalDemo.refresh();
       setMessage('Avräkningen visas på kundterminalen. Inväntar kundens svar.');
       return true;
     } catch (e) {
-      setMessage(
-        e instanceof Error ? e.message : 'Underlaget kunde inte låsas.',
-      );
-      return false;
+      const failure = e instanceof Error ? e : new Error('Underlaget kunde inte låsas. Försök igen.');
+      setMessage(failure.message);
+      throw failure;
     } finally {
       setPriceBusy(false);
     }
@@ -750,6 +751,28 @@ export function OfficeApp() {
   const editable =
     selected &&
     !['customer', 'attest', 'ready', 'paid', 'balance'].includes(selected.status);
+  type FocusPanel = 'customer' | 'payment' | 'approval' | 'environment' | 'attest';
+  const nextPanel = (): FocusPanel | undefined => {
+    if (!selected || !user || !actualUser || blocked || ['ready', 'paid', 'balance'].includes(selected.status)) return;
+    if (editable && (!selected.customerId || !selected.origin.trim() || detailsDirty)) {
+      if ((!selected.customerId && can(user, 'customers')) || (selected.customerId && can(user, 'prepare'))) return 'customer';
+      return;
+    }
+    if (editable && !(validPaymentDetails(selected.paymentDetails) || selected.payment.trim())) {
+      if (can(user, 'paymentDetails')) return 'payment';
+      return;
+    }
+    if (editable && !approvalDisabledReason) return 'approval';
+    if (selectedApproval?.status === 'id_requested' && can(user, 'prepare') && can(user, 'verifyId')) return 'approval';
+    if (environmentGuidance?.cardId === selected.id && environmentGuidance.sourceId === selected.sourceId &&
+      environmentGuidance.visible && !environmentGuidance.received && environmentGuidance.canConfirm) return 'environment';
+    if (selected.status === 'attest' && can(user, 'attest') && !selected.financialPending && amount(selected) <= user.maxAttest &&
+      (user.ownAttest || (selected.preparedBy !== user.id && selectedApproval?.actualUserId !== actualUser.id)) &&
+      (!selected.customerApproval || selectedApproval?.status === 'approved')) return 'attest';
+  };
+  const focusPanel = nextPanel();
+  const panelGuidance = (panel: FocusPanel): 'focus' | 'muted' | undefined => focusPanel ? focusPanel === panel ? 'focus' : 'muted' : undefined;
+  const panelClass = (panel: FocusPanel) => panelGuidance(panel) ? ` office-guidance-${panelGuidance(panel)}` : '';
   const nav = [
     { id: 'dashboard', name: 'Översikt', icon: LayoutDashboard, right: 'view' },
     { id: 'weighings', name: 'Invägningar', icon: Scale, right: 'view' },
@@ -1569,7 +1592,7 @@ export function OfficeApp() {
                       </div>
                     )}
                   </section>
-                  <section className="office-panel office-card-customer">
+                  <section className={`office-panel office-card-customer${panelClass('customer')}`}>
                     <h2>Kund, referens & ursprung</h2>
 <div className="office-customer-picker">
                     <label>
@@ -1648,7 +1671,7 @@ export function OfficeApp() {
                       }
                     />
                   </section>
-                  <section className="office-panel office-card-payment">
+                  <section className={`office-panel office-card-payment${panelClass('payment')}`}>
                     <h2>Utbetalning</h2>
                     {can(user, 'paymentDetails') ||
                     can(user, 'pay') ||
@@ -1682,6 +1705,7 @@ export function OfficeApp() {
                     )}
                   </section>
                   {(can(user, 'customerApprovalRead') || can(user, 'prepare')) && <ApprovalControls
+                    guidance={panelGuidance('approval')}
                     approval={selectedApproval}
                     state={terminalDemo.state}
                     siteId={selectedSiteId}
@@ -1699,6 +1723,8 @@ export function OfficeApp() {
                   {can(user, 'environmentRead') && selected.kind !== 'correction' && (
                     <EnvironmentReceiptPanel key={selected.sourceId ?? selected.id} card={selected} customer={selectedCustomer}
                       user={user} actualUser={actualUser!} onNotice={setMessage}
+                      guidance={panelGuidance('environment')}
+                      onGuidanceState={value => setEnvironmentGuidance(previous => previous?.cardId === selected.id && previous.sourceId === selected.sourceId && previous.visible === value.visible && previous.received === value.received && previous.canConfirm === value.canConfirm ? previous : { cardId: selected.id, sourceId: selected.sourceId, ...value })}
                       canChangeOrigin={Boolean(editable) && can(user, 'prepare')}
                       onOriginChange={(origin) => update({ ...selected, origin }, 'Ursprungsadress uppdaterad från miljökortet.', 'prepare')}
                       onRegistered={(receipt) => {
@@ -1717,7 +1743,7 @@ export function OfficeApp() {
                       }} />
                   )}
                   <OfficeCardAttest card={selected} user={user} actualUser={actualUser!} users={data.users}
-                    approval={selectedApproval} busy={attestBusy} blocked={blocked || priceBusy}
+                    guidance={panelGuidance('attest')} approval={selectedApproval} busy={attestBusy} blocked={blocked || priceBusy}
                     onAttest={() => attestCard(selected)} onReturn={() => returnCard(selected)} />
                   <section className="office-panel office-card-summary">
                     <div className="office-summary-info"><Calculator size={28} aria-hidden="true" /><div><h2>Sammanställning</h2><p>{['ready', 'paid', 'balance'].includes(selected.status) ? 'Attesterat underlag. Utbetalningar registreras manuellt.' : 'Efter kundgodkännande och intern attest blir kortet klart för manuell utbetalning.'}</p></div></div>

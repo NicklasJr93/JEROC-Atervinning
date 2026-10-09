@@ -1,4 +1,42 @@
-# JEROC kontorsdemo 0.7.2
+# JEROC kontorsdemo 0.7.3
+
+## Nytt i 0.7.3 – terminalfix och visuell guidning
+
+Efter **Avbryt kundvisning** går det att visa en ny version på samma lediga
+terminal utan att först ändra pris eller vikt. Det nya försöket får ett eget
+utskicks-ID; återförsök av samma försök återanvänder sitt ID för att undvika
+dubletter. Misslyckat utskick visar felet i terminaldialogen, som förblir öppen.
+Den avbrutna versionen ligger kvar i historiken.
+
+På öppna invägningskort får nästa tillgängliga moment en diskret pulserande
+blå kontur. Övriga momentkort dämpas cirka 15 procent och går fortfarande
+att använda. Guidningen följer sparade uppgifter och behörigheter; den lägger
+inte till någon text som Börja här eller Nästa steg. Material, sammanställning
+och spårbarhet behåller sin vanliga visning. Inställningen för minskad rörelse
+ger en stilla kontur. Befintliga spärrar och attestregler gäller fortsatt.
+
+**Miljö & mottagning** döljs på kort utan farligt avfall och visas när en sådan
+artikel läggs till. Redan registrerade mottagningar visas fortsatt för
+spårbarheten även om kortets artiklar senare ändras. Efter lyckad
+mottagningsbekräftelse eller miljörättelse fälls ett expanderat kort ihop;
+vid fel förblir det öppet. Fysisk mottagning är fortfarande oberoende av
+kundgodkännande och utbetalning.
+
+Eriks gamla textmarkör för privatperson ersätts en gång med ett syntetiskt
+demo-personnummer. Egna kundnummer och redan låsta avräkningar bevaras.
+Obekräftade miljöunderlag från det gamla Erik-exemplet kan därmed användas
+utan samma formatfel. Valideringsfel för org-/personnummer visas på svenska;
+formatkontrollen är ingen identitetsverifiering.
+
+Denna release raderar inga kort, mottagningar eller historik. Mobil/Expo är
+fortfarande en separat lokal demo och skickar inga invägningar till kontoret.
+Utbetalning är manuell; Naturvårdsverket, BankID, SMS, e-post och Visma är
+fortfarande inte anslutna. Befintlig databas och Renderinställningar återanvänds.
+
+**Releasekontroll 0.7.3:** 35 riktade servertester, inklusive PostgreSQL,
+och 24 riktade Playwright-kontroller passerade. Produktionsbygge och
+Expo-typkontroll passerade. Oförändrad omsändning, felåterförsök, miljörättelse,
+hopfällning, villkorlig visning, guidning och bevarade kundsnapshot ingår.
 
 ## Nytt i 0.7.2 – artikelrader och arbetsköer
 

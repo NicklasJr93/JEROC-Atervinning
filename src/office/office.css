@@ -1755,3 +1755,10 @@
 }
 
 .office-sidebar nav button > svg { flex: 0 0 19px; width: 19px; height: 19px; }
+
+/* Visual guidance does not change layout or disable any controls. */
+.office .office-guidance-focus { outline: 2px solid #408af0; outline-offset: 2px; animation: office-guidance-pulse 2.4s ease-in-out infinite; }
+.office .office-guidance-muted { opacity: .85; transition: opacity .2s; }
+.office .office-guidance-muted:focus-within { opacity: 1; }
+@keyframes office-guidance-pulse { 0%, 100% { outline-color: #408af0; box-shadow: 0 0 0 3px #408af008; } 50% { outline-color: #87b7fb; box-shadow: 0 0 0 6px #408af019; } }
+@media (prefers-reduced-motion: reduce) { .office .office-guidance-focus { animation: none; } .office .office-guidance-muted { transition: none; } }

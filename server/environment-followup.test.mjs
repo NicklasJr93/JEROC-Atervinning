@@ -99,6 +99,28 @@ test('draft revisions prevent lost updates and enforce current article, operatio
   assert.equal((await f.store.draft(input.sourceId, f.admin.token)).version, 2);
 }));
 
+test('holder numbers keep the supported formats and report readable Swedish validation on receipts and corrections', async () => fixture(async (f) => {
+  const message = 'Ange ett giltigt org-/personnummer med 10 eller 12 siffror, eller ett utländskt nummer med landskod.';
+  for (const number of ['123456789', '1981100225860', 'Demo · privatperson', 'no123456789']) {
+    await assert.rejects(async () => f.store.receive(receiptInput({ previousHolder: { name: 'Testinnehavare', number } }), f.admin.token), error => {
+      assert.equal(error.status, 422);
+      assert.ok(error.message.includes(`Tidigare innehavare – org-/personnummer: ${message}`));
+      assert.equal(error.message.includes('Invalid'), false);
+      return true;
+    });
+  }
+  assert.equal((await f.store.state(f.admin.token)).receipts.length, 0);
+  for (const [number, normalized] of [['811002-2586', '8110022586'], ['19811002-2586', '198110022586'], ['NO123456789MVA', 'NO123456789MVA']]) {
+    const input = receiptInput({ previousHolder: { name: 'Testinnehavare', number } });
+    const receipt = await f.store.receive(input, f.admin.token);
+    assert.equal(receipt.snapshot.previousHolder.number, normalized);
+    await assert.rejects(async () => f.store.correct(receipt.id, correctionInput(input, { previousHolder: { name: 'Testinnehavare', number: '123456789' } }), f.admin.token), error => error.status === 422 && error.message.includes(message));
+    const current = (await f.store.state(f.admin.token)).receipts.find(item => item.id === receipt.id);
+    assert.equal(current.version, 1);
+    assert.equal(current.hash, receipt.hash);
+  }
+}));
+
 test('confirming a receipt clears its draft and subsequent draft edits cannot overwrite the immutable receipt', async () => fixture(async (f) => {
   const input = receiptInput();
   await f.store.saveDraft(input.sourceId, draftInput(input), f.kajsa.token);

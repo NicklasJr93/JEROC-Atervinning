@@ -2,6 +2,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { test, expect, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
 import { seedOffice, type OfficeData } from '../src/office/model';
 import { migrateOffice } from '../src/office/customer-model';
+import { demoPrivateIdentityNumber } from '../src/data';
 import type { EnvironmentState } from '../src/office/environment-types';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
@@ -50,6 +51,8 @@ async function confirmReceipt(page: Page, sourceId: string) {
   await expect(review).toContainText('12 kg');
   await review.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
   await expect(review).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await expect(panel.locator('.environment-receipt-editor')).toHaveCount(0);
   return recorded(page, sourceId);
 }
 
@@ -79,6 +82,80 @@ test('miljökortet ligger efter kundgodkännande och är kompakt före första m
   const stored = await state(page.request);
   expect(stored.receipts.some(receipt => receipt.sourceId === fixture.sourceId)).toBe(false);
   expect(stored.inventory.some(item => item.sourceId === fixture.sourceId)).toBe(false);
+});
+
+test('miljökortet försvinner för ofarliga rader först när klassificeringen har hämtats', async ({ page }) => {
+  const fixture = receiptFixture();
+  const card = fixture.data.cards.find(item => item.id === fixture.cardId)!;
+  card.rows = card.rows.filter(row => row.articleId === 'copper-1');
+  let releaseState!: () => void;
+  const waitingForState = new Promise<void>(resolve => { releaseState = resolve; });
+  await page.route('**/api/environment/state', async route => { await waitingForState; await route.continue(); });
+  await page.addInitScript(data => { if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(data)); }, fixture.data);
+  await page.goto('/kontor');
+  await page.getByRole('button', { name: /Systemadmin/ }).click();
+  await page.goto(`/kontor#/weighings/${fixture.cardId}`);
+  const panel = page.getByRole('region', { name: 'Miljö och mottagning', exact: true });
+  try {
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText('Hämtar miljöuppgifter');
+  } finally { releaseState(); }
+  await expect(panel).toHaveCount(0);
+  const shared = await state(page.request);
+  expect(shared.receipts.some(item => item.sourceId === fixture.sourceId)).toBe(false);
+  expect(shared.inventory.some(item => item.sourceId === fixture.sourceId)).toBe(false);
+});
+
+test('ogiltigt innehavarnummer stoppas före bekräftelsen och giltiga svenska och utländska format tillåts', async ({ page }) => {
+  const fixture = receiptFixture();
+  const card = fixture.data.cards.find(item => item.id === fixture.cardId)!;
+  fixture.data.customers.find(customer => customer.id === card.customerId)!.number = '123456789';
+  const panel = await openCard(page, fixture);
+  await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
+  await expect(panel).toContainText('Norrtälje · 0188');
+  await panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
+  await expect(panel.getByRole('alert')).toContainText('Ange ett giltigt org-/personnummer med 10 eller 12 siffror');
+  await expect(panel.getByRole('button', { name: 'Dölj mottagningsuppgifter', exact: true })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true })).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Ändra tidigare innehavare', exact: true }).click();
+  for (const number of ['811002-2586', '19811002-2586', 'NO123456789MVA']) {
+    await panel.getByLabel('Tidigare innehavare – organisationsnummer', { exact: true }).fill(number);
+    await panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
+    const review = page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
+    await expect(review).toBeVisible();
+    await review.getByRole('button', { name: 'Avbryt', exact: true }).click();
+  }
+  const shared = await state(page.request);
+  expect(shared.receipts.some(item => item.sourceId === fixture.sourceId)).toBe(false);
+  expect(shared.inventory.some(item => item.sourceId === fixture.sourceId)).toBe(false);
+});
+
+test('Eriks gamla kundsnapshot och miljöutkast kan bekräftas med det syntetiska demonumret utan att kundsnapshot ändras', async ({ page }) => {
+  const fixture = receiptFixture();
+  const card = fixture.data.cards.find(item => item.id === fixture.cardId)!;
+  const customer = fixture.data.customers.find(item => item.id === 'customer-erik')!;
+  card.customerId = customer.id;
+  card.customerSnapshot = { ...customer, number: 'Demo · privatperson' };
+  const panel = await openCard(page, fixture);
+  const session = await page.request.get('/api/environment/session');
+  const { csrfToken } = await session.json();
+  const saved = await page.request.put(`/api/environment/drafts/${fixture.sourceId}`, {
+    headers: { 'X-Environment-CSRF': csrfToken },
+    data: { expectedVersion: 0, input: {
+      sourceId: fixture.sourceId, cardId: fixture.cardId, siteId: 'norrtalje', originAddress: card.origin,
+      rows: card.rows.map(row => ({ articleId: row.articleId, weight: row.weight })),
+      previousHolder: { name: 'Erik Johansson', number: 'Demo · privatperson', contactName: '', email: '', phone: '' },
+      incomingDocument: { status: 'provided' },
+    } },
+  });
+  expect(saved.ok()).toBe(true);
+  await page.reload();
+  await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
+  await expect(panel).toContainText(demoPrivateIdentityNumber);
+  const received = await confirmReceipt(page, fixture.sourceId);
+  expect(received.snapshot.previousHolder).toMatchObject({ name: 'Erik Johansson', number: demoPrivateIdentityNumber.replace(/-/g, '') });
+  const localSnapshot = await page.evaluate(cardId => JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find((item: { id: number }) => item.id === cardId).customerSnapshot, fixture.cardId);
+  expect(localSnapshot.number).toBe('Demo · privatperson');
 });
 
 test('sparat miljöutkast följer viktkortets ändrade ursprung och skapar inget fysiskt lager efter omladdning', async ({ page }) => {
@@ -181,6 +258,27 @@ test('transportdokument kan finnas utan nummer och mottagning visar vikterna inn
   expect(physical.reduce((sum, item) => sum + item.weight, 0)).toBe(262);
 });
 
+test('registrerad mottagning bevaras synlig när viktkortet sedan endast har ofarliga rader', async ({ page }) => {
+  const fixture = receiptFixture();
+  const panel = await openCard(page, fixture);
+  await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
+  const receipt = await confirmReceipt(page, fixture.sourceId);
+  await page.evaluate(cardId => {
+    const data = JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!);
+    const card = data.cards.find((item: { id: number }) => item.id === cardId);
+    card.rows = card.rows.filter((row: { articleId: string }) => row.articleId === 'copper-1');
+    localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(data));
+  }, fixture.cardId);
+  await page.reload();
+  await expect(panel).toContainText('Mottagning registrerad');
+  await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
+  await expect(panel).toContainText('Blybatterier');
+  await expect(panel).toContainText('Versionshistorik');
+  const shared = await state(page.request);
+  expect(shared.receipts.find(item => item.sourceId === fixture.sourceId)?.hash).toBe(receipt.hash);
+  expect(shared.inventory.filter(item => item.sourceId === fixture.sourceId)).toHaveLength(2);
+});
+
 test('två vägningar av samma artikel blir en fysisk mängd utan en falsk begäran om miljörättelse', async ({ page }) => {
   const fixture = receiptFixture();
   const card = fixture.data.cards.find(item => item.id === fixture.cardId)!;
@@ -233,6 +331,9 @@ test('ändrad vikt kräver spårbar miljörättelse med bevarat original och net
   expect(shared.inventory.filter(item => item.sourceId === fixture.sourceId && item.articleId === 'lead-battery').reduce((sum, item) => sum + item.weight, 0)).toBe(245);
   expect(shared.reports.find(item => item.sourceId === fixture.sourceId)).toMatchObject({ weight: 245, version: 2 });
   expect(shared.reportHistory.find(item => item.sourceId === fixture.sourceId)).toMatchObject({ weight: 250, version: 1, status: 'superseded' });
+  await expect(panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await expect(panel.locator('.environment-receipt-editor')).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
   await expect(panel).toContainText('Versionshistorik');
   await expect(panel).toContainText(reason);
 
@@ -276,6 +377,7 @@ test('två kassor som ändrar samma utkast får versionskonflikt utan att det an
     await review.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
     expect((await staleConfirmation).status()).toBe(409);
     await expect(review.getByRole('alert')).toContainText(/senaste versionen|annan kollega/);
+    await expect(panels[1].getByRole('button', { name: 'Dölj mottagningsuppgifter', exact: true })).toHaveAttribute('aria-expanded', 'true');
     expect((await state(contexts[1].request)).receipts.some(item => item.sourceId === fixture.sourceId)).toBe(false);
   } finally { await Promise.all(contexts.map(context => context.close())); }
 });

@@ -13,12 +13,13 @@ const LOGIN_WINDOW = 10 * 60 * 1000;
 const id = z.string().trim().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/);
 const short = z.string().trim().min(1).max(300);
 const optionalText = z.string().trim().max(500).default('');
+const holderNumberMessage = 'Ange ett giltigt org-/personnummer med 10 eller 12 siffror, eller ett utländskt nummer med landskod.';
 const placeSchema = z.object({
   address: short, postalCode: z.string().trim().transform((value) => value.replaceAll(' ', '')).pipe(z.string().regex(/^\d{5}$/)),
   city: short, municipalityCode: z.string().trim().regex(/^\d{4}$/),
 }).strict();
 const holderSchema = z.object({
-  name: short, number: z.string().trim().transform((value) => value.replaceAll(/[\s-]/g, '')).pipe(z.string().regex(/^(?:\d{10}|\d{12}|[A-Z]{2}[A-Z0-9]{2,30})$/)),
+  name: short, number: z.string().trim().transform((value) => value.replaceAll(/[\s-]/g, '')).pipe(z.string().regex(/^(?:\d{10}|\d{12}|[A-Z]{2}[A-Z0-9]{2,30})$/, holderNumberMessage)),
   contactName: optionalText, email: z.union([z.string().trim().email().max(200), z.literal('')]).default(''), phone: z.string().trim().max(50).default(''),
 }).strict();
 const classificationSchema = z.object({
@@ -84,7 +85,7 @@ const HASH_FORMAT = 'sha256-canonical-json-v1';
 const secret = () => randomBytes(32).toString('base64url');
 const parse = (schema, value) => {
   const parsed = schema.safeParse(value);
-  if (!parsed.success) throw new EnvironmentError('Kontrollera miljöuppgifterna: ' + parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; '), 422);
+  if (!parsed.success) throw new EnvironmentError('Kontrollera miljöuppgifterna: ' + parsed.error.issues.map((issue) => `${issue.path.join('.') === 'previousHolder.number' ? 'Tidigare innehavare – org-/personnummer' : issue.path.join('.')}: ${issue.message}`).join('; '), 422);
   return parsed.data;
 };
 const passwordHash = (value) => {

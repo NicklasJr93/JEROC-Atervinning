@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { OFFICE_WEIGHING_DEMO_VERSION, seedOffice } from '../src/office/model';
 import { migrateOffice } from '../src/office/customer-model';
+import { demoPrivateIdentityNumber } from '../src/data';
 
 test('äldre testinvägningar ersätts en gång medan användare och kundregister behålls', () => {
   const previous = seedOffice();
@@ -70,4 +71,27 @@ test('artikelrättigheten läggs till en gång utan att rensa kort eller återst
   expect(migrated.cards[0].origin).toBe('Behåll min testadress');
   updated.permissions = updated.permissions.filter(right => right !== 'weighingAddArticle');
   expect(migrateOffice(migrated).users.find(user => user.id === 'kajsa')!.permissions).not.toContain('weighingAddArticle');
+});
+
+test('äldre demopersonnummer rättas en gång utan att ändra eget kundnummer eller låst kundsnapshot', () => {
+  const previous = seedOffice();
+  previous.demoPrivateIdentityVersion = undefined;
+  const erik = previous.customers.find(customer => customer.id === 'customer-erik')!;
+  erik.number = 'Demo · privatperson';
+  previous.cards[0].customerSnapshot = { ...erik };
+  previous.cards[0].reference = 'Behåll tidigare avräkningsversion';
+  const originalSnapshot = structuredClone(previous.cards[0].customerSnapshot);
+
+  const migrated = migrateOffice(previous);
+  expect(migrated.customers.find(customer => customer.id === erik.id)!.number).toBe(demoPrivateIdentityNumber);
+  expect(migrated.cards[0].customerSnapshot).toEqual(originalSnapshot);
+  expect(migrated.cards[0].reference).toBe('Behåll tidigare avräkningsversion');
+  expect(migrated.cards.map(card => card.id)).toEqual(previous.cards.map(card => card.id));
+
+  // The one-time migration must not overwrite subsequent customer edits.
+  migrated.customers.find(customer => customer.id === erik.id)!.number = 'Demo · privatperson';
+  expect(migrateOffice(migrated).customers.find(customer => customer.id === erik.id)!.number).toBe('Demo · privatperson');
+  const customized = structuredClone(previous);
+  customized.customers.find(customer => customer.id === erik.id)!.number = '19850505-1234';
+  expect(migrateOffice(customized).customers.find(customer => customer.id === erik.id)!.number).toBe('19850505-1234');
 });
