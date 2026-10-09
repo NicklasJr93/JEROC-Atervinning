@@ -229,7 +229,7 @@ export function addSwedishWorkingDays(receivedAt, count) {
 
 export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true }) {
   if (!repository || !principalStore) throw new Error('Environment requires durable repository and principal store.');
-  const transaction = (operation) => repository.transact((state) => {
+  const transaction = (operation) => { const run = () => repository.transact((state) => {
     const time = now();
     if (!state.siteRecords.length) state.siteRecords.push(...ENVIRONMENT_SITES.map((site) => ({ ...site, version: 1, active: true,
       permitReference: '', permitNotes: '', updatedAt: time.toISOString(), updatedBy: 'Befintlig anläggning' })));
@@ -244,7 +244,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     state.sessions = state.sessions.filter((session) => Date.parse(session.expiresAt) > time.getTime());
     state.loginAttempts = state.loginAttempts.filter((attempt) => Date.parse(attempt.at) > time.getTime() - LOGIN_WINDOW);
     return operation(state, time);
-  });
+  }); return principalStore.runFresh ? principalStore.runFresh(run) : run(); };
   const principalFor = (state, token, time) => {
     const session = token && state.sessions.find((record) => record.tokenHash === environmentHash(token) && Date.parse(record.expiresAt) > time.getTime());
     if (!session) throw new EnvironmentError('Logga in för att öppna de gemensamma miljöuppgifterna.', 401, 'session_required');

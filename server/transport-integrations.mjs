@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { createPricingStore, PricingError } from './pricing.mjs';
 
 // Preparation only: the API never invokes a delivery adapter. Replace this
-// memory repository with durable storage before connecting a message provider.
+// in-process state machine is persisted transactionally by application.mjs.
 export const transportEventTypes = [
   'work_order.created', 'work_order.updated', 'work_order.booked',
   'work_order.rescheduled', 'work_order.booking_cancelled', 'work_order.cancelled',
@@ -33,9 +33,10 @@ const demand = (principal, right) => {
   if (!can(principal, right)) throw new PricingError('Du saknar transportbehörighet för detta moment.', 403);
 };
 const copy = (value) => structuredClone(value);
+const canonical = value => JSON.stringify(value, (_key,item) => item && !Array.isArray(item) && typeof item === "object" ? Object.fromEntries(Object.entries(item).sort(([a],[b]) => a.localeCompare(b))) : item);
 
-export function createTransportOutbox({ now = () => new Date(), maxEvents = 10000 } = {}) {
-  const entries = new Map();
+export function createTransportOutbox({ now = () => new Date(), maxEvents = 10000, initialState = [] } = {}) {
+  const entries = new Map(initialState.map(entry => [entry.event.id, copy(entry)]));
   const running = new Set();
   function prepare(payload, principal) {
     demand(principal, 'transportPlan');
@@ -50,7 +51,7 @@ export function createTransportOutbox({ now = () => new Date(), maxEvents = 1000
       }
       const previous = staged.get(event.id) ?? entries.get(event.id)?.event;
       if (previous) {
-        if (JSON.stringify(previous) !== JSON.stringify(event)) throw new PricingError('Händelse-ID:t används redan för ett annat underlag.', 409);
+        if (canonical(previous) !== canonical(event)) throw new PricingError('Händelse-ID:t används redan för ett annat underlag.', 409);
         duplicates += 1;
       } else staged.set(event.id, event);
     }
@@ -89,7 +90,7 @@ export function createTransportOutbox({ now = () => new Date(), maxEvents = 1000
     }
     return { enabled: true, delivered, failed };
   }
-  return { prepare, read, deliver };
+  return { prepare, read, deliver, exportState: () => [...entries.values()].map(copy) };
 }
 
 const MAX_BODY = 128 * 1024;

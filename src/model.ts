@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { articles, initialCustomers, type Customer } from './data';
+import { initialCustomers, type Customer } from './data';
 
 const weight = z.number().finite().nonnegative();
 const rowSchema = z.discriminatedUnion('method', [
@@ -73,17 +73,10 @@ export const storeSchema = z
     drafts: z.array(draftSchema),
     customers: z.array(customerSchema),
   })
-  .superRefine((store, ctx) => {
-    if (
-      store.drafts.some((d) =>
-        d.rows.some((r) => !articles.some((a) => a.id === r.articleId)),
-      )
-    )
-      ctx.addIssue({ code: 'custom', message: 'Okänd artikel' });
-  });
+;
 export type DemoData = { version: 1; drafts: Draft[]; customers: Customer[] };
 export const STORE_KEY = 'jeroc.mobile.demo.v1';
-export const APP_VERSION = '0.2.3';
+export const APP_VERSION = '0.3.0';
 export const normalizeRegistration = (value: string) =>
   value.toUpperCase().replace(/[\s-]/g, '');
 export const draftPath = (draft: Draft) =>

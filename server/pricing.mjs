@@ -520,7 +520,7 @@ const articleSeeds = [
   ],
 ];
 
-export function createPricingStore({ now = () => new Date() } = {}) {
+export function createPricingStore({ now = () => new Date(), initialState } = {}) {
   const state = {
     revision: 0,
     lme: [],
@@ -620,6 +620,7 @@ export function createPricingStore({ now = () => new Date() } = {}) {
   });
   // Fresh demo cards have no approval or financial booking yet. Historical
   // volumes arise from real demo workflow actions, never invented attestations.
+  if (initialState) Object.assign(state, copy(initialState));
   const can = (user, permission) =>
     permission === 'users'
       ? user.level !== 'Medarbetare'
@@ -1505,7 +1506,24 @@ export function createPricingStore({ now = () => new Date() } = {}) {
     state.audit.push(stamp(principalValue, 'Användarbehörigheter ändrade'));
     return read(principal(principalValue.actor.id, principalValue.user.id));
   }
+  function validateMigration(input, principalValue) {
+    if (principalValue.user.level !== 'Systemadmin') throw new PricingError('Endast Systemadmin kan importera prisregistret.', 403);
+    const fields = ['lme', 'articleHistory', 'customerPrices', 'users', 'customers', 'snapshots', 'ledger', 'audit'];
+    if (!Number.isInteger(input?.revision) || input.revision < 0 || fields.some(key => !Array.isArray(input[key]) || input[key].length > 100000)) throw new PricingError('Ogiltigt prisregister för import.');
+    for (const row of input.lme) validate(lmeSchema, row);
+    for (const row of input.articleHistory) validate(articleSchema, row);
+    for (const row of input.customerPrices) validate(specialSchema, row);
+    for (const row of input.users) validate(userSchema, row);
+    for (const row of input.customers) validate(customerSchema, row);
+    const ids = new Set(input.snapshots.map(row => row.id));
+    if (ids.size !== input.snapshots.length || input.snapshots.some(row => typeof row.id !== 'string' || !Array.isArray(row.rows) || !Number.isFinite(row.total)) || input.ledger.some(row => !ids.has(row.snapshotId))) throw new PricingError('Prisunderlaget eller volymjournalen är ofullständig.');
+    const checker = createPricingStore({ initialState: input });
+    checker.saveUsers({users: input.users}, checker.principal(principalValue.actor.id));
+    return copy(input);
+  }
   return {
+    validateMigration,
+    exportState: () => copy(state),
     principal,
     can,
     read,

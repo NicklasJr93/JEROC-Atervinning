@@ -3,7 +3,7 @@ import type { TransportActor, TransportIntegrationEvent } from './types';
 
 export interface TransportOutboxReceipt {
   acceptedIds: string[]; prepared: number; duplicates: number;
-  deliveryEnabled: false; memoryOnly: true;
+  deliveryEnabled: false; memoryOnly: boolean;
 }
 export interface TransportOutboxState {
   state: 'idle' | 'preparing' | 'prepared' | 'retrying';
@@ -20,7 +20,7 @@ export async function prepareTransportEvents(events: TransportIntegrationEvent[]
     batch.push(event); bytes += size;
   }
   if (batch.length) batches.push(batch);
-  const summary: TransportOutboxReceipt = { acceptedIds: [], prepared: 0, duplicates: 0, deliveryEnabled: false, memoryOnly: true };
+  const summary: TransportOutboxReceipt = { acceptedIds: [], prepared: 0, duplicates: 0, deliveryEnabled: false, memoryOnly: false };
   for (const items of batches) {
     const receipt = await postTransportEvents(items, actor, signal);
     summary.acceptedIds.push(...receipt.acceptedIds); summary.prepared += receipt.prepared; summary.duplicates += receipt.duplicates;
@@ -38,7 +38,7 @@ async function postTransportEvents(events: TransportIntegrationEvent[], actor: T
   catch { throw new Error('Utkorgen svarade inte. Händelserna finns kvar lokalt.'); }
   if (!response.ok) throw new Error((result as { error?: string }).error || 'Utkorgen kunde inte förberedas.');
   const receipt = result as Partial<TransportOutboxReceipt>;
-  if (!Array.isArray(receipt.acceptedIds) || !receipt.acceptedIds.every((id) => typeof id === 'string') || receipt.deliveryEnabled !== false || receipt.memoryOnly !== true || typeof receipt.prepared !== 'number' || typeof receipt.duplicates !== 'number') {
+  if (!Array.isArray(receipt.acceptedIds) || !receipt.acceptedIds.every((id) => typeof id === 'string') || receipt.deliveryEnabled !== false || receipt.memoryOnly !== false || typeof receipt.prepared !== 'number' || typeof receipt.duplicates !== 'number') {
     throw new Error('Utkorgen gav ett ofullständigt svar. Händelserna finns kvar lokalt.');
   }
   return receipt as TransportOutboxReceipt;

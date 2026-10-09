@@ -6,6 +6,7 @@ export type Category = {
 };
 export type Article = {
   id: string;
+  active?: boolean;
   category: string;
   name: string;
   description: string;
@@ -259,11 +260,19 @@ export const demoCustomerPrices: Record<
   'customer-build': { 'copper-1': { tier: 0, special: 84 }, iron: { tier: 0 } },
   'customer-erik': { 'copper-1': { tier: 1 } },
 };
+let sharedCustomerPrices: Record<string,Record<string,{price:number;source:string}>> | undefined;
+export function updateCustomerPriceCatalog(prices: typeof sharedCustomerPrices) { sharedCustomerPrices=prices; }
 export function demoCustomerPrice(customerId: string, article: Article) {
+  if(sharedCustomerPrices)return sharedCustomerPrices[customerId]?.[article.id]??{price:article.prices[2],source:"C"};
   const example = demoCustomerPrices[customerId]?.[article.id];
   const tier = example?.tier ?? 2;
   return {
     price: example?.special ?? article.prices[tier],
     source: example?.special != null ? 'Specialpris' : ['A', 'B', 'C'][tier],
   };
+}
+
+/** Refresh the existing material views from the shared server register. */
+export function updateArticleCatalog(values: Article[]) {
+  articles.splice(0,articles.length,...values);
 }

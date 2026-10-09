@@ -1,4 +1,13 @@
-# JEROC kontorsdemo 0.7.4
+# JEROC kontorsdemo 0.8.0
+
+## Nytt i 0.8.0 – gemensam PostgreSQL
+
+Kontoret och mobilen delar nu vägningar och kunder. Prisregister, behörigheter,
+planering och avstängd integrationsutkorg är beständiga. Se
+[gemensam databas, import och begränsningar](shared-postgres.md). Befintlig
+`DATABASE_URL` används; ingen ny Renderinställning behövs. Tidigare releaseavsnitt
+nedan beskriver sina dåvarande versioner. Lagringsuppgifter om enbart lokala
+kort eller serverminne är ersatta av denna release. Backup byggs senare.
 
 ## Nytt i 0.7.4 – anläggningar och lagringsregler
 
@@ -241,11 +250,10 @@ Låsta kort har **Avräkningsnota** och betalda kort har **Utbetalningskvitto**,
 
 ## Lagring och avgränsning
 
-Prisregler, LME, kundundantag, serverbehörigheter, prisarkiv och transporternas demoutkorg ligger i **serverns minne**. De delas mellan kontorswebbens besökare och återställs till exempeldata när Render startar om eller publicerar en ny version. Terminaldelen lagrar däremot terminaler, sessioner, frysta avräkningar och kundgodkännanden i gemensam PostgreSQL/SQLite, enligt [terminaldokumentationen](terminal-demo.md). Miljöklassificeringar, miljösessioner, utkast, mottagningar, miljörättelser, lager och rapportunderlag lagras också beständigt, enligt [etapp 1](integrationer/naturvardsverket/etapp-1.md). Övriga viktkort, kunder, rättelsekort, betalningsjournal och lokal användarvy sparas separat i webbläsarens `jeroc.office.demo.v1`; kontorister tar också emot gemensamma terminalkort från servern. Full migration av hela ekonomiregistret är inte genomförd i denna demo.
-
-Kontorets vanliga demokonton är valbara exempel; de befintliga demo-API:erna kontrollerar rättigheter för dessa identiteter, men användarvalet är inte en produktionsinloggning. Miljöfunktionerna använder en automatiskt etablerad cookie-session för valt demokonto; den är uttryckligt demoautentisering och kan stängas av på servern med `JEROC_DEMO_AUTO_SESSION=false`. Sparade lokala kunder kan behöva registreras i prismotorn av kontoret igen efter en serveromstart; gamla frysta prisunderlag återställs bara när de stämmer exakt med låsta originalkort. Använd enbart testuppgifter. Lokal användarkonfiguration kan behöva sparas på servern igen efter en omstart. Återställ kontorsdemo återställer bara webbläsarens kontorsdata, inte serverns gemensamma priser, miljömottagningar eller mobilens sparade kort.
-
-Mobilens prislista är ännu inte kopplad till servern. Gårdsappens vägningar och konton synkas inte till kontoret. Ingen bank, Swish eller Visma är ansluten. Registrera demoutbetalning skickar ingen transaktion. Utskrift är ett märkt demounderlag.
+Verksamhetsdata lagras nu enligt [gemensam PostgreSQL](shared-postgres.md).
+Demokontona är fortfarande exempelidentiteter, inte produktionsautentisering.
+Serverrättigheter kontrolleras mot det beständiga registret. Ingen extern leverans
+aktiveras och betalningar registreras manuellt.
 
 ## Utveckling och kontroll
 

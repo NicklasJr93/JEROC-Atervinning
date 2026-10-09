@@ -171,7 +171,7 @@ test('släppt obokat arbete stannar i kalendern som preliminärt före bekräfte
   await expect(queueCard(page, 'AO-1044')).toHaveCount(0);
   expect((await order(page, 'AO-1044')).status).toBe('unbooked');
   expect((await saved(page)).preliminary['AO-1044']).toMatchObject({ date, startMinute: 690, durationMinutes: 60, driverId: 'maria', vehicleId: 'vehicle-maria' });
-  expect((await saved(page)).events.filter(event => event.type === 'work_order.booked')).toHaveLength(0);
+  expect((await saved(page)).events.filter(event => event.type === 'work_order.booked' && event.orderId === 'AO-1044')).toHaveLength(0);
   await page.getByRole('button', { name: 'Bekräfta bokning', exact: true }).click();
   await expect(calendarCard(page, 'AO-1044')).toContainText('11:30–12:30');
   await expect(calendarCard(page, 'AO-1044')).not.toHaveClass(/is-preliminary/);

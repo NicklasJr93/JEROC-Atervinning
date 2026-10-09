@@ -15,6 +15,7 @@ import {
   type Draft,
 } from './model';
 import type { Customer } from './data';
+import { useSharedData } from './shared-data';
 
 function load(): { data: DemoData; error: string } {
   try {
@@ -66,21 +67,11 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       return false;
     }
   });
+  const shared = useSharedData<DemoData>({domain:'mobile',key:STORE_KEY,identity:loggedIn?{mobile:true}:undefined,current:dataRef,accept:next=>{setData(next);setBlocked(false);},error:setError,parse:value=>storeSchema.parse(value)});
+
   function persist(next: DemoData, force = false) {
     if (blocked && !force) return false;
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(next));
-      dataRef.current = next;
-      setData(next);
-      setError('');
-      setBlocked(false);
-      return true;
-    } catch {
-      setError(
-        'Utkastet kunde inte sparas i webbläsaren. Frigör lagringsutrymme eller tillåt lokal lagring och försök igen.',
-      );
-      return false;
-    }
+    return shared.save(storeSchema.parse(next));
   }
   const value: Context = {
     data,
@@ -192,7 +183,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       });
     },
     reset() {
-      return persist(seedDemo(), true);
+      window.location.reload();
+      return true;
     },
     changePassword(current, next) {
       if (current !== password) return false;

@@ -326,8 +326,7 @@ export function DraftsPage() {
           />
         )}
         <Notice>
-          Vägningarna sparas på den här enheten. Inget skickas till kontoret i
-          demon.
+          Vägningarna sparas på servern. Färdiga vägningar visas på kontoret.
         </Notice>
       </main>
       <Nav />
@@ -545,8 +544,8 @@ export function ProfilePage() {
           lösenord.
         </Notice>
         <MenuRow
-          title="Återställ demodata"
-          description="Börja om med exempelvägningarna"
+          title="Uppdatera från servern"
+          description="Hämta aktuella uppgifter utan att radera något"
           icon={RotateCcw}
           onClick={() => setConfirm(true)}
         />
@@ -564,20 +563,19 @@ export function ProfilePage() {
       </main>
       <Nav />
       {confirm && (
-        <Modal title="Återställ demon?" onClose={() => setConfirm(false)}>
+        <Modal title="Uppdatera från servern?" onClose={() => setConfirm(false)}>
           <p>
-            Alla lokala demoutkast och nya demokunder ersätts med
-            exempeluppgifterna.
+            Aktuella vägningar och kunder hämtas från servern. Sparade uppgifter raderas inte.
           </p>
           <Button
             onClick={() => {
               if (reset()) {
                 setConfirm(false);
-                setMessage('Demodata är återställda.');
+                setMessage('Uppgifterna är uppdaterade.');
               }
             }}
           >
-            Återställ demodata
+            Uppdatera från servern
           </Button>
           <Button variant="outline" onClick={() => setConfirm(false)}>
             Avbryt

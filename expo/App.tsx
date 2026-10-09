@@ -145,7 +145,7 @@ export default function App() {
               </>
             )}
             <Text style={styles.note}>
-              Demokonto: niklas / Demo123!{'\n'}Inget skickas till kontoret.
+              Demokonto: niklas / Demo123!{'\n'}Färdiga vägningar visas på kontoret.
             </Text>
           </ScrollView>
         ) : (

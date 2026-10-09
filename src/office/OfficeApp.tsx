@@ -96,6 +96,7 @@ import {
   exportOfficeCsv,
 } from './OfficeOverview';
 import './office.css';
+import { useSharedData } from '../shared-data';
 const fmt = (s: string) =>
   new Intl.DateTimeFormat('sv-SE', {
     dateStyle: 'short',
@@ -195,6 +196,7 @@ export function OfficeApp() {
   const principalRef = useRef('');
   principalRef.current = `${actualUser?.id ?? ''}:${user?.id ?? ''}`;
   const acting = Boolean(actualUser && user && actualUser.id !== user.id);
+
   const terminalDemo = useTerminalDemo(actualUser, user);
   const [siteFilter, setSiteFilter] = useState('all');
   const [selectedTerminalId, setSelectedTerminalId] = useState('');
@@ -397,26 +399,14 @@ export function OfficeApp() {
       current = false;
     };
   }, [userId, actingId, pendingPrices]);
+  const shared = useSharedData<OfficeData>({domain:'office',key:officeKey,identity:actualUser&&user?{actor:actualUser.id,user:user.id}:undefined,current:dataRef,accept:next=>{setData(next);setBlocked(false);},error:setError,parse:value=>officeSchema.parse(value)});
   function persist(next: OfficeData, force = false) {
     if (blocked && !force) return false;
-    try {
-      localStorage.setItem(officeKey, JSON.stringify(officeSchema.parse(next)));
-      dataRef.current = next;
-      setData(next);
-      setError('');
-      setBlocked(false);
-      return true;
-    } catch {
-      setError(
-        'Ändringen kunde inte sparas. Tillåt lokal lagring och försök igen.',
-      );
-      return false;
-    }
+    try { return shared.save(officeSchema.parse(next)); }
+    catch { setError('Kontrollera de ändrade uppgifterna.'); return false; }
   }
   function login(id: string) {
     try {
-      if (!blocked && !localStorage.getItem(officeKey))
-        persist(dataRef.current);
       sessionStorage.setItem('jeroc.office.user', id);
       sessionStorage.removeItem('jeroc.office.acting');
       setActingId('');
@@ -1341,7 +1331,7 @@ export function OfficeApp() {
         </header>
         <div className="office-demo-notice">
           Demo · Kundgodkännanden och miljömottagningar delas via servern ·
-          Utbetalningar hanteras manuellt · Gårdsappen är fortsatt separat
+          Utbetalningar hanteras manuellt · Mobilens färdiga vägningar delas med kontoret
         </div>
         {acting && (
           <div className="office-acting-banner" role="status">
@@ -2299,22 +2289,9 @@ export function OfficeApp() {
             JEROC Kontorsdemo {OFFICE_VERSION} · Testdata ·{' '}
             <button
               className="office-link"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    'Återställ bara kontorsdemons testdata? Gårdsappens data påverkas inte.',
-                  ) &&
-                  persist(seedOffice(), true)
-                ) {
-                  sessionStorage.removeItem('jeroc.office.user');
-                  sessionStorage.removeItem('jeroc.office.acting');
-                  setActingId('');
-                  setUserId(undefined);
-                  navigate('/dashboard');
-                }
-              }}
+              onClick={() => window.location.reload()}
             >
-              Återställ kontorsdemo
+              Uppdatera från servern
             </button>
           </footer>
         </main>

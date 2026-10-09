@@ -7,6 +7,7 @@ import TransportOrderEditor from './TransportOrderEditor';
 import { transportKey, transportSchema, seedTransport, today, monday, addDays, timeLabel, durationLabel, applyTransportChange, saveTransportOrder, validateTransportPlan, undoTransportChange, distanceKm, effectiveTransportOrders, stageTransportPlan, removePreliminary, commitPreliminaryBookings, savePreliminaryOrder, transportPlanOf, expireTransportConfirmations } from './model';
 import { vesselTypes, actionLabels, transportStatusLabels, type TransportData, type TransportOrder, type TransportPlan, type TransportDraft, type TransportChange, type TransportActor, type CalendarProposal, type TransportFocusRequest } from './types';
 import './transport.css';
+import { useSharedData } from '../../shared-data';
 import TransportIntegrations from './TransportIntegrations';
 import { useTransportOutbox } from './integrations-client';
 
@@ -36,6 +37,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const live = useRef(data); live.current = data;
   const [blocked, setBlocked] = useState(Boolean(initial.error));
   const [error, setError] = useState(initial.error);
+  const shared = useSharedData<TransportData>({domain:'transport',key:transportKey,identity:{actor:actualUser.id,user:user.id},current:live,accept:next=>{setData(next);setBlocked(false);},error:setError,parse:value=>transportSchema.parse(value)});
   const [notice, setNotice] = useState('');
   const [undo, setUndo] = useState<TransportData | null>(null);
   const [date, setDate] = useState(today);
@@ -64,7 +66,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const [picking, setPicking] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const planning = can(user, 'transportPlan') && !blocked && !officeBlocked;
+  const planning = can(user, 'transportPlan') && shared.ready && !blocked && !officeBlocked;
   const actor: TransportActor = {
     canPlan: planning, actualUserId: actualUser.id, effectiveUserId: user.id,
     actor: (actualUser.id === user.id ? user.name : actualUser.name + ' som ' + user.name) + ' · Kontor Norrtälje',
@@ -76,29 +78,6 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const selected = projectedOrders.find(order => order.id === selectedId);
   const editor = panel && ['create', 'edit', 'book'].includes(panel.kind);
 
-  useEffect(() => {
-    if (initial.error) return;
-    try {
-      if (!localStorage.getItem(transportKey)) localStorage.setItem(transportKey, JSON.stringify(initial.data));
-    } catch {
-      setBlocked(true); setError('Transportuppgifterna kunde inte sparas. Tillåt webbläsarlagring och ladda om sidan.');
-    }
-  }, [initial]);
-  useEffect(() => {
-    function external(event: StorageEvent) {
-      if (event.key !== transportKey) return;
-      try {
-        if (!event.newValue) throw new Error();
-        const next = transportSchema.parse(JSON.parse(event.newValue));
-        live.current = next; setData(next); setUndo(null); setPanel(null); setPicking(false); picker.current = null;
-        setBlocked(false); setError(''); setNotice('Planeringen uppdaterades från en annan flik.');
-      } catch {
-        setBlocked(true); setError('Transportuppgifterna ändrades eller togs bort i en annan flik. Ladda om eller återställ transportdemon.');
-      }
-    }
-    window.addEventListener('storage', external);
-    return () => window.removeEventListener('storage', external);
-  }, []);
   useEffect(() => {
     if (!planning && editor) { setPanel(null); setPicking(false); picker.current = null; }
   }, [planning, editor]);
@@ -147,20 +126,8 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   function toggleDriver(id: string) {
     setSelectedDriverIds(ids => ids.includes(id) ? ids.filter(other => other !== id) : [...ids, id]);
   }
-  function save(next: TransportData, expected: TransportData): boolean {
-    try {
-      const stored = localStorage.getItem(transportKey);
-      const latest = stored ? transportSchema.parse(JSON.parse(stored)) : undefined;
-      if (latest && latest.revision !== expected.revision) {
-        live.current = latest; setData(latest); setUndo(null);
-        throw new Error('Planeringen ändrades i en annan flik. Kontrollera uppgifterna och försök igen.');
-      }
-      localStorage.setItem(transportKey, JSON.stringify(transportSchema.parse(next)));
-      live.current = next; setData(next); setError(''); return true;
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Ändringen kunde inte sparas.');
-      return false;
-    }
+  function save(next: TransportData, _expected: TransportData): boolean {
+    return shared.save(next);
   }
   function change(operation: TransportChange, message: string, remember = true) {
     try {
@@ -334,15 +301,15 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
         {actualUser.id !== user.id && <p>Inloggad som {actualUser.name}</p>}{workAsControl}</div>}
       {helpOpen && <div className="transport-help-popover"><button aria-label="Stäng information" onClick={() => setHelpOpen(false)}><X size={17} /></button>
         <strong>Transportdemo · Sparas i denna webbläsare</strong><p>Karta, planerare och arbetsordrar visar samma uppgifter. Kontur visar förare, fyllning visar kärltyp. Obokade nålar skakar kort. Klicka på förarnas namn för att välja vilka nålar du ser.</p>
-        <p>Restid bedöms manuellt. Förslagen visar närhet på kartan; de beräknar ingen körväg. Gemensam databas och förarapp kopplas på senare.</p></div>}
+        <p>Restid bedöms manuellt. Förslagen visar närhet på kartan; de beräknar ingen körväg. Planeringen delas via servern. Förarapp kopplas på senare.</p></div>}
       {((error && !editor) || (!error && notice)) && <div className={'transport-message ' + (error ? 'error' : '')} role={error ? 'alert' : 'status'}>
         <span>{error || notice}</span>
         {!error && undo && planning && <button onClick={undoChange}><Undo2 size={15} />Ångra</button>}
         {blocked && can(user, 'transportPlan') && <button onClick={() => {
-          if (!window.confirm('Återställ transportdemon? Endast transporternas lokala testdata ersätts.')) return;
-          try { const reset = seedTransport(); localStorage.setItem(transportKey, JSON.stringify(reset)); live.current = reset; setData(reset); setBlocked(false); setError(''); setUndo(null); setPanel(null); setDate(today()); }
+          if (!window.confirm('Hämta aktuella serveruppgifter? Lokala osparade uppgifter bevaras i återhämtningscachen.')) return;
+          try { window.location.reload(); }
           catch { setError('Lagringen är blockerad. Tillåt webbläsarlagring och ladda om.'); }
-        }}>Återställ transportdemo</button>}
+        }}>Hämta serveruppgifter</button>}
         {!blocked && <button aria-label="Stäng transportmeddelande" onClick={() => { setError(''); setNotice(''); }}><X size={16} /></button>}
       </div>}
       {layout === 'map' && <div className="transport-map-driver-controls" aria-label="Förare på kartan">{data.drivers.map(driver => <button key={driver.id} aria-pressed={selectedDriverIds.includes(driver.id)} onClick={() => toggleDriver(driver.id)}><i style={{ background: driver.color }} />{driver.name}</button>)}</div>}

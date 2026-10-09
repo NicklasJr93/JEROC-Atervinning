@@ -5,9 +5,7 @@ import { extname, isAbsolute, relative, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { proxyExpo, startExpoGo } from './expo-go.mjs';
-import { createPricingApi } from './pricing-api.mjs';
-import { createPricingStore } from './pricing.mjs';
-import { createTransportIntegrationsApi } from './transport-integrations.mjs';
+import { createApplicationService } from './application.mjs';
 import { createTerminalDemoApi } from './terminal-demo.mjs';
 import { createEnvironmentApi } from './environment-api.mjs';
 
@@ -57,10 +55,11 @@ async function handle(req, res) {
     reply(res, 400, 'Invalid URL');
     return;
   }
-  if (await pricingApi(req, res, url)) return;
-  if (await transportIntegrationsApi(req, res, url)) return;
-  if (await terminalDemoApi(req, res, url)) return;
-  if (await environmentApi(req, res, url)) return;
+  if (await applicationApi(req, res, url)) return;
+  if (pathname.startsWith("/api/terminal-demo") || pathname.startsWith("/api/environment")) {
+    const handled = await applicationApi.withPrincipal(async () => (await terminalDemoApi(req, res, url)) || (await environmentApi(req, res, url)));
+    if (handled) return;
+  }
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.setHeader('Allow', 'GET, HEAD');
     reply(res, 405, 'Method not allowed');
@@ -134,9 +133,8 @@ const server = createServer((req, res) => {
     else reply(res, 500, 'Server error');
   });
 });
-const principalStore = createPricingStore();
-const pricingApi = createPricingApi({ store: principalStore });
-const transportIntegrationsApi = createTransportIntegrationsApi({ principalStore });
+const applicationApi = createApplicationService({ approvalProvider: () => terminalDemoApi.projections() });
+const principalStore = applicationApi.principalStore;
 const environmentApi = createEnvironmentApi({ principalStore });
 const terminalDemoApi = createTerminalDemoApi({ principalStore, siteProvider: () => environmentApi.getSites() });
 const expoGo = startExpoGo({ onFailure: () => {
@@ -155,7 +153,7 @@ async function stop(code = 0) {
   if (stopping) return;
   stopping = true;
   setTimeout(() => process.exit(1), 10000).unref();
-  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close(), environmentApi.close()]);
+  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close(), environmentApi.close(), applicationApi.close()]);
   process.exit(code);
 }
 process.on('SIGTERM', () => stop());

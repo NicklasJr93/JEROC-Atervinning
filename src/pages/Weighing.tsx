@@ -106,7 +106,7 @@ export function MaterialsPage() {
     : `/weigh/${draft.id}/${params.get('back') === 'vehicle' || target === 'vehicle' ? 'vehicle' : 'summary'}`;
   const listed = articles.filter(
     (a) =>
-      (!categoryId || a.category === categoryId) &&
+      a.active !== false && (!categoryId || a.category === categoryId) &&
       `${a.name} ${a.description}`.toLowerCase().includes(search.toLowerCase()),
   );
   function openArticle(articleId: string) {
@@ -677,7 +677,7 @@ export function SummaryPage() {
               Spara utkast
             </Button>
             <p className="demo-footnote">
-              Sparas i demon. Inget skickas till kontoret.
+              Utkast sparas på servern. Färdiga vägningar visas på kontoret.
             </p>
           </div>
         )}
@@ -859,7 +859,7 @@ export function DonePage() {
               <p key={r.id}>{r.registration}</p>
             ))}
         </div>
-        <p>Inget skickas till kontoret i demon.</p>
+        <p>Vägningen sparas på servern och visas på kontoret.</p>
       </main>
       <Nav />
     </>

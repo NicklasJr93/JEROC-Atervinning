@@ -1,10 +1,10 @@
 # JEROC · Mobilappen
 
-**Version 0.2.3** av gårdsappen, byggd efter de godkända mockuperna. Inloggning, materialval med stora referensbilder, materialvägning, fordonsvägning, kundval, referens/ursprungsadress, lokal utkastlagring och en separat prislista.
+**Mobil/Expo 0.3.0 och kontor 0.8.0** delar nu verksamhetsdata i PostgreSQL. Utkast, kunder, färdiga mobilvägningar, kontorskort, prisregister, planering och integrationsutkorg sparas beständigt. Färdiga mobilvägningar visas på kontoret.
 
-**Det här är en lokal demo. Ingenting skickas till kontoret.** Företag, kunder, priser och exempelvägningar är fiktiva. Demoinloggningen är till för flödestest och är inte produktionsautentisering. Använd testuppgifter.
+Detta är fortfarande en demo med valbara exempelkonton. Använd testuppgifter. Utbetalningar är manuell demoregistrering; inga bank-, Visma-, Naturvårdsverks-, SMS-, e-post- eller BankID-leveranser aktiveras.
 
-Kontorsappen är nu **0.6.1**, med kompakt invägningskort, kundpopup och intern attest direkt under kundgodkännandet. Ursprungsadressen måste sparas före kundvisning. Egna kundterminalkonton på `/terminal` och gemensamma kundgodkännanden finns kvar. [Kontorsversionen](docs/office-demo.md) · [Terminaler: Render-inställning och teststeg](docs/terminal-demo.md). Gårdsappen är fortfarande en separat lokal demo; Visma, BankID, SMS och e-post är inte anslutna.
+[Gemensam databas och säker import](docs/shared-postgres.md) · [Kontorsversionen](docs/office-demo.md) · [Terminaler](docs/terminal-demo.md). Backup och återställning är planerade enligt ÄL 045, inte byggda här.
 
 ## Starta på Windows eller Mac
 
@@ -49,9 +49,9 @@ npm run build
 npm run dev
 ```
 
-Appen körs på port 5173 under utveckling. `npm run dev` startar även Node-serverns prismotor på port 3000; Vite skickar `/api` dit. Produktionsbygget kan testas med `npm run build` och `npm run preview` på port 4173. Demodata lagras lokalt; ingen serverdatabas eller produktionsinloggning har kopplats in. Strukturer för artikelrader, fordonsunderlag och kunder finns i `src/model.ts` och `src/data.ts` inför den framtida gemensamma backenddelen.
+Appen körs på port 5173 under utveckling. `npm run dev` startar även Node-serverns prismotor på port 3000; Vite skickar `/api` dit. Produktionsbygget kan testas med `npm run build` och `npm start` på port 3000 (preview är enbart statisk och saknar API). Verksamhetsdata lagras på servern; webbläsaren behåller återhämtningscache och UI-inställningar. Produktionsinloggning återstår. Strukturer för artikelrader, fordonsunderlag och kunder finns i `src/model.ts` och `src/data.ts` inför den framtida gemensamma backenddelen.
 
-För Render och annan serverdrift: kör `npm run build` och sedan `npm start`. Node-servern i `server/index.mjs` serverar webbbygget från `dist` på `0.0.0.0` och den port som miljövariabeln `PORT` anger (lokalt 3000). `/healthz` används för hälsokontroll. Kontorets prismotor finns nu på `/api/pricing/` i samma tjänst. Manuella LME Cash-priser och prisregler sparas i serverns minne. Databaslagring kopplas in separat senare.
+För Render och annan serverdrift: kör `npm run build` och sedan `npm start`. Node-servern i `server/index.mjs` serverar webbbygget från `dist` på `0.0.0.0` och den port som miljövariabeln `PORT` anger (lokalt 3000). `/healthz` används för hälsokontroll. Kontorets prismotor finns nu på `/api/pricing/` i samma tjänst. Render behöver `DATABASE_URL` till PostgreSQL; migrationer körs automatiskt. Lokal utveckling använder annars beständig SQLite.
 
 ### Kontrollera flöden
 

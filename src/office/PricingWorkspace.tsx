@@ -236,9 +236,8 @@ export default function PricingWorkspace({
       <div className="office-pricing-demo">
         <Info size={15} />
         <span>
-          <strong>Serverdemo.</strong> Priser och historik sparas i serverns
-          minne och återställs vid omstart eller ny driftsättning. Mobilens
-          prislista kopplas in i nästa steg.
+          <strong>Gemensamt prisregister.</strong> Priser och historik sparas i databasen.
+          Mobilen hämtar samma artikelregister och aktuella kundpriser.
         </span>
       </div>
       {error && (

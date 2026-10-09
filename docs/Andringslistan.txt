@@ -840,3 +840,41 @@ Releasekontroll 0.7.4
 54 riktade serverkontroller inklusive 12 lagringstester i riktig PostgreSQL
 och 23 riktade webbläsarkontroller passerade. Produktionsbygge och Expo-
 typkontroll passerade. Anläggningsvyn granskad utan sidöverflöde/JavaScriptfel.
+
+044 – Gemensam beständig verksamhetsdata
+Status: Genomförd i kontor 0.8.0 / mobil och Expo 0.3.0.
+- PostgreSQL är sanningskälla även för prismotor, LME, artikelhistorik,
+  kundpriser, användare och behörigheter, kontorets viktkort, kundregister,
+  rättelser, betalningsjournal, mobilutkast, arbetsorder, förare, fordon,
+  preliminära bokningar, händelser och avstängd integrationsutkorg.
+- Färdiga mobilvägningar skapar ett kontorskort med stabilt sourceId, atomiskt
+  tilldelat kortnummer och skydd mot dubbla kort vid återförsök.
+- Mobilens material och aktuella kundpriser hämtas från serverns register.
+- Migration application-001 skapar versionerad JSONB-lagring samt separat
+  händelselogg och importarkiv. Nya definierade modellfält följer med automatiskt.
+- Befintliga terminal-/miljötjänster och frysta original bevaras.
+- Lokala original bevaras före import. Konflikter och äldre ekonomiska kort
+  utan verifierbart servergodkännande arkiveras; de blir inte falskt betalklara.
+- Samtidiga ändringar i olika uppgifter förenas; samma uppgift ger tydlig konflikt.
+  Webbläsaren behåller en återhämtningscache och kö för osparat arbete.
+- Oförändrad demoautentisering. Ingen produktionsinloggning, banköverföring,
+  Visma-, Naturvårdsverks-, SMS- eller e-postleverans aktiveras.
+
+045 – Backup, återställning och driftövervakning
+Status: Planerad uppdatering. Ska inte byggas i denna release.
+- Bygg komplett backup-/återställningsfunktion när modulerna finns på plats.
+- Full databasbackup ska omfatta samtliga tabeller och framtida fält; filer/PDF-
+  original och deras versionsreferenser måste också omfattas när de införs.
+- Planera nattlig full kopia utanför primär drift samt kontinuerlig återställning
+  för högst en minuts dataförlust. En vanlig ändringslogg räcker inte ensam.
+- Testa återställning till separat miljö. Återställning får aldrig återutlösa
+  betalningar, dokumentrapportering eller meddelanden. Avstängd utkorg och
+  avstämning mot externa kvittenser/idempotens krävs före återstart.
+- Sentry för webb, server och Expo utreds/införs separat med sekretessfilter.
+
+Releasekontroll 0.8.0 / 0.3.0
+10 nya kontroller i riktig PostgreSQL och 79 riktade regressionskontroller
+passerade (89 serverkontroller totalt). Sex riktade webbläsarflöden passerade:
+mobil till kontor, trasig cache, två terminaler med separat attest, omsändning
+och två planeringsflöden. Produktionsbygge och Expo-typkontroll passerade.
+Backup/återställning är enbart planerad, ingen extern leverans aktiveras.

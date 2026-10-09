@@ -84,7 +84,7 @@ export default function TransportIntegrations({ data, actor, selectedOrder: orde
     <p className="transport-integration-note"><ShieldCheck size={13} /> Förberett för aviseringar. SMS, e-post och svarslänkar kopplas in senare.</p>
     <details className="transport-event-log">
       <summary>Integrationshändelser <span>{data.events.filter((event) => event.orderId === order.id).length}</span></summary>
-      <div className="transport-outbox-info"><strong>Utkorg · inga utskick</strong><span>Händelser sparas i den här webbläsaren. Serverns demoutkorg ligger i minnet.</span>
+      <div className="transport-outbox-info"><strong>Utkorg · inga utskick</strong><span>Händelser och utkorg sparas i den gemensamma databasen. Leveranser är avstängda.</span>
         {outbox?.total ? <span role="status">{outbox.state === 'prepared' ? `${outbox.prepared} händelser förberedda på servern` : outbox.state === 'retrying' ? 'Servern svarade inte. Lokala händelser väntar på återförsök.' : 'Förbereder utkorgen…'}</span> : null}
         {outbox?.error && <button onClick={outbox.retry}><RefreshCw size={12} /> Försök igen</button>}
       </div>

@@ -179,9 +179,10 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     // Obtain the immutable catalog before taking the terminal reservation lock.
     // Awaiting another repository while holding SQLite's synchronous lock would
     // block a concurrent local connection from completing its transaction.
-    return repository.transact((state) => {
+    const run = () => repository.transact((state) => {
       const time = now(); cleanup(state, time, catalog); return operation(state, time, catalog);
     });
+    return principalStore.runFresh ? principalStore.runFresh(run) : run();
   };
   const staff = (state, value, time) => {
     if (!value) throw new TerminalDemoError('Välj ett demokonto på kontoret.', 401, 'staff_session_required');
@@ -213,6 +214,7 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     if (approval) releaseApproval(state, approval, 'cancelled', time, principal, reason);
   };
   return {
+    projections: () => transaction(state => state.approvals.map(approval => approvalDTO(approval, {user: {level: "Systemadmin"}}))),
     repository,
     async staffSession(payload, previousToken) {
       const request = validate(z.object({ actualUserId: id, effectiveUserId: id }).strict(), payload);
@@ -569,6 +571,7 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
     }
     return true;
   };
+  api.projections = async () => (await getStore()).projections();
   api.close = async () => {
     for (const close of [...eventStreams]) close();
     if (repositoryPromise) await repositoryPromise.then((value) => value.close()).catch(() => {});
