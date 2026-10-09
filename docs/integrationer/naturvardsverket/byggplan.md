@@ -193,3 +193,10 @@ inte som ett godkänt anslutningstest.
 - [Mockupmatchning och återstående verksamhetsbeslut](mockupmatchning.md).
 - [Godkända mockuper och flöden](../../mockups/farligt-avfall/README.md).
 - [Naturvårdsverkets vägledning om transportdokument och underskrifter](https://www.naturvardsverket.se/vagledning-och-stod/avfall/avfallstransporter-inom-sverige/).
+
+### Godkänd uppföljning av etapp 1, 0.7.1
+
+Automatisk miljödemosession, kompakt miljökort under kundgodkännandet, återanvänd
+ursprungsadress, serverlagrade utkast och spårbara miljörättelser byggs enligt
+ÄL 036–037. Detta startar inte etapp 2–4 eller extern myndighetsleverans.
+Befintlig demodatageneration behålls, så uppdateringen rensar inte testkort igen.

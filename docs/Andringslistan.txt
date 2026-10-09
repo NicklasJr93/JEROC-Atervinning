@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.7.0.
+Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.7.1.
 Punkterna 001–035 är genomförda; 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
@@ -690,7 +690,7 @@ Produktionsbygge och Expo-typkontroll passerade. Mottagnings- och miljövyer
 har granskats visuellt. Inga anrop till Naturvårdsverket har gjorts.
 
 036 – MILJÖDELEN FÖLJER KONTORETS INLOGGNING
-Status: Godkänd för ÄL; planerad, ännu inte byggd.
+Status: Genomförd i kontorsdemo 0.7.1.
 - Ta bort den separata rutan Anslut till miljödemot, lösenordsfältet och
   Anslut-knappen från artikelkort, invägningskort och miljörapportering.
 - Användaren ska få miljöåtkomst genom kontorets vanliga inloggning och sina
@@ -701,6 +701,37 @@ Status: Godkänd för ÄL; planerad, ännu inte byggd.
   Automatisk demoanslutning ska fortsatt vara tydligt testläge; riktig
   personalautentisering ska senare vara gemensam för hela kontorsappen.
 - Ingen anslutning till Naturvårdsverket aktiveras av denna ändring.
+
+037 – KOMPAKT MILJÖKORT, GEMENSAM ADRESS OCH SPÅRBARA MILJÖRÄTTELSER
+Status: Genomförd i kontorsdemo 0.7.1 efter godkänd uppföljning av etapp 1.
+- Miljö & mottagning ligger under Kundgodkännande och före Intern attest.
+  Placeringen gör inte fysisk mottagning eller miljöfrister beroende av kundens svar.
+- Kompakt sammanställning även före sparning, med Ändra per rad och extra
+  kontaktuppgifter under Fler uppgifter. Material och vikt visas före bekräftelse.
+- Ursprungsadressen på viktkortet är enda källa till senaste hanteringsplats.
+  Backend delar adressen och söker kommun med säker matchning; osäkra resultat
+  begär bara adress- eller kommunkomplettering. Ändrad adress uppdaterar utkastets
+  härledda uppgifter, aldrig ett redan bekräftat original.
+- Officiell SCB-lista med 290 kommuner. Adressökning med Nominatim; kända
+  testadresser märks som demoreferenser. Ingen kommunkod gissas från postnummer.
+- Vägsätt förifyllt. Dokumentreferens valfri, med tydliga separata lägen:
+  dokument finns, krävs inte (orsak), krävs men saknas (avvikelse), ej kontrollerat.
+- Miljöutkast sparas gemensamt i databas med versionskontroll, utan att skapa
+  lager eller rapportunderlag. Samtidig ändring skriver inte över en kollegas utkast.
+- Bekräftad mottagning fryser originalet. Senare miljörättelse sparar ny version,
+  orsak, användare och hash. Endast mängdskillnaden justerar fysiskt lager;
+  metadata eller priser ändrar inte lagret. Tidigare underlag visas i Historik.
+- Nya migrationer bevarar tidigare mottagningar och testkort. Ingen ny rensning.
+- Företag/hushåll behandlas enligt aktuell avfallsroll; privatkund innebär inte
+  automatiskt kommunkod utan fullständig plats. Utvidgat hushållsflöde och faktisk
+  NVV-rapportering ingår inte i denna uppföljning.
+- Etapp 2–4, utleverans och extern förarportal inväntar fortsatt separat start.
+
+Releasekontroll 0.7.1
+117 servertester passerade inklusive PostgreSQL 18 i separat testdatabas.
+Samtliga 145 Playwright-kontroller passerade, även mobil-, terminal-, attest-,
+pris- och transportflöden. Produktionsbygge och Expo-typkontroll passerade.
+Kompakt miljökort granskades visuellt utan sidöverflöde eller JavaScriptfel.
 
 Nästa feedback
 Nya godkända ändringar läggs till som nya numrerade poster här.

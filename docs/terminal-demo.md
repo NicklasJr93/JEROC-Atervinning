@@ -1,4 +1,4 @@
-# JEROC kundterminaldemo 0.7.0
+# JEROC kundterminaldemo 0.7.1
 
 **Nytt resetbeslut i 0.7.0:** gamla testinvägningar och deras godkännandesessioner
 rensas en gång. Terminalkonton, sessioner och förval bevaras; nya kort börjar
@@ -7,7 +7,7 @@ Efter denna engångsåterställning bevaras nya kort och godkännanden vid omsta
 
 Terminalerna använder samma webbdomän och Node-tjänst som kontorsappen. Öppna `/kontor` på kassadatorn och `/terminal` på mobilen, iPaden eller touchskärmen. Ingen native-app eller separat terminalinstallation behövs. En framtida `.se`-domän kan kopplas till samma tjänst; sökvägen förblir `/terminal`.
 
-Det här är en demo med fungerande terminalkonton och gemensamma kundgodkännanden. Kontorets valbara användare och **Jobba som** är fortfarande demoinloggning, inte produktionsautentisering av personal. Miljöfunktionerna i 0.7.0 har en separat servervaliderad testlösenordssession enligt [etapp 1](integrationer/naturvardsverket/etapp-1.md). Den sessionen ersätter inte kontorets eller terminalens inloggning. Använd testkunder och testuppgifter. BankID, SMS, e-post och Visma är inte anslutna. Utbetalning registreras fortfarande manuellt i kontorsdemon och skickar inga pengar.
+Det här är en demo med fungerande terminalkonton och gemensamma kundgodkännanden. Kontorets valbara användare och **Jobba som** är fortfarande demoinloggning, inte produktionsautentisering av personal. Miljöfunktionerna i 0.7.1 följer valt kontorsdemokonto automatiskt med en separat cookie-session enligt [etapp 1](integrationer/naturvardsverket/etapp-1.md). Terminalen behåller sin egen lösenordsinloggning. Använd testkunder och testuppgifter. BankID, SMS, e-post och Visma är inte anslutna. Utbetalning registreras fortfarande manuellt i kontorsdemon och skickar inga pengar.
 
 ## Render: anslut gemensam lagring
 

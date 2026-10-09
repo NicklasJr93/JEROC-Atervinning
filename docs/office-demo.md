@@ -1,6 +1,24 @@
-# JEROC kontorsdemo 0.7.0
+# JEROC kontorsdemo 0.7.1
 
-## Nytt i 0.7.0 – miljö och mottagning
+## Nytt i 0.7.1 – kompakt miljökort
+
+Miljösessionen följer automatiskt valt kontorsdemokonto och **Jobba som**.
+Den extra anslutningsrutan är borttagen. Servern kontrollerar fortfarande
+behörigheter, anläggningar och faktisk/utförande användare.
+
+**Miljö & mottagning** ligger under kundgodkännandet, med kompakt sammanställning
+och redigering per rad. Ursprungsadressen återanvänds från viktkortet och
+kommunkoden hämtas vid en säker adressmatchning. Miljöutkast sparas gemensamt
+utan lagerpåverkan. Bekräftad mottagning kan rättas med en ny spårbar version;
+originalet bevaras och bara mängdskillnaden justerar lagret. Dokumentnummer är
+valfritt, medan dokumentstatus skiljer på finns, undantag, saknas och ej kontrollerat.
+Denna uppdatering raderar inga tidigare kort eller mottagningar.
+
+**Releasekontroll 0.7.1:** 117 servertester inklusive PostgreSQL 18, samtliga
+145 Playwright-kontroller, produktionsbygge och Expo-typkontroll passerade.
+Den kompakta vyn har också granskats visuellt.
+
+## Etapp 1 i 0.7.0 – miljö och mottagning
 
 **Miljö & avfallsklassificering** finns på artikelkortet. **Miljö & mottagning**
 finns på invägningskortet och **Miljörapportering** i vänstermenyn. Uppgifterna
@@ -46,7 +64,7 @@ Profilen och Systemadmins **Jobba som** finns längst ner i vänstermenyn. Sidhu
 
 Systemadmin kan skapa terminalkonton under **Terminaler**. Kunden öppnar `/terminal` på mobil, iPad eller touchskärm och loggar in med ett eget terminalkonto. Kontoristen visar en fryst avräkningsversion på en ledig terminal på kortets anläggning. Kundens begäran om fysisk ID-kontroll måste bekräftas av behörig personal innan kortet går till intern attest. **Kundgodkännanden**, mellan Invägningar och Attest, samlar Aktiva/Historik och uppdateras från gemensam serverlagring. Anläggning och personligt terminalförval kan väljas i överdelen.
 
-På Render kräver terminaldelen PostgreSQL och servervariabeln `DATABASE_URL`. Lokalt används `.data/terminal-demo.sqlite` om PostgreSQL inte konfigurerats. Ingen tillfällig disk- eller minnesreserv används för terminalärenden på Render. Efter engångsåterställningen av gamla testkort bevaras nya lokala viktkort och kopieras till terminaltjänsten vid kundvisning. Kontorets användarval är fortfarande uttrycklig demoautentisering; miljöfunktionerna har en separat lösenordssession. BankID/SMS/e-post/Visma är inte anslutna; betalning fortsätter som manuell demoregistrering. Se [terminaldokumentationen](terminal-demo.md) för installation, lagringsgränser och testflöde.
+På Render kräver terminaldelen PostgreSQL och servervariabeln `DATABASE_URL`. Lokalt används `.data/terminal-demo.sqlite` om PostgreSQL inte konfigurerats. Ingen tillfällig disk- eller minnesreserv används för terminalärenden på Render. Efter engångsåterställningen av gamla testkort bevaras nya lokala viktkort och kopieras till terminaltjänsten vid kundvisning. Kontorets användarval är fortfarande uttrycklig demoautentisering; miljöfunktionernas cookie-session följer valt demokonto automatiskt. BankID/SMS/e-post/Visma är inte anslutna; betalning fortsätter som manuell demoregistrering. Se [terminaldokumentationen](terminal-demo.md) för installation, lagringsgränser och testflöde.
 
 ## Prova uppdateringen
 
@@ -109,9 +127,9 @@ Låsta kort har **Avräkningsnota** och betalda kort har **Utbetalningskvitto**,
 
 ## Lagring och avgränsning
 
-Prisregler, LME, kundundantag, serverbehörigheter, prisarkiv och transporternas demoutkorg ligger i **serverns minne**. De delas mellan kontorswebbens besökare och återställs till exempeldata när Render startar om eller publicerar en ny version. Terminaldelen lagrar däremot terminaler, sessioner, frysta avräkningar och kundgodkännanden i gemensam PostgreSQL/SQLite, enligt [terminaldokumentationen](terminal-demo.md). Miljöklassificeringar, miljösessioner, mottagningar, lager och rapportunderlag lagras också beständigt, enligt [etapp 1](integrationer/naturvardsverket/etapp-1.md). Övriga viktkort, kunder, rättelsekort, betalningsjournal och lokal användarvy sparas separat i webbläsarens `jeroc.office.demo.v1`; kontorister tar också emot gemensamma terminalkort från servern. Full migration av hela ekonomiregistret är inte genomförd i denna demo.
+Prisregler, LME, kundundantag, serverbehörigheter, prisarkiv och transporternas demoutkorg ligger i **serverns minne**. De delas mellan kontorswebbens besökare och återställs till exempeldata när Render startar om eller publicerar en ny version. Terminaldelen lagrar däremot terminaler, sessioner, frysta avräkningar och kundgodkännanden i gemensam PostgreSQL/SQLite, enligt [terminaldokumentationen](terminal-demo.md). Miljöklassificeringar, miljösessioner, utkast, mottagningar, miljörättelser, lager och rapportunderlag lagras också beständigt, enligt [etapp 1](integrationer/naturvardsverket/etapp-1.md). Övriga viktkort, kunder, rättelsekort, betalningsjournal och lokal användarvy sparas separat i webbläsarens `jeroc.office.demo.v1`; kontorister tar också emot gemensamma terminalkort från servern. Full migration av hela ekonomiregistret är inte genomförd i denna demo.
 
-Kontorets vanliga demokonton är valbara exempel; de befintliga demo-API:erna kontrollerar rättigheter för dessa identiteter, men användarvalet är inte en produktionsinloggning. Miljöfunktionerna kräver dessutom sin separata servervaliderade testlösenordssession. Sparade lokala kunder kan behöva registreras i prismotorn av kontoret igen efter en serveromstart; gamla frysta prisunderlag återställs bara när de stämmer exakt med låsta originalkort. Använd enbart testuppgifter. Lokal användarkonfiguration kan behöva sparas på servern igen efter en omstart. Återställ kontorsdemo återställer bara webbläsarens kontorsdata, inte serverns gemensamma priser, miljömottagningar eller mobilens sparade kort.
+Kontorets vanliga demokonton är valbara exempel; de befintliga demo-API:erna kontrollerar rättigheter för dessa identiteter, men användarvalet är inte en produktionsinloggning. Miljöfunktionerna använder en automatiskt etablerad cookie-session för valt demokonto; den är uttryckligt demoautentisering och kan stängas av på servern med `JEROC_DEMO_AUTO_SESSION=false`. Sparade lokala kunder kan behöva registreras i prismotorn av kontoret igen efter en serveromstart; gamla frysta prisunderlag återställs bara när de stämmer exakt med låsta originalkort. Använd enbart testuppgifter. Lokal användarkonfiguration kan behöva sparas på servern igen efter en omstart. Återställ kontorsdemo återställer bara webbläsarens kontorsdata, inte serverns gemensamma priser, miljömottagningar eller mobilens sparade kort.
 
 Mobilens prislista är ännu inte kopplad till servern. Gårdsappens vägningar och konton synkas inte till kontoret. Ingen bank, Swish eller Visma är ansluten. Registrera demoutbetalning skickar ingen transaktion. Utskrift är ett märkt demounderlag.
 

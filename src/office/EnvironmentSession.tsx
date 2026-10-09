@@ -1,95 +1,147 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { KeyRound, Leaf, RefreshCw } from 'lucide-react';
+import { Leaf, RefreshCw } from 'lucide-react';
 import type { OfficeUser } from './model';
 import { environmentApi, EnvironmentApiError } from './environment-client';
 import type { EnvironmentSessionState, EnvironmentState } from './environment-types';
 import './environment.css';
 
 export const environmentFailure = (failure: unknown) => failure instanceof Error ? failure.message : 'Åtgärden kunde inte utföras.';
-export const hasEnvironmentPermission = (user: OfficeUser, permission: 'environmentRead' | 'environmentWrite' | 'environmentClassify') => user.level !== 'Medarbetare' || (user.permissions as readonly string[]).includes(permission);
+export const hasEnvironmentPermission = (user: OfficeUser, permission: 'environmentRead' | 'environmentWrite' | 'environmentClassify') => user.level !== 'Medarbetare' || user.permissions.includes(permission);
 interface EnvironmentContextValue {
-  session?: EnvironmentSessionState; state?: EnvironmentState; loading: boolean; error: string;
-  user: OfficeUser; actualUser: OfficeUser;
-  login: (password: string) => Promise<void>; refresh: () => Promise<void>;
+  session?: EnvironmentSessionState;
+  state?: EnvironmentState;
+  loading: boolean;
+  error: string;
+  user: OfficeUser;
+  actualUser: OfficeUser;
+  refresh: () => Promise<void>;
 }
 const EnvironmentContext = createContext<EnvironmentContextValue | null>(null);
+
+// Account changes finish in order because the browser shares one cookie.
+// This is explicit demo authentication, not a production personnel login.
+let connectionQueue = Promise.resolve();
+let activeOwner: symbol | undefined;
+function orderedConnection<T>(operation: () => Promise<T>): Promise<T> {
+  const result = connectionQueue.then(operation);
+  connectionQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
 export function useEnvironmentSession() {
   const context = useContext(EnvironmentContext);
   if (!context) throw new Error('Miljökomponenter behöver EnvironmentSessionProvider.');
   return context;
 }
-export function EnvironmentSessionProvider({ user, actualUser, children, onNotice }: { user: OfficeUser; actualUser: OfficeUser; children: ReactNode; onNotice?: (message: string) => void }) {
+
+export function EnvironmentSessionProvider({ user, actualUser, children }: {
+  user: OfficeUser;
+  actualUser: OfficeUser;
+  children: ReactNode;
+  onNotice?: (message: string) => void;
+}) {
   const [session, setSession] = useState<EnvironmentSessionState>();
   const [state, setState] = useState<EnvironmentState>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const owner = useRef(Symbol('environment-session'));
   const identity = `${actualUser.id}/${user.id}`;
-  const permissionSignature = `${user.level}/${user.permissions.join(',')}`;
-  const identityRef = useRef(identity); identityRef.current = identity;
-  const matches = useCallback((value: EnvironmentSessionState) => value.actualUserId === actualUser.id && value.effectiveUserId === user.id, [actualUser.id, user.id]);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const generation = useRef(0);
+  const permissionSignature = `${user.level}/${user.permissions.join(',')}/${user.siteIds?.join(',') ?? 'all'}`;
+  const readable = hasEnvironmentPermission(user, 'environmentRead');
+  const permitted = readable || hasEnvironmentPermission(user, 'environmentWrite') || hasEnvironmentPermission(user, 'environmentClassify');
+  const matches = useCallback((value: { actualUserId: string; effectiveUserId: string }) =>
+    value.actualUserId === actualUser.id && value.effectiveUserId === user.id, [actualUser.id, user.id]);
+
   const refresh = useCallback(async () => {
-    const startIdentity = identity;
+    const expectedIdentity = identity;
+    const expectedGeneration = generation.current;
+    const current = () => identityRef.current === expectedIdentity && generation.current === expectedGeneration && activeOwner === owner.current;
     try {
-      const next = await environmentApi.state();
-      if (identityRef.current === startIdentity) { setState(next); setError(''); }
+      await orderedConnection(async () => {
+        if (!current()) return;
+        let nextSession: EnvironmentSessionState | undefined;
+        try { nextSession = await environmentApi.session(); }
+        catch (failure) {
+          if (!(failure instanceof EnvironmentApiError && failure.status === 401)) throw failure;
+        }
+        if (!current()) return;
+        if (!permitted) {
+          if (nextSession && matches(nextSession)) { environmentApi.adoptSession(nextSession); await environmentApi.logout(); }
+          if (current()) { setSession(undefined); setState(undefined); setError(''); }
+          return;
+        }
+        if (!nextSession || !matches(nextSession)) nextSession = await environmentApi.demoSession(actualUser.id, user.id);
+        if (!current()) return;
+        if (!matches(nextSession)) throw new Error('Miljösessionen tillhör ett annat konto. Försök igen.');
+        environmentApi.adoptSession(nextSession);
+        const nextState = readable ? await environmentApi.state() : undefined;
+        if (!current()) return;
+        if (nextState && !matches(nextState)) throw new Error('Kontot ändrades i en annan flik. Försök igen för att hämta dina miljöuppgifter.');
+        setSession(nextSession);
+        setState(nextState);
+        setError('');
+      });
     } catch (failure) {
-      if (identityRef.current !== startIdentity) return;
-      if (failure instanceof EnvironmentApiError && failure.status === 401) { setSession(undefined); setState(undefined); }
-      if (failure instanceof EnvironmentApiError && failure.status === 403) setState(undefined);
-      setError(environmentFailure(failure)); throw failure;
-    }
-  }, [identity]);
-  useEffect(() => {
-    const controller = new AbortController(); let active = true;
-    setSession(undefined); setState(undefined); setError(''); setLoading(true);
-    void environmentApi.session(controller.signal).then(async next => {
-      if (!active) return;
-      if (!matches(next)) { await environmentApi.logout(); return; }
-      setSession(next);
-      if (hasEnvironmentPermission(user, 'environmentRead')) {
-        const nextState = await environmentApi.state(controller.signal);
-        if (active) setState(nextState);
+      if (current()) {
+        environmentApi.forgetSession();
+        setSession(undefined);
+        setState(undefined);
+        setError(environmentFailure(failure));
       }
-    }).catch(failure => {
-      if (!active || controller.signal.aborted) return;
-      if (!(failure instanceof EnvironmentApiError && failure.status === 401)) setError(environmentFailure(failure));
-    }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; controller.abort(); };
-  }, [identity, matches, permissionSignature]);
-  useEffect(() => {
-    if (!session || !matches(session) || !hasEnvironmentPermission(user, 'environmentRead')) return;
-    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh().catch(() => undefined); }, 8000);
-    return () => window.clearInterval(timer);
-  }, [session, matches, refresh, permissionSignature]);
-  const login = useCallback(async (password: string) => {
-    const startIdentity = identity;
-    setLoading(true); setError('');
-    try {
-      const next = await environmentApi.login(actualUser.id, password, user.id);
-      if (identityRef.current !== startIdentity || !matches(next)) return;
-      setSession(next);
-      await refresh();
-      onNotice?.('Miljödemot är anslutet. Mottagningar sparas gemensamt på servern.');
-    } catch (failure) {
-      if (identityRef.current === startIdentity) setError(environmentFailure(failure));
       throw failure;
-    } finally { if (identityRef.current === startIdentity) setLoading(false); }
-  }, [actualUser.id, user.id, identity, matches, refresh, onNotice]);
-  return <EnvironmentContext.Provider value={{ session: session && matches(session) ? session : undefined, state, loading, error, user, actualUser, login, refresh }}>{children}</EnvironmentContext.Provider>;
+    }
+  }, [identity, actualUser.id, user.id, readable, permitted, matches, permissionSignature]);
+
+  useEffect(() => {
+    activeOwner = owner.current;
+    generation.current += 1;
+    const expectedGeneration = generation.current;
+    setSession(undefined);
+    setState(undefined);
+    setError('');
+    setLoading(true);
+    environmentApi.forgetSession();
+    void refresh().catch(() => undefined).finally(() => {
+      if (generation.current === expectedGeneration && activeOwner === owner.current) setLoading(false);
+    });
+  }, [refresh]);
+
+  useEffect(() => () => {
+    const releasedIdentity = identityRef.current;
+    generation.current += 1;
+    if (activeOwner === owner.current) activeOwner = undefined;
+    void orderedConnection(async () => {
+      if (activeOwner) return;
+      try {
+        const existing = await environmentApi.session();
+        if (!activeOwner && `${existing.actualUserId}/${existing.effectiveUserId}` === releasedIdentity) { environmentApi.adoptSession(existing); await environmentApi.logout(); }
+      } catch { /* Session may already be expired or the server disconnected. */ }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!session || !matches(session) || !readable) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh().catch(() => undefined);
+    }, 8000);
+    return () => window.clearInterval(timer);
+  }, [session, matches, readable, refresh]);
+
+  return <EnvironmentContext.Provider value={{ session: session && matches(session) ? session : undefined, state, loading, error, user, actualUser, refresh }}>{children}</EnvironmentContext.Provider>;
 }
 
-export function EnvironmentAccessBoundary({ children, permission = 'environmentRead' }: { children: ReactNode; permission?: 'environmentRead' | 'environmentWrite' | 'environmentClassify' }) {
-  const { session, user, actualUser, login, loading, error, refresh } = useEnvironmentSession();
-  const [password, setPassword] = useState('');
-  const [localError, setLocalError] = useState('');
-  useEffect(() => { setPassword(''); setLocalError(''); }, [user.id, actualUser.id]);
+export function EnvironmentAccessBoundary({ children, permission = 'environmentRead' }: {
+  children: ReactNode;
+  permission?: 'environmentRead' | 'environmentWrite' | 'environmentClassify';
+}) {
+  const { session, user, loading, error, refresh } = useEnvironmentSession();
   if (!hasEnvironmentPermission(user, permission)) return <div className="environment-access environment-muted"><Leaf size={18} /><span>Du saknar behörighet för denna miljöfunktion.</span></div>;
-  if (session) return <>{error && <div className="environment-alert" role="alert">{error}<button type="button" className="office-link" onClick={() => void refresh().catch(() => undefined)}><RefreshCw size={13} />Försök igen</button></div>}{children}</>;
-  async function connect() {
-    if (loading) return;
-    setLocalError('');
-    try { await login(password); setPassword(''); }
-    catch (failure) { setLocalError(environmentFailure(failure)); }
-  }
-  return <div className="environment-access" data-testid="environment-session-login"><span className="environment-icon"><KeyRound size={20} /></span><div className="environment-access-copy"><strong>Anslut till miljödemot</strong><p>{actualUser.name}{actualUser.id !== user.id ? ` · jobbar som ${user.name}` : ''}. Personlig serverinloggning för gemensamt sparade mottagningar.</p><small>DEMO · lösenord: <code>JerocDemo2026!</code></small></div><div className="environment-access-actions"><input type="password" aria-label="Lösenord för miljödemot" autoComplete="current-password" placeholder="Demolösenord" value={password} onChange={event => setPassword(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void connect(); } }} /><button type="button" className="office-btn" disabled={loading || !password} onClick={() => void connect()}>{loading ? 'Ansluter…' : 'Anslut'}</button></div>{(localError || error) && <div className="environment-error" role="alert">{localError || error}</div>}</div>;
+  if (!session) return <div className={`environment-access ${error ? 'environment-error' : 'environment-muted'}`} role={error ? 'alert' : undefined}>
+    <Leaf size={18} /><span>{error || (loading ? 'Hämtar miljöuppgifter…' : 'Miljöuppgifterna kunde inte hämtas.')}</span>
+    {!loading && <button type="button" className="office-link" onClick={() => void refresh().catch(() => undefined)}><RefreshCw size={14} />Försök igen</button>}
+  </div>;
+  return <>{error && <div className="environment-alert" role="alert">{error}<button type="button" className="office-link" onClick={() => void refresh().catch(() => undefined)}><RefreshCw size={13} />Försök igen</button></div>}{children}</>;
 }

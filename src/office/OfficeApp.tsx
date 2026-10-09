@@ -1633,19 +1633,6 @@ export function OfficeApp() {
                       </p>
                     )}
                   </section>
-                  {can(user, 'environmentRead') && selected.kind !== 'correction' && (
-                    <EnvironmentReceiptPanel key={selected.sourceId ?? selected.id} card={selected} customer={selectedCustomer}
-                      user={user} actualUser={actualUser!} onNotice={setMessage}
-                      onRegistered={(receipt) => {
-                        const live = dataRef.current;
-                        const card = live.cards.find(item => item.sourceId === receipt.sourceId);
-                        if (!card || card.audit.some(entry => entry.text.includes(receipt.id))) return;
-                        persist({ ...live, cards: live.cards.map(item => item.sourceId !== receipt.sourceId ? item : {
-                          ...item, audit: [...item.audit, { at: receipt.createdAt, actor: receipt.createdBy,
-                            text: `Faktisk mottagning registrerad i miljölagret. Original ${receipt.id}.` }],
-                        }) });
-                      }} />
-                  )}
                   {(can(user, 'customerApprovalRead') || can(user, 'prepare')) && <ApprovalControls
                     approval={selectedApproval}
                     state={terminalDemo.state}
@@ -1661,6 +1648,26 @@ export function OfficeApp() {
                     onRefresh={terminalDemo.refresh}
                     onNotice={setMessage}
                   />}
+                  {can(user, 'environmentRead') && selected.kind !== 'correction' && (
+                    <EnvironmentReceiptPanel key={selected.sourceId ?? selected.id} card={selected} customer={selectedCustomer}
+                      user={user} actualUser={actualUser!} onNotice={setMessage}
+                      canChangeOrigin={Boolean(editable) && can(user, 'prepare')}
+                      onOriginChange={(origin) => update({ ...selected, origin }, 'Ursprungsadress uppdaterad från miljökortet.', 'prepare')}
+                      onRegistered={(receipt) => {
+                        const live = dataRef.current;
+                        const card = live.cards.find(item => item.sourceId === receipt.sourceId);
+                        const eventId = receipt.correctionHistory?.at(-1)?.id ?? receipt.id;
+                        if (!card || card.audit.some(entry => entry.text.includes(eventId))) return;
+                        const correction = receipt.correctionHistory?.at(-1);
+                        persist({ ...live, cards: live.cards.map(item => item.sourceId !== receipt.sourceId ? item : {
+                          ...item, audit: [...item.audit, { at: correction?.createdAt ?? receipt.createdAt,
+                            actor: correction?.createdBy ?? receipt.createdBy,
+                            text: correction
+                              ? `Miljömottagning rättad till version ${receipt.version}: ${correction.reason}. Rättelse ${eventId}; original ${receipt.id}.`
+                              : `Faktisk mottagning registrerad i miljölagret. Original ${receipt.id}.` }],
+                        }) });
+                      }} />
+                  )}
                   <OfficeCardAttest card={selected} user={user} actualUser={actualUser!} users={data.users}
                     approval={selectedApproval} busy={attestBusy} blocked={blocked || priceBusy}
                     onAttest={() => attestCard(selected)} onReturn={() => returnCard(selected)} />

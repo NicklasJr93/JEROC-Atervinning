@@ -1,4 +1,4 @@
-# Etapp 1 – artikelmiljö och mottagning, kontorsdemo 0.7.0
+# Etapp 1 – artikelmiljö och mottagning, kontorsdemo 0.7.1
 
 Godkänd byggstart 2026-10-09. Den här etappen låter kontoret klassificera
 artiklar och registrera en faktisk direktinlämning. Ingen anteckning skickas
@@ -6,27 +6,37 @@ till Naturvårdsverket och inga Visma-, bank- eller meddelandeanrop görs.
 
 ## Prova i kontoret
 
-1. Öppna `/kontor` och välj Systemadmin. Under **Artiklar & priser**, öppna
-   **Blybatterier**. Panelen **Miljö & avfallsklassificering** ligger under
-   artikelns grunduppgifter. Inga bilder av blyblock används som batterireferens.
-2. Aktivera den separata miljösessionen med det valda demokontots lösenord
-   `JerocDemo2026!`. Kontona `admin`, `lars`, `kajsa` och `anna` har detta
-   offentliga **testlösenord**. Det här verifierar ett demokonto och är inte
-   en produktionsinloggning. Terminalkonto och miljökonto är olika kontotyper.
-3. Kontrollera klassificeringen **Farligt avfall**, kod `160601`, beskrivning
-   Blybatterier. Klassificering och eventuellt ADR-behov är olika uppgifter.
-   Ändringar får en ny version; prisformlerna påverkas inte.
-4. Öppna invägning **2050**: 250 kg blybatterier och 12 kg koppar. Öppna
-   **Miljö & mottagning**. Ange verklig mottagningstid, tidigare innehavare,
-   kontaktuppgifter, senaste/kommande adress med postnummer och kommunkod.
-   Tidigare avfallsinnehavare kan skilja sig från avräkningens kund.
-5. Ange inkommande transportdokumentets referens eller dokumentera varför
-   dokument saknas. En referens är inte en uppladdad eller undertecknad PDF.
-   Ett saknat dokument blir en avvikelse och skapar inget bakdaterat dokument.
-6. Registrera mottagningen. Öppna **Miljörapportering**. Underlaget, fysisk
-   lagermängd och frister ska vara kvar vid omladdning och i en andra webbläsare.
-   Kopparraden bildar inget farligt-avfallsunderlag. Utskick är avstängt.
-7. Prova kundgodkännande på terminal och separat intern attest på samma kort.
+1. Öppna `/kontor` och välj Systemadmin. Miljösessionen följer automatiskt valt
+   demokonto och **Jobba som**; inget extra lösenord behövs. Detta är tydligt
+   demoautentisering. Terminalkonton behåller sin egen lösenordsinloggning.
+2. Under **Artiklar & priser**, öppna **Blybatterier** och kontrollera panelen
+   **Miljö & avfallsklassificering**: farligt avfall, kod `160601`, beskrivning
+   Blybatterier. Klassificering och ADR-behov är separata uppgifter. Ändringar
+   får en ny version; prisformlerna påverkas inte.
+3. Öppna invägning **2050**: 250 kg blybatterier och 12 kg koppar. **Miljö &
+   mottagning** ligger efter kundgodkännandet och före intern attest. Öppna den
+   kompakta sammanställningen. Innehavare, anläggning och tid är förifyllda från
+   kund/kort. Ändra per rad; extra kontaktuppgifter finns under **Fler uppgifter**.
+4. **Ursprungsadress på viktkortet** är den enda källan till senaste hanteringsplats.
+   Backend delar den och söker säker adress-/kommunmatchning. Vid osäker matchning
+   kompletteras bara adressen eller kommunen. En adress ändrad här sparas även
+   på viktkortet. Kundens fakturaadress används aldrig som reserv.
+5. Vägsätt är förvalt men kan ändras i raden. Dokument-/transportreferens är
+   valfri. Välj **Dokument finns**, **Krävs inte i detta fall** (orsak), **Krävs men
+   saknas** (avvikelse) eller **Ej kontrollerat**. Ett tomt nummerfält betyder inte
+   automatiskt att ett obligatoriskt dokument saknas.
+6. **Spara utkast** och ladda om. Uppgifterna är serverlagrade och kan läsas från
+   en annan kassa. Ingen lagerpost eller rapportfrist skapas av utkastet.
+7. **Bekräfta mottagning** visar material och verkliga vikter före sparning.
+   Bekräftelsen fryser underlaget och skapar fysisk lagermängd och miljöunderlag.
+   Kopparraden bildar inget farligt-avfallsunderlag. **Miljörapportering** visar
+   underlag, frister och inkommande lager. Utskick är avstängt.
+8. **Rätta miljöuppgifter** sparar en ny version med obligatorisk orsak. Originalet
+   bevaras. Rättelser använder kortets aktuella materialmängder och justerar bara
+   skillnaden i fysiskt lager. Kontakt-/metadataändringar ger ingen mängdändring;
+   prisändringar påverkar inte miljöversionen. Tidigare underlag syns under
+   **Historik**. Detta tillför ingen ny material-/vikteditor till kontorskortet.
+9. Prova kundgodkännande på terminal och separat intern attest på samma kort.
    Miljömottagningen och dess frister är oberoende av de ekonomiska stegen.
 
 Anläggnings-, företags- och kontaktuppgifter i demon är exempel. Underlaget
@@ -43,7 +53,7 @@ inget ärende sparas till serverminnet som reservlösning. Lokalt används
 av Git och kan flyttas med `JEROC_ENVIRONMENT_DB_PATH`.
 
 Miljötjänstens tabeller: `jeroc_environment_meta`, `credentials`, `sessions`,
-`classifications`, `receipts`, `inventory`, `reports`, `requests`, `audit`
+`classifications`, `drafts`, `receipts`, `corrections`, `inventory`, `reports`, `requests`, `audit`
 (alla med prefix `jeroc_environment_`). Entiteterna sparas som versionsbara
 JSON-objekt med separata primärnycklar; mottagningens käll-ID och
 mottagning/artikel för lager och rapport har databasunika begränsningar.
@@ -54,14 +64,19 @@ vikter och den aktuella artikelklassificeringen.
 Nya behörigheter är **Läsa miljöunderlag och mottagningar**,
 **Registrera faktisk mottagning och miljöuppgifter** och
 **Ändra artiklars miljöklassificering**. Servern kontrollerar miljösession,
-behörighet och tillåtna anläggningar. Lösenord sparas med salt och scrypt;
-sessionstoken hashat, cookie HttpOnly/SameSite och skrivningar har CSRF-skydd.
+behörighet och tillåtna anläggningar. Sessionstoken lagras hashat, cookie
+HttpOnly/SameSite och skrivningar har CSRF-skydd. Klientens förväntade faktisk/
+utförande identitet jämförs med cookien för att stoppa felaktig användare vid
+kontobyte i en annan flik. Den äldre testlösenordsrutten finns för regression
+och stängd automatisk demoanslutning; lösenord lagras med salt och scrypt.
 Systemadmins Jobba som sparar faktisk och utförande identitet separat.
 Miljöåtkomst kräver inte rätt att se priser eller bankuppgifter.
 
 Kontorets övriga demoinloggning och användaradministration/prismotor är fortsatt
-demofunktioner med delvis minnesbaserat användarregister. Personliga testlösenord
-gör inte hela den befintliga appen produktionssäker. Kundregister, ekonomiska
+demofunktioner med delvis minnesbaserat användarregister. Den automatiska miljödemosessionen
+gör inte hela den befintliga appen produktionssäker. Den kan stängas av med
+`JEROC_DEMO_AUTO_SESSION=false`. Hemligheter och NVV-uppgifter används inte av
+denna session eller skickas till klienten. Kundregister, ekonomiska
 utkast, betalningsjournal, transportplanerare och gårdsappens/Expos egna kort
 är fortsatt lokala där de var lokala tidigare. De nya miljöentiteterna och
 terminalernas kundgodkännanden delas via databasen.
@@ -97,14 +112,33 @@ Kundgodkännande eller betalning återställer inte fristen.
 Etapp 1 skapar inkommande lagerposter för alla mottagna materialrader, och
 miljöunderlag för de farliga artiklarna, utan dubblering. Ändrad
 artikelklassificering ändrar inte en sparad mottagning.
-Miljörättelse, utleverans, underskrifter och rapporteringsarbetare byggs i
-kommande separat godkända etapper. Dokumentbilagor och riktig myndighetsleverans
+Miljörättelser finns i uppföljningen 0.7.1: originalet är oföränderligt och
+signade mängdskillnader sparas som egna lagerrörelser. Aktiva rapportunderlag
+visar aktuell version; ersatta underlag ligger separat i historiken. Rättelser
+får förkorta, men aldrig flytta fram, tidigare beräknade miljöfrister.
+Utleverans, underskrifter och rapporteringsarbetare byggs i kommande separat
+godkända etapper. Dokumentbilagor och riktig myndighetsleverans
 är inte aktiverade nu.
+
+## Adressmatchning och hushåll
+
+Kommunlistan innehåller SCB:s 290 kommunkoder och källhänvisning. Backendens
+Nominatim-adapter använder begränsad anropsfrekvens, timeout och cache. En
+adress matchas endast med säker gata/husnummer och svensk kommun; tvetydiga
+resultat eller driftfel ger komplettering, aldrig ett gissat kommunresultat.
+Demon har tydligt märkta referenser för sina exempeladresser. Vid ändrad
+ursprungsadress tas tidigare manuell kommunbekräftelse bort i utkastet.
+
+En privatkund betyder inte automatiskt att platsen bara består av kommunkod.
+NVV:s speciella hushålls-/okänd-platsformer beror på roll och faktiska
+förhållanden. Den här demon använder fortfarande kompletta svenska platser;
+ingen förenklad hushållspayload eller riktig API-leverans påstås vara verifierad.
 
 ## Utvecklingskontroll och säkerhetskopiering
 
 Kör befintliga kontroller enligt `docs/office-demo.md` samt miljötjänstens
-riktade servertester och `tests/environment.spec.ts`. PostgreSQL-test kan
+riktade servertester, `tests/environment.spec.ts` och
+`tests/environment-compact.spec.ts`. PostgreSQL-test kan
 aktiveras med `JEROC_TEST_DATABASE_URL` till en **separat testdatabas**.
 Använd aldrig Render-demon eller en produktionsdatabas till regressionstester.
 
@@ -131,3 +165,17 @@ miljöinloggning och läsning av gemensam databas svarar HTTP 200, klassificerin
 för blybatterier har kod `160601`, och mottagnings-/rapportköerna börjar tomma.
 Verifieringssessionen avslutades. Ingen mottagning eller myndighetsleverans
 skapades av denna kontroll.
+
+## Uppföljning 0.7.1
+
+Migration 002 lägger till utkast och rättelser utan att radera kort eller gamla
+mottagningar. Ny kontrollsumma använder kanonisk JSON så att PostgreSQL:s
+JSONB-nyckelordning inte ändrar hashen. Tidigare versioners lagrade hash behålls.
+
+Verifierat i uppföljningen: 117 servertester, inklusive PostgreSQL 18 i separat
+testdatabas, och samtliga 145 Playwright-kontroller. Utkast och optimistiska
+konflikter, kanonisk adress, osäker kommun, valfritt dokumentnummer, dubletter
+av materialrader, spårbar rättelse, prisändring utan fysisk effekt och kontobyte
+i annan flik ingår. Äldre backup/hash-format bevaras och kan rättas till en ny
+version. Produktionsbygge och Expo-typkontroll passerade. Kompakt miljökort
+granskades visuellt utan sidöverflöde eller JavaScriptfel.

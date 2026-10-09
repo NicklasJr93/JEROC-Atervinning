@@ -7,9 +7,9 @@ import { migrateOffice } from '../src/office/customer-model';
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 test.setTimeout(75_000);
 
-async function environmentLogin(request: APIRequestContext, userId = 'admin', effectiveUserId = userId) {
-  const response = await request.post('/api/environment/login', {
-    data: { userId, effectiveUserId, password: 'JerocDemo2026!' },
+async function environmentDemoSession(request: APIRequestContext, userId = 'admin', effectiveUserId = userId) {
+  const response = await request.post('/api/environment/demo-session', {
+    data: { userId, effectiveUserId },
   });
   expect(response.ok()).toBeTruthy();
   return response.json() as Promise<EnvironmentSessionState>;
@@ -25,8 +25,8 @@ test('två separata kassor delar oföränderlig mottagning utan dubbelt lager el
   const first = await browser.newContext({ baseURL });
   const second = await browser.newContext({ baseURL });
   try {
-    const one = await environmentLogin(first.request);
-    const two = await environmentLogin(second.request);
+    const one = await environmentDemoSession(first.request);
+    const two = await environmentDemoSession(second.request);
     expect(one.demo).toBe(true);
     expect(one.csrfToken).not.toBe(two.csrfToken);
     const sessionCookie = (await first.cookies()).find(cookie => cookie.name === 'jeroc_environment_staff');
@@ -48,7 +48,7 @@ test('två separata kassor delar oföränderlig mottagning utan dubbelt lager el
       previousHolder: { name: 'Testverkstad AB', number: '5560000167', contactName: 'Testperson', email: 'test@example.invalid', phone: '0701234567' },
       lastPlace: { address: 'Industrivägen 8', postalCode: '76141', city: 'Norrtälje', municipalityCode: '0188' },
       nextPlace: { address: 'Ängsvägen 19', postalCode: '76141', city: 'Norrtälje', municipalityCode: '0188' },
-      transportMode: 'road', incomingDocument: { missingReason: 'Transportdokument saknades vid mottagning · regressionstest.' },
+      transportMode: 'road', incomingDocument: { status: 'missing', missingReason: 'Transportdokument saknades vid mottagning · regressionstest.' },
       idempotencyKey: `receipt-${sourceId}`,
     };
     const received = await first.request.post('/api/environment/receipts', { headers: { 'X-Environment-CSRF': one.csrfToken }, data: input });
@@ -87,20 +87,20 @@ test('två separata kassor delar oföränderlig mottagning utan dubbelt lager el
   }
 });
 
-test('miljötjänsten kräver lösenord, sessionscookie, åtgärdsrätt och CSRF', async ({ browser, baseURL }) => {
+test('miljödemosessionen kräver känd användare, sessionscookie, åtgärdsrätt och CSRF', async ({ browser, baseURL }) => {
   const anonymous = await browser.newContext({ baseURL });
   const limited = await browser.newContext({ baseURL });
   const admin = await browser.newContext({ baseURL });
   try {
     expect((await anonymous.request.get('/api/environment/state', { headers: { 'X-Demo-User': 'admin', 'X-Demo-Actor': 'admin' } })).status()).toBe(401);
-    expect((await anonymous.request.post('/api/environment/login', { data: { userId: 'admin', password: 'wrong-password' } })).status()).toBe(401);
-    const session = await environmentLogin(admin.request);
+    expect((await anonymous.request.post('/api/environment/demo-session', { data: { userId: 'unknown-worker', effectiveUserId: 'admin' } })).status()).toBe(401);
+    const session = await environmentDemoSession(admin.request);
     const state = await environmentState(admin.request);
     const current = state.classifications.find(item => item.articleId === 'lead-battery');
     const input = { expectedVersion: current?.version ?? 0, hazardous: true, wasteCode: '160601', wasteDescription: 'Blybatterier', handlingInstructions: '', adrRequired: false };
     expect((await admin.request.put('/api/environment/classifications/lead-battery', { data: input })).status()).toBe(403);
     expect((await admin.request.put('/api/environment/classifications/lead-battery', { headers: { 'X-Environment-CSRF': `${session.csrfToken}-invalid` }, data: input })).status()).toBe(403);
-    const worker = await environmentLogin(limited.request, 'admin', 'anna');
+    const worker = await environmentDemoSession(limited.request, 'admin', 'anna');
     expect((await limited.request.put('/api/environment/classifications/lead-battery', { headers: { 'X-Environment-CSRF': worker.csrfToken }, data: input })).status()).toBe(403);
   } finally {
     await Promise.all([anonymous.close(), limited.close(), admin.close()]);
@@ -120,8 +120,9 @@ test('artikelklassificering och faktisk mottagning sparas via kontoret och syns 
   await page.goto('/kontor#/prices');
   await page.getByRole('button', { name: 'Redigera Blybatterier', exact: true }).click();
   const classification = page.getByRole('region', { name: 'Miljöklassificering för Blybatterier', exact: true });
-  await classification.getByLabel('Lösenord för miljödemot', { exact: true }).fill('JerocDemo2026!');
-  await classification.getByRole('button', { name: 'Anslut', exact: true }).click();
+  await expect(classification.getByLabel('Avfallskod', { exact: true })).toBeEnabled();
+  await expect(page.getByLabel('Lösenord för miljödemot', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Anslut', exact: true })).toHaveCount(0);
   await classification.getByRole('button', { name: /^Farligt avfall/ }).click();
   await classification.getByLabel('Avfallskod', { exact: true }).fill('160601');
   await classification.getByLabel('Miljöbeskrivning', { exact: true }).fill('Blybatterier');
@@ -134,24 +135,17 @@ test('artikelklassificering och faktisk mottagning sparas via kontoret och syns 
   await expect(classification.getByLabel('Säkerhetsanvisningar', { exact: true })).toHaveValue(instruction);
   await page.goto(`/kontor#/weighings/${cardId}`);
   const receiptPanel = page.getByRole('region', { name: 'Miljö och mottagning', exact: true });
-  await receiptPanel.getByRole('button', { name: 'Registrera mottagning', exact: true }).click();
-  await receiptPanel.getByLabel('Mottagande anläggning', { exact: true }).selectOption('norrtalje');
-  await receiptPanel.getByLabel('Faktiskt mottaget', { exact: true }).fill('2026-10-09T11:20');
-  await receiptPanel.getByLabel('Tidigare innehavare – namn', { exact: true }).fill('Testverkstad AB');
-  await receiptPanel.getByLabel('Tidigare innehavare – organisationsnummer', { exact: true }).fill('5560000167');
-  await receiptPanel.getByLabel('Tidigare innehavare – kontaktperson', { exact: true }).fill('Testperson');
-  await receiptPanel.getByLabel('Tidigare innehavare – telefon', { exact: true }).fill('0701234567');
-  await receiptPanel.getByLabel('Tidigare innehavare – e-post', { exact: true }).fill('test@example.invalid');
-  for (const label of ['Senaste hanteringsplats', 'Kommande hanteringsplats']) {
-    await receiptPanel.getByLabel(`${label} – gatuadress`, { exact: true }).fill(label === 'Senaste hanteringsplats' ? 'Industrivägen 8' : 'Ängsvägen 19');
-    await receiptPanel.getByLabel(`${label} – postnummer`, { exact: true }).fill('76141');
-    await receiptPanel.getByLabel(`${label} – ort`, { exact: true }).fill('Norrtälje');
-    await receiptPanel.getByLabel(`${label} – kommunkod`, { exact: true }).fill('0188');
-  }
+  await receiptPanel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
+  await expect(receiptPanel).toContainText('Industrivägen 8, 761 41 Norrtälje');
+  await expect(receiptPanel).toContainText('Norrtälje · 0188');
+  await receiptPanel.getByLabel('Dokumentstatus', { exact: true }).selectOption('provided');
   await receiptPanel.getByLabel('Inkommande transportdokument', { exact: true }).fill(`TD-IN-${cardId}`);
   await receiptPanel.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
-  await expect(receiptPanel).toContainText('Mottagning registrerad');
-  await expect(receiptPanel).toContainText('Förberett – ej skickat');
+  const review = page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
+  await expect(review).toContainText('250 kg');
+  await expect(review).toContainText('12 kg');
+  await review.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
+  await expect.poll(async () => (await environmentState(page.request)).receipts.some(item => item.sourceId === sourceId)).toBe(true);
   await expect(receiptPanel.getByRole('button', { name: 'Bekräfta mottagning', exact: true })).toHaveCount(0);
   await page.reload();
   await receiptPanel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
@@ -167,9 +161,7 @@ test('artikelklassificering och faktisk mottagning sparas via kontoret och syns 
     await second.getByRole('button', { name: /Systemadmin/ }).click();
     await second.goto(`/kontor#/weighings/${cardId}`);
     const sharedPanel = second.getByRole('region', { name: 'Miljö och mottagning', exact: true });
-    await sharedPanel.getByLabel('Lösenord för miljödemot', { exact: true }).fill('JerocDemo2026!');
-    await sharedPanel.getByRole('button', { name: 'Anslut', exact: true }).click();
-    await expect(sharedPanel).toContainText('Mottagning registrerad');
+    await expect(sharedPanel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true })).toBeEnabled();
     await sharedPanel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
     await expect(sharedPanel).toContainText(`TD-IN-${cardId}`);
     const state = await environmentState(colleague.request);
