@@ -1,0 +1,126 @@
+JEROC – FÖRESLAGNA FLÖDEN FÖR FARLIGT AVFALL
+Designunderlag 2026-10-09. Inte implementerat eller godkänt för byggstart.
+Appen är oförändrad. Alla namn, dokument och myndighetssvar är demoexempel.
+Ingen riktig signering, myndighetsrapportering, betalning eller avisering sker.
+
+OMFATTNING
+Blybatterier, avfallskod 16 06 01* (sex siffror 160601 i framtida API-underlag).
+Kundinlämning, JEROC-hämtning och utleverans, med egen eller extern transportör.
+Vikt vid hämtning fastställs på plats med våg före avfärd med last.
+JEROC Norrtälje visas på Ångsvägen 19, 761 41 Norrtälje (fiktiv demoadress).
+
+GEMENSAM UTFORMNING
+Behåll befintlig JEROC-logga, kompakt invägningskort och profil längst ner
+i vänstermenyn. Spårbarhet läggs till som lodräta rader, nyaste överst.
+Arbetsordrar är en egen huvudmeny. Transportplanering förblir karta/kalender
+för samma arbetsordrar. Miljörapportering får sin egen kö och detaljvy.
+Prisregler, A/B/C, kundpriser och ekonomins attestgränser behålls.
+
+1. ARTIKELKLASSIFICERING
+Öppna befintlig artikel -> miljökort under grunduppgifter/referensbilder.
+Välj Icke-farligt eller Farligt avfall. Vid farligt visas samtliga relevanta
+fält direkt. Blybatterier har 16 06 01*, miljöbeskrivning och instruktioner.
+Farligt avfall betyder inte automatiskt ADR-klassificerat farligt gods.
+Spara versionerad klassificering. Varje miljöhändelse behåller den version
+som gällde då; senare artikeländringar skriver inte om gammalt underlag.
+
+2. KUNDEN LÄMNAR HOS JEROC
+Materialval och vikt fungerar som idag. INV-2050 är en direkt kundinlämning
+utan intern arbetsorder och innehåller 250 kg blybatterier och 12 kg koppar
+som separata rader. Endast batteriraden ger
+en miljöpost i detta exempel; kopparens prisrad finns kvar som vanligt.
+Registrera faktisk mottagning, anläggning, tidigare innehavare och identifierare,
+platsen där avfallet senast hanterades samt transportsätt.
+Kontrollera inkommande transportdokument/referens när det krävs.
+Saknat dokument -> avvikelse för miljöansvarig, inget bakdaterat dokument.
+Avvikelsen ensam blockerar inte Naturvårdsverkets rapport om samtliga
+obligatoriska mottagningsuppgifter finns. Kunden lämnar senare det ursprungliga
+TD-IN-2050, som länkas till mottagningen kl. 10:55.
+Tillstånd att ta emot avfallet kontrolleras separat.
+Korrekt mottagning -> miljöanteckning och rapportkö, oberoende av ekonomin.
+Kundgodkännande kräver fortsatt sparad ursprungsadress och sitt eget underlag.
+
+3. JEROC HÄMTAR HOS KUND
+Skapa AO-1208: Anderssons Verkstad AB, Industrivägen 8, Norrtälje,
+destination JEROC Norrtälje, blybatterier och uppskattad last. AO-1208 körs av
+JEROC i detaljexemplet. Ny-orderbilden visar extern transportör som ett annat
+val i samma formulär, inte en parallell transportör för det detaljexemplet.
+Spara order -> osignerat transportdokumentutkast TD-1208.
+Planera -> samma order öppnas i befintlig kalender/karta.
+Påbörja uppdrag/På väg till kund -> länkat viktkortsutkast INV-2052 skapas en gång.
+Detta är INTE lastad avfärd eller automatiskt en mottagningshändelse.
+Hos kunden -> väg på plats, registrera faktisk vikt 250 kg och nödvändiga uppgifter.
+Granska dokument -> lämnare och transportör signerar samma låsta version.
+Demo visar uttryckligen SIMULERAD underskrift, inte ett giltigt produktionsbevis.
+Dokumentera Avfärd med last först när underlaget och rätt underskrifter är klara.
+Registrera faktisk mottagning separat, med rätt roll, tid och plats.
+Den rättsliga mottagningstidpunkten ska fastställas för JEROC:s rutin: anta inte
+automatiskt att den alltid är vid lossning på anläggningen eller alltid hos kunden.
+Länka order, dokument, viktkort och miljöhändelser utan dubblerade poster.
+Ren utställning av tomt kärl skapar ingen invägning. Byte gäller hämtad last.
+
+4. JEROC LÄMNAR VIDARE TILL MOTTAGARE
+Skapa AO-1210/TD-1210, typ Utleverans.
+Lämnare/ursprung: JEROC Norrtälje.
+Mottagare: Nordmetall Återvinning AB med verklig mottagningsplats i kommande drift.
+Transportör: välj JEROC eller externt företag. I mockupen Roslagens Transport AB.
+Välj källpartier från lagret -> 1 000 kg blybatterier, 16 06 01*.
+Ange verklig transportör, fordon, kontakt och faktisk lastvikt.
+Kontrollera relevanta tillstånd, komplett dokument och underskrifter.
+Anteckningen för insamlarens borttransport färdigställs före avfärd från JEROC;
+den får inte vänta på att chauffören trycker Bekräfta avfärd.
+Bekräfta lastad avfärd -> registrera faktisk avfärdstid och lageravdrag en gång.
+Länka ackumulerade partier till sina mottagningar; ingen ny inköpsinvägning
+skapas bara för att en redan lagrad mängd körs ut.
+JEROC rapporterar sina skyldigheter, inte automatiskt kundens eller åkeriets.
+
+5. TRANSPORTDOKUMENT OCH MOBIL
+Orderns Transportdokument visar serverlagrat utkast, förhandsvisning och version.
+A4 visar lämnare, transportör, slutlig mottagare, platser, vikt, kod och starttid.
+Chauffören öppnar en mobil webbvy med körning, vägning, dokument och händelser.
+Lämnaren öppnar en separat säker gransknings-/underskriftsvy för samma version.
+Transportdokumentet följer lasten digitalt/PDF och är separat från avräkningen.
+En dokumentändring skapar ny version och kräver rätt underskrifter för den.
+Enbart BankID-inloggning eller ett klick är inte en dokumentunderskrift.
+Alla underskrifter och eventuella exempel-ID är markerade SIMULERADE i demo.
+Systemet kan blockera status Klart och varna; det kan inte fysiskt hindra en bil.
+
+6. MILJÖRAPPORTERING
+Kön skiljer mottagning från borttransport och visar status, mängd, kod,
+anläggning, frister, uppgift som saknas och kopplat order-/viktkortsnummer.
+Aktiva i bilden visar fem pågående batteriposter. Simulerat rapporterade
+poster ligger under Historik. Demo-/testanslutning visas tydligt separat.
+Statusförslag: Saknar uppgifter, Redo, Köad, Skickar, Rapporterad, Fel,
+Kräver rättelse samt Rättad/Makulerad. Okänt svar visar separat behov av avstämning.
+Klick på raden -> exakt versionssnapshot, spårbarhet och försökshistorik.
+Flera farliga avfallskoder ger separata korrekta poster; blanda inte mängderna.
+Rapportering styrs av miljöhändelsens underlag/frister, inte kundgodkännande,
+attest, Visma, betalningsmetod eller utbetalning.
+Okänt API-resultat -> kontrollera utfallet före nytt försök. Ingen blind omsändning.
+Bekräftad rapport -> Avfalls-ID på exakt miljöhändelse; demo-ID märks SIMULERAT.
+Frister måste beräknas per verklig verksamhetsroll enligt aktuella regler.
+Ingen rapport skickas å annan parts vägnar utan särskilt ombudsförfarande.
+
+7. RÄTTELSER OCH FYSISK MÄNGD
+Prisfel -> ekonomisk rättelse utan att påstå att fysisk avfallsmängd ändrats.
+Vikt-/kodfel -> bedöm lager- och miljöpåverkan, länka rättelse till originalet.
+MIL-2050 gäller direktinlämningen INV-2050. Om faktiskt mottagen mängd
+rättas från 250 till 245 kg ska historiken visa
+original, orsak och -5 kg fysisk rättelse, med eventuell ekonomisk konsekvens
+beräknad separat. Dokumentera var mängden finns om en verklig avvikelse uppstått.
+Rapportens tidigare version och bekräftelse behålls; rättelse skapar nytt spår.
+En ändrad ekonomisk avräkning skriver inte över transportdokumentet.
+Ingen dubbel lagerjustering när både viktkort och miljöpost rättas.
+
+INFÖR SENARE IMPLEMENTATION
+Gemensam beständig serverlagring krävs för artikelsnapshots, arbetsordrar,
+lagerpartier, mottagningar, dokumentversioner och miljöhändelser/outbox.
+Separata behörigheter behövs för miljöläsning, granskning, rapportering/rättelse
+och dokumenthantering. Begränsa anläggningar enligt användarens tillgång.
+Anläggningsbildens rader för Kajsa och Kalle avser individuella behörigheter
+på vald anläggning. Faktisk tilldelning görs under Användare.
+Tillstånd, mottagningstidpunkt, ADR-bedömning och rättsliga regler verifieras
+innan drift. Riktig underskrift och Naturvårdsverkets test/produktion kräver
+senare leverantör, anslutning och certifikat. Inga credentials behövs nu.
+Det bifogade implementationsunderlaget är en plan; aktuell beställning är
+mockuper och flödesgranskning, inte byggstart eller produktionsaktivering.

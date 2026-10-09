@@ -316,3 +316,14 @@ ovanför och växer nedåt; vid många händelser scrollas sidan.
 Detta är ett designunderlag med fiktiva exempeldata. Uppladdningen ändrar
 ingen appkod. Den senaste ändringen gäller spårbarhetens bredd och
 lodräta struktur i den tidigare visade mockupen.
+
+## Farligt avfall – designserie 2026-10-09
+
+[Öppna alla mockuper och flödesbeskrivningar](../farligt-avfall/README.md)
+
+Elva vyer för blybatterier: artikelklassificering, mottagning, arbetsordrar,
+hämtning, utleverans med extern transportör, A4-transportdokument, mobil
+granskning/underskrift, miljörapportering, rättelser och anläggningens tillstånd.
+Vägning vid hämtning görs på plats med våg. Arbetsordrar och Transportplanering
+är egna ingångar till samma uppdrag. Bilderna är för granskning; appkod,
+myndighetsanslutning och signeringstjänst ändras inte av denna leverans.
