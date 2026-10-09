@@ -8,6 +8,7 @@ import {tmpdir} from 'node:os';
 import {createApplicationService,initialApplicationState} from './application.mjs';
 import {createApplicationRepository} from './application-storage.mjs';
 import {createPricingStore} from './pricing.mjs';
+import {applyTransportChange} from '../dist-server/domain-models.mjs';
 
 const personnel='/api/application/personnel',transport='/api/application/transport';
 async function fixture(run) {
@@ -56,7 +57,13 @@ test('external accounts hash credentials, restrict assigned orders and revoke se
   assert.equal((await a('/api/driver/login',{username:'oskar.extern',password:'wrong'})).status,401);const login=await a('/api/driver/login',{username:'oskar.extern',password:'TestPassword-2026!'});assert.equal(login.status,200,login.error);assert.ok(login.cookie.includes('HttpOnly'));const cookie=login.cookie.split(';')[0];
   const orders=await a('/api/driver/orders',undefined,'admin',cookie);assert.equal(orders.status,200);assert.ok(orders.orders.every(o=>o.driverId==='oskar'));assert.ok(orders.orders.every(o=>o.audit.length===0));assert.equal((await a('/api/driver/orders/AO-1201/status',{status:'on_way'},'admin',cookie)).status,403);
   assert.equal((await a(personnel,undefined,null,cookie)).status,401);
-  const order=orders.orders.find(o=>o.status==='booked');assert.equal((await a(`/api/driver/orders/${order.id}/status`,{status:'done'},'admin',cookie)).status,409);assert.equal((await a(`/api/driver/orders/${order.id}/status`,{status:'on_way'},'admin',cookie)).status,200);assert.equal((await a(`/api/driver/orders/${order.id}/status`,{status:'done'},'admin',cookie)).status,200);
+  const order=orders.orders.find(o=>o.status==='booked');
+  // Calendar demo bookings follow today's date; the account/status test needs
+  // an explicit eligible weekday, including when the suite runs on a weekend.
+  const base=(await a(transport)).data,next=applyTransportChange(base,{type:'reschedule',id:order.id,plan:{date:'2026-10-09',startMinute:540,durationMinutes:order.durationMinutes,driverId:order.driverId,vehicleId:order.vehicleId}},
+    {canPlan:true,actor:'Systemadmin',actualUserId:'admin',effectiveUserId:'admin'});
+  const planned=await a(transport,{base,next});assert.equal(planned.status,200,planned.error);
+  assert.equal((await a(`/api/driver/orders/${order.id}/status`,{status:'done'},'admin',cookie)).status,409);assert.equal((await a(`/api/driver/orders/${order.id}/status`,{status:'on_way'},'admin',cookie)).status,200);assert.equal((await a(`/api/driver/orders/${order.id}/status`,{status:'done'},'admin',cookie)).status,200);
   assert.equal((await a(personnel,{action:'externalAccount.save',personId:'person-oskar',username:'oskar.extern',active:false})).status,200);assert.equal((await a('/api/driver/session',undefined,'admin',cookie)).status,401);
 }));
 test('facility-scoped personnel rights cannot read or mutate another site or private payroll',async()=>fixture(async({a})=>{

@@ -1,7 +1,8 @@
 import { randomInt, randomUUID } from 'node:crypto';
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, request as apiRequest, type Page } from '@playwright/test';
 import { seedOffice } from '../src/office/model';
 import { migrateOffice } from '../src/office/customer-model';
+import { approveCurrentOfficeCard } from './helpers/customer-approval';
 import type { EnvironmentState } from '../src/office/environment-types';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
@@ -16,18 +17,32 @@ async function openReceipt(page: Page, origin = 'Industrivägen 8, 761 41 Norrt�
   }, data);
   await page.goto('/kontor');
   await page.getByRole('button', { name: /Systemadmin/ }).click();
+  const imported = await page.request.post('/api/application/office', { headers: { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' }, data: { kind: 'import', data } });
+  expect(imported.ok()).toBe(true);
   await page.goto(`/kontor#/weighings/${cardId}`);
   const panel = page.getByRole('region', { name: 'Miljö och mottagning', exact: true });
   await expect(panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true })).toBeEnabled();
-  return { panel, sourceId };
+  return { panel, sourceId, cardId };
 }
 async function state(page: Page): Promise<EnvironmentState> {
   const response = await page.request.get('/api/environment/state');
   expect(response.ok()).toBe(true); return response.json();
 }
 
+async function attestReview(page: Page, approvalId: string) {
+  // The application renews its staff cookie after reload. Use a separate
+  // authenticated office context so an API assertion cannot race that renewal.
+  const office = await apiRequest.newContext({ baseURL: new URL(page.url()).origin });
+  try {
+    const session = await office.post('/api/terminal-demo/staff-session', { data: { actualUserId: 'admin', effectiveUserId: 'admin' } });
+    expect(session.ok()).toBe(true);
+    const response = await office.post(`/api/terminal-demo/approvals/${approvalId}/attest`, { data: {} });
+    return { status: response.status(), ok: response.ok(), body: await response.json() };
+  } finally { await office.dispose(); }
+}
+
 test('kundbyte uppdaterar dokumentförval, manuellt nummer bevaras och hopfälld mottagning kan bekräftas', async ({ page }) => {
-  const { panel, sourceId } = await openReceipt(page);
+  const { panel, sourceId, cardId } = await openReceipt(page);
   const initial = await state(page);
   const headers = { 'X-Environment-CSRF': (await (await page.request.get('/api/environment/session')).json()).csrfToken };
   const policy = await page.request.put('/api/environment/storage/policies/norrtalje', { headers, data: {
@@ -45,13 +60,8 @@ test('kundbyte uppdaterar dokumentförval, manuellt nummer bevaras och hopfälld
   await page.reload();
   const confirm = panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true });
   await expect(confirm).toBeVisible();
-  await expect(confirm).not.toHaveClass(/needs-details/);
-  await confirm.click();
+  await expect(confirm).toBeDisabled();
   const dialog = page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
-  await expect(dialog).toContainText('Blybatterier');
-  await expect(dialog).not.toContainText('Koppar');
-  await dialog.getByRole('button', { name: 'Avbryt', exact: true }).click();
-  await expect(panel.locator('.environment-receipt-editor')).toHaveCount(0);
   await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
   const storage = panel.getByRole('region', { name: 'Lagringskontroll', exact: true });
   await expect(storage.locator('li')).toHaveCount(2);
@@ -81,15 +91,24 @@ test('kundbyte uppdaterar dokumentförval, manuellt nummer bevaras och hopfälld
   // Selecting another customer clears the weight card's origin in the existing office flow.
   await page.getByLabel('Ursprungsadress', { exact: true }).fill('Industrivägen 8, 761 41 Norrtälje');
   await page.getByRole('button', { name: 'Spara referens & ursprung', exact: true }).click();
-  await expect(confirm).not.toHaveClass(/needs-details/);
+  await expect(confirm).toBeDisabled();
   await panel.getByRole('button', { name: 'Spara utkast', exact: true }).click();
   await expect.poll(async () => (await state(page)).drafts.find(item => item.sourceId === sourceId)?.input.originAddress).toBe('Industrivägen 8, 761 41 Norrtälje');
-  await page.reload();
+  const approval = await approveCurrentOfficeCard(page, cardId);
+  const prematureAttest = await attestReview(page, approval.id);
+  expect(prematureAttest.status).toBe(409);
+  expect(prematureAttest.body.code).toBe('environment_receipt_required');
   await expect(confirm).not.toHaveClass(/needs-details/);
+  await expect(confirm).toBeEnabled();
   await confirm.click();
+  await expect(dialog).toContainText('Blybatterier');
+  await expect(dialog).not.toContainText('Koppar');
   await dialog.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
   await expect.poll(async () => (await state(page)).receipts.find(item => item.sourceId === sourceId)?.snapshot.incomingDocument).toMatchObject({ status: 'provided', selection: 'manual', reference: 'TD-123' });
   await expect(panel.locator('.environment-receipt-editor')).toHaveCount(0);
+  const attest = await attestReview(page, approval.id);
+  expect(attest.ok).toBe(true);
+  expect(attest.body.status).toBe('attested');
 });
 
 test('saknad kommun förklaras från hopfällt kort och expanderad mottagning bekräftas direkt utan dokumentnummer', async ({ page }) => {
@@ -98,7 +117,8 @@ test('saknad kommun förklaras från hopfällt kort och expanderad mottagning be
     await route.fulfill({ json: { originAddress: input.originAddress, status: input.municipalityCode ? 'resolved' : 'needs_municipality', provider: 'explicit-browser-test', municipalityConfirmed: Boolean(input.municipalityCode),
       place: { address: 'Testvägen 4', postalCode: '12345', city: 'Testort', municipalityCode: input.municipalityCode ?? '' }, missingFields: input.municipalityCode ? [] : ['municipalityCode'], candidates: [] } });
   });
-  const { panel, sourceId } = await openReceipt(page, 'Testvägen 4, 123 45 Testort');
+  const { panel, sourceId, cardId } = await openReceipt(page, 'Testvägen 4, 123 45 Testort');
+  await approveCurrentOfficeCard(page, cardId);
   const confirm = panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true });
   await expect(panel.getByRole('region', { name: 'Lagringskontroll', exact: true })).toHaveAttribute('aria-busy', 'false');
   await expect(confirm).toHaveClass(/needs-details/);

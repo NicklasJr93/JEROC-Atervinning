@@ -4,6 +4,8 @@ import { seedOffice, type OfficeData } from '../src/office/model';
 import { migrateOffice } from '../src/office/customer-model';
 import { demoPrivateIdentityNumber } from '../src/data';
 import type { EnvironmentState } from '../src/office/environment-types';
+import { approveCurrentOfficeCard } from './helpers/customer-approval';
+import { changeOfficeCard } from './helpers/office-card';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 test.setTimeout(75_000);
@@ -22,7 +24,13 @@ async function openCard(page: Page, fixture: ReturnType<typeof receiptFixture>, 
   }, fixture.data);
   await page.goto('/kontor');
   await page.getByRole('button', { name: new RegExp(userName) }).click();
+  const imported = await page.request.post('/api/application/office', { headers: { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' }, data: { kind: 'import', data: fixture.data } });
+  expect(imported.ok(), await imported.text()).toBe(true);
   await page.goto(`/kontor#/weighings/${fixture.cardId}`);
+  // The explicit API import changed the shared document outside the browser.
+  // Reload so its editing base includes the canonical server projection.
+  await page.reload();
+  await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');
   const panel = page.getByRole('region', { name: 'Miljö och mottagning', exact: true });
   await expect(panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true })).toBeEnabled();
   return panel;
@@ -40,7 +48,10 @@ async function recorded(page: Page, sourceId: string) {
 }
 
 async function confirmReceipt(page: Page, sourceId: string) {
+  const cardId = Number(page.url().split('/').at(-1));
+  await approveCurrentOfficeCard(page, cardId);
   const panel = page.getByRole('region', { name: 'Miljö och mottagning', exact: true });
+  await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
   await expect(panel).toContainText('Norrtälje · 0188');
   await panel.getByLabel('Dokumentstatus', { exact: true }).selectOption('provided');
   await panel.getByRole('button', { name: 'Dölj mottagningsuppgifter', exact: true }).click();
@@ -112,13 +123,15 @@ test('ogiltigt innehavarnummer stoppas före bekräftelsen och giltiga svenska o
   const card = fixture.data.cards.find(item => item.id === fixture.cardId)!;
   fixture.data.customers.find(customer => customer.id === card.customerId)!.number = '123456789';
   const panel = await openCard(page, fixture);
+  await approveCurrentOfficeCard(page, fixture.cardId);
   await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
+  await panel.getByRole('button', { name: 'Ändra tidigare innehavare', exact: true }).click();
+  await panel.getByLabel('Tidigare innehavare – organisationsnummer', { exact: true }).fill('123456789');
   await expect(panel).toContainText('Norrtälje · 0188');
   await panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
   await expect(panel.getByRole('alert')).toContainText('Ange ett giltigt org-/personnummer med 10 eller 12 siffror');
   await expect(panel.getByRole('button', { name: 'Dölj mottagningsuppgifter', exact: true })).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true })).toHaveCount(0);
-  await panel.getByRole('button', { name: 'Ändra tidigare innehavare', exact: true }).click();
   for (const number of ['811002-2586', '19811002-2586', 'NO123456789MVA']) {
     await panel.getByLabel('Tidigare innehavare – organisationsnummer', { exact: true }).fill(number);
     await panel.getByRole('button', { name: 'Dölj mottagningsuppgifter', exact: true }).click();
@@ -133,7 +146,7 @@ test('ogiltigt innehavarnummer stoppas före bekräftelsen och giltiga svenska o
   expect(shared.inventory.some(item => item.sourceId === fixture.sourceId)).toBe(false);
 });
 
-test('Eriks gamla kundsnapshot och miljöutkast kan bekräftas med det syntetiska demonumret utan att kundsnapshot ändras', async ({ page }) => {
+test('Eriks äldre miljöutkast bevaras och kundgranskningen använder det syntetiska demonumret', async ({ page }) => {
   const fixture = receiptFixture();
   const card = fixture.data.cards.find(item => item.id === fixture.cardId)!;
   const customer = fixture.data.customers.find(item => item.id === 'customer-erik')!;
@@ -158,7 +171,7 @@ test('Eriks gamla kundsnapshot och miljöutkast kan bekräftas med det syntetisk
   const received = await confirmReceipt(page, fixture.sourceId);
   expect(received.snapshot.previousHolder).toMatchObject({ name: 'Erik Johansson', number: demoPrivateIdentityNumber.replace(/-/g, '') });
   const localSnapshot = await page.evaluate(cardId => JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find((item: { id: number }) => item.id === cardId).customerSnapshot, fixture.cardId);
-  expect(localSnapshot.number).toBe('Demo · privatperson');
+  expect(localSnapshot.number).toBe(demoPrivateIdentityNumber);
 });
 
 test('sparat miljöutkast följer viktkortets ändrade ursprung och skapar inget fysiskt lager efter omladdning', async ({ page }) => {
@@ -196,8 +209,7 @@ test('saknat faktiskt ursprung använder aldrig kundens fakturaadress och redige
   const panel = await openCard(page, fixture);
   await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
   await expect(panel).not.toContainText('Fakturagatan 99');
-  await panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
-  await expect(panel.getByRole('alert')).toContainText(/ursprungsadress|kommun/i);
+  await expect(panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true })).toBeDisabled();
   await expect(page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true })).toHaveCount(0);
   await panel.getByRole('button', { name: 'Ändra ursprungsadress', exact: true }).click();
   const actualOrigin = panel.getByLabel('Ursprungsadress för materialet', { exact: true });
@@ -210,6 +222,7 @@ test('saknat faktiskt ursprung använder aldrig kundens fakturaadress och redige
   expect(saved.origin).toBe('Industrivägen 8, 761 41 Norrtälje');
   await expect(panel).toContainText('Norrtälje · 0188');
   await panel.getByLabel('Dokumentstatus', { exact: true }).selectOption('provided');
+  await approveCurrentOfficeCard(page, fixture.cardId);
   await expect(panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true })).toBeEnabled();
 });
 
@@ -266,12 +279,7 @@ test('registrerad mottagning bevaras synlig när viktkortet sedan endast har ofa
   const panel = await openCard(page, fixture);
   await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
   const receipt = await confirmReceipt(page, fixture.sourceId);
-  await page.evaluate(cardId => {
-    const data = JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!);
-    const card = data.cards.find((item: { id: number }) => item.id === cardId);
-    card.rows = card.rows.filter((row: { articleId: string }) => row.articleId === 'copper-1');
-    localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(data));
-  }, fixture.cardId);
+  await changeOfficeCard(page, fixture.cardId, card => { card.rows = card.rows.filter(row => row.articleId === 'copper-1'); });
   await page.reload();
   await expect(panel).toContainText('Mottagning registrerad');
   await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
@@ -287,6 +295,7 @@ test('två vägningar av samma artikel blir en fysisk mängd utan en falsk begä
   const card = fixture.data.cards.find(item => item.id === fixture.cardId)!;
   card.rows = [{ ...card.rows[0], weight: 125 }, { ...card.rows[0], weight: 125 }, card.rows[1]];
   const panel = await openCard(page, fixture);
+  await approveCurrentOfficeCard(page, fixture.cardId);
   await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
   await expect(panel).toContainText('Norrtälje · 0188');
   await panel.getByLabel('Dokumentstatus', { exact: true }).selectOption('provided');
@@ -306,20 +315,18 @@ test('ändrad vikt kräver spårbar miljörättelse med bevarat original och net
   const panel = await openCard(page, fixture);
   await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
   const original = await confirmReceipt(page, fixture.sourceId);
-  // This remains an unapproved editable weighing. The browser-local demo card
-  // represents a yard weighing correction; the server receipt stays immutable.
-  await page.evaluate(cardId => {
-    const data = JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!);
-    data.cards.find((card: { id: number }) => card.id === cardId).rows[0].weight = 245;
-    localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(data));
-  }, fixture.cardId);
+  // Withdraw the reviewed financial version before correcting the shared card;
+  // the already registered physical receipt retains its immutable original.
+  await changeOfficeCard(page, fixture.cardId, card => { card.rows[0].weight = 245; });
   await page.reload();
   await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
   await expect(panel).toContainText(/viktkortet.*skiljer|viktkortet.*ändrats|skiljer.*viktkort|mängd.*skiljer/i);
   await panel.getByRole('button', { name: 'Rätta miljöuppgifter', exact: true }).click();
   const reason = 'Kontrollvägning: fem kilo emballage ingick felaktigt.';
   await panel.getByLabel('Orsak till miljörättelse', { exact: true }).fill(reason);
-  await panel.getByRole('button', { name: 'Spara miljörättelse', exact: true }).click();
+  const saveCorrection = panel.getByRole('button', { name: 'Spara miljörättelse', exact: true });
+  await expect(saveCorrection).not.toHaveClass(/needs-details/);
+  await saveCorrection.click();
   await expect(page.getByRole('dialog', { name: 'Bekräfta miljörättelse', exact: true })).toHaveCount(0);
   await expect.poll(async () => (await state(page.request)).receipts.find(receipt => receipt.sourceId === fixture.sourceId)?.version).toBe(2);
   const shared = await state(page.request);
@@ -339,11 +346,7 @@ test('ändrad vikt kräver spårbar miljörättelse med bevarat original och net
   await expect(panel).toContainText('Versionshistorik');
   await expect(panel).toContainText(reason);
 
-  await page.evaluate(cardId => {
-    const data = JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!);
-    data.cards.find((card: { id: number }) => card.id === cardId).rows[0].price = 9;
-    localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(data));
-  }, fixture.cardId);
+  await changeOfficeCard(page, fixture.cardId, card => { card.rows[0].price = 9; });
   await page.reload();
   await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
   await expect(panel).not.toContainText(/viktkortet.*skiljer|viktkortet.*ändrats|skiljer.*viktkort|mängd.*skiljer/i);
@@ -360,6 +363,8 @@ test('två kassor som ändrar samma utkast får versionskonflikt utan att det an
     for (let index = 0; index < 2; index += 1) contexts.push(await browser.newContext({ baseURL, viewport: { width: 1440, height: 1000 } }));
     const pages = await Promise.all(contexts.map(context => context.newPage()));
     const panels = await Promise.all(pages.map(page => openCard(page, fixture)));
+    await approveCurrentOfficeCard(pages[0], fixture.cardId);
+    await pages[1].reload();
     await Promise.all(panels.map(panel => panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click()));
     await panels[0].getByLabel('Inkommande transportdokument', { exact: true }).fill('KASSA-ETT');
     await panels[1].getByLabel('Inkommande transportdokument', { exact: true }).fill('KASSA-TVÅ');

@@ -958,3 +958,12 @@ Status: Genomförd i kontorsdemo 0.9.0 enligt godkända personalmockuper.
   Utrustning, dokument/foto, rekrytering, lönesystem, backup och integrationer
   väntar till senare etapper. Kontorets auth är fortsatt demo; använd testdata.
 - Ingen datarensning eller ny Renderkonfiguration behövs.
+
+Verifierat för 0.9.0: build, Expo, 167 serverkontroller, 171 browserkontroller
+inklusive riktade omkörningar och 29 riktade PostgreSQL-kontroller.
+- Kundgodkännandestatus och frysta priser läses från servern; härledda
+  klientvyer skrivs inte tillbaka över låsta kort.
+- Mobilens katalog och kundpriser använder samma svenska affärsdatum,
+  även runt midnatt. Saknat referenspris på en artikel stoppar inte resten.
+- Testkort använder riktiga godkännanden/attester/betalningsjournaler och
+  isolerade identiteter. Produktionsdata har inte återställts.

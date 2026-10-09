@@ -1,7 +1,7 @@
-import { randomInt, randomUUID } from 'node:crypto';
-import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import { seedOffice, type OfficeCard } from '../src/office/model';
-import { migrateOffice } from '../src/office/customer-model';
+import { randomUUID } from 'node:crypto';
+import { test, expect, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import type { OfficeCard } from '../src/office/model';
+import { createOfficeCard, readOffice, saveOffice } from './helpers/financial-card';
 import type { DemoTerminal, TerminalApproval, TerminalDemoState } from '../src/office/terminal-demo-types';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
@@ -11,25 +11,31 @@ test.beforeEach(async ({ page }) => page.setDefaultTimeout(15_000));
 const service = '/api/terminal-demo';
 const password = 'TerminalDemo123!';
 
-function fixture() {
-  const data = migrateOffice(seedOffice());
+async function fixture(request: APIRequestContext) {
   const prefix = `e2e-${randomUUID().slice(0, 8)}`;
-  const firstId = 23_000_000 + randomInt(1_000_000);
-  const cards: OfficeCard[] = [0, 1].map(index => ({
-    ...data.cards.find(card => card.id === 2052)!,
-    id: firstId + index,
-    sourceId: randomUUID(),
-    status: 'new',
-    idVerified: false,
-    origin: `Testgatan ${index + 1}, Norrtälje`,
-    reference: `${prefix}-${index + 1}`,
-    payment: 'Kontant · testmottagare',
-    paymentDetails: { method: 'cash', recipient: 'Bygg & Riv AB' },
-    rows: [{ articleId: 'iron', weight: 83 + index, tier: 'A', price: 2.4 }],
-    audit: [],
-  }));
-  data.cards.push(...cards);
-  return { data, cards, prefix };
+  const ids: number[] = [];
+  for (const index of [0, 1]) {
+    const created = await createOfficeCard(request, { customerId: 'customer-build',
+      paymentDetails: { method: 'cash', recipient: 'Bygg & Riv AB' },
+      rows: [{ articleId: 'iron', weight: 83 + index, tier: 'A', price: 2.4 }],
+    });
+    ids.push(created.cardId);
+  }
+  const data = await readOffice(request);
+  const cards = ids.map(id => data.cards.find(card => card.id === id)!);
+  cards.forEach((card, index) => {
+    card.status = 'new';
+    card.origin = `Testgatan ${index + 1}, 761 41 Norrtälje`;
+    card.reference = `${prefix}-${index + 1}`;
+    card.payment = 'Kontant · testmottagare';
+  });
+  return { cards, prefix };
+}
+
+async function installFixture(page: Page, cards: OfficeCard[]) {
+  const base = await readOffice(page.request), next = structuredClone(base);
+  for (const card of cards) next.cards[next.cards.findIndex(entry => entry.id === card.id)] = structuredClone(card);
+  await saveOffice(page.request, base, next);
 }
 
 async function loginOffice(page: Page, name = 'Systemadmin') {
@@ -37,6 +43,7 @@ async function loginOffice(page: Page, name = 'Systemadmin') {
   await page.getByRole('button', { name: new RegExp(name) }).click();
   await expect(page.getByRole('heading', { name: 'Kontorsöversikt', exact: true })).toBeVisible();
   await expect(page.getByLabel('Anläggning', { exact: true })).toBeVisible();
+  await expect.poll(async () => (await page.request.get(`${service}/state`)).status()).toBe(200);
 }
 
 async function createTerminal(page: Page, prefix: string, suffix: string) {
@@ -88,7 +95,9 @@ async function approvalOf(page: Page, cardId: number): Promise<TerminalApproval>
 async function sendToTerminal(page: Page, cardId: number, terminal: DemoTerminal) {
   await page.goto(`/kontor#/weighings/${cardId}`);
   const before = page.url();
-  await page.getByRole('button', { name: /^Visa (på kundterminal|ny version på kundterminal)$/ }).click();
+  const send = page.getByRole('button', { name: /^Visa (på kundterminal|ny version på kundterminal)$/ });
+  await expect(send).toBeEnabled();
+  await send.click();
   const picker = page.getByLabel('Terminal för kundgodkännande', { exact: true });
   await expect(picker.locator(`option[value="${terminal.id}"]`)).toBeEnabled();
   await picker.selectOption(terminal.id);
@@ -117,12 +126,10 @@ async function cleanup(page: Page, terminals: DemoTerminal[], cardIds: number[])
 }
 
 test('två terminaler visar egna frysta avräkningar och personalens kontroll föregår intern attest', async ({ page, browser, baseURL }) => {
-  const { data, cards, prefix } = fixture();
+  const { cards, prefix } = await fixture(page.request);
   const terminals: DemoTerminal[] = [];
   const contexts: BrowserContext[] = [];
-  await page.addInitScript(value => {
-    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
-  }, data);
+  await installFixture(page, cards);
   try {
     await loginOffice(page);
     terminals.push(await createTerminal(page, prefix, '1'), await createTerminal(page, prefix, '2'));
@@ -207,15 +214,13 @@ test('två terminaler visar egna frysta avräkningar och personalens kontroll f�
 });
 
 test('avslutad kundvisning kan skickas igen oförändrad till samma terminal med en ny granskningsversion', async ({ page, browser, baseURL }) => {
-  const { data, cards, prefix } = fixture();
+  const { cards, prefix } = await fixture(page.request);
   // Both sends must use the same pricing request: an initial manual override
   // would create a different snapshot on resend and hide the idempotency bug.
   cards[0].rows[0].source = 'Volympris';
   const terminals: DemoTerminal[] = [];
   let mobile: Awaited<ReturnType<typeof mobileTerminal>> | undefined;
-  await page.addInitScript(value => {
-    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
-  }, data);
+  await installFixture(page, cards);
   try {
     await loginOffice(page);
     terminals.push(await createTerminal(page, prefix, '1'));
@@ -262,15 +267,13 @@ test('avslutad kundvisning kan skickas igen oförändrad till samma terminal med
 });
 
 test('misslyckade terminalutskick visar felet i den öppna dialogen och kan återförsökas utan dubbletter', async ({ page, browser, baseURL }) => {
-  const { data, cards, prefix } = fixture();
+  const { cards, prefix } = await fixture(page.request);
   cards[0].rows[0].source = 'Volympris';
   const terminals: DemoTerminal[] = [];
   let mobile: Awaited<ReturnType<typeof mobileTerminal>> | undefined;
   const sendKeys: string[] = [];
   const failureMessage = 'Terminal upptagen. Välj en annan terminal.';
-  await page.addInitScript(value => {
-    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
-  }, data);
+  await installFixture(page, cards);
   try {
     await loginOffice(page);
     terminals.push(await createTerminal(page, prefix, '1'));
@@ -280,6 +283,7 @@ test('misslyckade terminalutskick visar felet i den öppna dialogen och kan åte
       sendKeys.push(route.request().postDataJSON().idempotencyKey);
       await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: failureMessage, code: 'terminal_busy' }) });
     });
+    await expect(page.getByRole('button', { name: 'Visa på kundterminal', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'Visa på kundterminal', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Visa avräkning för kunden', exact: true });
     await dialog.getByLabel('Terminal för kundgodkännande', { exact: true }).selectOption(terminals[0].id);
@@ -311,12 +315,10 @@ test('misslyckade terminalutskick visar felet i den öppna dialogen och kan åte
 });
 
 test('ändringsbegäran kräver ny granskning och gamla terminalåtgärder kan inte godkänna en ny version', async ({ page, browser, baseURL }) => {
-  const { data, cards, prefix } = fixture();
+  const { cards, prefix } = await fixture(page.request);
   const terminals: DemoTerminal[] = [];
   let mobile: Awaited<ReturnType<typeof mobileTerminal>> | undefined;
-  await page.addInitScript(value => {
-    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
-  }, data);
+  await installFixture(page, cards);
   try {
     await loginOffice(page);
     terminals.push(await createTerminal(page, prefix, '1'));
@@ -382,12 +384,10 @@ test('ändringsbegäran kräver ny granskning och gamla terminalåtgärder kan i
 });
 
 test('en terminal tillåter en enhet åt gången och avaktivering tar bort kundvisningen', async ({ page, browser, baseURL }) => {
-  const { data, cards, prefix } = fixture();
+  const { cards, prefix } = await fixture(page.request);
   const terminals: DemoTerminal[] = [];
   const contexts: BrowserContext[] = [];
-  await page.addInitScript(value => {
-    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
-  }, data);
+  await installFixture(page, cards);
   try {
     await loginOffice(page);
     terminals.push(await createTerminal(page, prefix, '1'));
@@ -423,7 +423,7 @@ test('en terminal tillåter en enhet åt gången och avaktivering tar bort kundv
 });
 
 test('attestbehörighet utan läsning av kundgodkännandekön kan attestera en verkligt godkänd version från samma kort', async ({ page, browser, baseURL, request }) => {
-  const { data, cards, prefix } = fixture();
+  const { cards, prefix } = await fixture(page.request);
   const headers = { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' };
   const originalResponse = await request.get('/api/pricing/state', { headers });
   expect(originalResponse.ok()).toBeTruthy();
@@ -431,10 +431,7 @@ test('attestbehörighet utan läsning av kundgodkännandekön kan attestera en v
   const attester = { id: `${prefix}-attester`, name: `${prefix} Attesterare`, level: 'Medarbetare' as const,
     permissions: ['view', 'attest'] as const, maxAttest: 1000, ownAttest: false };
   expect((await request.post('/api/pricing/users', { headers, data: { users: [...originalUsers, attester] } })).ok()).toBeTruthy();
-  data.users.push({ ...attester, permissions: [...attester.permissions] });
-  await page.addInitScript(value => {
-    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
-  }, data);
+  await installFixture(page, cards);
   let terminal: DemoTerminal | undefined;
   let mobile: Awaited<ReturnType<typeof mobileTerminal>> | undefined;
   let approvalId: string | undefined;

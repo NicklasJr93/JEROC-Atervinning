@@ -1,4 +1,40 @@
 import { test, expect, type Page } from '@playwright/test';
+import { randomInt, randomUUID } from 'node:crypto';
+import { seedDemo, type DemoData, type Draft } from '../src/model';
+
+const mobileHeaders = { 'X-Demo-Mobile': 'niklas' };
+const fixtures = new WeakMap<Page, Map<number, Draft>>();
+const fixture = (page: Page, number: number) => fixtures.get(page)!.get(number)!;
+const currentDraftId = (page: Page) => new URL(page.url()).hash.match(/^#\/weigh\/([^/]+)/)![1];
+async function mobileData(page: Page): Promise<DemoData> {
+  const response = await page.request.get('/api/application/mobile', { headers: mobileHeaders });
+  expect(response.ok()).toBe(true);
+  return (await response.json()).data;
+}
+
+test.beforeEach(async ({ page }) => {
+  // Each case appends fresh source IDs through the real API. Existing shared
+  // drafts, locked cards and other tests' data remain intact.
+  const fresh = seedDemo(), originalNumbers = fresh.drafts.map(draft => draft.number);
+  for (const draft of fresh.drafts) {
+    draft.id = `mobile-ui-${randomUUID()}`;
+    draft.activityOrder = 0;
+    for (const row of draft.rows) {
+      row.id = randomUUID();
+      if (row.method === 'vehicle') row.registration = `T${randomInt(10_000_000, 100_000_000)}`;
+    }
+  }
+  const imported = await page.request.post('/api/application/mobile', { headers: mobileHeaders, data: { kind: 'import', data: fresh } });
+  expect(imported.ok()).toBe(true);
+  const canonical: DemoData = (await imported.json()).data;
+  fixtures.set(page, new Map(fresh.drafts.map((draft, index) => [originalNumbers[index], canonical.drafts.find(value => value.id === draft.id)!])));
+  await page.addInitScript(data => {
+    if (!localStorage.getItem('jeroc.mobile.demo.v1')) {
+      localStorage.setItem('jeroc.mobile.demo.v1', JSON.stringify(data));
+      localStorage.setItem('jeroc.mobile.demo.v1.postgres-imported', 'yes');
+    }
+  }, canonical);
+});
 
 async function login(page: Page) {
   await page.goto('/');
@@ -40,7 +76,7 @@ async function addWeight(
     .click();
 }
 
-test('material, kund och ursprung sparas lokalt; inget skickas till kontoret', async ({
+test('material, kund och ursprung sparas på servern och visas på kontoret', async ({
   page,
 }) => {
   const external: string[] = [];
@@ -50,6 +86,7 @@ test('material, kund och ursprung sparas lokalt; inget skickas till kontoret', a
   });
   await login(page);
   await start(page);
+  const sourceId = currentDraftId(page);
   await addWeight(page, 'Koppar', 'Koppar klass 1', '125', false);
   await addWeight(page, 'Koppar', 'Blandad koppar', '230', false);
   await addWeight(page, 'Rostfritt', 'Rostfritt', '130');
@@ -78,22 +115,26 @@ test('material, kund och ursprung sparas lokalt; inget skickas till kontoret', a
     page.getByRole('heading', { name: 'Vägningen är sparad' }),
   ).toBeVisible();
   await expect(
-    page.getByText('Inget skickas till kontoret i demon.', { exact: false }),
+    page.getByText('Vägningen sparas på servern och visas på kontoret.', { exact: true }),
   ).toBeVisible();
+  await expect.poll(async () => (await mobileData(page)).drafts.find(draft => draft.id === sourceId)?.status).toBe('ready');
   await page.reload();
   await expect(page.getByTestId('total-weight')).toHaveText('485 kg');
   const saved = await page.evaluate(() =>
     JSON.parse(localStorage.getItem('jeroc.mobile.demo.v1')!),
   );
-  const result = saved.drafts.find(
-    (d: { number: number }) => d.number === 1418,
-  );
+  const result = saved.drafts.find((draft: { id: string }) => draft.id === sourceId);
   expect(result).toMatchObject({
     status: 'ready',
     customerId: 'customer-build',
     reference: 'Projekt Solbacken',
     origin: 'Testgatan 12, 761 41 Norrtälje',
   });
+  const office = await page.request.get('/api/application/office', { headers: { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' } });
+  expect(office.ok()).toBe(true);
+  const card = (await office.json()).data.cards.find((value: { sourceId: string }) => value.sourceId === sourceId);
+  expect(card).toMatchObject({ customerId: 'customer-build', reference: 'Projekt Solbacken', origin: 'Testgatan 12, 761 41 Norrtälje', status: 'new', idVerified: false });
+  expect(card.rows.map((row: { weight: number }) => row.weight)).toEqual([125, 230, 130]);
   expect(external).toEqual([]);
 });
 
@@ -144,7 +185,9 @@ test('fordonsviktavdrag kräver orsak och lämnar spårbart vågunderlag', async
   page,
 }) => {
   await login(page);
-  await page.locator('.pending-mini').filter({ hasText: 'ABC123' }).click();
+  const vehicleFixture = fixture(page, 1416);
+  const registration = vehicleFixture.rows.find(row => row.method === 'vehicle')!.registration;
+  await page.locator('.pending-mini').filter({ hasText: registration }).click();
   await page.getByLabel('Vikt vid utfart').fill('11600');
   await page.getByRole('button', { name: /^Viktavdrag/ }).click();
   await page.getByLabel('Viktavdrag i kg').fill('20');
@@ -165,7 +208,7 @@ test('fordonsviktavdrag kräver orsak och lämnar spårbart vågunderlag', async
   await page.reload();
   await page
     .locator('.draft-card')
-    .filter({ hasText: '#1416' })
+    .filter({ hasText: `#${vehicleFixture.number}` })
     .getByRole('button', { name: /Öppna vägning/ })
     .click();
   await expect(page).toHaveURL(/\/summary$/);
@@ -178,16 +221,10 @@ test('en påbörjad decimalvikt återställs efter omladdning och kan fortsätta
   await login(page);
   await start(page);
   await choose(page, 'Koppar', 'Koppar klass 1');
+  const sourceId = currentDraftId(page);
   await page.getByRole('textbox', { name: 'Vikt i kg' }).fill('12,5');
   await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          JSON.parse(localStorage.getItem('jeroc.mobile.demo.v1')!).drafts.find(
-            (d: { number: number }) => d.number === 1418,
-          )?.pendingWeight?.value,
-      ),
-    )
+    .poll(async () => (await mobileData(page)).drafts.find(draft => draft.id === sourceId)?.pendingWeight?.value)
     .toBe('12,5');
   await page.reload();
   await expect(page.getByRole('textbox', { name: 'Vikt i kg' })).toHaveValue(
@@ -212,7 +249,7 @@ test('ny kund väljs och byte av kund rensar den gamla kundens referens', async 
     .click();
   await page
     .locator('.draft-card')
-    .filter({ hasText: '#1414' })
+    .filter({ hasText: `#${fixture(page, 1414).number}` })
     .getByRole('button', { name: /Öppna vägning/ })
     .click();
   await page.getByRole('button', { name: /Lägg till kund/ }).click();
@@ -271,9 +308,13 @@ test('lagringsfel stoppar klarmarkering och visar fel i stället för framgång'
     .click();
   await page
     .locator('.draft-card')
-    .filter({ hasText: '#1414' })
+    .filter({ hasText: `#${fixture(page, 1414).number}` })
     .getByRole('button', { name: /Öppna vägning/ })
     .click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('jeroc.mobile.demo.v1.server-pending.mobile') ?? '[]').length)).toBe(0);
+  const before = (await mobileData(page)).drafts.find(draft => draft.id === fixture(page, 1414).id)!;
+  const posts: string[] = [];
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/application/mobile' && request.method() === 'POST') posts.push(request.postData() ?? ''); });
   await page.evaluate(() => {
     Storage.prototype.setItem = () => {
       throw new DOMException('Full', 'QuotaExceededError');
@@ -281,7 +322,7 @@ test('lagringsfel stoppar klarmarkering och visar fel i stället för framgång'
   });
   await page.getByRole('button', { name: 'Spara färdig vägning' }).click();
   await expect(page.getByRole('alert')).toContainText(
-    'Utkastet kunde inte sparas',
+    'Ändringen kunde inte sparas i återhämtningscachen',
   );
   await expect(
     page.getByRole('heading', { name: 'Vägningen är sparad' }),
@@ -289,6 +330,12 @@ test('lagringsfel stoppar klarmarkering och visar fel i stället för framgång'
   await expect(
     page.getByRole('heading', { name: 'Sammanställning' }),
   ).toBeVisible();
+  // Wait for an actual periodic read, so a failed cache write cannot hide in the
+  // in-memory queue and be sent later by the normal background synchronizer.
+  const tick = await page.waitForRequest(request => new URL(request.url()).pathname === '/api/application/mobile' && request.method() === 'GET');
+  await tick.response();
+  expect(posts).toEqual([]);
+  expect((await mobileData(page)).drafts.find(draft => draft.id === before.id)).toEqual(before);
 });
 
 test('ID kan skapas även när mobilen öppnar appen över ett lokalt HTTP-nät', async ({
@@ -313,6 +360,7 @@ test('snabba växelvisa siffertangenter registreras en gång och 0 kan inte spar
   await login(page);
   await start(page);
   await choose(page, 'Koppar', 'Koppar klass 1');
+  const sourceId = currentDraftId(page);
   await page.getByRole('button', { name: 'Färdigvägt', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('större än 0');
   await page.evaluate(() => {
@@ -351,7 +399,7 @@ test('snabba växelvisa siffertangenter registreras en gång och 0 kan inte spar
     JSON.parse(localStorage.getItem('jeroc.mobile.demo.v1')!),
   );
   expect(
-    data.drafts.find((d: { number: number }) => d.number === 1418).rows,
+    data.drafts.find((draft: { id: string }) => draft.id === sourceId).rows,
   ).toHaveLength(1);
 });
 
@@ -401,6 +449,7 @@ test('färdig vägning är låst även via gamla redigeringslänkar', async ({
   await login(page);
   await start(page);
   await addWeight(page, 'Koppar', 'Koppar klass 1', '125');
+  const sourceId = currentDraftId(page);
   const base = page.url().replace(/summary$/, '');
   await page.getByRole('button', { name: 'Spara färdig vägning' }).click();
   await expect(
@@ -417,8 +466,11 @@ test('färdig vägning är låst även via gamla redigeringslänkar', async ({
     .getByRole('button', { name: 'Vägningar' })
     .click();
   await page.getByRole('tab', { name: 'Historik' }).click();
-  await page.getByRole('button', { name: /Öppna vägning/ }).click();
-  await expect(page.getByText('Färdig · låst', { exact: true })).toBeVisible();
+  await expect.poll(async () => (await mobileData(page)).drafts.find(draft => draft.id === sourceId)?.status).toBe('ready');
+  const number = (await mobileData(page)).drafts.find(draft => draft.id === sourceId)!.number;
+  await page.getByRole('button', { name: `Öppna vägning ${number}`, exact: true }).click();
+  await expect(page.getByRole('heading', { name: `Vägning #${number}`, exact: true })).toBeVisible();
+  await expect(page.getByRole('main').getByText('Färdig · låst', { exact: true })).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Spara färdig vägning' }),
   ).toHaveCount(0);
@@ -434,7 +486,7 @@ test('färdig vägning är låst även via gamla redigeringslänkar', async ({
   ]) {
     await page.goto(base + path);
     await expect(
-      page.getByRole('heading', { name: 'Vägning #1418' }),
+      page.getByRole('heading', { name: `Vägning #${number}` }),
     ).toBeVisible();
     await expect(page.getByTestId('total-weight')).toHaveText('125 kg');
   }
@@ -442,7 +494,7 @@ test('färdig vägning är låst även via gamla redigeringslänkar', async ({
     JSON.parse(localStorage.getItem('jeroc.mobile.demo.v1')!),
   );
   expect(
-    data.drafts.find((d: { number: number }) => d.number === 1418),
+    data.drafts.find((draft: { id: string }) => draft.id === sourceId),
   ).toMatchObject({ status: 'ready', rows: [{ weight: 125 }] });
 });
 
@@ -640,13 +692,13 @@ test('svep visar radering, kräver bekräftelse och behåller utkast vid Nej', a
     page.getByRole('button', { name: 'Fortsätt', exact: true }),
   ).toHaveCount(0);
   const draft = page.getByRole('button', {
-    name: 'Öppna vägning 1414',
+    name: `Öppna vägning ${fixture(page, 1414).number}`,
     exact: true,
   });
   await swipeCard(page, draft, 65);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page
-    .getByRole('button', { name: 'Radera vägning 1414', exact: true })
+    .getByRole('button', { name: `Radera vägning ${fixture(page, 1414).number}`, exact: true })
     .click();
   await expect(page.getByRole('dialog')).toContainText(
     'Vill du radera detta utkast?',
@@ -661,7 +713,7 @@ test('svep visar radering, kräver bekräftelse och behåller utkast vid Nej', a
   await expect(draft).toHaveCount(0);
   await swipeCard(
     page,
-    page.getByRole('button', { name: 'Öppna vägning 1416', exact: true }),
+    page.getByRole('button', { name: `Öppna vägning ${fixture(page, 1416).number}`, exact: true }),
     155,
   );
   await expect(page.getByRole('dialog')).toContainText(
@@ -669,7 +721,7 @@ test('svep visar radering, kräver bekräftelse och behåller utkast vid Nej', a
   );
   await page.getByRole('button', { name: 'Stäng', exact: true }).click();
   await expect(
-    page.getByRole('button', { name: 'Öppna vägning 1416', exact: true }),
+    page.getByRole('button', { name: `Öppna vägning ${fixture(page, 1416).number}`, exact: true }),
   ).toBeVisible();
 });
 
@@ -685,7 +737,7 @@ test('vägningsflikar och sök står kvar vid scroll, historik saknar radering',
   const list = page.locator('.weighings-list');
   await swipeCard(
     page,
-    page.getByRole('button', { name: 'Öppna vägning 1414', exact: true }),
+    page.getByRole('button', { name: `Öppna vägning ${fixture(page, 1414).number}`, exact: true }),
     0,
     100,
   );
@@ -711,13 +763,15 @@ test('vägningsflikar och sök står kvar vid scroll, historik saknar radering',
   await expect(page.locator('.swipe-delete')).toHaveCount(0);
 });
 
-test('kundval visar artikelns demopris, kan bytas och kryss återställer A/B/C utan att ändra vägningar', async ({
+test('kundval visar artikelns serverpris, kan bytas och kryss återställer A/B/C utan att ändra vägningar', async ({
   page,
 }) => {
   await login(page);
-  const before = await page.evaluate(() =>
-    localStorage.getItem('jeroc.mobile.demo.v1'),
-  );
+  const before = (await mobileData(page)).drafts;
+  const pricingResponse = await page.request.get('/api/application/mobile', { headers: mobileHeaders });
+  expect(pricingResponse.ok()).toBe(true);
+  const prices = (await pricingResponse.json()).customerPrices;
+  const formattedPrice = (value: number) => value.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   await page
     .getByRole('navigation')
     .getByRole('button', { name: 'Prislista' })
@@ -731,27 +785,25 @@ test('kundval visar artikelns demopris, kan bytas och kryss återställer A/B/C 
     .getByRole('dialog')
     .getByRole('button', { name: /Bygg & Riv AB/ })
     .click();
-  await expect(page.locator('.price-row')).toContainText('84,00');
-  await expect(page.locator('.price-row')).toContainText('Specialpris');
+  await expect(page.locator('.price-row')).toContainText(formattedPrice(prices['customer-build']['copper-1'].price));
+  await expect(page.locator('.price-row .badge')).toHaveText(prices['customer-build']['copper-1'].source);
   await expect(page.locator('.price-head')).toContainText('Kundpris');
   await page.getByRole('button', { name: 'Byt kund i prislistan' }).click();
   await page
     .getByRole('dialog')
     .getByRole('button', { name: /Erik Johansson/ })
     .click();
-  await expect(page.locator('.price-row')).toContainText('73,80');
-  await expect(page.locator('.price-row .badge')).toHaveText('B');
+  await expect(page.locator('.price-row')).toContainText(formattedPrice(prices['customer-erik']['copper-1'].price));
+  await expect(page.locator('.price-row .badge')).toHaveText(prices['customer-erik']['copper-1'].source);
   await page.getByRole('searchbox').fill('Järnskrot');
-  await expect(page.locator('.price-row')).toContainText('1,92');
-  await expect(page.locator('.price-row .badge')).toHaveText('C');
+  await expect(page.locator('.price-row')).toContainText(formattedPrice(prices['customer-erik'].iron.price));
+  await expect(page.locator('.price-row .badge')).toHaveText(prices['customer-erik'].iron.source);
   await page.getByRole('button', { name: 'Ta bort vald kund' }).click();
   await expect(page.locator('.price-row .price-value')).toHaveCount(3);
   await expect(
     page.getByRole('button', { name: 'Lägg till kund', exact: true }),
   ).toBeVisible();
-  expect(
-    await page.evaluate(() => localStorage.getItem('jeroc.mobile.demo.v1')),
-  ).toBe(before);
+  expect((await mobileData(page)).drafts).toEqual(before);
 });
 
 test('artikelpriser visar perioder, kundjämförelse och behåller kund och sökning vid tillbaka', async ({
@@ -878,15 +930,16 @@ test('senast sparad infart och senast öppnat utkast ligger överst även med ä
   await login(page);
   await page.locator('.ongoing-list .pending-mini').first().click();
   await page.goto('/');
-  await page.evaluate(() => {
-    const key = 'jeroc.mobile.demo.v1';
-    const data = JSON.parse(localStorage.getItem(key)!);
-    for (const draft of data.drafts) {
+  const before = await mobileData(page), next = structuredClone(before);
+  const fixtureIds = [...fixtures.get(page)!.values()].map(draft => draft.id);
+  for (const draft of next.drafts) {
+    if (fixtureIds.includes(draft.id)) {
       draft.updatedAt = '2099-01-01T00:00:00.000Z';
       delete draft.activityOrder;
     }
-    localStorage.setItem(key, JSON.stringify(data));
-  });
+  }
+  const changed = await page.request.post('/api/application/mobile', { headers: mobileHeaders, data: { kind: 'update', base: before, next } });
+  expect(changed.ok()).toBe(true);
   await page.reload();
   await start(page, true);
   await page.getByLabel('Registreringsnummer').fill('GHI789');
@@ -912,7 +965,7 @@ test('senast sparad infart och senast öppnat utkast ligger överst även med ä
     'GHI789',
   );
   await page
-    .getByRole('button', { name: 'Öppna vägning 1414', exact: true })
+    .getByRole('button', { name: `Öppna vägning ${fixture(page, 1414).number}`, exact: true })
     .click();
   await page.getByRole('button', { name: 'Spara utkast', exact: true }).click();
   await page
@@ -921,5 +974,5 @@ test('senast sparad infart och senast öppnat utkast ligger överst även med ä
     .click();
   await expect(
     page.locator('.ongoing-list .pending-mini').first(),
-  ).toContainText('#1414');
+  ).toContainText(`#${fixture(page, 1414).number}`);
 });

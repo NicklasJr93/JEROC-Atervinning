@@ -3,6 +3,7 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
 import type { EnvironmentSessionState, EnvironmentState, EnvironmentalReceiptInput } from '../src/office/environment-types';
 import { seedOffice } from '../src/office/model';
 import { migrateOffice } from '../src/office/customer-model';
+import { approveCustomerCard, approveCurrentOfficeCard } from './helpers/customer-approval';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 test.setTimeout(75_000);
@@ -32,10 +33,28 @@ test('två separata kassor delar oföränderlig mottagning utan dubbelt lager el
     const sessionCookie = (await first.cookies()).find(cookie => cookie.name === 'jeroc_environment_staff');
     expect(sessionCookie).toMatchObject({ httpOnly: true, sameSite: 'Strict' });
     const before = await environmentState(first.request);
+    // This regression intentionally exercises the general inventory API with
+    // two materials. Copper still needs a nonhazardous storage classification;
+    // it must not be added to the hazardous NVV reporting scope.
+    const copper = before.classifications.find(item => item.articleId === 'copper-1');
+    const copperClassification = await first.request.put('/api/environment/classifications/copper-1', {
+      headers: { 'X-Environment-CSRF': one.csrfToken }, data: { expectedVersion: copper?.version ?? 0,
+        hazardous: false, wasteCode: '170401', wasteDescription: 'Koppar, brons och mässing', handlingInstructions: '', adrRequired: false,
+        storageRules: before.sites.map(site => ({ siteId: site.id, allowed: true, maxKg: null })) },
+    });
+    expect(copperClassification.ok()).toBe(true);
+    const policy = before.storagePolicies.find(item => item.siteId === 'norrtalje');
+    const storagePolicy = await first.request.put('/api/environment/storage/policies/norrtalje', {
+      headers: { 'X-Environment-CSRF': one.csrfToken }, data: { expectedVersion: policy?.version ?? 0,
+        totalMaxKg: 1_000_000, rules: [...(policy?.rules ?? []).filter(rule => !['170401', '160601'].includes(rule.wasteCode)),
+          { wasteCode: '170401', allowed: true, maxKg: 1_000_000 }, { wasteCode: '160601', allowed: true, maxKg: 1_000_000 }] },
+    });
+    expect(storagePolicy.ok()).toBe(true);
     const classification = before.classifications.find(item => item.articleId === 'lead-battery');
     const classified = await first.request.put('/api/environment/classifications/lead-battery', {
       headers: { 'X-Environment-CSRF': one.csrfToken },
-      data: { expectedVersion: classification?.version ?? 0, hazardous: true, wasteCode: '160601', wasteDescription: 'Blybatterier', handlingInstructions: 'Förvara upprätt i tätt batterikärl.', adrRequired: false },
+      data: { expectedVersion: classification?.version ?? 0, hazardous: true, wasteCode: '160601', wasteDescription: 'Blybatterier', handlingInstructions: 'Förvara upprätt i tätt batterikärl.', adrRequired: false,
+        storageRules: before.sites.map(site => ({ siteId: site.id, allowed: true, maxKg: null })) },
     });
     expect(classified.ok()).toBeTruthy();
     const savedClassification = await classified.json();
@@ -51,8 +70,10 @@ test('två separata kassor delar oföränderlig mottagning utan dubbelt lager el
       transportMode: 'road', incomingDocument: { status: 'missing', missingReason: 'Transportdokument saknades vid mottagning · regressionstest.' },
       idempotencyKey: `receipt-${sourceId}`,
     };
+    await approveCustomerCard(first.request, { ...seedOffice().cards.find(card => card.id === 2050)!,
+      id: input.cardId, sourceId, siteId: input.siteId, origin: input.lastPlace.address, rows: input.rows });
     const received = await first.request.post('/api/environment/receipts', { headers: { 'X-Environment-CSRF': one.csrfToken }, data: input });
-    expect(received.ok()).toBeTruthy();
+    expect(received.ok(), await received.text()).toBeTruthy();
     const receipt = await received.json();
     expect(receipt.snapshot.rows[0].classification).toMatchObject({ version: savedClassification.version, hazardous: true, wasteCode: '160601' });
     expect(receipt.hash).toMatch(/^[a-f0-9]{64}$/);
@@ -115,11 +136,12 @@ test('artikelklassificering och faktisk mottagning sparas via kontoret och syns 
   const copperCardId = cardId + 1;
   const copper = data.cards.find(card => card.id === 2050)!.rows.find(row => row.articleId === 'copper-1')!;
   data.cards.push({ ...data.cards.find(card => card.id === 2050)!, id: copperCardId, sourceId: randomUUID(), rows: [copper] });
-  await page.addInitScript(value => {
-    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
-  }, data);
   await page.goto('/kontor');
   await page.getByRole('button', { name: /Systemadmin/ }).click();
+  const imported = await page.request.post('/api/application/office', {
+    headers: { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' }, data: { kind: 'import', data },
+  });
+  expect(imported.ok()).toBe(true);
   const session = await environmentDemoSession(page.request);
   const before = await environmentState(page.request);
   const policy = await page.request.put('/api/environment/storage/policies/norrtalje', {
@@ -149,6 +171,7 @@ test('artikelklassificering och faktisk mottagning sparas via kontoret och syns 
   await expect.poll(async () => (await page.request.get('/api/environment/session')).ok()).toBe(true);
   await expect(page.getByRole('region', { name: 'Miljö och mottagning', exact: true })).toHaveCount(0);
   await expect(page.locator('.office-panel').filter({ has: page.getByRole('heading', { name: 'Material & prissättning', exact: true }) })).toContainText('Koppar klass 1');
+  await approveCurrentOfficeCard(page, cardId);
   await page.goto(`/kontor#/weighings/${cardId}`);
   const receiptPanel = page.getByRole('region', { name: 'Miljö och mottagning', exact: true });
   await receiptPanel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
@@ -176,9 +199,6 @@ test('artikelklassificering och faktisk mottagning sparas via kontoret och syns 
   const colleague = await browser.newContext({ baseURL, viewport: { width: 1440, height: 1000 } });
   try {
     const second = await colleague.newPage();
-    await second.addInitScript(value => {
-      if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
-    }, data);
     await second.goto('/kontor');
     await second.getByRole('button', { name: /Systemadmin/ }).click();
     await second.goto(`/kontor#/weighings/${cardId}`);

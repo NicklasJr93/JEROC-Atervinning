@@ -1,80 +1,41 @@
 import { test, expect } from '@playwright/test';
-import { seedOffice } from '../src/office/model';
+import { randomUUID } from 'node:crypto';
 import { migrateOffice } from '../src/office/customer-model';
+import { completedOfficeCard, readOffice, saveOffice } from './helpers/financial-card';
 
-test.use({
-  viewport: { width: 1440, height: 1000 },
-  isMobile: false,
-  hasTouch: false,
-});
-test('ett äldre rättelseutkast kan få sitt saknade underlag kompletterat utan att ändra original eller saldo', async ({
-  page,
-}) => {
-  const fixture = migrateOffice(seedOffice());
-  const customer = fixture.customers.find((entry) => entry.id === 'customer-erik')!;
-  fixture.cards = [{
-    ...structuredClone(fixture.cards.find((card) => card.id === 2052)!),
-    id: 2038, sourceId: '9001b725-c022-4edf-9bff-ed0300002038', customerId: customer.id, customerSnapshot: structuredClone(customer),
-    status: 'paid', date: '2026-10-07T08:41:00Z',
-    idVerified: true, preparedBy: 'kajsa', approvedBy: 'anna',
-    payment: 'Kontant', paymentDetails: { method: 'cash' },
-    rows: [{ articleId: 'iron', weight: 124, tier: 'C', price: 1.92 }],
-    customerApproval: {
-      id: 'legacy-correction-approved-test', version: 1, status: 'attested',
-      updatedAt: '2026-10-07T09:00:00Z',
-      approvedBy: 'Kajsa Nilsson', approvedAt: '2026-10-07T08:50:00Z',
-      attestedBy: 'Anna Nilsson', attestedAt: '2026-10-07T09:00:00Z',
-    },
-  }];
-  fixture.corrections.push({
-    id: 77,
-    cardId: 2038,
-    customerId: 'customer-erik',
-    articleId: 'iron',
-    weightDelta: -10,
-    reason: 'Fel registrerad mängd',
-    actor: 'Kajsa Nilsson',
-    at: '2026-10-07T10:00:00Z',
-  });
-  const original = fixture.cards.find((c) => c.id === 2038)!;
-  await page.addInitScript((data) => {
-    if (!localStorage.getItem('jeroc.office.demo.v1'))
-      localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(data));
-  }, fixture);
+test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
+
+test('ett äldre rättelseutkast kan få sitt saknade underlag kompletterat utan att ändra original eller saldo', async ({ page, request }) => {
+  // Financial history must come from the shared approval/attest/payment APIs.
+  // Only the old missing-document correction format is migrated in this fixture.
+  const { cardId } = await completedOfficeCard(request);
+  const base = await readOffice(request), id = Math.max(0, ...base.corrections.map(c => c.id)) + 1;
+  const original = base.cards.find(c => c.id === cardId)!;
+  const originalPayments = base.payments.filter(p => p.cardId === cardId);
+  const legacy = structuredClone(base);
+  legacy.corrections.push({ id, cardId, customerId: original.customerId!, articleId: 'iron', weightDelta: -10,
+    reason: 'Fel registrerad mängd', actor: 'Kajsa Nilsson', at: new Date().toISOString() });
+  await saveOffice(request, base, migrateOffice(legacy));
+  const document = `RU-LEGACY-${randomUUID().slice(0, 8)}`;
+
   await page.goto('/kontor');
   await page.getByRole('button', { name: /Lars Andersson/ }).click();
+  await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');
   await page.goto('/kontor#/corrections');
-  await page
-    .getByRole('button', { name: 'Granska utkast', exact: true })
-    .click();
-  await page
-    .getByLabel('Rättelseunderlag', { exact: true })
-    .fill('RU-LEGACY-77');
-  await page
-    .getByRole('button', { name: 'Spara rättelseunderlag', exact: true })
-    .click();
+  const row = page.getByRole('row').filter({ hasText: `#${cardId}` });
+  await row.getByRole('button', { name: 'Granska utkast', exact: true }).click();
+  await page.getByLabel('Rättelseunderlag', { exact: true }).fill(document);
+  await page.getByRole('button', { name: 'Spara rättelseunderlag', exact: true }).click();
+  await expect.poll(async () => (await readOffice(request)).corrections.find(c => c.id === id)?.document).toBe(document);
   await page.reload();
-  await page
-    .getByRole('button', { name: 'Skicka rättelse för attest', exact: true })
-    .click();
-  await expect(
-    page.getByText('Väntar på attest', { exact: true }).first(),
-  ).toBeVisible();
-  const state = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!),
-  );
-  expect(state.cards.find((c: { id: number }) => c.id === 2038)).toEqual(
-    original,
-  );
-  expect(state.payments).toEqual([]);
-  expect(state.corrections[0]).toMatchObject({
-    status: 'attest',
-    document: 'RU-LEGACY-77',
-    weightDelta: -10,
-  });
-  expect(
-    state.corrections[0].audit.some((a: { text: string }) =>
-      a.text.includes('RU-LEGACY-77'),
-    ),
-  ).toBe(true);
+  await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');
+  await page.getByRole('row').filter({ hasText: `#${cardId}` }).getByRole('button', { name: 'Skicka rättelse för attest', exact: true }).click();
+  await expect.poll(async () => (await readOffice(request)).corrections.find(c => c.id === id)?.status).toBe('attest');
+  await expect(page.getByRole('row').filter({ hasText: document })).toContainText('Väntar på attest');
+
+  const state = await readOffice(request), correction = state.corrections.find(c => c.id === id)!;
+  expect(state.cards.find(c => c.id === cardId)).toEqual(original);
+  expect(state.payments.filter(p => p.cardId === cardId)).toEqual(originalPayments);
+  expect(correction).toMatchObject({ status: 'attest', document, weightDelta: -10 });
+  expect(correction.audit?.some(a => a.text.includes(document))).toBe(true);
 });

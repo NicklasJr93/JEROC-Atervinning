@@ -3,6 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { seedOffice } from '../src/office/model';
 import { migrateOffice } from '../src/office/customer-model';
 import type { EnvironmentSite, EnvironmentState, WasteClassification } from '../src/office/environment-types';
+import { approveCustomerCard, approveCurrentOfficeCard } from './helpers/customer-approval';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 test.setTimeout(75_000);
@@ -105,8 +106,12 @@ test('mottagningskortet visar befintligt lager och blockerar överskridande, sed
   };
   await savePolicy(0, 25);
   const place = { address: created.address, postalCode: created.postalCode, city: created.city, municipalityCode: created.municipalityCode };
+  const stockSourceId = randomUUID();
+  await approveCustomerCard(page.request, { ...data.cards.find(item => item.id === 2050)!, id: cardId + 1,
+    sourceId: stockSourceId, siteId: created.id, yard: created.name, origin: place.address, rows: [{ articleId: 'lead-battery', weight: 6 }] },
+  { siteId: created.id, siteName: created.name });
   const stockResponse = await page.request.post('/api/environment/receipts', { headers: await headers(page), data: {
-    sourceId: randomUUID(), cardId: cardId + 1, siteId: created.id, receivedAt: '2026-10-09T10:00:00+02:00', rows: [{ articleId: 'lead-battery', weight: 6 }],
+    sourceId: stockSourceId, cardId: cardId + 1, siteId: created.id, receivedAt: '2026-10-09T10:00:00+02:00', rows: [{ articleId: 'lead-battery', weight: 6 }],
     previousHolder: { name: 'Testbolaget', number: '5560000167', contactName: '', email: '', phone: '' }, lastPlace: place, nextPlace: place, transportMode: 'road', incomingDocument: { status: 'unknown' }, idempotencyKey: randomUUID(),
   } });
   expect(stockResponse.ok()).toBe(true);
@@ -117,6 +122,7 @@ test('mottagningskortet visar befintligt lager och blockerar överskridande, sed
   });
   expect(imported.ok()).toBe(true);
   await page.goto(`/kontor?storage-test=${sourceId}#/weighings/${cardId}`);
+  await approveCurrentOfficeCard(page, cardId);
   const panel = page.getByRole('region', { name: 'Miljö och mottagning', exact: true });
   await expect(panel.getByRole('region', { name: 'Lagringskontroll', exact: true })).toContainText('Mottagningen ryms inte');
   await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();

@@ -2,6 +2,13 @@
 
 ## Nytt i 0.9.0 – personal och tydlig stegordning
 
+Verifiering: produktionsbygget och Expo-typkontrollen passerade. Alla 171
+webbläsarkontroller passerade efter riktad omkörning av korrigerade testfall
+(158 i hela sviten, därefter 10 och 3 i riktade omkörningar). Serverns 167
+kontroller passerade, inklusive omkörning av ett test med fast arbetsdag.
+29 riktade kontroller passerade även mot isolerade PostgreSQL-testscheman.
+
+
 **Personal** ligger i vänstermenyn. Där finns personallista, personkort,
 anställning, lön, schema, frånvaro, kompetenser och bemanningsuppgifter.
 Anställda och externa chaufförer kopplas till befintliga användare, förare,

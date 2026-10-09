@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import { randomInt, randomUUID } from 'node:crypto';
-import { seedOffice } from '../src/office/model';
-import { migrateOffice } from '../src/office/customer-model';
+import { seedOffice, type OfficeCard, type OfficeData } from '../src/office/model';
+import { migrateOffice, recordPayment } from '../src/office/customer-model';
+import { approveCustomerCard } from './helpers/customer-approval';
 
 test.use({
   viewport: { width: 1440, height: 1000 },
@@ -9,27 +10,42 @@ test.use({
   hasTouch: false,
 });
 test.setTimeout(75_000);
+const admin = { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' };
+async function officeData(page: Page): Promise<OfficeData> {
+  const response = await page.request.get('/api/application/office', { headers: admin });
+  expect(response.ok()).toBe(true);
+  return (await response.json()).data;
+}
+async function importCards(page: Page, cards: OfficeCard[]) {
+  const data = migrateOffice(seedOffice());
+  data.cards = cards;
+  const response = await page.request.post('/api/application/office', { headers: admin, data: { kind: 'import', data } });
+  expect(response.ok(), await response.text()).toBe(true);
+}
+function newCard(id = 68_000_000 + randomInt(1_000_000)): OfficeCard {
+  return { ...seedOffice().cards.find(card => card.id === 2052)!, id, sourceId: randomUUID(), status: 'complement',
+    preparedBy: 'kajsa', paymentDetails: { method: 'cash', recipient: 'Bygg & Riv AB' } };
+}
 
 async function queueFixtures(page: Page) {
-  const data = migrateOffice(seedOffice());
-  const firstId = 61_000_000 + randomInt(1_000_000);
-  const approvedAt = '2026-10-09T10:00:00Z';
-  const base = data.cards.find(card => card.id === 2052)!;
-  const [attestId, readyId, paidId] = [firstId, firstId + 1, firstId + 2];
-  // These isolated fixtures exercise list routing and historical filters only.
-  // Tests that execute internal attest build a real server approval below.
-  data.cards.push(...(['attest', 'ready', 'paid'] as const).map((status, index) => ({
-    ...base, id: firstId + index, sourceId: randomUUID(), status, preparedBy: 'kajsa',
-    ...(status === 'attest' ? {} : { approvedBy: 'anna' }),
-    ...(status === 'paid' ? { paidAt: approvedAt } : {}),
-    customerApproval: { id: randomUUID(), version: 1, status: status === 'attest' ? 'approved' as const : 'attested' as const,
-      updatedAt: approvedAt, approvedAt, approvedBy: 'Personal · listtest',
-      ...(status === 'attest' ? {} : { attestedAt: approvedAt, attestedBy: 'Anna Nilsson' }) },
-  })));
-  await page.addInitScript(value => {
-    if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
-  }, migrateOffice(data));
-  return { attestId, readyId, paidId };
+  const firstId = 68_000_000 + randomInt(1_000_000);
+  const [openId, attestId, readyId, paidId] = [firstId, firstId + 1, firstId + 2, firstId + 3];
+  const cards = [openId, attestId, readyId, paidId].map(id => newCard(id));
+  await importCards(page, cards);
+  // Historical financial states must originate in the shared workflow. A
+  // browser-only "approved" fixture is deliberately archived by the server.
+  for (const card of cards.slice(1)) {
+    const approval = await approveCustomerCard(page.request, card);
+    if (card.id !== attestId) {
+      const attested = await page.request.post(`/api/terminal-demo/approvals/${approval.id}/attest`, { data: {} });
+      expect(attested.ok(), await attested.text()).toBe(true);
+    }
+  }
+  const base = await officeData(page), user = base.users.find(user => user.id === 'admin')!;
+  const next = recordPayment(base, paidId, { actualUser: user, user }, { method: 'cash', recipient: 'Bygg & Riv AB' }, 'Lokal arbetskötest');
+  const paid = await page.request.post('/api/application/office', { headers: admin, data: { base, next } });
+  expect(paid.ok(), await paid.text()).toBe(true);
+  return { openId, attestId, readyId, paidId };
 }
 
 async function login(page: Page, name: string) {
@@ -38,6 +54,7 @@ async function login(page: Page, name: string) {
   await expect(
     page.getByRole('heading', { name: 'Kontorsöversikt', exact: true }),
   ).toBeVisible();
+  await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');
 }
 
 function menu(page: Page, name: string) {
@@ -62,16 +79,21 @@ async function expectQueue(page: Page, present: number[], absent: number[]) {
 test('arbetsköerna visar bara sina aktiva kort och kortdetaljer behåller rätt huvudmeny', async ({
   page,
 }) => {
-  const { attestId, readyId, paidId } = await queueFixtures(page);
+  const { openId, attestId, readyId, paidId } = await queueFixtures(page);
+  const unexpectedUpdates: string[] = [];
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/application/office' && request.postDataJSON()?.kind === 'update')
+      unexpectedUpdates.push(request.url());
+  });
   await login(page, 'Lars Andersson');
   await menu(page, 'Invägningar').click();
-  await expectQueue(page, [2050, 2051, 2052, 2053], [attestId, readyId, paidId]);
+  await expectQueue(page, [openId], [attestId, readyId, paidId]);
   const search = await page.locator('.office-queue-search .office-search').boundingBox();
   const filter = await page.getByLabel('Filtrera status', { exact: true }).boundingBox();
   expect(Math.abs(search!.height - filter!.height)).toBeLessThan(1);
 
   await menu(page, 'Attest').click();
-  await expectQueue(page, [attestId], [2050, 2051, 2052, 2053, readyId, paidId]);
+  await expectQueue(page, [attestId], [openId, readyId, paidId]);
   await page
     .getByRole('button', { name: `Öppna viktkort ${attestId}`, exact: true })
     .click();
@@ -81,7 +103,7 @@ test('arbetsköerna visar bara sina aktiva kort och kortdetaljer behåller rätt
   await expectQueue(page, [attestId], [readyId]);
 
   await menu(page, 'Utbetalningar').click();
-  await expectQueue(page, [readyId], [2051, attestId, paidId]);
+  await expectQueue(page, [readyId], [openId, attestId, paidId]);
   await page
     .getByRole('button', { name: `Öppna viktkort ${readyId}`, exact: true })
     .click();
@@ -91,11 +113,17 @@ test('arbetsköerna visar bara sina aktiva kort och kortdetaljer behåller rätt
     .getByRole('button', { name: 'Till utbetalningar', exact: true })
     .click();
   await expectQueue(page, [readyId], [attestId]);
+  // Reading terminal projections and navigating existing financial originals
+  // must not write them back or enqueue unrelated card updates.
+  expect(unexpectedUpdates).toEqual([]);
 });
 
 test('kundgodkännande, attest och sammanställning har full bredd under de tre översta panelerna', async ({ page }, testInfo) => {
+  const card = newCard();
+  await importCards(page, [card]);
   await login(page, 'Lars Andersson');
-  await page.goto('/kontor#/weighings/2052');
+  await page.goto(`/kontor#/weighings/${card.id}`);
+  await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');
   for (const width of [1440, 2056]) {
     await page.setViewportSize({ width, height: 1000 });
     await expect(page.getByLabel('Anläggning', { exact: true })).toBeVisible();
@@ -130,8 +158,8 @@ test('attest flyttar kortet till utbetalningskön och kontorets historik visar s
 }) => {
   const fixture = migrateOffice(seedOffice());
   const cardId = 62_000_000 + randomInt(1_000_000);
-  fixture.cards.push({ ...fixture.cards.find(card => card.id === 2052)!, id: cardId, sourceId: randomUUID(),
-    paymentDetails: { method: 'cash', recipient: 'Bygg & Riv AB' } });
+  fixture.cards = [{ ...fixture.cards.find(card => card.id === 2052)!, id: cardId, sourceId: randomUUID(),
+    paymentDetails: { method: 'cash', recipient: 'Bygg & Riv AB' } }];
   await page.addInitScript(value => {
     if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
   }, migrateOffice(fixture));
@@ -143,7 +171,9 @@ test('attest flyttar kortet till utbetalningskön och kontorets historik visar s
   expect((await request.post('/api/terminal-demo/login', { data: { username, password: 'TerminalDemo123!' } })).ok()).toBeTruthy();
   try {
   await login(page, 'Kajsa Nilsson');
+  await importCards(page, fixture.cards);
   await page.goto(`/kontor#/weighings/${cardId}`);
+  await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');
   await page.getByRole('button', { name: 'Visa på kundterminal', exact: true }).click();
   await page.getByLabel('Terminal för kundgodkännande', { exact: true }).selectOption(terminal.id);
   await page.getByRole('button', { name: 'Visa på terminal', exact: true }).click();
@@ -154,6 +184,7 @@ test('attest flyttar kortet till utbetalningskön och kontorets historik visar s
   expect((await request.post(`/api/terminal-demo/approvals/${approval.id}/confirm-id`, { data: {} })).ok()).toBeTruthy();
   await page.getByRole('button', { name: 'Byt demokonto', exact: true }).click();
   await page.getByRole('button', { name: /Anna Nilsson/ }).click();
+  await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');
   await menu(page, 'Attest').click();
   await page
     .getByRole('button', { name: `Öppna viktkort ${cardId}`, exact: true })
@@ -168,12 +199,13 @@ test('attest flyttar kortet till utbetalningskön och kontorets historik visar s
   await menu(page, 'Attest').click();
   await expectQueue(page, [], [cardId]);
   await menu(page, 'Utbetalningar').click();
-  await expectQueue(page, [cardId], [2050, 2051, 2052, 2053]);
+  await expectQueue(page, [cardId], []);
 
   await page
     .getByRole('button', { name: 'Byt demokonto', exact: true })
     .click();
   await page.getByRole('button', { name: /Kajsa Nilsson/ }).click();
+  await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');
   await menu(page, 'Invägningar').click();
   await page.getByRole('tab', { name: 'Historik', exact: true }).click();
   await expectQueue(page, [cardId], []);

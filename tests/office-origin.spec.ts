@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { seedOffice } from '../src/office/model';
 import { migrateOffice } from '../src/office/customer-model';
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 
 test.use({
   viewport: { width: 1440, height: 1000 },
@@ -31,7 +31,9 @@ async function openDraft(
   }, fixture);
   await page.goto('/kontor');
   await page.getByRole('button', { name: /Kajsa Nilsson/ }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('jeroc.office.demo.v1.postgres-imported'))).toBe('yes');
   await page.goto(`/kontor#/weighings/${id}`);
+  await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');
 }
 
 for (const [id, origin, status] of [
@@ -41,7 +43,8 @@ for (const [id, origin, status] of [
   test(`${status}: saknad ursprungsadress blockerar kundgodkännande men underlaget kan sparas`, async ({
     page,
   }) => {
-    await openDraft(page, id, origin, status);
+    const cardId = id + 70_000_000 + randomInt(1_000_000);
+    await openDraft(page, cardId, origin, status);
     const originField = page.getByLabel('Ursprungsadress', { exact: true });
     await expect(originField).toHaveAttribute('aria-invalid', 'true');
     await expect(
@@ -57,6 +60,10 @@ for (const [id, origin, status] of [
     await page
       .getByRole('button', { name: 'Spara referens & ursprung', exact: true })
       .click();
+    await expect.poll(async () => {
+      const response = await page.request.get('/api/application/office', { headers: { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' } });
+      return (await response.json()).data.cards.find((item: { id: number }) => item.id === cardId)?.reference;
+    }).toBe('Utkast med ofullständig adress');
     await page.reload();
     await expect(originField).toHaveValue(origin);
     await expect(page.getByLabel('Referens', { exact: true })).toHaveValue(
@@ -70,10 +77,10 @@ for (const [id, origin, status] of [
         JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find(
           (item: { id: number }) => item.id === cardId,
         ),
-      id,
+      cardId,
     );
     expect(card).toMatchObject({
-      status,
+      status: 'complement',
       origin,
       reference: 'Utkast med ofullständig adress',
     });
@@ -91,7 +98,8 @@ test('ursprungsadress måste sparas inför kundgodkännande medan referens får 
   const terminal = await response.json();
   expect((await request.post('/api/terminal-demo/login', { data: { username, password: 'TerminalDemo123!' } })).ok()).toBeTruthy();
   try {
-    await openDraft(page, 9103, '', 'new');
+    const cardId = 71_000_000 + randomInt(1_000_000);
+    await openDraft(page, cardId, '', 'new');
     const origin = page.getByLabel('Ursprungsadress', { exact: true });
     const send = page.getByRole('button', { name: 'Visa på kundterminal', exact: true });
     await origin.fill('Ängsvägen 19, Norrtälje');
@@ -99,18 +107,23 @@ test('ursprungsadress måste sparas inför kundgodkännande medan referens får 
     await page
       .getByRole('button', { name: 'Spara referens & ursprung', exact: true })
       .click();
+    await expect.poll(async () => {
+      const response = await page.request.get('/api/application/office', { headers: { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' } });
+      return (await response.json()).data.cards.find((item: { id: number }) => item.id === cardId)?.origin;
+    }).toBe('Ängsvägen 19, Norrtälje');
     await expect(origin).not.toHaveAttribute('aria-invalid', 'true');
     await expect(page.getByLabel('Referens', { exact: true })).toHaveValue('');
     await expect(send).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Attestera', exact: true })).toHaveCount(0);
     await page.reload();
-    const card = await page.evaluate(() =>
+    const card = await page.evaluate((id) =>
       JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find(
-        (item: { id: number }) => item.id === 9103,
+        (item: { id: number }) => item.id === id,
       ),
+      cardId,
     );
     expect(card).toMatchObject({
-      status: 'new',
+      status: 'complement',
       origin: 'Ängsvägen 19, Norrtälje',
       reference: '',
     });

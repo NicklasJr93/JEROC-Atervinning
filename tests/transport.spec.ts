@@ -1,10 +1,40 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { addDays, monday } from '../src/office/transport/model';
+import { randomInt } from 'node:crypto';
+import { addDays, monday, seedTransport } from '../src/office/transport/model';
 import type { TransportData, TransportOrder } from '../src/office/transport/types';
 
 test.use({ viewport: { width: 1920, height: 1080 }, isMobile: false, hasTouch: false });
+const fixtureAliases = new WeakMap<Page, Map<string, string>>();
+const historicalEvents = new WeakMap<Page, Set<string>>();
+const realId = (page: Page, id: string) => fixtureAliases.get(page)?.get(id) ?? id;
+
+async function canonicalFixture(page: Page) {
+  const headers = { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' };
+  const response = await page.request.get('/api/application/transport', { headers });
+  expect(response.ok()).toBe(true);
+  const { data: base } = await response.json() as { data: TransportData };
+  const seed = seedTransport('2026-10-09'); // A workday; Kalle's absence is on the following Monday.
+  const firstId = 700_000_000 + randomInt(89_000_000);
+  const aliases = new Map(seed.orders.map((entry, index) => [entry.id, `AO-${firstId + index}`]));
+  fixtureAliases.set(page, aliases);
+  historicalEvents.set(page, new Set(base.events.map(event => event.id)));
+  const originalIds = new Set(seed.orders.map(entry => entry.id));
+  const retained = base.orders.filter(entry => {
+    const numericId = Number(entry.id.match(/^AO-(\d+)$/)?.[1]);
+    return !originalIds.has(entry.id) && (!Number.isFinite(numericId) || numericId < 700_000_000);
+  });
+  const retainedIds = new Set(retained.map(entry => entry.id));
+  const next: TransportData = { ...base, revision: base.revision + 1,
+    orders: [...retained, ...seed.orders.map(entry => ({ ...entry, id: aliases.get(entry.id)! }))],
+    preliminary: Object.fromEntries(Object.entries(base.preliminary).filter(([id]) => retainedIds.has(id))),
+  };
+  // Fixture replacement preserves HR example orders, driver links and the immutable outbox.
+  const saved = await page.request.post('/api/application/transport', { headers, data: { kind: 'update', base, next } });
+  expect(saved.ok(), await saved.text()).toBe(true);
+}
 
 async function transport(page: Page, user = 'Kajsa Nilsson') {
+  await canonicalFixture(page);
   // The map's independently hosted background must not decide whether booking works.
   await page.route('https://*.tile.openstreetmap.org/**', (route) => route.abort());
   await page.goto('/kontor');
@@ -13,24 +43,32 @@ async function transport(page: Page, user = 'Kajsa Nilsson') {
   await page.locator('.office-sidebar').getByRole('button', { name: 'Transportplanering', exact: true }).click();
   await expect(page.getByTestId('transport-workspace')).toBeVisible();
   await expect.poll(async () => Boolean(await page.evaluate(() => localStorage.getItem('jeroc.transport.demo.v1')))).toBe(true);
+  await expect.poll(async () => (await saved(page)).orders.some(entry => entry.id === 'AO-1042')).toBe(true);
+  await page.getByLabel('Datum i planeraren', { exact: true }).fill('2026-10-09');
+  if (user !== 'Anna Nilsson') await expect(page.getByRole('button', { name: 'Nytt uppdrag', exact: true })).toBeVisible();
 }
 
 async function saved(page: Page): Promise<TransportData> {
-  return page.evaluate(() => JSON.parse(localStorage.getItem('jeroc.transport.demo.v1')!));
+  const data: TransportData = await page.evaluate(() => JSON.parse(localStorage.getItem('jeroc.transport.demo.v1')!));
+  const reverse = new Map(Array.from(fixtureAliases.get(page) ?? [], ([alias, id]) => [id, alias]));
+  const alias = (id: string) => reverse.get(id) ?? id;
+  return { ...data, orders: data.orders.map(entry => ({ ...entry, id: alias(entry.id) })),
+    preliminary: Object.fromEntries(Object.entries(data.preliminary).map(([id, plan]) => [alias(id), plan])),
+    events: data.events.filter(event => !historicalEvents.get(page)?.has(event.id)).map(event => ({ ...event, orderId: alias(event.orderId) })) };
 }
 
 async function order(page: Page, id: string): Promise<TransportOrder> {
   return (await saved(page)).orders.find((item) => item.id === id)!;
 }
 
-const calendarCard = (page: Page, id: string) => page.getByTestId(`calendar-order-${id}`);
-const pin = (page: Page, id: string) => page.getByTestId(`transport-pin-${id}`);
-const queueCard = (page: Page, id: string) => page.getByTestId(`transport-queue-${id}`);
+const calendarCard = (page: Page, id: string) => page.getByTestId(`calendar-order-${realId(page, id)}`);
+const pin = (page: Page, id: string) => page.getByTestId(`transport-pin-${realId(page, id)}`);
+const queueCard = (page: Page, id: string) => page.getByTestId(`transport-queue-${realId(page, id)}`);
 const editor = (page: Page) => page.locator('.transport-order-editor');
 
 async function openCalendarOrder(page: Page, id: string) {
   await calendarCard(page, id).locator('.tc-order-open').click();
-  await expect(page.getByRole('heading', { name: `Arbetsorder ${id}`, exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: `Arbetsorder ${realId(page, id)}`, exact: true })).toBeVisible();
 }
 
 async function closeDetails(page: Page) {
@@ -40,6 +78,15 @@ async function closeDetails(page: Page) {
 async function savePlanAndConfirm(page: Page) {
   await editor(page).getByRole('button', { name: 'Spara planering', exact: true }).click();
   await page.getByRole('button', { name: 'Bekräfta bokning', exact: true }).click();
+}
+
+async function reloadPlanning(page: Page) {
+  // Bookings survive a reload, while the workspace intentionally opens today.
+  // Revisit the fixture's selected date even when the suite crosses midnight.
+  const date = await page.getByLabel('Datum i planeraren', { exact: true }).inputValue();
+  await page.reload();
+  await expect(page.getByTestId('transport-workspace')).toBeVisible();
+  await page.getByLabel('Datum i planeraren', { exact: true }).fill(date);
 }
 
 async function dropAt(page: Page, source: Locator, driverId: string, date: string, minute: number) {
@@ -74,12 +121,12 @@ test('karta, kalender och obokade arbeten delar hover och samma arbetsordersdeta
   await expect(queueCard(page, 'AO-1043')).toHaveClass(/is-hovered/);
 
   await pin(page, 'AO-1043').click();
-  await expect(page.getByRole('heading', { name: 'Arbetsorder AO-1043', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: `Arbetsorder ${realId(page, 'AO-1043')}`, exact: true })).toBeVisible();
   await expect(page.getByTestId('transport-workspace')).toContainText('Verkstadsvägen 12');
   await expect(pin(page, 'AO-1043')).toHaveClass(/is-selected/);
   await closeDetails(page);
   await queueCard(page, 'AO-1043').click();
-  await expect(page.getByRole('heading', { name: 'Arbetsorder AO-1043', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: `Arbetsorder ${realId(page, 'AO-1043')}`, exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(queueCard(page, 'AO-1043')).toBeVisible();
   await expect(pin(page, 'AO-1043')).not.toHaveClass(/is-selected/);
@@ -115,7 +162,7 @@ test('förarceller växlar flera karturval utan att gömma kalenderns arbeten el
 
 test('samma arbetsorder kan avmarkeras från både kartan och kalendern', async ({ page }) => {
   await transport(page);
-  const heading = page.getByRole('heading', { name: 'Arbetsorder AO-1042', exact: true });
+  const heading = page.getByRole('heading', { name: `Arbetsorder ${realId(page, 'AO-1042')}`, exact: true });
   await pin(page, 'AO-1042').click();
   await expect(heading).toBeVisible();
   await expect(calendarCard(page, 'AO-1042').locator('.tc-order-open')).toHaveAttribute('aria-pressed', 'true');
@@ -129,7 +176,7 @@ test('samma arbetsorder kan avmarkeras från både kartan och kalendern', async 
   await expect(calendarCard(page, 'AO-1042').locator('.tc-order-open')).toHaveAttribute('aria-pressed', 'false');
   await pin(page, 'AO-1043').click();
   await pin(page, 'AO-1043').click();
-  await expect(page.getByRole('heading', { name: 'Arbetsorder AO-1043', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: `Arbetsorder ${realId(page, 'AO-1043')}`, exact: true })).toHaveCount(0);
   await expect(queueCard(page, 'AO-1043')).toBeVisible();
 });
 
@@ -139,6 +186,8 @@ test('boka efter ett närliggande stopp använder en timme och sparar bokningen 
   await expect(pin(page, 'AO-1043').locator('.transport-map-pin-art')).not.toHaveCSS('animation-name', 'none');
   await queueCard(page, 'AO-1043').click();
   await page.getByRole('button', { name: /Boka efter/ }).first().click();
+  // Keep the nearby stop's driver, but move the proposal after the scheduled lunch.
+  await editor(page).getByLabel('Starttid', { exact: true }).fill('13:00');
   await expect(editor(page).getByRole('combobox', { name: 'Timmar', exact: true })).toHaveValue('1');
   await expect(editor(page).getByRole('combobox', { name: 'Minuter', exact: true })).toHaveValue('0');
   const driverId = await editor(page).getByRole('combobox', { name: 'Förare', exact: true }).inputValue();
@@ -154,7 +203,7 @@ test('boka efter ett närliggande stopp använder en timme och sparar bokningen 
     startMinute: Number(start.slice(0, 2)) * 60 + Number(start.slice(3)),
   });
 
-  await page.reload();
+  await reloadPlanning(page);
   await expect(calendarCard(page, 'AO-1043')).toBeVisible();
   await expect(pin(page, 'AO-1043')).not.toHaveClass(/is-unbooked/);
   expect((await order(page, 'AO-1043')).audit.at(-1)).toMatchObject({ actualUserId: 'kajsa', effectiveUserId: 'kajsa' });
@@ -163,17 +212,17 @@ test('boka efter ett närliggande stopp använder en timme och sparar bokningen 
 test('släppt obokat arbete stannar i kalendern som preliminärt före bekräftelse', async ({ page }) => {
   await transport(page);
   const date = (await order(page, 'AO-1042')).date!;
-  // 11:30 is a free slot between the driver's 08:00 and 13:00 jobs.
-  await dropAt(page, queueCard(page, 'AO-1044'), 'maria', date, 690);
+  // 11:00 finishes before the driver's lunch and lies between the 08:00 and 13:00 jobs.
+  await dropAt(page, queueCard(page, 'AO-1044'), 'maria', date, 660);
   await expect(editor(page)).toHaveCount(0);
   await expect(calendarCard(page, 'AO-1044')).toHaveClass(/is-preliminary/);
-  await expect(calendarCard(page, 'AO-1044')).toContainText('11:30–12:30');
+  await expect(calendarCard(page, 'AO-1044')).toContainText('11:00–12:00');
   await expect(queueCard(page, 'AO-1044')).toHaveCount(0);
   expect((await order(page, 'AO-1044')).status).toBe('unbooked');
-  expect((await saved(page)).preliminary['AO-1044']).toMatchObject({ date, startMinute: 690, durationMinutes: 60, driverId: 'maria', vehicleId: 'vehicle-maria' });
+  expect((await saved(page)).preliminary['AO-1044']).toMatchObject({ date, startMinute: 660, durationMinutes: 60, driverId: 'maria', vehicleId: 'vehicle-maria' });
   expect((await saved(page)).events.filter(event => event.type === 'work_order.booked' && event.orderId === 'AO-1044')).toHaveLength(0);
   await page.getByRole('button', { name: 'Bekräfta bokning', exact: true }).click();
-  await expect(calendarCard(page, 'AO-1044')).toContainText('11:30–12:30');
+  await expect(calendarCard(page, 'AO-1044')).toContainText('11:00–12:00');
   await expect(calendarCard(page, 'AO-1044')).not.toHaveClass(/is-preliminary/);
   expect((await saved(page)).preliminary['AO-1044']).toBeUndefined();
   expect((await saved(page)).events.filter(event => event.type === 'work_order.booked' && event.orderId === 'AO-1044')).toHaveLength(1);
@@ -183,23 +232,23 @@ test('flera preliminära bokningar kan flyttas, förlängas och laddas om innan 
   await transport(page);
   const date = (await order(page, 'AO-1042')).date!;
   await dropAt(page, queueCard(page, 'AO-1043'), 'maria', date, 570);
-  await dropAt(page, queueCard(page, 'AO-1044'), 'oskar', date, 690);
+  await dropAt(page, queueCard(page, 'AO-1044'), 'oskar', date, 660);
   await expect(page.getByRole('button', { name: 'Verkställ bokningar (2)', exact: true })).toBeVisible();
   await expect(queueCard(page, 'AO-1043')).toHaveCount(0);
   await expect(queueCard(page, 'AO-1044')).toHaveCount(0);
   await expect(calendarCard(page, 'AO-1043')).toHaveClass(/is-preliminary/);
   await expect(calendarCard(page, 'AO-1044')).toHaveClass(/is-preliminary/);
-  await dropAt(page, calendarCard(page, 'AO-1043'), 'kalle', date, 690);
-  await expect(calendarCard(page, 'AO-1043')).toContainText('11:30–12:30');
-  const slider = page.getByRole('slider', { name: 'Ändra tidsåtgång för AO-1043', exact: true });
+  await dropAt(page, calendarCard(page, 'AO-1043'), 'kalle', date, 840);
+  await expect(calendarCard(page, 'AO-1043')).toContainText('14:00–15:00');
+  const slider = page.getByRole('slider', { name: `Ändra tidsåtgång för ${realId(page, 'AO-1043')}`, exact: true });
   await slider.focus();
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '75');
-  expect((await saved(page)).preliminary['AO-1043']).toMatchObject({ driverId: 'kalle', durationMinutes: 75, startMinute: 690 });
+  expect((await saved(page)).preliminary['AO-1043']).toMatchObject({ driverId: 'kalle', durationMinutes: 75, startMinute: 840 });
   expect((await saved(page)).events.filter(event => event.type === 'work_order.booked')).toHaveLength(0);
-  await page.reload();
+  await reloadPlanning(page);
   await expect(calendarCard(page, 'AO-1043')).toHaveClass(/is-preliminary/);
-  await expect(calendarCard(page, 'AO-1043')).toContainText('11:30–12:45');
+  await expect(calendarCard(page, 'AO-1043')).toContainText('14:00–15:15');
   await expect(queueCard(page, 'AO-1044')).toHaveCount(0);
   await page.getByRole('button', { name: 'Verkställ bokningar (2)', exact: true }).click();
   await expect(calendarCard(page, 'AO-1043')).not.toHaveClass(/is-preliminary/);
@@ -212,7 +261,7 @@ test('flera preliminära bokningar kan flyttas, förlängas och laddas om innan 
 test('borttagen preliminär bokning återför uppdraget till kön utan bokningshändelse', async ({ page }) => {
   await transport(page);
   const date = (await order(page, 'AO-1042')).date!;
-  await dropAt(page, queueCard(page, 'AO-1044'), 'maria', date, 690);
+  await dropAt(page, queueCard(page, 'AO-1044'), 'maria', date, 660);
   await openCalendarOrder(page, 'AO-1044');
   await page.getByRole('button', { name: 'Ta bort preliminär bokning', exact: true }).click();
   await expect(calendarCard(page, 'AO-1044')).toHaveCount(0);
@@ -235,8 +284,8 @@ test('flytt visar endast tidskortet vid den nya tiden och avbruten dragning åte
   await page.mouse.move(sourceRect.x + 4, sourceRect.y + 14);
   await page.mouse.down();
   await page.mouse.move(sourceRect.x + 14, sourceRect.y + 14);
-  await page.mouse.move(targetRect.x + targetRect.width * 270 / 600, targetRect.y + targetRect.height / 2, { steps: 5 });
-  await expect(page.locator('.tc-proposal')).toContainText('11:30–12:30');
+  await page.mouse.move(targetRect.x + targetRect.width * 240 / 600, targetRect.y + targetRect.height / 2, { steps: 5 });
+  await expect(page.locator('.tc-proposal')).toContainText('11:00–12:00');
   await expect(source).toHaveCSS('opacity', '0');
   expect(await saved(page)).toEqual(before);
   await page.keyboard.press('Escape');
@@ -262,7 +311,7 @@ test('kundförfrågans svar följer bokningsversionen och ett nej avbokar inte u
   await reply.getByRole('button', { name: 'Ja, tiden passar', exact: true }).click();
   await expect(section.getByText('Godkänd av kunden', { exact: true })).toBeVisible();
   expect((await order(page, 'AO-1042')).status).toBe('booked');
-  await page.getByRole('slider', { name: 'Ändra tidsåtgång för AO-1042', exact: true }).press('ArrowRight');
+  await page.getByRole('slider', { name: `Ändra tidsåtgång för ${realId(page, 'AO-1042')}`, exact: true }).press('ArrowRight');
   await expect(section.getByText('Ingen förfrågan', { exact: true })).toBeVisible();
   await expect(section.getByRole('button', { name: 'Visa kundens svarsvy (demo)', exact: true })).toHaveCount(0);
   expect((await order(page, 'AO-1042')).bookingVersion).toBeGreaterThan(original.bookingVersion);
@@ -284,7 +333,7 @@ test('draghandtag och tangentbord ändrar samma tidsåtgång, redigeringen är s
   const slot = page.getByTestId(`calendar-slot-kalle-${initial.date}`);
   const rect = await slot.boundingBox();
   if (!rect) throw new Error('Kalles kalender är inte synlig.');
-  const slider = page.getByRole('slider', { name: 'Ändra tidsåtgång för AO-1042', exact: true });
+  const slider = page.getByRole('slider', { name: `Ändra tidsåtgång för ${realId(page, 'AO-1042')}`, exact: true });
   await resizeBy(page, slider, rect.width * 15 / 600);
   await expect(slider).toHaveAttribute('aria-valuenow', '75');
   await expect(calendarCard(page, 'AO-1042')).toContainText('10:00–11:15');
@@ -351,16 +400,17 @@ test('ny arbetsorder kräver adress och kartposition och bevarar egen tidsåtgå
   await closeDetails(page);
   await queueCard(page, created.id).click();
   await page.getByRole('button', { name: 'Boka uppdrag', exact: true }).click();
-  await editor(page).getByLabel('Starttid', { exact: true }).fill('15:00');
+  await editor(page).getByRole('combobox', { name: 'Förare', exact: true }).selectOption('maria');
+  await editor(page).getByLabel('Starttid', { exact: true }).fill('09:30');
   await savePlanAndConfirm(page);
-  await expect(calendarCard(page, created.id)).toContainText('15:00–17:15');
+  await expect(calendarCard(page, created.id)).toContainText('09:30–11:45');
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Avboka', exact: true }).click();
   await closeDetails(page);
   await expect(queueCard(page, created.id)).toBeVisible();
   await expect(calendarCard(page, created.id)).toHaveCount(0);
   await expect(pin(page, created.id)).toHaveClass(/is-unbooked/);
-  await page.reload();
+  await reloadPlanning(page);
   await expect(queueCard(page, created.id)).toContainText('2 tim 15 min');
   const unbooked = await order(page, created.id);
   expect(unbooked).toMatchObject({ status: 'unbooked', durationMinutes: 135 });
@@ -370,7 +420,7 @@ test('ny arbetsorder kräver adress och kartposition och bevarar egen tidsåtgå
 
 test('ny veckoserie sparar fyra preliminära tillfällen och verkställer dem gemensamt', async ({ page }) => {
   await transport(page);
-  const firstDate = addDays((await order(page, 'AO-1042')).date!, 1);
+  const firstDate = addDays((await order(page, 'AO-1042')).date!, 4); // Tuesday, clear of the staffing absence scenario.
   await page.getByRole('button', { name: 'Nytt uppdrag', exact: true }).click();
   await editor(page).getByLabel('Kundnamn', { exact: true }).fill('Veckohämtning Test');
   await editor(page).getByLabel('Hämtningsadress', { exact: true }).fill('Verkstadsvägen 25');
@@ -398,7 +448,7 @@ test('ny veckoserie sparar fyra preliminära tillfällen och verkställer dem ge
   }
   expect(pending.events.map(event => event.type)).toEqual(Array(4).fill('work_order.created'));
   await expect(calendarCard(page, created[0].id)).toHaveClass(/is-preliminary/);
-  await page.reload();
+  await reloadPlanning(page);
   await expect(page.getByRole('button', { name: 'Verkställ bokningar (4)', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Verkställ bokningar (4)', exact: true }).click();
   const committed = await saved(page);
@@ -411,7 +461,7 @@ test('Escape avbryter en pågående tidsjustering utan att spara efter att musen
   await transport(page);
   const before = await saved(page);
   const date = (await order(page, 'AO-1042')).date!;
-  const slider = page.getByRole('slider', { name: 'Ändra tidsåtgång för AO-1042', exact: true });
+  const slider = page.getByRole('slider', { name: `Ändra tidsåtgång för ${realId(page, 'AO-1042')}`, exact: true });
   const handle = await slider.boundingBox();
   const track = await page.getByTestId(`calendar-slot-kalle-${date}`).boundingBox();
   if (!handle || !track) throw new Error('Kalenderns tidsreglage saknas.');
@@ -433,7 +483,7 @@ test('veckovyn använder lodrät tidsåtgång och datumväxling behåller obokad
   const bookedDate = (await order(page, 'AO-1042')).date!;
   await page.getByRole('button', { name: 'Vecka', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Veckoplanerare', exact: true })).toBeVisible();
-  const slider = page.getByRole('slider', { name: 'Ändra tidsåtgång för AO-1042', exact: true });
+  const slider = page.getByRole('slider', { name: `Ändra tidsåtgång för ${realId(page, 'AO-1042')}`, exact: true });
   await expect(slider).toHaveAttribute('aria-orientation', 'vertical');
   await slider.focus();
   await slider.press('ArrowDown');
@@ -476,6 +526,7 @@ test('Systemadmin Jobba som följer vald transportbehörighet och sparar båda p
     await expect(page.getByRole('heading', { name: 'Kontorsöversikt', exact: true })).toBeVisible();
     await page.locator('.office-sidebar').getByRole('button', { name: 'Transportplanering', exact: true }).click();
     await expect(page.getByTestId('transport-workspace')).toBeVisible();
+    await page.getByLabel('Datum i planeraren', { exact: true }).fill('2026-10-09');
   }
   await workAs('anna');
   await expect(page.getByRole('button', { name: 'Nytt uppdrag', exact: true })).toHaveCount(0);
@@ -488,12 +539,13 @@ test('Systemadmin Jobba som följer vald transportbehörighet och sparar båda p
   await expect(page.getByRole('button', { name: 'Nytt uppdrag', exact: true })).toBeVisible();
   await queueCard(page, 'AO-1043').click();
   await page.getByRole('button', { name: 'Boka efter', exact: true }).click();
+  await editor(page).getByLabel('Starttid', { exact: true }).fill('13:00');
   await savePlanAndConfirm(page);
   await expect(calendarCard(page, 'AO-1043')).toBeVisible();
   const history = (await order(page, 'AO-1043')).audit.at(-1)!;
   expect(history).toMatchObject({ actualUserId: 'admin', effectiveUserId: 'kajsa' });
   expect(history.actor).toContain('Systemadmin som Kajsa Nilsson');
-  await page.reload();
+  await reloadPlanning(page);
   await expect(calendarCard(page, 'AO-1043')).toBeVisible();
   await page.getByRole('button', { name: 'Profil och behörighet', exact: true }).click();
   await expect(page.getByLabel('Jobba som', { exact: true })).toHaveValue('kajsa');

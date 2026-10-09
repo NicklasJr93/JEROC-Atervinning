@@ -18,7 +18,11 @@ export async function saveOffice(request: APIRequestContext, base: OfficeData, n
 export async function createOfficeCard(request:APIRequestContext, options:{customer?:OfficeCustomer;customerId?:string;paymentDetails?:PaymentDetails;rows?:OfficeCard['rows'];date?:string}={}) {
   const seed=seedOffice(),base=await readOffice(request);
   const customer=options.customer ?? (options.customerId ? base.customers.find(c=>c.id===options.customerId)! : {...structuredClone(seed.customers.find(c=>c.id==='customer-erik')!),id:`financial-customer-${randomUUID()}`,customerNumber:`TEST-${randomInt(1e7)}`});
-  const cardId=50_000_000+randomInt(9_000_000),card:OfficeCard={...structuredClone(seed.cards.find(c=>c.id===2053)!),id:cardId,sourceId:randomUUID(),customerId:customer.id,customerSnapshot:structuredClone(customer),siteId:'norrtalje',yard:'Norrtälje',date:options.date??'2026-10-09T08:41:00Z',origin:'Testgatan 12, 761 41 Norrtälje',status:'complement',idVerified:false,financialPending:false,paymentDetails:options.paymentDetails??{method:'cash'},payment:options.paymentDetails?.method==='balance'?'Spara på saldo':'Kontant',rows:options.rows??[{articleId:'iron',weight:124,tier:'C',price:1.92}],audit:[]};
+  // The genuine review helper normalizes timestamps before freezing pricing.
+  // Store that exact timestamp on the draft too: legacy correction validation
+  // deliberately compares the full immutable financial fingerprint.
+  const date = new Date(options.date ?? '2026-10-09T08:41:00Z').toISOString();
+  const cardId=50_000_000+randomInt(9_000_000),card:OfficeCard={...structuredClone(seed.cards.find(c=>c.id===2053)!),id:cardId,sourceId:randomUUID(),customerId:customer.id,customerSnapshot:structuredClone(customer),siteId:'norrtalje',yard:'Norrtälje',date,origin:'Testgatan 12, 761 41 Norrtälje',status:'complement',idVerified:false,financialPending:false,paymentDetails:options.paymentDetails??{method:'cash'},payment:options.paymentDetails?.method==='balance'?'Spara på saldo':'Kontant',rows:options.rows??[{articleId:'iron',weight:124,tier:'C',price:1.92}],audit:[]};
   delete card.customerApproval;delete card.approvedBy;delete card.preparedBy;delete card.paidAt;delete card.pricingSnapshotId;delete card.pricingTotal;
   const next=structuredClone(base);if(!next.customers.some(c=>c.id===customer.id))next.customers.push(customer);next.cards.push(card);await saveOffice(request,base,next);
   return {cardId,customer,card};
