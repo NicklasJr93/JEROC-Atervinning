@@ -270,6 +270,13 @@ test('två kassor som ändrar samma utkast får versionskonflikt utan att det an
     const stored = await state(contexts[1].request);
     expect(stored.drafts.find(draft => draft.sourceId === fixture.sourceId)?.input.incomingDocument?.reference).toBe('KASSA-ETT');
     expect(stored.inventory.filter(item => item.sourceId === fixture.sourceId)).toHaveLength(0);
+    await panels[1].getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
+    const review = pages[1].getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
+    const staleConfirmation = pages[1].waitForResponse(response => response.url().endsWith('/api/environment/receipts') && response.request().method() === 'POST');
+    await review.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
+    expect((await staleConfirmation).status()).toBe(409);
+    await expect(review.getByRole('alert')).toContainText(/senaste versionen|annan kollega/);
+    expect((await state(contexts[1].request)).receipts.some(item => item.sourceId === fixture.sourceId)).toBe(false);
   } finally { await Promise.all(contexts.map(context => context.close())); }
 });
 

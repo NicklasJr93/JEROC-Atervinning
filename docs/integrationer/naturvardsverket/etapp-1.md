@@ -27,6 +27,8 @@ till Naturvårdsverket och inga Visma-, bank- eller meddelandeanrop görs.
    automatiskt att ett obligatoriskt dokument saknas.
 6. **Spara utkast** och ladda om. Uppgifterna är serverlagrade och kan läsas från
    en annan kassa. Ingen lagerpost eller rapportfrist skapas av utkastet.
+   Även bekräftelsen kräver att utkastversionen fortfarande är aktuell;
+   en kollegas nyare utkast kan inte ersättas av en gammal kontorsvy.
 7. **Bekräfta mottagning** visar material och verkliga vikter före sparning.
    Bekräftelsen fryser underlaget och skapar fysisk lagermängd och miljöunderlag.
    Kopparraden bildar inget farligt-avfallsunderlag. **Miljörapportering** visar

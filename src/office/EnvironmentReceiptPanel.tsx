@@ -154,7 +154,7 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
     return () => { document.removeEventListener('keydown', onKeyDown); if (previousFocus instanceof HTMLElement) previousFocus.focus(); };
   }, [confirmOpen, busy]);
 
-  function buildInput(): Omit<EnvironmentalReceiptInput, 'idempotencyKey'> {
+  function buildInput(): Omit<EnvironmentalReceiptInput, 'idempotencyKey' | 'expectedDraftVersion'> {
     return { sourceId, cardId: card.id, siteId: form.siteId, receivedAt: stockholmReceiptDate(form.receivedAt), originAddress: form.originAddress, rows: card.rows.map(row => ({ articleId: row.articleId, weight: row.weight })), previousHolder: form.previousHolder, lastPlace: form.lastPlace, nextPlace: form.nextPlace, transportMode: form.transportMode, incomingDocument: form.incomingDocument, addressResolution: form.addressResolution };
   }
   function validateConfirmation() {
@@ -205,7 +205,7 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
       const input = buildInput();
       const received = correcting && receipt
         ? await environmentApi.correct(receipt.id, { ...input, expectedVersion: receipt.version, reason: correctionReason.trim(), idempotencyKey: requestKey.current })
-        : await environmentApi.receive({ ...input, idempotencyKey: requestKey.current });
+        : await environmentApi.receive({ ...input, expectedDraftVersion: draftVersionRef.current, idempotencyKey: requestKey.current });
       if (identityRef.current !== expectedIdentity) return;
       dirtyRef.current = false; setDirty(false); setCorrecting(false); setConfirmOpen(false); setEditSection(null); setForm(snapshotForm(received)); await refresh(); onRegistered?.(received);
       onNotice(correcting ? `Miljömottagning rättad till version ${received.version}. Original och lagerjustering är sparade.` : `Mottagning registrerad för INV-${received.cardId}. Miljöunderlag och lagerrörelse är sparade.`);

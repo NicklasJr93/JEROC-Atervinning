@@ -102,8 +102,14 @@ test('draft revisions prevent lost updates and enforce current article, operatio
 test('confirming a receipt clears its draft and subsequent draft edits cannot overwrite the immutable receipt', async () => fixture(async (f) => {
   const input = receiptInput();
   await f.store.saveDraft(input.sourceId, draftInput(input), f.kajsa.token);
-  const original = await f.store.receive(input, f.kajsa.token);
+  await f.store.saveDraft(input.sourceId, draftInput({ ...input, incomingDocument: { status: 'provided', reference: 'KOLLEGANS-NYA-UPPGIFT' } }, 1), f.admin.token);
+  await rejects(() => f.store.receive({ ...input, expectedDraftVersion: 1 }, f.kajsa.token), 409, 'version_conflict');
+  assert.equal((await f.store.state(f.admin.token)).receipts.length, 0);
+  assert.equal((await f.store.draft(input.sourceId, f.admin.token)).version, 2);
+  const original = await f.store.receive({ ...input, incomingDocument: { status: 'provided', reference: 'KOLLEGANS-NYA-UPPGIFT' }, expectedDraftVersion: 2 }, f.kajsa.token);
   assert.equal(await f.store.draft(input.sourceId, f.admin.token), null);
+  assert.equal(Object.hasOwn(original.snapshot, 'expectedDraftVersion'), false);
+  assert.equal((await f.store.receive({ ...input, incomingDocument: { status: 'provided', reference: 'KOLLEGANS-NYA-UPPGIFT' }, expectedDraftVersion: 2 }, f.kajsa.token)).id, original.id);
   await rejects(() => f.store.saveDraft(input.sourceId, draftInput({ ...input, rows: [{ articleId: 'lead-battery', weight: 245 }] }, 1), f.admin.token), 409, 'receipt_already_recorded');
   assert.equal((await f.store.state(f.admin.token)).receipts[0].hash, original.hash);
 }));

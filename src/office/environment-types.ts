@@ -41,8 +41,9 @@ export interface EnvironmentalReceiptInput {
   previousHolder: EnvironmentalParty; lastPlace: EnvironmentalPlace; nextPlace: EnvironmentalPlace;
   transportMode: EnvironmentalTransportMode; incomingDocument: IncomingEnvironmentalDocument;
   idempotencyKey: string;
+  expectedDraftVersion?: number;
 }
-export type EnvironmentalDraftInput = Partial<Omit<EnvironmentalReceiptInput, 'idempotencyKey'>> & {
+export type EnvironmentalDraftInput = Partial<Omit<EnvironmentalReceiptInput, 'idempotencyKey' | 'expectedDraftVersion'>> & {
   sourceId: string; cardId: number; siteId: string; originAddress: string;
 };
 export interface EnvironmentalDraft {
@@ -50,7 +51,7 @@ export interface EnvironmentalDraft {
   updatedAt: string; updatedBy: string; actualUserId: string; effectiveUserId: string;
   input: EnvironmentalDraftInput;
 }
-export type EnvironmentalReceiptSnapshot = Omit<EnvironmentalReceiptInput, 'idempotencyKey' | 'rows'> & {
+export type EnvironmentalReceiptSnapshot = Omit<EnvironmentalReceiptInput, 'idempotencyKey' | 'rows' | 'expectedDraftVersion'> & {
   version: number;
   rows: { articleId: string; weight: number; classification: WasteClassification }[];
 };
@@ -60,7 +61,7 @@ export interface EnvironmentalCorrection {
   createdAt: string; createdBy: string; actualUserId: string; effectiveUserId: string;
   inventoryMovements: EnvironmentalInventory[];
 }
-export type EnvironmentalCorrectionInput = EnvironmentalReceiptInput & {
+export type EnvironmentalCorrectionInput = Omit<EnvironmentalReceiptInput, 'expectedDraftVersion'> & {
   expectedVersion: number; reason: string;
 };
 export interface EnvironmentalReceipt {

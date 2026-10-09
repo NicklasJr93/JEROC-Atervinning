@@ -56,6 +56,7 @@ const receiptFields = {
 const receiptSchema = z.object({
   sourceId: z.string().uuid(), cardId: z.number().int().nonnegative(), siteId: z.enum(['norrtalje', 'rimbo']),
   ...receiptFields,
+  expectedDraftVersion: z.number().int().nonnegative().optional(),
   idempotencyKey: z.string().trim().min(1).max(100),
 }).strict();
 const correctionSchema = z.object({
@@ -375,7 +376,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       return transaction((state, time) => {
         const { principal } = principalFor(state, token, time); demand(principal, 'environmentWrite'); demandSite(principal, request.siteId);
         if (Date.parse(request.receivedAt) > time.getTime() + 5 * 60 * 1000) throw new EnvironmentError('Faktisk mottagning kan inte ligga i framtiden.', 422, 'future_receipt');
-        const { idempotencyKey, ...input } = request;
+        const { idempotencyKey, expectedDraftVersion, ...input } = request;
         const inputHash = inputIdentityHash(input), key = environmentHash(`${principal.actor.id}:${idempotencyKey}`);
         const existing = state.receipts.find((record) => record.sourceId === request.sourceId);
         const previousRequest = state.requests.find((record) => record.id === key), legacyMatch = existing && matchesLegacyPhysicalInput(existing, input);
@@ -387,6 +388,8 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
           return effectiveReceipt(state, existing);
         }
         const draft = state.drafts.find((record) => record.sourceId === request.sourceId);
+        if (expectedDraftVersion !== undefined && expectedDraftVersion !== (draft?.version ?? 0))
+          throw new EnvironmentError('Miljöutkastet har ändrats av en annan kollega. Läs in den senaste versionen före mottagningsbekräftelse.', 409, 'version_conflict');
         if (draft) { demandSite(principal, draft.siteId); if (draft.cardId !== request.cardId || draft.siteId !== request.siteId) throw new EnvironmentError('Mottagningen stämmer inte med det sparade utkastets kort eller anläggning.', 409, 'source_conflict'); }
         const rows = classifyRows(state, request.rows);
         const operator = { name: 'JEROC Återvinning AB', number: '5591234567', contactName: 'Miljöansvarig – DEMO', email: 'miljo@example.invalid', phone: '0100000000', demo: true, verified: false };
