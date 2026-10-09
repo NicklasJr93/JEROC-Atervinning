@@ -12,6 +12,7 @@ i appen, webbläsarens lagring eller databasen.
 | Bekräfta verklig last och avfärd | [03_Bekrafta_Lastad_Avfard.png](03_Bekrafta_Lastad_Avfard.png) |
 | Registrerad utleverans och lodrät spårbarhet | [04_Utleverans_Registrerad.png](04_Utleverans_Registrerad.png) |
 | Lager efter utleverans | [05_Lager_Efter_Utleverans.png](05_Lager_Efter_Utleverans.png) |
+| Transportdokument A4 enligt användarens dokumentstil | [06_Transportdokument_A4.png](06_Transportdokument_A4.png) · [PDF](06_Transportdokument_A4.pdf) |
 
 [Ladda ned den klickbara prototypen](JEROC_Lager_Utleverans_Mockuper.zip).
 Packa upp ZIP-filen och öppna `index.html` i webbläsaren. Ingen installation behövs.
@@ -37,11 +38,20 @@ underskrifter och färdig borttransportanteckning markeras uttryckligen som
 simulerade i avfärdsdialogen. Inget skickas till Naturvårdsverket, någon bank,
 Visma eller någon meddelandetjänst.
 
-A4-transportdokumentets layout inväntar användarens referensbild. **Visa underlag**
-visar en enkel uppgiftssammanställning, inte en färdig eller signerad PDF.
+A4-transportdokumentets layout följer användarens bifogade avräkningsnota:
+kompakt logga, mörkblå rubrik/tabell, ljusblå och ljusgröna informationsrutor.
+Transportinnehållet omfattar lämnare, mottagare, transportör, förare, fordon,
+platser, vikt/avfallskod, källpartier och versionsanknutna demounderskrifter.
+**Visa underlag → Öppna A4-förhandsvisning** visar planerade 1 000 kg utan
+underskrifter före avfärd, eller 980 kg med simulerade underskrifter efteråt.
+Den nedladdningsbara PDF-filen är det senare fiktiva designexemplet, en A4-sida.
+Det är ingen giltig eller arkiverad dokumentversion; företagsidentifierare och
+andra driftuppgifter är uttryckligen ofullständiga. Inga ekonomifält, priser
+eller bankuppgifter följer med transportdokumentet.
 De tidigare godkända mockuperna i `../farligt-avfall/` är bevarade.
 
-Verifierat: fem skärmbilder renderade och granskade; reservation, kontroll av
+Verifierat: sex skärmbilder och en ensidig A4-PDF renderade och granskade;
+förhandsversion och faktisk last skiljer sig korrekt. Reservation, kontroll av
 demoförutsättningar, engångsavfärd, lager-/partifördelning, händelser och sökning
 provat i webbläsare. Båda huvudvyerna kontrollerade på smal skärm utan
 horisontellt sidöverflöde. Prototypen gör inga backendanrop.

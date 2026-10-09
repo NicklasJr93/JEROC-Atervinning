@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JEROC – transportdokument A4, mockup</title>
+  <link rel="stylesheet" href="transportdokument.css">
+</head>
+<body>
+  <div class="paper-toolbar"><a href="index.html#view=order">← Till utleveransen</a><span>Designförslag · fiktiva uppgifter</span><button type="button" onclick="window.print()">Skriv ut / spara PDF</button></div>
+  <article class="a4" aria-label="Transportdokument, designmockup">
+    <header class="document-heading">
+      <img src="assets/jeroc-logo.png" alt="JEROC Återvinning">
+      <div class="document-title"><h1>TRANSPORTDOKUMENT</h1><span></span></div>
+      <div class="document-badge"><span data-icon="Truck"></span><div><strong>Farligt avfall</strong><small>Utleverans · DEMO</small></div></div>
+    </header>
+    <div class="document-meta">
+      <div class="company-intro"><h2>JEROC Återvinning AB</h2><p>Anläggning Norrtälje</p><p>Ängsvägen 19</p><p>761 41 Norrtälje</p><small>Kontakt: Anna Berg · 070-000 10 20</small></div>
+      <dl class="document-identifiers">
+        <div><dt><span data-icon="FileText"></span>Transportdokument:</dt><dd>TD-1210 <em>DEMO</em></dd></div>
+        <div><dt><span data-icon="Briefcase"></span>Arbetsorder:</dt><dd>AO-1210</dd></div>
+        <div><dt><span data-icon="CalendarDays"></span>Dokumentdatum:</dt><dd>2026-10-12</dd></div>
+        <div><dt><span data-icon="Clock"></span><span id="departure-label">Faktisk avfärd:</span></dt><dd id="departure-time">2026-10-12 · 10:42</dd></div>
+        <div><dt><span data-icon="FileText"></span>Dokumentversion:</dt><dd>Version 1 · exempel</dd></div>
+        <div><dt><span data-icon="Eye"></span>Status:</dt><dd class="preview-status">FÖRHANDSVISNING</dd></div>
+      </dl>
+    </div>
+    <div class="parties">
+      <section class="party party-blue"><span class="circle-icon" data-icon="Building2"></span><div><h2>Lämnare</h2><strong>JEROC Återvinning AB</strong><p>Anläggning Norrtälje</p><p>Ängsvägen 19</p><p>761 41 Norrtälje</p><small>Org.nr: kompletteras från företagskortet</small></div></section>
+      <section class="party party-green"><span class="circle-icon" data-icon="Building2"></span><div><h2>Mottagare</h2><strong>Nordmetall Återvinning AB</strong><p>Återvinningsvägen 8</p><p>197 40 Bro</p><p>Kontakt: Eva Holm · 070-000 42 18</p><small>Org.nr: kompletteras från företagskortet</small></div></section>
+    </div>
+    <section class="transport-block">
+      <div class="transport-heading"><span class="circle-icon" data-icon="Truck"></span><div><h2>Transportör</h2><strong>Roslagens Transport AB</strong><small>Org.nr och företagsadress kompletteras från åkerikortet</small></div><span class="transport-type">Vägtransport</span></div>
+      <div class="transport-details"><div><small>Förare</small><strong>Oskar Lind</strong><span>070-000 22 34</span></div><div><small>Fordon / registrering</small><strong>ABC123</strong><span>Externt åkeri</span></div><div><small>Transportreferens</small><strong>Batterileverans · v. 42</strong><span>AO-1210</span></div></div>
+    </section>
+    <div class="route-strip"><div><span data-icon="MapPin"></span><span><strong>Från</strong>JEROC Norrtälje · Ängsvägen 19</span></div><span data-icon="ArrowRight"></span><div><span data-icon="MapPin"></span><span><strong>Till</strong>Nordmetall · Återvinningsvägen 8, Bro</span></div></div>
+    <table class="materials"><thead><tr><th>Artikel / avfallsbeskrivning</th><th>Avfallskod</th><th>Vikt</th><th>Enhet</th></tr></thead><tbody><tr><td><strong>Blybatterier</strong><small>Uttjänta hela blybatterier</small></td><td>16 06 01*</td><td id="article-weight">980</td><td>kg</td></tr></tbody></table>
+    <div class="handling-weight"><section class="handling"><span class="circle-icon" data-icon="ShieldCheck"></span><div><h3>Hantering & ADR</h3><p>Förvara upprätt i tätt, märkt batterikärl.<br>Skydda mot läckage och kortslutning.</p><small id="adr-status">ADR-bedömning: kontrollerat i demo.</small></div></section><div class="load-total"><span data-icon="Briefcase"></span><div><small id="weight-label">Faktisk lastvikt</small><strong><span id="total-weight">980</span> <em>kg</em></strong></div></div></div>
+    <section class="line-section source-section"><div class="section-title"><span class="circle-icon" data-icon="ClipboardCheck"></span><h2>Kopplade lagerpartier</h2></div><table class="sources"><thead><tr><th>Invägning / källparti</th><th>Tidigare innehavare</th><th id="source-weight-label">Utlevererad mängd</th></tr></thead><tbody><tr><td>INV-2050</td><td>Anderssons Verkstad AB</td><td>650 kg</td></tr><tr><td>INV-3010</td><td>Bygg & Riv AB</td><td id="second-party-weight">330 kg</td></tr></tbody></table></section>
+    <section class="line-section signature-section"><div class="section-title"><span class="circle-icon" data-icon="Pencil"></span><h2>Underskrifter <em>SIMULERADE EXEMPEL</em></h2></div><div class="signature-grid"><div><small>Lämnare / behörig företrädare</small><strong>Anna Berg · JEROC</strong><span id="sender-signature">Simulerad underskrift · 12 okt 2026, 10:36</span><p>Dokument TD-1210 · version 1</p></div><div><small>Transportör / förare</small><strong>Oskar Lind · Roslagens Transport AB</strong><span id="carrier-signature">Simulerad underskrift · 12 okt 2026, 10:38</span><p>Dokument TD-1210 · version 1</p></div></div></section>
+    <footer class="document-footer"><div><strong>Notering</strong><p id="document-note">Borttransportanteckningen är färdig före avfärd i detta demoexempel. Ingen rapport har skickats till Avfallsregistret. Identifierare och tillstånd måste kompletteras och verifieras före drift.</p></div><small>JEROC · TD-1210 · Version 1 · Sida 1 av 1</small><p class="demo-disclaimer">Designmockup med fiktiva uppgifter. Ej giltigt, arkiverat eller elektroniskt signerat transportdokument.</p></footer>
+  </article>
+  <script src="assets/icons.js"></script>
+  <script>
+    const options=new URLSearchParams(location.search);
+    if(options.get('capture')==='1')document.body.classList.add('capture');
+    document.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon,20));
+    if(options.get('state')!=='actual'){
+      const values={'departure-label':'Önskad hämtning:','departure-time':'2026-10-12 · 10:00–12:00','article-weight':'1 000','total-weight':'1 000','weight-label':'Planerad lastvikt','second-party-weight':'350 kg','source-weight-label':'Planerad mängd','adr-status':'ADR-bedömning: att kontrollera separat.','sender-signature':'Inväntar granskning och underskrift','carrier-signature':'Inväntar granskning och underskrift','document-note':'Utkast inför lastning. Verklig vikt, transportuppgifter, ADR-bedömning, underskrifter och borttransportanteckning ska färdigställas före lastad avfärd. Ingen rapport har skickats till Avfallsregistret.'};
+      Object.entries(values).forEach(([id,text])=>document.getElementById(id).textContent=text);
+      document.querySelector('.signature-section em').textContent='UTKAST';
+      document.querySelector('.document-identifiers div:nth-child(3) dd').textContent='2026-10-09';
+    }
+  </script>
+</body>
+</html>

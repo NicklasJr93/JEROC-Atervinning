@@ -34,6 +34,17 @@ try{
  if(!(await readable('#content')).includes('700 kg'))throw new Error('Actual stock amount missing after980kgdeparture');
  await page.screenshot({path:join(folder,'04_Utleverans_Registrerad.png'),fullPage:true});
  await screenshot('05_Lager_Efter_Utleverans.png','view=stock&state=released');
+ const paper=await browser.newPage({viewport:{width:794,height:1123},deviceScaleFactor:1.5,locale:'sv-SE'});
+ await paper.goto(base.replace('index.html','transportdokument.html')+'?capture=1&state=actual');
+ await paper.evaluate(()=>document.fonts.ready);
+ const paperBottom=await paper.locator('.document-footer').evaluate(el=>el.getBoundingClientRect().bottom);
+ if(paperBottom>1123)throw new Error('Transportdocument does not fit A4: '+paperBottom);
+ await paper.screenshot({path:join(folder,'06_Transportdokument_A4.png')});
+ await paper.pdf({path:join(folder,'06_Transportdokument_A4.pdf'),format:'A4',printBackground:true,preferCSSPageSize:true,margin:{top:0,bottom:0,left:0,right:0}});
+ await paper.goto(base.replace('index.html','transportdokument.html')+'?capture=1&state=planned');
+ const draftText=(await paper.locator('.a4').innerText()).replace(/[\u00a0\u202f]/g,' ');
+ if(!draftText.includes('1 000')||!draftText.includes('350 kg')||draftText.includes('Simulerad underskrift'))throw new Error('Draftdocument falsely shows actualweight or signatures');
+ await paper.close();
  // Representative plan→reservation→actualdeparture→stock; no production or API calls.
  await page.goto(url('view=stock'));
  await page.getByRole('button',{name:'Ny utleverans',exact:true}).click();
@@ -57,5 +68,5 @@ try{
  for(const next of ['stock','order']){await page.setViewportSize({width:390,height:844});await page.goto(url('view='+next));if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('Mobile viewport overflow: '+next);}
  if(unexpectedRequest)throw new Error('Unexpected external request: '+unexpectedRequest);
  if(errors.length)throw new Error(errors.join('\n'));
- console.log('5 PNGs rendered; plan/reservation/departure/ledger/search/mobile checked. No backend requests.');
+ console.log('6 PNGs and A4 PDF rendered; plan/reservation/departure/ledger/search/mobile plus draft/actualdocument checked. No backend requests.');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

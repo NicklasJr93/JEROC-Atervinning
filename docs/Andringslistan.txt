@@ -1012,7 +1012,8 @@ Status: Mockuper framtagna på beställning 2026-10-09. Appbygge inväntar grans
 - Externa åkerier får önskad tid och kan utse förare/fordon senare.
 - Transportunderlag, underskrifter/ADR och borttransportanteckning visas
   tydligt som demo. Inga NVV-, bank-, Visma- eller meddelandeanrop aktiveras.
-- Fem skärmbilder och fristående klickbar prototyp:
+- Sex skärmbilder, en A4-PDF och fristående klickbar prototyp:
   docs/mockups/lager-utleverans/README.md.
-- A4-dokumentets formgivning inväntar användarens referensbild.
-  Tidigare godkända dokumentmockuper och verksamhetskod är oförändrade.
+- A4-transportdokumentet följer användarens bifogade avräkningsnotas stil.
+  Förhandsvisning skiljer planerad mängd/osignerat från verklig last/simulerade
+  underskrifter. Tidigare dokumentmockuper och verksamhetskod är oförändrade.
