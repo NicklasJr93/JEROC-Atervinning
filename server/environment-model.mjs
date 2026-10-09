@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from
 import { z } from 'zod';
 import { EnvironmentError } from './environment-storage.mjs';
 import { ENVIRONMENT_MUNICIPALITIES, parseOriginAddress } from './environment-address.mjs';
+import { assessEnvironmentalStorage, currentEnvironmentSites, currentStoragePolicies } from './environment-storage-rules.mjs';
 
 export const ENVIRONMENT_DEMO_PASSWORD = 'JerocDemo2026!';
 export const ENVIRONMENT_SITES = [
@@ -22,10 +23,31 @@ const holderSchema = z.object({
   name: short, number: z.string().trim().transform((value) => value.replaceAll(/[\s-]/g, '')).pipe(z.string().regex(/^(?:\d{10}|\d{12}|[A-Z]{2}[A-Z0-9]{2,30})$/, holderNumberMessage)),
   contactName: optionalText, email: z.union([z.string().trim().email().max(200), z.literal('')]).default(''), phone: z.string().trim().max(50).default(''),
 }).strict();
+const capacitySchema = z.number().finite().nonnegative().max(1e12)
+  .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 0.00001, 'Mängdgränsen får ha högst tre decimaler.').nullable();
+const storageRuleSchema = z.object({ siteId: id, allowed: z.boolean(), maxKg: capacitySchema }).strict();
+const articleStorageRulesSchema = z.array(storageRuleSchema).max(100).superRefine((value, context) => {
+  if (new Set(value.map((rule) => rule.siteId)).size !== value.length) context.addIssue({ code: 'custom', message: 'Ange anläggningen endast en gång.' });
+}).transform((value) => value.sort((left, right) => left.siteId.localeCompare(right.siteId)));
+const storagePolicySchema = z.object({
+  expectedVersion: z.number().int().nonnegative(), totalMaxKg: capacitySchema,
+  rules: z.array(z.object({ wasteCode: z.string().trim().regex(/^\d{6}$/, 'Ange sexsiffrig avfallskod.'), allowed: z.boolean(), maxKg: capacitySchema }).strict()).max(1000),
+}).strict().superRefine((value, context) => {
+  if (new Set(value.rules.map((rule) => rule.wasteCode)).size !== value.rules.length) context.addIssue({ code: 'custom', path: ['rules'], message: 'Ange avfallskoden endast en gång.' });
+});
+const siteSchema = z.object({
+  expectedVersion: z.number().int().nonnegative(), name: short, address: z.string().trim().max(300),
+  postalCode: z.string().trim().transform((value) => value.replaceAll(' ', '')).pipe(z.string().regex(/^(?:\d{5})?$/, 'Ange femsiffrigt postnummer eller lämna tomt.')),
+  city: z.string().trim().max(300), municipalityCode: z.string().trim().regex(/^(?:\d{4})?$/, 'Ange fyrsiffrig kommunkod eller lämna tomt.'),
+  active: z.boolean(), permitReference: z.string().trim().max(300), permitNotes: z.string().trim().max(5000),
+}).strict().superRefine((value, context) => {
+  if (value.municipalityCode && !ENVIRONMENT_MUNICIPALITIES.some((municipality) => municipality.code === value.municipalityCode))
+    context.addIssue({ code: 'custom', path: ['municipalityCode'], message: 'Välj en giltig svensk kommun.' });
+});
 const classificationSchema = z.object({
   expectedVersion: z.number().int().nonnegative(), hazardous: z.boolean(),
   wasteCode: z.string().trim().max(6), wasteDescription: z.string().trim().max(1000),
-  handlingInstructions: z.string().trim().max(5000), adrRequired: z.boolean(),
+  handlingInstructions: z.string().trim().max(5000), adrRequired: z.boolean(), storageRules: articleStorageRulesSchema.optional(),
 }).strict().superRefine((value, context) => {
   if (value.hazardous && !/^\d{6}$/.test(value.wasteCode)) context.addIssue({ code: 'custom', path: ['wasteCode'], message: 'Ange sexsiffrig avfallskod.' });
   if (value.hazardous && !value.wasteDescription) context.addIssue({ code: 'custom', path: ['wasteDescription'], message: 'Ange avfallsbeskrivning.' });
@@ -55,19 +77,19 @@ const receiptFields = {
   incomingDocument: documentSchema, originAddress: z.string().trim().min(1).max(1000).optional(), addressResolution: addressResolutionSchema.optional(),
 };
 const receiptSchema = z.object({
-  sourceId: z.string().uuid(), cardId: z.number().int().nonnegative(), siteId: z.enum(['norrtalje', 'rimbo']),
+  sourceId: z.string().uuid(), cardId: z.number().int().nonnegative(), siteId: id,
   ...receiptFields,
   expectedDraftVersion: z.number().int().nonnegative().optional(),
   idempotencyKey: z.string().trim().min(1).max(100),
 }).strict();
 const correctionSchema = z.object({
   ...receiptFields, rows: z.array(z.object({ articleId: id, weight }).strict()).max(100),
-  sourceId: sourceIdSchema.optional(), cardId: z.number().int().nonnegative().optional(), siteId: z.enum(['norrtalje', 'rimbo']).optional(),
+  sourceId: sourceIdSchema.optional(), cardId: z.number().int().nonnegative().optional(), siteId: id.optional(),
   expectedVersion: z.number().int().positive(), reason: z.string().trim().min(1).max(2000), idempotencyKey: z.string().trim().min(1).max(100),
 }).strict();
 const draftPlaceSchema = z.object({ address: z.string().trim().max(300), postalCode: z.string().trim().max(20), city: z.string().trim().max(300), municipalityCode: z.string().trim().max(10) }).strict();
 const draftSchema = z.object({
-  expectedVersion: z.number().int().nonnegative(), sourceId: sourceIdSchema, cardId: z.number().int().nonnegative(), siteId: z.enum(['norrtalje', 'rimbo']),
+  expectedVersion: z.number().int().nonnegative(), sourceId: sourceIdSchema, cardId: z.number().int().nonnegative(), siteId: id,
   originAddress: z.string().trim().max(1000).default(''), receivedAt: z.string().trim().max(40).default(''),
   rows: z.array(z.object({ articleId: id, weight }).strict()).max(100).default([]),
   previousHolder: z.object({ name: z.string().trim().max(300).default(''), number: z.string().trim().max(100).default(''), contactName: optionalText, email: z.string().trim().max(200).default(''), phone: z.string().trim().max(50).default('') }).strict().optional(),
@@ -75,6 +97,7 @@ const draftSchema = z.object({
   incomingDocument: z.object({ status: z.enum(['provided', 'not_required', 'missing', 'unknown']), reference: z.string().trim().max(300).optional(), missingReason: z.string().trim().max(2000).optional(), exemptionReason: z.string().trim().max(2000).optional() }).strict().default({ status: 'unknown' }),
   addressResolution: addressResolutionSchema.optional(),
 }).strict();
+const storageCheckSchema = z.object({ siteId: id, rows: z.array(z.object({ articleId: id, weight }).strict()).max(100), receiptId: sourceIdSchema.optional() }).strict();
 const copy = (value) => structuredClone(value);
 const canonicalJsonValue = (value) => Array.isArray(value) ? value.map(canonicalJsonValue)
   : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJsonValue(value[key])])) : value;
@@ -98,8 +121,8 @@ const passwordMatches = (value, record) => {
 };
 export const environmentCan = (principal, right) => principal.user.level !== 'Medarbetare' || principal.user.permissions.includes(right);
 const demand = (principal, right) => { if (!environmentCan(principal, right)) throw new EnvironmentError('Du saknar miljöbehörighet för detta moment.', 403, 'forbidden'); };
-const sitesFor = (principal) => ENVIRONMENT_SITES.filter((site) => !Array.isArray(principal.user.siteIds) || principal.user.siteIds.includes(site.id));
-const demandSite = (principal, siteId) => { if (!sitesFor(principal).some((site) => site.id === siteId)) throw new EnvironmentError('Du saknar åtkomst till denna anläggning.', 403, 'site_forbidden'); };
+const sitesFor = (state, principal) => currentEnvironmentSites(state).filter((site) => !Array.isArray(principal.user.siteIds) || principal.user.siteIds.includes(site.id));
+const demandSite = (state, principal, siteId) => { if (!sitesFor(state, principal).some((site) => site.id === siteId)) throw new EnvironmentError('Du saknar åtkomst till denna anläggning.', 403, 'site_forbidden'); };
 const defaultClassification = (articleId) => ({ articleId, version: 0, hazardous: false, wasteCode: '', wasteDescription: '', handlingInstructions: '', adrRequired: false });
 const currentClassification = (state, articleId) => state.classifications.filter((record) => record.articleId === articleId).sort((a, b) => b.version - a.version)[0] ?? defaultClassification(articleId);
 const audit = (state, now, principal, action, details = {}) => {
@@ -128,7 +151,7 @@ const normalizedPhysicalInput = (input) => {
 };
 const matchesLegacyPhysicalInput = (receipt, input) => {
   if (receipt.hashFormat) return false;
-  const { version, operator, previousHash, correctionReason, ...originalInput } = receipt.snapshot;
+  const { version, operator, storageAssessment, previousHash, correctionReason, ...originalInput } = receipt.snapshot;
   return normalizedPhysicalInput(originalInput) === normalizedPhysicalInput(input);
 };
 const validateOrigin = (input, confirmed) => {
@@ -208,6 +231,8 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
   if (!repository || !principalStore) throw new Error('Environment requires durable repository and principal store.');
   const transaction = (operation) => repository.transact((state) => {
     const time = now();
+    if (!state.siteRecords.length) state.siteRecords.push(...ENVIRONMENT_SITES.map((site) => ({ ...site, version: 1, active: true,
+      permitReference: '', permitNotes: '', updatedAt: time.toISOString(), updatedBy: 'Befintlig anläggning' })));
     for (const userId of ['admin', 'lars', 'kajsa', 'anna']) if (!state.credentials.some((record) => record.userId === userId)) {
       state.credentials.push({ userId, ...passwordHash(ENVIRONMENT_DEMO_PASSWORD), demo: true });
     }
@@ -242,8 +267,17 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
   };
   const classifyRows = (state, rows, previousRows = []) => snapshotRows(rows, rows.map((row) => previousRows.find((previous) => previous.articleId === row.articleId)
     ?? { articleId: row.articleId, classification: currentClassification(state, row.articleId) }));
+  const assessStorage = (state, siteId, rows, previousRows, time) => assessEnvironmentalStorage(state,
+    { siteId, rows, previousRows, checkedAt: time.toISOString() });
+  const demandStorageCapacity = (assessment) => {
+    if (!assessment.canReceive) throw new EnvironmentError(assessment.checks.filter((check) => check.severity === 'blocked')
+      .map((check) => check.message).join(' '), 409, 'storage_blocked');
+  };
   return {
     repository,
+    // Internal server catalogue for terminal/pricing integration, never an
+    // unauthenticated customer HTTP endpoint.
+    catalog() { return transaction((state) => copy(currentEnvironmentSites(state))); },
     demoSession(payload, previousToken) {
       if (!demoMode) throw new EnvironmentError('Automatisk demoinloggning är avstängd.', 503, 'demo_disabled');
       const request = parse(z.object({ userId: id, effectiveUserId: id.optional() }).strict(), payload), token = secret();
@@ -251,7 +285,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         let principal;
         try { principal = principalStore.principal(request.userId, request.effectiveUserId ?? request.userId); }
         catch { throw new EnvironmentError('Demokontot eller Jobba som-behörigheten är ogiltig.', 401, 'invalid_credentials'); }
-        if (!['environmentRead', 'environmentWrite', 'environmentClassify'].some((right) => environmentCan(principal, right)))
+        if (!['environmentRead', 'environmentWrite', 'environmentClassify', 'environmentStorage'].some((right) => environmentCan(principal, right)))
           throw new EnvironmentError('Demokontot saknar miljöbehörighet.', 403, 'forbidden');
         const previous = previousToken && state.sessions.find((record) => record.tokenHash === environmentHash(previousToken));
         if (previous?.actualUserId === principal.actor.id && previous?.effectiveUserId === principal.user.id)
@@ -264,7 +298,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       });
     },
     authorize(token, right, siteId) { return transaction((state, time) => {
-      const { principal } = principalFor(state, token, time); demand(principal, right); if (siteId) demandSite(principal, siteId);
+      const { principal } = principalFor(state, token, time); demand(principal, right); if (siteId) demandSite(state, principal, siteId);
     }); },
     assertIdentity(token, actualUserId, effectiveUserId) { return transaction((state, time) => {
       const { principal } = principalFor(state, token, time);
@@ -306,8 +340,8 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     logout(token) { return transaction((state) => { if (token) state.sessions = state.sessions.filter((record) => record.tokenHash !== environmentHash(token)); return { demo: true }; }); },
     state(token, filterSite = 'all') { return transaction((state, time) => {
       const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead');
-      if (filterSite && filterSite !== 'all') demandSite(principal, filterSite);
-      const sites = sitesFor(principal).filter((site) => !filterSite || filterSite === 'all' || site.id === filterSite);
+      if (filterSite && filterSite !== 'all') demandSite(state, principal, filterSite);
+      const sites = sitesFor(state, principal).filter((site) => !filterSite || filterSite === 'all' || site.id === filterSite);
       const visible = new Set(sites.map((site) => site.id));
       const articleIds = new Set(state.classifications.map((record) => record.articleId));
       const originals = state.receipts.filter((record) => visible.has(record.siteId));
@@ -315,6 +349,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       for (const receipt of originals) { const versions = reportVersions(state, receipt); reports.push(...versions.at(-1)); reportHistory.push(...versions.slice(0, -1).flat().map((record) => ({ ...record, status: 'superseded' }))); }
       return { demo: true, mode: 'prepared-only', revision: state.revision, actualUserId: principal.actor.id, effectiveUserId: principal.user.id, sites: copy(sites),
         classifications: [...articleIds].map((articleId) => copy(currentClassification(state, articleId))),
+        storagePolicies: copy(currentStoragePolicies(state).filter((record) => visible.has(record.siteId))),
         drafts: copy(state.drafts.filter((record) => visible.has(record.siteId))), corrections: copy(state.corrections.filter((record) => visible.has(record.siteId))),
         receipts: originals.map((record) => effectiveReceipt(state, record)), inventory: copy([
           ...state.inventory.filter((record) => visible.has(record.siteId)).map((record) => ({ ...record, classification: state.receipts.find((receipt) => receipt.id === record.receiptId)?.snapshot.rows.find((row) => row.articleId === record.articleId)?.classification })),
@@ -325,7 +360,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     draft(sourceId, token) { parse(sourceIdSchema, sourceId); return transaction((state, time) => {
       const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead');
       const existing = state.drafts.find((record) => record.sourceId === sourceId);
-      if (!existing) return null; demandSite(principal, existing.siteId); return copy(existing);
+      if (!existing) return null; demandSite(state, principal, existing.siteId); return copy(existing);
     }); },
     saveDraft(sourceId, payload, token) {
       parse(sourceIdSchema, sourceId);
@@ -334,11 +369,11 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       if (request.sourceId !== sourceId) throw new EnvironmentError('Utkastets identitet stämmer inte med kortet.', 422, 'source_conflict');
       validateOrigin(request, false);
       return transaction((state, time) => {
-        const { principal } = principalFor(state, token, time); demand(principal, 'environmentWrite'); demandSite(principal, request.siteId);
+        const { principal } = principalFor(state, token, time); demand(principal, 'environmentWrite'); demandSite(state, principal, request.siteId);
         const receipt = state.receipts.find((record) => record.sourceId === sourceId);
-        if (receipt) { demandSite(principal, receipt.siteId); throw new EnvironmentError('Mottagningen är bekräftad. Gör en spårbar miljörättelse.', 409, 'receipt_already_recorded'); }
+        if (receipt) { demandSite(state, principal, receipt.siteId); throw new EnvironmentError('Mottagningen är bekräftad. Gör en spårbar miljörättelse.', 409, 'receipt_already_recorded'); }
         const current = state.drafts.find((record) => record.sourceId === sourceId);
-        if (current) { demandSite(principal, current.siteId); if (current.cardId !== request.cardId) throw new EnvironmentError('Utkastet tillhör ett annat kort.', 409, 'source_conflict'); }
+        if (current) { demandSite(state, principal, current.siteId); if (current.cardId !== request.cardId) throw new EnvironmentError('Utkastet tillhör ett annat kort.', 409, 'source_conflict'); }
         if ((current?.version ?? 0) !== request.expectedVersion) throw new EnvironmentError('Utkastet har ändrats av någon annan. Läs in senaste versionen.', 409, 'version_conflict');
         for (const row of request.rows) resolveArticle(row.articleId);
         const { expectedVersion, ...input } = request;
@@ -355,6 +390,53 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         return copy(draft);
       });
     },
+    saveSite(siteId, payload, token) {
+      parse(id, siteId);
+      const request = parse(siteSchema, payload);
+      return transaction((state, time) => {
+        const { principal } = principalFor(state, token, time); demand(principal, 'environmentStorage');
+        const current = currentEnvironmentSites(state).find((record) => record.id === siteId);
+        if (!current && ['address', 'postalCode', 'city', 'municipalityCode'].some((key) => !request[key]))
+          throw new EnvironmentError('Ange gatuadress, postnummer, ort och giltig kommunkod för en ny anläggning.', 422, 'site_address_incomplete');
+        if (current) demandSite(state, principal, siteId);
+        else if (Array.isArray(principal.user.siteIds) && !principal.user.siteIds.includes(siteId))
+          throw new EnvironmentError('Du saknar åtkomst att registrera denna anläggning.', 403, 'site_forbidden');
+        if ((current?.version ?? 0) !== request.expectedVersion) throw new EnvironmentError('Anläggningen har ändrats av någon annan. Läs in senaste versionen.', 409, 'version_conflict');
+        const { expectedVersion, ...values } = request;
+        const site = { id: siteId, ...values, version: expectedVersion + 1, updatedAt: time.toISOString(), updatedBy: principal.user.name };
+        state.siteRecords.push(site); audit(state, time, principal, 'environment.site_saved', { siteId, version: site.version });
+        return copy(site);
+      });
+    },
+    saveStoragePolicy(siteId, payload, token) {
+      parse(id, siteId);
+      const request = parse(storagePolicySchema, payload);
+      return transaction((state, time) => {
+        const { principal } = principalFor(state, token, time); demand(principal, 'environmentStorage'); demandSite(state, principal, siteId);
+        const current = currentStoragePolicies(state).find((record) => record.siteId === siteId);
+        if ((current?.version ?? 0) !== request.expectedVersion) throw new EnvironmentError('Lagringsvillkoren har ändrats av någon annan. Läs in senaste versionen.', 409, 'version_conflict');
+        const { expectedVersion, ...values } = request;
+        const policy = { id: randomUUID(), siteId, ...values, rules: values.rules.sort((left, right) => left.wasteCode.localeCompare(right.wasteCode)),
+          version: expectedVersion + 1, updatedAt: time.toISOString(), updatedBy: principal.user.name };
+        state.storagePolicies.push(policy); audit(state, time, principal, 'environment.storage_policy_saved', { siteId, version: policy.version, policyId: policy.id });
+        return copy(policy);
+      });
+    },
+    checkStorage(payload, token) {
+      const request = parse(storageCheckSchema, payload);
+      return transaction((state, time) => {
+        const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead'); demandSite(state, principal, request.siteId);
+        let previousRows = [];
+        if (request.receiptId) {
+          const original = state.receipts.find((record) => record.id === request.receiptId);
+          if (!original) throw new EnvironmentError('Mottagningen finns inte.', 404, 'not_found');
+          demandSite(state, principal, original.siteId);
+          if (original.siteId !== request.siteId) throw new EnvironmentError('Lagringskontrollen måste avse mottagningens anläggning.', 409, 'source_conflict');
+          previousRows = effectiveReceipt(state, original).snapshot.rows;
+        }
+        return assessStorage(state, request.siteId, classifyRows(state, request.rows, previousRows), previousRows, time);
+      });
+    },
     classification(articleId, token) { return transaction((state, time) => {
       const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead'); parse(id, articleId); resolveArticle(articleId);
       return copy(currentClassification(state, articleId));
@@ -366,6 +448,17 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         const current = currentClassification(state, articleId);
         if (current.version !== request.expectedVersion) throw new EnvironmentError('Artikeln har ändrats av någon annan. Läs in senaste versionen.', 409, 'version_conflict');
         const { expectedVersion, ...values } = request;
+        if (values.storageRules !== undefined) {
+          for (const rule of values.storageRules) if (!currentEnvironmentSites(state).some((site) => site.id === rule.siteId))
+            throw new EnvironmentError('Artikelns lagringsregel avser en okänd anläggning.', 422, 'site_not_found');
+          const previous = current.storageRules?.slice().sort((left, right) => left.siteId.localeCompare(right.siteId));
+          if (environmentHash(values.storageRules) !== environmentHash(previous ?? null)) {
+            demand(principal, 'environmentStorage');
+            const at = (rules, siteId) => rules === undefined ? null : rules.find((rule) => rule.siteId === siteId) ?? { siteId, allowed: false, maxKg: null };
+            for (const site of currentEnvironmentSites(state)) if (environmentHash(at(previous, site.id)) !== environmentHash(at(values.storageRules, site.id)))
+              demandSite(state, principal, site.id);
+          }
+        } else if (current.storageRules !== undefined) values.storageRules = copy(current.storageRules);
         const classification = { articleId, ...values, version: expectedVersion + 1, updatedAt: time.toISOString(), updatedBy: principal.user.name };
         state.classifications.push(classification); audit(state, time, principal, 'environment.classified', { articleId, version: classification.version });
         return copy(classification);
@@ -375,7 +468,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       const request = parse(receiptSchema, payload);
       validateOrigin(request, true);
       return transaction((state, time) => {
-        const { principal } = principalFor(state, token, time); demand(principal, 'environmentWrite'); demandSite(principal, request.siteId);
+        const { principal } = principalFor(state, token, time); demand(principal, 'environmentWrite'); demandSite(state, principal, request.siteId);
         if (Date.parse(request.receivedAt) > time.getTime() + 5 * 60 * 1000) throw new EnvironmentError('Faktisk mottagning kan inte ligga i framtiden.', 422, 'future_receipt');
         const { idempotencyKey, expectedDraftVersion, ...input } = request;
         const inputHash = inputIdentityHash(input), key = environmentHash(`${principal.actor.id}:${idempotencyKey}`);
@@ -391,10 +484,11 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         const draft = state.drafts.find((record) => record.sourceId === request.sourceId);
         if (expectedDraftVersion !== undefined && expectedDraftVersion !== (draft?.version ?? 0))
           throw new EnvironmentError('Miljöutkastet har ändrats av en annan kollega. Läs in den senaste versionen före mottagningsbekräftelse.', 409, 'version_conflict');
-        if (draft) { demandSite(principal, draft.siteId); if (draft.cardId !== request.cardId || draft.siteId !== request.siteId) throw new EnvironmentError('Mottagningen stämmer inte med det sparade utkastets kort eller anläggning.', 409, 'source_conflict'); }
+        if (draft) { demandSite(state, principal, draft.siteId); if (draft.cardId !== request.cardId || draft.siteId !== request.siteId) throw new EnvironmentError('Mottagningen stämmer inte med det sparade utkastets kort eller anläggning.', 409, 'source_conflict'); }
         const rows = classifyRows(state, request.rows);
+        const storageAssessment = assessStorage(state, request.siteId, rows, [], time); demandStorageCapacity(storageAssessment);
         const operator = { name: 'JEROC Återvinning AB', number: '5591234567', contactName: 'Miljöansvarig – DEMO', email: 'miljo@example.invalid', phone: '0100000000', demo: true, verified: false };
-        const snapshot = { version: 1, ...input, rows, operator };
+        const snapshot = { version: 1, ...input, rows, operator, storageAssessment };
         const receiptId = randomUUID();
         const receipt = { id: receiptId, sourceId: request.sourceId, cardId: request.cardId, siteId: request.siteId, receivedAt: request.receivedAt,
           createdAt: time.toISOString(), createdBy: principal.user.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
@@ -427,7 +521,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         const { principal } = principalFor(state, token, time); demand(principal, 'environmentWrite');
         const original = state.receipts.find((record) => record.id === receiptId);
         if (!original) throw new EnvironmentError('Mottagningen finns inte.', 404, 'not_found');
-        demandSite(principal, original.siteId);
+        demandSite(state, principal, original.siteId);
         if ((request.sourceId && request.sourceId !== original.sourceId) || (request.siteId && request.siteId !== original.siteId) || (request.cardId !== undefined && request.cardId !== original.cardId))
           throw new EnvironmentError('En miljörättelse måste avse samma kort och anläggning som originalet.', 409, 'source_conflict');
         if (Date.parse(request.receivedAt) > time.getTime() + 5 * 60 * 1000) throw new EnvironmentError('Faktisk mottagning kan inte ligga i framtiden.', 422, 'future_receipt');
@@ -444,8 +538,9 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         const current = effectiveReceipt(state, original);
         if (current.version !== request.expectedVersion) throw new EnvironmentError('Mottagningen har redan rättats. Läs in senaste versionen.', 409, 'version_conflict');
         const rows = classifyRows(state, request.rows, current.snapshot.rows);
+        const storageAssessment = assessStorage(state, original.siteId, rows, current.snapshot.rows, time); demandStorageCapacity(storageAssessment);
         const { expectedVersion, reason, sourceId, cardId, siteId, ...correctedValues } = input;
-        const snapshot = { ...current.snapshot, ...correctedValues, rows, version: expectedVersion + 1, previousHash: current.hash, correctionReason: reason };
+        const snapshot = { ...current.snapshot, ...correctedValues, rows, storageAssessment, version: expectedVersion + 1, previousHash: current.hash, correctionReason: reason };
         const correctionId = randomUUID(), hash = environmentHash(snapshot), movements = [];
         const priorGroups = new Map(current.snapshot.rows.map((row) => [row.articleId, row]));
         const nextGroups = new Map(rows.map((row) => [row.articleId, row]));

@@ -2,6 +2,7 @@ import type {
   EnvironmentalAddressResult, EnvironmentalCorrectionInput, EnvironmentalDraft,
   EnvironmentalDraftInput, EnvironmentalReceipt, EnvironmentalReceiptInput,
   EnvironmentSessionState, EnvironmentState, WasteClassification,
+  EnvironmentSite, EnvironmentSiteInput, EnvironmentalStorageAssessment, EnvironmentalStoragePolicy, EnvironmentalStoragePolicyInput,
 } from './environment-types';
 
 let csrfToken = '';
@@ -37,4 +38,7 @@ export const environmentApi = {
   saveDraft: (sourceId: string, value: { expectedVersion: number; input: EnvironmentalDraftInput }) => environmentRequest<EnvironmentalDraft>(`/drafts/${encodeURIComponent(sourceId)}`, 'PUT', value),
   resolveAddress: (value: { siteId: string; originAddress: string; municipalityCode?: string; municipalityName?: string }, signal?: AbortSignal) => environmentRequest<EnvironmentalAddressResult>('/address/resolve', 'POST', value, signal),
   correct: (receiptId: string, value: EnvironmentalCorrectionInput) => environmentRequest<EnvironmentalReceipt>(`/receipts/${encodeURIComponent(receiptId)}/corrections`, 'POST', value),
+  saveSite: (siteId: string, value: EnvironmentSiteInput) => environmentRequest<EnvironmentSite>(`/sites/${encodeURIComponent(siteId)}`, 'PUT', value),
+  saveStoragePolicy: (siteId: string, value: EnvironmentalStoragePolicyInput) => environmentRequest<EnvironmentalStoragePolicy>(`/storage/policies/${encodeURIComponent(siteId)}`, 'PUT', value),
+  checkStorage: (value: { siteId: string; rows: { articleId: string; weight: number }[]; receiptId?: string }, signal?: AbortSignal) => environmentRequest<EnvironmentalStorageAssessment>('/storage/check', 'POST', value, signal),
 };

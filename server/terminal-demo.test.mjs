@@ -14,7 +14,7 @@ const customer = { id: 'customer-build', name: 'Bygg & Riv AB', type: 'Företag'
   customerNumber: 'K-1001', phone: '0701234567', email: 'kund@example.invalid', address: 'Storgatan 12',
   paymentProfile: { method: 'bank', bank: 'Demobank', clearing: '8327', account: '1234567890', holder: 'Bygg & Riv AB' } };
 
-async function fixture(run) {
+async function fixture(run, { siteProvider } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'jeroc-terminal-test-'));
   const filename = join(directory, 'terminals.sqlite');
   let repositoryOptions = { filename, env: {} };
@@ -33,7 +33,7 @@ async function fixture(run) {
   let repository = await createTerminalDemoRepository(repositoryOptions);
   const pricing = createPricingStore({ now: () => new Date('2026-10-09T10:00:00Z') });
   let time = new Date('2026-10-09T10:00:00Z');
-  const store = () => createTerminalDemoStore({ repository, principalStore: pricing, now: () => time });
+  const store = () => createTerminalDemoStore({ repository, principalStore: pricing, siteProvider, now: () => time });
   let service = store();
   const staff = async (user = 'admin', actor = user) => (await service.staffSession({ actualUserId: actor, effectiveUserId: user })).token;
   const admin = await staff(), kajsa = await staff('kajsa'), anna = await staff('anna');
@@ -58,6 +58,54 @@ async function fixture(run) {
     await rm(directory, { recursive: true, force: true });
   }
 }
+
+test('registered facilities are shared dynamically, scoped by ID and retain frozen approval names', async () => {
+  let sites = [{ id: 'norrtalje', name: 'Norrtälje', active: true }, { id: 'rimbo', name: 'Rimbo', active: true }, { id: 'uppsala', name: 'Uppsala', active: true }];
+  await fixture(async (f) => {
+    assert.deepEqual((await f.service.read(f.admin)).sites.map(site => site.id), ['norrtalje', 'rimbo', 'uppsala']);
+    const users = f.pricing.read(f.pricing.principal('admin')).users;
+    f.pricing.saveUsers({ users: users.map(user => user.id === 'kajsa' ? { ...user, siteIds: ['uppsala'] } : user) }, f.pricing.principal('admin'));
+    assert.deepEqual((await f.service.read(f.kajsa)).sites.map(site => site.id), ['uppsala']);
+    await fail(() => f.service.read(f.kajsa, 'norrtalje'), 403, 'forbidden');
+    const terminal = await f.create('Uppsala terminal', 'uppsala');
+    const device = await f.service.login({ username: terminal.username, password: 'demolosen123' });
+    const request = f.payload(9910, terminal.id, { siteId: 'uppsala' });
+    request.card.siteId = 'uppsala'; request.card.yard = 'Uppsala';
+    const approval = await f.service.send(request, f.kajsa);
+    assert.equal((await f.service.session(device.token)).approval.snapshot.siteName, 'Uppsala');
+    sites = sites.map(site => site.id === 'uppsala' ? { ...site, name: 'Uppsala Nord' } : site);
+    assert.equal((await f.service.read(f.kajsa)).sites[0].name, 'Uppsala Nord');
+    assert.equal((await f.service.session(device.token)).approval.snapshot.siteName, 'Uppsala');
+    assert.equal((await f.service.read(f.kajsa)).approvals[0].snapshot.hash, approval.snapshot.hash);
+    await f.service.cancel(approval.id, f.kajsa);
+    const renewed = await f.service.send({ ...request, idempotencyKey: 'renamed-facility' }, f.kajsa);
+    assert.equal(renewed.snapshot.card.siteId, 'uppsala');
+    assert.equal(renewed.snapshot.card.yard, 'Uppsala Nord');
+    await f.restart();
+    assert.equal((await f.service.read(f.kajsa)).sites[0].name, 'Uppsala Nord');
+  }, { siteProvider: async () => sites });
+});
+
+test('inactive facilities retain history but reject terminal creation, logins and new customer sessions', async () => {
+  let sites = [{ id: 'norrtalje', name: 'Norrtälje', active: true }];
+  await fixture(async (f) => {
+    const terminal = await f.create();
+    const device = await f.service.login({ username: terminal.username, password: 'demolosen123' });
+    const approval = await f.service.send(f.payload(9911, terminal.id), f.kajsa);
+    sites = sites.map(site => ({ ...site, active: false }));
+    const state = await f.service.read(f.kajsa);
+    assert.equal(state.sites[0].active, false);
+    assert.equal(state.approvals[0].status, 'expired');
+    assert.equal(state.approvals[0].snapshot.hash, approval.snapshot.hash);
+    assert.equal(state.terminals[0].online, false);
+    assert.equal((await f.service.session(device.token)).approval, null);
+    await fail(() => f.create('New terminal'), 409, 'site_inactive');
+    await fail(() => f.service.login({ username: terminal.username, password: 'demolosen123' }, device.token), 409, 'site_inactive');
+    await fail(() => f.service.send(f.payload(9912, terminal.id), f.kajsa), 409, 'site_inactive');
+    await fail(() => f.service.defaultTerminal({ siteId: 'norrtalje', terminalId: terminal.id }, f.kajsa), 409, 'site_inactive');
+    await f.service.defaultTerminal({ siteId: 'norrtalje', terminalId: null }, f.kajsa);
+  }, { siteProvider: async () => sites });
+});
 
 test('Render requires PostgreSQL, while the local repository persists across reopening', async () => {
   await fail(() => createTerminalDemoRepository({ env: { RENDER: 'true' } }), 503, 'setup_required');

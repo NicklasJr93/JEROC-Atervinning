@@ -1,4 +1,4 @@
-# Etapp 1 – artikelmiljö och mottagning, kontorsdemo 0.7.1
+# Etapp 1 – artikelmiljö och mottagning, kontorsdemo 0.7.4
 
 Godkänd byggstart 2026-10-09. Den här etappen låter kontoret klassificera
 artiklar och registrera en faktisk direktinlämning. Ingen anteckning skickas
@@ -45,6 +45,34 @@ Anläggnings-, företags- och kontaktuppgifter i demon är exempel. Underlaget
 är inte färdigt för myndighetsleverans enbart för att mottagningen registrerats.
 Verifierad verksamhetsidentitet och komplett framtida API-payload behövs innan
 rapportering aktiveras i etapp 4. Hämtning hos kunden byggs i etapp 2.
+
+## Uppföljning 0.7.4: anläggningar, tillståndsreferenser och lagringsgränser
+
+Vänstermenyn **Anläggningar** registrerar/redigerar platser, adress, kommun,
+tillståndsreferens, noteringar och aktivstatus. Anläggningens policy kan ange
+total mängdgräns och tillåtna avfallskoder med gemensamma max kg. Artikelns
+klassificering kan dessutom ha tillåtna anläggningar och en snävare artikelgräns.
+Tillståndets innehåll måste matas in från det faktiska beslutet; systemet
+gör inget uppslag eller juridiskt godkännande av tillståndet.
+
+Mottagningen bedöms mot befintliga registrerade lagerrörelser plus nya mängder.
+Bedömningen visas på kortet och upprepas under databasens skrivlås. Samma
+avfallskod summeras över artiklar, även efter rättelser. Överskridande och
+förbjudna platser/koder blockerar ny mängd. En konfigurerad policy kräver
+avfallskod för positiva tillägg. Legacy utan konfiguration markeras som
+okontrollerad, aldrig som bekräftat tillstånd. Minskningar och metadata kan
+rättas spårbart även om en tidigare tillåten regel återkallats.
+
+Migration `environment-003.sql` lägger till versionslagrade anläggningar och
+policies. Tidigare mottagningars hash och original förändras inte. Regler och
+kontrollögonblicksbild följer nya mottagningsversioner. Terminaler och deras
+anläggningsväljare använder samma register. Ny separat behörighet är
+`environmentStorage`; artikelregler kräver också `environmentClassify`.
+
+Registrerat lager är fortfarande endast mottagningar och rättelser. Utgående
+transporter/lageravdrag behöver nästa etapp innan saldo används som fullständig
+fysisk inventering. Mobilkortens lokala demo har inte migrerats till PostgreSQL.
+
 
 ## Beständig lagring och behörigheter
 

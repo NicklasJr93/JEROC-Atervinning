@@ -137,8 +137,8 @@ const server = createServer((req, res) => {
 const principalStore = createPricingStore();
 const pricingApi = createPricingApi({ store: principalStore });
 const transportIntegrationsApi = createTransportIntegrationsApi({ principalStore });
-const terminalDemoApi = createTerminalDemoApi({ principalStore });
 const environmentApi = createEnvironmentApi({ principalStore });
+const terminalDemoApi = createTerminalDemoApi({ principalStore, siteProvider: () => environmentApi.getSites() });
 const expoGo = startExpoGo({ onFailure: () => {
   console.error('Expo-servern har stannat. Startar om tjänsten.');
   stop(1);

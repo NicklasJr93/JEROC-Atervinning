@@ -6,7 +6,7 @@ import type { EnvironmentSessionState, EnvironmentState } from './environment-ty
 import './environment.css';
 
 export const environmentFailure = (failure: unknown) => failure instanceof Error ? failure.message : 'Åtgärden kunde inte utföras.';
-export const hasEnvironmentPermission = (user: OfficeUser, permission: 'environmentRead' | 'environmentWrite' | 'environmentClassify') => user.level !== 'Medarbetare' || user.permissions.includes(permission);
+export const hasEnvironmentPermission = (user: OfficeUser, permission: 'environmentRead' | 'environmentWrite' | 'environmentClassify' | 'environmentStorage') => user.level !== 'Medarbetare' || user.permissions.includes(permission);
 interface EnvironmentContextValue {
   session?: EnvironmentSessionState;
   state?: EnvironmentState;
@@ -51,7 +51,7 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
   const generation = useRef(0);
   const permissionSignature = `${user.level}/${user.permissions.join(',')}/${user.siteIds?.join(',') ?? 'all'}`;
   const readable = hasEnvironmentPermission(user, 'environmentRead');
-  const permitted = readable || hasEnvironmentPermission(user, 'environmentWrite') || hasEnvironmentPermission(user, 'environmentClassify');
+  const permitted = readable || hasEnvironmentPermission(user, 'environmentWrite') || hasEnvironmentPermission(user, 'environmentClassify') || hasEnvironmentPermission(user, 'environmentStorage');
   const matches = useCallback((value: { actualUserId: string; effectiveUserId: string }) =>
     value.actualUserId === actualUser.id && value.effectiveUserId === user.id, [actualUser.id, user.id]);
 
@@ -135,7 +135,7 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
 
 export function EnvironmentAccessBoundary({ children, permission = 'environmentRead' }: {
   children: ReactNode;
-  permission?: 'environmentRead' | 'environmentWrite' | 'environmentClassify';
+  permission?: 'environmentRead' | 'environmentWrite' | 'environmentClassify' | 'environmentStorage';
 }) {
   const { session, user, loading, error, refresh } = useEnvironmentSession();
   if (!hasEnvironmentPermission(user, permission)) return <div className="environment-access environment-muted"><Leaf size={18} /><span>Du saknar behörighet för denna miljöfunktion.</span></div>;

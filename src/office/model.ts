@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.7.3';
+export const OFFICE_VERSION = '0.7.4';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -30,6 +30,7 @@ export const permissionNames = {
   environmentRead: 'Läsa miljöunderlag och mottagningar',
   environmentWrite: 'Registrera faktisk mottagning och miljöuppgifter',
   environmentClassify: 'Ändra artiklars miljöklassificering',
+  environmentStorage: 'Hantera anläggningar, tillstånd och lagringsgränser',
   users: 'Hantera användare',
 } as const;
 export type Permission = keyof typeof permissionNames;
@@ -41,7 +42,7 @@ const userSchema = z.object({
   name: z.string().min(1),
   level: z.enum(['Medarbetare', 'VD', 'Systemadmin']),
   permissions: z.array(permission),
-  siteIds: z.array(z.enum(['norrtalje', 'rimbo'])).max(2).optional(),
+  siteIds: z.array(z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/)).max(100).optional(),
   maxAttest: z.number().nonnegative(),
   ownAttest: z.boolean(),
 });

@@ -1,5 +1,25 @@
 export interface EnvironmentSite {
   id: string; name: string; address: string; postalCode: string; city: string; municipalityCode: string;
+  version: number; active: boolean; permitReference: string; permitNotes: string;
+}
+export interface EnvironmentSiteInput {
+  expectedVersion: number; name: string; address: string; postalCode: string; city: string; municipalityCode: string;
+  active: boolean; permitReference: string; permitNotes: string;
+}
+export interface EnvironmentalStorageRule { siteId: string; allowed: boolean; maxKg: number | null }
+export interface EnvironmentalStoragePolicy {
+  id: string; siteId: string; version: number; totalMaxKg: number | null;
+  rules: { wasteCode: string; allowed: boolean; maxKg: number | null }[];
+  updatedAt: string; updatedBy: string;
+}
+export interface EnvironmentalStoragePolicyInput {
+  expectedVersion: number; totalMaxKg: number | null;
+  rules: { wasteCode: string; allowed: boolean; maxKg: number | null }[];
+}
+export interface EnvironmentalStorageAssessment {
+  siteId: string; canReceive: boolean; checkedAt: string;
+  checks: { code: string; severity: 'ok' | 'warning' | 'blocked'; message: string; articleId?: string; wasteCode?: string;
+    currentKg: number; incomingKg: number; projectedKg: number; maxKg?: number | null }[];
 }
 export interface EnvironmentSessionState {
   demo: true; actualUserId: string; effectiveUserId: string;
@@ -10,6 +30,7 @@ export interface WasteClassification {
   articleId: string; version: number; hazardous: boolean; wasteCode: string;
   wasteDescription: string; handlingInstructions: string; adrRequired: boolean;
   updatedAt?: string; updatedBy?: string;
+  storageRules?: EnvironmentalStorageRule[];
 }
 export interface EnvironmentalParty { name: string; number: string; contactName: string; email: string; phone: string }
 export interface EnvironmentalPlace { address: string; postalCode: string; city: string; municipalityCode: string }
@@ -53,6 +74,7 @@ export interface EnvironmentalDraft {
 }
 export type EnvironmentalReceiptSnapshot = Omit<EnvironmentalReceiptInput, 'idempotencyKey' | 'rows' | 'expectedDraftVersion'> & {
   version: number;
+  storageAssessment?: EnvironmentalStorageAssessment;
   rows: { articleId: string; weight: number; classification: WasteClassification }[];
 };
 export interface EnvironmentalCorrection {
@@ -94,6 +116,7 @@ export interface EnvironmentState {
   actualUserId: string; effectiveUserId: string;
   municipalities: EnvironmentalMunicipality[];
   classifications: WasteClassification[]; receipts: EnvironmentalReceipt[];
+  storagePolicies: EnvironmentalStoragePolicy[];
   inventory: EnvironmentalInventory[]; reports: EnvironmentalReport[];
   drafts: EnvironmentalDraft[]; corrections: EnvironmentalCorrection[];
   reportHistory: EnvironmentalReportHistory[];

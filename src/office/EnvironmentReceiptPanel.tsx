@@ -3,9 +3,10 @@ import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, FileText, Leaf, Lock
 import { articles, demoPrivateIdentityNumber } from '../data';
 import type { OfficeCard, OfficeCustomer, OfficeUser } from './model';
 import { environmentApi } from './environment-client';
-import type { EnvironmentalAddressResolution, EnvironmentalDraftInput, EnvironmentalParty, EnvironmentalPlace, EnvironmentalReceipt, EnvironmentalReceiptInput, EnvironmentalTransportMode, IncomingEnvironmentalDocument } from './environment-types';
+import type { EnvironmentalAddressResolution, EnvironmentalDraftInput, EnvironmentalParty, EnvironmentalPlace, EnvironmentalReceipt, EnvironmentalReceiptInput, EnvironmentalStorageAssessment, EnvironmentalTransportMode, IncomingEnvironmentalDocument } from './environment-types';
 import { environmentTime, environmentWeight, formatWasteCode, transportModeNames } from './environment-types';
 import { EnvironmentAccessBoundary, environmentFailure, hasEnvironmentPermission, useEnvironmentSession } from './EnvironmentSession';
+import StorageAssessmentSummary from './StorageAssessmentSummary';
 import './environment.css';
 
 const blankPlace = (): EnvironmentalPlace => ({ address: '', postalCode: '', city: '', municipalityCode: '' });
@@ -83,6 +84,7 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
   const [error, setError] = useState('');
   const [savedAt, setSavedAt] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [storagePreview, setStoragePreview] = useState<{ key: string; assessment?: EnvironmentalStorageAssessment; error?: string }>();
   const requestKey = useRef(crypto.randomUUID());
   const dirtyRef = useRef(false);
   const hydratedRef = useRef('');
@@ -93,10 +95,15 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
   const identityRef = useRef(receiptIdentity); identityRef.current = receiptIdentity;
   const dialogRef = useRef<HTMLElement>(null);
   const editable = hasEnvironmentPermission(user, 'environmentWrite');
-  const guidanceVisible = Boolean(state && (receipt || classifiedRows.length > 0));
+  const storageConfigured = Boolean(state && (state.storagePolicies?.some(policy => policy.siteId === form.siteId) || card.rows.some(row => state.classifications.find(item => item.articleId === row.articleId)?.storageRules !== undefined)));
+  const guidanceVisible = Boolean(state && (receipt || classifiedRows.length > 0 || storageConfigured));
   const received = Boolean(receipt);
   const canConfirm = guidanceVisible && !received && editable && Boolean(session && sourceId);
   const editing = !receipt || correcting;
+  const storageKey = `${receiptIdentity}/${form.siteId}/${rowSignature(card.rows)}/${state?.revision ?? ''}/${correcting ? receipt?.id : ''}/${receipt?.version ?? 0}`;
+  const storageAssessment = editing ? storagePreview?.key === storageKey ? storagePreview.assessment : undefined : receipt?.snapshot.storageAssessment;
+  const storageError = editing && storagePreview?.key === storageKey ? storagePreview.error ?? '' : '';
+  const storageLoading = Boolean(editing && guidanceVisible && session && !storageAssessment && !storageError);
   const reports = useMemo(() => state?.reports.filter(report => report.receiptId === receipt?.id) ?? [], [state?.reports, receipt?.id]);
   const site = state?.sites.find(item => item.id === form.siteId);
   const cardDiffers = Boolean(receipt && (rowSignature(card.rows) !== rowSignature(receipt.snapshot.rows) || card.origin.trim() !== (receipt.snapshot.originAddress ?? receipt.snapshot.lastPlace.address).trim()));
@@ -154,6 +161,16 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
     return () => { active = false; window.clearTimeout(timer); };
   }, [receiptIdentity, session?.actualUserId, Boolean(state), editing, form.originAddress, form.siteId]);
   useEffect(() => {
+    if (!session || !state || !editing || !guidanceVisible) return;
+    const controller = new AbortController(); const expectedIdentity = receiptIdentity;
+    const timer = window.setTimeout(() => {
+      void environmentApi.checkStorage({ siteId: form.siteId, rows: card.rows.map(row => ({ articleId: row.articleId, weight: row.weight })), ...(correcting && receipt ? { receiptId: receipt.id } : {}) }, controller.signal)
+        .then(assessment => { if (!controller.signal.aborted && identityRef.current === expectedIdentity) setStoragePreview({ key: storageKey, assessment }); })
+        .catch(failure => { if (!controller.signal.aborted && identityRef.current === expectedIdentity) setStoragePreview({ key: storageKey, error: environmentFailure(failure) }); });
+    }, 150);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [storageKey, session?.actualUserId, session?.effectiveUserId, editing, guidanceVisible]);
+  useEffect(() => {
     if (!confirmOpen) return;
     const previousFocus = document.activeElement;
     dialogRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
@@ -174,6 +191,9 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
     if (form.incomingDocument.status === 'not_required' && !form.incomingDocument.exemptionReason?.trim()) return 'Ange varför transportdokument inte krävs i detta fall.';
     if (correcting && !correctionReason.trim()) return 'Beskriv varför miljöuppgifterna ska rättas.';
     try { stockholmReceiptDate(form.receivedAt); } catch (failure) { return environmentFailure(failure); }
+    if (storageLoading) return 'Invänta kontrollen av anläggningens lagringsregler.';
+    if (storageError) return storageError;
+    if (!storageAssessment?.canReceive) return storageAssessment?.checks.find(check => check.severity === 'blocked')?.message ?? 'Lagringskontrollen behöver slutföras före mottagningen.';
     return '';
   }
   async function resolveMunicipality(code: string) {
@@ -237,12 +257,13 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
     return editing && editable && allowed && <button type="button" className="office-link environment-inline-edit" aria-label={label} disabled={busy} onClick={() => { setEditSection(previous => previous === section ? null : section); if (section === 'origin') setOriginEdit(card.origin || ''); }}><Pencil size={12} />Ändra</button>;
   }
 
-  if (state && !receipt && classifiedRows.length === 0) return null;
+  if (state && !guidanceVisible) return null;
 
   return <section className={`office-panel environment-panel environment-receipt-panel${guidance ? ` office-guidance-${guidance}` : ''}`} aria-label="Miljö och mottagning">
-    <header className="environment-heading"><span className="environment-icon"><Leaf size={22} /></span><div><h2>Miljö & mottagning</h2><p>Material och ursprung återanvänds från viktkortet. Mottagningen sparas separat från kundgodkännandet.</p></div>{session && (receipt || classifiedRows.length > 0) && <button type="button" className="environment-toggle" aria-expanded={expanded} aria-label={expanded ? 'Dölj mottagningsuppgifter' : 'Visa mottagningsuppgifter'} onClick={() => setExpanded(value => !value)}>{expanded ? <ChevronUp size={19} /> : <ChevronDown size={19} />}</button>}</header>
+    <header className="environment-heading"><span className="environment-icon"><Leaf size={22} /></span><div><h2>Miljö & mottagning</h2><p>Material och ursprung återanvänds från viktkortet. Mottagningen sparas separat från kundgodkännandet.</p></div>{session && guidanceVisible && <button type="button" className="environment-toggle" aria-expanded={expanded} aria-label={expanded ? 'Dölj mottagningsuppgifter' : 'Visa mottagningsuppgifter'} onClick={() => setExpanded(value => !value)}>{expanded ? <ChevronUp size={19} /> : <ChevronDown size={19} />}</button>}</header>
     <EnvironmentAccessBoundary>{!state ? <p>Hämtar miljöuppgifter…</p> : <>
-      <div className="environment-receipt-summary"><div><span className={`environment-pill ${receipt && !correcting ? 'success' : 'warning'}`}>{receipt && !correcting && <CheckCircle2 size={14} />}{correcting ? 'Miljörättelse · utkast' : receipt ? 'Mottagning registrerad' : draft ? 'Utkast sparat' : 'Inväntar mottagningsbekräftelse'}</span><small>{receipt ? `${environmentTime(receipt.receivedAt)} · ${state.sites.find(item => item.id === receipt.siteId)?.name}` : 'Ingen lagerregistrering förrän mottagningen bekräftas.'}</small></div><div><strong>{environmentWeight(receipt && !correcting ? receipt.snapshot.rows.filter(row => row.classification.hazardous).reduce((sum, row) => sum + row.weight, 0) : hazardousWeight)}</strong><small>{receipt && !correcting ? `Version ${receipt.version} · ${reports.length} miljöunderlag · ej skickat` : classifiedRows.map(row => formatWasteCode(row.classification!.wasteCode)).join(', ')}</small></div><button type="button" className="office-btn outline" onClick={() => setExpanded(value => !value)}><FileText size={14} />{expanded ? 'Dölj uppgifter' : 'Visa uppgifter'}</button></div>
+      <div className="environment-receipt-summary"><div><span className={`environment-pill ${receipt && !correcting ? 'success' : 'warning'}`}>{receipt && !correcting && <CheckCircle2 size={14} />}{correcting ? 'Miljörättelse · utkast' : receipt ? 'Mottagning registrerad' : draft ? 'Utkast sparat' : 'Inväntar mottagningsbekräftelse'}</span><small>{receipt ? `${environmentTime(receipt.receivedAt)} · ${state.sites.find(item => item.id === receipt.siteId)?.name}` : 'Ingen lagerregistrering förrän mottagningen bekräftas.'}</small></div><div><strong>{environmentWeight(receipt && !correcting ? receipt.snapshot.rows.reduce((sum, row) => sum + row.weight, 0) : storageConfigured ? card.rows.reduce((sum, row) => sum + row.weight, 0) : hazardousWeight)}</strong><small>{receipt && !correcting ? `Version ${receipt.version} · ${reports.length} miljöunderlag · ej skickat` : classifiedRows.map(row => formatWasteCode(row.classification!.wasteCode)).join(', ') || 'Registrerad lagring'}</small></div><button type="button" className="office-btn outline" onClick={() => setExpanded(value => !value)}><FileText size={14} />{expanded ? 'Dölj uppgifter' : 'Visa uppgifter'}</button></div>
+      <StorageAssessmentSummary assessment={storageAssessment} loading={storageLoading} error={storageError} detailed={expanded} recorded={!editing} />
       {receipt && !correcting && receipt.deviations.map(deviation => <div className="environment-alert" key={deviation.code}><CircleAlert size={16} />{deviation.message}</div>)}
       {cardDiffers && !correcting && <div className="environment-alert"><CircleAlert size={16} /><span>Viktkortet har ändrats. Material, vikt eller ursprungsadress skiljer sig från den registrerade miljömottagningen. Granska uppgifterna och gör en spårbar miljörättelse.</span>{editable && <button type="button" className="office-link" onClick={beginCorrection}>Rätta miljöuppgifter</button>}</div>}
       {expanded && <div className="environment-receipt-editor environment-compact-editor">
@@ -254,7 +275,7 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
           {editSection === 'origin' && editing && <Fact title="Gemensam adress" editor><div className="environment-form-grid"><label className="environment-full">Ursprungsadress<input aria-label="Ursprungsadress för materialet" disabled={busy || !canChangeOrigin} maxLength={300} placeholder="Gatuadress, postnummer och ort" value={originEdit} onChange={event => setOriginEdit(event.target.value)} /><small>Uppdaterar samma ursprungsadress på viktkortet.</small></label></div><button type="button" className="office-btn outline" disabled={busy || !canChangeOrigin} onClick={saveOrigin}>Spara ursprungsadress</button></Fact>}
           {editing && form.originAddress && form.addressResolution.status !== 'resolved' && <Fact title="Komplettera ursprung" editor>{form.addressResolution.status === 'needs_address' ? <p>Adressen behöver gatuadress, postnummer och ort.{canChangeOrigin ? ' Ändra ursprungsadressen ovan.' : ' En behörig kollega behöver komplettera ursprungsadressen på viktkortet.'}</p> : <><label>Kommun för ursprungsadressen<select aria-label="Kommun för ursprungsadressen" disabled={busy || resolving || !editable} value={form.lastPlace.municipalityCode} onChange={event => void resolveMunicipality(event.target.value)}><option value="">Välj kommun…</option>{state.municipalities.map(option => <option key={option.code} value={option.code}>{option.name}</option>)}</select></label><small>Adressen kunde läsas, men kommunen behöver bekräftas.</small></>}</Fact>}
           <Fact title="Mottagning"><strong>{state.sites.find(item => item.id === display.siteId)?.name || display.siteId}</strong><span className="environment-fact-secondary">{display.nextPlace.address}{display.nextPlace.postalCode && `, ${display.nextPlace.postalCode} ${display.nextPlace.city}`}</span>{editButton('site', 'Ändra mottagande anläggning', !receipt)}</Fact>
-          {editSection === 'site' && editing && <Fact title="Anläggning" editor><label>Mottagande anläggning<select aria-label="Mottagande anläggning" disabled={busy || Boolean(receipt)} value={form.siteId} onChange={event => updateForm(previous => ({ ...previous, siteId: event.target.value }))}>{state.sites.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label><small>Platsens adress hämtas från anläggningen.</small><button type="button" className="office-link" onClick={() => setEditSection(null)}>Klart</button></Fact>}
+          {editSection === 'site' && editing && <Fact title="Anläggning" editor><label>Mottagande anläggning<select aria-label="Mottagande anläggning" disabled={busy || Boolean(receipt)} value={form.siteId} onChange={event => updateForm(previous => ({ ...previous, siteId: event.target.value }))}>{state.sites.map(option => <option key={option.id} value={option.id} disabled={!option.active}>{option.name}{!option.active ? " · Avaktiverad" : ""}</option>)}</select></label><small>Platsens adress hämtas från anläggningen.</small><button type="button" className="office-link" onClick={() => setEditSection(null)}>Klart</button></Fact>}
           <Fact title="Faktiskt mottaget"><strong>{receiptTimeLabel(display.receivedAt)}</strong><span className="environment-fact-secondary">Svensk tid · Europe/Stockholm</span>{editButton('time', 'Ändra mottagningstid')}</Fact>
           {editSection === 'time' && editing && <Fact title="Mottagningstid" editor><label>Faktiskt mottaget<input aria-label="Faktiskt mottaget" disabled={busy} type="datetime-local" value={form.receivedAt} onChange={event => updateForm(previous => ({ ...previous, receivedAt: event.target.value }))} /></label><small>Den verkliga mottagningstiden styr miljöfristerna.</small><button type="button" className="office-link" onClick={() => setEditSection(null)}>Klart</button></Fact>}
           <Fact title="Transportsätt">{editing ? <select aria-label="Transportsätt" disabled={busy || !editable} value={form.transportMode} onChange={event => updateForm(previous => ({ ...previous, transportMode: event.target.value as EnvironmentalTransportMode }))}>{Object.entries(transportModeNames).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select> : <strong>{transportModeNames[display.transportMode]}</strong>}</Fact>

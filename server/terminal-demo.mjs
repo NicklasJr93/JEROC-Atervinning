@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { createPricingStore, PricingError, money } from './pricing.mjs';
 import { createTerminalDemoRepository, TerminalDemoError } from './terminal-demo-storage.mjs';
 
-const SITES = [{ id: 'norrtalje', name: 'Norrtälje' }, { id: 'rimbo', name: 'Rimbo' }];
+const DEFAULT_SITES = [{ id: 'norrtalje', name: 'Norrtälje', active: true }, { id: 'rimbo', name: 'Rimbo', active: true }];
 const ACTIVE = ['waiting', 'id_requested'];
 const STAFF_COOKIE = 'jeroc_terminal_demo_staff';
 const TERMINAL_COOKIE = 'jeroc_terminal_demo_device';
@@ -17,7 +17,7 @@ const token = () => randomBytes(32).toString('base64url');
 const copy = (value) => structuredClone(value);
 const text = z.string().trim().min(1).max(200);
 const id = z.string().min(1).max(100);
-const siteId = z.enum(['norrtalje', 'rimbo']);
+const siteId = id.regex(/^[a-zA-Z0-9_-]+$/);
 const password = z.string().min(8).max(128);
 const username = z.string().trim().min(2).max(80).regex(/^[a-zA-Z0-9_.-]+$/).transform((value) => value.toLowerCase());
 const paymentSchema = z.object({
@@ -39,7 +39,7 @@ const cardSchema = z.object({
   id: z.number().int().nonnegative(), customerId: id,
   status: z.enum(['new', 'complement', 'customer', 'attest', 'ready', 'paid', 'balance']),
   kind: z.enum(['delivery', 'correction']).optional(),
-  yard: text, date: z.string().max(100).refine((value) => Number.isFinite(Date.parse(value))),
+  yard: text, siteId: siteId.optional(), date: z.string().max(100).refine((value) => Number.isFinite(Date.parse(value))),
   reference: z.string().max(1000), origin: z.string().trim().min(1).max(1000),
   pricingSnapshotId: id, rows: z.array(inputRow).min(1).max(100), paymentDetails: paymentSchema.optional(),
   audit: z.array(z.record(z.unknown())).max(1000).default([]),
@@ -70,9 +70,13 @@ const demandMoney = (principal) => {
 const demandAdmin = (principal) => {
   if (principal.user.level !== 'Systemadmin') throw new TerminalDemoError('Endast Systemadmin kan hantera kundterminaler.', 403, 'forbidden');
 };
-const allowedSites = (principal) => SITES.filter((site) => !Array.isArray(principal.user.siteIds) || principal.user.siteIds.includes(site.id));
-const demandSite = (principal, value) => {
-  if (!allowedSites(principal).some((site) => site.id === value)) throw new TerminalDemoError('Du saknar åtkomst till denna anläggning.', 403, 'forbidden');
+const allowedSites = (principal, sites) => sites.filter((site) => !Array.isArray(principal.user.siteIds) || principal.user.siteIds.includes(site.id));
+const demandSite = (principal, value, sites) => {
+  if (!allowedSites(principal, sites).some((site) => site.id === value)) throw new TerminalDemoError('Du saknar åtkomst till denna anläggning.', 403, 'forbidden');
+};
+const demandActiveSite = (principal, value, sites) => {
+  demandSite(principal, value, sites);
+  if (sites.find((site) => site.id === value)?.active === false) throw new TerminalDemoError('Anläggningen är avaktiverad. Välj en aktiv anläggning.', 409, 'site_inactive');
 };
 const passwordHash = (value) => {
   const salt = randomBytes(16).toString('hex');
@@ -95,24 +99,25 @@ const releaseApproval = (state, approval, status, now, principal, reason) => {
   audit(state, now, `approval.${status}`, principal, { approvalId: approval.id, cardId: approval.cardId, version: approval.version });
 };
 
-function cleanup(state, now) {
+function cleanup(state, now, sites) {
   state.staffSessions = state.staffSessions.filter((session) => Date.parse(session.expiresAt) > now.getTime());
   state.terminalSessions = state.terminalSessions.filter((session) => Date.parse(session.expiresAt) > now.getTime());
   state.loginAttempts = state.loginAttempts.filter((attempt) => Date.parse(attempt.at) > now.getTime() - 10 * 60 * 1000);
   for (const approval of state.approvals.filter((value) => ACTIVE.includes(value.status))) {
     const terminal = state.terminals.find((value) => value.id === approval.terminalId);
     if (Date.parse(approval.expiresAt) <= now.getTime() || !terminal?.active
+      || !sites.some((site) => site.id === approval.siteId && site.active !== false)
       || (terminal.lastSeen && now.getTime() - Date.parse(terminal.lastSeen) > DISCONNECT_AGE)) {
       releaseApproval(state, approval, 'expired', now, undefined, 'Kundvisningen har gått ut. Skicka en ny kundvisning.');
     }
   }
 }
 
-function terminalDTO(state, terminal, now) {
+function terminalDTO(state, terminal, now, sites) {
   const approval = activeApproval(state, terminal.id);
   const hasSession = state.terminalSessions.some((session) => session.terminalId === terminal.id && Date.parse(session.expiresAt) > now.getTime());
   return { id: terminal.id, name: terminal.name, username: terminal.username, siteId: terminal.siteId,
-    active: terminal.active, online: terminal.active && hasSession && Boolean(terminal.lastSeen) && now.getTime() - Date.parse(terminal.lastSeen) < ONLINE_AGE,
+    active: terminal.active, online: terminal.active && sites.some((site) => site.id === terminal.siteId && site.active !== false) && hasSession && Boolean(terminal.lastSeen) && now.getTime() - Date.parse(terminal.lastSeen) < ONLINE_AGE,
     busy: Boolean(approval), ...(approval ? { activeApprovalId: approval.id } : {}), ...(terminal.lastSeen ? { lastSeen: terminal.lastSeen } : {}) };
 }
 
@@ -156,7 +161,7 @@ function publicApproval(approval) {
   const snapshot = approval.snapshot;
   return { id: approval.id, version: approval.version, status: approval.status, updatedAt: approval.updatedAt,
     snapshot: { cardId: approval.cardId, version: approval.version, customerName: snapshot.customer.name,
-      customerNumber: snapshot.customer.customerNumber, siteName: SITES.find((value) => value.id === approval.siteId).name,
+      customerNumber: snapshot.customer.customerNumber, siteName: snapshot.card.yard,
       rows: copy(snapshot.rows), gross: snapshot.gross, offset: snapshot.offset, net: snapshot.net,
       paymentMethod: snapshot.paymentMethod, reference: snapshot.reference, origin: snapshot.origin,
       deliveredAt: snapshot.deliveredAt, termsVersion: snapshot.termsVersion, hash: snapshot.hash } };
@@ -165,11 +170,19 @@ function publicApproval(approval) {
 /** A shared DEMO service: office identities are deliberately selected demo users,
  * not production authentication. Terminal passwords and sessions are real, and
  * business state always commits to the configured durable database. */
-export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
+export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
   if (!repository) throw new Error('A durable terminal repository is required.');
-  const transaction = (operation) => repository.transact((state) => {
-    const time = now(); cleanup(state, time); return operation(state, time);
-  });
+  const transaction = async (operation) => {
+    // The persisted environment catalog is read per operation. A shared mutable
+    // cache could leak a concurrent request's facility scope or stale settings.
+    const catalog = (await siteProvider()).map(({ id: siteId, name, active }) => ({ id: siteId, name, active: active !== false }));
+    // Obtain the immutable catalog before taking the terminal reservation lock.
+    // Awaiting another repository while holding SQLite's synchronous lock would
+    // block a concurrent local connection from completing its transaction.
+    return repository.transact((state) => {
+      const time = now(); cleanup(state, time, catalog); return operation(state, time, catalog);
+    });
+  };
   const staff = (state, value, time) => {
     if (!value) throw new TerminalDemoError('Välj ett demokonto på kontoret.', 401, 'staff_session_required');
     const session = state.staffSessions.find((item) => item.tokenHash === hash(value) && Date.parse(item.expiresAt) > time.getTime());
@@ -184,15 +197,15 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     if (seen) terminal.lastSeen = time.toISOString();
     return terminal;
   };
-  const getApproval = (state, approvalId, principal) => {
+  const getApproval = (state, approvalId, principal, sites) => {
     const approval = state.approvals.find((item) => item.id === approvalId);
     if (!approval) throw new TerminalDemoError('Kundvisningen finns inte.', 404, 'not_found');
-    demandSite(principal, approval.siteId); return approval;
+    demandSite(principal, approval.siteId, sites); return approval;
   };
-  const findTerminal = (state, terminalId, principal) => {
+  const findTerminal = (state, terminalId, principal, sites) => {
     const terminal = state.terminals.find((item) => item.id === terminalId);
     if (!terminal) throw new TerminalDemoError('Terminalen finns inte.', 404, 'not_found');
-    demandSite(principal, terminal.siteId); return terminal;
+    demandSite(principal, terminal.siteId, sites); return terminal;
   };
   const cancelTerminal = (state, terminalId, time, principal, reason) => {
     state.terminalSessions = state.terminalSessions.filter((session) => session.terminalId !== terminalId);
@@ -205,20 +218,20 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
       const request = validate(z.object({ actualUserId: id, effectiveUserId: id }).strict(), payload);
       const principal = principalStore.principal(request.actualUserId, request.effectiveUserId);
       const secret = token();
-      await transaction((state, time) => {
+      await transaction((state, time, catalog) => {
         if (previousToken) state.staffSessions = state.staffSessions.filter((session) => session.tokenHash !== hash(previousToken));
         state.staffSessions.push({ tokenHash: hash(secret), ...request, expiresAt: new Date(time.getTime() + STAFF_AGE).toISOString() });
       });
       return { token: secret, result: { demo: true, actualUserId: principal.actor.id, effectiveUserId: principal.user.id } };
     },
     read(staffToken, filterSite) {
-      return transaction((state, time) => {
+      return transaction((state, time, catalog) => {
         const principal = staff(state, staffToken, time); demand(principal, 'customerApprovalRead');
-        if (filterSite && filterSite !== 'all') demandSite(principal, filterSite);
-        const sites = allowedSites(principal).filter((site) => !filterSite || filterSite === 'all' || site.id === filterSite);
+        if (filterSite && filterSite !== 'all') demandSite(principal, filterSite, catalog);
+        const sites = allowedSites(principal, catalog).filter((site) => !filterSite || filterSite === 'all' || site.id === filterSite);
         const visible = new Set(sites.map((site) => site.id));
         return { configured: true, revision: state.revision, sites: copy(sites),
-          terminals: state.terminals.filter((terminal) => visible.has(terminal.siteId)).map((terminal) => terminalDTO(state, terminal, time)),
+          terminals: state.terminals.filter((terminal) => visible.has(terminal.siteId)).map((terminal) => terminalDTO(state, terminal, time, catalog)),
           approvals: canSeeMoney(principal) ? state.approvals.filter((approval) => visible.has(approval.siteId)).map((approval) => approvalDTO(approval, principal)) : [],
           defaults: state.defaults.filter((value) => visible.has(value.siteId) && (value.userId === principal.user.id || principal.user.level === 'Systemadmin')).map(copy) };
       });
@@ -226,43 +239,45 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     createTerminal(payload, staffToken) {
       const request = validate(z.object({ name: text, username, password, siteId }).strict(), payload);
       const secret = passwordHash(request.password);
-      return transaction((state, time) => {
-        const principal = staff(state, staffToken, time); demandAdmin(principal); demandSite(principal, request.siteId);
+      return transaction((state, time, catalog) => {
+        const principal = staff(state, staffToken, time); demandAdmin(principal); demandActiveSite(principal, request.siteId, catalog);
         if (state.terminals.some((terminal) => terminal.username === request.username)) throw new TerminalDemoError('Inloggningsnamnet används redan.', 409, 'username_taken');
         if (state.terminals.length >= 100) throw new TerminalDemoError('Demon har redan 100 terminaler.', 409, 'demo_limit');
         const terminal = { id: randomUUID(), name: request.name, username: request.username, siteId: request.siteId, active: true, password: secret };
         state.terminals.push(terminal); audit(state, time, 'terminal.created', principal, { terminalId: terminal.id });
-        return terminalDTO(state, terminal, time);
+        return terminalDTO(state, terminal, time, catalog);
       });
     },
     updateTerminal(terminalId, payload, staffToken) {
       const request = validate(z.object({ name: text.optional(), active: z.boolean().optional(), password: password.optional() }).strict(), payload);
       const secret = request.password ? passwordHash(request.password) : undefined;
-      return transaction((state, time) => {
+      return transaction((state, time, catalog) => {
         const principal = staff(state, staffToken, time); demandAdmin(principal);
-        const terminal = findTerminal(state, terminalId, principal);
+        const terminal = findTerminal(state, terminalId, principal, catalog);
+        if (request.active === true) demandActiveSite(principal, terminal.siteId, catalog);
         if (request.name) terminal.name = request.name;
         if (request.active !== undefined) terminal.active = request.active;
         if (secret) terminal.password = secret;
         if (secret || request.active === false) cancelTerminal(state, terminal.id, time, principal, secret ? 'Terminalens lösenord återställdes.' : 'Terminalen avaktiverades.');
         audit(state, time, secret ? 'terminal.password_reset' : 'terminal.updated', principal, { terminalId });
-        return terminalDTO(state, terminal, time);
+        return terminalDTO(state, terminal, time, catalog);
       });
     },
     releaseTerminal(terminalId, staffToken) {
-      return transaction((state, time) => {
+      return transaction((state, time, catalog) => {
         const principal = staff(state, staffToken, time); demandAdmin(principal);
-        const terminal = findTerminal(state, terminalId, principal);
+        const terminal = findTerminal(state, terminalId, principal, catalog);
         cancelTerminal(state, terminalId, time, principal, 'Systemadmin avslutade terminalsessionen.');
-        audit(state, time, 'terminal.session_released', principal, { terminalId }); return terminalDTO(state, terminal, time);
+        audit(state, time, 'terminal.session_released', principal, { terminalId }); return terminalDTO(state, terminal, time, catalog);
       });
     },
     defaultTerminal(payload, staffToken) {
       const request = validate(z.object({ siteId, terminalId: id.nullable() }).strict(), payload);
-      return transaction((state, time) => {
-        const principal = staff(state, staffToken, time); demand(principal, 'prepare'); demandSite(principal, request.siteId);
+      return transaction((state, time, catalog) => {
+        const principal = staff(state, staffToken, time); demand(principal, 'prepare'); demandSite(principal, request.siteId, catalog);
         if (request.terminalId) {
-          const terminal = findTerminal(state, request.terminalId, principal);
+          demandActiveSite(principal, request.siteId, catalog);
+          const terminal = findTerminal(state, request.terminalId, principal, catalog);
           if (!terminal.active || terminal.siteId !== request.siteId) throw new TerminalDemoError('Välj en aktiv terminal på rätt anläggning.');
         }
         state.defaults = state.defaults.filter((value) => value.userId !== principal.user.id || value.siteId !== request.siteId);
@@ -275,7 +290,7 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
       const request = validate(z.object({ username, password: z.string().min(1).max(128) }).strict(), payload);
       const secret = token(); const attemptKey = hash(`${request.username}:${source}`);
       // Failed attempts must commit instead of rolling back with a thrown error.
-      const result = await transaction((state, time) => {
+      const result = await transaction((state, time, catalog) => {
         if (state.loginAttempts.filter((attempt) => attempt.key === attemptKey).length >= 5) return { error: new TerminalDemoError('För många inloggningsförsök. Vänta tio minuter.', 429, 'rate_limited') };
         const terminal = state.terminals.find((value) => value.username === request.username && value.active);
         const fallback = { salt: 'unavailable-terminal-demo', digest: '00'.repeat(64) };
@@ -284,27 +299,28 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
           state.loginAttempts.push({ key: attemptKey, at: time.toISOString() });
           return { error: new TerminalDemoError('Fel inloggningsnamn eller lösenord.', 401, 'invalid_credentials') };
         }
+        if (!catalog.some((site) => site.id === terminal.siteId && site.active !== false)) return { error: new TerminalDemoError('Anläggningen är avaktiverad. Kontakta Systemadmin.', 409, 'site_inactive') };
         const active = state.terminalSessions.find((session) => session.terminalId === terminal.id);
         if (active && (!previousToken || active.tokenHash !== hash(previousToken))) return { error: new TerminalDemoError('Terminalkontot används redan på en annan enhet. Be Systemadmin avsluta sessionen.', 409, 'terminal_session_in_use') };
         state.terminalSessions = state.terminalSessions.filter((session) => session.terminalId !== terminal.id);
         state.loginAttempts = state.loginAttempts.filter((attempt) => attempt.key !== attemptKey);
         state.terminalSessions.push({ terminalId: terminal.id, tokenHash: hash(secret), expiresAt: new Date(time.getTime() + TERMINAL_AGE).toISOString() });
         terminal.lastSeen = time.toISOString(); audit(state, time, 'terminal.login', undefined, { terminalId: terminal.id });
-        return { terminal: terminalDTO(state, terminal, time), siteName: SITES.find((site) => site.id === terminal.siteId).name,
+        return { terminal: terminalDTO(state, terminal, time, catalog), siteName: catalog.find((site) => site.id === terminal.siteId)?.name ?? terminal.siteId,
           approval: publicApproval(activeApproval(state, terminal.id)) };
       });
       if (result.error) throw result.error;
       return { token: secret, result };
     },
     session(deviceToken) {
-      return transaction((state, time) => {
+      return transaction((state, time, catalog) => {
         const terminal = device(state, deviceToken, time);
-        return { terminal: terminalDTO(state, terminal, time), siteName: SITES.find((site) => site.id === terminal.siteId).name,
+        return { terminal: terminalDTO(state, terminal, time, catalog), siteName: catalog.find((site) => site.id === terminal.siteId)?.name ?? terminal.siteId,
           approval: publicApproval(activeApproval(state, terminal.id)) };
       });
     },
     logout(deviceToken) {
-      return transaction((state, time) => {
+      return transaction((state, time, catalog) => {
         const terminal = device(state, deviceToken, time);
         cancelTerminal(state, terminal.id, time, undefined, 'Terminalen loggades ut.');
         audit(state, time, 'terminal.logout', undefined, { terminalId: terminal.id }); return { loggedOut: true };
@@ -312,20 +328,23 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     },
     send(payload, staffToken) {
       const request = validate(sendSchema, payload);
-      return transaction((state, time) => {
-        const principal = staff(state, staffToken, time); demand(principal, 'prepare', 'customerApprovalRead'); demandMoney(principal); demandSite(principal, request.siteId);
+      return transaction((state, time, catalog) => {
+        const principal = staff(state, staffToken, time); demand(principal, 'prepare', 'customerApprovalRead'); demandMoney(principal); demandSite(principal, request.siteId, catalog);
         const fingerprint = hash(JSON.stringify(request));
         const existingRequest = state.requests.find((entry) => entry.key === request.idempotencyKey && entry.userId === principal.user.id);
         if (existingRequest) {
           if (existingRequest.fingerprint !== fingerprint) throw new TerminalDemoError('Utskickets ID används för ett annat underlag.', 409, 'idempotency_conflict');
           return approvalDTO(state.approvals.find((entry) => entry.id === existingRequest.approvalId), principal);
         }
+        demandActiveSite(principal, request.siteId, catalog);
         const previous = state.approvals.filter((entry) => entry.cardId === request.card.id).at(-1);
         if (previous?.status === 'attested' || ['ready', 'paid', 'balance'].includes(request.card.status)) throw new TerminalDemoError('Ett attesterat eller avslutat kort kan inte ersättas. Använd rättelseflödet.', 409, 'card_locked');
         if (request.card.kind === 'correction') throw new TerminalDemoError('Rättelser använder fortfarande det befintliga rättelseflödet.', 409, 'correction_flow');
-        const terminal = findTerminal(state, request.terminalId, principal);
-        const terminalView = terminalDTO(state, terminal, time);
-        if (!terminal.active || terminal.siteId !== request.siteId || request.card.yard !== SITES.find((site) => site.id === request.siteId).name) throw new TerminalDemoError('Kort och terminal måste tillhöra samma anläggning.', 409, 'site_mismatch');
+        const terminal = findTerminal(state, request.terminalId, principal, catalog);
+        const terminalView = terminalDTO(state, terminal, time, catalog);
+        const selectedSite = catalog.find((site) => site.id === request.siteId);
+        const cardMatchesSite = request.card.siteId ? request.card.siteId === request.siteId : request.card.yard === selectedSite?.name;
+        if (!terminal.active || terminal.siteId !== request.siteId || !cardMatchesSite) throw new TerminalDemoError('Kort och terminal måste tillhöra samma anläggning.', 409, 'site_mismatch');
         if (!terminalView.online) throw new TerminalDemoError('Terminalen är offline. Logga in på terminalen eller välj en annan.', 409, 'terminal_offline');
         const busy = activeApproval(state, terminal.id);
         if (busy && busy.cardId !== request.card.id) throw new TerminalDemoError('Terminal upptagen. Välj en annan terminal.', 409, 'terminal_busy');
@@ -352,6 +371,8 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         if (!payment || (payment.method === 'bank' && (!payment.clearing?.trim() || !payment.account?.trim() || !payment.holder?.trim()))
           || (payment.method === 'swish' && (!payment.phone?.trim() || !payment.recipient?.trim()))) throw new TerminalDemoError('Komplettera betalningsuppgifterna innan kunden granskar avräkningen.', 422, 'payment_details_required');
         const originalCard = copy(request.card);
+        originalCard.siteId = request.siteId;
+        originalCard.yard = selectedSite.name;
         originalCard.preparedBy = principal.user.id;
         originalCard.customerSnapshot = copy(request.customer);
         originalCard.paymentDetails = copy(payment);
@@ -376,7 +397,7 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     },
     respond(approvalId, payload, deviceToken) {
       const request = validate(z.object({ action: z.enum(['id_requested', 'change_requested']), comment: z.string().trim().max(2000).optional(), termsAccepted: z.boolean() }).strict(), payload);
-      return transaction((state, time) => {
+      return transaction((state, time, catalog) => {
         const terminal = device(state, deviceToken, time);
         const approval = activeApproval(state, terminal.id);
         if (!approval || approval.id !== approvalId) throw new TerminalDemoError('Kundvisningen har ersatts eller avslutats.', 409, 'stale_approval');
@@ -391,18 +412,18 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
       });
     },
     cancel(approvalId, staffToken) {
-      return transaction((state, time) => {
+      return transaction((state, time, catalog) => {
         const principal = staff(state, staffToken, time); demand(principal, 'prepare'); demandMoney(principal);
-        const approval = getApproval(state, approvalId, principal);
+        const approval = getApproval(state, approvalId, principal, catalog);
         if (approval.status === 'attested') throw new TerminalDemoError('Kortet är redan attesterat. Använd rättelseflödet.', 409, 'card_locked');
         if (approval.status !== 'cancelled') releaseApproval(state, approval, 'cancelled', time, principal, 'Kundvisningen avslutades av kontoret.');
         return approvalDTO(approval, principal);
       });
     },
     confirmId(approvalId, staffToken) {
-      return transaction((state, time) => {
+      return transaction((state, time, catalog) => {
         const principal = staff(state, staffToken, time); demand(principal, 'prepare', 'verifyId'); demandMoney(principal);
-        const approval = getApproval(state, approvalId, principal);
+        const approval = getApproval(state, approvalId, principal, catalog);
         if (approval.status === 'approved') return approvalDTO(approval, principal);
         if (approval.status !== 'id_requested') throw new TerminalDemoError('Kunden måste först välja legitimation och bekräfta intygandet på terminalen.', 409, 'id_not_requested');
         approval.status = 'approved'; approval.approvedBy = principal.user.name; approval.approvedAt = time.toISOString();
@@ -412,9 +433,9 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
       });
     },
     attest(approvalId, staffToken) {
-      return transaction((state, time) => {
+      return transaction((state, time, catalog) => {
         const principal = staff(state, staffToken, time); demand(principal, 'attest');
-        const approval = getApproval(state, approvalId, principal);
+        const approval = getApproval(state, approvalId, principal, catalog);
         if (approval.status === 'attested') return approvalDTO(approval, principal);
         if (approval.status !== 'approved' || approval.approvedHash !== approval.snapshot.hash) throw new TerminalDemoError('Aktuell avräkningsversion måste vara kundgodkänd före intern attest.', 409, 'customer_approval_required');
         if (!principal.user.ownAttest && (principal.user.id === approval.effectiveUserId || principal.actor.id === approval.actualUserId)) throw new TerminalDemoError('Du får inte attestera ditt eget underlag.', 403, 'own_attest_forbidden');
@@ -461,13 +482,13 @@ async function body(req) {
   catch { throw new TerminalDemoError('Ogiltig JSON.'); }
 }
 
-export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalAge } = {}) {
+export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, env = process.env, now, approvalAge } = {}) {
   let repositoryPromise;
   let storePromise;
   const getStore = () => {
     if (!storePromise) {
       repositoryPromise = repository ? Promise.resolve(repository) : createTerminalDemoRepository({ env });
-      storePromise = repositoryPromise.then((value) => createTerminalDemoStore({ repository: value, principalStore, now, approvalAge }));
+      storePromise = repositoryPromise.then((value) => createTerminalDemoStore({ repository: value, principalStore, siteProvider, now, approvalAge }));
       // A temporary startup failure must not poison every later retry.
       const attempt = storePromise;
       attempt.catch(() => {

@@ -1,0 +1,13 @@
+.storage-assessment{margin:14px 0;padding:12px 14px;border:1px solid #d4e8dd;border-radius:10px;background:#f3faf6;color:#176a45;font-size:12px}
+.storage-assessment.warning{border-color:#f2dfbb;background:#fffaf1;color:#886020}
+.storage-assessment.blocked{border-color:#f3cecc;background:#fff5f4;color:#a63f39}
+.storage-assessment-heading{display:flex;align-items:center;gap:8px}
+.storage-assessment-heading>svg{flex-shrink:0}
+.storage-assessment-heading>div{display:grid;gap:3px}
+.storage-assessment p{margin:7px 0 0;line-height:1.5}
+.storage-assessment small{display:block;line-height:1.6;font-size:11px;color:inherit;opacity:.85}
+.storage-assessment ul{list-style:none;padding:0;margin:10px 0}
+.storage-assessment li{padding:9px 0;border-top:1px solid #dae5df}
+.storage-assessment li>div{display:flex;flex-wrap:wrap;gap:4px 10px;line-height:1.5}
+.storage-assessment li.ok{color:#176a45}
+.storage-assessment li.blocked{color:#a63f39}

@@ -39,6 +39,7 @@ export const permissions = [
   'environmentRead',
   'environmentWrite',
   'environmentClassify',
+  'environmentStorage',
 ];
 const finite = z.number().finite();
 const nonnegative = finite.min(0).max(1e9);
@@ -211,7 +212,7 @@ const userSchema = z.object({
   name: text,
   level: z.enum(['Medarbetare', 'VD', 'Systemadmin']),
   permissions: z.array(z.enum(permissions)).max(permissions.length),
-  siteIds: z.array(z.enum(['norrtalje', 'rimbo'])).max(2).optional(),
+  siteIds: z.array(id).max(100).optional(),
   maxAttest: nonnegative,
   ownAttest: z.boolean(),
 });
@@ -1463,6 +1464,9 @@ export function createPricingStore({ now = () => new Date() } = {}) {
         user.permissions.includes('transportPlan') &&
         !user.permissions.includes('transportRead'))
         throw new PricingError('Planera transporter kräver även Läs transportplanering.');
+    for (const user of users)
+      if (user.level === 'Medarbetare' && user.permissions.includes('environmentStorage') && !user.permissions.includes('environmentRead'))
+        throw new PricingError('Hantera anläggningar och lagringsgränser kräver även Läs miljörapportering.');
     if (principalValue.user.level !== 'Systemadmin') {
       const oldAdmins = state.users.filter(
         (user) => user.level === 'Systemadmin',
@@ -1477,12 +1481,14 @@ export function createPricingStore({ now = () => new Date() } = {}) {
         throw new PricingError('VD får inte ändra Systemadmin-konton.', 403);
       for (const user of users) {
         const previous = state.users.find((entry) => entry.id === user.id);
-        const actorSites = principalValue.user.siteIds ?? ['norrtalje', 'rimbo'];
-        const previousSites = previous?.siteIds ?? ['norrtalje', 'rimbo'];
-        const requestedSites = user.siteIds ?? ['norrtalje', 'rimbo'];
+        // Missing scope means all current and future registered facilities.
+        // Keep that distinct from an explicit list when enforcing VD grants.
+        const actorSites = principalValue.user.siteIds;
+        const previousSites = previous?.siteIds;
+        const requestedSites = user.siteIds;
         const sitesChanged = !previous ||
-          JSON.stringify([...previousSites].sort()) !== JSON.stringify([...requestedSites].sort());
-        if (sitesChanged && requestedSites.some((siteId) => !actorSites.includes(siteId)))
+          JSON.stringify(previousSites?.toSorted()) !== JSON.stringify(requestedSites?.toSorted());
+        if (sitesChanged && actorSites && (!requestedSites || requestedSites.some((siteId) => !actorSites.includes(siteId))))
           throw new PricingError('VD får inte ge åtkomst till en anläggning utanför sin egen behörighet.', 403);
         if (
           user.level !== 'Systemadmin' &&

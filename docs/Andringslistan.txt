@@ -810,3 +810,33 @@ Releasekontroll 0.7.3
 passerade. Produktionsbygge och Expo-typkontroll passerade. Ingen datarensning
 eller ny Renderkonfiguration. Kontrollerna täcker oförändrad terminalomsändning,
 felåterförsök, hopfällning/miljörättelse, visuell guidning och bevarade snapshot.
+
+043 – Anläggningsregister, lagringsplatser och mängdgränser
+Status: Genomförd i kontorsdemo 0.7.4.
+- Ny vänstermeny Anläggningar: registrera/redigera namn, adress, kommun,
+  aktivstatus, tillståndsreferens och noteringar. Samma beständiga register
+  används av terminaler, huvudväljare och användarnas anläggningsbehörigheter.
+- Centrala regler: totalt maxlager och tillåtna avfallskoder med gemensamma
+  max kg, summerat över alla artiklar som har samma kod.
+- Artikel: Tillåtna lagringsplatser och valfri snävare maxmängd per anläggning.
+  Tom mängd betyder ingen extra artikelgräns; 0 betyder ingen lagring.
+- Miljökortet visar kontroll före bekräftelse, också för vanliga artiklar när
+  lagringsregler finns. Servern kontrollerar mot registrerat lager atomiskt
+  vid mottagning och positiva rättelser. Bedömningen sparas med fryst version.
+- Minskningar/metadata kan rättas när tidigare regler återkallats eller platsen
+  är inaktiv. Historik och original bevaras; idempotenta återförsök ger inget nytt lager.
+- Ingen konfiguration ger varning, aldrig ett uppfunnet tillstånd. En explicit
+  tom lista förbjuder lagring. Konfigurerad central policy stoppar nya mängder
+  som saknar tillåten avfallskod.
+- Separat serverkontrollerad rättighet environmentStorage. Artikelregler kräver
+  också environmentClassify. Begränsad personal kan inte ändra dolda platsregler.
+- Migration 003 bevarar tidigare data. Ingen ny rensning eller Renderinställning.
+- Registrerat lager innehåller ännu bara mottagningar och rättelser.
+  Utleveranser, lageravdrag och inventering tillhör kommande etapp.
+- Inkommande dokumentnummer/referens är fortsatt valfri. Ingen ny koppling till
+  Naturvårdsverket, Visma, SMS, e-post eller mobilappens lokala vägningar.
+
+Releasekontroll 0.7.4
+54 riktade serverkontroller inklusive 12 lagringstester i riktig PostgreSQL
+och 23 riktade webbläsarkontroller passerade. Produktionsbygge och Expo-
+typkontroll passerade. Anläggningsvyn granskad utan sidöverflöde/JavaScriptfel.

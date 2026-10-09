@@ -1,7 +1,7 @@
 import type { OfficeCard, OfficeCustomer } from './model';
 
 export type ApprovalStatus = 'waiting' | 'id_requested' | 'approved' | 'change_requested' | 'cancelled' | 'expired' | 'attested';
-export interface DemoSite { id: string; name: string }
+export interface DemoSite { id: string; name: string; active?: boolean }
 export interface DemoTerminal {
   id: string; name: string; username: string; siteId: string; active: boolean;
   online: boolean; busy: boolean; activeApprovalId?: string; lastSeen?: string;

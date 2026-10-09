@@ -86,15 +86,20 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
         const classification = route.match(/^\/classifications\/([a-zA-Z0-9_-]{1,100})$/);
         const draft = route.match(/^\/drafts\/([a-fA-F0-9-]{36})$/);
         const correction = route.match(/^\/receipts\/([a-fA-F0-9-]{36})\/corrections$/);
+        const site = route.match(/^\/sites\/([a-zA-Z0-9_-]{1,100})$/);
+        const storage = route.match(/^\/storage(?:\/policies)?\/([a-zA-Z0-9_-]{1,100})$/);
         if (read && classification) json(res, 200, await store.classification(classification[1], token), req.method === 'HEAD');
         else if (req.method === 'PUT' && classification) json(res, 200, await store.classify(classification[1], await body(req), token));
+        else if (req.method === 'PUT' && site) json(res, 200, await store.saveSite(site[1], await body(req), token));
+        else if (req.method === 'PUT' && storage) json(res, 200, await store.saveStoragePolicy(storage[1], await body(req), token));
+        else if (req.method === 'POST' && route === '/storage/check') json(res, 200, await store.checkStorage(await body(req), token));
         else if (read && draft) json(res, 200, await store.draft(draft[1], token), req.method === 'HEAD');
         else if (req.method === 'PUT' && draft) json(res, 200, await store.saveDraft(draft[1], await body(req), token));
         else if (req.method === 'POST' && route === '/receipts') json(res, 201, await store.receive(await body(req), token));
         else if (req.method === 'POST' && correction) json(res, 201, await store.correct(correction[1], await body(req), token));
         else if (read && route === '/municipalities') { await store.authorize(token, 'environmentRead'); json(res, 200, ENVIRONMENT_MUNICIPALITIES, req.method === 'HEAD'); }
         else if (req.method === 'POST' && route === '/address/resolve') {
-          const parsed = z.object({ siteId: z.enum(['norrtalje', 'rimbo']), originAddress: z.string().trim().max(1000),
+          const parsed = z.object({ siteId: z.string().trim().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/), originAddress: z.string().trim().max(1000),
             municipalityCode: z.string().trim().max(10).optional(), municipalityName: z.string().trim().max(100).optional() }).strict().safeParse(await body(req));
           if (!parsed.success) throw new EnvironmentError('Kontrollera ursprungsadressen och kommunen.', 422, 'address_invalid');
           const { siteId, ...input } = parsed.data;
@@ -114,6 +119,9 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
     }
     return true;
   };
+  // Only used by other server modules. Terminal accounts receive their own
+  // restricted DTO, not an unauthenticated facility-management endpoint.
+  api.getSites = async () => (await getStore()).catalog();
   api.close = async () => { if (repositoryPromise) await repositoryPromise.then((value) => value.close()).catch(() => {}); };
   return api;
 }

@@ -26,6 +26,7 @@ import {
   Calculator,
   Leaf,
   Battery,
+  Building2,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
@@ -38,13 +39,14 @@ import ApprovalControls from './ApprovalControls';
 import OfficeCardAttest from './OfficeCardAttest';
 import QuickCustomerModal from './QuickCustomerModal';
 import AddWeighingArticleModal from './AddWeighingArticleModal';
-import { EnvironmentSessionProvider } from './EnvironmentSession';
+import { EnvironmentSessionProvider, useEnvironmentSession } from './EnvironmentSession';
 import EnvironmentReceiptPanel from './EnvironmentReceiptPanel';
 import EnvironmentWorkspace from './EnvironmentWorkspace';
 import { useTerminalDemo } from './useTerminalDemo';
 import { terminalDemoApi } from './terminal-demo-client';
 import type { TerminalApproval } from './terminal-demo-types';
 const TransportWorkspace = lazy(() => import('./transport/TransportWorkspace'));
+const FacilitiesWorkspace = lazy(() => import('./FacilitiesWorkspace'));
 import {
   cardRoute,
   inQueue,
@@ -794,6 +796,7 @@ export function OfficeApp() {
       right: 'lmeRead',
     },
     { id: 'environment', name: 'Miljörapportering', icon: Leaf, right: 'environmentRead' },
+    { id: 'facilities', name: 'Anläggningar', icon: Building2, right: 'environmentRead' },
     {
       id: 'corrections',
       name: 'Rättelser',
@@ -2186,6 +2189,8 @@ export function OfficeApp() {
             </>
           ) : section === 'environment' ? (
             <EnvironmentWorkspace user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} onOpenCard={open} />
+          ) : section === 'facilities' ? (
+            <Suspense fallback={<div className="office-panel">Hämtar anläggningar…</div>}><FacilitiesWorkspace user={user} actualUser={actualUser!} onNotice={setMessage} /></Suspense>
           ) : section === 'customer-approvals' ? (
             <CustomerApprovalsWorkspace state={terminalDemo.state} siteId={siteFilter} onOpenCard={open}
               loading={terminalDemo.loading} error={terminalDemo.error} configurationRequired={terminalDemo.configurationRequired}
@@ -2248,6 +2253,7 @@ export function OfficeApp() {
             <UserAdmin
               users={data.users}
               actor={user}
+              sites={terminalDemo.state?.sites}
               save={async (users) => {
                 if (!can(user, 'users')) return false;
                 try {
@@ -2657,12 +2663,17 @@ function CorrectionForm({
 function UserAdmin({
   users,
   actor,
+  sites: fallbackSites,
   save,
 }: {
   users: OfficeUser[];
   actor: OfficeUser;
+  sites?: { id: string; name: string }[];
   save: (u: OfficeUser[]) => Promise<boolean>;
 }) {
+  const { state: environmentState } = useEnvironmentSession();
+  const sites = environmentState?.sites ?? fallbackSites ?? [{ id: 'norrtalje', name: 'Norrtälje' }, { id: 'rimbo', name: 'Rimbo' }];
+  const allSiteIds = sites.map(site => site.id);
   const [selected, setSelected] = useState(users[0]),
     [notice, setNotice] = useState(''),
     [saving, setSaving] = useState(false);
@@ -2708,7 +2719,7 @@ function UserAdmin({
               name: '',
               level: 'Medarbetare',
               permissions: ['view'],
-              siteIds: actor.siteIds ?? ['norrtalje', 'rimbo'],
+              siteIds: actor.siteIds ?? allSiteIds,
               maxAttest: 0,
               ownAttest: false,
             });
@@ -2796,13 +2807,17 @@ function UserAdmin({
                                 ...(key === 'transportPlan'
                                   ? ['transportRead' as const]
                                   : []),
+                                ...(key === 'environmentStorage'
+                                  ? ['environmentRead' as const]
+                                  : []),
                               ]),
                             ]
                           : selected.permissions.filter(
                               (p) =>
                                 p !== key &&
                                 !(key === 'lmeRead' && p === 'lmeWrite') &&
-                                !(key === 'transportRead' && p === 'transportPlan'),
+                                !(key === 'transportRead' && p === 'transportPlan') &&
+                                !(key === 'environmentRead' && p === 'environmentStorage'),
                             ),
                       })
                     }
@@ -2814,20 +2829,17 @@ function UserAdmin({
             <div role="group" aria-label="Anläggningar">
               <h3>Anläggningar</h3>
               <div className="office-permission-grid">
-                {[
-                  { id: 'norrtalje' as const, name: 'Norrtälje' },
-                  { id: 'rimbo' as const, name: 'Rimbo' },
-                ].map((site) => (
+                {sites.map((site) => (
                   <label key={site.id}>
                     <input
                       type="checkbox"
                       disabled={!editable || (actor.level !== 'Systemadmin' &&
-                        !(actor.siteIds ?? ['norrtalje', 'rimbo']).includes(site.id) &&
-                        !(selected.siteIds ?? ['norrtalje', 'rimbo']).includes(site.id))}
-                      checked={(selected.siteIds ?? ['norrtalje', 'rimbo']).includes(site.id)}
+                        !(actor.siteIds ?? allSiteIds).includes(site.id) &&
+                        !(selected.siteIds ?? allSiteIds).includes(site.id))}
+                      checked={(selected.siteIds ?? allSiteIds).includes(site.id)}
                       onChange={(event) => {
                         const current: NonNullable<OfficeUser['siteIds']> =
-                          selected.siteIds ?? ['norrtalje', 'rimbo'];
+                          selected.siteIds ?? allSiteIds;
                         setSelected({
                           ...selected,
                           siteIds: event.target.checked

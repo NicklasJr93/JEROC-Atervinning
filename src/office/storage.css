@@ -1,0 +1,32 @@
+.office .storage-article-section { border-top:1px solid #e7edf5; margin-top:14px; padding-top:13px; }
+.office .storage-article-section h3 { margin:0 0 5px; font-size:12px; }
+.office .storage-article-section p { margin:0 0 10px; font-size:11px; line-height:1.5; }
+.storage-article-row { display:grid; grid-template-columns:minmax(0,1fr) 140px; align-items:center; gap:12px; padding:9px 0; border-bottom:1px solid #edf2f7; }
+.storage-article-row small { display:block; color:#8798ad; font-size:10px; margin-top:4px; line-height:1.4; }
+.office .storage-article-row label { margin:0; font-size:10px; color:#667c98; }
+.office .storage-article-row input[type=text],.office .storage-total input,.office .storage-policy-rule input:not([type=checkbox]) { width:100%; min-height:35px; margin:5px 0 0; padding:8px 10px; font-size:12px; box-sizing:border-box; }
+.storage-total { display:flex; align-items:center; gap:24px; margin:17px 0; }
+.office .storage-total label { margin:0; width:min(100%,300px); font-size:11px; color:#667c98; }
+.storage-total small { display:block; color:#7d91a8; font-size:10px; margin-top:5px; }
+.storage-total strong { display:block; color:#168350; font-size:20px; margin-top:5px; }
+.storage-policy-rules { border:1px solid #e2eaf4; border-radius:8px; overflow:hidden; }
+.storage-policy-header,.storage-policy-rule { display:grid; grid-template-columns:minmax(120px,1fr) 120px minmax(130px,1fr) 25px; align-items:center; gap:15px; padding:11px 14px; }
+.storage-policy-header { background:#f5f8fc; color:#7890a9; font-weight:600; font-size:11px; }
+.storage-policy-rule { border-top:1px solid #eaf0f6; }
+.office .storage-policy-rule label { margin:0; font-size:11px; }
+.office .storage-policy-rule .environment-checkbox input { width:15px; height:15px; min-height:0; padding:0; }
+.storage-policy-rule small { color:#8397ae; font-size:10px; margin-top:5px; display:block; }
+.office .storage-add-rule { margin-top:12px; }
+.storage-mobile-label { display:none; }
+.facilities-layout { display:grid; grid-template-columns:240px minmax(0,1fr); align-items:start; gap:18px; }
+.facilities-list { display:grid; gap:7px; }
+.office .facility-choice { display:flex; flex-direction:column; align-items:flex-start; padding:14px; gap:6px; border:1px solid #e2eaf4; background:#fff; border-radius:9px; color:#314d6e; text-align:left; }
+.office .facility-choice.selected { border-color:#528ff1; background:#eff6ff; }
+.facility-choice small { font-size:11px; color:#8194ad; }
+.facility-choice strong { font-size:13px; }
+.facilities-detail { display:grid; gap:16px; min-width:0; }
+.office .facility-editor .environment-form-grid label { display:flex; flex-direction:column; gap:5px; }
+.office .facility-editor .environment-form-grid input,.office .facility-editor .environment-form-grid textarea { margin:0; }
+.office .facility-editor .environment-checkbox { margin-top:14px; }
+@media(max-width:1100px) { .facilities-layout { grid-template-columns:1fr; } .facilities-list { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:800px) { .facilities-layout { grid-template-columns:1fr; } .facilities-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .storage-policy-header { display:none; } .storage-policy-rule { grid-template-columns:1fr 30px; gap:10px; } .storage-policy-rule > label { grid-column:1; } .storage-policy-rule > button { grid-column:2; grid-row:1; } .storage-mobile-label { display:block; } .storage-total { align-items:flex-start; flex-direction:column; gap:10px; } }

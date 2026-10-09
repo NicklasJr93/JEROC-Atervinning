@@ -1,4 +1,55 @@
-# JEROC kontorsdemo 0.7.3
+# JEROC kontorsdemo 0.7.4
+
+## Nytt i 0.7.4 – anläggningar och lagringsregler
+
+**Anläggningar** i vänstermenyn är det gemensamma registret för namn, adress,
+kommun, aktivstatus och tillståndsreferens/noteringar. Samma register används
+av anläggningsväljaren, terminalerna och användarnas anläggningsbehörigheter.
+En avaktiverad plats behåller sin historik men tar inte emot nytt material.
+Tillståndsreferensen registreras av personalen; ingen myndighet verifierar den
+automatiskt i denna demo.
+
+På anläggningen anges ett totalt maxlager och tillåtna avfallskoder med egna
+maxmängder. Alla artiklar med samma kod delar kodens gräns. Under artikelns
+**Miljö & avfallsklassificering → Tillåtna lagringsplatser** kan platsen tillåtas
+eller förbjudas, med en ytterligare gräns för just artikeln. Båda nivåerna gäller.
+Tom artikelgräns betyder ingen extra artikelgräns; 0 kg betyder ingen lagring.
+Gränser avser mängden samtidigt i registrerat lager, inte en enskild leverans.
+
+**Miljö & mottagning** visar lagringskontrollen även före bekräftelsen: registrerad
+mängd, tillkommande mängd, mängd efter mottagning och gräns. Kortet visas också
+för icke-farliga artiklar när lagringsregler finns. Servern gör om kontrollen i
+samma databastransaktion som lagret sparas, så två kassor inte kan överskrida
+gränsen genom samtidiga mottagningar. Positiva rättelser kontrolleras med bara
+mängdskillnaden; minskningar och rena uppgiftsrättelser kan göras efter att
+platsen avaktiverats eller villkor ändrats. Den sparade kontrollen följer den
+oföränderliga mottagningsversionen.
+
+Äldre okonfigurerade regler ger en tydlig varning, inte ett påhittat tillstånd.
+En uttryckligen sparad tom lista tillåter inga artiklar/koder. Vid konfigurerad
+anläggningspolicy måste nya mängder ha en avfallskod som är tillåten.
+Behörigheten **Hantera anläggningar, tillstånd och lagringsgränser** kontrolleras
+på servern; ändring av artikelregler kräver även miljöklassificeringsbehörighet.
+
+Prova som Systemadmin: **Anläggningar → Ny anläggning**, ange adress och kommun,
+spara och ange lagringsregler. Öppna sedan Blybatterier i artikelregistret och
+ange tillåtna platser och max kg. På ett öppet invägningskort syns kontrollen
+före **Bekräfta mottagning**.
+
+**Begränsning:** registrerat lager omfattar hittills mottagningar och rättelser.
+Utleveranser, lageravdrag och inventering tillhör kommande etapper. Kontrollen
+är därför ännu inte ett komplett fysiskt lagersaldo. Inga tillstånd eller
+maxmängder sås som demofakta. Befintliga kort, terminalkonton och historik
+bevaras; migration 003 körs automatiskt med befintlig `DATABASE_URL`.
+Mobil/Expo är fortfarande lokal demo och skickar inga kort till kontoret.
+Dokument-/transportreferensen för inkommande transport är fortsatt valfri.
+
+
+**Releasekontroll 0.7.4:** 54 riktade serverkontroller passerade, inklusive
+12 lagringstester med riktig PostgreSQL och samtidig kapacitetsreservation.
+23 riktade Playwright-kontroller passerade för miljökort, anläggningar,
+artikelgränser och terminalflöde. Produktionsbygge och Expo-typkontroll
+passerade. Anläggningsvyn granskades utan sidöverflöde eller JavaScriptfel.
 
 ## Nytt i 0.7.3 – terminalfix och visuell guidning
 
