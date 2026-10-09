@@ -413,12 +413,25 @@ export function createApplicationService({ repository, env = process.env, projec
         if (domain === 'transport' && Array.isArray(p.user.siteIds)) fail('Du saknar åtkomst till hela transportplaneringen.', 403);
         const mobilePricing = createPricingStore({ initialState: state.pricing });
         const catalogPrincipal = mobilePricing.principal(state.pricing.users.find(user => user.level === 'Systemadmin').id);
-        const catalog = domain === 'mobile' ? mobilePricing.read(catalogPrincipal).articles.map(article => ({ id: article.id, active: article.active, category: article.category, name: article.name, description: article.description, includes: article.includes.join('\n'), excludes: article.excludes.join('\n'), photos: article.photos, prices: ['A', 'B', 'C'].map(tier => article.prices[tier]) })) : undefined;
+        // Catalog rules and customer quotes must use the same Swedish business
+        // day. Taking the UTC date prefix selects yesterday after local midnight.
+        const mobileDeliveredAt = new Date().toISOString();
+        const mobileBusinessDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(mobileDeliveredAt));
+        const catalog = domain === 'mobile' ? mobilePricing.read(catalogPrincipal, mobileBusinessDate).articles.map(article => ({ id: article.id, active: article.active, category: article.category, name: article.name, description: article.description, includes: article.includes.join('\n'), excludes: article.excludes.join('\n'), photos: article.photos, prices: ['A', 'B', 'C'].map(tier => article.prices[tier]) })) : undefined;
         const customerPrices = {};
         if (domain === 'mobile') for (const customer of state.office.customers) {
           customerPrices[customer.id] = {};
           for (const article of catalog.filter(a => a.active !== false)) {
-            const quote = mobilePricing.quote({ customerId: customer.id, deliveredAt: new Date().toISOString().slice(0,10), rows: [{ articleId: article.id, weight: 1 }] }, catalogPrincipal);
+            let quote;
+            try { quote = mobilePricing.quote({ customerId: customer.id, deliveredAt: mobileDeliveredAt, rows: [{ articleId: article.id, weight: 1 }] }, catalogPrincipal); }
+            catch (error) {
+              // An article can be visible while its reference price is not yet
+              // configured. Omit that quote, preserving all other customer data;
+              // permissions, invalid agreements and unexpected errors still fail.
+              if (error instanceof PricingError && error.status === 422 &&
+                [ `Artikeln ${article.id} saknar inställningar på inlämningsdagen.`, `LME-pris saknas för ${article.name} på inlämningsdagen.` ].includes(error.message)) continue;
+              throw error;
+            }
             customerPrices[customer.id][article.id] = { price: quote.rows[0].price, source: quote.rows[0].tier };
           }
         }
