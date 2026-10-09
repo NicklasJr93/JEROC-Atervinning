@@ -1,5 +1,5 @@
 JEROC – FÖRESLAGNA FLÖDEN FÖR FARLIGT AVFALL
-Designunderlag 2026-10-09. Inte implementerat eller godkänt för byggstart.
+Designunderlag 2026-10-09. Mockuper godkända för fortsatt planering, inte byggstart.
 Appen är oförändrad. Alla namn, dokument och myndighetssvar är demoexempel.
 Ingen riktig signering, myndighetsrapportering, betalning eller avisering sker.
 
@@ -122,5 +122,6 @@ på vald anläggning. Faktisk tilldelning görs under Användare.
 Tillstånd, mottagningstidpunkt, ADR-bedömning och rättsliga regler verifieras
 innan drift. Riktig underskrift och Naturvårdsverkets test/produktion kräver
 senare leverantör, anslutning och certifikat. Inga credentials behövs nu.
-Det bifogade implementationsunderlaget är en plan; aktuell beställning är
-mockuper och flödesgranskning, inte byggstart eller produktionsaktivering.
+Det bifogade implementationsunderlaget är en plan. API- och certifikatgranskning
+inför byggplaneringen finns i docs/integrationer/naturvardsverket/README.md.
+Byggstart och produktionsaktivering är separata beslut.

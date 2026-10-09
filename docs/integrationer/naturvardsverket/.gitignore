@@ -1,0 +1,12 @@
+# Certifikat och leveransbrev lagras separat från dokumentationen.
+.env
+.env.*
+*.p12
+*.pfx
+*.pem
+*.key
+*.cer
+*.zip
+*.pdf
+secrets/
+credentials/

@@ -1,0 +1,105 @@
+JEROC ÅTERVINNING — CODEX IMPLEMENTATIONSSPECIFIKATION
+Farligt avfall: artikelklassificering, invägning, arbetsorder, transportdokument och automatisk myndighetsrapportering
+Version: 2026-10-09
+Repo: NicklasJr93/JEROC-Atervinning (main)
+
+UPPDRAG TILL CODEX
+Granska den SENASTE koden i repot innan du börjar. Återanvänd och bygg vidare på befintliga komponenter; ersätt inte befintliga fungerande flöden. Implementera etappvis med tester. Redovisa tydligt vad som är färdigt, vad som är simulerat, vad som kräver certifikat/avtal samt kvarstående regelverksbeslut. Ingen riktig rapport får skickas innan företaget uttryckligen aktiverat produktionsanslutning.
+
+VERKSAMHETSFÖRUTSÄTTNING
+JEROC tar emot, lagrar och säljer vidare farligt avfall utan att behandla det. Prioritera verksamhetsrollen INSAMLARE: mottagning (6 kap. 3 § 1 avfallsförordningen) och borttransport av tidigare insamlat avfall (6 kap. 3 § 2). Kontrollera separat om ett visst uppdrag också medför rapportering i annan roll (t.ex. transportör eller avfallsproducent). Samma transporthändelse får inte dubbelrapporteras som transportör när ett lagligt undantag gäller, men andra självständiga rapporteringsplikter ska inte tappas bort. JEROC ska inte automatiskt rapportera å kunders vägnar; det kräver separat ombudshantering. Lager- och tillståndsvillkor kontrolleras separat från rapporteringsplikten.
+
+PRINCIPER
+1. Nästan ingen ändring av personalens befintliga invägningsapp. Den väljer material och vikt som idag.
+2. Kontorsappen och servern känner igen farligt avfall genom artikelregistret, INTE genom ett manuellt kryss på varje viktkort.
+3. Myndighetsrapportering ska ske från en serverside-händelsekö med transaktionssäker datalagring, inte från frontend/localStorage.
+4. Transportdokument (följer med körningen) är INTE samma sak som anteckning/API-rapport till Naturvårdsverkets avfallsregister.
+5. Miljöflödet är frikopplat från kundgodkännande av avräkning, attest, Visma och utbetalning; deras status ska inte styra myndighetsfrister.
+6. Behåll exakt befintlig JEROC-design, original-loggan och befintliga funktioner. Arbetsordrar ska vara EGEN huvudflik i VÄNSTRA SIDOMENYN, skild från Transportplanering. Profil längst ner i vänstermenyn, ovanför kontorsdemo, enligt godkänd UI-plan. Inga ogenomtänkta omdesignningar.
+7. Utgå från senaste godkända mockuper när de finns i Codex-kontexten.
+
+BEFINTLIG KOD ATT INSPEKTERA
+- src/office/PricingWorkspace.tsx — Artikelinställningar och formulär.
+- src/office/pricing-client.ts — PriceArticle.
+- server/pricing.mjs — Artikelschema, validering och serverprisdata.
+- src/office/model.ts — OfficeCard, customer, viktkortsmodell.
+- src/office/OfficeApp.tsx — Vänstermeny, viktkort, kontorsflöde.
+- src/office/transport/TransportOrderEditor.tsx — Befintlig arbetsorderform (kund, adress, åtgärd, kärl, material, tidsåtgång, bokning).
+- src/office/transport/TransportWorkspace.tsx — Befintlig transportplanering med karta/kalender/arbetsordrar.
+- src/office/transport/types.ts — TransportOrder och statusar.
+- src/office/transport/model.ts — Transportvalidering, audit och demo-localStorage.
+- server/transport-integrations.mjs och src/office/transport/integrations-client.ts — Befintlig DEMO-outbox som INTE levererar externt; inte förväxla med en fungerande myndighetsintegration.
+Verifiera filvägar och kodinnehåll mot senaste main — de kan ha ändrats sedan analysen.
+
+ETAPP 1 — ARTIKELREGISTER
+Lägg ett eget kort 'Miljö & avfallsklassificering' direkt under 'Grunduppgifter & referensbilder' på den befintliga artikelredigerarens vänstra sida; rör inte priserna, referensbilderna, pristier eller volymgränserna.
+Fält:
+- hazardousWaste: boolean (Icke-farligt / Farligt avfall; INGET tredje alternativ 'bedömning krävs').
+- wasteCode: sexsiffrig EWC/avfallskod validerad mot gällande kodlista, med beskrivning och korrekt farligt-markering. Notera att myndighetens API i regel skickar sex siffror utan visad asterisk, medan UI kan visa '*'.
+- wasteDescription: miljöbeskrivning (vid behov, separat från artikelnamn).
+- handlingInstructions: mottagningsinstruktioner/säkerhetstext.
+- requiresAdrReview och strukturerade ADR-fält vid faktisk ADR-klassificering (håll Farligt avfall och Farligt gods tydligt åtskilda; inte automatiskt ADR bara för att avfallet är farligt).
+När farligt avfall är valt visas ALLA relevanta fält direkt, inga utfällbara sektioner. Om en annan klassificering krävs skapas en separat artikel. Äldre artiklar migreras med säkra defaultvärden och redigering/validering testas både server/client.
+Spara en versionerad snapshot av klassificering och wasteCode på varje mottagnings- eller transporthändelse, så att senare artikeländringar INTE retroaktivt ändrar myndighetsunderlag.
+
+ETAPP 2 — VIKTKORT OCH MOTTAGNING
+När en viktkortsrad innehåller artikel med hazardousWaste=true, skapa miljöhändelse av typen 'insamlarens mottagning' när faktisk mottagning dokumenterats. Exempel: verkstad lämnar 250 kg blybatterier, EWC 16 06 01*.
+Återanvänd artikelkod, nettovikt, mottagningsdatum, kund och anläggning; begär bara de uppgifter som annars saknas: tidigare avfallsinnehavare och dess identifierare (eller kommunkod vid avfall direkt från hushåll i tillämpliga fall), plats där avfallet senast hanterades och transportsätt. Kundens fakturaadress är inte nödvändigtvis ursprungsplatsen.
+På viktkortet visa en kompakt status 'Miljörapportering' (saknar uppgifter, väntar, skickar, rapporterad, fel) samt Avfalls-ID efter bekräftelse.
+För yrkesmässig inkommande leverans: kontrollera och länka kundens befintliga transportdokument/referens. Saknas det, logga avvikelse och låt miljöansvarig hantera situationen; skapa ALDRIG ett bakdaterat dokument som påstås ha följt med transporten. Separat kontroll av rätt att ta emot avfallet på anläggningen.
+Ett viktkort med flera farliga avfallsartiklar ska kunna generera flera korrekta rapporteringsposter, inte sammanblanda koder/vikter. Kör inte samma rapport två gånger vid dubbelklick, omladdning eller återförsök.
+Miljörapportering får inte vänta på prissättning, attest, kundens BankID eller utbetalning.
+
+ETAPP 3 — ARBETSORDRAR SOM EGEN HUVUDMENY
+Skapa/utöka vänstermeny 'Arbetsordrar'. Återanvänd befintlig ordermodell, transportplanering, förare, fordon, kartor, kalendrar, kundregister och dokumentation. Behåll 'Transportplanering' separat för karta/kalender. En tydlig professionell arbetsorderöversikt, ny arbetsorder och detaljvy, anpassad efter godkända mockuper.
+Uppdragstyper: befintlig Hämtning, Byte, Utställning (och vid behov vanliga lämningsuppdrag), samt ny tydlig 'Utleverans' för när JEROC säljer/lämnar vidare avfall från egen anläggning. Gör inte separat parallell ordermotor.
+Arbetsorder: kund/partner, verksamhetsroll, startplats, destination, slutlig mottagare, förare/fordon eller extern transportör, datum/tid, materialrader och EWC, preliminär vikt och senare faktisk vikt, kärl/containernummer, kontaktperson, instruktioner och bilagor. Fälten visas efter uppdragets typ, inte som ett enormt formulär för alla.
+Arbetsorder av typen Hämtning av farligt avfall skapar automatiskt UTKAST av transportdokument redan när ordern skapas. För hämtning skapas automatiskt ett idempotent VIKTKORTSUTKAST när uppdraget påbörjas och material förväntas tas emot på JEROC. Inget viktkort för ren utställning av tom container. Byte skapar utkast endast för hämtad last, inte den tomma containern.
+Utleverans: sätt JEROC som lämnare/ursprungsanläggning och faktisk köpare/mottagare med mottagningsadress. Hantera extern transportör. Borttransport som insamlare skapar en miljöhändelse före avfärd från JEROC. Hantera lageravdrag och spårbarhet där relevant.
+
+ETAPP 4 — DIGITALT TRANSPORTDOKUMENT
+Skapa transportdokument i orderns flik 'Transportdokument', med serverlagrat utkast och PDF-förhandsvisning. Nödvändiga fält omfattar sexsiffrig avfallskod, vikt i kg, transportens startdatum, ursprungsplats, destination, transportör, eventuell lämnare och slutlig mottagare inklusive namn, adresser och juridiska identifierare. Flera avfallsslag ska hanteras korrekt enligt gällande regler.
+För JEROC:s HÄMTNING: innan chauffören får börja köra med den upphämtade lasten måste dokumentet vara fullständigt och signerat av transportör (JEROC/chaufför med behörighet) och lämnare (verkstaden), alternativt giltig skriftlig fullmakt vid ombudssignering. Transportdokumentet behöver inte vara signerat när den tomma bilen kör TILL kunden.
+För UTLEVERANS från JEROC: slutför och signera före lastad borttransport, rätt parter efter faktisk transportör och lämnare.
+Signering: riktig elektronisk UNDERSKRIFT knuten till låst dokumentversion/hash, identitet och tid, via avsedd e-signeringstjänst; enbart BankID-inloggning eller knapptryck är INTE likvärdigt med dokumentunderskrift. Naturvårdsverket rekommenderar avancerad elektronisk underskrift. Kundsignering via säker webb/SMS-länk; chaufför via mobilanpassad webbsida. Kräver inte ändring av befintlig invägningsapp.
+Visas digitalt/PDF under transporten. Signerade original är immutabla; ändring ska ske genom ny version/korrektion med spårbarhet. Varken dokumentutkast eller signatur ska påstås vara äkta i demo utan aktiv signeringstjänst.
+Vikt före körning: krav på vikt i transportdokument och anteckning före start. Anta INTE generellt att en osäker uppskattning ersätter korrekt dokumentationskrav; utforma en godkänd rutin för att fastställa/ange lastvikt innan avfärd, hantera avvikelser och eventuell senare rapporteringsrättelse separat.
+
+ETAPP 5 — NATURVÅRDSVERKET API OCH RAPPORTERINGSKÖ
+Koppla in Naturvårdsverkets avfallsregister via en fristående adapter med TEST först; produktionsanslutning kräver godkänt anslutningsförfarande, certifikat och behörigheter. Ta faktisk aktuell Swagger/kodlistor från myndigheten, hårdkoda inte fältnamn från gamla exempel. Håll all mTLS/OAuth2/certifikathantering på servern.
+För JEROC som insamlare:
+- POST/PUT /insamlingar — mottagning av farligt avfall.
+- POST/PUT /insamlingstransport — borttransport av tidigare insamlat avfall.
+Konfigurera övriga typer (/transporter, /transportplaneringar, /handel osv.) först när relevant skyldighet och rätt verksamhetsroll verifierats för händelsen. Rapportera INTE å kundens vägnar utan särskild ombudsbehörighet.
+API-svar med 'Avfalls-ID' sparas på exakt miljöhändelse, tillsammans med tidpunkt, skickad versionssnapshot, API-svar, försöksantal och eventuell rättelse/makulering. Acknowledge bara när myndigheten accepterat.
+Bygg beständig serverdatabas för order, viktkortskopplingar, dokument, revisionsspår och outbox. Nuvarande transportdemo använder localStorage och serverns integration-demo lagrar i minnet; det duger inte för produktion. Transactional outbox/idempotency för återförsök, dubbelklick, klientrefresh, nätfel och parallella kontorister.
+Tidfrister ska beräknas separat för varje rapporteringshändelse enligt gällande rätt: insamlarens mottagningsanteckning inom två arbetsdagar efter mottagning, borttransportanteckning före avfärd; rapportering senast två arbetsdagar efter när anteckningen skulle ha förts. Rapportera så snart korrekt underlag finns och varna innan frister, utan att invänta ekonomiskt godkännande.
+Rapportstatus: Saknar uppgifter, Redo, Köad, Skickar, Rapporterad, Fel, Kräver rättelse, Rättad/Makulerad. Fel ska visas i kontorsöversikt och vara åtgärdbara för behörig personal. Inga tysta rapportförluster.
+
+ETAPP 6 — TILLSTÅND, ADR OCH AVGRÄNSNING
+Per JEROC-anläggning konfigurera tillåtna avfallskoder/mängdgränser och varna eller stoppa enligt företagets tillstånd och godkänd verksamhetsregel. Kontrollera externa transportörers/mottagares tillstånd där relevant. Håll ADR/farligt gods separat från farligt avfall (ytterligare krav kan tillkomma, inte implementerade enbart med transportdokument). Ingen behandlings-/kvartalsmodul så länge JEROC bara lagrar och säljer vidare. Årlig miljörapport och övriga tillståndskrav är separata från Avfallsregistrets händelser.
+
+TEST/ACCEPTANSKRAV
+A. Icke-farlig artikel: inga extra miljöfält på viktkort eller automatiska NVV-anrop.
+B. Farlig artikel: korrekt EWC och miljöstatus, rapport först när samtliga lagstadgade underlag finns, utan att vänta på attest.
+C. Företagskund själv levererar blybatterier: registrera JEROC:s mottagning, kontrollera INKOMMANDE transportdokument separat; saknat dokument skapar avvikelse, inte bakdaterat dokument.
+D. JEROC hämtar blybatterier: arbetsorder -> osignerat dokument -> båda signaturer före lastad avfärd -> automatisk viktkortsutkast -> slutlig invägning -> korrekta separata miljöhändelser.
+E. JEROC skickar parti till extern återvinnare: Utleverans -> transportdokument -> borttransporthändelse -> korrekt myndighetsrapport, oavsett om JEROC eller extern åkare kör.
+F. Blandad vägning med farligt + icke-farligt avfall samt flera farliga EWC ger rätt separata mängder; ingen dubblering.
+G. API-fel, certifikatfel, timeout, omstart, parallell handläggning och rättelse är spårbara och idempotenta.
+H. Saknade obligatoriska fält och uteblivna signaturer blockerar transportdokumentets status 'klart' – men juridisk förflyttning kan inte tekniskt hindras; ge tydlig varning och audit.
+I. Inga regressionsfel i prisberäkning, artikelfoton, A/B/C-priser, kundgodkännande, viktkort, mobil invägning, transportkalender, terminal eller befintlig UI.
+
+LEVERANSORDNING
+1. Lägg fram en kort konkret kodkartläggning + datamodell + migrationsplan och lista regler som måste klarläggas.
+2. Bygg artikelmiljöfält och viktkortsmottagning med tester.
+3. Bygg ny huvudsida Arbetsordrar, utleverans och order-kopplingar med tester.
+4. Bygg digitala transportdokument och PDF, först i demo/mockad signering, sedan riktig e-signering.
+5. Bygg beständig outbox och NVV-adapter med mock/test, därefter produktionsaktivering separat.
+6. Dokumentera miljö- och verksamhetskonfiguration, certifikat och produktionschecklista.
+Inga hemliga nycklar/certifikat i GitHub. Ingen produktionsrapport utan aktivt godkänd anslutning.
+
+OFFICIELLA KÄLLOR — FÖR CODEX ATT KONTROLLERA UNDER IMPLEMENTERING
+Avfallsregistrets API: https://www.naturvardsverket.se/vagledning-och-stod/avfall-farligt-avfall/rapportera-till-avfallsregistret-via-api/
+Avfallsregistrets skyldigheter: https://www.naturvardsverket.se/avfallsregister
+Transportdokument och signering: https://www.naturvardsverket.se/vagledning-och-stod/avfall/avfallstransporter-inom-sverige/

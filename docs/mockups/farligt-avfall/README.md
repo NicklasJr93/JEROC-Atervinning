@@ -3,7 +3,10 @@
 Designförslag 2026-10-09 med fiktiva exempeldata. **Appen är oförändrad:**
 bilderna visar föreslagna vyer och händelser, inga integrationer eller nya
 funktioner är aktiverade. Inga kontouppgifter, certifikat eller avtal behövs
-för att granska bilderna. Förslagen är ännu inte godkända för implementation.
+för att granska bilderna. Mockupserien har godkänts för fortsatt planering;
+byggstart och produktionsaktivering är separata beslut.
+
+[API-, certifikat- och flödesgranskning inför bygget](../../integrationer/naturvardsverket/README.md).
 
 Omfattning: **blybatterier, 16 06 01\***, vägning hos kunden med våg,
 kundinlämning, JEROC-hämtning och utleverans med egen eller extern transportör.
