@@ -60,8 +60,9 @@ const addressResolutionSchema = z.object({
   provider: z.string().trim().min(1).max(100), resolvedAt: z.string().datetime({ offset: true }).optional(), municipalityConfirmed: z.boolean().optional(),
 }).strict();
 const newDocumentSchema = z.object({
-  status: z.enum(['provided', 'not_required', 'missing', 'unknown']), reference: z.string().trim().max(300).optional(),
+  status: z.enum(['provided', 'not_required', 'not_shown', 'missing', 'unknown']), reference: z.string().trim().max(300).optional(),
   missingReason: z.string().trim().max(2000).optional(), exemptionReason: z.string().trim().max(2000).optional(),
+  selection: z.enum(['automatic', 'manual']).optional(),
 }).strict().superRefine((value, context) => {
   if (value.status === 'missing' && !value.missingReason) context.addIssue({ code: 'custom', path: ['missingReason'], message: 'Beskriv det saknade dokumentet.' });
   if (value.status === 'not_required' && !value.exemptionReason) context.addIssue({ code: 'custom', path: ['exemptionReason'], message: 'Ange varför transportdokument inte krävs i detta fall.' });
@@ -95,7 +96,7 @@ const draftSchema = z.object({
   rows: z.array(z.object({ articleId: id, weight }).strict()).max(100).default([]),
   previousHolder: z.object({ name: z.string().trim().max(300).default(''), number: z.string().trim().max(100).default(''), contactName: optionalText, email: z.string().trim().max(200).default(''), phone: z.string().trim().max(50).default('') }).strict().optional(),
   lastPlace: draftPlaceSchema.optional(), nextPlace: draftPlaceSchema.optional(), transportMode: z.enum(['road', 'rail', 'sea', 'air']).default('road'),
-  incomingDocument: z.object({ status: z.enum(['provided', 'not_required', 'missing', 'unknown']), reference: z.string().trim().max(300).optional(), missingReason: z.string().trim().max(2000).optional(), exemptionReason: z.string().trim().max(2000).optional() }).strict().default({ status: 'unknown' }),
+  incomingDocument: z.object({ status: z.enum(['provided', 'not_required', 'not_shown', 'missing', 'unknown']), reference: z.string().trim().max(300).optional(), missingReason: z.string().trim().max(2000).optional(), exemptionReason: z.string().trim().max(2000).optional(), selection: z.enum(['automatic', 'manual']).optional() }).strict().default({ status: 'unknown' }),
   addressResolution: addressResolutionSchema.optional(),
   materialScope: z.literal('hazardous').optional(),
 }).strict();

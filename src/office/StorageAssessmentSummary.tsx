@@ -3,8 +3,30 @@ import { articles } from '../data';
 import { environmentTime, environmentWeight, formatWasteCode, type EnvironmentalStorageAssessment } from './environment-types';
 import './storage-assessment.css';
 
-export default function StorageAssessmentSummary({ assessment, loading = false, error = '', detailed = false, recorded = false }: {
+type StorageCheck = EnvironmentalStorageAssessment['checks'][number];
+type StorageMaterial = { articleId: string; name?: string; wasteCode?: string };
+
+function summaryChecks(checks: StorageCheck[], materials: StorageMaterial[]) {
+  const combined = new Map<StorageCheck, StorageCheck>();
+  const omitted = new Set<StorageCheck>();
+  for (const codeCheck of checks) {
+    if (codeCheck.code !== 'waste_code_capacity' || codeCheck.severity !== 'ok' || !codeCheck.wasteCode) continue;
+    const articleIds = [...new Set(materials.filter(material => material.wasteCode === codeCheck.wasteCode).map(material => material.articleId))];
+    if (articleIds.length !== 1) continue;
+    const articleCheck = checks.find(check => check.articleId === articleIds[0] && check.code === 'article_capacity' && check.severity === 'ok');
+    // Different balances mean the code also includes stock outside this article.
+    // Keep that shared check visible instead of presenting it as an article limit.
+    if (!articleCheck || articleCheck.currentKg !== codeCheck.currentKg || articleCheck.incomingKg !== codeCheck.incomingKg || articleCheck.projectedKg !== codeCheck.projectedKg) continue;
+    if (articleCheck.maxKg == null || codeCheck.maxKg == null) continue;
+    combined.set(articleCheck, { ...articleCheck, maxKg: Math.min(articleCheck.maxKg, codeCheck.maxKg) });
+    omitted.add(codeCheck);
+  }
+  return checks.filter(check => !omitted.has(check)).map(check => combined.get(check) ?? check);
+}
+
+export default function StorageAssessmentSummary({ assessment, loading = false, error = '', detailed = false, recorded = false, materials = [] }: {
   assessment?: EnvironmentalStorageAssessment; loading?: boolean; error?: string; detailed?: boolean; recorded?: boolean;
+  materials?: StorageMaterial[];
 }) {
   const blocked = assessment?.checks.some(check => check.severity === 'blocked');
   const warnings = assessment?.checks.filter(check => check.severity === 'warning') ?? [];
@@ -17,8 +39,8 @@ export default function StorageAssessmentSummary({ assessment, loading = false, 
     <div className="storage-assessment-heading">{loading ? <LoaderCircle size={16} /> : status === 'ok' && assessment ? <CheckCircle2 size={16} /> : <CircleAlert size={16} />}<div><strong>{title}</strong>{recorded && assessment && <small>Kontroll vid registrering · {environmentTime(assessment.checkedAt)}</small>}</div></div>
     {error && <p>{error}</p>}
     {!detailed && blocked && <p>{assessment?.checks.find(check => check.severity === 'blocked')?.message}</p>}
-    {detailed && assessment && !loading && <ul>{assessment.checks.map((check, index) => <li key={`${check.code}/${check.articleId ?? check.wasteCode ?? ''}/${index}`} className={check.severity}>
-      <div><strong>{check.articleId ? articles.find(article => article.id === check.articleId)?.name ?? check.articleId : check.wasteCode ? `Avfallskod ${formatWasteCode(check.wasteCode, false)}` : 'Anläggningen'}</strong><span>{check.message}</span></div>
+    {detailed && assessment && !loading && <ul>{summaryChecks(assessment.checks, materials).map((check, index) => <li key={`${check.code}/${check.articleId ?? check.wasteCode ?? ''}/${index}`} className={check.severity}>
+      <div><strong>{check.articleId ? materials.find(material => material.articleId === check.articleId)?.name ?? articles.find(article => article.id === check.articleId)?.name ?? check.articleId : check.wasteCode ? `Avfallskod ${formatWasteCode(check.wasteCode, false)}` : 'Anläggningen'}</strong>{check.severity !== 'ok' && <span>{check.message}</span>}</div>
       <small>Registrerat {environmentWeight(check.currentKg)} · {check.incomingKg < 0 ? 'Justering' : 'Tillkommer'} {environmentWeight(check.incomingKg)} · Efter {environmentWeight(check.projectedKg)}{check.maxKg != null && ` / ${environmentWeight(check.maxKg)}`}</small>
     </li>)}</ul>}
     {detailed && <small>Kontrollen bygger på registrerade mottagningar och rättelser. Utgående lager och inventering kopplas på i en senare etapp.</small>}

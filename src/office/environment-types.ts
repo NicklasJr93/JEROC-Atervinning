@@ -49,7 +49,8 @@ export interface EnvironmentalAddressResult extends EnvironmentalAddressResoluti
 }
 export type EnvironmentalTransportMode = 'road' | 'rail' | 'sea' | 'air';
 export interface IncomingEnvironmentalDocument {
-  status?: 'provided' | 'not_required' | 'missing' | 'unknown';
+  status?: 'provided' | 'not_required' | 'not_shown' | 'missing' | 'unknown';
+  selection?: 'automatic' | 'manual';
   reference?: string;
   missingReason?: string;
   exemptionReason?: string;

@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilversion: 0.3.0. Aktuell kontorsversion: 0.8.1.
+Aktuell mobilversion: 0.3.0. Aktuell kontorsversion: 0.8.2.
 Punkterna 001–042 är genomförda; 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
@@ -897,3 +897,24 @@ Releasekontroll 0.8.1
 16 riktade serverkontroller i PostgreSQL och ett webbläsarflöde med två kassor
 passerade. Flödet täcker en vanlig kopparvägning utan miljökort och en blandad
 vägning där bara blybatterier visas och registreras. Produktionsbygget passerade.
+
+047 – Enklare miljökort och frivillig dokumentregistrering
+Status: Genomförd i kontorsdemo 0.8.2 enligt beställning 2026-10-09.
+- En artikelrad ersätter identiska gröna artikel-/kodkontroller och visar den
+  lägsta tillämpliga gränsen. Delade koder, olika lager och avvikelser visas separat.
+- Bekräfta mottagning finns även på hopfällt kort och öppnar granskningspopup.
+  Expanderat kort bekräftas direkt; lyckad registrering fäller ihop kortet.
+- Knappen tonas ned om något saknas men är klickbar för begriplig återkoppling.
+  Behörighetskontroll, adresskrav, mottagen mängd och lagringsvillkor behålls.
+- Privat inlämning får förvalt Behövs ej; företag/BRF får Ej uppvisat med en
+  orange upplysning om transportörens dokumentansvar när dokument krävs.
+- Automatiska förval uppdateras vid kundbyte. Manuella val och registrerade
+  nummer bevaras. Valens källa sparas även i utkast och mottagningsversion.
+- Ej uppvisat kräver inget nummer eller avvikelsefält och blockerar inte
+  mottagning/rapportunderlag. Äldre avvikelser och mottagningsoriginal bevaras.
+- Ingen rensning, ny Renderkonfiguration eller extern överföring aktiveras.
+
+Releasekontroll 0.8.2
+22 riktade serverkontroller i PostgreSQL, fyra webbläsarflöden och
+produktionsbygget passerade. Kontrollerna täcker kundbyte, sparade dokumentval,
+bekräftelse från båda kortlägen, saknad kommun, två kassor och lagringsgränser.

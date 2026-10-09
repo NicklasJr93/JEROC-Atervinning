@@ -43,6 +43,7 @@ async function confirmReceipt(page: Page, sourceId: string) {
   const panel = page.getByRole('region', { name: 'Miljö och mottagning', exact: true });
   await expect(panel).toContainText('Norrtälje · 0188');
   await panel.getByLabel('Dokumentstatus', { exact: true }).selectOption('provided');
+  await panel.getByRole('button', { name: 'Dölj mottagningsuppgifter', exact: true }).click();
   await panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
   const review = page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
   await expect(review).toContainText('Blybatterier');
@@ -120,10 +121,12 @@ test('ogiltigt innehavarnummer stoppas före bekräftelsen och giltiga svenska o
   await panel.getByRole('button', { name: 'Ändra tidigare innehavare', exact: true }).click();
   for (const number of ['811002-2586', '19811002-2586', 'NO123456789MVA']) {
     await panel.getByLabel('Tidigare innehavare – organisationsnummer', { exact: true }).fill(number);
+    await panel.getByRole('button', { name: 'Dölj mottagningsuppgifter', exact: true }).click();
     await panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
     const review = page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
     await expect(review).toBeVisible();
     await review.getByRole('button', { name: 'Avbryt', exact: true }).click();
+    await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
   }
   const shared = await state(page.request);
   expect(shared.receipts.some(item => item.sourceId === fixture.sourceId)).toBe(false);
@@ -287,6 +290,7 @@ test('två vägningar av samma artikel blir en fysisk mängd utan en falsk begä
   await panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
   await expect(panel).toContainText('Norrtälje · 0188');
   await panel.getByLabel('Dokumentstatus', { exact: true }).selectOption('provided');
+  await panel.getByRole('button', { name: 'Dölj mottagningsuppgifter', exact: true }).click();
   await panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
   const review = page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
   await expect(review.getByText('125 kg', { exact: true })).toHaveCount(2);
@@ -316,9 +320,7 @@ test('ändrad vikt kräver spårbar miljörättelse med bevarat original och net
   const reason = 'Kontrollvägning: fem kilo emballage ingick felaktigt.';
   await panel.getByLabel('Orsak till miljörättelse', { exact: true }).fill(reason);
   await panel.getByRole('button', { name: 'Spara miljörättelse', exact: true }).click();
-  const review = page.getByRole('dialog', { name: 'Bekräfta miljörättelse', exact: true });
-  await expect(review).toContainText('245 kg');
-  await review.getByRole('button', { name: /Bekräfta miljörättelse|Spara miljörättelse/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Bekräfta miljörättelse', exact: true })).toHaveCount(0);
   await expect.poll(async () => (await state(page.request)).receipts.find(receipt => receipt.sourceId === fixture.sourceId)?.version).toBe(2);
   const shared = await state(page.request);
   const current = shared.receipts.find(receipt => receipt.sourceId === fixture.sourceId)!;
@@ -371,12 +373,11 @@ test('två kassor som ändrar samma utkast får versionskonflikt utan att det an
     const stored = await state(contexts[1].request);
     expect(stored.drafts.find(draft => draft.sourceId === fixture.sourceId)?.input.incomingDocument?.reference).toBe('KASSA-ETT');
     expect(stored.inventory.filter(item => item.sourceId === fixture.sourceId)).toHaveLength(0);
-    await panels[1].getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
-    const review = pages[1].getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
     const staleConfirmation = pages[1].waitForResponse(response => response.url().endsWith('/api/environment/receipts') && response.request().method() === 'POST');
-    await review.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
+    await panels[1].getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
     expect((await staleConfirmation).status()).toBe(409);
-    await expect(review.getByRole('alert')).toContainText(/senaste versionen|annan kollega/);
+    await expect(panels[1].getByRole('alert')).toContainText(/senaste versionen|annan kollega/);
+    await expect(pages[1].getByRole('dialog', { name: 'Bekräfta mottagning', exact: true })).toHaveCount(0);
     await expect(panels[1].getByRole('button', { name: 'Dölj mottagningsuppgifter', exact: true })).toHaveAttribute('aria-expanded', 'true');
     expect((await state(contexts[1].request)).receipts.some(item => item.sourceId === fixture.sourceId)).toBe(false);
   } finally { await Promise.all(contexts.map(context => context.close())); }

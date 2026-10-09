@@ -160,6 +160,7 @@ test('artikelklassificering och faktisk mottagning sparas via kontoret och syns 
   await expect(receiptPanel).toContainText('Norrtälje · 0188');
   await receiptPanel.getByLabel('Dokumentstatus', { exact: true }).selectOption('provided');
   await receiptPanel.getByLabel('Inkommande transportdokument', { exact: true }).fill(`TD-IN-${cardId}`);
+  await receiptPanel.getByRole('button', { name: 'Dölj mottagningsuppgifter', exact: true }).click();
   await receiptPanel.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
   const review = page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
   await expect(review).toContainText('250 kg');

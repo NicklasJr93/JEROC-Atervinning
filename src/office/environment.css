@@ -53,6 +53,11 @@
 .environment-receipt-summary > div { flex:1; min-width:160px; }
 .environment-receipt-summary strong { display:block; font-size:16px; color:#14814f; }
 .environment-receipt-summary small { display:block; color:#7d91a8; font-size:10px; margin-top:6px; line-height:1.5; }
+.environment-compact-actions { display:flex; justify-content:flex-end; margin-top:12px; }
+.office .environment-confirm-action.needs-details:not(:disabled) { opacity:.5; }
+.office .environment-confirm-action.needs-details:not(:disabled):hover,
+.office .environment-confirm-action.needs-details:not(:disabled):focus-visible { opacity:.8; }
+.environment-document-notice { margin-top:8px; }
 .environment-receipt-editor { border-top:1px solid #e3f0e9; padding-top:15px; margin-top:14px; }
 .environment-fieldset { border:0; border-top:1px solid #e6edf5; margin:15px 0 0; padding:12px 0 0; min-width:0; }
 .environment-fieldset legend { font-weight:650; font-size:12px; padding:0 10px 0 0; color:#354f6e; }

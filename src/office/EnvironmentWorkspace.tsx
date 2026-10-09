@@ -9,7 +9,8 @@ import './environment.css';
 const dueDate = (value: string) => new Date(`${value}T12:00:00Z`).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/Stockholm' });
 const today = () => new Intl.DateTimeFormat('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Europe/Stockholm' }).format(new Date());
 const documentLabel = (document: IncomingEnvironmentalDocument) => {
-  if (document.status === 'not_required') return `Krävs inte · ${document.exemptionReason ?? ''}`;
+  if (document.status === 'not_required') return 'Behövs ej';
+  if (document.status === 'not_shown') return 'Ej uppvisat';
   if (document.status === 'missing') return `Saknas · ${document.missingReason ?? ''}`;
   if (document.status === 'provided' || document.reference) return document.reference || 'Dokument finns · utan referensnummer';
   return 'Inte kontrollerat';

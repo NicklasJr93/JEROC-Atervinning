@@ -112,7 +112,10 @@ test('mottagningskortet visar befintligt lager och blockerar överskridande, sed
   expect(stockResponse.ok()).toBe(true);
   const base = data.cards.find(item => item.id === 2050)!;
   data.cards.push({ ...base, id: cardId, sourceId, siteId: created.id, yard: created.name, origin: 'Industrivägen 8, 761 41 Norrtälje', rows: [{ ...base.rows.find(row => row.articleId === 'lead-battery')!, weight: 20 }] });
-  await page.evaluate(value => localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value)), data);
+  const imported = await page.request.post('/api/application/office', {
+    headers: { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' }, data: { kind: 'import', data },
+  });
+  expect(imported.ok()).toBe(true);
   await page.goto(`/kontor?storage-test=${sourceId}#/weighings/${cardId}`);
   const panel = page.getByRole('region', { name: 'Miljö och mottagning', exact: true });
   await expect(panel.getByRole('region', { name: 'Lagringskontroll', exact: true })).toContainText('Mottagningen ryms inte');
@@ -130,9 +133,7 @@ test('mottagningskortet visar befintligt lager och blockerar överskridande, sed
   await expect(panel.getByRole('region', { name: 'Lagringskontroll', exact: true })).toContainText('Inom angivna lagringsgränser');
   await expect(panel).toContainText('Norrtälje · 0188');
   await panel.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
-  await dialog.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
-  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true })).toHaveCount(0);
   await expect.poll(async () => (await shared(page)).receipts.find(item => item.sourceId === sourceId)?.snapshot.storageAssessment?.canReceive).toBe(true);
   await expect(panel).toContainText('Kontroll vid registrering');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

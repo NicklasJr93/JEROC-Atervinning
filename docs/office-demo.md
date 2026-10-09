@@ -1,4 +1,24 @@
-# JEROC kontorsdemo 0.8.1
+# JEROC kontorsdemo 0.8.2
+
+## Nytt i 0.8.2 – enklare mottagningsbekräftelse
+
+Miljökortet har **Bekräfta mottagning** även när det är hopfällt. Då visas en
+granskningspopup; i expanderat läge bekräftas uppgifterna direkt. Saknade uppgifter
+ger en nedtonad, klickbar knapp som öppnar uppgifterna med en förklaring.
+Efter lyckad mottagning fälls kortet ihop. Behörighet och servervalidering gäller
+fortfarande, och kundgodkännande/intern attest är separata steg.
+
+Transportdokument är frivilligt att registrera: privat inlämning får förvalet
+**Behövs ej**, företag/BRF **Ej uppvisat** med en upplysning om transportörens
+dokumentansvar när kravet gäller. Förvalen är ändringsbara och följer kundbyte.
+Ett manuellt valt läge eller registrerat nummer bevaras, även efter omladdning.
+Ej uppvisat kräver varken dokumentnummer eller avvikelsebeskrivning och blockerar
+inte mottagning eller lägger till något krav i NVV-underlaget. Äldre mottagningar
+med dokumentavvikelse och deras oföränderliga original bevaras.
+
+Identiska godkända artikel-/kodkontroller visas som en artikelrad med den lägsta
+gränsen. Delade kodgränser, olika lagersaldon samt varningar och blockeringsorsaker
+visas separat. Alla kontroller görs fortsatt på servern. Ingen ny Renderinställning.
 
 ## Nytt i 0.8.1 – miljökort för farligt avfall
 

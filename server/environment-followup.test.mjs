@@ -153,6 +153,35 @@ test('optional document references distinguish present, exempt, missing and unkn
   assert.equal(legacyMissing.deviations.some((item) => item.code === 'missing_document'), true);
 }));
 
+test('not_shown document status needs no reference and preserves automatic or manual selection without reporting blockers', async () => fixture(async (f) => {
+  const provided = await f.store.receive(receiptInput({ materialScope: 'hazardous' }), f.kajsa.token);
+  const baselineReport = (await f.store.state(f.admin.token)).reports.find(report => report.receiptId === provided.id);
+  const originals = [];
+  for (const selection of ['automatic', 'manual']) {
+    const input = receiptInput({ materialScope: 'hazardous', incomingDocument: { status: 'not_shown', reference: '', selection } });
+    const draft = await f.store.saveDraft(input.sourceId, draftInput(input), f.kajsa.token);
+    assert.deepEqual(draft.input.incomingDocument, input.incomingDocument);
+    const receipt = await f.store.receive({ ...input, expectedDraftVersion: draft.version }, f.kajsa.token);
+    assert.deepEqual(receipt.snapshot.incomingDocument, input.incomingDocument);
+    assert.deepEqual(receipt.deviations, []);
+    assert.equal(receipt.hash, environmentHash(receipt.snapshot));
+    assert.equal((await f.store.receive(input, f.kajsa.token)).hash, receipt.hash);
+    const report = (await f.store.state(f.admin.token)).reports.find(report => report.receiptId === receipt.id);
+    assert.deepEqual(report.missingFields, baselineReport.missingFields);
+    originals.push({ input, receipt });
+  }
+  await rejects(() => f.store.receive(receiptInput({ incomingDocument: { status: 'missing', selection: 'manual' } }), f.kajsa.token), 422);
+  await rejects(() => f.store.receive(receiptInput({ incomingDocument: { status: 'not_required', selection: 'automatic' } }), f.kajsa.token), 422);
+  await f.restart();
+  const state = await f.store.state(f.admin.token);
+  for (const { input, receipt } of originals) {
+    const reopened = state.receipts.find(item => item.id === receipt.id);
+    assert.equal(reopened.hash, receipt.hash);
+    assert.deepEqual(reopened.snapshot.incomingDocument, input.incomingDocument);
+    assert.equal((await f.store.receive(input, f.kajsa.token)).id, receipt.id);
+  }
+}));
+
 test('weight corrections retain original snapshots and append signed inventory movements exactly once', async () => fixture(async (f) => {
   const input = receiptInput(), original = await f.store.receive(input, f.kajsa.token);
   const originalRows = structuredClone((await f.store.state(f.admin.token)).inventory);
