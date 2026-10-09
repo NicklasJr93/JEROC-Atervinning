@@ -28,7 +28,9 @@ test('site restrictions survive account parsing and legacy permission updates; a
   assert.deepEqual(store.principal('kajsa').user.siteIds, ['rimbo']);
   changeUser(store, 'kajsa', { siteIds: [] });
   assert.deepEqual(store.principal('kajsa').user.siteIds, []);
-  assert.throws(() => changeUser(store, 'kajsa', { siteIds: ['unknown-site'] }), (error) => error.status === 400);
+  // The pricing store accepts stable IDs from the shared, extensible facility
+  // catalog; syntax validation must not hard-code the original two demo sites.
+  assert.throws(() => changeUser(store, 'kajsa', { siteIds: ['invalid/site'] }), (error) => error.status === 400);
 });
 
 test('VD cannot grant sites outside the current personal scope or widen their own scope', () => {

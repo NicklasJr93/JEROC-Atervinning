@@ -6,6 +6,7 @@ import { App } from './App';
 import { DemoProvider } from './store';
 import './styles.css';
 const TerminalApp = React.lazy(() => import('./terminal/TerminalApp'));
+const DriverApp = React.lazy(() => import('./driver/DriverApp'));
 const pagePath = window.location.pathname.replace(/\/$/, '');
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -13,6 +14,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <HashRouter>
       {pagePath === '/terminal' ? (
         <React.Suspense fallback={<div role="status">Öppnar kundterminal…</div>}><TerminalApp /></React.Suspense>
+      ) : pagePath === '/chauffor' ? (
+        <React.Suspense fallback={<div role="status">Öppnar förarvyn…</div>}><DriverApp /></React.Suspense>
       ) : pagePath === '/kontor' ? (
         <OfficeApp />
       ) : (

@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilversion: 0.3.0. Aktuell kontorsversion: 0.8.3.
+Aktuell mobilversion: 0.3.0. Aktuell kontorsversion: 0.9.0.
 Punkterna 001–042 är genomförda; 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
@@ -924,3 +924,37 @@ Status: Genomförd i kontorsdemo 0.8.3 enligt beställning 2026-10-09.
 - Vikt flyttas åt vänster. Lagringsstatus, Visa uppgifter och Bekräfta mottagning
   visas på samma rad tillsammans med mottagningsstatusen på större skärmar.
 - Responsiv radbrytning på smala skärmar. Oförändrad validering och funktion.
+
+049 – Kundgodkännande före mottagningsbekräftelse och attest
+Status: Genomförd i kontorsdemo 0.9.0 enligt beställning 2026-10-09.
+- Normal ordning: kundgodkännande av aktuell version, bekräftad mottagning av
+  farligt avfall, intern attest. Vanliga artiklar behöver ingen miljömottagning.
+- Förberedelse och miljöutkast tillåts före kundgodkännande, men knappen för
+  mottagning är spärrad och servern kontrollerar godkännande/version/vikter.
+- Attest spärras om aktuell farlig mängd eller ursprung inte motsvarar
+  registrerad mottagning. Miljörättelse bevarar original och nettolager.
+- Fysiskt mottagningsdatum bevaras oberoende av ekonomiflödet.
+- Faktisk mottagning under kundtvist har separat behörighet, motivering och
+  logg. Kräver ändringsbegäran och kringgår aldrig kundgodkännande/attest.
+- Tidigare registrerade mottagningar, godkännanden och kort raderas inte.
+
+050 – Personal, schema, bemanning och externa chaufförer
+Status: Genomförd i kontorsdemo 0.9.0 enligt godkända personalmockuper.
+- Personalflik med lista, sökning, anläggnings-/teamfilter och personkort.
+- Befintlig JEROC-design; anställda och externa kopplas till stabila användar-,
+  förar-, fordons- och åkeri-ID:n utan att ändra tidigare bokningar.
+- Anställning och lön, separata uttryckliga löne- och frånvarorättigheter,
+  också för VD. Servern filtrerar bort skyddade uppgifter från otillåtna svar.
+- Återkommande arbetspass/lunch, frånvaro/sjukdom/ledighet och kompetenser
+  inklusive giltighet, körkort, YKB, ADR och arbetsgivarens fordonsbehörighet.
+- Frånvaro ger bemanningsuppgifter för redan bokade arbeten. Ersättare måste
+  vara tillgänglig, utan överlapp och uppfylla fordonets/arbetsorderns krav.
+- Planeraren visar schema/frånvaroblock och varnar för berörda jobb.
+  Kunduppgifter, önskad tid och befintliga bokningar bevaras tills förarbyte.
+- Systemadmin kan skapa/aktivera/avaktivera externa chaufförskonton samt ändra
+  lösenord. Mobil webbportal /chauffor visar endast tilldelade egna uppdrag.
+- Lösenord hashade; separata serverlagrade sessioner avslutas vid kontobyte.
+- PostgreSQL via befintligt DATABASE_URL, beständiga ändringar och auditlogg.
+  Utrustning, dokument/foto, rekrytering, lönesystem, backup och integrationer
+  väntar till senare etapper. Kontorets auth är fortsatt demo; använd testdata.
+- Ingen datarensning eller ny Renderkonfiguration behövs.

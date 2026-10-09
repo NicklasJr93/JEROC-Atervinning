@@ -43,12 +43,12 @@ async function body(req) {
 /** This module deliberately exports no NVV transport. It prepares durable
  * receipt/report records only. Staff sessions are explicit demo sessions;
  * legacy demo APIs keep their documented security boundaries. */
-export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, addressResolver = createEnvironmentAddressResolver() } = {}) {
+export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, addressResolver = createEnvironmentAddressResolver() } = {}) {
   let repositoryPromise, storePromise;
   const getStore = () => {
     if (!storePromise) {
       repositoryPromise = repository ? Promise.resolve(repository) : createEnvironmentRepository({ env });
-      storePromise = repositoryPromise.then((value) => createEnvironmentStore({ repository: value, principalStore, now, demoMode: env.JEROC_DEMO_AUTO_SESSION !== 'false' }));
+      storePromise = repositoryPromise.then((value) => createEnvironmentStore({ repository: value, principalStore, now, approvalGuard, demoMode: env.JEROC_DEMO_AUTO_SESSION !== 'false' }));
       const attempt = storePromise;
       attempt.catch(() => { if (storePromise === attempt) { storePromise = undefined; repositoryPromise = undefined; } });
     }
@@ -122,6 +122,7 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
   // Only used by other server modules. Terminal accounts receive their own
   // restricted DTO, not an unauthenticated facility-management endpoint.
   api.getSites = async () => (await getStore()).catalog();
+  api.assertReceiptForAttest = async (approval) => (await getStore()).assertReceiptForAttest(approval);
   api.close = async () => { if (repositoryPromise) await repositoryPromise.then((value) => value.close()).catch(() => {}); };
   return api;
 }

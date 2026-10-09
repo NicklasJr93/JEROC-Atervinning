@@ -228,3 +228,10 @@
 .transport-editor-spinner { animation: transport-editor-spin .8s linear infinite; }
 @keyframes transport-editor-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .transport-editor-spinner { animation: none; } }
+.transport-competency-picker { border-top: 1px solid #e2eaf4; padding-top: 12px; margin-top: 12px; }
+.transport-competency-picker summary { cursor: pointer; font-weight: 650; color: #254c79; }
+.transport-workspace .transport-competency-picker label { display: flex; flex-direction: row; align-items: center; gap: 7px; margin-top: 9px; font-size: 11px; }
+.transport-workspace .transport-competency-picker input { width: 15px; min-height: 15px; height: 15px; margin: 0; }
+.transport-personnel-validation { display: flex; gap: 8px; padding: 10px; border: 1px solid #edcf99; background: #fff7e8; border-radius: 8px; color: #875819; font-size: 11px; }
+.transport-personnel-validation > svg { flex-shrink: 0; }
+.transport-personnel-validation p { margin: 0 0 4px; }

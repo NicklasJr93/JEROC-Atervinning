@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.8.3';
+export const OFFICE_VERSION = '0.9.0';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -31,6 +31,18 @@ export const permissionNames = {
   environmentWrite: 'Registrera faktisk mottagning och miljöuppgifter',
   environmentClassify: 'Ändra artiklars miljöklassificering',
   environmentStorage: 'Hantera anläggningar, tillstånd och lagringsgränser',
+  environmentReceiveException: 'Registrera mottagning vid kundtvist med motivering',
+  personnelRead: 'Läsa personalregistret',
+  personnelWrite: 'Skapa och ändra personalprofiler',
+  employmentRead: 'Läsa anställningsuppgifter',
+  employmentWrite: 'Ändra anställningsuppgifter',
+  salaryRead: 'Läsa löneuppgifter',
+  salaryWrite: 'Ändra löneuppgifter',
+  absenceRead: 'Läsa frånvaroorsak',
+  absenceWrite: 'Registrera och ändra frånvaro',
+  competenciesWrite: 'Hantera kompetenser och fordonsbehörighet',
+  staffingWrite: 'Lösa bemanningsuppgifter',
+  externalAccounts: 'Hantera externa chaufförskonton',
   users: 'Hantera användare',
 } as const;
 export type Permission = keyof typeof permissionNames;
@@ -220,8 +232,11 @@ export const statusNames = {
   paid: 'Demoutbetald',
   balance: 'Sparat på saldo',
 };
+export const sensitivePersonnelPermissions: Permission[] = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite'];
 export const can = (user: OfficeUser, right: Permission) =>
-  right === 'users'
+  sensitivePersonnelPermissions.includes(right)
+    ? user.level === 'Systemadmin' || user.permissions.includes(right)
+    : right === 'users'
     ? user.level !== 'Medarbetare'
     : user.level !== 'Medarbetare' || user.permissions.includes(right);
 export const amount = (card: OfficeCard) =>

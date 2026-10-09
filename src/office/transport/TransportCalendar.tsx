@@ -22,6 +22,8 @@ export interface TransportCalendarProps {
   validateProposal(proposal: CalendarProposal): string | null;
   canPlan: boolean;
   focusRequest?: TransportFocusRequest;
+  unavailable?: Record<string, { startMinute: number; endMinute: number; label: string }[]>;
+  orderWarnings?: Record<string, string[]>;
 }
 
 interface Preview { proposal: CalendarProposal; error: string | null }
@@ -35,7 +37,7 @@ interface ResizeSession {
 const snap = (minutes: number) => Math.round(minutes / 15) * 15;
 const dayLabel = (date: string) => new Intl.DateTimeFormat('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(`${date}T12:00:00`));
 
-export default function TransportCalendar({ orders, drivers, vehicles, date, view, selectedDriverIds, onToggleDriver, hoveredId, selectedId, draggedOrderId, onHover, onSelect, onDragOrder, onPropose, validateProposal, canPlan, focusRequest }: TransportCalendarProps) {
+export default function TransportCalendar({ orders, drivers, vehicles, date, view, selectedDriverIds, onToggleDriver, hoveredId, selectedId, draggedOrderId, onHover, onSelect, onDragOrder, onPropose, validateProposal, canPlan, focusRequest, unavailable = {}, orderWarnings = {} }: TransportCalendarProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const resizeRef = useRef<ResizeSession | null>(null);
@@ -208,10 +210,11 @@ export default function TransportCalendar({ orders, drivers, vehicles, date, vie
       ? { left: `${(order.startMinute! - firstMinute) / minutes * 100}%`, width: `${duration / minutes * 100}%`, '--tc-driver': driver.color } as CSSProperties
       : { top: `${(order.startMinute! - firstMinute) / minutes * 100}%`, height: `${duration / minutes * 100}%`, '--tc-driver': driver.color } as CSSProperties;
     const editable = canPlan && order.status === 'booked';
-    const label = `${order.id}, ${order.customerName}, ${actionLabels[order.action]}, ${timeLabel(order.startMinute!)} till ${timeLabel(order.startMinute! + duration)}, ${driver.name}${order.preliminary ? ', preliminär bokning' : order.status === 'cancelled' ? ', avbruten' : ''}`;
+    const warning = orderWarnings[order.id]?.[0];
+    const label = `${order.id}, ${order.customerName}, ${actionLabels[order.action]}, ${timeLabel(order.startMinute!)} till ${timeLabel(order.startMinute! + duration)}, ${driver.name}${order.preliminary ? ', preliminär bokning' : order.status === 'cancelled' ? ', avbruten' : ''}${warning ? ', bemanning behöver åtgärdas' : ''}`;
     return <article
       key={order.id}
-      className={`tc-order tc-order-${order.status} ${order.preliminary ? 'is-preliminary' : ''} ${hoveredId === order.id ? 'is-hovered' : ''} ${selectedId === order.id ? 'is-selected' : ''} ${draggedOrderId === order.id ? 'is-dragging' : ''} ${previewingMove ? 'is-preview-source' : ''} ${resizing?.error ? 'is-invalid' : ''}`}
+      className={`tc-order tc-order-${order.status} ${order.preliminary ? 'is-preliminary' : ''} ${hoveredId === order.id ? 'is-hovered' : ''} ${selectedId === order.id ? 'is-selected' : ''} ${draggedOrderId === order.id ? 'is-dragging' : ''} ${previewingMove ? 'is-preview-source' : ''} ${resizing?.error ? 'is-invalid' : ''} ${warning ? 'has-staffing-warning' : ''}`}
       style={geometry}
       data-order-id={order.id}
       data-testid={`calendar-order-${order.id}`}
@@ -222,7 +225,7 @@ export default function TransportCalendar({ orders, drivers, vehicles, date, vie
       onMouseLeave={() => { if (!resizeRef.current) onHover(null, order.id); }}
     >
       <button className="tc-order-open" type="button" aria-label={label} aria-pressed={selectedId === order.id} onClick={() => onSelect(order.id)} onFocus={() => onHover(order.id)} onBlur={() => { if (!resizeRef.current) onHover(null, order.id); }}>
-        <span className="tc-order-time">{order.status === 'done' ? <Check size={11} /> : order.status === 'on_way' ? <Truck size={11} /> : order.status === 'cancelled' ? <XCircle size={11} /> : null}{timeLabel(order.startMinute!)}–{timeLabel(order.startMinute! + duration)}</span>
+        <span className="tc-order-time">{warning ? <AlertCircle size={11} aria-label="Bemanning behöver åtgärdas" /> : order.status === 'done' ? <Check size={11} /> : order.status === 'on_way' ? <Truck size={11} /> : order.status === 'cancelled' ? <XCircle size={11} /> : null}{timeLabel(order.startMinute!)}–{timeLabel(order.startMinute! + duration)}</span>
         <strong>{order.customerName}</strong>
         <span className="tc-order-action">{order.preliminary ? 'Preliminär bokning' : order.status === 'cancelled' ? 'Avbruten arbetsorder' : `${actionLabels[order.action]} · ${order.pickupVessel || order.vesselSize || order.material}`}</span>
         <span className="tc-order-meta">{view === 'week' ? driver.name.split(' ')[0] : order.id}{view === 'day' && vehicle ? ` · ${vehicle.registration}` : ''}</span>
@@ -262,6 +265,17 @@ export default function TransportCalendar({ orders, drivers, vehicles, date, vie
     </article>;
   }
 
+  function renderUnavailable(driverId: string, targetDate: string) {
+    return (unavailable[`${driverId}:${targetDate}`] ?? []).map((span, index) => {
+      const start = Math.max(firstMinute, span.startMinute), end = Math.min(lastMinute, span.endMinute);
+      if (end <= start) return null;
+      const geometry: CSSProperties = view === 'day'
+        ? { left: `${(start - firstMinute) / minutes * 100}%`, width: `${(end - start) / minutes * 100}%` }
+        : { top: `${(start - firstMinute) / minutes * 100}%`, height: `${(end - start) / minutes * 100}%` };
+      return <div key={`${start}:${end}:${index}`} className="tc-unavailable" style={geometry} title={`${span.label} ${timeLabel(span.startMinute)}–${timeLabel(span.endMinute)}`} data-testid={`calendar-unavailable-${driverId}-${targetDate}`}><span>{span.label}</span></div>;
+    });
+  }
+
   return <section className={`transport-calendar tc-${view} ${focusedWeek ? 'tc-week-focused' : ''}`} style={css} aria-label={view === 'day' ? 'Dagsplanerare' : 'Veckoplanerare'}>
     <canvas className="tc-drag-ghost" ref={dragGhostRef} width={1} height={1} aria-hidden="true" />
     <div className="tc-heading"><div><span className="tc-heading-icon"><Clock3 size={17} /></span><strong>{view === 'day' ? 'Dagens planering' : 'Veckans planering'}</strong><span className="tc-job-count">{visible.length} uppdrag</span></div><span className="tc-hint">{canPlan ? 'Dra in ett uppdrag · dra kanten för tidsåtgång' : 'Du kan läsa uppdrag och bokningar'}</span></div>
@@ -274,6 +288,7 @@ export default function TransportCalendar({ orders, drivers, vehicles, date, vie
           return <div className="tc-day-row" key={driver.id}>
             <button type="button" className={`tc-resource ${selected ? 'is-driver-selected' : ''}`} aria-label={`Visa ${driver.name} på kartan`} aria-pressed={selected} onClick={() => onToggleDriver(driver.id)} title={selected ? 'Klicka för att dölja förarens uppdrag på kartan' : 'Klicka för att visa förarens uppdrag på kartan'}><span className="tc-driver-avatar" style={{ background: driver.color }}>{driver.name.split(' ').map(part => part[0]).slice(0, 2).join('')}</span><div><strong>{driver.name}</strong><span>{vehicle?.registration || 'Inget fordon'}</span></div><span className="tc-driver-selection" aria-hidden="true">{selected ? <Check size={12} /> : null}</span></button>
             <div className="tc-day-track" data-timeline data-driver-id={driver.id} data-date={date} data-testid={`calendar-slot-${driver.id}-${date}`} onDragOver={event => dragOver(event, driver.id, date)} onDrop={event => drop(event, driver.id, date)} onDragLeave={leaveTrack}>
+              {renderUnavailable(driver.id, date)}
               {visible.filter(order => order.driverId === driver.id).map(renderOrder)}
               {previewInTrack(driver.id, date)}
             </div>
@@ -290,9 +305,9 @@ export default function TransportCalendar({ orders, drivers, vehicles, date, vie
           onDragOver={event => dragOver(event, driver.id, day)}
           onDrop={event => drop(event, driver.id, day)}
           onDragLeave={leaveTrack}
-        >{visible.filter(order => order.date === day && order.driverId === driver.id).map(renderOrder)}{previewInTrack(driver.id, day)}</div>)}</div>)}</div>
+        >{renderUnavailable(driver.id, day)}{visible.filter(order => order.date === day && order.driverId === driver.id).map(renderOrder)}{previewInTrack(driver.id, day)}</div>)}</div>)}</div>
       </div>}
     </div>
-    <div className={`tc-footer ${feedback ? 'has-error' : ''}`} role={feedback ? 'alert' : undefined}>{feedback ? <><AlertCircle size={14} /><span>{feedback}</span></> : <><span><i className="tc-legend-preliminary" />Preliminärt</span><span><i className="tc-legend-booked" />Bokat</span><span><i className="tc-legend-way" />På väg</span><span><i className="tc-legend-done" />Klart</span><span className="tc-footer-note">Klicka på föraren för karturval</span></>}</div>
+    <div className={`tc-footer ${feedback ? 'has-error' : ''}`} role={feedback ? 'alert' : undefined}>{feedback ? <><AlertCircle size={14} /><span>{feedback}</span></> : <><span><i className="tc-legend-preliminary" />Preliminärt</span><span><i className="tc-legend-booked" />Bokat</span><span><i className="tc-legend-way" />På väg</span><span><i className="tc-legend-done" />Klart</span><span><i className="tc-legend-unavailable" />Ej tillgänglig</span><span className="tc-footer-note">Klicka på föraren för karturval</span></>}</div>
   </section>;
 }

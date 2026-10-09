@@ -15,7 +15,7 @@ export function useSharedData<T>(options: Options<T>) {
  const identityKey=options.identity && ('mobile' in options.identity?'mobile':`${options.identity.actor}:${options.identity.user}`);
  const [ready,setReady]=useState(false);
  const [,refreshCatalog]=useState(0), catalogSignature=useRef('');
- const state=useRef<{scope:string;ready:boolean;queue:Pending<T>[];sending:boolean}>({scope:'',ready:false,queue:[],sending:false});
+ const state=useRef<{scope:string;ready:boolean;queue:Pending<T>[];sending:boolean;refreshRequested:boolean}>({scope:'',ready:false,queue:[],sending:false,refreshRequested:false});
  const runner=useRef<()=>Promise<void>>(async()=>{});
  const recoveryKey=`${options.key}.server-pending.${identityKey}`;
  function enqueue(next:T):boolean {
@@ -23,9 +23,17 @@ export function useSharedData<T>(options: Options<T>) {
   if(!s.ready || s.scope!==identityKey){o.error('Ansluter till den gemensamma databasen. Vänta ett ögonblick.');return false;}
   try {
    const parsed=o.parse(next), item={base:structuredClone(o.current.current),next:parsed};
-   s.queue.push(item);
-   localStorage.setItem(recoveryKey,JSON.stringify(s.queue));
-   localStorage.setItem(o.key,JSON.stringify(parsed));
+   const queue=[...s.queue,item], previousCache=localStorage.getItem(o.key);
+   // Only queue work after both recovery writes succeed. A storage failure
+   // must not leave a hidden operation for the next background sync to send.
+   try {
+    localStorage.setItem(o.key,JSON.stringify(parsed));
+    localStorage.setItem(recoveryKey,JSON.stringify(queue));
+   }catch(error){
+    try {if(previousCache===null)localStorage.removeItem(o.key);else localStorage.setItem(o.key,previousCache);}catch { /* Keep the durable queue unchanged when storage is unavailable. */ }
+    throw error;
+   }
+   s.queue=queue;
    o.current.current=parsed;o.accept(parsed);
    o.error('Ändringen väntar på att sparas på servern.');
    void runner.current();return true;
@@ -35,7 +43,7 @@ export function useSharedData<T>(options: Options<T>) {
   const o=latest.current;
   if(!identityKey){state.current.ready=false;setReady(false);return;}
   let active=true;
-  const s={scope:identityKey,ready:false,queue:[] as Pending<T>[],sending:false};state.current=s;setReady(false);
+  const s={scope:identityKey,ready:false,queue:[] as Pending<T>[],sending:false,refreshRequested:false};state.current=s;setReady(false);
   const headers:Record<string,string>={'Content-Type':'application/json',...('mobile' in o.identity! ? {'X-Demo-Mobile':'niklas'} : {'X-Demo-Actor':o.identity!.actor,'X-Demo-User':o.identity!.user})};
   const url=`/api/application/${o.domain}`;
   async function request(payload?:unknown) {
@@ -56,7 +64,9 @@ export function useSharedData<T>(options: Options<T>) {
    localStorage.setItem(o.key,JSON.stringify(parsed));
   }
   async function sync() {
-   if(!active||s.sending)return;s.sending=true;
+   if(!active)return;
+   if(s.sending){s.refreshRequested=true;return;}
+   s.sending=true;s.refreshRequested=false;
    try {
     if(!s.ready) {
      const legacy=localStorage.getItem(o.key);
@@ -99,12 +109,17 @@ export function useSharedData<T>(options: Options<T>) {
       }catch {latest.current.error('Konflikten kunde inte arkiveras. Osparat arbete finns kvar på denna enhet.');}
      } else latest.current.error((error instanceof Error?error.message:'Anslutningen avbröts.')+(s.queue.length?' Osparat arbete finns kvar på denna enhet.':''));
     }
-   }finally{s.sending=false;}
+   }finally{
+    s.sending=false;
+    // Coalesce terminal events arriving during a write/read into one follow-up
+    // sync. Existing queued edits are still serialized before accepting a read.
+    if(active&&s.refreshRequested)void sync();
+   }
   }
   runner.current=sync;void sync();
   const timer=setInterval(()=>void sync(),4000);
   const online=()=>void sync();window.addEventListener('online',online);
   return()=>{active=false;clearInterval(timer);window.removeEventListener('online',online);};
  },[identityKey,options.domain,options.key]);
- return {ready,save:enqueue};
+ return {ready,save:enqueue,refresh:()=>runner.current()};
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Plus, Search, X, MapPin, Truck, Clock3, GripVertical, Pencil, CalendarCheck, Undo2, Info, Navigation, ArrowDownToLine, ArrowUpFromLine, Repeat2, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Plus, Search, X, MapPin, Truck, Clock3, GripVertical, Pencil, CalendarCheck, Undo2, Info, Navigation, ArrowDownToLine, ArrowUpFromLine, Repeat2, ShieldCheck, AlertCircle } from 'lucide-react';
 import { can, type OfficeCustomer, type OfficeUser } from '../model';
 import TransportMap from './TransportMap';
 import TransportCalendar from './TransportCalendar';
@@ -10,11 +10,16 @@ import './transport.css';
 import { useSharedData } from '../../shared-data';
 import TransportIntegrations from './TransportIntegrations';
 import { useTransportOutbox } from './integrations-client';
+import { readPersonnelAvailability } from '../personnel/client';
+import { personnelPlanIssues } from '../personnel/model';
+import type { PersonnelResponse } from '../personnel/types';
+import { transportUnavailableSpans } from './personnel-availability';
 
 type Panel = { kind: 'details' | 'edit'; id: string } | { kind: 'book'; id: string; plan: TransportPlan } | { kind: 'create' } | null;
 type Props = {
   user: OfficeUser; actualUser: OfficeUser; customers: OfficeCustomer[];
   onExit(): void; workAsControl?: ReactNode; officeBlocked?: boolean;
+  onOpenStaffing?(): void;
 };
 const readableDate = (date: string, compact = false) => new Intl.DateTimeFormat('sv-SE', {
   timeZone: 'Europe/Stockholm', weekday: 'short', day: 'numeric', month: compact ? 'short' : 'long', year: 'numeric',
@@ -24,7 +29,7 @@ const ActionIcon = ({ action }: { action: TransportOrder['action'] }) => {
   return <Icon size={16} />;
 };
 
-export default function TransportWorkspace({ user, actualUser, customers, onExit, workAsControl, officeBlocked }: Props) {
+export default function TransportWorkspace({ user, actualUser, customers, onExit, workAsControl, officeBlocked, onOpenStaffing }: Props) {
   const [initial] = useState(() => {
     try {
       const raw = localStorage.getItem(transportKey);
@@ -66,7 +71,29 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const [picking, setPicking] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const planning = can(user, 'transportPlan') && shared.ready && !blocked && !officeBlocked;
+  const [personnel, setPersonnel] = useState<PersonnelResponse | null>(null);
+  const [personnelError, setPersonnelError] = useState('');
+  const [availabilityRefresh, setAvailabilityRefresh] = useState(0);
+  useEffect(() => {
+    let active = true, loading = false;
+    setPersonnel(null); setPersonnelError('');
+    async function refresh() {
+      if (loading) return;
+      loading = true;
+      try {
+        const result = await readPersonnelAvailability(actualUser.id, user.id);
+        if (active) { setPersonnel(result); setPersonnelError(''); }
+      } catch (reason) {
+        if (active) { setPersonnel(null); setPersonnelError(reason instanceof Error ? reason.message : 'Förarnas tillgänglighet kunde inte hämtas.'); }
+      } finally { loading = false; }
+    }
+    void refresh();
+    const timer = setInterval(() => void refresh(), 15000);
+    const foreground = () => { if (!document.hidden) void refresh(); };
+    document.addEventListener('visibilitychange', foreground);
+    return () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange', foreground); };
+  }, [actualUser.id, user.id, availabilityRefresh]);
+  const planning = can(user, 'transportPlan') && shared.ready && !blocked && !officeBlocked && Boolean(personnel);
   const actor: TransportActor = {
     canPlan: planning, actualUserId: actualUser.id, effectiveUserId: user.id,
     actor: (actualUser.id === user.id ? user.name : actualUser.name + ' som ' + user.name) + ' · Kontor Norrtälje',
@@ -127,6 +154,18 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
     setSelectedDriverIds(ids => ids.includes(id) ? ids.filter(other => other !== id) : [...ids, id]);
   }
   function save(next: TransportData, _expected: TransportData): boolean {
+    if (!personnel) { setError('Hämta förarnas tillgänglighet innan du ändrar planeringen.'); return false; }
+    for (const order of effectiveTransportOrders(next)) {
+      const previous = effectiveTransportOrders(_expected).find(old => old.id === order.id);
+      const departing = order.status === 'on_way' && previous?.status !== 'on_way';
+      if (order.status !== 'booked' && !departing) continue;
+      const plan = transportPlanOf(order);
+      const committed = _expected.preliminary[order.id] && !next.preliminary[order.id];
+      const requirementsChanged = JSON.stringify(previous?.requiredCompetencies) !== JSON.stringify(order.requiredCompetencies);
+      if (!plan || !departing && !committed && !requirementsChanged && JSON.stringify(transportPlanOf(previous)) === JSON.stringify(plan)) continue;
+      const issue = personnelPlanIssues(personnel.data, next, order.id, plan)[0];
+      if (issue) { setError(`${order.id}: ${issue}`); return false; }
+    }
     return shared.save(next);
   }
   function change(operation: TransportChange, message: string, remember = true) {
@@ -181,7 +220,8 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
     if (!planning) return 'Du saknar behörighet att planera transporter.';
     const order = live.current.orders.find(item => item.id === proposal.id);
     if (!order || ['on_way', 'done', 'cancelled'].includes(order.status)) return 'Ett påbörjat, klart eller avbrutet uppdrag kan inte flyttas.';
-    return validateTransportPlan(live.current, proposal.id, planFor(proposal));
+    const plan = planFor(proposal);
+    return validateTransportPlan(live.current, proposal.id, plan) || (personnel ? personnelPlanIssues(personnel.data, live.current, proposal.id, plan)[0] ?? null : 'Förarnas tillgänglighet hämtas.');
   }
   function propose(proposal: CalendarProposal) {
     const issue = validateProposal(proposal);
@@ -270,6 +310,21 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const editorKey = panel ? panel.kind + (('id' in panel ? panel.id : '') + (panel.kind === 'book' ? JSON.stringify(panel.plan) : '')) : '';
   const currentDriver = selected && data.drivers.find(item => item.id === selected.driverId);
   const currentVehicle = selected && data.vehicles.find(item => item.id === selected.vehicleId);
+  const currentPerson = personnel?.data.people.find(person => person.driverId === currentDriver?.id);
+  const currentCompany = personnel?.data.companies.find(company => company.id === currentPerson?.companyId);
+  const orderWarnings: Record<string, string[]> = {};
+  if (personnel) for (const order of visibleOrders) {
+    const plan = transportPlanOf(order);
+    if (plan && ['booked', 'on_way'].includes(order.status)) {
+      const issues = personnelPlanIssues(personnel.data, data, order.id, plan);
+      if (issues.length) orderWarnings[order.id] = issues;
+    }
+  }
+  const unavailable: Record<string, { startMinute: number; endMinute: number; label: string }[]> = {};
+  if (personnel) for (const driver of data.drivers) for (let day = startDay; day <= endDay; day = addDays(day, 1)) {
+    unavailable[`${driver.id}:${day}`] = transportUnavailableSpans(personnel.data, driver.id, day);
+  }
+  const staffingWarningCount = Object.keys(orderWarnings).length;
   const nearby = selected?.status === 'unbooked' ? nearest(selected) : undefined;
   return (
     <section className="transport-workspace" data-testid="transport-workspace">
@@ -300,8 +355,10 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
       {profileOpen && <div className="transport-profile-popover"><strong>{user.name}</strong><span>{user.level} · {planning ? 'Planeringsbehörighet' : 'Läsbehörighet'}</span>
         {actualUser.id !== user.id && <p>Inloggad som {actualUser.name}</p>}{workAsControl}</div>}
       {helpOpen && <div className="transport-help-popover"><button aria-label="Stäng information" onClick={() => setHelpOpen(false)}><X size={17} /></button>
-        <strong>Transportdemo · Sparas i denna webbläsare</strong><p>Karta, planerare och arbetsordrar visar samma uppgifter. Kontur visar förare, fyllning visar kärltyp. Obokade nålar skakar kort. Klicka på förarnas namn för att välja vilka nålar du ser.</p>
-        <p>Restid bedöms manuellt. Förslagen visar närhet på kartan; de beräknar ingen körväg. Planeringen delas via servern. Förarapp kopplas på senare.</p></div>}
+        <strong>Transportplanering</strong><p>Karta, planerare och arbetsordrar visar samma uppgifter. Kontur visar förare, fyllning visar kärltyp. Obokade nålar skakar kort. Klicka på förarnas namn för att välja vilka nålar du ser.</p>
+        <p>Schema, frånvaro och verifierade kompetenser hämtas från personalregistret. Skrafferade tider kan inte bokas. Befintliga bokningar ligger kvar om en förare blir otillgänglig, med en bemanningsvarning. Restid bedöms manuellt.</p></div>}
+      {!personnel && <div className={'transport-message ' + (personnelError ? 'error' : '')} role={personnelError ? 'alert' : 'status'}><span>{personnelError || 'Hämtar förarnas tillgänglighet…'}</span>{personnelError && <button onClick={() => setAvailabilityRefresh(value => value + 1)}>Försök igen</button>}</div>}
+      {staffingWarningCount > 0 && <div className="transport-staffing-warning" role="status"><AlertCircle size={18} /><div><strong>{staffingWarningCount} uppdrag behöver bemanningskontroll</strong><span>Bokningarna finns kvar. Kontrollera tillgänglighet och kompetenser innan uppdragen körs.</span></div>{onOpenStaffing && personnel?.capabilities.includes('personnelRead') && <button onClick={onOpenStaffing}>Bemanning att lösa</button>}</div>}
       {((error && !editor) || (!error && notice)) && <div className={'transport-message ' + (error ? 'error' : '')} role={error ? 'alert' : 'status'}>
         <span>{error || notice}</span>
         {!error && undo && planning && <button onClick={undoChange}><Undo2 size={15} />Ångra</button>}
@@ -330,10 +387,11 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
             onKeyDown={event => { if (['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); setMapRatio(value => Math.max(25, Math.min(75, value + (event.key === 'ArrowUp' ? -5 : 5)))); } }}><span /></div>}
           {layout !== 'map' && <TransportCalendar orders={visibleOrders} drivers={data.drivers} vehicles={data.vehicles} date={date} view={view} selectedDriverIds={selectedDriverIds} onToggleDriver={toggleDriver}
             hoveredId={hoveredId} selectedId={selectedId} draggedOrderId={draggedOrderId} onHover={(id, source) => hoverOrder(id, source, 'calendar')} onSelect={openOrder} onDragOrder={setDraggedOrderId}
-            onPropose={propose} validateProposal={validateProposal} canPlan={planning} focusRequest={calendarFocus} />}
+            onPropose={propose} validateProposal={validateProposal} canPlan={planning} focusRequest={calendarFocus} unavailable={unavailable} orderWarnings={orderWarnings} />}
         </div>
         <aside className={'transport-side ' + (editor ? 'is-editor' : '')} aria-label="Arbetsordrar">
           {editor && panel ? <TransportOrderEditor key={editorKey} order={selected} data={data} customers={customers}
+            personnel={personnel?.data}
             mode={panel.kind as 'create' | 'edit' | 'book'} initialPlan={panel.kind === 'book' ? panel.plan : undefined} error={error} onError={setError}
             onSubmit={submit} onCancel={() => { setPicking(false); picker.current = null; if (selectedId) setPanel({ kind: 'details', id: selectedId }); else closePanel(); if (!blocked) setError(''); }}
             onPickLocation={receive => { picker.current = receive; setPicking(true); if (layout === 'plan') setLayout('both'); }} />
@@ -341,6 +399,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
               <div className="transport-side-heading"><div><span className="transport-eyebrow">ARBETSORDER</span><h2>Arbetsorder {selected.id}</h2></div>
                 <button aria-label="Stäng arbetsorder" onClick={closePanel}><X size={19} /></button></div>
               <span className={'transport-state state-' + (selected.preliminary ? 'preliminary' : selected.status)}>{selected.preliminary ? 'Preliminär bokning' : transportStatusLabels[selected.status]}</span>
+              {orderWarnings[selected.id] && <div className="transport-order-staffing-warning" role="status"><AlertCircle size={16} /><div><strong>Bemanning behöver åtgärdas</strong>{orderWarnings[selected.id].map(issue => <p key={issue}>{issue}</p>)}</div></div>}
               <h3>{selected.customerName}</h3>
               <p className="transport-detail-address"><MapPin size={15} /><span>{selected.address}<br />{selected.city}</span></p>
               {selected.contact && <p>{selected.contact}{selected.phone && <><br /><a href={'tel:' + selected.phone}>{selected.phone}</a></>}</p>}
@@ -351,10 +410,12 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
                 {selected.pickupVessel && <><dt>Hämta</dt><dd>{selected.pickupVessel}</dd></>}
                 {selected.replacementVessel && <><dt>Ställ ut</dt><dd>{selected.replacementVessel}</dd></>}
                 <dt>Tidsåtgång</dt><dd><Clock3 size={15} />{durationLabel(selected.durationMinutes)}</dd>
+                {Boolean(selected.requiredCompetencies?.length) && <><dt>Krav</dt><dd>{selected.requiredCompetencies!.join(', ')}</dd></>}
               </dl></div>
               {selected.date && selected.startMinute !== undefined ? <div className="transport-detail-section"><h4>{selected.preliminary ? 'Preliminär planering' : 'Planering'}</h4>
                 <p><CalendarDays size={16} />{readableDate(selected.date!)}</p><p><Clock3 size={16} />{timeLabel(selected.startMinute!)}–{timeLabel(selected.startMinute! + selected.durationMinutes)}</p>
                 <p><i className="transport-driver-dot" style={{ borderColor: currentDriver?.color }} />{currentDriver?.name}</p><p><Truck size={16} />{currentVehicle?.registration} · {currentVehicle?.name}</p>
+                {currentPerson?.kind === 'external' && <p>Extern förare · {currentCompany?.name ?? 'Åkeri'}</p>}
               </div> : <div className="transport-detail-section"><h4>Önskemål</h4><p>{selected.requestedDate ? readableDate(selected.requestedDate) : 'Ingen särskild dag angiven'}</p></div>}
               {selected.notes && <div className="transport-detail-section"><h4>Instruktioner</h4><p className="transport-notes">{selected.notes}</p></div>}
               {nearby && <div className="transport-nearby"><strong>Nära {data.drivers.find(driver => driver.id === nearby.order.driverId)?.name}s bokade stopp</strong>

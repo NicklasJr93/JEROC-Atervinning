@@ -170,7 +170,7 @@ function publicApproval(approval) {
 /** A shared DEMO service: office identities are deliberately selected demo users,
  * not production authentication. Terminal passwords and sessions are real, and
  * business state always commits to the configured durable database. */
-export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
+export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, environmentApprovalCheck, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
   if (!repository) throw new Error('A durable terminal repository is required.');
   const transaction = async (operation) => {
     // The persisted environment catalog is read per operation. A shared mutable
@@ -216,6 +216,22 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
   return {
     projections: () => transaction(state => state.approvals.map(approval => approvalDTO(approval, {user: {level: "Systemadmin"}}))),
     repository,
+    // Server-only callback. Holding the terminal aggregate lock prevents a
+    // cancelled/superseded customer version from winning a concurrent receipt.
+    withApprovedCard(input, operation) {
+      return transaction(async (state) => {
+        const approval = state.approvals.filter(item => item.cardId === input.cardId).at(-1);
+        if (!approval || approval.snapshot.card.sourceId !== input.sourceId || approval.siteId !== input.siteId)
+          throw new TerminalDemoError('Kunden behöver godkänna kortets aktuella avräkning före mottagningsbekräftelse.', 409, 'customer_approval_required');
+        if (input.approvalExceptionReason) {
+          if (approval.status !== 'change_requested') throw new TerminalDemoError('En mottagningsavvikelse kan bara registreras när kunden begärt ändring.', 409, 'receipt_exception_not_allowed');
+        } else if (!['approved', 'attested'].includes(approval.status) || approval.approvedHash !== approval.snapshot.hash)
+          throw new TerminalDemoError('Kunden behöver godkänna kortets aktuella avräkning före mottagningsbekräftelse.', 409, 'customer_approval_required');
+        if (!input.approvalExceptionReason && (input.originAddress ?? input.lastPlace.address).trim() !== approval.snapshot.origin.trim())
+          throw new TerminalDemoError('Ursprunget har ändrats efter kundens avräkning. Skicka en ny version för kundgodkännande.', 409, 'customer_approval_mismatch');
+        return operation(copy(approval));
+      });
+    },
     async staffSession(payload, previousToken) {
       const request = validate(z.object({ actualUserId: id, effectiveUserId: id }).strict(), payload);
       const principal = principalStore.principal(request.actualUserId, request.effectiveUserId);
@@ -435,16 +451,23 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
       });
     },
     attest(approvalId, staffToken) {
-      return transaction((state, time, catalog) => {
+      return transaction(async (state, time, catalog) => {
         const principal = staff(state, staffToken, time); demand(principal, 'attest');
         const approval = getApproval(state, approvalId, principal, catalog);
         if (approval.status === 'attested') return approvalDTO(approval, principal);
         if (approval.status !== 'approved' || approval.approvedHash !== approval.snapshot.hash) throw new TerminalDemoError('Aktuell avräkningsversion måste vara kundgodkänd före intern attest.', 409, 'customer_approval_required');
         if (!principal.user.ownAttest && (principal.user.id === approval.effectiveUserId || principal.actor.id === approval.actualUserId)) throw new TerminalDemoError('Du får inte attestera ditt eget underlag.', 403, 'own_attest_forbidden');
         if (approval.snapshot.gross > principal.user.maxAttest) throw new TerminalDemoError('Beloppet överstiger din attestgräns.', 403, 'attest_limit');
+        let receipt;
+        if (environmentApprovalCheck) {
+          try { receipt = await environmentApprovalCheck(copy(approval)); } catch (error) {
+            if (error.status && error.code) throw new TerminalDemoError(error.message, error.status, error.code);
+            throw error;
+          }
+        }
         approval.status = 'attested'; approval.attestedBy = principal.user.name; approval.attestedUserId = principal.user.id;
         approval.attestedAt = time.toISOString(); approval.updatedAt = time.toISOString();
-        audit(state, time, 'approval.internally_attested', principal, { approvalId, version: approval.version, hash: approval.snapshot.hash });
+        audit(state, time, 'approval.internally_attested', principal, { approvalId, version: approval.version, hash: approval.snapshot.hash, ...(receipt?.required ? { environmentReceipt: receipt } : {}) });
         return approvalDTO(approval, principal);
       });
     },
@@ -484,13 +507,13 @@ async function body(req) {
   catch { throw new TerminalDemoError('Ogiltig JSON.'); }
 }
 
-export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, env = process.env, now, approvalAge } = {}) {
+export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, env = process.env, now, approvalAge } = {}) {
   let repositoryPromise;
   let storePromise;
   const getStore = () => {
     if (!storePromise) {
       repositoryPromise = repository ? Promise.resolve(repository) : createTerminalDemoRepository({ env });
-      storePromise = repositoryPromise.then((value) => createTerminalDemoStore({ repository: value, principalStore, siteProvider, now, approvalAge }));
+      storePromise = repositoryPromise.then((value) => createTerminalDemoStore({ repository: value, principalStore, siteProvider, environmentApprovalCheck, now, approvalAge }));
       // A temporary startup failure must not poison every later retry.
       const attempt = storePromise;
       attempt.catch(() => {
@@ -571,6 +594,7 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
     }
     return true;
   };
+  api.withApprovedCard = async (input, operation) => (await getStore()).withApprovedCard(input, operation);
   api.projections = async () => (await getStore()).projections();
   api.close = async () => {
     for (const close of [...eventStreams]) close();

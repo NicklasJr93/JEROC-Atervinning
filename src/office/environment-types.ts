@@ -65,6 +65,7 @@ export interface EnvironmentalReceiptInput {
   transportMode: EnvironmentalTransportMode; incomingDocument: IncomingEnvironmentalDocument;
   idempotencyKey: string;
   expectedDraftVersion?: number;
+  approvalExceptionReason?: string;
 }
 export type EnvironmentalDraftInput = Partial<Omit<EnvironmentalReceiptInput, 'idempotencyKey' | 'expectedDraftVersion'>> & {
   sourceId: string; cardId: number; siteId: string; originAddress: string;
@@ -77,6 +78,7 @@ export interface EnvironmentalDraft {
 export type EnvironmentalReceiptSnapshot = Omit<EnvironmentalReceiptInput, 'idempotencyKey' | 'rows' | 'expectedDraftVersion'> & {
   version: number;
   storageAssessment?: EnvironmentalStorageAssessment;
+  customerApproval?: { id: string; version: number; hash: string; status: string; approvedAt?: string; exceptionReason?: string };
   rows: { articleId: string; weight: number; classification: WasteClassification }[];
 };
 export interface EnvironmentalCorrection {

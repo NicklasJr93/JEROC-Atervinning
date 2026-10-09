@@ -3,5 +3,6 @@
 export { officeSchema, seedOffice, amount, can } from '../src/office/model';
 export { createCorrectionDraft, submitCorrection, migrateOffice, validPaymentDetails, recordPayment, saveCardOnBalance, approveCorrection, settlementPreview } from '../src/office/customer-model';
 export { storeSchema, isComplete, rowWeight } from '../src/model';
-export { transportSchema, seedTransport } from '../src/office/transport/model';
+export { transportSchema, seedTransport, applyTransportChange } from '../src/office/transport/model';
+export { personSchema, companySchema, employmentSchema, salarySchema, scheduleSchema, absenceSchema, competencySchema, personnelPlanIssues } from '../src/office/personnel/model';
 export { articles, initialCustomers } from '../src/data';

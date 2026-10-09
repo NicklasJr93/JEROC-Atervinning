@@ -1,10 +1,10 @@
 # JEROC · Mobilappen
 
-**Mobil/Expo 0.3.0 och kontor 0.8.0** delar nu verksamhetsdata i PostgreSQL. Utkast, kunder, färdiga mobilvägningar, kontorskort, prisregister, planering och integrationsutkorg sparas beständigt. Färdiga mobilvägningar visas på kontoret.
+**Mobil/Expo 0.3.0 och kontor 0.9.0** delar verksamhetsdata i PostgreSQL. Utkast, kunder, färdiga mobilvägningar, kontorskort, prisregister, planering och integrationsutkorg sparas beständigt. Färdiga mobilvägningar visas på kontoret. Kontoret har även personal, schema, kompetenser och bemanning samt extern chaufförsvy på `/chauffor`.
 
 Detta är fortfarande en demo med valbara exempelkonton. Använd testuppgifter. Utbetalningar är manuell demoregistrering; inga bank-, Visma-, Naturvårdsverks-, SMS-, e-post- eller BankID-leveranser aktiveras.
 
-[Gemensam databas och säker import](docs/shared-postgres.md) · [Kontorsversionen](docs/office-demo.md) · [Terminaler](docs/terminal-demo.md). Backup och återställning är planerade enligt ÄL 045, inte byggda här.
+[Gemensam databas och säker import](docs/shared-postgres.md) · [Kontorsversionen](docs/office-demo.md) · [Personal](docs/personnel-demo.md) · [Terminaler](docs/terminal-demo.md). Backup och återställning är planerade enligt ÄL 045, inte byggda här.
 
 ## Starta på Windows eller Mac
 
@@ -26,7 +26,7 @@ För **Expo Go utan datorn igång**, använd [Render-instruktionerna för Expo-t
 
 Datorn och mobilen ska vara på samma wifi. Startfönstret skriver ut datorns nätverksadress, exempelvis `http://192.168.1.10:4173`. Öppna den adress som visas i mobilens webbläsare. Tillåt åtkomst på det privata nätverket om datorns brandvägg frågar. Appen använder inga externa API:er eller kontorsanslutningar.
 
-Utkast finns i **den webbläsare och på den enhet där du skapade dem**. De synkas inte mellan mobil och dator. Behåll samma adress och port när du fortsätter ett test; webbläsarlagring är knuten till adressen. Rensar du webbplatsdata försvinner utkasten.
+Utkast sparas på den gemensamma servern. Webbläsaren har dessutom en återhämtningscache för arbete som ännu inte skickats. Använd samma serveradress i mobil och kontor för att dela uppgifter.
 
 ## Flöden att prova
 

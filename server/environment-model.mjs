@@ -82,6 +82,7 @@ const receiptSchema = z.object({
   sourceId: z.string().uuid(), cardId: z.number().int().nonnegative(), siteId: id,
   ...receiptFields,
   expectedDraftVersion: z.number().int().nonnegative().optional(),
+  approvalExceptionReason: z.string().trim().min(1).max(2000).optional(),
   idempotencyKey: z.string().trim().min(1).max(100),
 }).strict();
 const correctionSchema = z.object({
@@ -230,7 +231,7 @@ export function addSwedishWorkingDays(receivedAt, count) {
   return dateNumber(day);
 }
 
-export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true }) {
+export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true, approvalGuard }) {
   if (!repository || !principalStore) throw new Error('Environment requires durable repository and principal store.');
   const transaction = (operation) => { const run = () => repository.transact((state) => {
     const time = now();
@@ -479,16 +480,28 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     receive(payload, token) {
       const request = parse(receiptSchema, payload);
       validateOrigin(request, true);
-      return transaction((state, time) => {
+      const register = (approval) => transaction((state, time) => {
         const { principal } = principalFor(state, token, time); demand(principal, 'environmentWrite'); demandSite(state, principal, request.siteId);
         if (Date.parse(request.receivedAt) > time.getTime() + 5 * 60 * 1000) throw new EnvironmentError('Faktisk mottagning kan inte ligga i framtiden.', 422, 'future_receipt');
-        const { idempotencyKey, expectedDraftVersion, ...input } = request;
+        const { idempotencyKey, expectedDraftVersion, approvalExceptionReason, ...input } = request;
+        if (approvalExceptionReason) {
+          demand(principal, 'environmentReceiveException');
+          if (!approval) throw new EnvironmentError('Avvikelsen saknar kundens aktuella ändringsbegäran.', 409, 'receipt_exception_not_allowed');
+        }
         const existing = state.receipts.find((record) => record.sourceId === request.sourceId);
+        if (approval?.status === 'attested' && !existing)
+          throw new EnvironmentError('En ny mottagning kan inte registreras efter intern attest. Hantera avvikelsen som en spårbar rättelse.', 409, 'card_locked');
         let rows;
         if (input.materialScope === 'hazardous') {
           rows = scopedRows(classifyRows(state, request.rows, existing?.snapshot.rows), input.materialScope);
           if (!rows.length) throw new EnvironmentError('Kortet saknar farligt avfall och behöver ingen miljömottagning.', 422, 'hazardous_material_required');
           input.rows = physicalRows(rows);
+        }
+        rows ??= classifyRows(state, request.rows, existing?.snapshot.rows);
+        if (approval && !approvalExceptionReason) {
+          const approvedRows = scopedRows(classifyRows(state, approval.snapshot.rows, rows), input.materialScope);
+          if (environmentHash(physicalRows(rows).sort((a, b) => a.articleId.localeCompare(b.articleId))) !== environmentHash(physicalRows(approvedRows).sort((a, b) => a.articleId.localeCompare(b.articleId))))
+            throw new EnvironmentError('Material eller vikt skiljer sig från kundens aktuella avräkning. Skicka en ny version för kundgodkännande.', 409, 'customer_approval_mismatch');
         }
         const inputHash = inputIdentityHash(input), key = environmentHash(`${principal.actor.id}:${idempotencyKey}`);
         const previousRequest = state.requests.find((record) => record.id === key), legacyMatch = existing && matchesLegacyPhysicalInput(existing, input);
@@ -506,7 +519,9 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         rows ??= classifyRows(state, request.rows);
         const storageAssessment = assessStorage(state, request.siteId, rows, [], time); demandStorageCapacity(storageAssessment);
         const operator = { name: 'JEROC Återvinning AB', number: '5591234567', contactName: 'Miljöansvarig – DEMO', email: 'miljo@example.invalid', phone: '0100000000', demo: true, verified: false };
-        const snapshot = { version: 1, ...input, rows, operator, storageAssessment };
+        const approvalProof = approval && { id: approval.id, version: approval.version, hash: approval.snapshot.hash,
+          status: approval.status, approvedAt: approval.approvedAt, ...(approvalExceptionReason ? { exceptionReason: approvalExceptionReason } : {}) };
+        const snapshot = { version: 1, ...input, rows, operator, storageAssessment, ...(approvalProof ? { customerApproval: approvalProof } : {}) };
         const receiptId = randomUUID();
         const receipt = { id: receiptId, sourceId: request.sourceId, cardId: request.cardId, siteId: request.siteId, receivedAt: request.receivedAt,
           createdAt: time.toISOString(), createdBy: principal.user.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
@@ -528,8 +543,34 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         }
         state.requests.push({ id: key, inputHash, receiptId, createdAt: time.toISOString() });
         state.drafts = state.drafts.filter((record) => record.sourceId !== request.sourceId);
-        audit(state, time, principal, 'environment.received', { receiptId, cardId: request.cardId, siteId: request.siteId, sourceId: request.sourceId, hash: receipt.hash });
+        audit(state, time, principal, 'environment.received', { receiptId, cardId: request.cardId, siteId: request.siteId, sourceId: request.sourceId, hash: receipt.hash, ...(approvalProof ? { customerApproval: approvalProof } : {}) });
+        if (approvalExceptionReason) audit(state, time, principal, 'environment.received_exception', { receiptId, sourceId: request.sourceId, reason: approvalExceptionReason, approvalId: approval.id, approvalStatus: approval.status });
         return effectiveReceipt(state, receipt);
+      });
+      // Acquire the approval lock first, then the environment lock. Cancelling
+      // or replacing an approval cannot race a normal receipt registration.
+      return approvalGuard ? Promise.resolve().then(() => approvalGuard(request, register)).catch(error => {
+        if (error instanceof EnvironmentError) throw error;
+        if (error.status && error.code) throw new EnvironmentError(error.message, error.status, error.code);
+        throw error;
+      }) : register();
+    },
+    // Internal server guard: no customer/terminal HTTP route exposes this.
+    assertReceiptForAttest(approval) {
+      return transaction((state) => {
+        const card = approval.snapshot.card;
+        const original = state.receipts.find(record => record.sourceId === card.sourceId);
+        const receipt = original && effectiveReceipt(state, original);
+        const requiredRows = scopedRows(classifyRows(state, approval.snapshot.rows, receipt?.snapshot.rows), 'hazardous');
+        if (!requiredRows.length) return { required: false, received: true };
+        if (!receipt || receipt.cardId !== card.id || receipt.siteId !== approval.siteId)
+          throw new EnvironmentError('Bekräfta mottagningen av farligt avfall före intern attest.', 409, 'environment_receipt_required');
+        const recorded = scopedRows(receipt.snapshot.rows, 'hazardous');
+        const signature = rows => environmentHash(physicalRows(rows).sort((a, b) => a.articleId.localeCompare(b.articleId)));
+        const origin = receipt.snapshot.originAddress ?? receipt.snapshot.lastPlace.address;
+        if (signature(recorded) !== signature(requiredRows) || origin.trim() !== approval.snapshot.origin.trim())
+          throw new EnvironmentError('Miljömottagningen stämmer inte med kundens godkända material, vikt eller ursprung. Gör en miljörättelse före attest.', 409, 'environment_receipt_mismatch');
+        return { required: true, received: true, receiptId: receipt.id, version: receipt.version, hash: receipt.hash };
       });
     },
     correct(receiptId, payload, token) {

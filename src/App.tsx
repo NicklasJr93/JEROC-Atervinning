@@ -38,7 +38,7 @@ export function App() {
   return (
     <div className={`app-shell ${fixed ? 'fixed-screen' : ''}`}>
       <div className="demo-strip">
-        <span className="status-dot" /> Demo · Inget skickas till kontoret
+        <span className="status-dot" /> Demo · Vägningar delas med kontoret
       </div>
       {storageError && (
         <div className="storage-error">

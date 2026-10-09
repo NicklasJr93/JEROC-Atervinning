@@ -18,9 +18,12 @@ export interface TransportAudit {
 }
 export interface TransportDriver {
   id: string; name: string; color: string; vehicleId: string;
+  /** Stable personnel/company links; driver IDs and historic bookings remain unchanged. */
+  personId?: string; companyId?: string;
 }
 export interface TransportVehicle {
   id: string; registration: string; name: string; types: ContainerType[];
+  requiredCompetencies?: string[];
 }
 export interface TransportOrder {
   id: string; customerId?: string; customerName: string; address: string; city: string;
@@ -31,6 +34,8 @@ export interface TransportOrder {
   driverId?: string; vehicleId?: string; requestedDate?: string;
   seriesId?: string; audit: TransportAudit[]; updatedAt: string;
   bookingVersion: number; confirmation?: TransportConfirmation;
+  /** Explicit transport requirements; hazardous waste alone never implies ADR. */
+  requiredCompetencies?: string[];
   /** Rendering projection only. The stored order remains unbooked until the group is committed. */
   preliminary?: boolean;
 }

@@ -28,6 +28,8 @@ import {
   type TransportPlan,
 } from './types';
 import './transport-editor.css';
+import type { PersonnelData } from '../personnel/types';
+import { personnelPlanIssues } from '../personnel/model';
 
 type Coordinates = { lat: number; lng: number };
 type Repeat = 'none' | 'weekly' | 'biweekly';
@@ -44,6 +46,7 @@ export interface TransportOrderEditorProps {
   onSubmit(draft: TransportDraft, options: { repeat: Repeat; scope: Scope }): boolean;
   onCancel(): void;
   onPickLocation(receive: (coords: Coordinates) => void): void;
+  personnel?: PersonnelData;
 }
 
 function validCoordinates(coords: Coordinates): boolean {
@@ -71,6 +74,7 @@ function newDraft(order?: TransportOrder): TransportDraft {
     durationMinutes: order?.durationMinutes ?? 60,
     status: order?.status ?? 'unbooked',
     requestedDate: order?.requestedDate ?? (order ? undefined : today()),
+    requiredCompetencies: order?.requiredCompetencies,
   };
 }
 
@@ -86,6 +90,7 @@ export default function TransportOrderEditor({
   onSubmit,
   onCancel,
   onPickLocation,
+  personnel,
 }: TransportOrderEditorProps) {
   const formId = useId();
   const [draft, setDraft] = useState<TransportDraft>(() => ({
@@ -114,6 +119,13 @@ export default function TransportOrderEditor({
     : Number.NaN;
   const title = mode === 'create' ? 'Ny arbetsorder' : mode === 'book' ? 'Boka arbetsorder' : 'Redigera arbetsorder';
   const submitLabel = mode === 'create' ? 'Spara arbetsorder' : mode === 'book' || order?.preliminary || (order?.status === 'unbooked' && booked) ? 'Spara planering' : 'Spara ändringar';
+  const person = personnel?.people.find(entry => entry.driverId === driverId);
+  const company = personnel?.companies.find(entry => entry.id === person?.companyId);
+  const competencyOptions = Array.from(new Map((personnel?.competencies ?? []).flatMap(competency => competency.codes.map(code => [`${competency.type}:${code}`, `${competency.name} · ${code}`] as const))).entries());
+  const previewOrder: TransportOrder = { ...draft, id: order?.id ?? 'draft-check', audit: [], updatedAt: new Date().toISOString(), bookingVersion: 0 };
+  const previewData: TransportData = { ...data, orders: [...data.orders.filter(entry => entry.id !== previewOrder.id), previewOrder] };
+  const bookingIssues = booked && personnel && Number.isFinite(startMinute)
+    ? personnelPlanIssues(personnel, previewData, previewOrder.id, { date, startMinute, durationMinutes: draft.durationMinutes, driverId, vehicleId }) : [];
 
   useEffect(() => {
     mounted.current = true;
@@ -329,6 +341,7 @@ export default function TransportOrderEditor({
             {draft.action !== 'pickup' && <label>Kärl som ställs ut<input maxLength={2000} value={draft.replacementVessel} placeholder="Ex. C-027" onChange={(event) => setField('replacementVessel', event.target.value)} /></label>}
           </div>
           <label>Instruktioner<textarea rows={3} maxLength={2000} value={draft.notes} placeholder="Tillträde, grindkod eller annat föraren behöver veta" onChange={(event) => setField('notes', event.target.value)} /></label>
+          {competencyOptions.length > 0 && <details className="transport-competency-picker"><summary>Obligatoriska kompetenser{draft.requiredCompetencies?.length ? ` (${draft.requiredCompetencies.length})` : ''}</summary><p className="transport-editor-help">Välj krav för just uppdraget. Farligt avfall innebär inte automatiskt ADR-krav. Fordonets krav kontrolleras också.</p>{competencyOptions.map(([code, label]) => <label key={code}><input type="checkbox" checked={draft.requiredCompetencies?.includes(code) ?? false} onChange={event => setField('requiredCompetencies', event.target.checked ? [...draft.requiredCompetencies ?? [], code] : draft.requiredCompetencies?.filter(value => value !== code))} />{label}</label>)}</details>}
         </fieldset>
 
         <fieldset className="transport-duration-section">
@@ -357,15 +370,17 @@ export default function TransportOrderEditor({
               if (driver) setVehicleId(driver.vehicleId);
               if (error) onError('');
             }}><option value="">Välj förare</option>{data.drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.name}</option>)}</select></label>
+            {person && <p className="transport-editor-help">{person.kind === 'external' ? `Extern förare · ${company?.name ?? 'Åkeri'}` : `${person.name} · ${person.team || 'Personal'}`}</p>}
             <label>Fordon<select required value={vehicleId} onChange={(event) => {
               setVehicleId(event.target.value);
               if (error) onError('');
             }}><option value="">Välj fordon</option>{data.vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.registration} · {vehicle.name}</option>)}</select></label>
             {Number.isFinite(startMinute) && <p className="transport-editor-booking-summary"><Clock3 size={14} /> {start}–{timeLabel(startMinute + draft.durationMinutes)} · {durationLabel(draft.durationMinutes)}</p>}
+            {bookingIssues.length > 0 && <div className="transport-personnel-validation" role="status"><AlertCircle size={16} /><div>{bookingIssues.map(issue => <p key={issue}>{issue}</p>)}</div></div>}
             {(!order || order.status === 'unbooked' || order.preliminary) && <p className="transport-editor-help">Bokningen visas preliminärt i kalendern. Verkställ med knappen ovanför arbetsytan.</p>}
           </> : <>
             <label>Önskad dag <span className="transport-optional">valfritt</span><input type="date" value={draft.requestedDate ?? ''} onChange={(event) => setField('requestedDate', event.target.value || undefined)} /></label>
-            <p className="transport-editor-help">Arbetet hamnar i listan Obokade och kan dras in i planeraren senare.</p>
+            <p className="transport-editor-help">Önskad dag är ett önskemål. Arbetet hamnar i Obokade tills planeringen har verkställts.</p>
           </>}
           {mode === 'create' && <>
             <label>Återkommande<select value={repeat} onChange={(event) => setRepeat(event.target.value as Repeat)}><option value="none">Engångsuppdrag</option><option value="weekly">Varje vecka</option><option value="biweekly">Varannan vecka</option></select></label>

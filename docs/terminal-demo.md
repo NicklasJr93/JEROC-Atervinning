@@ -1,5 +1,15 @@
 # JEROC kundterminaldemo 0.7.1
 
+## Uppdaterad stegordning i kontor 0.9.0
+
+Kunden godkänner aktuell avräkning först. Finns farligt avfall på kortet
+bekräftar personalen därefter den faktiska mottagningen innan intern attest.
+Servern kontrollerar båda stegen. Vanliga material kräver ingen miljömottagning.
+Ändringsbegäran leder till korrigering och ny kundgranskning. Registrerade
+mottagningsoriginal bevaras och en ändrad fysisk mängd rättas spårbart.
+Se [aktuell kontorsversion](office-demo.md) för det separata undantaget vid
+faktiskt levererat avfall under en kundtvist.
+
 **Nytt resetbeslut i 0.7.0:** gamla testinvägningar och deras godkännandesessioner
 rensas en gång. Terminalkonton, sessioner och förval bevaras; nya kort börjar
 före kundgodkännande och attest. Se [etapp 1](integrationer/naturvardsverket/etapp-1.md).

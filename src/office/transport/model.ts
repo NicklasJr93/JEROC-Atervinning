@@ -45,8 +45,11 @@ const auditSchema = z.object({
 const vehicleSchema = z.object({
   id: requiredText, registration: requiredText, name: requiredText,
   types: z.array(vesselSchema).min(1),
+  requiredCompetencies: z.array(requiredText).max(30).optional(),
 });
-const driverSchema = z.object({ id: requiredText, name: requiredText, color: z.string().regex(/^#[0-9a-fA-F]{6}$/), vehicleId: requiredText });
+const driverSchema = z.object({ id: requiredText, name: requiredText, color: z.string().regex(/^#[0-9a-fA-F]{6}$/), vehicleId: requiredText,
+  personId: requiredText.optional(), companyId: requiredText.optional(),
+});
 const planSchema = z.object({ date: daySchema, startMinute: startSchema, durationMinutes: durationSchema, driverId: requiredText, vehicleId: requiredText });
 const confirmationSchema = z.object({
   id: requiredText, bookingVersion: z.number().int().nonnegative(),
@@ -78,6 +81,7 @@ const orderSchema = z.object({
   requestedDate: daySchema.optional(), seriesId: requiredText.optional(),
   audit: z.array(auditSchema), updatedAt: z.string().datetime(),
   bookingVersion: z.number().int().nonnegative().default(0), confirmation: confirmationSchema.optional(),
+  requiredCompetencies: z.array(requiredText).max(30).optional(),
 });
 const baseDataSchema = z.object({
   version: z.literal(1), revision: z.number().int().nonnegative(),
@@ -202,6 +206,7 @@ const fieldLabels: Partial<Record<keyof TransportDraft, string>> = {
   replacementVessel: 'ersättningskärl', notes: 'instruktioner', lat: 'kartposition', lng: 'kartposition',
   durationMinutes: 'tidsåtgång', status: 'status', date: 'datum', startMinute: 'starttid',
   driverId: 'förare', vehicleId: 'fordon', requestedDate: 'önskat datum',
+  requiredCompetencies: 'obligatoriska kompetenser',
 };
 function dayOffset(from: string, to: string): number {
   if (!validDay(from) || !validDay(to)) throw new Error('Ange ett giltigt datum.');
@@ -213,7 +218,17 @@ export function transportPlanOf(order: TransportOrder | undefined): TransportPla
   if (!order || ['unbooked', 'cancelled'].includes(order.status) || !order.date || order.startMinute === undefined || !order.driverId || !order.vehicleId) return undefined;
   return { date: order.date, startMinute: order.startMinute, durationMinutes: order.durationMinutes, driverId: order.driverId, vehicleId: order.vehicleId };
 }
-const same = (first: unknown, second: unknown) => JSON.stringify(first) === JSON.stringify(second);
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value)
+    .filter(([, entry]) => entry !== undefined)
+    .sort(([first], [second]) => first.localeCompare(second))
+    .map(([key, entry]) => [key, canonicalValue(entry)]));
+  return value;
+}
+// PostgreSQL JSONB may return object keys in a different order. Equality must
+// compare values, otherwise untouched orders produce false outbox events.
+const same = (first: unknown, second: unknown) => JSON.stringify(canonicalValue(first)) === JSON.stringify(canonicalValue(second));
 function addEvent(data: TransportData, type: TransportEventType, order: TransportOrder, actor: TransportActor, options: Partial<Pick<TransportIntegrationEvent, 'beforePlan' | 'afterPlan' | 'reason' | 'confirmationId'>> = {}): void {
   const driverId = options.afterPlan?.driverId ?? options.beforePlan?.driverId ?? order.driverId;
   const driver = data.drivers.find((entry) => entry.id === driverId);
@@ -232,7 +247,7 @@ function prepareEvents(before: TransportData, next: TransportData, actor: Transp
     if (previous && same(comparable(previous), comparable(order))) return order;
     if (previous?.status === 'unbooked' && order.status === 'unbooked' && (before.preliminary[order.id] || next.preliminary[order.id])) return order;
     const beforePlan = transportPlanOf(previous), afterPlan = transportPlanOf(order);
-    const confirmationFields: (keyof TransportOrder)[] = ['customerId', 'customerName', 'address', 'city', 'contact', 'phone', 'action', 'vesselType', 'material', 'vesselSize', 'pickupVessel', 'replacementVessel', 'notes'];
+    const confirmationFields: (keyof TransportOrder)[] = ['customerId', 'customerName', 'address', 'city', 'contact', 'phone', 'action', 'vesselType', 'material', 'vesselSize', 'pickupVessel', 'replacementVessel', 'notes', 'requiredCompetencies'];
     const changedBookingDetails = previous && Boolean(beforePlan || afterPlan) && confirmationFields.some((field) => !same(previous[field], order[field]));
     const bookingChanged = !same(beforePlan, afterPlan) || changedBookingDetails || (!previous || previous.status !== 'cancelled') && order.status === 'cancelled';
     const updated = { ...order, bookingVersion: (previous?.bookingVersion ?? 0) + (bookingChanged ? 1 : 0) };
@@ -536,12 +551,12 @@ export function undoTransportChange(data: TransportData, previous: TransportData
   assertValid(data); assertValid(previous);
   if (previous.revision !== data.revision - 1) throw new Error('Det finns en nyare ändring. Den här ändringen kan inte ångras.');
   const currentById = new Map(data.orders.map((entry) => [entry.id, entry]));
-  const comparable = (order: TransportOrder) => JSON.stringify({ ...order, audit: undefined, updatedAt: undefined });
+  const comparable = (order: TransportOrder) => ({ ...order, audit: undefined, updatedAt: undefined });
   const restored: TransportData = {
     ...structuredClone(previous), revision: data.revision + 1, events: structuredClone(data.events),
     orders: previous.orders.map((entry) => {
       const current = currentById.get(entry.id);
-      if (!current || comparable(entry) === comparable(current) && same(previous.preliminary[entry.id], data.preliminary[entry.id])) return structuredClone(entry);
+      if (!current || same(comparable(entry), comparable(current)) && same(previous.preliminary[entry.id], data.preliminary[entry.id])) return structuredClone(entry);
       return record({ ...structuredClone(entry), audit: [...current.audit] }, actor, 'Senaste planeringsändringen ångrad. Tidigare uppgifter återställda.');
     }),
   };

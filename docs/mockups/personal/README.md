@@ -52,6 +52,19 @@ Huvudkedjan är klickbar med fasta exempeldata. Övriga redigeringsformulär vis
 fält och tänkta åtgärder, utan generell validering eller datalagring. Ladda om eller
 tryck **Återställ exempel** för att börja om. Det finns inga backendanrop.
 
+## Implementerat i kontorsdemo 0.9.0
+
+Personalvyerna har byggts in i befintliga JEROC med gemensam serverlagring:
+[öppna Personal](https://jeroc-atervinning.onrender.com/kontor#/personnel).
+Personalkort, anställning/skyddad lön, kompetenser, schema/frånvaro,
+bemanningsuppgifter och externa chaufförskonton är funktionella. Extern
+chaufförsinloggning finns på `/chauffor`.
+
+Se [genomgång, rättigheter och begränsningar](../../personnel-demo.md).
+Bilderna/prototypen ovan behålls som designunderlag. Implementerade vyer använder
+verkliga demoposter och befintliga arbetsordrar. Nya exempeluppdrag heter
+AO-1201–AO-1203 för att bevara tidigare AO-nummer.
+
 ## Gemensamma exempeluppgifter och regler
 
 - Kalle Nilsson, anställd chaufför i Norrtälje, team Transport. Chef/gruppledare

@@ -40,7 +40,20 @@ export const permissions = [
   'environmentWrite',
   'environmentClassify',
   'environmentStorage',
+  'environmentReceiveException',
+  'personnelRead',
+  'personnelWrite',
+  'employmentRead',
+  'employmentWrite',
+  'salaryRead',
+  'salaryWrite',
+  'absenceRead',
+  'absenceWrite',
+  'competenciesWrite',
+  'staffingWrite',
+  'externalAccounts',
 ];
+const sensitivePersonnelPermissions = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite'];
 const finite = z.number().finite();
 const nonnegative = finite.min(0).max(1e9);
 const id = z
@@ -622,7 +635,9 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
   // volumes arise from real demo workflow actions, never invented attestations.
   if (initialState) Object.assign(state, copy(initialState));
   const can = (user, permission) =>
-    permission === 'users'
+    sensitivePersonnelPermissions.includes(permission)
+      ? user.level === 'Systemadmin' || user.permissions.includes(permission)
+      : permission === 'users'
       ? user.level !== 'Medarbetare'
       : user.level !== 'Medarbetare' || user.permissions.includes(permission);
   const demand = (principal, permission) => {
@@ -1438,7 +1453,9 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
       permissions:
         user.level === 'Medarbetare'
           ? [...new Set(user.permissions)]
-          : [...permissions],
+          : user.level === 'Systemadmin'
+            ? [...permissions]
+            : permissions.filter(permission => !sensitivePersonnelPermissions.includes(permission) || user.permissions.includes(permission)),
     }));
     if (new Set(users.map((user) => user.id)).size !== users.length)
       throw new PricingError('Användar-id måste vara unika.');
@@ -1468,6 +1485,25 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     for (const user of users)
       if (user.level === 'Medarbetare' && user.permissions.includes('environmentStorage') && !user.permissions.includes('environmentRead'))
         throw new PricingError('Hantera anläggningar och lagringsgränser kräver även Läs miljörapportering.');
+    // Validate explicit HR grants without adding sensitive rights implicitly.
+    // In particular VD may have ordinary access while salary/absence rights
+    // remain deliberately selected; a Write grant requires its matching Read.
+    const personnelPrerequisites = {
+      personnelWrite: ['personnelRead'],
+      employmentRead: ['personnelRead'],
+      employmentWrite: ['personnelRead', 'employmentRead'],
+      salaryRead: ['personnelRead'],
+      salaryWrite: ['personnelRead', 'salaryRead'],
+      absenceRead: ['personnelRead'],
+      absenceWrite: ['personnelRead', 'absenceRead'],
+      competenciesWrite: ['personnelRead'],
+      staffingWrite: ['personnelRead', 'transportRead', 'transportPlan'],
+      externalAccounts: ['personnelRead'],
+    };
+    for (const user of users) if (user.level !== 'Systemadmin')
+      for (const [right, required] of Object.entries(personnelPrerequisites))
+        if (user.permissions.includes(right) && required.some(permission => !user.permissions.includes(permission)))
+          throw new PricingError(`Personalbehörigheten ${right} kräver även ${required.join(', ')}.`);
     if (principalValue.user.level !== 'Systemadmin') {
       const oldAdmins = state.users.filter(
         (user) => user.level === 'Systemadmin',

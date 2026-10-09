@@ -5,6 +5,7 @@ import { createApplicationRepository } from './application-storage.mjs';
 import { createPricingStore, PricingError } from './pricing.mjs';
 import { createPricingApi } from './pricing-api.mjs';
 import { createTransportOutbox, createTransportIntegrationsApi } from './transport-integrations.mjs';
+import { ensurePersonnel, personnelCommand, personnelProjection, personnelCan, validatePersonnelTransportChange, refreshStaffingTasks, createDriverApi } from './personnel.mjs';
 import { officeSchema, seedOffice, migrateOffice, storeSchema, isComplete, rowWeight, transportSchema, seedTransport, articles, recordPayment, validPaymentDetails } from '../dist-server/domain-models.mjs';
 
 const clone = value => structuredClone(value);
@@ -71,15 +72,45 @@ function reflectApprovals(office, approvals, seedCards = []) {
       if (!equal(previous, seedCards.find(row => row.id === previous.id))) continue;
       previous = undefined;
     }
+    // Sending a review freezes prices in the pricing/terminal repositories before
+    // the office projection is read. A mobile placeholder must bind to that
+    // verified first snapshot, rather than be mistaken for a later price edit.
+    // Binding happens once per new review and only for the same current draft.
+    const newReview = previous && previous.customerApproval?.id !== a.id &&
+      (!previous.customerApproval || previous.customerApproval.version < a.version);
+    const draftMatches = previous && previous.sourceId === card.sourceId && previous.customerId === card.customerId &&
+      previous.origin === card.origin && previous.reference === card.reference && previous.date === card.date &&
+      (previous.siteId ? previous.siteId === card.siteId : previous.yard === card.yard) &&
+      (!previous.paymentDetails || equal(previous.paymentDetails, card.paymentDetails)) &&
+      equal(previous.rows.map(r => [r.articleId, r.weight]), card.rows.map(r => [r.articleId, r.weight]));
+    const samePrices = previous && equal(previous.rows.map(r => r.price), card.rows.map(r => r.price));
+    const pendingPrices = previous && (previous.financialPending || previous.pricingRowsPending || previous.rows.some(r => r.pricePending));
+    if (newReview && draftMatches && (samePrices || pendingPrices) &&
+      !['ready', 'paid', 'balance'].includes(previous.status) && ['waiting', 'id_requested', 'approved', 'attested'].includes(a.status)) {
+      previous = { ...previous, rows: card.rows.map(row => ({ ...row, pricePending: false })),
+        pricingSnapshotId: card.pricingSnapshotId, pricingTotal: a.snapshot.gross,
+        financialPending: false, pricingRowsPending: false, preparedBy: card.preparedBy,
+        customerSnapshot: card.customerSnapshot, paymentDetails: card.paymentDetails, payment: card.payment };
+    }
     // A changed current draft retains its edits until a new review is sent.
-    const same = previous && equal(previous.rows.map(r => [r.articleId, r.weight, r.price]), card.rows.map(r => [r.articleId, r.weight, r.price])) && previous.customerId === card.customerId && previous.origin === card.origin;
+    const same = previous && previous.sourceId === card.sourceId && previous.customerId === card.customerId &&
+      previous.origin === card.origin && previous.reference === card.reference && equal(previous.paymentDetails, card.paymentDetails) &&
+      equal(previous.rows.map(r => [r.articleId, r.weight, r.price]), card.rows.map(r => [r.articleId, r.weight, r.price]));
     const projection = {
       ...(previous ?? card), customerApproval: { id: a.id, version: a.version, status: a.status, updatedAt: a.updatedAt,
         approvedBy: a.approvedBy, approvedAt: a.approvedAt, attestedBy: a.attestedBy, attestedAt: a.attestedAt },
     };
+    // Terminal DTOs carry genuine workflow events. Merge those on the server so
+    // clients never have to write a possibly redacted projection back to storage.
+    projection.audit = [...(previous?.audit ?? [])];
+    for (const event of card.audit) if (!projection.audit.some(old => old.at === event.at && old.actor === event.actor && old.text === event.text))
+      projection.audit.push(clone(event));
     if (same || !previous) {
       projection.idVerified = ['approved', 'attested'].includes(a.status);
-      if (a.status === 'attested' && !['paid', 'balance'].includes(previous?.status)) { projection.status = 'ready'; projection.approvedBy = a.attestedBy; }
+      if (a.status === 'attested' && !['paid', 'balance'].includes(previous?.status)) {
+        projection.status = card.paymentDetails?.method === 'balance' ? 'balance' : 'ready';
+        projection.approvedBy = card.approvedBy;
+      }
       else if (a.status === 'approved' && !['ready', 'paid', 'balance'].includes(previous?.status)) projection.status = 'attest';
       else if (['waiting', 'id_requested'].includes(a.status)) projection.status = 'customer';
       else if (['change_requested', 'cancelled', 'expired'].includes(a.status) && !['ready', 'paid', 'balance'].includes(previous?.status)) projection.status = 'complement';
@@ -104,7 +135,8 @@ function officeView(state, p) {
   result.payments = can(p, 'reports') || can(p, 'pay') ? result.payments.filter(payment => ids.has(payment.cardId)) : [];
   result.corrections = can(p, 'corrections') || financial(p) ? result.corrections.filter(row => ids.has(row.cardId)) : [];
   for (const card of result.cards) {
-    const moneyVisible = financial(p) || card.rows.every(row => can(p, 'prices') && can(p, `price${row.tier}`) && can(p, 'customerPrices'));
+    const moneyVisible = financial(p) || card.rows.every(row => can(p, 'prices') && can(p, 'customerPrices') &&
+      (row.tier === 'Eget' || can(p, `price${row.tier}`)));
     if (!moneyVisible) { card.financialPending = true; delete card.pricingTotal; card.rows = card.rows.map(row => ({ ...row, price: 0, pricePending: true })); }
     if (!can(p, 'paymentDetails') && !financial(p)) { delete card.paymentDetails; card.payment = ''; if (card.customerSnapshot) delete card.customerSnapshot.paymentProfile; }
   }
@@ -138,6 +170,8 @@ function validateOffice(state, base, next, p, approvals) {
     if (!before) demand(p, after.kind === 'correction' ? 'attest' : 'prepare');
     else {
       const fields = new Set(Object.keys(after).filter(field => !equal(after[field], before[field])));
+      const activeApproval=approvals.find(approval=>approval.id===before.customerApproval?.id && approval.cardId===before.id && approval.version===before.customerApproval?.version);
+      if(activeApproval && ['approved','attested'].includes(activeApproval.status) && ['customerId','customerSnapshot','origin','reference','rows','paymentDetails','payment','pricingTotal','pricingSnapshotId'].some(field=>fields.has(field))) fail('Kundens godkända version är låst. Avbryt godkännandet och skapa en ny version före ändring.');
       // Server-managed approval fields are accepted only if identical to the projection.
       if (fields.has('customerApproval') && !equal(after.customerApproval, before.customerApproval)) fail('Kundgodkännande styrs av terminalprocessen.');
       if (fields.has('idVerified') && after.idVerified && !approvalValid(after, approvals, 'approved') && !approvalValid(after, approvals, 'attested')) fail('Identiteten måste verifieras i kundgodkännandet.');
@@ -228,7 +262,7 @@ function requestPrincipal(store, req) {
   return store.principal(actor, user);
 }
 
-export function createApplicationService({ repository, env = process.env, projections, approvalProvider = async () => [] } = {}) {
+export function createApplicationService({ repository, env = process.env, projections, approvalProvider = async () => [], siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}] } = {}) {
   projections ??= approvalProvider;
   const context = new AsyncLocalStorage(); let fallback = createPricingStore(); let repoPromise;
   const getRepo = () => repoPromise ??= (repository ? Promise.resolve(repository) : createApplicationRepository({ env, seed: initialApplicationState })).catch(error => { repoPromise = undefined; throw error; });
@@ -243,6 +277,22 @@ export function createApplicationService({ repository, env = process.env, projec
     try {
       if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) fail('Anropet måste komma från samma webbplats.', 403);
       const domain = url.pathname.slice('/api/application/'.length);
+      if (domain === 'personnel') {
+        if (!['GET','POST'].includes(req.method)) fail('Metoden stöds inte.',405);
+        const command = req.method === 'POST' ? await body(req) : null;
+        const planning = url.searchParams.get('view') === 'planning';
+        if (planning && command) fail('Planeringsvyn är endast läsbar.',405);
+        const sites = await siteProvider();
+        const result = await (await getRepo()).transact((state,_,audit)=>{
+          const pricing=createPricingStore({initialState:state.pricing}),p=requestPrincipal(pricing,req);
+          if(p.actor.id==='mobile-demo')fail('Mobilkontot saknar åtkomst till personal.',403);
+          if(!personnelCan(p,planning?'transportRead':'personnelRead'))fail('Du saknar behörighet att läsa personal.',403);
+          ensurePersonnel(state);refreshStaffingTasks(state);
+          const preview=command?personnelCommand(state,p,command,audit,sites):undefined;
+          return {...personnelProjection(state,p,planning,sites),...(preview?{preview}:{})};
+        });
+        json(res,200,result);return true;
+      }
       if (domain === 'import-pricing') {
         if (req.method !== 'POST') fail('Metoden stöds inte.', 405);
         const payload = await body(req);
@@ -277,6 +327,7 @@ export function createApplicationService({ repository, env = process.env, projec
         const p = requestPrincipal(pricing, req);
         if (p.actor.id === 'mobile-demo' && domain !== 'mobile') fail('Mobilkontot får bara använda mobilflödet.', 403);
         demand(p, domain === 'transport' ? 'transportRead' : 'view');
+        if(domain==='transport')ensurePersonnel(state);
         reflectApprovals(state.office, approvals, state.metadata.officeSeed?.cards);
         state.office.users = clone(state.pricing.users);
         if (payload?.archiveData) {
@@ -347,9 +398,11 @@ export function createApplicationService({ repository, env = process.env, projec
             if (Array.isArray(p.user.siteIds)) fail('Transportplanering saknar anläggningsindelning. Använd ett konto med tillgång till alla anläggningar.', 403);
             const base = transportSchema.parse(payload.base), next = transportSchema.parse(payload.next);
             if (!equal(state.transport, base)) fail('Planeringen ändrades av en annan användare. Ladda om före bokning.');
+            validatePersonnelTransportChange(state,base,next);
             for (const event of next.events.filter(event => !state.transport.events.some(old => old.id === event.id))) if (event.actualUserId !== p.actor.id || event.effectiveUserId !== p.user.id) fail('Transporthändelsens användare stämmer inte med sessionen.', 403);
             for (const old of state.transport.events) if (!next.events.some(event => event.id === old.id && equal(event, old))) fail('Transporthistoriken kan inte skrivas över.');
             state.transport = next;
+            refreshStaffingTasks(state);
           }
           audit.push({ action: 'business.changed', domain, actualUserId: p.actor.id, effectiveUserId: p.user.id });
         }
@@ -405,7 +458,8 @@ export function createApplicationService({ repository, env = process.env, projec
     } catch { json(res, 503, { error: 'Databasen kunde inte bekräfta ändringen. Försök igen.', memoryOnly: false }); }
     return true;
   }
-  const api = async (req, res, url) => await durableApi(req, res, url) || await businessApi(req, res, url);
+  const driverApi = createDriverApi({getRepository:getRepo,readBody:body,json});
+  const api = async (req, res, url) => await driverApi(req,res,url) || await durableApi(req, res, url) || await businessApi(req, res, url);
   Object.assign(api, { principalStore, withPrincipal, businessApi, durableApi, getRepository: getRepo, close: async () => { if (repoPromise) await (await repoPromise).close(); } });
   return api;
 }

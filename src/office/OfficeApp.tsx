@@ -47,6 +47,7 @@ import { terminalDemoApi } from './terminal-demo-client';
 import type { TerminalApproval } from './terminal-demo-types';
 const TransportWorkspace = lazy(() => import('./transport/TransportWorkspace'));
 const FacilitiesWorkspace = lazy(() => import('./FacilitiesWorkspace'));
+const PersonalWorkspace = lazy(() => import('./personnel/PersonalWorkspace'));
 import {
   cardRoute,
   inQueue,
@@ -74,6 +75,7 @@ import {
   weight,
   statusNames,
   permissionNames,
+  sensitivePersonnelPermissions,
   type OfficeData,
   type OfficeUser,
   type OfficeCard,
@@ -123,16 +125,6 @@ const customerName = (c: OfficeCard) =>
   c.customerSnapshot?.name ??
   initialCustomers.find((x) => x.id === c.customerId)?.name ??
   'Kund saknas';
-const cardFromApproval = (approval: TerminalApproval): OfficeCard => officeSchema.shape.cards.element.parse({
-  ...approval.snapshot.card,
-  siteId: approval.siteId,
-  customerSnapshot: approval.snapshot.customer,
-  customerApproval: {
-    id: approval.id, version: approval.version, status: approval.status, updatedAt: approval.updatedAt,
-    approvedBy: approval.approvedBy, approvedAt: approval.approvedAt,
-    attestedBy: approval.attestedBy, attestedAt: approval.attestedAt,
-  },
-});
 export function OfficeApp() {
   useEffect(() => {
     const previous = document.title;
@@ -184,7 +176,7 @@ export function OfficeApp() {
   const [pricingError, setPricingError] = useState('');
   const [search, setSearch] = useState('');
   const [detailsDirty, setDetailsDirty] = useState(false);
-  const [environmentGuidance, setEnvironmentGuidance] = useState<{ cardId: number; sourceId?: string; visible: boolean; received: boolean; canConfirm: boolean }>();
+  const [environmentGuidance, setEnvironmentGuidance] = useState<{ cardId: number; sourceId?: string; loaded: boolean; visible: boolean; received: boolean; canConfirm: boolean }>();
   const [message, setMessage] = useState('');
   const location = useLocation(),
     navigate = useNavigate();
@@ -200,39 +192,14 @@ export function OfficeApp() {
   const terminalDemo = useTerminalDemo(actualUser, user);
   const [siteFilter, setSiteFilter] = useState('all');
   const [selectedTerminalId, setSelectedTerminalId] = useState('');
-  const terminalSyncedUser = useRef('');
   useEffect(() => { setSelectedTerminalId(''); }, [user?.id, siteFilter]);
   useEffect(() => {
     if (!terminalDemo.state || !user) return;
-    const principalKey = `${actualUser?.id}:${user.id}`;
-    const principalChanged = terminalSyncedUser.current !== principalKey;
-    terminalSyncedUser.current = principalKey;
-    const latest = new Map<number, TerminalApproval>();
-    for (const approval of terminalDemo.state.approvals) {
-      const previous = latest.get(approval.cardId);
-      if (!previous || approval.version > previous.version ||
-        (approval.version === previous.version && approval.updatedAt > previous.updatedAt)) latest.set(approval.cardId, approval);
-    }
-    const live = dataRef.current;
-    let changed = false;
-    const cards = [...live.cards];
-    for (const approval of latest.values()) {
-      const index = cards.findIndex(card => card.id === approval.cardId);
-      const existing = index < 0 ? undefined : cards[index];
-      if (existing?.customerApproval?.id === approval.id && existing.customerApproval.updatedAt >= approval.updatedAt &&
-        (!principalChanged || ['new', 'complement'].includes(existing.status))) continue;
-      const projected = cardFromApproval(approval);
-      // An unchanged server review must never undo a later manual demo payment.
-      if (existing?.customerApproval?.id === approval.id && ['paid', 'balance'].includes(existing.status) && approval.status === 'attested') {
-        projected.status = existing.status;
-        projected.paidAt = existing.paidAt;
-        projected.audit = existing.audit;
-      }
-      if (index < 0) cards.push(projected); else cards[index] = projected;
-      changed = true;
-    }
-    if (changed) persist({ ...live, cards });
-  }, [terminalDemo.state, user?.id, actualUser?.id]);
+    // Approval status, frozen prices, audit and payment history are projected
+    // together by the office API. A terminal response (possibly redacted for
+    // this user) must never become a new business-data write for every card.
+    void shared.refresh();
+  }, [terminalDemo.state?.revision, user?.id, actualUser?.id]);
   const auditActor = user
     ? `${acting ? `${actualUser!.name} som ` : ''}${user.name} · Kontor Norrtälje`
     : '';
@@ -262,6 +229,17 @@ export function OfficeApp() {
   const selectedApproval = selected?.customerApproval
     ? terminalDemo.state?.approvals.find(item => item.id === selected.customerApproval?.id)
     : undefined;
+  const customerApprovalValid = Boolean(selectedApproval && selected?.customerApproval &&
+    selectedApproval.version === selected.customerApproval.version &&
+    ['approved', 'attested'].includes(selectedApproval.status));
+  const matchingEnvironmentalState = selected && environmentGuidance?.cardId === selected.id && environmentGuidance.sourceId === selected.sourceId
+    ? environmentGuidance : undefined;
+  const receiptStatus = selected?.kind === 'correction' ? 'not-required' as const
+    : user && can(user, 'environmentRead')
+      ? !matchingEnvironmentalState?.loaded ? 'checking' as const
+        : !matchingEnvironmentalState.visible ? 'not-required' as const
+          : matchingEnvironmentalState.received ? 'confirmed' as const : 'required' as const
+      : undefined;
   const approvalDisabledReason = !selected ? ''
     : !selected.customerId ? 'Välj eller skapa en kund innan kundgodkännandet startas.'
     : !selected.origin.trim() ? 'Fyll i och spara ursprungsadressen innan kundgodkännandet startas.'
@@ -330,75 +308,6 @@ export function OfficeApp() {
       current = false;
     };
   }, [userId, actingId, section, selectedId]);
-  const pendingPrices = data.cards
-    .filter(
-      (c) =>
-        c.pricingSnapshotId && (c.financialPending || c.pricingRowsPending),
-    )
-    .map((c) => `${c.id}:${c.pricingSnapshotId}`)
-    .join(',');
-  useEffect(() => {
-    let current = true;
-    if (!user || !actualUser || !pendingPrices) return;
-    const pending = dataRef.current.cards.filter(
-      (c) =>
-        c.pricingSnapshotId && (c.financialPending || c.pricingRowsPending),
-    );
-    Promise.all(
-      pending.map(async (card) => {
-        const archive = await pricingRequest<{
-          snapshots: (PricingQuote & { id: string })[];
-        }>(`snapshots?cardId=${card.id}`, user, actualUser);
-        const snapshot = archive.snapshots.find(
-          (entry) => entry.id === card.pricingSnapshotId,
-        );
-        return { card, snapshot };
-      }),
-    )
-      .then((results) => {
-        if (!current) return;
-        const live = dataRef.current;
-        let changed = false;
-        const cards = live.cards.map((card) => {
-          const snapshot = results.find(
-            (result) => result.card.id === card.id,
-          )?.snapshot;
-          if (
-            !snapshot ||
-            card.pricingSnapshotId !== snapshot.id ||
-            snapshot.total == null ||
-            snapshot.rows.length !== card.rows.length
-          )
-            return card;
-          const rowsPending = snapshot.rows.some((r) => r.price == null);
-          if (!card.financialPending && rowsPending) return card;
-          changed = true;
-          return {
-            ...card,
-            pricingTotal: snapshot.total,
-            financialPending: false,
-            pricingRowsPending: rowsPending,
-            rows: snapshot.rows.map((r, i) => ({
-              ...card.rows[i],
-              price: r.price ?? card.rows[i].price,
-              pricePending: r.price == null,
-              tier: r.tier === 'Special' ? ('Eget' as const) : r.tier,
-              volumeBefore: r.volumeBefore ?? card.rows[i].volumeBefore,
-              volumeWithDelivery:
-                r.volumeWithDelivery ?? card.rows[i].volumeWithDelivery,
-              source: r.source,
-            })),
-          };
-        });
-        if (changed) persist({ ...live, cards });
-      })
-      .catch(() => {
-        /* A restricted reader keeps financial actions locked until an authorized reader can fetch the snapshot. */
-      });
-    return () => {
-      current = false;
-    };
-  }, [userId, actingId, pendingPrices]);
   const shared = useSharedData<OfficeData>({domain:'office',key:officeKey,identity:actualUser&&user?{actor:actualUser.id,user:user.id}:undefined,current:dataRef,accept:next=>{setData(next);setBlocked(false);},error:setError,parse:value=>officeSchema.parse(value)});
   function persist(next: OfficeData, force = false) {
     if (blocked && !force) return false;
@@ -716,11 +625,10 @@ export function OfficeApp() {
     setAttestBusy(true);
     try {
       if (current.customerApproval) {
-        const attested = await terminalDemoApi.attest(current.customerApproval.id);
+        await terminalDemoApi.attest(current.customerApproval.id);
         if (principalRef.current !== principal) return;
-        const live = dataRef.current;
-        if (!persist({ ...live, cards: live.cards.map(item => item.id === current.id ? cardFromApproval(attested) : item) })) return;
         await terminalDemo.refresh();
+        await shared.refresh();
       } else if (!update({ ...current, status: current.paymentDetails?.method === 'balance' ? 'balance' : 'ready', approvedBy: user.id },
         current.paymentDetails?.method === 'balance' ? 'Kortet attesterat. Beloppet sparat på kundens saldo.' : 'Kortet attesterat och klart för utbetalning.', 'attest')) return;
       setMessage(current.paymentDetails?.method === 'balance' ? 'JEROC-attesterat. Beloppet ligger på kundens saldo.' : 'Kortet är JEROC-attesterat och klart för manuell utbetalning.');
@@ -758,7 +666,7 @@ export function OfficeApp() {
     if (selectedApproval?.status === 'id_requested' && can(user, 'prepare') && can(user, 'verifyId')) return 'approval';
     if (environmentGuidance?.cardId === selected.id && environmentGuidance.sourceId === selected.sourceId &&
       environmentGuidance.visible && !environmentGuidance.received && environmentGuidance.canConfirm) return 'environment';
-    if (selected.status === 'attest' && can(user, 'attest') && !selected.financialPending && amount(selected) <= user.maxAttest &&
+    if (selected.status === 'attest' && receiptStatus !== 'required' && receiptStatus !== 'checking' && can(user, 'attest') && !selected.financialPending && amount(selected) <= user.maxAttest &&
       (user.ownAttest || (selected.preparedBy !== user.id && selectedApproval?.actualUserId !== actualUser.id)) &&
       (!selected.customerApproval || selectedApproval?.status === 'approved')) return 'attest';
   };
@@ -773,6 +681,7 @@ export function OfficeApp() {
     { id: 'payments', name: 'Utbetalningar', icon: Wallet, right: 'pay' },
     { id: 'customers', name: 'Kunder', icon: Users, right: 'view' },
     { id: 'transport', name: 'Transportplanering', icon: Truck, right: 'transportRead' },
+    { id: 'personnel', name: 'Personal', icon: Users, right: 'personnelRead' },
     {
       id: 'prices',
       name: 'Artiklar & priser',
@@ -1199,8 +1108,7 @@ export function OfficeApp() {
             ))}
           </div>
           <p className="office-small">
-            Ingen riktig inloggning, bankkoppling eller synkning med mobilappen
-            ännu.
+            Demokonton med fiktiva uppgifter. Kontoret och mobilen delar vägningar och kunder. Utbetalningar registreras manuellt.
           </p>
           <a href="/">Öppna gårdsappen</a>
         </div>
@@ -1214,6 +1122,7 @@ export function OfficeApp() {
       customers={data.customers}
       officeBlocked={blocked}
       onExit={() => navigate('/dashboard')}
+      onOpenStaffing={() => navigate('/personnel/tasks')}
       workAsControl={actualUser?.level === 'Systemadmin' ? (
         <label>Jobba som
           <select aria-label="Jobba som" value={acting ? user.id : ''} onChange={event => workAs(event.target.value)}>
@@ -1364,7 +1273,7 @@ export function OfficeApp() {
         {approvalPreview && approvalMoneyVisible(user) && <ApprovalVersionPreview approval={approvalPreview}
           siteName={terminalDemo.state?.sites.find(site => site.id === approvalPreview.siteId)?.name ?? approvalPreview.siteId}
           onClose={() => setApprovalPreview(undefined)} />}
-        <main className="office-main">
+        <main className="office-main" aria-busy={!shared.ready}>
           {error && (
             <div className="office-alert" role="alert">
               {error}
@@ -1716,8 +1625,10 @@ export function OfficeApp() {
                   {can(user, 'environmentRead') && selected.kind !== 'correction' && (
                     <EnvironmentReceiptPanel key={selected.sourceId ?? selected.id} card={selected} customer={selectedCustomer}
                       user={user} actualUser={actualUser!} onNotice={setMessage}
+                      customerApprovalValid={customerApprovalValid}
+                      customerChangeRequested={selectedApproval?.status === 'change_requested'}
                       guidance={panelGuidance('environment')}
-                      onGuidanceState={value => setEnvironmentGuidance(previous => previous?.cardId === selected.id && previous.sourceId === selected.sourceId && previous.visible === value.visible && previous.received === value.received && previous.canConfirm === value.canConfirm ? previous : { cardId: selected.id, sourceId: selected.sourceId, ...value })}
+                      onGuidanceState={value => setEnvironmentGuidance(previous => previous?.cardId === selected.id && previous.sourceId === selected.sourceId && previous.loaded === value.loaded && previous.visible === value.visible && previous.received === value.received && previous.canConfirm === value.canConfirm ? previous : { cardId: selected.id, sourceId: selected.sourceId, ...value })}
                       canChangeOrigin={Boolean(editable) && can(user, 'prepare')}
                       onOriginChange={(origin) => update({ ...selected, origin }, 'Ursprungsadress uppdaterad från miljökortet.', 'prepare')}
                       onRegistered={(receipt) => {
@@ -1736,6 +1647,7 @@ export function OfficeApp() {
                       }} />
                   )}
                   <OfficeCardAttest card={selected} user={user} actualUser={actualUser!} users={data.users}
+                    receiptStatus={receiptStatus}
                     guidance={panelGuidance('attest')} approval={selectedApproval} busy={attestBusy} blocked={blocked || priceBusy}
                     onAttest={() => attestCard(selected)} onReturn={() => returnCard(selected)} />
                   <section className="office-panel office-card-summary">
@@ -2177,6 +2089,11 @@ export function OfficeApp() {
                 />
               )}
             </>
+          ) : section === 'personnel' ? (
+            <Suspense fallback={<div className="office-panel" role="status">Hämtar personalregistret…</div>}><PersonalWorkspace
+              key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!}
+              users={data.users} selectedSiteId={siteFilter} onNotice={setMessage}
+              onOpenUser={id => navigate(`/users?user=${encodeURIComponent(id)}`)} /></Suspense>
           ) : section === 'environment' ? (
             <EnvironmentWorkspace user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} onOpenCard={open} />
           ) : section === 'facilities' ? (
@@ -2242,6 +2159,7 @@ export function OfficeApp() {
           ) : section === 'users' ? (
             <UserAdmin
               users={data.users}
+              initialUserId={query.get('user') ?? undefined}
               actor={user}
               sites={terminalDemo.state?.sites}
               save={async (users) => {
@@ -2637,13 +2555,42 @@ function CorrectionForm({
     </section>
   );
 }
+const permissionPrerequisites: Partial<Record<Permission, Permission[]>> = {
+  lmeWrite: ['lmeRead'],
+  transportPlan: ['transportRead'],
+  environmentStorage: ['environmentRead'],
+  personnelWrite: ['personnelRead'],
+  employmentRead: ['personnelRead'],
+  employmentWrite: ['personnelRead', 'employmentRead'],
+  salaryRead: ['personnelRead'],
+  salaryWrite: ['personnelRead', 'salaryRead'],
+  absenceRead: ['personnelRead'],
+  absenceWrite: ['personnelRead', 'absenceRead'],
+  competenciesWrite: ['personnelRead'],
+  staffingWrite: ['personnelRead', 'transportRead', 'transportPlan'],
+  externalAccounts: ['personnelRead'],
+};
+function changedPermissions(current: Permission[], key: Permission, checked: boolean): Permission[] {
+  if (checked) return [...new Set([...current, key, ...(permissionPrerequisites[key] ?? [])])];
+  let next = current.filter(right => right !== key);
+  // Removing a prerequisite also removes any dependent grants, including
+  // dependencies reached through another grant such as staffing -> planning.
+  let previousLength;
+  do {
+    previousLength = next.length;
+    next = next.filter(right => !(permissionPrerequisites[right] ?? []).some(required => !next.includes(required)));
+  } while (next.length !== previousLength);
+  return next;
+}
 function UserAdmin({
   users,
+  initialUserId,
   actor,
   sites: fallbackSites,
   save,
 }: {
   users: OfficeUser[];
+  initialUserId?: string;
   actor: OfficeUser;
   sites?: { id: string; name: string }[];
   save: (u: OfficeUser[]) => Promise<boolean>;
@@ -2651,7 +2598,7 @@ function UserAdmin({
   const { state: environmentState } = useEnvironmentSession();
   const sites = environmentState?.sites ?? fallbackSites ?? [{ id: 'norrtalje', name: 'Norrtälje' }, { id: 'rimbo', name: 'Rimbo' }];
   const allSiteIds = sites.map(site => site.id);
-  const [selected, setSelected] = useState(users[0]),
+  const [selected, setSelected] = useState(users.find(person => person.id === initialUserId) ?? users[0]),
     [notice, setNotice] = useState(''),
     [saving, setSaving] = useState(false);
   const editable =
@@ -2768,34 +2715,12 @@ function UserAdmin({
                 <label key={key}>
                   <input
                     type="checkbox"
-                    disabled={!editable || selected.level !== 'Medarbetare'}
+                    disabled={!editable || (selected.level !== 'Medarbetare' && !(selected.level === 'VD' && sensitivePersonnelPermissions.includes(key as Permission)))}
                     checked={can(selected, key as Permission)}
                     onChange={(e) =>
                       setSelected({
                         ...selected,
-                        permissions: e.target.checked
-                          ? [
-                              ...new Set([
-                                ...selected.permissions,
-                                key as Permission,
-                                ...(key === 'lmeWrite'
-                                  ? ['lmeRead' as const]
-                                  : []),
-                                ...(key === 'transportPlan'
-                                  ? ['transportRead' as const]
-                                  : []),
-                                ...(key === 'environmentStorage'
-                                  ? ['environmentRead' as const]
-                                  : []),
-                              ]),
-                            ]
-                          : selected.permissions.filter(
-                              (p) =>
-                                p !== key &&
-                                !(key === 'lmeRead' && p === 'lmeWrite') &&
-                                !(key === 'transportRead' && p === 'transportPlan') &&
-                                !(key === 'environmentRead' && p === 'environmentStorage'),
-                            ),
+                        permissions: changedPermissions(selected.permissions, key as Permission, e.target.checked),
                       })
                     }
                   />

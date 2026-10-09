@@ -1,4 +1,39 @@
-# JEROC kontorsdemo 0.8.3
+# JEROC kontorsdemo 0.9.0
+
+## Nytt i 0.9.0 – personal och tydlig stegordning
+
+**Personal** ligger i vänstermenyn. Där finns personallista, personkort,
+anställning, lön, schema, frånvaro, kompetenser och bemanningsuppgifter.
+Anställda och externa chaufförer kopplas till befintliga användare, förare,
+fordon och åkerier; tidigare bokningar och kunduppgifter bevaras.
+Lön och frånvaroorsak kräver egna uttryckliga behörigheter även för VD.
+Se [personalmodulens testflöden och begränsningar](personnel-demo.md).
+
+Registrerad frånvaro skapar uppgifter för berörda bokningar. Jobben ligger
+kvar tills en behörig användare väljer ersättare. Schema, frånvaro, överlapp,
+fordon och uttryckliga kompetenskrav kontrolleras på servern vid bokning och
+förarbyte. Planeraren visar otillgängliga tider utan att avslöja frånvaroorsak.
+Externa chaufförer får egna administrerade konton och en mobil webbvy på
+`/chauffor`, med endast sina tilldelade uppdrag. Utrustning och dokumentarkiv
+ingår inte i denna etapp.
+
+På invägningskort gäller nu **kundgodkännande → bekräftad mottagning av
+farligt avfall → intern attest**. Mottagningsknappen är spärrad tills kunden
+godkänt aktuell version. Uppgifter kan förberedas och sparas som utkast tidigare.
+Utan farliga artiklar behövs ingen miljömottagning. Attest kontrollerar den
+aktuella kundversionen och registrerad mottagning på servern; ändrad farlig
+mängd eller ursprungsadress kräver spårbar miljörättelse. Det verkliga
+mottagningsdatumet flyttas inte för att kunden godkänner senare.
+
+Om faktiskt levererat avfall måste registreras under en pågående kundtvist finns
+en separat åtgärd med rättigheten `environmentReceiveException`, obligatorisk
+motivering och spårbar logg. Den kräver att kunden begärt ändring och ger aldrig
+rätt att hoppa över kundgodkännande eller intern attest.
+
+Personal och chaufförssessioner sparas beständigt tillsammans med övriga
+verksamhetsdata. Befintligt `DATABASE_URL` används och gamla data raderas inte.
+Kontorets inloggning är fortfarande demoauth och löneuppgifterna är fiktiva.
+Utbetalningar är fortsatt manuella; inga externa integrationer aktiveras.
 
 ## Nytt i 0.8.3 – lägre hopfällt miljökort
 
@@ -299,7 +334,7 @@ aktiveras och betalningar registreras manuellt.
 
 `npm ci`, `npm run build`, sedan `npm run dev` startar Vite på 5173 och prismotorn på 3000. Vite skickar API-anrop till Node. Windows_Starta_JEROC.cmd och Mac_Starta_JEROC.command installerar och startar samma Node-tjänst lokalt på 4173; öppna `/kontor` för kontorsdemon. `npm start` serverar produktionsbygge och API i samma process; `npm run preview` visar bara det statiska bygget och saknar prismotorn.
 
-Kör `npm run test:server`, `npm test -- --workers=1`, `npm run build` och `npm run expo:check`. Starta utvecklingsservern med färsk demodata före en ny full testomgång; API-testerna delar serverns minne och några ändrar hela användarregistret. Kör dem i följd för att undvika krockar mellan testkonton. Pristesterna omfattar Cash/valuta, historiska datum, volym per artikel inklusive aktuell leverans, kundundantag, oföränderliga/versionerade prisunderlag, rättelseposter och serverns demobehörigheter. Webbtesterna omfattar kontorsflödet, Jobba som och attestgräns, LME läs/ändra, sparad prissättning och fortsatt mobilflöde.
+Kör `npm run test:server`, `npm test -- --workers=1`, `npm run build` och `npm run expo:check`. Starta utvecklingsservern med separata, färska lokala testdatabaser före en ny full testomgång; API-testerna delar beständig testdata och några ändrar användarregistret. Använd aldrig produktionsdatabasen. Kör webbläsartesterna i följd för att undvika krockar mellan testkonton. Pristesterna omfattar Cash/valuta, historiska datum, volym per artikel inklusive aktuell leverans, kundundantag, oföränderliga/versionerade prisunderlag, rättelseposter och serverns demobehörigheter. Webbtesterna omfattar kontorsflödet, Jobba som och attestgräns, LME läs/ändra, sparad prissättning och fortsatt mobilflöde.
 
 Releasekontrollen omfattar ursprungsadress före attest, preliminära gruppbokningar, flytt/tidsändring, avbruten dragning, förarurval, avmarkering, kundsvar, händelsehistorik, serverutkorg och återförsök. Verifierat för 0.5.0: 115 Playwright-kontroller (112 i hela sviten och tre tillägg), 47 servertester, produktionsbygge och Expo-typkontroll.
 

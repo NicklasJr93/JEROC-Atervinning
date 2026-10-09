@@ -66,6 +66,12 @@
 .tc-order.is-selected { box-shadow: 0 0 0 2px #075ed4, 0 4px 12px #1d69c732; }
 .tc-order.is-preview-source { opacity: 0; pointer-events: none; }
 .tc-order.is-invalid { border-color: #d94646; box-shadow: 0 0 0 2px #d94646; }
+.tc-order.has-staffing-warning { border-top-color: #edb65e; border-right-color: #edb65e; border-bottom-color: #edb65e; background: #fff5e7; color: #875819; }
+.tc-unavailable { position: absolute; z-index: 0; overflow: hidden; pointer-events: none; background: repeating-linear-gradient(135deg, #e9edf3b3, #e9edf3b3 5px, #f4f6f9b3 5px, #f4f6f9b3 10px); color: #7b8797; font-size: 9px; }
+.tc-unavailable > span { display: block; padding: 4px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-day .tc-unavailable { top: 0; bottom: 0; }
+.tc-week .tc-unavailable { left: 0; right: 0; }
+.tc-legend-unavailable { background: #a9b3c1; }
 .tc-resize { display: flex; align-items: center; justify-content: center; position: absolute; right: 0; top: 0; bottom: 0; width: 11px; border: 0; background: #a4c9fe52; color: #396cbd; cursor: ew-resize; touch-action: none; padding: 0; z-index: 5; }
 .tc-resize:hover, .tc-resize:focus-visible { background: #8ebaf6; outline: 2px solid #075ed4; outline-offset: -2px; }
 .tc-order.is-preliminary .tc-resize { background: #e7919852; color: #9b3442; }

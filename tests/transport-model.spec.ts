@@ -331,6 +331,21 @@ test('verkställ flera bokningar är en atomär revision och en bokningshändels
   expect(staged.events).toEqual([]);
 });
 
+test('PostgreSQLs ordning på JSON-nycklar skapar inte händelser för oförändrade arbetsordrar', () => {
+  function reorder(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(reorder);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).reverse().map(([key, entry]) => [key, reorder(entry)]));
+    return value;
+  }
+  const data = reorder(fixture()) as TransportData;
+  const next = applyTransportChange(data, { type: 'reschedule', id: 'AO-1042', plan: plan({ driverId: 'kalle', vehicleId: 'vehicle-kalle' }) }, actor);
+  expect(next.events.map(event => [event.type, event.orderId])).toEqual([['work_order.rescheduled', 'AO-1042']]);
+  for (const unchanged of data.orders.filter(entry => entry.id !== 'AO-1042')) expect(order(next, unchanged.id).bookingVersion).toBe(unchanged.bookingVersion);
+  const undone = undoTransportChange(next, data, actor);
+  expect(undone.events.map(event => [event.type, event.orderId])).toEqual([['work_order.rescheduled', 'AO-1042'], ['work_order.rescheduled', 'AO-1042']]);
+  for (const unchanged of data.orders.filter(entry => entry.id !== 'AO-1042')) expect(order(undone, unchanged.id).audit).toEqual(unchanged.audit);
+});
+
 test('hela gruppen avvisas utan sidoeffekter om sparad reservation har fått en tidskrock', () => {
   const staged = stageTransportPlan(fixture(), 'AO-1043', plan(), actor);
   const corrupt = structuredClone(staged);
