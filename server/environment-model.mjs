@@ -72,6 +72,7 @@ const legacyDocumentSchema = z.object({ reference: z.string().trim().max(300).op
   .refine((value) => Boolean(value.reference?.length || value.missingReason?.length), 'Ange dokumentreferens eller avvikelse för saknat dokument.');
 const documentSchema = z.union([newDocumentSchema, legacyDocumentSchema]);
 const receiptFields = {
+  materialScope: z.literal('hazardous').optional(),
   receivedAt: z.string().max(40).datetime({ offset: true }), rows: z.array(z.object({ articleId: id, weight }).strict()).min(1).max(100),
   previousHolder: holderSchema, lastPlace: placeSchema, nextPlace: placeSchema, transportMode: z.enum(['road', 'rail', 'sea', 'air']),
   incomingDocument: documentSchema, originAddress: z.string().trim().min(1).max(1000).optional(), addressResolution: addressResolutionSchema.optional(),
@@ -96,8 +97,9 @@ const draftSchema = z.object({
   lastPlace: draftPlaceSchema.optional(), nextPlace: draftPlaceSchema.optional(), transportMode: z.enum(['road', 'rail', 'sea', 'air']).default('road'),
   incomingDocument: z.object({ status: z.enum(['provided', 'not_required', 'missing', 'unknown']), reference: z.string().trim().max(300).optional(), missingReason: z.string().trim().max(2000).optional(), exemptionReason: z.string().trim().max(2000).optional() }).strict().default({ status: 'unknown' }),
   addressResolution: addressResolutionSchema.optional(),
+  materialScope: z.literal('hazardous').optional(),
 }).strict();
-const storageCheckSchema = z.object({ siteId: id, rows: z.array(z.object({ articleId: id, weight }).strict()).max(100), receiptId: sourceIdSchema.optional() }).strict();
+const storageCheckSchema = z.object({ siteId: id, rows: z.array(z.object({ articleId: id, weight }).strict()).max(100), receiptId: sourceIdSchema.optional(), materialScope: z.literal('hazardous').optional() }).strict();
 const copy = (value) => structuredClone(value);
 const canonicalJsonValue = (value) => Array.isArray(value) ? value.map(canonicalJsonValue)
   : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJsonValue(value[key])])) : value;
@@ -267,6 +269,11 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
   };
   const classifyRows = (state, rows, previousRows = []) => snapshotRows(rows, rows.map((row) => previousRows.find((previous) => previous.articleId === row.articleId)
     ?? { articleId: row.articleId, classification: currentClassification(state, row.articleId) }));
+  // The NVV card concerns hazardous material only. Classification comes from
+  // this register (or a frozen receipt), never from a browser-supplied flag.
+  // General facility checks and older full-material receipts remain supported.
+  const scopedRows = (rows, materialScope) => materialScope === 'hazardous' ? rows.filter((row) => row.classification.hazardous) : rows;
+  const physicalRows = (rows) => rows.map(({ articleId, weight }) => ({ articleId, weight }));
   const assessStorage = (state, siteId, rows, previousRows, time) => assessEnvironmentalStorage(state,
     { siteId, rows, previousRows, checkedAt: time.toISOString() });
   const demandStorageCapacity = (assessment) => {
@@ -375,8 +382,10 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         const current = state.drafts.find((record) => record.sourceId === sourceId);
         if (current) { demandSite(state, principal, current.siteId); if (current.cardId !== request.cardId) throw new EnvironmentError('Utkastet tillhör ett annat kort.', 409, 'source_conflict'); }
         if ((current?.version ?? 0) !== request.expectedVersion) throw new EnvironmentError('Utkastet har ändrats av någon annan. Läs in senaste versionen.', 409, 'version_conflict');
-        for (const row of request.rows) resolveArticle(row.articleId);
         const { expectedVersion, ...input } = request;
+        if (current?.input.materialScope === 'hazardous') input.materialScope = 'hazardous';
+        if (input.materialScope === 'hazardous') input.rows = physicalRows(scopedRows(classifyRows(state, input.rows), input.materialScope));
+        else for (const row of input.rows) resolveArticle(row.articleId);
         // A changed canonical origin invalidates old derived municipality data;
         // a newly matched provenance can safely keep the fresh resolved place.
         if (current?.input.originAddress !== input.originAddress && !input.addressResolution && input.originAddress) {
@@ -426,15 +435,17 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       const request = parse(storageCheckSchema, payload);
       return transaction((state, time) => {
         const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead'); demandSite(state, principal, request.siteId);
-        let previousRows = [];
+        let previousRows = [], materialScope = request.materialScope;
         if (request.receiptId) {
           const original = state.receipts.find((record) => record.id === request.receiptId);
           if (!original) throw new EnvironmentError('Mottagningen finns inte.', 404, 'not_found');
           demandSite(state, principal, original.siteId);
           if (original.siteId !== request.siteId) throw new EnvironmentError('Lagringskontrollen måste avse mottagningens anläggning.', 409, 'source_conflict');
-          previousRows = effectiveReceipt(state, original).snapshot.rows;
+          const current = effectiveReceipt(state, original);
+          previousRows = current.snapshot.rows;
+          materialScope = current.snapshot.materialScope ?? original.snapshot.materialScope ?? materialScope;
         }
-        return assessStorage(state, request.siteId, classifyRows(state, request.rows, previousRows), previousRows, time);
+        return assessStorage(state, request.siteId, scopedRows(classifyRows(state, request.rows, previousRows), materialScope), scopedRows(previousRows, materialScope), time);
       });
     },
     classification(articleId, token) { return transaction((state, time) => {
@@ -471,8 +482,14 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         const { principal } = principalFor(state, token, time); demand(principal, 'environmentWrite'); demandSite(state, principal, request.siteId);
         if (Date.parse(request.receivedAt) > time.getTime() + 5 * 60 * 1000) throw new EnvironmentError('Faktisk mottagning kan inte ligga i framtiden.', 422, 'future_receipt');
         const { idempotencyKey, expectedDraftVersion, ...input } = request;
-        const inputHash = inputIdentityHash(input), key = environmentHash(`${principal.actor.id}:${idempotencyKey}`);
         const existing = state.receipts.find((record) => record.sourceId === request.sourceId);
+        let rows;
+        if (input.materialScope === 'hazardous') {
+          rows = scopedRows(classifyRows(state, request.rows, existing?.snapshot.rows), input.materialScope);
+          if (!rows.length) throw new EnvironmentError('Kortet saknar farligt avfall och behöver ingen miljömottagning.', 422, 'hazardous_material_required');
+          input.rows = physicalRows(rows);
+        }
+        const inputHash = inputIdentityHash(input), key = environmentHash(`${principal.actor.id}:${idempotencyKey}`);
         const previousRequest = state.requests.find((record) => record.id === key), legacyMatch = existing && matchesLegacyPhysicalInput(existing, input);
         if (previousRequest && previousRequest.inputHash !== inputHash && !(legacyMatch && previousRequest.receiptId === existing.id)) throw new EnvironmentError('Samma spara-försök innehåller andra uppgifter.', 409, 'idempotency_conflict');
         if (existing) {
@@ -485,7 +502,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         if (expectedDraftVersion !== undefined && expectedDraftVersion !== (draft?.version ?? 0))
           throw new EnvironmentError('Miljöutkastet har ändrats av en annan kollega. Läs in den senaste versionen före mottagningsbekräftelse.', 409, 'version_conflict');
         if (draft) { demandSite(state, principal, draft.siteId); if (draft.cardId !== request.cardId || draft.siteId !== request.siteId) throw new EnvironmentError('Mottagningen stämmer inte med det sparade utkastets kort eller anläggning.', 409, 'source_conflict'); }
-        const rows = classifyRows(state, request.rows);
+        rows ??= classifyRows(state, request.rows);
         const storageAssessment = assessStorage(state, request.siteId, rows, [], time); demandStorageCapacity(storageAssessment);
         const operator = { name: 'JEROC Återvinning AB', number: '5591234567', contactName: 'Miljöansvarig – DEMO', email: 'miljo@example.invalid', phone: '0100000000', demo: true, verified: false };
         const snapshot = { version: 1, ...input, rows, operator, storageAssessment };
@@ -526,6 +543,16 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
           throw new EnvironmentError('En miljörättelse måste avse samma kort och anläggning som originalet.', 409, 'source_conflict');
         if (Date.parse(request.receivedAt) > time.getTime() + 5 * 60 * 1000) throw new EnvironmentError('Faktisk mottagning kan inte ligga i framtiden.', 422, 'future_receipt');
         const { idempotencyKey, ...input } = request;
+        const current = effectiveReceipt(state, original);
+        // Preserve the narrow scope on subsequent requests even if a client
+        // omits it. Old mixed receipts retain their nonhazardous stock intact.
+        const materialScope = current.snapshot.materialScope ?? original.snapshot.materialScope ?? input.materialScope;
+        let changedRows;
+        if (materialScope === 'hazardous') {
+          changedRows = scopedRows(classifyRows(state, request.rows, current.snapshot.rows), materialScope);
+          input.materialScope = materialScope;
+          input.rows = physicalRows(changedRows);
+        }
         const { sourceId: sourceIdentity, cardId: cardIdentity, siteId: siteIdentity, ...correctionIdentity } = input;
         const inputHash = inputIdentityHash({ operation: 'correction', receiptId, ...correctionIdentity });
         const key = environmentHash(`${principal.actor.id}:${idempotencyKey}`), previousRequest = state.requests.find((record) => record.id === key);
@@ -535,10 +562,10 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
           if (!previousRequest) state.requests.push({ id: key, inputHash, receiptId, correctionId: priorCorrection.id, createdAt: time.toISOString() });
           return effectiveReceipt(state, original);
         }
-        const current = effectiveReceipt(state, original);
         if (current.version !== request.expectedVersion) throw new EnvironmentError('Mottagningen har redan rättats. Läs in senaste versionen.', 409, 'version_conflict');
-        const rows = classifyRows(state, request.rows, current.snapshot.rows);
-        const storageAssessment = assessStorage(state, original.siteId, rows, current.snapshot.rows, time); demandStorageCapacity(storageAssessment);
+        changedRows ??= classifyRows(state, request.rows, current.snapshot.rows);
+        const rows = materialScope === 'hazardous' ? [...current.snapshot.rows.filter((row) => !row.classification.hazardous), ...changedRows] : changedRows;
+        const storageAssessment = assessStorage(state, original.siteId, changedRows, scopedRows(current.snapshot.rows, materialScope), time); demandStorageCapacity(storageAssessment);
         const { expectedVersion, reason, sourceId, cardId, siteId, ...correctedValues } = input;
         const snapshot = { ...current.snapshot, ...correctedValues, rows, storageAssessment, version: expectedVersion + 1, previousHash: current.hash, correctionReason: reason };
         const correctionId = randomUUID(), hash = environmentHash(snapshot), movements = [];

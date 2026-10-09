@@ -112,11 +112,22 @@ test('artikelklassificering och faktisk mottagning sparas via kontoret och syns 
   const sourceId = randomUUID();
   const cardId = 55_000_000 + randomInt(1_000_000);
   data.cards.push({ ...data.cards.find(card => card.id === 2050)!, id: cardId, sourceId });
+  const copperCardId = cardId + 1;
+  const copper = data.cards.find(card => card.id === 2050)!.rows.find(row => row.articleId === 'copper-1')!;
+  data.cards.push({ ...data.cards.find(card => card.id === 2050)!, id: copperCardId, sourceId: randomUUID(), rows: [copper] });
   await page.addInitScript(value => {
     if (!localStorage.getItem('jeroc.office.demo.v1')) localStorage.setItem('jeroc.office.demo.v1', JSON.stringify(value));
   }, data);
   await page.goto('/kontor');
   await page.getByRole('button', { name: /Systemadmin/ }).click();
+  const session = await environmentDemoSession(page.request);
+  const before = await environmentState(page.request);
+  const policy = await page.request.put('/api/environment/storage/policies/norrtalje', {
+    headers: { 'X-Environment-CSRF': session.csrfToken },
+    data: { expectedVersion: before.storagePolicies.find(item => item.siteId === 'norrtalje')?.version ?? 0,
+      totalMaxKg: 1_000_000, rules: [{ wasteCode: '160601', allowed: true, maxKg: 1_000_000 }] },
+  });
+  expect(policy.ok()).toBe(true);
   await page.goto('/kontor#/prices');
   await page.getByRole('button', { name: 'Redigera Blybatterier', exact: true }).click();
   const classification = page.getByRole('region', { name: 'Miljöklassificering för Blybatterier', exact: true });
@@ -129,13 +140,22 @@ test('artikelklassificering och faktisk mottagning sparas via kontoret och syns 
   const instruction = `Tätt batterikärl · test ${sourceId}`;
   await classification.getByLabel('Säkerhetsanvisningar', { exact: true }).fill(instruction);
   await classification.getByRole('button', { name: 'Spara miljöklassificering', exact: true }).click();
-  await expect(page.getByRole('status').first()).toContainText('Miljöklassificeringen är sparad');
+  await expect(page.getByRole('status').first()).toContainText('Miljöklassificeringen och lagringsreglerna är sparade');
   await page.reload();
   await page.getByRole('button', { name: 'Redigera Blybatterier', exact: true }).click();
   await expect(classification.getByLabel('Säkerhetsanvisningar', { exact: true })).toHaveValue(instruction);
+  await page.goto(`/kontor#/weighings/${copperCardId}`);
+  await expect(page.getByRole('heading', { name: `Invägning #${copperCardId}`, exact: true })).toBeVisible();
+  await expect.poll(async () => (await page.request.get('/api/environment/session')).ok()).toBe(true);
+  await expect(page.getByRole('region', { name: 'Miljö och mottagning', exact: true })).toHaveCount(0);
+  await expect(page.locator('.office-panel').filter({ has: page.getByRole('heading', { name: 'Material & prissättning', exact: true }) })).toContainText('Koppar klass 1');
   await page.goto(`/kontor#/weighings/${cardId}`);
   const receiptPanel = page.getByRole('region', { name: 'Miljö och mottagning', exact: true });
   await receiptPanel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true }).click();
+  await expect(receiptPanel).toContainText('250 kg');
+  await expect(receiptPanel).not.toContainText('Koppar klass 1');
+  await expect(receiptPanel.getByRole('region', { name: 'Lagringskontroll', exact: true })).toContainText('Tillkommer 250 kg');
+  await expect(receiptPanel.getByRole('region', { name: 'Lagringskontroll', exact: true })).not.toContainText('Mottagningen ryms inte');
   await expect(receiptPanel).toContainText('Industrivägen 8, 761 41 Norrtälje');
   await expect(receiptPanel).toContainText('Norrtälje · 0188');
   await receiptPanel.getByLabel('Dokumentstatus', { exact: true }).selectOption('provided');
@@ -143,7 +163,8 @@ test('artikelklassificering och faktisk mottagning sparas via kontoret och syns 
   await receiptPanel.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
   const review = page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
   await expect(review).toContainText('250 kg');
-  await expect(review).toContainText('12 kg');
+  await expect(review).not.toContainText('12 kg');
+  await expect(review).not.toContainText('Koppar klass 1');
   await review.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
   await expect.poll(async () => (await environmentState(page.request)).receipts.some(item => item.sourceId === sourceId)).toBe(true);
   await expect(receiptPanel.getByRole('button', { name: 'Bekräfta mottagning', exact: true })).toHaveCount(0);
@@ -166,7 +187,8 @@ test('artikelklassificering och faktisk mottagning sparas via kontoret och syns 
     await expect(sharedPanel).toContainText(`TD-IN-${cardId}`);
     const state = await environmentState(colleague.request);
     expect(state.receipts.filter(item => item.sourceId === sourceId)).toHaveLength(1);
-    expect(state.inventory.filter(item => item.sourceId === sourceId)).toHaveLength(2);
+    expect(state.inventory.filter(item => item.sourceId === sourceId)).toHaveLength(1);
+    expect(state.receipts.find(item => item.sourceId === sourceId)?.snapshot).toMatchObject({ materialScope: 'hazardous', rows: [{ articleId: 'lead-battery', weight: 250 }] });
     expect(state.reports.filter(item => item.sourceId === sourceId)).toHaveLength(1);
   } finally { await colleague.close(); }
 });

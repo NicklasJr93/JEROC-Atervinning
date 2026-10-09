@@ -1,4 +1,18 @@
-# JEROC kontorsdemo 0.8.0
+# JEROC kontorsdemo 0.8.1
+
+## Nytt i 0.8.1 – miljökort för farligt avfall
+
+Miljökortets sammanfattning, mottagning och lagringskontroll omfattar nu bara
+farliga artiklar. Vanligt material, exempelvis koppar, ligger kvar på viktkortet
+under Material & prissättning och blockerar inte miljömottagningen på grund av
+saknad avfallskod. Utan farliga artiklar visas inget miljökort. Servern använder
+registrets klassificering och sparar bara de farliga raderna i nya mottagningar.
+Tillstånd och mängdgränser för farligt avfall gäller fortsatt.
+
+Äldre mottagningsoriginal och redan registrerat lager bevaras. En miljörättelse
+av en äldre blandad mottagning ändrar bara de farliga raderna. Ingen ny
+Renderinställning eller datarensning krävs; NVV-överföring är fortfarande avstängd.
+Detta ersätter beskrivningen i 0.7.4 om vanliga artiklar i miljökortet.
 
 ## Nytt i 0.8.0 – gemensam PostgreSQL
 

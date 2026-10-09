@@ -173,6 +173,95 @@ test('configured site policies block new uncoded articles but preserve metadata 
   assert.equal(state.inventory.reduce((sum, row) => sum + row.weight, 0), 8);
 }));
 
+test('hazardous scope excludes uncoded copper from the NVV card, stock and reports while preserving generic checks', async () => fixture(async f => {
+  await f.policy({ totalMaxKg: 100, rules: [{ wasteCode: '160601', allowed: true, maxKg: 100 }] });
+  const input = receiptInput({ materialScope: 'hazardous', rows: [{ articleId: 'copper-1', weight: 20 }, { articleId: 'lead-battery', weight: 10 }] });
+  const scoped = await f.store.checkStorage({ siteId: input.siteId, rows: input.rows, materialScope: 'hazardous' }, f.admin.token);
+  assert.equal(scoped.canReceive, true);
+  assert.equal(scoped.checks.some(check => check.code === 'waste_code_unconfigured' || check.articleId === 'copper-1'), false);
+  const generic = await f.store.checkStorage({ siteId: input.siteId, rows: input.rows }, f.admin.token);
+  assert.equal(generic.canReceive, false);
+  const { idempotencyKey, ...draft } = input;
+  const saved = await f.store.saveDraft(input.sourceId, { ...draft, expectedVersion: 0 }, f.admin.token);
+  assert.deepEqual(saved.input.rows, [{ articleId: 'lead-battery', weight: 10 }]);
+  const original = await f.store.receive({ ...input, expectedDraftVersion: saved.version }, f.admin.token);
+  assert.equal(original.snapshot.materialScope, 'hazardous');
+  assert.deepEqual(original.snapshot.rows.map(row => row.articleId), ['lead-battery']);
+  assert.equal(original.hash, environmentHash(original.snapshot));
+  assert.equal((await f.store.receive(input, f.admin.token)).id, original.id);
+  const state = await f.store.state(f.admin.token);
+  assert.deepEqual(state.inventory.map(row => [row.articleId, row.weight]), [['lead-battery', 10]]);
+  assert.deepEqual(state.reports.map(row => [row.articleId, row.weight]), [['lead-battery', 10]]);
+  await rejects(() => f.store.receive(receiptInput({ materialScope: 'hazardous', rows: [{ articleId: 'copper-1', weight: 20 }] }), f.admin.token), 422, 'hazardous_material_required');
+  // Omitting scope cannot widen an already scoped receipt or inventory.
+  const widened = await f.store.correct(original.id, correctionInput(input, { materialScope: undefined, rows: input.rows }), f.admin.token);
+  assert.deepEqual(widened.snapshot.rows.map(row => row.articleId), ['lead-battery']);
+  assert.equal(widened.snapshot.materialScope, 'hazardous');
+}));
+
+test('hazardous scope still enforces waste-code capacity and article storage permission atomically', async () => fixture(async f => {
+  await f.policy({ rules: [{ wasteCode: '160601', allowed: true, maxKg: 5 }] });
+  const input = receiptInput({ materialScope: 'hazardous', rows: [{ articleId: 'copper-1', weight: 20 }, { articleId: 'lead-battery', weight: 10 }] });
+  const blocked = await f.store.checkStorage({ siteId: input.siteId, rows: input.rows, materialScope: 'hazardous' }, f.admin.token);
+  assert.equal(blocked.canReceive, false);
+  assert.equal(blocked.checks.some(check => check.code === 'waste_code_capacity_exceeded'), true);
+  await rejects(() => f.store.receive(input, f.admin.token), 409, 'storage_blocked');
+  await f.policy({ expectedVersion: 1, rules: [{ wasteCode: '160601', allowed: true, maxKg: 100 }] });
+  await f.classify('lead-battery', { storageRules: [] });
+  await rejects(() => f.store.receive(input, f.admin.token), 409, 'storage_blocked');
+  const state = await f.store.state(f.admin.token);
+  assert.equal(state.receipts.length, 0); assert.equal(state.inventory.length, 0); assert.equal(state.reports.length, 0);
+}));
+
+test('hazardous scope corrections preserve legacy copper stock and the frozen hazardous classification', async () => fixture(async f => {
+  const input = receiptInput({ rows: [{ articleId: 'copper-1', weight: 20 }, { articleId: 'lead-battery', weight: 10 }] });
+  const original = await f.store.receive(input, f.admin.token);
+  await f.policy({ totalMaxKg: 100, rules: [{ wasteCode: '160601', allowed: true, maxKg: 20 }] });
+  await f.classify('lead-battery', { hazardous: false, wasteCode: '', wasteDescription: '' });
+  const rows = [{ articleId: 'lead-battery', weight: 12 }];
+  const check = await f.store.checkStorage({ siteId: input.siteId, receiptId: original.id, rows, materialScope: 'hazardous' }, f.admin.token);
+  assert.equal(check.canReceive, true);
+  assert.equal(check.checks.some(item => item.articleId === 'copper-1' || item.code === 'waste_code_unconfigured'), false);
+  assert.equal(check.checks.find(item => item.code === 'site_capacity').currentKg, 30);
+  assert.equal(check.checks.find(item => item.code === 'site_capacity').incomingKg, 2);
+  const correction = correctionInput(input, { materialScope: 'hazardous', rows });
+  const updated = await f.store.correct(original.id, correction, f.admin.token);
+  assert.deepEqual(updated.originalSnapshot, original.snapshot);
+  assert.deepEqual(updated.snapshot.rows.map(row => [row.articleId, row.weight]), [['copper-1', 20], ['lead-battery', 12]]);
+  assert.equal(updated.snapshot.rows[1].classification.hazardous, true);
+  assert.equal(updated.snapshot.rows[1].classification.wasteCode, '160601');
+  assert.deepEqual(updated.correctionHistory[0].inventoryMovements.map(row => [row.articleId, row.weight]), [['lead-battery', 2]]);
+  assert.equal((await f.store.correct(original.id, correction, f.admin.token)).hash, updated.hash);
+  await rejects(() => f.store.correct(original.id, correctionInput(input, { materialScope: 'hazardous', expectedVersion: 2, rows: [{ articleId: 'lead-battery', weight: 21 }] }), f.admin.token), 409, 'storage_blocked');
+  const state = await f.store.state(f.admin.token);
+  assert.equal(state.inventory.filter(row => row.articleId === 'copper-1').reduce((sum, row) => sum + row.weight, 0), 20);
+  assert.deepEqual(state.reports.map(row => [row.articleId, row.weight]), [['lead-battery', 12]]);
+  await f.restart(); assert.equal((await f.store.state(f.admin.token)).receipts[0].hash, updated.hash);
+}));
+
+test('hazardous scope removal can correct the last hazardous row without clearing legacy stock or widening drafts', async () => fixture(async f => {
+  const input = receiptInput({ rows: [{ articleId: 'copper-1', weight: 20 }, { articleId: 'lead-battery', weight: 10 }] });
+  const original = await f.store.receive(input, f.admin.token);
+  await f.policy({ rules: [{ wasteCode: '160601', allowed: true, maxKg: 100 }] });
+  const correction = correctionInput(input, { materialScope: 'hazardous', rows: [] });
+  const updated = await f.store.correct(original.id, correction, f.admin.token);
+  assert.deepEqual(updated.snapshot.rows.map(row => [row.articleId, row.weight]), [['copper-1', 20]]);
+  assert.deepEqual(updated.originalSnapshot, original.snapshot);
+  assert.deepEqual(updated.correctionHistory[0].inventoryMovements.map(row => [row.articleId, row.weight]), [['lead-battery', -10]]);
+  assert.equal((await f.store.correct(original.id, correction, f.admin.token)).hash, updated.hash);
+  const state = await f.store.state(f.admin.token);
+  assert.equal(state.inventory.reduce((sum, row) => sum + row.weight, 0), 20);
+  assert.equal(state.reports.length, 0);
+  const draftInput = receiptInput({ materialScope: 'hazardous', rows: input.rows });
+  const { idempotencyKey, ...draft } = draftInput;
+  const first = await f.store.saveDraft(draft.sourceId, { ...draft, expectedVersion: 0 }, f.admin.token);
+  const { materialScope, ...withoutScope } = draft;
+  const second = await f.store.saveDraft(draft.sourceId, { ...withoutScope, expectedVersion: first.version }, f.admin.token);
+  assert.equal(second.input.materialScope, 'hazardous');
+  assert.deepEqual(second.input.rows, [{ articleId: 'lead-battery', weight: 10 }]);
+  await rejects(() => f.store.receive(receiptInput({ materialScope: 'hazardous', rows: [] }), f.admin.token), 422);
+}));
+
 test('capacity enforcement is atomic across repository instances and failed receipts leave no stock or audit', async () => fixture(async f => {
   await f.classify('lead-battery', { storageRules: [{ siteId: 'norrtalje', allowed: true, maxKg: 10 }] });
   const otherRepository = await createEnvironmentRepository(f.options);

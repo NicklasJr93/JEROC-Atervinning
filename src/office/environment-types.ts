@@ -56,6 +56,7 @@ export interface IncomingEnvironmentalDocument {
 }
 export interface EnvironmentalReceiptInput {
   sourceId: string; cardId: number; siteId: string; receivedAt: string;
+  materialScope?: 'hazardous';
   originAddress?: string;
   addressResolution?: EnvironmentalAddressResolution;
   rows: { articleId: string; weight: number }[];

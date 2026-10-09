@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilversion: 0.2.3. Aktuell kontorsversion: 0.7.3.
+Aktuell mobilversion: 0.3.0. Aktuell kontorsversion: 0.8.1.
 Punkterna 001–042 är genomförda; 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
@@ -878,3 +878,22 @@ passerade (90 serverkontroller totalt). Sex riktade webbläsarflöden passerade:
 mobil till kontor, trasig cache, två terminaler med separat attest, omsändning
 och två planeringsflöden. Produktionsbygge och Expo-typkontroll passerade.
 Backup/återställning är enbart planerad, ingen extern leverans aktiveras.
+
+046 – Miljökortet omfattar bara farligt avfall
+Status: Genomförd i kontorsdemo 0.8.1 enligt beställning 2026-10-09.
+- Miljökortet döljs när viktkortet saknar farliga artiklar. Detta ersätter
+  punkt 043:s beteende att också visa vanliga artiklar i miljökortet.
+- Sammanfattning, materialrader, vikt och mottagningsbekräftelse visar bara
+  de farliga artiklarna. Övrigt material ligger kvar under Material & prissättning.
+- Nya miljömottagningar, miljölagerposter och NVV-underlag innehåller endast
+  farliga artiklar. Koppar utan avfallskod blockerar inte denna mottagning.
+- Servern filtrerar mot registrets klassificering. Lagringsplatser, tillstånd
+  och mängdgränser för farligt avfall kontrolleras fortfarande atomiskt.
+- Äldre mottagningsoriginal och lager bevaras. Miljörättelser ändrar de farliga
+  raderna utan att skriva om eller radera äldre icke-farligt lager.
+- Ingen datarensning, ny Renderinställning eller faktisk NVV-rapportering.
+
+Releasekontroll 0.8.1
+16 riktade serverkontroller i PostgreSQL och ett webbläsarflöde med två kassor
+passerade. Flödet täcker en vanlig kopparvägning utan miljökort och en blandad
+vägning där bara blybatterier visas och registreras. Produktionsbygget passerade.

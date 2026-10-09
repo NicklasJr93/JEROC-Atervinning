@@ -40,5 +40,5 @@ export const environmentApi = {
   correct: (receiptId: string, value: EnvironmentalCorrectionInput) => environmentRequest<EnvironmentalReceipt>(`/receipts/${encodeURIComponent(receiptId)}/corrections`, 'POST', value),
   saveSite: (siteId: string, value: EnvironmentSiteInput) => environmentRequest<EnvironmentSite>(`/sites/${encodeURIComponent(siteId)}`, 'PUT', value),
   saveStoragePolicy: (siteId: string, value: EnvironmentalStoragePolicyInput) => environmentRequest<EnvironmentalStoragePolicy>(`/storage/policies/${encodeURIComponent(siteId)}`, 'PUT', value),
-  checkStorage: (value: { siteId: string; rows: { articleId: string; weight: number }[]; receiptId?: string }, signal?: AbortSignal) => environmentRequest<EnvironmentalStorageAssessment>('/storage/check', 'POST', value, signal),
+  checkStorage: (value: { siteId: string; rows: { articleId: string; weight: number }[]; receiptId?: string; materialScope?: 'hazardous' }, signal?: AbortSignal) => environmentRequest<EnvironmentalStorageAssessment>('/storage/check', 'POST', value, signal),
 };

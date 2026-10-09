@@ -47,8 +47,8 @@ async function confirmReceipt(page: Page, sourceId: string) {
   const review = page.getByRole('dialog', { name: 'Bekräfta mottagning', exact: true });
   await expect(review).toContainText('Blybatterier');
   await expect(review).toContainText('250 kg');
-  await expect(review).toContainText('Koppar klass 1');
-  await expect(review).toContainText('12 kg');
+  await expect(review).not.toContainText('Koppar klass 1');
+  await expect(review).not.toContainText('12 kg');
   await review.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
   await expect(review).toHaveCount(0);
   await expect(panel.getByRole('button', { name: 'Visa mottagningsuppgifter', exact: true })).toHaveAttribute('aria-expanded', 'false');
@@ -252,10 +252,10 @@ test('transportdokument kan finnas utan nummer och mottagning visar vikterna inn
   expect(receipt.snapshot.incomingDocument.reference ?? '').toBe('');
   expect(receipt.deviations.some(item => item.code.includes('document'))).toBe(false);
   expect(receipt.snapshot.lastPlace).toMatchObject({ address: 'Industrivägen 8', postalCode: '76141', city: 'Norrtälje', municipalityCode: '0188' });
-  expect(receipt.snapshot.rows.map(row => [row.articleId, row.weight])).toEqual([['lead-battery', 250], ['copper-1', 12]]);
+  expect(receipt.snapshot.rows.map(row => [row.articleId, row.weight])).toEqual([['lead-battery', 250]]);
   const physical = (await state(page.request)).inventory.filter(item => item.sourceId === fixture.sourceId);
-  expect(physical).toHaveLength(2);
-  expect(physical.reduce((sum, item) => sum + item.weight, 0)).toBe(262);
+  expect(physical).toHaveLength(1);
+  expect(physical.reduce((sum, item) => sum + item.weight, 0)).toBe(250);
 });
 
 test('registrerad mottagning bevaras synlig när viktkortet sedan endast har ofarliga rader', async ({ page }) => {
@@ -276,7 +276,7 @@ test('registrerad mottagning bevaras synlig när viktkortet sedan endast har ofa
   await expect(panel).toContainText('Versionshistorik');
   const shared = await state(page.request);
   expect(shared.receipts.find(item => item.sourceId === fixture.sourceId)?.hash).toBe(receipt.hash);
-  expect(shared.inventory.filter(item => item.sourceId === fixture.sourceId)).toHaveLength(2);
+  expect(shared.inventory.filter(item => item.sourceId === fixture.sourceId)).toHaveLength(1);
 });
 
 test('två vägningar av samma artikel blir en fysisk mängd utan en falsk begäran om miljörättelse', async ({ page }) => {
