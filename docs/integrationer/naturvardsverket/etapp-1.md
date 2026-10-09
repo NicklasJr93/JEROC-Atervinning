@@ -125,3 +125,9 @@ för kortvy, arbetsköer, uppdatering och kontorsflöde. Mobilflöde,
 terminalgodkännande, intern attest, prisbehörigheter och transportplanering
 ingår. Produktionsbygge och Expo-typkontroll passerade. Miljöpanelerna har
 också granskats visuellt i webbläsaren.
+
+Render verifierades efter publicering: det nya produktionsbygget visas,
+miljöinloggning och läsning av gemensam databas svarar HTTP 200, klassificeringen
+för blybatterier har kod `160601`, och mottagnings-/rapportköerna börjar tomma.
+Verifieringssessionen avslutades. Ingen mottagning eller myndighetsleverans
+skapades av denna kontroll.

@@ -673,7 +673,9 @@ Status: Genomförd i kontorsdemo 0.7.0 efter godkänd etappstart.
 - Gamla testinvägningar och deras betalningar/rättelser/godkännanden rensas
   en gång enligt användarens uttryckliga beslut. Fyra nya kort 2050–2053
   börjar före kundgodkännande och attest. Kunder, användare, terminalkonton,
-  lösenord, sessioner, förval, priser och transportdata bevaras.
+  lösenord, sessioner, förval och transportdata bevaras. Kortåterställningen
+  ändrar inte prisregler; prismotorn är fortsatt minnesbaserad demo och
+  återställs vid serveromstart som tidigare.
 - Miljömottagning är oberoende av kundgodkännande, attest och utbetalning.
   Ingen myndighetsrapport, Visma, bank eller meddelandeleverans aktiveras.
 - Etapp 2–4 inväntar separat godkännande; extern förarportal byggs senare.
