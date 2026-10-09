@@ -1000,3 +1000,19 @@ passerade, två valfria PostgreSQL-tester hoppades över i standardkörningen.
 15 riktade kontroller passerade i isolerade PostgreSQL-testscheman.
 14 webbläsarflöden passerade: personal/schema/chaufför, nya kontoflöden och
 befintliga kontors-/behörighets-/attest-/betalningsflöden.
+
+052 – Lager, utleverans och transportdokument – mockuper
+Status: Mockuper framtagna på beställning 2026-10-09. Appbygge inväntar granskning.
+- Lager per anläggning med artikelmängd, reserverad mängd, fritt lager,
+  lagringsgränser, källpartier och händelser. Första exemplet är farligt avfall.
+- Utleverans använder samma arbetsorder och befintliga transportplanering.
+  Material, källpartier, mottagare och egen/extern transportör hör ihop.
+- Planerad mängd reserveras; fysisk mängd minskar först vid bekräftad lastad
+  avfärd med verklig vikt. Överskjutande reservation släpps, historik bevaras.
+- Externa åkerier får önskad tid och kan utse förare/fordon senare.
+- Transportunderlag, underskrifter/ADR och borttransportanteckning visas
+  tydligt som demo. Inga NVV-, bank-, Visma- eller meddelandeanrop aktiveras.
+- Fem skärmbilder och fristående klickbar prototyp:
+  docs/mockups/lager-utleverans/README.md.
+- A4-dokumentets formgivning inväntar användarens referensbild.
+  Tidigare godkända dokumentmockuper och verksamhetskod är oförändrade.

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JEROC – Lager och utleverans, mockup</title>
+  <link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+  <aside class="sidebar" aria-label="Huvudmeny">
+    <img class="logo" src="assets/jeroc-logo.png" alt="JEROC Återvinning">
+    <div class="eyebrow">KONTORSÖVERSIKT</div>
+    <nav id="navigation"></nav>
+    <div class="sidebar-bottom">
+      <div class="signed-in"><span class="avatar">LA</span><div><strong>Lars Andersson</strong><small>VD · Norrtälje</small></div><span id="profile-chevron"></span></div>
+      <div class="demo-label"><span></span> Designförslag</div>
+      <small>Fiktiva uppgifter · Inget sparas i appen</small>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div class="breadcrumbs">Kontoret <span>›</span> <strong id="crumb">Lager</strong></div>
+      <label class="global-search"><span id="search-icon"></span><input aria-label="Sök i mockupen" placeholder="Sök artikel, parti eller arbetsorder…"></label>
+      <button class="site-picker" data-action="site"><span id="building-icon"></span><span><small>Anläggning</small><strong>Norrtälje</strong></span><span id="down-icon"></span></button>
+    </header>
+    <div class="prototype-bar"><span>MOCKUP</span> Lager och utleverans <button data-action="reset">Återställ exempel</button></div>
+    <main id="content"></main>
+  </div>
+  <div id="overlay" hidden></div>
+  <div id="toast" role="status" hidden></div>
+  <script src="assets/icons.js"></script>
+  <script src="outbound-view.js"></script>
+  <script src="mockup.js"></script>
+</body>
+</html>
