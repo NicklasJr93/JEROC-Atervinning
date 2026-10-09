@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 
 // This repository deliberately has no database yet. The store boundary below can
@@ -228,6 +229,7 @@ const userSchema = z.object({
   siteIds: z.array(id).max(100).optional(),
   maxAttest: nonnegative,
   ownAttest: z.boolean(),
+  active: z.boolean().optional(),
 });
 export class PricingError extends Error {
   constructor(message, status = 400) {
@@ -647,7 +649,7 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
   function principal(actorId, userId = actorId) {
     const actor = state.users.find((user) => user.id === actorId);
     const user = state.users.find((user) => user.id === userId);
-    if (!actor || !user)
+    if (!actor || !user || actor.active === false || user.active === false)
       throw new PricingError('Välj ett giltigt demokonto.', 401);
     if (actor.id !== user.id && actor.level !== 'Systemadmin')
       throw new PricingError('Endast Systemadmin får använda Jobba som.', 403);
@@ -1443,6 +1445,8 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
       input,
     ).users.map((user) => ({
       ...user,
+      // Older callers must not accidentally re-enable a blocked account.
+      active: user.active ?? state.users.find((entry) => entry.id === user.id)?.active ?? true,
       // Older clients omitted this optional field. Preserve an existing site
       // restriction rather than silently widening it to every demo site.
       ...(user.siteIds !== undefined
@@ -1459,10 +1463,12 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     }));
     if (new Set(users.map((user) => user.id)).size !== users.length)
       throw new PricingError('Användar-id måste vara unika.');
-    if (!users.some((user) => user.level === 'Systemadmin'))
+    if (!users.some((user) => user.level === 'Systemadmin' && user.active !== false))
       throw new PricingError('Minst en Systemadmin måste finnas kvar.');
     if (!users.some((user) => user.id === principalValue.actor.id))
       throw new PricingError('Ditt eget konto måste finnas kvar.');
+    if (users.find((user) => user.id === principalValue.actor.id).active === false)
+      throw new PricingError('Spärra inte ditt eget konto. Använd ett annat administratörskonto.');
     if (
       users.find((user) => user.id === principalValue.actor.id).level !==
       principalValue.actor.level
@@ -1507,14 +1513,13 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     if (principalValue.user.level !== 'Systemadmin') {
       const oldAdmins = state.users.filter(
         (user) => user.level === 'Systemadmin',
-      );
+      ).map(user => ({...user, active: user.active ?? true}));
       const newAdmins = users.filter((user) => user.level === 'Systemadmin');
-      if (
-        JSON.stringify(
-          oldAdmins.toSorted((a, b) => a.id.localeCompare(b.id)),
-        ) !==
-        JSON.stringify(newAdmins.toSorted((a, b) => a.id.localeCompare(b.id)))
-      )
+      // PostgreSQL JSONB may reorder object keys; compare semantic records.
+      if (!isDeepStrictEqual(
+        oldAdmins.toSorted((a, b) => a.id.localeCompare(b.id)),
+        newAdmins.toSorted((a, b) => a.id.localeCompare(b.id)),
+      ))
         throw new PricingError('VD får inte ändra Systemadmin-konton.', 403);
       for (const user of users) {
         const previous = state.users.find((entry) => entry.id === user.id);

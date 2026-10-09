@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.9.0';
+export const OFFICE_VERSION = '0.9.1';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -57,6 +57,7 @@ const userSchema = z.object({
   siteIds: z.array(z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/)).max(100).optional(),
   maxAttest: z.number().nonnegative(),
   ownAttest: z.boolean(),
+  active: z.boolean().optional(),
 });
 export type OfficeUser = z.infer<typeof userSchema>;
 const rowSchema = z.object({

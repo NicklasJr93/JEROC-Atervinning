@@ -670,6 +670,29 @@
   grid-template-columns: 260px minmax(0, 1fr);
   gap: 20px;
 }
+.office-personnel-nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.office-personnel-nav button {
+  border: 1px solid #e7edf5;
+  border-radius: 8px;
+  background: white;
+  color: #71849d;
+  padding: 10px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+.office-personnel-nav button.active {
+  background: #eaf2ff;
+  color: #0866ff;
+  border-color: #cddfff;
+}
+.office-account-embedded > .office-panel {
+  padding: 20px;
+}
 .office-user-choice {
   display: flex;
   flex-direction: column;

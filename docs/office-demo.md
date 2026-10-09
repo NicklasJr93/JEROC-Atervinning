@@ -1,4 +1,18 @@
-# JEROC kontorsdemo 0.9.0
+# JEROC kontorsdemo 0.9.1
+
+## Nytt i 0.9.1 – personal och konton på samma plats
+
+Personal ersätter den separata menyn Användare. Ny personal kan få konto vid
+samma sparning, kopplas till befintligt konto eller registreras utan inloggning.
+Personkortets Inloggning & behörigheter återanvänder konto-/attestreglerna.
+Konton utan anställning finns under Personal → Konton; terminaler är separata.
+Externa chaufförer kan få sina riktiga portaluppgifter samtidigt som profilen.
+Kontorets egen inloggning är fortsatt demo. Befintliga ID:n och data bevaras.
+
+Verifiering 0.9.1: build och Expo-typkontroll passerade. Standardservertestningen
+gav 174 passerade och två valfria PostgreSQL-tester överhoppade; 15 riktade
+PostgreSQL-kontroller passerade separat. 14 relevanta webbläsarflöden passerade,
+inklusive atomisk kontoskapning, befintlig koppling, spärrning och chaufförslogin.
 
 ## Nytt i 0.9.0 – personal och tydlig stegordning
 

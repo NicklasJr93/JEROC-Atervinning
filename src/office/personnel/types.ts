@@ -1,4 +1,5 @@
 import type { TransportData, TransportOrder } from '../transport/types';
+import type { OfficeUser, Permission } from '../model';
 
 export type PersonnelPermission = 'personnelRead' | 'personnelWrite' | 'employmentRead' | 'employmentWrite' | 'salaryRead' | 'salaryWrite' | 'absenceRead' | 'absenceWrite' | 'competenciesWrite' | 'staffingWrite' | 'externalAccounts';
 export interface Person {
@@ -20,9 +21,12 @@ export interface PersonnelAudit { id: string; action: string; at: string; actual
 export interface PersonnelData { version: 1; revision: number; people: Person[]; companies: PersonnelCompany[]; employment: Employment[]; salaries: Salary[]; schedules: WorkSchedule[]; absences: Absence[]; competencies: Competency[]; staffingTasks: StaffingTask[]; externalAccounts: ExternalAccount[]; audit: PersonnelAudit[] }
 export interface ReplacementCandidate { personId: string; name: string; available: boolean; issues: string[] }
 export interface PersonnelPreview { affectedOrders?: TransportOrder[]; candidates?: ReplacementCandidate[] }
-export interface PersonnelResponse { data: PersonnelData; revision: number; storage: 'database'; demo: true; capabilities: PersonnelPermission[]; sites: {id: string; name: string}[]; transport: TransportData; preview?: PersonnelPreview }
+export interface PersonnelResponse { data: PersonnelData; revision: number; storage: 'database'; demo: true; capabilities: (PersonnelPermission | 'users')[]; sites: {id: string; name: string}[]; transport: TransportData; users?: OfficeUser[]; preview?: PersonnelPreview }
+export type PersonAccountCreation =
+  | { kind: 'staff'; level?: OfficeUser['level']; permissions?: Permission[]; maxAttest?: number; ownAttest?: boolean }
+  | { kind: 'external'; username: string; password: string };
 export type PersonnelCommand =
-  | { action: 'person.save'; person: Partial<Person> & Pick<Person, 'name' | 'kind'>; clearFields?: ('managerId' | 'companyId' | 'userId' | 'vehicleId')[] }
+  | { action: 'person.save'; person: Partial<Person> & Pick<Person, 'name' | 'kind'>; clearFields?: ('managerId' | 'companyId' | 'userId' | 'vehicleId')[]; createAccount?: PersonAccountCreation }
   | { action: 'company.save'; company: Partial<PersonnelCompany> & Pick<PersonnelCompany, 'name'> }
   | { action: 'employment.save'; employment: Employment }
   | { action: 'salary.save'; salary: Salary }

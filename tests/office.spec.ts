@@ -198,8 +198,10 @@ test('attestgräns stoppar ekonomi, VD får attestera och får inte ändra syste
   );
   await page
     .locator('.office-sidebar')
-    .getByRole('button', { name: 'Användare', exact: true })
+    .getByRole('button', { name: 'Personal', exact: true })
     .click();
+  await page.getByRole('navigation', { name: 'Personal', exact: true })
+    .getByRole('button', { name: 'Konton', exact: true }).click();
   await page
     .getByRole('button', { name: 'Systemadmin Systemadmin', exact: true })
     .click();
@@ -237,7 +239,7 @@ test('behörigheter och egen attest styrs av VD och rättelseutkast bevarar lås
     await page.getByLabel('Får attestera egna förberedda kort', { exact: true }).uncheck();
     await page.getByLabel('Maxbelopp för attest (kr)', { exact: true }).fill('100000');
     await page.getByRole('button', { name: 'Spara behörigheter', exact: true }).click();
-    await expect(page.getByText(/Behörigheterna har sparats/)).toBeVisible();
+    await expect(page.getByText(/Kontot och behörigheterna har sparats/)).toBeVisible();
     await saved(page);
     expect((await officeData(request)).users.find(user => user.id === 'kajsa')).toMatchObject({ maxAttest: 100000, ownAttest: false });
     await changeUser(page, 'Kajsa Nilsson');

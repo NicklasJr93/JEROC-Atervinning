@@ -79,3 +79,90 @@ test('HR write grants require matching reads without implicitly granting sensiti
   store.saveUsers({users:users.map(u=>u.id==='kajsa'?{...u,permissions:['personnelRead','salaryRead','salaryWrite']}:u.id==='lars'?{...u,permissions:[]}:u)},admin);
   const saved=store.exportState().users;assert.deepEqual(saved.find(u=>u.id==='kajsa').permissions,['personnelRead','salaryRead','salaryWrite']);assert.ok(!saved.find(u=>u.id==='lars').permissions.some(p=>['salaryRead','salaryWrite','absenceRead','absenceWrite'].includes(p)));
 });
+
+test('person and staff account are created together, survive restart and retry without duplicates',async()=>fixture(async({a,instance})=>{
+  const id=`person-${randomUUID()}`,command={action:'person.save',person:{id,name:'Ny medarbetare',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff'}};
+  const created=await a(personnel,command);assert.equal(created.status,200,created.error);
+  const person=created.data.people.find(person=>person.id===id),account=created.users.find(user=>user.id===person.userId);
+  assert.ok(account);assert.equal(account.level,'Medarbetare');assert.deepEqual(account.permissions,['view']);assert.equal(account.maxAttest,0);assert.equal(account.ownAttest,false);assert.equal(account.active,true);assert.deepEqual(account.siteIds,['norrtalje']);
+  const office=await a('/api/application/office');assert.deepEqual(office.data.users.find(user=>user.id===account.id),account);
+  const retried=await (await instance())(personnel,command);assert.equal(retried.status,200,retried.error);assert.equal(retried.data.people.filter(p=>p.id===id).length,1);assert.equal(retried.users.filter(u=>u.id===account.id).length,1);assert.equal(retried.data.revision,created.data.revision);
+  assert.equal((await a('/api/pricing/state',undefined,account.id)).status,200);
+}));
+
+test('person without login and linking existing user preserve existing identities and reject duplicate or mixed accounts',async()=>fixture(async({a})=>{
+  const users=(await a('/api/pricing/state')).users;
+  const noAccount=await a(personnel,{action:'person.save',person:{id:`person-${randomUUID()}`,name:'Utan inloggning',kind:'employee',siteIds:['norrtalje']}});
+  assert.equal(noAccount.status,200,noAccount.error);assert.equal(noAccount.users.length,users.length);assert.ok(!noAccount.data.people.find(p=>p.name==='Utan inloggning').userId);
+  const id=`person-${randomUUID()}`,linked=await a(personnel,{action:'person.save',person:{id,name:'Befintlig användare',kind:'employee',siteIds:['norrtalje'],userId:'kajsa'}});
+  assert.equal(linked.status,200,linked.error);assert.equal(linked.data.people.find(p=>p.id===id).userId,'kajsa');assert.equal(linked.users.length,users.length);
+  const duplicateId=`person-${randomUUID()}`,duplicate=await a(personnel,{action:'person.save',person:{id:duplicateId,name:'Dubbelkoppling',kind:'employee',siteIds:['norrtalje'],userId:'kajsa'}});assert.equal(duplicate.status,422);assert.ok(!(await a(personnel)).data.people.some(p=>p.id===duplicateId));
+  for(const command of [
+    {person:{name:'Både nytt och gammalt',kind:'employee',userId:'lars'},createAccount:{kind:'staff'}},
+    {person:{name:'Fel kontotyp',kind:'employee'},createAccount:{kind:'external',username:'fel.konto',password:'Secret-Test-2026!'}},
+    {person:{name:'Extern med personalinloggning',kind:'external',companyId:'carrier-roslagen',userId:'lars'}},
+  ])assert.equal((await a(personnel,{action:'person.save',...command})).status,422);
+}));
+
+test('account creation rolls back profile and catalogs on invalid grants or driver validation',async()=>fixture(async({a})=>{
+  const before=await a(personnel),beforePricing=await a('/api/pricing/state');
+  const commands=[
+    {person:{id:`person-${randomUUID()}`,name:'Fel behörigheter',kind:'employee'},createAccount:{kind:'staff',permissions:['salaryWrite']}},
+    {person:{id:`person-${randomUUID()}`,name:'Fel fordon',kind:'employee',canDrive:true,vehicleId:'does-not-exist'},createAccount:{kind:'staff'}},
+  ];
+  for(const command of commands){const result=await a(personnel,{action:'person.save',...command});assert.ok(result.status>=400,result.error);}
+  const after=await a(personnel);assert.deepEqual(after.data,before.data);assert.deepEqual(after.users,before.users);assert.deepEqual(after.transport,before.transport);assert.deepEqual((await a('/api/pricing/state')).users,beforePricing.users);
+}));
+
+test('scoped VD cannot create systemadmin, excessive attest or cross-site accounts; staff users right cannot escalate',async()=>fixture(async({a})=>{
+  let users=(await a('/api/pricing/state')).users.map(u=>u.id==='lars'?{...u,siteIds:['norrtalje'],maxAttest:1000}:u.id==='kajsa'?{...u,siteIds:['norrtalje'],permissions:['personnelRead','personnelWrite','users']}:u);
+  assert.equal((await a('/api/pricing/users',{users})).status,200);
+  const rejected=[
+    {person:{name:'Otillåten systemadmin',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff',level:'Systemadmin'}},
+    {person:{name:'Otillåten attestgräns',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff',maxAttest:1001}},
+    {person:{name:'Otillåten anläggning',kind:'employee',siteIds:['rimbo']},createAccount:{kind:'staff'}},
+    {person:{name:'Otillåten systemadminkoppling',kind:'employee',siteIds:['norrtalje'],userId:'admin'}},
+  ];
+  for(const command of rejected)assert.equal((await a(personnel,{action:'person.save',...command},'lars')).status,403);
+  const employee=await a(personnel,undefined,'kajsa');assert.ok(!employee.capabilities.includes('users'));assert.ok(!employee.users);
+  assert.equal((await a(personnel,{action:'person.save',person:{name:'Försök från medarbetare',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff'}},'kajsa')).status,403);
+  const vdCreated=await a(personnel,{action:'person.save',person:{name:'Tillåtet VD-konto',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff',level:'VD',maxAttest:1000}},'lars');assert.equal(vdCreated.status,200,vdCreated.error);
+  assert.ok(vdCreated.users.every(u=>u.siteIds && u.siteIds.every(id=>id==='norrtalje')));
+}));
+
+test('external person and hashed login are atomic and unchanged retry preserves active session',async()=>fixture(async({a,repository,instance})=>{
+  const id=`person-${randomUUID()}`,command={action:'person.save',person:{id,name:'Ny extern chaufför',kind:'external',siteIds:['norrtalje'],companyId:'carrier-roslagen',canDrive:true,vehicleId:'vehicle-oskar'},createAccount:{kind:'external',username:'new.external',password:'External-Test-2026!'}};
+  const created=await a(personnel,command);assert.equal(created.status,200,created.error);assert.ok(created.data.externalAccounts.some(a=>a.personId===id && a.username==='new.external'));assert.ok(!created.data.people.find(p=>p.id===id).userId);
+  const repo=await repository(),auth=await repo.transact(s=>structuredClone(s.personnelAuth));assert.ok(auth.accounts.find(a=>a.personId===id).password.digest);assert.ok(!JSON.stringify(auth).includes(command.createAccount.password));assert.ok(!JSON.stringify(created).includes('digest'));
+  const login=await a('/api/driver/login',{username:'new.external',password:command.createAccount.password});assert.equal(login.status,200,login.error);const cookie=login.cookie.split(';')[0];
+  const retried=await (await instance())(personnel,command);assert.equal(retried.status,200,retried.error);assert.equal(retried.data.revision,created.data.revision);assert.equal((await a('/api/driver/session',undefined,null,cookie)).status,200);
+  const duplicate=await a(personnel,{...command,person:{...command.person,id:`person-${randomUUID()}`,name:'Dubbel extern'}});assert.equal(duplicate.status,422);assert.ok(!(await a(personnel)).data.people.some(p=>p.name==='Dubbel extern'));
+  const mixed=await a(personnel,{action:'person.save',person:{...retried.data.people.find(p=>p.id===id),kind:'employee'}});assert.equal(mixed.status,422);
+  const reset=await a(personnel,{action:'externalAccount.save',personId:id,username:'new.external',active:true,password:'Changed-Test-2026!'});assert.equal(reset.status,200,reset.error);assert.equal((await a('/api/driver/session',undefined,null,cookie)).status,401);
+  assert.equal((await a(personnel,undefined,null,cookie)).status,401);
+}));
+
+test('blocked staff accounts cannot act or be impersonated and omitted active field preserves block',async()=>fixture(async({a})=>{
+  const created=await a(personnel,{action:'person.save',person:{name:'Spärrbar användare',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff'}}),user=created.users.find(u=>u.name==='Spärrbar användare');
+  assert.equal(created.status,200,created.error);
+  let users=(await a('/api/pricing/state')).users.map(u=>u.id===user.id?{...u,active:false}:u);
+  assert.equal((await a('/api/pricing/users',{users})).status,200);
+  assert.equal((await a('/api/pricing/state',undefined,user.id)).status,401);
+  users=users.map(({active,...u})=>u);assert.equal((await a('/api/pricing/users',{users})).status,200);assert.equal((await a('/api/pricing/state')).users.find(u=>u.id===user.id).active,false);
+  users=(await a('/api/pricing/state')).users.map(u=>u.id==='admin'?{...u,active:false}:u);assert.ok((await a('/api/pricing/users',{users})).status>=400);
+  const store=createPricingStore();const current=store.exportState().users;store.saveUsers({users:current.map(u=>u.id==='kajsa'?{...u,active:false}:u)},store.principal('admin'));assert.throws(()=>store.principal('admin','kajsa'),/giltigt demokonto/);
+}));
+
+test('blocking the first systemadmin preserves office, mobile prices and transport through another active admin',async()=>fixture(async({a})=>{
+  const first=(await a('/api/pricing/state')).users;
+  const second={...first.find(u=>u.id==='admin'),id:'second-admin',name:'Andra administratören',active:true};
+  assert.equal((await a('/api/pricing/users',{users:[...first,second]})).status,200);
+  const users=(await a('/api/pricing/state',undefined,second.id)).users.map(u=>u.id==='admin'?{...u,active:false}:u);
+  assert.equal((await a('/api/pricing/users',{users},second.id)).status,200);
+  assert.equal((await a('/api/application/office')).status,401);
+  for(const path of ['/api/application/office','/api/application/mobile','/api/application/transport']) {
+    const response=await a(path,undefined,second.id);
+    assert.equal(response.status,200,response.error);
+    if(path.endsWith('/mobile'))assert.ok(response.catalog.some(article=>article.id==='copper-1'));
+  }
+}));

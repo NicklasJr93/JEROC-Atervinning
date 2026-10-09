@@ -1,6 +1,6 @@
 # JEROC · Mobilappen
 
-**Mobil/Expo 0.3.0 och kontor 0.9.0** delar verksamhetsdata i PostgreSQL. Utkast, kunder, färdiga mobilvägningar, kontorskort, prisregister, planering och integrationsutkorg sparas beständigt. Färdiga mobilvägningar visas på kontoret. Kontoret har även personal, schema, kompetenser och bemanning samt extern chaufförsvy på `/chauffor`.
+**Mobil/Expo 0.3.0 och kontor 0.9.1** delar verksamhetsdata i PostgreSQL. Utkast, kunder, färdiga mobilvägningar, kontorskort, prisregister, planering och integrationsutkorg sparas beständigt. Färdiga mobilvägningar visas på kontoret. Kontoret har även personal, schema, kompetenser och bemanning samt extern chaufförsvy på `/chauffor`. Personal och konton hanteras nu tillsammans; en ny person kan få ett kopplat konto vid samma sparning.
 
 Detta är fortfarande en demo med valbara exempelkonton. Använd testuppgifter. Utbetalningar är manuell demoregistrering; inga bank-, Visma-, Naturvårdsverks-, SMS-, e-post- eller BankID-leveranser aktiveras.
 

@@ -78,7 +78,7 @@ test('Jobba som använder Annas attestgräns och sparar båda personerna i spår
   await expect(
     page
       .locator('.office-sidebar')
-      .getByRole('button', { name: 'Användare', exact: true }),
+      .getByRole('button', { name: 'Personal', exact: true }),
   ).toHaveCount(0);
 
   await page.goto(`/kontor#/weighings/${highId}`);
@@ -138,7 +138,7 @@ test('Jobba som använder Annas attestgräns och sparar båda personerna i spår
   await expect(
     page
       .locator('.office-sidebar')
-      .getByRole('button', { name: 'Användare', exact: true }),
+      .getByRole('button', { name: 'Personal', exact: true }),
   ).toBeVisible();
   } finally {
     await request.patch(`/api/terminal-demo/terminals/${terminal.id}`, { data: { active: false } });
@@ -283,7 +283,7 @@ test('kontorist utan kundprisbehörighet ser dolda volymuppgifter och kan inte s
       .getByRole('button', { name: 'Spara behörigheter', exact: true })
       .click();
     await expect(page.getByRole('status')).toContainText(
-      'Behörigheterna har sparats',
+      'Kontot och behörigheterna har sparats',
     );
     await page
       .getByRole('button', { name: 'Byt demokonto', exact: true })

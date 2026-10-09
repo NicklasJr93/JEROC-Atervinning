@@ -1,4 +1,4 @@
-# JEROC Personal – kontorsdemo 0.9.0
+# JEROC Personal – kontorsdemo 0.9.1
 
 Implementerat 2026-10-09 enligt de godkända [personalmockuperna](mockups/personal/README.md).
 Utseendet följer befintliga kontoret. Formulären är funktionella och sparas med
@@ -15,10 +15,27 @@ befattning, företag eller kompetens. Filtrera på anställd/extern, team och
 anläggning. Den övergripande anläggningsväljaren gäller också.
 
 **Lägg till person** registrerar kontaktuppgifter, team, chef/gruppledare och
-tillåtna anläggningar. Anställda kan kopplas till ett befintligt användarkonto;
-personprofilen skapar inte en extra kopia av det kontot. En person kan finnas
-utan inloggning. Befattning, personprofil, förarprofil och systembehörigheter är
-separata uppgifter.
+tillåtna anläggningar. För behörig administratör är **Skapa inloggning** förvalt.
+Personprofil och konto skapas tillsammans i samma databastransaktion. Ett nytt
+personalkonto får Medarbetare, grundläggande läsåtkomst och personens anläggningar;
+fler rättigheter väljs sedan på personkortet. Kontorets inloggning är fortsatt
+ett demokontoval, utan personalens riktiga lösenordsautentisering.
+
+Avmarkera valet för personal utan inloggning, eller välj ett **Befintligt
+användarkonto**. Redan kopplade konton kan inte kopplas till en andra person.
+Återförsök med samma person-ID skapar inte dubbla konton.
+
+Vänstermenyn **Användare** är ersatt av **Personal**. Personkortets flik
+**Inloggning & behörigheter** har kontonivå, rättigheter, anläggningar,
+attestgräns, egenattest och **Aktivt inloggningskonto**. Spärrade konton avvisas
+av servern och döljs i demoinloggningen och Jobba som. Eget konto och sista
+aktiva systemadministratören skyddas mot spärrning.
+
+Under Personal → **Konton** finns hela kontohanteringen, även administratörer
+utan personprofil eller anställning. Äldre `/kontor#/users`-länkar fungerar
+fortsatt och markerar Personal i huvudmenyn. Terminalkonton ligger kvar under
+Terminaler. Befattning, personprofil, förarprofil och systembehörigheter är
+fortsatt separata uppgifter; kontohantering ger inte automatiskt löneåtkomst.
 
 **Kan bokas som förare** kopplar personen till transportplaneringen. Välj ett
 registrerat ordinarie fordon. Befintliga förar-ID:n bevaras, så arbetsordrar och
@@ -103,7 +120,11 @@ ADR-krav; uppdragets faktiska krav ska bedömas och registreras separat.
 En extern person kopplas till åkeri och förarprofil. Anställning/lön hos åkeriet
 registreras inte i JEROC. Åkerier kan läggas till från personformuläret.
 
-1. Öppna **Oskar Lind → Hantera inloggning**. Ange användarnamn och nytt lösenord,
+1. Skapa en extern person med åkeri och förarprofil. Behåll **Skapa inloggning**,
+   ange användarnamn och lösenord (minst 10 tecken) och välj ordinarie fordon.
+   Konto och person skapas tillsammans. För befintliga personer, öppna
+   **Oskar Lind → Inloggning & behörigheter → Hantera inloggning**.
+   Ange användarnamn och nytt lösenord,
    spara och lämna testuppgifterna till den som ska prova. Inget standardlösenord
    eller återställningsmejl skickas.
 2. Öppna **/chauffor** på separat mobil/webbläsare och logga in.

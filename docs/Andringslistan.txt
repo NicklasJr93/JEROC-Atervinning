@@ -5,7 +5,8 @@ Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
 Aktuell mobilversion: 0.3.0. Aktuell kontorsversion: 0.9.0.
-Punkterna 001–042 är genomförda; 031 avser förberedelse utan utskick.
+Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
+031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
 Arbetssätt
@@ -967,3 +968,35 @@ inklusive riktade omkörningar och 29 riktade PostgreSQL-kontroller.
   även runt midnatt. Saknat referenspris på en artikel stoppar inte resten.
 - Testkort använder riktiga godkännanden/attester/betalningsjournaler och
   isolerade identiteter. Produktionsdata har inte återställts.
+
+051 – Samla personal och användarkonton
+Status: Genomförd i kontorsdemo 0.9.1 efter beställd byggstart.
+- Personal blir den gemensamma vänstermenyn. Den separata menyn Användare
+  ersätts av Inloggning & behörigheter på personkortet för behörig administratör.
+- Ny personal får Skapa inloggning förvalt, med möjlighet att avmarkera.
+  Konto och person kopplas samtidigt; ett befintligt konto kan återanvändas
+  utan dubletter. Personal utan inloggning ska fortsatt stödjas.
+- Befintliga konton och administratörskonton utan anställning ska fortsatt
+  kunna hanteras. Person, anställning och konto behålls som separata entiteter.
+- Externa chaufförer kopplas till sitt åkeri och får begränsad chaufförsinloggning.
+  Terminalkonton hanteras fortsatt separat under Terminaler.
+- Kontohantering omfattar behörigheter och spärrning; externa kontons befintliga
+  lösenordsåterställning och sessionsåterkallning bevaras. Kontoåtkomst ska inte
+  automatiskt ge åtkomst till lön eller känsliga personaluppgifter.
+- Behörigheter, stabila konto-/förar-ID:n, bokningar och historik bevaras.
+  Kontorets befintliga demoinloggning ska beskrivas korrekt; riktig gemensam
+  personalautentisering är ett separat återstående arbete inför skarp drift.
+- Konton spärras server-side och döljs i demoinloggning/Jobba som. Eget konto
+  och sista aktiva Systemadmin skyddas. Mobilens prislista använder en aktiv
+  administratör även om ett tidigare systemadminkonto har spärrats.
+- Personal och nytt konto sparas atomiskt. Oförändrade återförsök skapar inte
+  dubletter och återställer inte en extern chaufförs lösenord eller session.
+- Befintlig behörighetseditor ligger i separat komponent. Äldre /users-länkar
+  fungerar fortsatt med Personal markerad; konton utan anställning bevaras.
+- Ingen datarensning, ny Renderinställning eller extern leverans aktiveras.
+
+Verifierat för 0.9.1: produktionsbygge och Expo-typkontroll; 174 servertester
+passerade, två valfria PostgreSQL-tester hoppades över i standardkörningen.
+15 riktade kontroller passerade i isolerade PostgreSQL-testscheman.
+14 webbläsarflöden passerade: personal/schema/chaufför, nya kontoflöden och
+befintliga kontors-/behörighets-/attest-/betalningsflöden.

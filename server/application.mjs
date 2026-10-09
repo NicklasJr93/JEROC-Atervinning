@@ -412,7 +412,7 @@ export function createApplicationService({ repository, env = process.env, projec
         state.metadata.nextCard = Math.max(state.metadata.nextCard, ...state.office.cards.map(card => card.id + 1));
         if (domain === 'transport' && Array.isArray(p.user.siteIds)) fail('Du saknar åtkomst till hela transportplaneringen.', 403);
         const mobilePricing = createPricingStore({ initialState: state.pricing });
-        const catalogPrincipal = mobilePricing.principal(state.pricing.users.find(user => user.level === 'Systemadmin').id);
+        const catalogPrincipal = mobilePricing.principal(state.pricing.users.find(user => user.level === 'Systemadmin' && user.active !== false).id);
         // Catalog rules and customer quotes must use the same Swedish business
         // day. Taking the UTC date prefix selects yesterday after local midnight.
         const mobileDeliveredAt = new Date().toISOString();

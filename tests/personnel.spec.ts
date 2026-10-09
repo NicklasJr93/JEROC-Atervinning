@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { test, expect, type Page } from '@playwright/test';
 import type { PersonnelResponse } from '../src/office/personnel/types';
+import { applyTransportChange } from '../src/office/transport/model';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 test.setTimeout(75_000);
@@ -28,6 +29,7 @@ test('person skapas och redigeras genom kontoret och bevaras vid omladdning', as
   await create.getByLabel('Befattning', { exact: true }).fill('Kontorist');
   await create.getByLabel('Team', { exact: true }).fill('Kontor');
   await create.getByLabel('Telefon', { exact: true }).fill('070-000 12 34');
+  await create.getByRole('checkbox', { name: 'Skapa inloggning', exact: true }).uncheck();
   await create.getByRole('button', { name: 'Spara person', exact: true }).click();
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   const created = (await personnel(page)).data.people.find(person => person.name === name)!;
@@ -100,12 +102,20 @@ test('admin skapar externt chaufförskonto med separat cookie och bara egna uppd
   const username = `oskar.e2e.${randomUUID().slice(0, 8)}`;
   const password = `Demo-${randomUUID()}`;
   const initial = await personnel(page);
+  const firstOrder = initial.transport.orders.find(order => order.driverId === 'oskar' && order.status === 'booked')!;
+  const nextTransport = applyTransportChange(initial.transport, {
+    type: 'reschedule', id: firstOrder.id,
+    plan: { date: '2026-10-09', startMinute: 540, durationMinutes: firstOrder.durationMinutes, driverId: firstOrder.driverId!, vehicleId: firstOrder.vehicleId! },
+  }, { canPlan: true, actor: 'Systemadmin', actualUserId: 'admin', effectiveUserId: 'admin' });
+  const planned = await page.request.post('/api/application/transport', { headers: adminHeaders, data: { base: initial.transport, next: nextTransport } });
+  expect(planned.ok(), await planned.text()).toBe(true);
   const ownIds = initial.transport.orders.filter(order => order.driverId === 'oskar').map(order => order.id).sort();
   const foreignOrder = initial.transport.orders.find(order => order.driverId && order.driverId !== 'oskar')!;
   expect(ownIds.length).toBeGreaterThan(0);
   await page.goto('/kontor#/personnel/person-oskar/overview');
   await expect(page.getByRole('heading', { name: 'Oskar Lind', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Hantera konto', exact: true }).click();
+  await page.getByRole('button', { name: 'Skapa inloggning', exact: true }).click();
   const account = page.getByRole('dialog', { name: 'Extern chaufför · användarkonto', exact: true });
   await account.getByLabel('Användarnamn *', { exact: true }).fill(username);
   await account.getByLabel(/lösenord/i).fill(password);
@@ -132,7 +142,6 @@ test('admin skapar externt chaufförskonto med separat cookie och bara egna uppd
     expect(forbidden.status()).toBe(403);
     const hr = await driver.request.get(`${origin}/api/application/personnel`);
     expect([401, 403]).toContain(hr.status());
-    const firstOrder = initial.transport.orders.find(order => order.driverId === 'oskar' && order.status === 'booked')!;
     const card = driver.locator('.driver-order').filter({ hasText: firstOrder.id });
     await card.getByRole('button', { name: 'Jag är på väg', exact: true }).click();
     await card.getByRole('button', { name: 'Markera uppdrag som klart', exact: true }).click();

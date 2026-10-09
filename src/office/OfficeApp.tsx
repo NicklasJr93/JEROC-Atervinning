@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -39,7 +39,8 @@ import ApprovalControls from './ApprovalControls';
 import OfficeCardAttest from './OfficeCardAttest';
 import QuickCustomerModal from './QuickCustomerModal';
 import AddWeighingArticleModal from './AddWeighingArticleModal';
-import { EnvironmentSessionProvider, useEnvironmentSession } from './EnvironmentSession';
+import StaffAccountPanel from './personnel/StaffAccountPanel';
+import { EnvironmentSessionProvider } from './EnvironmentSession';
 import EnvironmentReceiptPanel from './EnvironmentReceiptPanel';
 import EnvironmentWorkspace from './EnvironmentWorkspace';
 import { useTerminalDemo } from './useTerminalDemo';
@@ -74,8 +75,6 @@ import {
   amount,
   weight,
   statusNames,
-  permissionNames,
-  sensitivePersonnelPermissions,
   type OfficeData,
   type OfficeUser,
   type OfficeCard,
@@ -180,10 +179,10 @@ export function OfficeApp() {
   const [message, setMessage] = useState('');
   const location = useLocation(),
     navigate = useNavigate();
-  const actualUser = data.users.find((u) => u.id === userId);
+  const actualUser = data.users.find((u) => u.id === userId && u.active !== false);
   const user =
     actualUser?.level === 'Systemadmin' && actingId
-      ? (data.users.find((u) => u.id === actingId) ?? actualUser)
+      ? (data.users.find((u) => u.id === actingId && u.active !== false) ?? actualUser)
       : actualUser;
   const principalRef = useRef('');
   principalRef.current = `${actualUser?.id ?? ''}:${user?.id ?? ''}`;
@@ -702,7 +701,6 @@ export function OfficeApp() {
       icon: History,
       right: 'corrections',
     },
-    { id: 'users', name: 'Användare', icon: ShieldCheck, right: 'users' },
     { id: 'terminals', name: 'Terminaler', icon: Monitor, right: 'users' },
   ] as const;
   function open(id: number) {
@@ -1060,7 +1058,21 @@ export function OfficeApp() {
       can(user, 'customerPrices') ||
       can(user, 'customerPriceEdit'));
   const terminalAdminDenied = section === 'terminals' && user?.level !== 'Systemadmin';
-  const allowed =
+  const accountsView = section === 'users' ||
+    (section === 'personnel' && location.pathname.split('/')[2] === 'accounts') ||
+    (section === 'personnel' && user && !can(user, 'personnelRead') && can(user, 'users'));
+  async function saveStaffUsers(users: OfficeUser[]) {
+    if (!user || !actualUser || !can(user, 'users')) return false;
+    try {
+      await pricingRequest('users', user, actualUser, { users });
+      await shared.refresh();
+      return true;
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Kontot kunde inte sparas på servern.');
+      return false;
+    }
+  }
+  const allowed = accountsView ? 'users' :
     section === 'corrections' &&
     user &&
     (can(user, 'corrections') || can(user, 'attest'))
@@ -1085,7 +1097,7 @@ export function OfficeApp() {
           </p>
           {error && <p role="alert">{error}</p>}
           <div className="office-demo-users">
-            {data.users.map((u) => (
+            {data.users.filter(u => u.active !== false).map((u) => (
               <button key={u.id} onClick={() => login(u.id)}>
                 <span className="office-avatar">
                   {u.name
@@ -1127,7 +1139,7 @@ export function OfficeApp() {
         <label>Jobba som
           <select aria-label="Jobba som" value={acting ? user.id : ''} onChange={event => workAs(event.target.value)}>
             <option value="">Systemadmin · egen behörighet</option>
-            {data.users.filter(candidate => candidate.id !== actualUser.id).map(candidate =>
+            {data.users.filter(candidate => candidate.id !== actualUser.id && candidate.active !== false).map(candidate =>
               <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
             )}
           </select>
@@ -1154,18 +1166,20 @@ export function OfficeApp() {
                 ? pricingAccess
                 : n.id === 'corrections'
                   ? can(user, 'corrections') || can(user, 'attest')
+                  : n.id === 'personnel'
+                    ? can(user, 'personnelRead') || can(user, 'users')
                   : can(user, n.right),
             )
             .map((n) => (
               <button
-                className={section === n.id ? 'active' : ''}
+                className={section === n.id || (section === 'users' && n.id === 'personnel') ? 'active' : ''}
                 key={n.id}
                 aria-label={n.name}
                 aria-describedby={navigationCounts[n.id] > 0 ? `office-nav-count-${n.id}` : undefined}
                 onClick={() => {
                   setSearch('');
                   setMessage('');
-                  navigate(`/${n.id}`);
+                  navigate(n.id === 'personnel' && !can(user, 'personnelRead') ? '/personnel/accounts' : `/${n.id}`);
                 }}
               >
                 <n.icon size={19} />
@@ -1193,7 +1207,7 @@ export function OfficeApp() {
                   workAs(event.target.value);
                 }}>
                   <option value="">Systemadmin · egen behörighet</option>
-                  {data.users.filter(person => person.id !== actualUser.id).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
+                  {data.users.filter(person => person.id !== actualUser.id && person.active !== false).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
                 </select>
               </label>}
               {acting && <small>Inloggad som {actualUser!.name}. Åtgärder sparar båda namnen i historiken.</small>}
@@ -1219,7 +1233,7 @@ export function OfficeApp() {
         <header className="office-topbar">
           <span>
             Kontoret <ChevronRight size={14} />{' '}
-            {nav.find((n) => n.id === section)?.name ?? 'Vägning'}
+            {section === 'users' ? 'Personal' : nav.find((n) => n.id === section)?.name ?? 'Vägning'}
           </span>
           <label className="office-search">
             <Search size={17} />
@@ -2089,11 +2103,26 @@ export function OfficeApp() {
                 />
               )}
             </>
+          ) : accountsView ? (
+            <>
+              <nav className="office-personnel-nav" aria-label="Personal">
+                {can(user, 'personnelRead') && <button onClick={() => navigate('/personnel')}>Alla personer</button>}
+                {can(user, 'personnelRead') && <button onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa</button>}
+                <button className="active" onClick={() => navigate('/personnel/accounts')}>Konton</button>
+              </nav>
+              <StaffAccountPanel key={`${actualUser!.id}:${user.id}:${query.get('user') ?? ''}`}
+                users={data.users} initialUserId={query.get('user') ?? undefined}
+                actor={user} sites={terminalDemo.state?.sites} save={saveStaffUsers} />
+            </>
           ) : section === 'personnel' ? (
             <Suspense fallback={<div className="office-panel" role="status">Hämtar personalregistret…</div>}><PersonalWorkspace
               key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!}
               users={data.users} selectedSiteId={siteFilter} onNotice={setMessage}
-              onOpenUser={id => navigate(`/users?user=${encodeURIComponent(id)}`)} /></Suspense>
+              onAccountsChanged={() => shared.refresh()}
+              renderStaffAccount={id => can(user, 'users') && data.users.some(account => account.id === id) ? <StaffAccountPanel
+                key={`${user.id}:${id}`} embedded users={data.users} initialUserId={id}
+                actor={user} sites={terminalDemo.state?.sites} save={saveStaffUsers} /> : <p role="status">Hämtar det kopplade kontot…</p>}
+              onOpenUser={id => navigate(`/personnel/accounts?user=${encodeURIComponent(id)}`)} /></Suspense>
           ) : section === 'environment' ? (
             <EnvironmentWorkspace user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} onOpenCard={open} />
           ) : section === 'facilities' ? (
@@ -2155,27 +2184,6 @@ export function OfficeApp() {
               onSaveDocument={saveCorrectionDocument}
               onApprove={approveCorrectionCard}
               busy={priceBusy}
-            />
-          ) : section === 'users' ? (
-            <UserAdmin
-              users={data.users}
-              initialUserId={query.get('user') ?? undefined}
-              actor={user}
-              sites={terminalDemo.state?.sites}
-              save={async (users) => {
-                if (!can(user, 'users')) return false;
-                try {
-                  await pricingRequest('users', user, actualUser!, { users });
-                  return persist({ ...data, users });
-                } catch (e) {
-                  setMessage(
-                    e instanceof Error
-                      ? e.message
-                      : 'Behörigheterna kunde inte sparas på servern.',
-                  );
-                  return false;
-                }
-              }}
             />
           ) : (
             <section className="office-panel">
@@ -2553,247 +2561,5 @@ function CorrectionForm({
         <button className="office-btn outline">Skapa rättelseutkast</button>
       </form>
     </section>
-  );
-}
-const permissionPrerequisites: Partial<Record<Permission, Permission[]>> = {
-  lmeWrite: ['lmeRead'],
-  transportPlan: ['transportRead'],
-  environmentStorage: ['environmentRead'],
-  personnelWrite: ['personnelRead'],
-  employmentRead: ['personnelRead'],
-  employmentWrite: ['personnelRead', 'employmentRead'],
-  salaryRead: ['personnelRead'],
-  salaryWrite: ['personnelRead', 'salaryRead'],
-  absenceRead: ['personnelRead'],
-  absenceWrite: ['personnelRead', 'absenceRead'],
-  competenciesWrite: ['personnelRead'],
-  staffingWrite: ['personnelRead', 'transportRead', 'transportPlan'],
-  externalAccounts: ['personnelRead'],
-};
-function changedPermissions(current: Permission[], key: Permission, checked: boolean): Permission[] {
-  if (checked) return [...new Set([...current, key, ...(permissionPrerequisites[key] ?? [])])];
-  let next = current.filter(right => right !== key);
-  // Removing a prerequisite also removes any dependent grants, including
-  // dependencies reached through another grant such as staffing -> planning.
-  let previousLength;
-  do {
-    previousLength = next.length;
-    next = next.filter(right => !(permissionPrerequisites[right] ?? []).some(required => !next.includes(required)));
-  } while (next.length !== previousLength);
-  return next;
-}
-function UserAdmin({
-  users,
-  initialUserId,
-  actor,
-  sites: fallbackSites,
-  save,
-}: {
-  users: OfficeUser[];
-  initialUserId?: string;
-  actor: OfficeUser;
-  sites?: { id: string; name: string }[];
-  save: (u: OfficeUser[]) => Promise<boolean>;
-}) {
-  const { state: environmentState } = useEnvironmentSession();
-  const sites = environmentState?.sites ?? fallbackSites ?? [{ id: 'norrtalje', name: 'Norrtälje' }, { id: 'rimbo', name: 'Rimbo' }];
-  const allSiteIds = sites.map(site => site.id);
-  const [selected, setSelected] = useState(users.find(person => person.id === initialUserId) ?? users[0]),
-    [notice, setNotice] = useState(''),
-    [saving, setSaving] = useState(false);
-  const editable =
-    actor.level === 'Systemadmin' || selected.level !== 'Systemadmin';
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (
-      !editable ||
-      selected.maxAttest < 0 ||
-      (actor.level !== 'Systemadmin' && selected.maxAttest > actor.maxAttest) ||
-      !Number.isFinite(selected.maxAttest)
-    )
-      return;
-    setSaving(true);
-    if (
-      await save(
-        users.some((u) => u.id === selected.id)
-          ? users.map((u) => (u.id === selected.id ? selected : u))
-          : [...users, selected],
-      )
-    )
-      setNotice(
-        'Behörigheterna har sparats i kontorsdemon och på prismotorns demoserver.',
-      );
-    setSaving(false);
-  }
-  return (
-    <>
-      <div className="office-title">
-        <div>
-          <h1>Användare & behörigheter</h1>
-          <p>
-            Kontonivå och valbara moment. Reglerna gäller bara i den här demon.
-          </p>
-        </div>
-        <button
-          className="office-btn"
-          onClick={() => {
-            setNotice('');
-            setSelected({
-              id: crypto.randomUUID(),
-              name: '',
-              level: 'Medarbetare',
-              permissions: ['view'],
-              siteIds: actor.siteIds ?? allSiteIds,
-              maxAttest: 0,
-              ownAttest: false,
-            });
-          }}
-        >
-          <Plus size={17} />
-          Ny användare
-        </button>
-      </div>
-      <div className="office-user-admin">
-        <section className="office-panel">
-          {users.map((u) => (
-            <button
-              className={`office-user-choice ${u.id === selected.id ? 'active' : ''}`}
-              key={u.id}
-              onClick={() => {
-                setSelected(u);
-                setNotice('');
-              }}
-            >
-              <strong>{u.name}</strong>
-              <small>{u.level}</small>
-            </button>
-          ))}
-        </section>
-        <section className="office-panel">
-          <form onSubmit={submit}>
-            <h2>{selected.name || 'Ny användare'}</h2>
-            {notice && <p role="status">{notice}</p>}
-            {!editable && (
-              <div className="office-alert">
-                VD kan inte ändra ett systemadminkonto.
-              </div>
-            )}
-            <label>
-              Namn
-              <input
-                required
-                value={selected.name}
-                disabled={!editable}
-                onChange={(e) =>
-                  setSelected({ ...selected, name: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              Kontonivå
-              <select
-                disabled={!editable || selected.id === actor.id}
-                value={selected.level}
-                onChange={(e) =>
-                  setSelected({
-                    ...selected,
-                    level: e.target.value as OfficeUser['level'],
-                  })
-                }
-              >
-                {[
-                  'Medarbetare',
-                  'VD',
-                  ...(actor.level === 'Systemadmin' ? ['Systemadmin'] : []),
-                ].map((l) => (
-                  <option key={l}>{l}</option>
-                ))}
-              </select>
-            </label>
-            <div className="office-permission-grid">
-              {Object.entries(permissionNames).map(([key, label]) => (
-                <label key={key}>
-                  <input
-                    type="checkbox"
-                    disabled={!editable || (selected.level !== 'Medarbetare' && !(selected.level === 'VD' && sensitivePersonnelPermissions.includes(key as Permission)))}
-                    checked={can(selected, key as Permission)}
-                    onChange={(e) =>
-                      setSelected({
-                        ...selected,
-                        permissions: changedPermissions(selected.permissions, key as Permission, e.target.checked),
-                      })
-                    }
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-            <div role="group" aria-label="Anläggningar">
-              <h3>Anläggningar</h3>
-              <div className="office-permission-grid">
-                {sites.map((site) => (
-                  <label key={site.id}>
-                    <input
-                      type="checkbox"
-                      disabled={!editable || (actor.level !== 'Systemadmin' &&
-                        !(actor.siteIds ?? allSiteIds).includes(site.id) &&
-                        !(selected.siteIds ?? allSiteIds).includes(site.id))}
-                      checked={(selected.siteIds ?? allSiteIds).includes(site.id)}
-                      onChange={(event) => {
-                        const current: NonNullable<OfficeUser['siteIds']> =
-                          selected.siteIds ?? allSiteIds;
-                        setSelected({
-                          ...selected,
-                          siteIds: event.target.checked
-                            ? [...new Set([...current, site.id])]
-                            : current.filter((id) => id !== site.id),
-                        });
-                      }}
-                    />
-                    {site.name}
-                  </label>
-                ))}
-              </div>
-              <p className="office-muted">
-                Styr åtkomst till kundterminaler och miljöuppgifter. Inga val ger ingen anläggningsåtkomst.
-              </p>
-            </div>
-            <label>
-              Maxbelopp för attest (kr)
-              <input
-                type="number"
-                min="0"
-                max={
-                  actor.level === 'Systemadmin' ? undefined : actor.maxAttest
-                }
-                step="0.01"
-                value={selected.maxAttest}
-                disabled={!editable}
-                onChange={(e) =>
-                  setSelected({
-                    ...selected,
-                    maxAttest: Number(e.target.value),
-                  })
-                }
-              />
-            </label>
-            <label className="office-checkbox">
-              <input
-                type="checkbox"
-                checked={selected.ownAttest}
-                disabled={!editable}
-                onChange={(e) =>
-                  setSelected({ ...selected, ownAttest: e.target.checked })
-                }
-              />
-              Får attestera egna förberedda kort
-            </label>
-            <button className="office-btn" disabled={!editable || saving}>
-              Spara behörigheter
-            </button>
-          </form>
-        </section>
-      </div>
-    </>
   );
 }
