@@ -56,7 +56,7 @@ test('actual certificate identity overrides a matching manual declaration and is
     validFrom: '2026-04-09T00:00:00.000Z', validTo: '2028-04-09T00:00:00.000Z', fingerprint256: 'PUBLIC-FIXTURE-FINGERPRINT' };
   const client = { status: async () => ({ mode: 'test', ready: true, missing: [], issues: [], certificate }),
     async check() { checks++; return { mode: 'test', connected: true, checkedAt: '2026-10-10T10:30:00Z', wasteCodes: [{ code: '160601', hazardous: true }], transportModes: [{ code: 'R' }] }; },
-    async submit() { submits++; return { mode: 'test', outcome: 'accepted', httpStatus: 200, avfallId: randomUUID(), response: {} }; } };
+    async submit() { submits++; return { mode: 'test', outcome: 'accepted', httpStatus: 200, avfallId: randomUUID(), response: {}, clientCertificate: structuredClone(certificate) }; } };
   await fixture(async f => {
     await f.store.nvvSaveReporter(reporter, f.admin.token);
     const status = await f.store.nvvStatus(f.admin.token);
@@ -72,10 +72,12 @@ test('actual certificate identity overrides a matching manual declaration and is
     const sent = await f.store.nvvSend(report.id, { receiptVersion: 1, idempotencyKey: 'correct-cert' }, f.admin.token);
     assert.equal(sent.status, 'reported'); assert.equal(submits, 1);
     assert.deepEqual(sent.versions[0].clientCertificate, certificate);
+    assert.deepEqual(sent.attempts[0].clientCertificate, certificate);
     certificate.organisationNumber = '5560000167';
     await f.restart();
     const history = await f.store.nvvDetail(report.id, f.admin.token);
     assert.equal(history.versions[0].clientCertificate.organisationNumber, '5560065087');
+    assert.equal(history.attempts[0].clientCertificate.organisationNumber, '5560065087');
     assert.equal(history.versions[0].payload.verksamhetsutovare, '5560065087');
   }, { client });
 });

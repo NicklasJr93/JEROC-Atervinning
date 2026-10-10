@@ -5,11 +5,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import tls from 'node:tls';
 import { X509Certificate } from 'node:crypto';
+import https from 'node:https';
+import { once } from 'node:events';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { createNvvClient, describeNvvCertificate, NVV_TEST_API_URL, NVV_TEST_TOKEN_URL } from './nvv-client.mjs';
 
 // Anonymous, self-signed fixture generated locally. This key identifies no real
 // organization, is publicly available test data, and is never used on a network.
 const localOnlyPfx = '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';
+// Public anonymous loopback server fixture, with localhost/127.0.0.1 SANs.
+// Its fixture key and PIN have no production identity or value.
+const localOnlyServerPfx = 'MIIEvAIBAzCCBHIGCSqGSIb3DQEHAaCCBGMEggRfMIIEWzCCAwoGCSqGSIb3DQEHBqCCAvswggL3AgEAMIIC8AYJKoZIhvcNAQcBMF8GCSqGSIb3DQEFDTBSMDEGCSqGSIb3DQEFDDAkBBCPJo1T4gCwYmlbvrxz8x6gAgIIADAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQBKgQQ+mDd8VgNW3XvEm3jT90GWoCCAoDoGyGFEPiHIuyuksFec+GMtWj9EXnBc/3r7128pf5iu83s9dhW9X34wg3QsWv1j+mzRAd0Hxh/Fq0kFd25SEynHanJEM78Lak2UpDjsOnfLE+FN2U1D1P7Og8UCeauRSIRwujeXlhfB/32ruJfvQMpPjYt006M1hI1UsW2gM6o9zFPvWDUE+xQb0ESIAdIwynUrmwhRcG2gX9Kmet1NVcAjqjs0bPQJ72nM/etncZST9eEB8ugjp1aS2LeJaSxYHnc6+TlV1FBBdOEFajOxk5oM4NjMFTuDQx4NRyu4NGshxg3ql5r6/N7bNZaCAfwCWdev87n4/g3d27FI8d1KQEbu2OWQr9mNYAoOf91AN43MzXmcwOmpMsRGLxvIwqKpz3FO7AWGuzVaAYVzuuG/sFqZ7R0cxBzaGuzgNk1Xsgfh5cCrWLknH/NmCrmcvVCvdcvpMFghES2oDSUfkl7XB8Hx5QpJbhSzlI8oiNZCCmzwVSyspEoCZSHp3Vn+w48xCXVlWUIQNJWQ8rTxy4HpNW69DilhUbx63fqnsR08UCNgQ1Kbl/3TRmLE1v7PHZKvYRT/6Vkv/Gl/hgvYzKDRJ5otsmpo2HJTOfEp5gNpYVofQFUYyIgXWrvAjuUXJDb8KnrVYSujv4MArEJhVFJHbB6uIoTu0yn3Ib6sstB9ZunZyosfdUq+feaqmJsHwUJEUtDjo6H0vTkMhrF3VJw55ZI7PmWkxmvexAwprpQGG5YeJ4j3bBnRpBV2gTp6COsp3P03iba0dSXhJ+vEVdZvu5r8fIMVHD7rpRC2phVIkCyIO/AjRnCzb0XajNPTGV1pxYHq/LKNn5/2xHC4KW+Dr+xMIIBSQYJKoZIhvcNAQcBoIIBOgSCATYwggEyMIIBLgYLKoZIhvcNAQwKAQKggfcwgfQwXwYJKoZIhvcNAQUNMFIwMQYJKoZIhvcNAQUMMCQEEInn8CSayTbzfCEONWHq7ScCAggAMAwGCCqGSIb3DQIJBQAwHQYJYIZIAWUDBAEqBBDuH1yxMCBMPhWHBIdu63xtBIGQMQx2OJiJWs+ZZTYsdYky16+KOJyYh6FSie48Z/pvqYweBiu4X9LOHyXRX+e6s0cuVv97KqGhE/tmFUs3LXZQt1fqRCp+no0mOMvfhbWg4vjgLeVS9FMQbNtyJJxNxTKegqQjk8EE3oLg0fSW1V5xF3cWHdAqV84Tqpvs9B3wLMvfql2cmUUrKGWCaqtGfBIcMSUwIwYJKoZIhvcNAQkVMRYEFFIE7tkcuZOCl6GwS8Qi/1aj7XdUMEEwMTANBglghkgBZQMEAgEFAAQggVvTefTexKrYLXhgUrY+wV/MUEeOwdhO0NBog3fdzqQECDQ1LTSc6TbFAgIIAA==';
 const acceptedId = '3cbf001c-5c51-4f31-a8a4-173dbd7e7bc8';
 const payload = { referens: 'LOCAL-TEST-1', avfall: { kod: '160601', mangd: 250 } };
 
@@ -42,7 +49,7 @@ test('loaded TLS certificate exposes only public X509 metadata and keeps it cohe
   const der = tls.createSecureContext({ pfx: Buffer.from(localOnlyPfx, 'base64'), passphrase: f.env.NVV_CLIENT_PFX_PASSWORD }).context.getCertificate();
   const certificate = new X509Certificate(der), first = await client.status();
   assert.deepEqual(first.certificate, { configured: true, validated: true, metadataAvailable: true,
-    organisationName: 'Not a real NVV identity', organisationNumber: null, issuer: certificate.issuer,
+    organisationName: 'Not a real NVV identity', organisationNumber: null, issuer: certificate.issuer, freshHandshake: true,
     validFrom: new Date(certificate.validFrom).toISOString(), validTo: new Date(certificate.validTo).toISOString(), fingerprint256: certificate.fingerprint256 });
   assert.equal(f.calls.length, 0);
   const originalFingerprint = first.certificate.fingerprint256;
@@ -432,4 +439,68 @@ test('a check retains the private identity of the configuration actually used if
   assert.equal(checked.result.connected, true);
   assert.equal(checked.configurationId, before.configurationId);
   assert.notEqual((await client.configurationSnapshot()).configurationId, checked.configurationId);
+});
+
+
+test('fresh verified mTLS requests use new connections and expose the actual client leaf only', { timeout: 10000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'jeroc-nvv-transport-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const clientPfx = Buffer.from(localOnlyPfx, 'base64'), serverPfx = Buffer.from(localOnlyServerPfx, 'base64');
+  const clientCertificate = new X509Certificate(tls.createSecureContext({ pfx: clientPfx, passphrase: 'fixture-only-password' }).context.getCertificate());
+  const serverCertificate = new X509Certificate(tls.createSecureContext({ pfx: serverPfx, passphrase: 'anonymous-local-test-only' }).context.getCertificate());
+  const caFile = join(directory, 'anonymous-server-ca.pem');
+  await writeFile(caFile, serverCertificate.toString(), { mode: 0o600 });
+  const connections = [];
+  const server = https.createServer({ pfx: serverPfx, passphrase: 'anonymous-local-test-only', ca: clientCertificate.toString(),
+    requestCert: true, rejectUnauthorized: true, minVersion: 'TLSv1.2', maxVersion: 'TLSv1.2' }, (_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}');
+    });
+  server.on('secureConnection', socket => connections.push({ port: socket.remotePort, authorized: socket.authorized,
+    reused: socket.isSessionReused(), fingerprint: socket.getPeerX509Certificate().fingerprint256 }));
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const input = { url: `https://127.0.0.1:${server.address().port}/local-only`, method: 'GET', pfx: localOnlyPfx, passphrase: 'fixture-only-password' };
+  const script = `import assert from 'node:assert/strict';
+    import { requestHttps } from ${JSON.stringify(new URL('./nvv-client.mjs', import.meta.url).href)};
+    const input = ${JSON.stringify(input)}; input.pfx=Buffer.from(input.pfx,'base64');
+    const results=[]; for(let index=0;index<2;index++) results.push(await requestHttps(input));
+    for(const result of results) {assert.equal(result.statusCode,200); assert.equal(result.clientCertificate.fingerprint256,${JSON.stringify(clientCertificate.fingerprint256)});}
+    console.log(JSON.stringify(results.map(result=>result.clientCertificate)));`;
+  const childEnv = { ...process.env, NODE_EXTRA_CA_CERTS: caFile }; delete childEnv.NODE_TLS_REJECT_UNAUTHORIZED;
+  const run = promisify(execFile);
+  const child = await run(process.execPath, ['--input-type=module', '-e', script], { env: childEnv, timeout: 5000 });
+  const metadata = JSON.parse(child.stdout);
+  assert.equal(connections.length, 2); assert.equal(new Set(connections.map(item => item.port)).size, 2);
+  assert.ok(connections.every(item => item.authorized && !item.reused && item.fingerprint === clientCertificate.fingerprint256));
+  assert.equal(metadata[0].fingerprint256, metadata[1].fingerprint256); assert.equal(metadata[0].organisationNumber, null);
+  assert.equal(JSON.stringify(metadata).includes(localOnlyPfx), false); assert.equal(JSON.stringify(metadata).includes('fixture-only-password'), false);
+  // The same request without explicit test-CA trust must fail verification.
+  const untrustedEnv = { ...childEnv }; delete untrustedEnv.NODE_EXTRA_CA_CERTS;
+  const untrusted = `import assert from 'node:assert/strict';
+    import { requestHttps } from ${JSON.stringify(new URL('./nvv-client.mjs', import.meta.url).href)};
+    const input=${JSON.stringify(input)}; input.pfx=Buffer.from(input.pfx,'base64');
+    await assert.rejects(requestHttps(input), cause=>cause.code==='DEPTH_ZERO_SELF_SIGNED_CERT');`;
+  await run(process.execPath, ['--input-type=module', '-e', untrusted], { env: untrustedEnv, timeout: 5000 });
+});
+
+test('actual socket certificate diagnostics survive normalization without private metadata fields', async t => {
+  const f = await fixture(t);
+  const certificate = describeNvvCertificate(tls.createSecureContext({ pfx: Buffer.from(localOnlyPfx, 'base64'), passphrase: 'fixture-only-password' }).context.getCertificate());
+  const unsafe = { ...certificate, privateKey: localOnlyPfx, pem: 'PRIVATE MATERIAL', password: f.env.NVV_CLIENT_PFX_PASSWORD, path: f.env.NVV_CLIENT_PFX_SECRET_FILE };
+  const client = createNvvClient({ env: f.env, request: async input => {
+    if (input.url === NVV_TEST_TOKEN_URL) return f.request(input);
+    if (input.url.endsWith('/avfallstyper')) return { statusCode: 200, clientCertificate: unsafe, body: [{ kod: '160601', farligt: 'Ja' }] };
+    if (input.url.endsWith('/transportsatt')) return { statusCode: 200, clientCertificate: unsafe, body: [{ transportsatt: 'R' }] };
+    return { statusCode: 400, clientCertificate: unsafe, body: { Code: 1023, Message: 'Mismatch' } };
+  } });
+  const checked = await client.check(); assert.equal(checked.connected, true);
+  assert.deepEqual(checked.diagnostics.map(item => item.clientCertificate), [certificate, certificate]);
+  const rejected = await client.submit({ method: 'POST', path: '/insamlingar', payload });
+  assert.equal(rejected.error.code, 'NVV_REPORTER_IDENTITY'); assert.deepEqual(rejected.clientCertificate, certificate);
+  for (const field of ['privateKey', 'pem', 'password', 'path']) {
+    assert.equal(Object.hasOwn(rejected.clientCertificate, field), false);
+    assert.ok(checked.diagnostics.every(item => !Object.hasOwn(item.clientCertificate, field)));
+  }
+  for (const forbidden of [localOnlyPfx, 'PRIVATE MATERIAL', f.env.NVV_CLIENT_PFX_PASSWORD, f.env.NVV_CLIENT_PFX_SECRET_FILE])
+    assert.equal(JSON.stringify([checked, rejected]).includes(forbidden), false);
 });

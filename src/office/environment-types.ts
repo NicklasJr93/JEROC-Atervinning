@@ -176,6 +176,7 @@ export interface NvvIntegrationStatus {
   enabled?: boolean; productionEnabled?: false;
   certificate?: {
     configured: boolean; validated: boolean; metadataAvailable: boolean;
+    freshHandshake?: boolean;
     organisationName: string | null; organisationNumber: string | null;
     issuer: string | null; validFrom: string | null; validTo: string | null; fingerprint256: string | null;
   };
@@ -185,12 +186,14 @@ export interface NvvReportVersion {
   siteId: string; wasteCode: string; weight: number; mode: NvvMode;
   method: 'POST' | 'PUT'; path: string; payload: unknown; payloadHash: string;
   reporterVersion: number; previousAvfallId?: string; createdAt: string; createdBy: string;
+  clientCertificate?: NvvIntegrationStatus['certificate'];
 }
 export interface NvvAttempt {
   id: string; versionId: string; trackingId: string; kind: 'submit' | 'read';
   startedAt: string; finishedAt: string; outcome: 'accepted' | 'rejected' | 'unknown';
   httpStatus: number | null; avfallId?: string; response: unknown;
   error?: { code: string; message: string; details?: unknown }; mode: NvvMode;
+  clientCertificate?: NvvIntegrationStatus['certificate'];
 }
 export interface NvvReportDetail {
   reportId: string; receiptVersion: number; status: NvvReportStatus; mode: 'prepared-only' | NvvMode;

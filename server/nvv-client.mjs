@@ -29,10 +29,20 @@ function parseBody(body) {
   try { return JSON.parse(text); } catch { return text; }
 }
 
-function requestHttps({ url, method, headers, body, pfx, passphrase, timeoutMs = 20_000 }) {
+export function requestHttps({ url, method, headers, body, pfx, passphrase, timeoutMs = 20_000 }) {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
-    const req = https.request(target, { method, headers, pfx, passphrase, rejectUnauthorized: true, minVersion: 'TLSv1.2' }, (res) => {
+    // Each OAuth/API request performs its own complete mTLS handshake. Neither
+    // a reused connection nor a cached TLS session may carry gateway identity.
+    const agent = new https.Agent({ keepAlive: false, maxCachedSessions: 0 });
+    let req;
+    try { req = https.request(target, { method, headers, pfx, passphrase, agent, rejectUnauthorized: true, minVersion: 'TLSv1.2' }, (res) => {
+      let clientCertificate;
+      try {
+        const actual = req.socket?.getX509Certificate?.();
+        const metadata = actual && describeNvvCertificate(actual);
+        if (metadata?.metadataAvailable) clientCertificate = metadata;
+      } catch { /* Metadata is diagnostic only; TLS verification remains mandatory. */ }
       const chunks = [];
       let length = 0;
       res.on('data', (chunk) => {
@@ -42,12 +52,12 @@ function requestHttps({ url, method, headers, body, pfx, passphrase, timeoutMs =
       });
       res.on('aborted', () => req.destroy(new Error('NVV_RESPONSE_ABORTED')));
       res.on('error', reject);
-      res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
-    });
+      res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8'), ...(clientCertificate && { clientCertificate }) }));
+    }); } catch (cause) { agent.destroy(); reject(cause); return; }
     const timer = setTimeout(() => req.destroy(new Error('NVV_TIMEOUT')), timeoutMs);
     timer.unref();
     req.on('error', reject);
-    req.on('close', () => clearTimeout(timer));
+    req.on('close', () => { clearTimeout(timer); agent.destroy(); });
     if (body) req.write(body);
     req.end();
   });
@@ -95,6 +105,14 @@ function loadedCertificateMetadata(context) {
     const raw = context?.context?.getCertificate?.();
     return raw ? describeNvvCertificate(raw) : emptyCertificateMetadata();
   } catch { return emptyCertificateMetadata(); }
+}
+
+function publicClientCertificate(value, secrets) {
+  if (value?.metadataAvailable !== true) return undefined;
+  const metadata = { metadataAvailable: true };
+  for (const name of ['organisationName', 'organisationNumber', 'issuer', 'validFrom', 'validTo', 'fingerprint256'])
+    metadata[name] = typeof value[name] === 'string' ? value[name].slice(0, name === 'issuer' ? 2000 : 500) : null;
+  return safeValue(metadata, secrets);
 }
 
 /** TEST-only adapter. All external I/O is injectable; a missing mode disables it. */
@@ -195,7 +213,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
   }
 
   function publicConfiguration(config) {
-    return { mode: ['mock', 'test', 'disabled'].includes(config.mode) ? config.mode : 'invalid', enabled: ['mock', 'test'].includes(config.mode), ready: config.ready, apiBaseUrl: NVV_TEST_API_URL, tokenUrl: NVV_TEST_TOKEN_URL, systemId: safeValue(config.systemId || null, config.secrets), missing: [...config.missing], issues: [...config.issues], certificate: safeValue(config.certificate, config.secrets) };
+    return { mode: ['mock', 'test', 'disabled'].includes(config.mode) ? config.mode : 'invalid', enabled: ['mock', 'test'].includes(config.mode), ready: config.ready, apiBaseUrl: NVV_TEST_API_URL, tokenUrl: NVV_TEST_TOKEN_URL, systemId: safeValue(config.systemId || null, config.secrets), missing: [...config.missing], issues: [...config.issues], certificate: { ...safeValue(config.certificate, config.secrets), freshHandshake: true } };
   }
 
   async function token(config, force = false) {
@@ -209,7 +227,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
       // Even a malformed token response can echo its token in an error field.
       if (typeof body?.access_token === 'string' && body.access_token.length <= 16384) knownTokens.add(body.access_token);
       if (knownTokens.size > 64) knownTokens.delete(knownTokens.values().next().value);
-      if (statusCode(response) !== 200 || typeof body?.access_token !== 'string' || !/^[\x21-\x7e]{1,16384}$/.test(body.access_token) || !Number.isFinite(seconds) || seconds <= 0 || (body.token_type && String(body.token_type).toLowerCase() !== 'bearer')) throw Object.assign(new Error('NVV_AUTH_FAILED'), { nvvStatusCode: statusCode(response), nvvResponseBody: body });
+      if (statusCode(response) !== 200 || typeof body?.access_token !== 'string' || !/^[\x21-\x7e]{1,16384}$/.test(body.access_token) || !Number.isFinite(seconds) || seconds <= 0 || (body.token_type && String(body.token_type).toLowerCase() !== 'bearer')) throw Object.assign(new Error('NVV_AUTH_FAILED'), { nvvStatusCode: statusCode(response), nvvResponseBody: body, ...(response.clientCertificate && { nvvClientCertificate: response.clientCertificate }) });
       cachedToken = { value: body.access_token, fingerprint: config.fingerprint, until: clock(now) + seconds * 1000 - Math.min(30_000, seconds * 100) };
       return cachedToken.value;
     })();
@@ -219,7 +237,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
 
   async function call(config, { method, path, payload, trackingId }) {
     let bearer;
-    const authenticationFailure = cause => ({ authError: true, statusCode: cause?.nvvStatusCode ?? null, body: cause?.nvvResponseBody ?? null });
+    const authenticationFailure = cause => ({ authError: true, statusCode: cause?.nvvStatusCode ?? null, body: cause?.nvvResponseBody ?? null, ...(cause?.nvvClientCertificate && { clientCertificate: cause.nvvClientCertificate }) });
     try { bearer = await token(config); } catch (cause) { return authenticationFailure(cause); }
     const execute = async (value) => request({ url: `${config.apiBaseUrl}${path}`, method, headers: { Authorization: `Bearer ${value}`, 'NV-Client-System-ID': config.systemId, 'NV-Client-Tracking-ID': trackingId, Accept: 'application/json', ...(payload !== undefined ? { 'Content-Type': 'application/json; charset=UTF-8' } : {}) }, body: payload === undefined ? undefined : JSON.stringify(payload), pfx: config.pfx, passphrase: config.passphrase, timeoutMs: 20_000 });
     try {
@@ -246,7 +264,8 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
     const response = safeValue(parsed, secrets, 0, meta);
     const echoed = result?.headers?.['nv-client-tracking-id'] ?? result?.headers?.['NV-Client-Tracking-ID'];
     const safeTracking = safeValue(typeof echoed === 'string' && /^[\x20-\x7e]{1,200}$/.test(echoed) ? echoed : trackingId, secrets);
-    const base = { mode: config.mode, httpStatus, trackingId: safeTracking, response, ...(meta.truncated ? { responseTruncated: true } : {}) };
+    const clientCertificate = publicClientCertificate(result?.clientCertificate, secrets);
+    const base = { mode: config.mode, httpStatus, trackingId: safeTracking, response, ...(clientCertificate && { clientCertificate }), ...(meta.truncated ? { responseTruncated: true } : {}) };
     if (result?.authError) return { ...base, outcome: 'rejected', error: error('NVV_AUTHENTICATION', 'Autentisering mot Naturvårdsverket misslyckades.') };
     if (result?.networkError || !httpStatus) return { ...base, outcome: 'unknown', error: error('NVV_UNKNOWN_OUTCOME', write ? 'Svaret från Naturvårdsverket saknas. Avstämning krävs före nytt utskick.' : 'Naturvårdsverket kunde inte nås.') };
     if (write && httpStatus === 408) return { ...base, outcome: 'unknown', error: error('NVV_UNKNOWN_OUTCOME', 'Naturvårdsverket svarade med timeout. Avstämning krävs före nytt utskick.') };
@@ -296,7 +315,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
       diagnostics.push({ method: result.authError ? 'POST' : 'GET', path: result.authError ? '/oauth2/token' : path,
         httpStatus: normalizedResult.httpStatus, ...(normalizedResult.trackingId && !result.authError && { trackingId: normalizedResult.trackingId }),
         outcome: result.authError && !(normalizedResult.httpStatus >= 400 && normalizedResult.httpStatus < 500) ? 'unknown' : normalizedResult.outcome,
-        response: summary ?? excerpt(normalizedResult.response) });
+        response: summary ?? excerpt(normalizedResult.response), ...(normalizedResult.clientCertificate && { clientCertificate: normalizedResult.clientCertificate }) });
       return normalizedResult;
     };
     const wasteTracking = randomUUID();

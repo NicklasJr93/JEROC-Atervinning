@@ -1,4 +1,14 @@
-# JEROC kontorsdemo 0.13.1
+# JEROC kontorsdemo 0.13.2
+
+## Nytt i 0.13.2 – ny TLS-anslutning för NVV
+
+Varje NVV-anrop gör en ny TLS-förhandling med serverns klientcertifikat.
+HTTP-anslutningar och TLS-sessioner återanvänds inte mellan OAuth och rapportering.
+Det utesluter beroende av tidigare anslutningars certifikattillstånd vid felsökning;
+återanvändning är inte belagd som orsaken till fel 1023.
+Offentliga certifikatuppgifter från den verkliga HTTPS-anslutningen sparas med
+rapportförsöket när Node kan läsa dem. Token återanvänds fortfarande säkert.
+Transporten behåller TLS-verifiering och lägsta TLS-version 1.2.
 
 ## Nytt i 0.13.1 – NVV:s rapportörsidentitet
 

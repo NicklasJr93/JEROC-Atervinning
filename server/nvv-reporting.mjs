@@ -168,6 +168,7 @@ export function createNvvReporting({ transaction, read = transaction, principalF
     if (state.nvvAttempts.some(attempt => attempt.trackingId === reservation.trackingId && attempt.kind === kind && attempt.outcome === result.outcome && attempt.httpStatus === (result.httpStatus ?? null))) return;
     const record = { id: randomUUID(), versionId: reservation.version.id, trackingId: reservation.trackingId, kind, startedAt: reservation.startedAt,
       finishedAt: time.toISOString(), outcome: result.outcome, httpStatus: result.httpStatus ?? null, response: clone(result.response ?? null), mode: reservation.version.mode,
+      ...(result.clientCertificate && { clientCertificate: clone(result.clientCertificate) }),
       ...(result.avfallId && { avfallId: result.avfallId }), ...(result.error && { error: clone(result.error) }) };
     state.nvvAttempts.push(record);
     if (kind === 'submit') {
