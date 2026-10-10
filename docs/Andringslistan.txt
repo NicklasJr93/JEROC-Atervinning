@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilversion: 0.3.0. Aktuell kontorsversion: 0.9.0.
+Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.12.3.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
@@ -1246,3 +1246,11 @@ Status: Planerad, godkänd för ÄL 2026-10-10. Ingen implementation påbörjad.
   Varje verklig rapport verifieras separat genom sitt myndighetssvar.
 - Osäkert utfall kräver avstämning före omsändning; inga blinda dublettprov.
   Nuvarande klient förblir TEST-begränsad. Inga skarpa anrop aktiveras här.
+
+062 – Stabil mobilvy under vanlig bakgrundssparning
+Status: Implementerad i mobilwebb 0.3.1 / kontorsdemo 0.12.3, 2026-10-10.
+- Ta bort den tillfälliga röda väntetexten vid normal köläggning till servern.
+  Materialval och siffertryck ska inte lägga till/ta bort en ruta som flyttar UI.
+- Behåll bakgrundssparning, beständig återhämtningscache och seriell skrivkö.
+- Riktiga spar-, anslutnings- och konfliktfel visas fortfarande. Nästa
+  knapptryckning får inte dölja ett verkligt fel före bekräftad sparning.

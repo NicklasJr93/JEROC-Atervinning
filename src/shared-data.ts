@@ -9,7 +9,7 @@ type Options<T> = {
  parse(value: unknown): T;
 };
 /** A local recovery cache and serialized durable write queue. PostgreSQL remains
- * authoritative; queued work is shown explicitly and survives lost connections. */
+ * authoritative; failed writes are reported and survive lost connections. */
 export function useSharedData<T>(options: Options<T>) {
  const latest=useRef(options);latest.current=options;
  const identityKey=options.identity && ('mobile' in options.identity?'mobile':`${options.identity.actor}:${options.identity.user}`);
@@ -35,7 +35,6 @@ export function useSharedData<T>(options: Options<T>) {
    }
    s.queue=queue;
    o.current.current=parsed;o.accept(parsed);
-   o.error('Ändringen väntar på att sparas på servern.');
    void runner.current();return true;
   }catch{o.error('Ändringen kunde inte sparas i återhämtningscachen.');return false;}
  }

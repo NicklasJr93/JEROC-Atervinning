@@ -1,4 +1,18 @@
-# JEROC kontorsdemo 0.12.2
+# JEROC kontorsdemo 0.12.3
+
+## Nytt i 0.12.3 / mobilwebb 0.3.1 – bakgrundssparning utan hoppande vy
+
+Vanlig köläggning för serverlagring visas inte längre som ett rött sparfel.
+Materialval och viktinmatning behåller sin position medan skrivkön arbetar.
+Återhämtningscache, ordningsföljd och serverlagring är oförändrade; verkliga
+anslutnings-, lagrings- och konfliktfel visas fortsatt. En ny knapptryckning
+döljer inte ett tidigare verkligt fel innan servern har bekräftat sparningen.
+
+Verifiering 0.12.3: produktionsbygget och tre riktade webbläsarprov passerade.
+Proven täcker fördröjd sparning utan röd felruta eller flyttat tangentbord,
+verkligt serverfel med beständig återhämtning och full lokal lagring som
+stoppar klarmarkering. Testerna kördes mot en separat testserver utan externa anrop.
+
 
 ## Nytt i 0.12.2 – animerad NVV-anslutningskontroll
 
