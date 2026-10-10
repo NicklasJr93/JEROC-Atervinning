@@ -1254,3 +1254,17 @@ Status: Implementerad i mobilwebb 0.3.1 / kontorsdemo 0.12.3, 2026-10-10.
 - Behåll bakgrundssparning, beständig återhämtningscache och seriell skrivkö.
 - Riktiga spar-, anslutnings- och konfliktfel visas fortfarande. Nästa
   knapptryckning får inte dölja ett verkligt fel före bekräftad sparning.
+
+063 – Sammanhängande elektrisk fokusmarkering på invägningskort
+Status: Godkänd mockup, planerad för appen 2026-10-10.
+- Ersätt den pulserande fokusmarkeringen med en sammanhängande JEROC-blå
+  elektrisk kontur runt det kort där nästa moment ska göras. Ingen extra
+  instruktionstext; behåll befintlig logik för vilket moment som är aktuellt.
+- Små krusningar följer en sluten kant med lugna hörn och diskret glöd.
+  Inga separata utstickande blixtgrenar eller hörn som expanderar in/ut.
+- Senaste godkända variant: dubbelt så tjock kant som det lugnare förslaget
+  och 20 % högre hastighet, 2,5 sekunder per cykel. Innehållet ligger stilla.
+- Effekten använder CSS, SVG och lite JavaScript. Behåll stöd för minskad
+  rörelse och undvik att animationen flyttar formulär eller blockerar klick.
+- Godkänd animerad förhandsvisning: docs/mockups/kortfokus-elektrisk/README.md.
+  Appens fokusmarkering är ännu inte ändrad.
