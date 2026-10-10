@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, CircleAlert, PlugZap, RefreshCw, Save, ShieldCheck } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, ChevronDown, CircleAlert, PlugZap, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 import { can, type OfficeUser } from './model';
 import { environmentApi } from './environment-client';
 import { environmentFailure } from './EnvironmentSession';
@@ -101,6 +101,7 @@ export default function NvvIntegrationPanel({ user, actualUser, status, onChange
         </div>
         {permitted && <button ref={checkButton} type="button" className="office-btn outline" onClick={() => void perform('check')} disabled={!!pending || dirty || status?.mode === 'disabled'}><RefreshCw size={14} />{pending === 'check' ? 'Kontrollerar…' : status?.mode === 'mock' ? 'Prova simulerad anslutning' : 'Kontrollera testanslutning'}</button>}
       </div>
+      {permitted && <p className="nvv-readonly-notice"><a className="office-link" href="/kontor/integration/systemadminintegrationtest.html"><ArrowUpRight size={14} />Öppna systemadmins NVV-testformulär</a></p>}
       {!!status?.missing.length && <div className="environment-alert"><CircleAlert size={16} /><div><strong>Återstår före testet</strong><ul>{status.missing.map(item => <li key={item}>{missingLabel(item)}</li>)}</ul></div></div>}
       <section className="environment-extra-contacts" aria-label="Klientcertifikat på servern">
         <strong>Klientcertifikat på servern</strong>

@@ -4,6 +4,7 @@ import type {
   EnvironmentSessionState, EnvironmentState, WasteClassification,
   EnvironmentSite, EnvironmentSiteInput, EnvironmentalStorageAssessment, EnvironmentalStoragePolicy, EnvironmentalStoragePolicyInput,
   NvvIntegrationStatus, NvvReporterInput, NvvReportDetail,
+  NvvSandboxState, NvvSandboxRequest, NvvSandboxRun,
   EnvironmentalSourceProjection,
 } from './environment-types';
 
@@ -50,4 +51,7 @@ export const environmentApi = {
   nvvReport: (reportId: string, signal?: AbortSignal) => environmentRequest<NvvReportDetail>(`/nvv/reports/${encodeURIComponent(reportId)}`, 'GET', undefined, signal),
   sendNvvReport: (reportId: string, value: { receiptVersion: number; idempotencyKey: string }) => environmentRequest<NvvReportDetail>(`/nvv/reports/${encodeURIComponent(reportId)}/send`, 'POST', value),
   reconcileNvvReport: (reportId: string) => environmentRequest<NvvReportDetail>(`/nvv/reports/${encodeURIComponent(reportId)}/reconcile`, 'POST', {}),
+  nvvSandbox: (signal?: AbortSignal) => environmentRequest<NvvSandboxState>('/nvv/sandbox', 'GET', undefined, signal),
+  sendNvvSandbox: (value: NvvSandboxRequest, signal?: AbortSignal) => environmentRequest<NvvSandboxRun>('/nvv/sandbox', 'POST', value, signal),
+  nvvSandboxRun: (runId: string, signal?: AbortSignal) => environmentRequest<NvvSandboxRun>(`/nvv/sandbox/runs/${encodeURIComponent(runId)}`, 'GET', undefined, signal),
 };

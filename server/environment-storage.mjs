@@ -14,12 +14,12 @@ export const initialEnvironmentState = () => ({
   schemaVersion: 1, revision: 0, demoGeneration: ENVIRONMENT_DEMO_GENERATION,
   credentials: [], sessions: [], classifications: [], storagePolicies: [], siteRecords: [], drafts: [], receipts: [], corrections: [], inventory: [],
   reports: [], requests: [], audit: [], loginAttempts: [],
-  nvvSettings: [], nvvChecks: [], nvvReports: [], nvvAttempts: [], nvvJobs: [],
+  nvvSettings: [], nvvChecks: [], nvvReports: [], nvvAttempts: [], nvvJobs: [], nvvSandboxRuns: [],
 });
 // SQLite callbacks may await another local repository. Share the in-process
 // queue by file so a second synchronous connection never blocks its lock owner.
 const sqliteQueues = new Map();
-const nvvEntities = ['nvvSettings', 'nvvChecks', 'nvvReports', 'nvvAttempts', 'nvvJobs'];
+const nvvEntities = ['nvvSettings', 'nvvChecks', 'nvvReports', 'nvvAttempts', 'nvvJobs', 'nvvSandboxRuns'];
 const entities = ['credentials', 'sessions', 'classifications', 'storagePolicies', 'siteRecords', 'drafts', 'receipts', 'corrections', 'inventory', 'reports', 'requests', 'audit', ...nvvEntities];
 const table = (name) => `jeroc_environment_${name}`;
 const metadata = (state) => Object.fromEntries(Object.entries(state).filter(([key]) => !entities.includes(key)));
@@ -185,6 +185,7 @@ export async function createEnvironmentRepository({ env = process.env, filename 
   const followupMigration = await readFile(fileURLToPath(new URL('./migrations/environment-002.sql', import.meta.url)), 'utf8');
   const storageMigration = await readFile(fileURLToPath(new URL('./migrations/environment-003.sql', import.meta.url)), 'utf8');
   const nvvMigration = await readFile(fileURLToPath(new URL('./migrations/environment-004.sql', import.meta.url)), 'utf8');
+  const sandboxMigration = await readFile(fileURLToPath(new URL('./migrations/environment-005.sql', import.meta.url)), 'utf8');
   let repository;
   if (env.DATABASE_URL) {
     const { Pool } = await import('pg');
@@ -199,6 +200,7 @@ export async function createEnvironmentRepository({ env = process.env, filename 
       await migrationClient.query(followupMigration);
       await migrationClient.query(storageMigration);
       await migrationClient.query(nvvMigration);
+      await migrationClient.query(sandboxMigration);
       await migrationClient.query('INSERT INTO jeroc_environment_meta (id, data) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING', [JSON.stringify(metadata(initialEnvironmentState()))]);
       await migrationClient.query('COMMIT');
     } catch (error) {
@@ -248,6 +250,7 @@ export async function createEnvironmentRepository({ env = process.env, filename 
     database.exec(followupMigration.replaceAll('JSONB', 'TEXT'));
     database.exec(storageMigration.replaceAll('JSONB', 'TEXT'));
     database.exec(nvvMigration.replaceAll('JSONB', 'TEXT'));
+    database.exec(sandboxMigration.replaceAll('JSONB', 'TEXT'));
     database.prepare('INSERT OR IGNORE INTO jeroc_environment_meta (id, data) VALUES (1, ?)').run(JSON.stringify(metadata(initialEnvironmentState())));
     await chmod(file, 0o600);
     const queueKey = resolve(file);

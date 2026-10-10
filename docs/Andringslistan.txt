@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.13.2.
+Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.13.3.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
@@ -1343,3 +1343,18 @@ Status: Implementerad i kontorsdemo 0.13.1, felsökning beställd 2026-10-10.
   Tidigare försök bevarat. Supportunderlag finns i
   docs/integrationer/naturvardsverket/felsokning-1023.md; NVV:s faktiskt
   jämförda rapportörsidentitet återstår att klarlägga.
+
+068 – Redigerbart NVV-testformulär för systemadmin
+Status: Implementerad i kontorsdemo 0.13.3, 2026-10-10.
+- Separat testsida på /kontor/integration/systemadminintegrationtest.html,
+  med länk från Integrationer → NVV och befintlig kontorsinloggning.
+- Förifylld syntetisk mottagningsrapport med redigerbara vanliga fält,
+  valfria ombudsfält och avancerad JSON. Serverns testcertifikat visas.
+- Återanvänd befintlig integrationspopup med animation, fryst begäran,
+  faktiskt råsvar, HTTP-status, avfalls-ID och spårnings-ID.
+- Endast uttrycklig sändning till TEST:s POST /insamlingar. Servern kräver
+  både faktisk och effektiv systemadmin med globala miljöbehörigheter.
+- Separat beständig försökshistorik och idempotens. Okänt svar skickas
+  inte om automatiskt; historikens uppgifter kan återfyllas utan sändning.
+- Testsidan påverkar inga riktiga viktkort, lager, mottagningar eller
+  ekonomiflöden. Befintliga Render-hemligheter används enbart server-side.

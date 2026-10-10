@@ -65,6 +65,8 @@
 .nvv-check-diagnostics details { margin-top:5px; }
 .nvv-check-diagnostics summary { color:#4e7ca6; cursor:pointer; font-size:9px; line-height:1.6; }
 .nvv-check-diagnostics pre { max-height:130px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; padding:7px 8px; margin:6px 0 0; border:1px solid #e3eaf3; border-radius:5px; background:#fff; color:#637d98; font-size:9px; line-height:1.5; }
+.office .nvv-check-dialog .nvv-check-diagnostics > .nvv-check-request-line { margin-top:8px; }
+.office .nvv-check-dialog .nvv-check-diagnostics > p { overflow-wrap:anywhere; }
 .nvv-check-simulation-note { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:16px; color:#7089a1; font-size:10px; line-height:1.5; }
 .nvv-check-actions { display:flex; align-items:center; justify-content:center; gap:9px; margin-top:22px; }
 .office .nvv-check-dialog .nvv-check-actions .office-btn { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-width:115px; padding:10px 16px; font-size:12px; }

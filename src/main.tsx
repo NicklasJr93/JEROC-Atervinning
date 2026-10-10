@@ -10,6 +10,10 @@ const DriverApp = React.lazy(() => import('./driver/DriverApp'));
 const CustomerApp = React.lazy(() => import('./customer/CustomerApp'));
 const CarrierApp = React.lazy(() => import('./carrier/CarrierApp'));
 const pagePath = window.location.pathname.replace(/\/$/, '');
+const nvvTestPage = pagePath === '/kontor/integration/systemadminintegrationtest.html';
+if (nvvTestPage && !window.location.hash) {
+  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/integrations/nvv-test`);
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -22,7 +26,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <React.Suspense fallback={<div role="status">Öppnar kundportalen…</div>}><CustomerApp /></React.Suspense>
       ) : pagePath === '/akeri' ? (
         <React.Suspense fallback={<div role="status">Öppnar åkeriportalen…</div>}><CarrierApp /></React.Suspense>
-      ) : pagePath === '/kontor' ? (
+      ) : pagePath === '/kontor' || nvvTestPage ? (
         <OfficeApp />
       ) : (
         <DemoProvider>

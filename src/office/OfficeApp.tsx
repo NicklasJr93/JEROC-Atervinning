@@ -58,6 +58,7 @@ const WorkOrdersWorkspace = lazy(() => import('./logistics/WorkOrdersWorkspace')
 const WarehouseWorkspace = lazy(() => import('./logistics/WarehouseWorkspace'));
 const VesselsWorkspace = lazy(() => import('./logistics/VesselsWorkspace'));
 const IntegrationsWorkspace = lazy(() => import('./IntegrationsWorkspace'));
+const NvvSandboxWorkspace = lazy(() => import('./NvvSandboxWorkspace'));
 import { logisticsRequest } from './logistics/client';
 import type { LogisticsOfficeState } from './logistics/types';
 import type { WorkOrderPrefill } from './logistics/WorkOrderForm';
@@ -251,6 +252,7 @@ export function OfficeApp() {
     }
   }
   const section = location.pathname.split('/')[1] || 'dashboard';
+  const nvvSandboxView = location.pathname === '/integrations/nvv-test';
   const selectedId = Number(location.pathname.split('/')[2]);
   const selected = workflowSections.includes(section)
     ? data.cards.find((c) => c.id === selectedId)
@@ -355,7 +357,7 @@ export function OfficeApp() {
       sessionStorage.removeItem('jeroc.office.acting');
       setActingId('');
       setUserId(id);
-      navigate('/dashboard');
+      navigate(nvvSandboxView ? '/integrations/nvv-test' : '/dashboard');
     } catch {
       setError('Tillåt sessionslagring för att öppna demokontot.');
     }
@@ -1066,6 +1068,7 @@ export function OfficeApp() {
       can(user, 'customerPrices') ||
       can(user, 'customerPriceEdit'));
   const terminalAdminDenied = section === 'terminals' && user?.level !== 'Systemadmin';
+  const nvvSandboxDenied = nvvSandboxView && (user?.level !== 'Systemadmin' || actualUser?.level !== 'Systemadmin' || !!user?.siteIds || !!actualUser?.siteIds || !can(user, 'environmentIntegration'));
   const accountsView = section === 'users' ||
     (section === 'personnel' && location.pathname.split('/')[2] === 'accounts') ||
     (section === 'personnel' && user && !can(user, 'personnelRead') && can(user, 'users'));
@@ -1244,6 +1247,7 @@ export function OfficeApp() {
           <span>
             Kontoret <ChevronRight size={14} />{' '}
             {section === 'users' ? 'Personal' : nav.find((n) => n.id === section)?.name ?? 'Vägning'}
+            {nvvSandboxView && <><ChevronRight size={14} />NVV-test</>}
             {section === 'work-orders' && location.pathname.endsWith('/new') && <><ChevronRight size={14} />Ny arbetsorder</>}
             {section === 'work-orders' && location.pathname.endsWith('/edit') && <><ChevronRight size={14} />Redigera arbetsorder</>}
           </span>
@@ -1316,7 +1320,7 @@ export function OfficeApp() {
               </button>
             </div>
           )}
-          {terminalAdminDenied || (allowed && !can(user, allowed)) ? (
+          {terminalAdminDenied || nvvSandboxDenied || (allowed && !can(user, allowed)) ? (
             <section className="office-panel">
               <h1>Behörighet saknas</h1>
               <p>Ditt konto har inte åtkomst till denna vy.</p>
@@ -2171,8 +2175,10 @@ export function OfficeApp() {
           ) : section === 'environment' ? (
             <EnvironmentWorkspace user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} onOpenCard={open} />
           ) : section === 'integrations' ? (
-            <Suspense fallback={<div className="office-panel" role="status">Hämtar integrationer…</div>}><IntegrationsWorkspace
-              key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} /></Suspense>
+            <Suspense fallback={<div className="office-panel" role="status">Hämtar integrationer…</div>}>
+              {nvvSandboxView ? <NvvSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : <IntegrationsWorkspace
+                key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} />}
+            </Suspense>
           ) : section === 'facilities' ? (
             <Suspense fallback={<div className="office-panel">Hämtar anläggningar…</div>}><FacilitiesWorkspace user={user} actualUser={actualUser!} onNotice={setMessage} /></Suspense>
           ) : section === 'customer-approvals' ? (

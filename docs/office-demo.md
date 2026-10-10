@@ -1,4 +1,42 @@
-# JEROC kontorsdemo 0.13.2
+# JEROC kontorsdemo 0.13.3
+
+## Nytt i 0.13.3 – separat NVV-testformulär
+
+Systemadmin öppnar testsidan från NVV-inställningarna eller direkt på
+`/kontor/integration/systemadminintegrationtest.html`. Kontorets befintliga
+inloggning används. Både den inloggade användaren och den effektiva användaren
+måste vara systemadmin med åtkomst till alla anläggningar; kontorets
+demoautentisering blir inte produktionsautentisering genom denna funktion.
+
+Formuläret förifylls med syntetiska uppgifter för mottagning av blybatterier.
+Rapportörens identitet hämtas i första hand från det faktiskt laddade
+klientcertifikatet. Vanliga fält, valfria ombudsfält och avancerad JSON kan
+redigeras innan ett uttryckligt klick på **Skicka till NVV · TEST**.
+Mallen följer det granskade API-kontraktet; den innebär inte att NVV har
+accepterat anslutningens identitet eller det enskilda rapportförsöket.
+
+Den befintliga animerade integrationsdialogen återanvänds och visar den frysta
+begäran, HTTP-status, råsvar och spårningsuppgifter. Ny redigering ändrar inte
+ett redan skickat försök. Historiken kan återfylla formuläret utan att skicka.
+
+Alla försök sparas separat i PostgreSQL genom migration
+`server/migrations/environment-005.sql` (lokalt används befintlig SQLite).
+Testsidan ändrar inga viktkort, mottagningar, lager, attester eller betalningar.
+Dubbelklick återanvänder samma försök; ett okänt utfall skickas inte om
+automatiskt. Endpoint och HTTP-metod är låsta till TEST:s `POST /insamlingar`.
+Produktionsläge, alternativa servrar och klientinmatade hemligheter stöds inte.
+Ingen ny Render-inställning behövs; befintligt certifikat och API-nycklar används.
+
+Rapportförsöket i 0.13.2 avvisades fortfarande med fel 1023. Den separata
+testsidan gör fortsatta undersökningar möjliga och är inte en bekräftad lösning
+på NVV:s identitetskontroll. Se [supportunderlaget](integrationer/naturvardsverket/felsokning-1023.md).
+
+Riktad validering: `server/nvv-sandbox.test.mjs` har 9 godkända tester;
+befintlig NVV-rapportering har 17 godkända tester och 1 villkorat PostgreSQL-test
+som hoppades över lokalt. Tre nya browserfall och ett befintligt popupfall
+godkändes med lokala fixtures: behörighet, redigerbar/fryst payload, råsvar,
+dublettskydd och GET-baserad historikkontroll. Inga nya externa NVV-rapportanrop
+gjordes under valideringen.
 
 ## Nytt i 0.13.2 – ny TLS-anslutning för NVV
 

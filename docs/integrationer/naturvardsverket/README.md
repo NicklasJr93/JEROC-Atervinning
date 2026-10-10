@@ -4,8 +4,11 @@ Granskning **2026-10-09** inför byggplanering. Aktuell beställning är att
 kontrollera API, testcertifikat och mockupflöden samt samla dokumentationen.
 Den ursprungliga granskningen aktiverade ingen myndighetsanslutning.
 Etapp 1 har därefter godkänts: [artikelmiljö, mottagning och ny testdata](etapp-1.md).
-Aktuell leverans är kontorsdemo **0.13.2**, med en TEST-adapter och en gemensam
-integrationssida. Det kontrollerade rapportprovet 2026-10-10 gav fortfarande
+Aktuell leverans är kontorsdemo **0.13.3**, med en TEST-adapter och en gemensam
+integrationssida. Systemadmin kan nu öppna ett separat redigerbart testformulär på
+`/kontor/integration/systemadminintegrationtest.html`; se
+[leveransen och provflödet](../../office-demo.md).
+Det kontrollerade rapportprovet 2026-10-10 gav fortfarande
 fel 1023 trots matchande certifikat och verksamhetsutövare; se
 [verifierade uppgifter och supportunderlag](felsokning-1023.md).
 Se [aktuell testetapp](nvv-test-demo.md) för konfiguration,

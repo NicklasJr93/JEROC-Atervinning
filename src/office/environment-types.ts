@@ -181,6 +181,24 @@ export interface NvvIntegrationStatus {
     issuer: string | null; validFrom: string | null; validTo: string | null; fingerprint256: string | null;
   };
 }
+export type NvvJsonValue = string | number | boolean | null | NvvJsonObject | NvvJsonValue[];
+export interface NvvJsonObject { [key: string]: NvvJsonValue }
+export interface NvvSandboxRun {
+  id: string; status: 'in_flight' | 'accepted' | 'rejected' | 'unknown';
+  method: 'POST'; path: '/insamlingar'; payload: NvvJsonObject;
+  startedAt: string; finishedAt?: string; httpStatus: number | null; response: NvvJsonValue;
+  trackingId: string; outcome?: 'accepted' | 'rejected' | 'unknown'; avfallId?: string;
+  error?: { code?: string; message: string };
+  clientCertificate?: NonNullable<NvvIntegrationStatus['certificate']>;
+}
+export interface NvvSandboxState {
+  mode: NvvMode; ready: boolean; missing: string[];
+  certificate: NonNullable<NvvIntegrationStatus['certificate']> | null;
+  template: NvvJsonObject; runs: NvvSandboxRun[];
+}
+export interface NvvSandboxRequest {
+  requestId: string; idempotencyKey: string; payload: NvvJsonObject;
+}
 export interface NvvReportVersion {
   id: string; reportId: string; sourceReportIds: string[]; receiptId: string; receiptVersion: number;
   siteId: string; wasteCode: string; weight: number; mode: NvvMode;
