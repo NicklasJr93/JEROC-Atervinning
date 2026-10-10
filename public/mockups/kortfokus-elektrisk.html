@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>JEROC · Kortfokus med elektrisk kontur</title>
+  <style>
+    :root { font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:#193654; background:#f4f8fd; font-synthesis:none; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100dvh; padding:42px 24px; display:grid; place-items:center; }
+    .preview { width:min(100%,510px); }
+    .preview-heading { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:21px; }
+    .logo { display:block; width:112px; height:auto; }
+    .mockup-label { display:flex; align-items:center; gap:9px; color:#8295ae; font-size:11px; line-height:1.5; }
+    .pause-control { border:1px solid #dce7f4; border-radius:7px; padding:6px 9px; background:#fff; font:inherit; color:#6481a2; cursor:pointer; }
+    .pause-control:hover { border-color:#a8c8f5; color:#0866ed; }
+    .pause-control:focus-visible { outline:3px solid #86b9ff; outline-offset:3px; }
+    .card { position:relative; padding:23px; border:1px solid #a9cafa; border-radius:14px; background:#fff; box-shadow:0 5px 24px #1c477908; }
+    h1 { margin:0 0 21px; color:#183654; font-size:18px; font-weight:700; letter-spacing:-.4px; }
+    .customer-picker { display:flex; gap:9px; align-items:center; margin-bottom:14px; }
+    .customer-picker > div { display:flex; align-items:center; justify-content:space-between; gap:12px; flex:1; min-width:0; height:42px; padding:0 12px; border:1px solid #dce7f5; border-radius:8px; color:#3a5778; font-size:12px; font-weight:600; }
+    .customer-picker button { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:42px; padding:0 13px; border:0; border-radius:8px; background:#0866ed; color:#fff; font:inherit; font-size:12px; font-weight:600; }
+    .customer-summary { padding:15px; margin-bottom:18px; border:1px solid #dce9fb; border-radius:9px; background:#f5f9ff; }
+    .customer-name { display:flex; align-items:center; gap:10px; }
+    .customer-icon { display:grid; place-items:center; width:35px; height:35px; border-radius:9px; background:#e5f0ff; color:#0866ed; }
+    .customer-name strong { display:block; color:#294767; font-size:13px; }
+    .customer-name small { display:block; margin-top:4px; color:#8a9bb1; font-size:10px; }
+    .customer-facts { display:grid; grid-template-columns:1fr auto; row-gap:7px; margin:13px 0 0; font-size:11px; }
+    .customer-facts dt { color:#8b9eb6; }
+    .customer-facts dd { margin:0; color:#5b7390; text-align:right; }
+    label { display:block; margin:0 0 15px; color:#6c839f; font-size:11px; font-weight:600; }
+    label small { color:#92a2b6; font-size:10px; font-weight:400; }
+    input { display:block; width:100%; height:42px; padding:11px 12px; margin-top:7px; border:1px solid #dce7f4; border-radius:8px; color:#355674; background:#fff; font:inherit; font-size:12px; font-weight:400; outline:none; }
+    input::placeholder { color:#98aac0; }
+    input:focus { border-color:#659eff; box-shadow:0 0 0 3px #0866ed0b; }
+    .origin-help { margin:-7px 0 17px; color:#8c9db3; font-size:10px; line-height:1.7; }
+    .save { display:inline-flex; align-items:center; gap:7px; height:36px; padding:0 11px; border:1px solid #d4e4fc; border-radius:7px; color:#0866ed; background:#fff; font:inherit; font-size:11px; font-weight:600; }
+    svg.ui-icon { flex-shrink:0; width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+    #electric-border { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible; }
+    .preview-footnote { margin:17px 0 0; text-align:center; color:#91a2b6; font-size:10px; line-height:1.6; }
+    @media(max-width:540px) {
+      body { padding:28px 15px; }
+      .preview-heading { gap:12px; }
+      .logo { width:96px; }
+      .mockup-label { gap:7px; font-size:10px; }
+      .pause-control { padding:5px 7px; }
+      .card { padding:19px; }
+      h1 { font-size:17px; }
+      .customer-picker button { padding:0 10px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="preview">
+    <div class="preview-heading">
+      <img class="logo" src="../images/jeroc-logo-v2.png" alt="JEROC Återvinning">
+      <div class="mockup-label"><span>Mockup · 1,5 sek/cykel</span><button class="pause-control" id="pause-orbit" type="button" aria-pressed="false">Pausa</button></div>
+    </div>
+    <section class="card" id="focus-card" aria-labelledby="card-title">
+      <h1 id="card-title">Kund, referens &amp; ursprung</h1>
+      <div class="customer-picker">
+        <div><span>Bygg &amp; Riv AB</span><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></div>
+        <button type="button"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Ny kund</button>
+      </div>
+      <div class="customer-summary">
+        <div class="customer-name"><span class="customer-icon"><svg class="ui-icon" style="width:23px;height:23px" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 21V5h10v16M14 10h6v11M2 21h20M8 8h2M8 12h2M8 16h2M17 13h1M17 17h1"/></svg></span><div><strong>Bygg &amp; Riv AB</strong><small>Företag · 559123-7890</small></div></div>
+        <dl class="customer-facts"><dt>Telefon</dt><dd>070-000 12 34</dd><dt>E-post</dt><dd>kontakt@byggriv.example</dd></dl>
+      </div>
+      <label>Referens <small>(valfri)</small><input type="text" value="" placeholder="T.ex. projektnummer eller ordernummer"></label>
+      <label>Ursprungsadress<input type="text" value="" placeholder="Gatuadressen där materialet kommer ifrån"></label>
+      <p class="origin-help">Ursprungsadressen behövs innan kundgodkännandet kan startas.</p>
+      <button class="save" type="button"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>Spara referens &amp; ursprung</button>
+      <svg id="electric-border" aria-hidden="true" viewBox="0 0 510 458">
+        <defs>
+          <filter id="electric-noise" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB">
+            <feTurbulence type="fractalNoise" baseFrequency=".095 .22" numOctaves="2" seed="7" result="noise">
+              <animate attributeName="baseFrequency" dur="1.5s" repeatCount="indefinite" values=".095 .22;.14 .29;.085 .18;.125 .25;.095 .22"/>
+            </feTurbulence>
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="8" xChannelSelector="R" yChannelSelector="G"/>
+          </filter>
+          <filter id="electric-glow" x="-8%" y="-8%" width="116%" height="116%"><feGaussianBlur stdDeviation="1.7"/></filter>
+        </defs>
+        <g filter="url(#electric-noise)">
+          <path id="electric-glow-path" fill="none" stroke="#278af2" stroke-width="3" opacity=".37" filter="url(#electric-glow)"/>
+          <path id="electric-core-path" fill="none" stroke="#2b8cff" stroke-width="1.15"/>
+          <path id="electric-highlight-path" fill="none" stroke="#9cdfff" stroke-width=".5" opacity=".68"/>
+        </g>
+        <g id="electric-sparks" fill="none" stroke="#489fff" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </section>
+    <p class="preview-footnote">Visuellt förslag · en tunn elektrisk kontur markerar kortet.</p>
+  </main>
+  <script>
+    const card = document.getElementById('focus-card');
+    const svg = document.getElementById('electric-border');
+    const paths = ['electric-glow-path', 'electric-core-path', 'electric-highlight-path'].map(id => document.getElementById(id));
+    const sparks = document.getElementById('electric-sparks');
+    const control = document.getElementById('pause-orbit');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const ns = 'http://www.w3.org/2000/svg';
+    let manuallyPaused = false, dimensions = '';
+    function resizeElectricBorder() {
+      const width = card.clientWidth, height = card.clientHeight, edge = .5, radius = 13;
+      const key = `${width}/${height}`;
+      if (key === dimensions) return;
+      dimensions = key;
+      const right = width - edge, bottom = height - edge;
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      const outline = `M${radius} ${edge}H${right-radius}Q${right} ${edge} ${right} ${radius}V${bottom-radius}Q${right} ${bottom} ${right-radius} ${bottom}H${radius}Q${edge} ${bottom} ${edge} ${bottom-radius}V${radius}Q${edge} ${edge} ${radius} ${edge}Z`;
+      paths.forEach(path => path.setAttribute('d', outline));
+      sparks.replaceChildren();
+      // Small irregular branches; each flashes briefly on its own schedule.
+      for (let index = 0; index < 16; index++) {
+        const side = index % 4, fraction = .15 + ((index * 37) % 71) / 100;
+        const x = side === 1 ? right : side === 3 ? edge : radius + fraction * (width - 2 * radius);
+        const y = side === 0 ? edge : side === 2 ? bottom : radius + fraction * (height - 2 * radius);
+        const nx = side === 1 ? 1 : side === 3 ? -1 : 0, ny = side === 0 ? -1 : side === 2 ? 1 : 0;
+        const tangent = index % 2 ? 1 : -1;
+        const branch = document.createElementNS(ns, 'path');
+        branch.setAttribute('d', `M${x} ${y}l${nx*2.5+ny*tangent} ${ny*2.5+nx*tangent}l${nx*1.8-ny*tangent*2} ${ny*1.8-nx*tangent*2}`);
+        branch.setAttribute('opacity', '0');
+        const flash = document.createElementNS(ns, 'animate');
+        const start = .04 + ((index * 29) % 78) / 100;
+        flash.setAttribute('attributeName', 'opacity');
+        flash.setAttribute('dur', '1.5s');
+        flash.setAttribute('repeatCount', 'indefinite');
+        flash.setAttribute('values', '0;0;.85;0;0');
+        flash.setAttribute('keyTimes', `0;${start.toFixed(3)};${(start+.018).toFixed(3)};${(start+.085).toFixed(3)};1`);
+        branch.append(flash); sparks.append(branch);
+      }
+    }
+    function syncPlayback() {
+      const paused = reducedMotion.matches || manuallyPaused;
+      if (paused) svg.pauseAnimations(); else svg.unpauseAnimations();
+      control.setAttribute('aria-pressed', String(paused));
+      control.textContent = paused ? 'Spela' : 'Pausa';
+      control.disabled = reducedMotion.matches;
+      if (reducedMotion.matches) control.textContent = 'Stillbild';
+    }
+    control.addEventListener('click', () => { manuallyPaused = !manuallyPaused; syncPlayback(); });
+    reducedMotion.addEventListener('change', syncPlayback);
+    resizeElectricBorder();
+    new ResizeObserver(resizeElectricBorder).observe(card);
+    svg.setCurrentTime(0);
+    syncPlayback();
+  </script>
+</body>
+</html>
