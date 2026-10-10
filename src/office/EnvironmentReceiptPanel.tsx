@@ -75,7 +75,7 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
   onOriginChange?: (origin: string) => boolean; canChangeOrigin?: boolean;
   guidance?: 'focus' | 'muted'; onGuidanceState?: (state: { loaded: boolean; visible: boolean; received: boolean; canConfirm: boolean }) => void;
 }) {
-  const { state, refresh, session } = useEnvironmentSession();
+  const { state, refreshSource, applyReceipt, applyDraft, session } = useEnvironmentSession();
   const sourceId = card.sourceId ?? '';
   const receipt = state?.receipts.find(item => item.sourceId === sourceId);
   const draft = state?.drafts.find(item => item.sourceId === sourceId);
@@ -101,6 +101,7 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
   const [dirty, setDirty] = useState(false);
   const [storagePreview, setStoragePreview] = useState<{ key: string; assessment?: EnvironmentalStorageAssessment; error?: string }>();
   const requestKey = useRef(crypto.randomUUID());
+  const mountedRef = useRef(true), mutationBusyRef = useRef(false);
   const dirtyRef = useRef(false);
   const hydratedRef = useRef('');
   const draftVersionRef = useRef(0);
@@ -115,7 +116,13 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
   const canConfirm = guidanceVisible && !received && editable && customerApprovalValid && Boolean(session && sourceId);
   const canReceiveException = customerChangeRequested && !receipt && editable && (user.level !== 'Medarbetare' || user.permissions.includes('environmentReceiveException'));
   const editing = !receipt || correcting;
-  const storageKey = `${receiptIdentity}/${form.siteId}/${rowSignature(classifiedRows)}/${state?.revision ?? ''}/${correcting ? receipt?.id : ''}/${receipt?.version ?? 0}`;
+  const relevantStorage = JSON.stringify([
+    state?.sites.find(item => item.id === form.siteId)?.version,
+    state?.storagePolicies.find(item => item.siteId === form.siteId),
+    state?.classifications.filter(item => classifiedRows.some(row => row.articleId === item.articleId)).sort((first, second) => first.articleId.localeCompare(second.articleId)).map(item => [item.articleId, item.version, item.storageRules]),
+    state?.inventory.filter(item => item.siteId === form.siteId).sort((first, second) => first.id.localeCompare(second.id)).map(item => [item.id, item.weight]),
+  ]);
+  const storageKey = `${receiptIdentity}/${form.siteId}/${rowSignature(classifiedRows)}/${relevantStorage}/${correcting ? receipt?.id : ''}/${receipt?.version ?? 0}`;
   const storageAssessment = editing ? storagePreview?.key === storageKey ? storagePreview.assessment : undefined : receipt?.snapshot.storageAssessment;
   const storageError = editing && storagePreview?.key === storageKey ? storagePreview.error ?? '' : '';
   const storageLoading = Boolean(editing && guidanceVisible && session && !storageAssessment && !storageError);
@@ -125,11 +132,18 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
   const snapshotForm = (value: EnvironmentalReceipt) => fromInput({ ...value.snapshot, originAddress: value.snapshot.originAddress ?? value.snapshot.lastPlace.address }, newForm(card, customer));
 
   function updateForm(updater: (previous: ReceiptForm) => ReceiptForm) { dirtyRef.current = true; setDirty(true); setError(''); setForm(updater); }
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   useEffect(() => { onGuidanceState?.({ loaded: Boolean(state && session), visible: guidanceVisible, received, canConfirm }); }, [onGuidanceState, Boolean(state && session), guidanceVisible, received, canConfirm]);
   useEffect(() => {
     setForm(newForm(card, customer)); setOriginEdit(card.origin || ''); setExpanded(false); setEditSection(null); setCorrecting(false); setCorrectionReason(''); setConfirmOpen(false); setExceptionOpen(false); setExceptionReason(''); setShowContacts(false); setError(''); setSavedAt(''); setBusy(false);
-    dirtyRef.current = false; setDirty(false); hydratedRef.current = ''; draftVersionRef.current = 0; requestKey.current = crypto.randomUUID();
+    dirtyRef.current = false; mutationBusyRef.current = false; setDirty(false); hydratedRef.current = ''; draftVersionRef.current = 0; requestKey.current = crypto.randomUUID();
   }, [receiptIdentity]);
+  useEffect(() => {
+    if (!sourceId || !session) return;
+    let active = true;
+    void refreshSource(sourceId).catch(failure => { if (active && identityRef.current === receiptIdentity) setError(environmentFailure(failure)); });
+    return () => { active = false; };
+  }, [sourceId, receiptIdentity, session?.actualUserId, session?.effectiveUserId, refreshSource]);
   useEffect(() => {
     if (!state || correcting) return;
     const key = receipt ? `receipt/${receipt.id}/${receipt.version}` : draft ? `draft/${draft.version}` : 'initial';
@@ -235,15 +249,17 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
     setEditSection(null);
   }
   async function saveDraft() {
-    if (!sourceId || busy || !editable) return;
-    const expectedIdentity = receiptIdentity; setBusy(true); setError('');
+    if (!sourceId || mutationBusyRef.current || !editable) return;
+    const expectedIdentity = receiptIdentity; mutationBusyRef.current = true; setBusy(true); setError('');
     try {
       const saved = await environmentApi.saveDraft(sourceId, { expectedVersion: draftVersionRef.current, input: { ...buildInput(), originAddress: form.originAddress } });
-      if (identityRef.current !== expectedIdentity) return;
-      draftVersionRef.current = saved.version; hydratedRef.current = `draft/${saved.version}`; dirtyRef.current = false; setDirty(false); setSavedAt(saved.updatedAt); await refresh();
+      if (!mountedRef.current || identityRef.current !== expectedIdentity) return;
+      applyDraft(saved);
+      draftVersionRef.current = saved.version; hydratedRef.current = `draft/${saved.version}`; dirtyRef.current = false; setDirty(false); setSavedAt(saved.updatedAt);
       onNotice('Miljöutkast sparat. Inget lager har registrerats genom att spara utkastet.');
-    } catch (failure) { if (identityRef.current === expectedIdentity) setError(environmentFailure(failure)); }
-    finally { if (identityRef.current === expectedIdentity) setBusy(false); }
+      if (!saved.environmentPatch) void refreshSource(sourceId).catch(() => undefined);
+    } catch (failure) { if (mountedRef.current && identityRef.current === expectedIdentity) setError(environmentFailure(failure)); }
+    finally { if (mountedRef.current && identityRef.current === expectedIdentity) { mutationBusyRef.current = false; setBusy(false); } }
   }
   function openConfirmation() {
     const validation = validateConfirmation();
@@ -252,23 +268,24 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
     if (expanded) void receive(); else setConfirmOpen(true);
   }
   async function receive(exceptionReason = '') {
-    if (!sourceId || busy || !editable) return;
+    if (!sourceId || mutationBusyRef.current || !editable) return;
     const exception = Boolean(exceptionReason.trim());
     if (exception && !canReceiveException) return;
     const validation = validateConfirmation(exception); if (validation) { setError(validation); setConfirmOpen(false); return; }
-    const expectedIdentity = receiptIdentity; setBusy(true); setError('');
+    const expectedIdentity = receiptIdentity; mutationBusyRef.current = true; setBusy(true); setError('');
     try {
       const input = buildInput();
       const received = correcting && receipt
         ? await environmentApi.correct(receipt.id, { ...input, expectedVersion: receipt.version, reason: correctionReason.trim(), idempotencyKey: requestKey.current })
         : await environmentApi.receive({ ...input, expectedDraftVersion: draftVersionRef.current, idempotencyKey: requestKey.current, ...(exception ? { approvalExceptionReason: exceptionReason.trim() } : {}) });
-      if (identityRef.current !== expectedIdentity) return;
-      dirtyRef.current = false; setDirty(false); setCorrecting(false); setConfirmOpen(false); setExceptionOpen(false); setExceptionReason(''); setEditSection(null); setForm(snapshotForm(received)); await refresh();
-      if (identityRef.current !== expectedIdentity) return;
+      if (!mountedRef.current || identityRef.current !== expectedIdentity) return;
+      applyReceipt(received);
+      dirtyRef.current = false; setDirty(false); setCorrecting(false); setConfirmOpen(false); setExceptionOpen(false); setExceptionReason(''); setEditSection(null); setForm(snapshotForm(received));
       setExpanded(false); onRegistered?.(received);
       onNotice(correcting ? `Miljömottagning rättad till version ${received.version}. Original och lagerjustering är sparade.` : `Mottagning registrerad för INV-${received.cardId}. Miljöunderlag och lagerrörelse är sparade.`);
-    } catch (failure) { if (identityRef.current === expectedIdentity) setError(environmentFailure(failure)); }
-    finally { if (identityRef.current === expectedIdentity) setBusy(false); }
+      if (!received.environmentPatch) void refreshSource(sourceId).catch(() => undefined);
+    } catch (failure) { if (mountedRef.current && identityRef.current === expectedIdentity) setError(environmentFailure(failure)); }
+    finally { if (mountedRef.current && identityRef.current === expectedIdentity) { mutationBusyRef.current = false; setBusy(false); } }
   }
   function beginCorrection() {
     if (!receipt || !editable) return;

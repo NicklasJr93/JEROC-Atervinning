@@ -74,7 +74,9 @@ test('två separata kassor delar oföränderlig mottagning utan dubbelt lager el
       id: input.cardId, sourceId, siteId: input.siteId, origin: input.lastPlace.address, rows: input.rows });
     const received = await first.request.post('/api/environment/receipts', { headers: { 'X-Environment-CSRF': one.csrfToken }, data: input });
     expect(received.ok(), await received.text()).toBeTruthy();
-    const receipt = await received.json();
+    const { environmentPatch, ...receipt } = await received.json();
+    expect(environmentPatch.sourceId).toBe(sourceId);
+    expect(environmentPatch.receipt).toEqual(receipt);
     expect(receipt.snapshot.rows[0].classification).toMatchObject({ version: savedClassification.version, hazardous: true, wasteCode: '160601' });
     expect(receipt.hash).toMatch(/^[a-f0-9]{64}$/);
     expect(receipt.deviations.length).toBeGreaterThan(0);

@@ -5,6 +5,8 @@ import { ENVIRONMENT_MUNICIPALITIES, parseOriginAddress } from './environment-ad
 import { assessEnvironmentalStorage, currentEnvironmentSites, currentStoragePolicies } from './environment-storage-rules.mjs';
 import { createNvvClient } from './nvv-client.mjs';
 import { createNvvReporting } from './nvv-reporting.mjs';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { afterDatabaseCommit } from './database-runtime.mjs';
 
 export const ENVIRONMENT_DEMO_PASSWORD = 'JerocDemo2026!';
 export const ENVIRONMENT_SITES = [
@@ -177,7 +179,19 @@ const validateOrigin = (input, confirmed) => {
   if (confirmed && input.addressResolution.status !== 'resolved')
     throw new EnvironmentError('Komplettera ursprungsadressen eller kommunen före mottagningsbekräftelse.', 422, 'address_incomplete');
 };
-const receiptCorrections = (state, receipt) => state.corrections.filter((record) => record.receiptId === receipt.id).sort((a, b) => a.version - b.version);
+const receiptIndexes = new WeakMap();
+const indexedReceipts = state => {
+  let index = receiptIndexes.get(state);
+  if (!index || index.correctionCount !== state.corrections.length || index.reportCount !== state.reports.length) {
+    const corrections = new Map(), reports = new Map();
+    for (const record of state.corrections) { if (!corrections.has(record.receiptId)) corrections.set(record.receiptId, []); corrections.get(record.receiptId).push(record); }
+    for (const versions of corrections.values()) versions.sort((a, b) => a.version - b.version);
+    for (const record of state.reports) { if (!reports.has(record.receiptId)) reports.set(record.receiptId, []); reports.get(record.receiptId).push(record); }
+    index = { corrections, reports, correctionCount: state.corrections.length, reportCount: state.reports.length }; receiptIndexes.set(state, index);
+  }
+  return index;
+};
+const receiptCorrections = (state, receipt) => indexedReceipts(state).corrections.get(receipt.id) ?? [];
 const effectiveReceipt = (state, original) => {
   const history = receiptCorrections(state, original), current = history.at(-1);
   return copy({ ...original, ...(current ? { version: current.version, snapshot: current.snapshot, hash: current.hash, deviations: current.deviations, receivedAt: current.snapshot.receivedAt,
@@ -188,7 +202,7 @@ const effectiveReceipt = (state, original) => {
   });
 };
 const reportVersions = (state, receipt) => {
-  const originals = state.reports.filter((record) => record.receiptId === receipt.id);
+  const originals = indexedReceipts(state).reports.get(receipt.id) ?? [];
   const versions = [{ snapshot: receipt.snapshot, createdAt: receipt.createdAt, hash: receipt.hash }, ...receiptCorrections(state, receipt).map((record) => ({ snapshot: record.snapshot, createdAt: record.createdAt, hash: record.hash }))];
   let noteDueDate = addSwedishWorkingDays(receipt.receivedAt, 2), reportDueDate = addSwedishWorkingDays(noteDueDate, 2);
   return versions.map(({ snapshot, createdAt, hash }) => {
@@ -253,17 +267,12 @@ export function addSwedishWorkingDays(receivedAt, count) {
   return dateNumber(day);
 }
 
-export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true, approvalGuard, outboundProvider = async () => [], nvvClient = createNvvClient({ now }) }) {
+export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true, approvalGuard, outboundProvider = async () => [], nvvClient = createNvvClient({ now }), onChanged }) {
   if (!repository || !principalStore) throw new Error('Environment requires durable repository and principal store.');
   const outboundSnapshots = new WeakMap();
-  let nvv;
-  // Read the application ledger before taking the environmental aggregate lock.
-  // Never persist copied movements or hold cross-module locks at the same time.
-  const transaction = (operation) => { const run = async () => {
-    const outbound = await outboundProvider();
-    await nvv?.prepare();
-    return repository.transact((state) => {
-    outboundSnapshots.set(state, outbound);
+  const requestContext = new AsyncLocalStorage();
+  let nvv, initialization;
+  const initialize = () => initialization ??= repository.transact(state => {
     const time = now();
     if (!state.siteRecords.length) state.siteRecords.push(...ENVIRONMENT_SITES.map((site) => ({ ...site, version: 1, active: true,
       permitReference: '', permitNotes: '', updatedAt: time.toISOString(), updatedBy: 'Befintlig anläggning' })));
@@ -275,16 +284,53 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       handlingInstructions: 'Förvara upprätt i tätt, märkt batterikärl. Skydda mot läckage och kortslutning.', adrRequired: false,
       updatedAt: time.toISOString(), updatedBy: 'Demosådd',
     });
-    state.sessions = state.sessions.filter((session) => Date.parse(session.expiresAt) > time.getTime());
-    state.loginAttempts = state.loginAttempts.filter((attempt) => Date.parse(attempt.at) > time.getTime() - LOGIN_WINDOW);
-    return operation(state, time);
-  }); }; return principalStore.runFresh ? principalStore.runFresh(run) : run(); };
+  }).catch(error => { initialization = undefined; throw error; });
+  const fresh = operation => principalStore.runFresh ? principalStore.runFresh(operation) : operation();
+  const transaction = async (operation, options = {}) => {
+    await initialize();
+    if (options.nvv) await nvv?.prepare();
+    let changedRevision;
+    const result = await repository.transact(state => fresh(async () => {
+      const initialRevision = state.revision, time = now();
+      if (options.outbound) outboundSnapshots.set(state, await outboundProvider());
+      state.sessions = state.sessions.filter(session => Date.parse(session.expiresAt) > time.getTime());
+      state.loginAttempts = state.loginAttempts.filter(attempt => Date.parse(attempt.at) > time.getTime() - LOGIN_WINDOW);
+      const result = await operation(state, time);
+      if (state.revision !== initialRevision) changedRevision = state.revision;
+      return result;
+    }));
+    if (changedRevision !== undefined && onChanged) await afterDatabaseCommit(() => { void Promise.resolve(onChanged(changedRevision)).catch(() => {}); });
+    return result;
+  };
+  const read = async (operation, options = {}) => {
+    await initialize();
+    if (options.nvv) await nvv?.prepare();
+    const token = requestContext.getStore()?.token;
+    const scope = { entities: options.entities ?? ['sessions', 'siteRecords'], ...options,
+      ...(token && { tokenHash: environmentHash(token) }) };
+    const reader = repository.read ? repository.read.bind(repository) : repository.transact.bind(repository);
+    return reader(state => {
+      const project = async () => {
+        if (options.outbound) outboundSnapshots.set(state, await outboundProvider());
+        return operation(state, now());
+      };
+      return options.principal === false ? project() : fresh(project);
+    }, scope);
+  };
   const principalFor = (state, token, time) => {
     const session = token && state.sessions.find((record) => record.tokenHash === environmentHash(token) && Date.parse(record.expiresAt) > time.getTime());
     if (!session) throw new EnvironmentError('Logga in för att öppna de gemensamma miljöuppgifterna.', 401, 'session_required');
     let principal;
     try { principal = principalStore.principal(session.actualUserId, session.effectiveUserId); }
     catch (error) { throw new EnvironmentError('Kontot eller den valda behörigheten finns inte längre.', error.status ?? 401, 'session_revoked'); }
+    const expected = requestContext.getStore();
+    if (expected?.token === token) {
+      if ((expected.actualUserId !== undefined && expected.actualUserId !== principal.actor.id)
+        || (expected.effectiveUserId !== undefined && expected.effectiveUserId !== principal.user.id))
+        throw new EnvironmentError('Kontot har ändrats i en annan flik. Uppdatera miljöuppgifterna innan du fortsätter.', 403, 'session_identity_mismatch');
+      if (expected.requireCsrf && (!expected.csrfToken || expected.csrfToken !== session.csrfToken))
+        throw new EnvironmentError('Sessionsskyddet saknas. Logga in igen.', 403, 'csrf_required');
+    }
     return { session, principal };
   };
   const sessionResult = (session, principal) => ({ demo: true, actualUserId: principal.actor.id, effectiveUserId: principal.user.id, user: copy(principal.user), csrfToken: session.csrfToken, expiresAt: session.expiresAt });
@@ -307,15 +353,42 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
   const scopedRows = (rows, materialScope) => materialScope === 'hazardous' ? rows.filter((row) => row.classification.hazardous) : rows;
   const physicalRows = (rows) => rows.map(({ articleId, weight }) => ({ articleId, weight }));
   const assessStorage = (state, siteId, rows, previousRows, time) => assessEnvironmentalStorage({ ...state,
+    corrections: state.environmentStockProjection ? [] : state.corrections,
     inventory: [...state.inventory, ...(outboundSnapshots.get(state) ?? [])] },
     { siteId, rows, previousRows, checkedAt: time.toISOString() });
   const demandStorageCapacity = (assessment) => {
     if (!assessment.canReceive) throw new EnvironmentError(assessment.checks.filter((check) => check.severity === 'blocked')
       .map((check) => check.message).join(' '), 409, 'storage_blocked');
   };
-  nvv = createNvvReporting({ transaction, principalFor, demandSite, resolveReport: nvvReportContext, client: nvvClient, now });
+  const nvvEntities = ['sessions', 'siteRecords', 'receipts', 'corrections', 'reports', 'nvvSettings', 'nvvChecks', 'nvvReports', 'nvvAttempts', 'nvvJobs'];
+  nvv = createNvvReporting({ transaction: operation => transaction(operation, { nvv: true }),
+    read: (operation, options = {}) => read(operation, { nvv: true, entities: options.settingsOnly ? ['sessions', 'siteRecords', 'nvvSettings', 'nvvChecks'] : nvvEntities, ...options }), principalFor, demandSite, resolveReport: nvvReportContext, client: nvvClient, now });
+  const sourceProjection = (state, principal, sourceId, time) => {
+    const original = state.receipts.find(record => record.sourceId === sourceId), draft = state.drafts.find(record => record.sourceId === sourceId);
+    if (original) demandSite(state, principal, original.siteId);
+    if (draft) demandSite(state, principal, draft.siteId);
+    const sites = sitesFor(state, principal), visible = new Set(sites.map(site => site.id)), reports = [], reportHistory = [];
+    if (original) {
+      const versions = reportVersions(state, original);
+      reports.push(...versions.at(-1));
+      reportHistory.push(...versions.slice(0, -1).flat().map(record => ({ ...record, status: 'superseded' })));
+      for (const report of reports) {
+        const projection = nvv.projection(state, nvvReportContext(state, report.id), time);
+        Object.assign(report, { status: projection.status, missingFields: projection.missingFields, mode: projection.mode === 'disabled' ? 'prepared-only' : projection.mode, nvv: projection });
+      }
+    }
+    const classifications = [...new Set(state.classifications.map(record => record.articleId))].map(articleId => currentClassification(state, articleId));
+    return copy({ demo: true, revision: state.revision, sourceId, receipt: original ? effectiveReceipt(state, original) : null, draft: draft ?? null,
+      classifications, sites, storagePolicies: currentStoragePolicies(state).filter(record => visible.has(record.siteId)), reports, reportHistory,
+      inventory: [...state.inventory.filter(record => record.sourceId === sourceId).map(record => ({ ...record,
+        classification: original?.snapshot.rows.find(row => row.articleId === record.articleId)?.classification })),
+        ...state.corrections.filter(record => record.sourceId === sourceId).flatMap(record => record.inventoryMovements)], municipalities: ENVIRONMENT_MUNICIPALITIES });
+  };
+  const patchedReceipt = (state, principal, receipt, time) => ({ ...effectiveReceipt(state, receipt),
+    ...(requestContext.getStore()?.includePatch && { environmentPatch: sourceProjection(state, principal, receipt.sourceId, time) }) });
   return {
-    repository,
+    repository, initialize,
+    withRequest: (expected, operation) => requestContext.run(expected, operation),
     nvvStatus: token => nvv.status(token),
     nvvSaveReporter: (payload, token) => nvv.saveReporter(payload, token),
     nvvCheck: token => nvv.check(token),
@@ -324,15 +397,15 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     nvvReconcile: (reportId, payload, token) => nvv.reconcile(reportId, payload, token),
     // Internal server catalogue for terminal/pricing integration, never an
     // unauthenticated customer HTTP endpoint.
-    catalog() { return transaction((state) => copy(currentEnvironmentSites(state))); },
-    logisticsSource() { return transaction(state => {
+    catalog() { return read((state) => copy(currentEnvironmentSites(state)), { entities: ['siteRecords'], principal: false }); },
+    logisticsSource() { return read(state => {
       const articleIds = [...new Set(state.classifications.map(record => record.articleId))];
       return { classifications: articleIds.map(articleId => copy(currentClassification(state, articleId))),
         inventory: copy([
           ...state.inventory.map(record => ({ ...record, classification: state.receipts.find(receipt => receipt.id === record.receiptId)?.snapshot.rows.find(row => row.articleId === record.articleId)?.classification })),
           ...state.corrections.flatMap(record => record.inventoryMovements),
         ]) };
-    }); },
+    }, { entities: ['classifications', 'inventory', 'receipts', 'corrections'], principal: false }); },
     demoSession(payload, previousToken) {
       if (!demoMode) throw new EnvironmentError('Automatisk demoinloggning är avstängd.', 503, 'demo_disabled');
       const request = parse(z.object({ userId: id, effectiveUserId: id.optional() }).strict(), payload), token = secret();
@@ -352,11 +425,11 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         return { token, result: sessionResult(session, principal) };
       });
     },
-    authorize(token, right, siteId) { return transaction((state, time) => {
+    authorize(token, right, siteId) { return read((state, time) => {
       const { principal } = principalFor(state, token, time); demand(principal, right); if (siteId) demandSite(state, principal, siteId);
       return copy(principal);
     }); },
-    assertIdentity(token, actualUserId, effectiveUserId) { return transaction((state, time) => {
+    assertIdentity(token, actualUserId, effectiveUserId) { return read((state, time) => {
       const { principal } = principalFor(state, token, time);
       // These are an expected identity check only. A valid server cookie and
       // live permissions remain mandatory; headers never authenticate anyone.
@@ -388,13 +461,13 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       if (outcome.failure) throw outcome.failure;
       return outcome;
     },
-    session(token) { return transaction((state, time) => { const { session, principal } = principalFor(state, token, time); return sessionResult(session, principal); }); },
-    csrf(token, value) { return transaction((state, time) => {
+    session(token) { return read((state, time) => { const { session, principal } = principalFor(state, token, time); return sessionResult(session, principal); }); },
+    csrf(token, value) { return read((state, time) => {
       const { session } = principalFor(state, token, time);
       if (!value || value !== session.csrfToken) throw new EnvironmentError('Sessionsskyddet saknas. Logga in igen.', 403, 'csrf_required');
     }); },
-    logout(token) { return transaction((state) => { if (token) state.sessions = state.sessions.filter((record) => record.tokenHash !== environmentHash(token)); return { demo: true }; }); },
-    state(token, filterSite = 'all') { return transaction((state, time) => {
+    logout(token) { return transaction((state, time) => { principalFor(state, token, time); if (token) state.sessions = state.sessions.filter((record) => record.tokenHash !== environmentHash(token)); return { demo: true }; }); },
+    state(token, filterSite = 'all') { return read((state, time) => {
       const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead');
       if (filterSite && filterSite !== 'all') demandSite(state, principal, filterSite);
       const sites = sitesFor(state, principal).filter((site) => !filterSite || filterSite === 'all' || site.id === filterSite);
@@ -417,12 +490,16 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
           ...(outboundSnapshots.get(state) ?? []).filter(record => visible.has(record.siteId)),
         ]), reports: copy(reports), reportHistory: copy(reportHistory),
       };
-    }); },
-    draft(sourceId, token) { parse(sourceIdSchema, sourceId); return transaction((state, time) => {
+    }, { nvv: true, outbound: true, siteId: filterSite, entities: ['sessions', 'siteRecords', 'classifications', 'storagePolicies', 'drafts', 'receipts', 'corrections', 'inventory', 'reports', 'nvvSettings', 'nvvChecks', 'nvvReports', 'nvvAttempts', 'nvvJobs'] }); },
+    draft(sourceId, token) { parse(sourceIdSchema, sourceId); return read((state, time) => {
       const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead');
       const existing = state.drafts.find((record) => record.sourceId === sourceId);
       if (!existing) return null; demandSite(state, principal, existing.siteId); return copy(existing);
-    }); },
+    }, { sourceId, entities: ['sessions', 'siteRecords', 'drafts'] }); },
+    source(sourceId, token) { parse(sourceIdSchema, sourceId); return read((state, time) => {
+      const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead');
+      return sourceProjection(state, principal, sourceId, time);
+    }, { sourceId, nvv: true, entities: ['sessions', 'siteRecords', 'classifications', 'storagePolicies', 'drafts', 'receipts', 'corrections', 'inventory', 'reports', 'nvvSettings', 'nvvChecks', 'nvvReports', 'nvvAttempts', 'nvvJobs'] }); },
     saveDraft(sourceId, payload, token) {
       parse(sourceIdSchema, sourceId);
       const values = payload?.input !== undefined ? parse(z.object({ expectedVersion: z.number().int().nonnegative(), input: z.record(z.unknown()) }).strict(), payload) : undefined;
@@ -450,7 +527,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
           updatedAt: time.toISOString(), updatedBy: principal.user.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id };
         state.drafts = state.drafts.filter((record) => record.sourceId !== sourceId); state.drafts.push(draft);
         audit(state, time, principal, 'environment.draft_saved', { sourceId, cardId: request.cardId, siteId: request.siteId, version: draft.version });
-        return copy(draft);
+        return { ...copy(draft), ...(requestContext.getStore()?.includePatch && { environmentPatch: sourceProjection(state, principal, sourceId, time) }) };
       });
     },
     saveSite(siteId, payload, token) {
@@ -487,7 +564,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     },
     checkStorage(payload, token) {
       const request = parse(storageCheckSchema, payload);
-      return transaction((state, time) => {
+      return read((state, time) => {
         const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead'); demandSite(state, principal, request.siteId);
         let previousRows = [], materialScope = request.materialScope;
         if (request.receiptId) {
@@ -500,12 +577,13 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
           materialScope = current.snapshot.materialScope ?? original.snapshot.materialScope ?? materialScope;
         }
         return assessStorage(state, request.siteId, scopedRows(classifyRows(state, request.rows, previousRows), materialScope), scopedRows(previousRows, materialScope), time);
-      });
+      }, { siteId: request.siteId, receiptId: request.receiptId ?? '', stock: true, outbound: true,
+        entities: ['sessions', 'siteRecords', 'classifications', 'storagePolicies', 'receipts', 'corrections', 'inventory'] });
     },
-    classification(articleId, token) { return transaction((state, time) => {
+    classification(articleId, token) { return read((state, time) => {
       const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead'); parse(id, articleId); resolveArticle(articleId);
       return copy(currentClassification(state, articleId));
-    }); },
+    }, { articleIds: [articleId], entities: ['sessions', 'siteRecords', 'classifications'] }); },
     classify(articleId, payload, token) {
       const request = parse(classificationSchema, payload); parse(id, articleId);
       return transaction((state, time) => {
@@ -562,7 +640,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
           if (existing.siteId !== request.siteId) throw new EnvironmentError('Mottagningen tillhör en annan anläggning.', 403, 'site_forbidden');
           if (existing.inputHash !== inputHash && !legacyMatch) throw new EnvironmentError('Mottagningen är redan registrerad och låst. En fysisk ändring kräver ett separat rättelseflöde.', 409, 'source_conflict');
           if (!previousRequest) state.requests.push({ id: key, inputHash, receiptId: existing.id, createdAt: time.toISOString() });
-          return effectiveReceipt(state, existing);
+          return patchedReceipt(state, principal, existing, time);
         }
         const draft = state.drafts.find((record) => record.sourceId === request.sourceId);
         if (expectedDraftVersion !== undefined && expectedDraftVersion !== (draft?.version ?? 0))
@@ -597,8 +675,8 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         state.drafts = state.drafts.filter((record) => record.sourceId !== request.sourceId);
         audit(state, time, principal, 'environment.received', { receiptId, cardId: request.cardId, siteId: request.siteId, sourceId: request.sourceId, hash: receipt.hash, ...(approvalProof ? { customerApproval: approvalProof } : {}) });
         if (approvalExceptionReason) audit(state, time, principal, 'environment.received_exception', { receiptId, sourceId: request.sourceId, reason: approvalExceptionReason, approvalId: approval.id, approvalStatus: approval.status });
-        return effectiveReceipt(state, receipt);
-      });
+        return patchedReceipt(state, principal, receipt, time);
+      }, { outbound: true });
       // Acquire the approval lock first, then the environment lock. Cancelling
       // or replacing an approval cannot race a normal receipt registration.
       return approvalGuard ? Promise.resolve().then(() => approvalGuard(request, register)).catch(error => {
@@ -609,7 +687,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     },
     // Internal server guard: no customer/terminal HTTP route exposes this.
     assertReceiptForAttest(approval) {
-      return transaction((state) => {
+      return read((state) => {
         const card = approval.snapshot.card;
         const original = state.receipts.find(record => record.sourceId === card.sourceId);
         const receipt = original && effectiveReceipt(state, original);
@@ -623,7 +701,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         if (signature(recorded) !== signature(requiredRows) || origin.trim() !== approval.snapshot.origin.trim())
           throw new EnvironmentError('Miljömottagningen stämmer inte med kundens godkända material, vikt eller ursprung. Gör en miljörättelse före attest.', 409, 'environment_receipt_mismatch');
         return { required: true, received: true, receiptId: receipt.id, version: receipt.version, hash: receipt.hash };
-      });
+      }, { sourceId: approval.snapshot.card.sourceId, entities: ['classifications', 'receipts', 'corrections', 'reports'] });
     },
     correct(receiptId, payload, token) {
       parse(sourceIdSchema, receiptId);
@@ -654,7 +732,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         const priorCorrection = state.corrections.find((record) => record.receiptId === receiptId && record.inputHash === inputHash);
         if (priorCorrection) {
           if (!previousRequest) state.requests.push({ id: key, inputHash, receiptId, correctionId: priorCorrection.id, createdAt: time.toISOString() });
-          return effectiveReceipt(state, original);
+          return patchedReceipt(state, principal, original, time);
         }
         if (current.version !== request.expectedVersion) throw new EnvironmentError('Mottagningen har redan rättats. Läs in senaste versionen.', 409, 'version_conflict');
         changedRows ??= classifyRows(state, request.rows, current.snapshot.rows);
@@ -678,8 +756,8 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         state.corrections.push(correction); state.requests.push({ id: key, inputHash, receiptId, correctionId, createdAt: time.toISOString() });
         audit(state, time, principal, 'environment.corrected', { receiptId, correctionId, sourceId: original.sourceId, cardId: original.cardId, siteId: original.siteId,
           version: correction.version, hash, previousHash: current.hash, reason });
-        return effectiveReceipt(state, original);
-      });
+        return patchedReceipt(state, principal, original, time);
+      }, { outbound: true });
     },
   };
 }

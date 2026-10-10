@@ -8,6 +8,8 @@ import { createTransportOutbox, createTransportIntegrationsApi } from './transpo
 import { ensurePersonnel, personnelCommand, personnelProjection, personnelCan, validatePersonnelTransportChange, refreshStaffingTasks, createDriverApi } from './personnel.mjs';
 import { createLogisticsApi, validateLogisticsTransportChange } from './logistics.mjs';
 import { allocateWeighingNumber } from './work-order-weighing.mjs';
+import { prepareCustomerReview } from './customer-review.mjs';
+import { measureDatabaseWork } from './database-runtime.mjs';
 import { officeSchema, seedOffice, migrateOffice, storeSchema, isComplete, rowWeight, transportSchema, seedTransport, articles, recordPayment, validPaymentDetails } from '../dist-server/domain-models.mjs';
 
 const clone = value => structuredClone(value);
@@ -269,13 +271,25 @@ function requestPrincipal(store, req) {
   return store.principal(actor, user);
 }
 
-export function createApplicationService({ repository, env = process.env, projections, approvalProvider = async () => [], siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider } = {}) {
+export function createApplicationService({ repository, env = process.env, projections, approvalProvider = async () => [], sendCustomerReview, siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider } = {}) {
   projections ??= approvalProvider;
   const context = new AsyncLocalStorage(); let fallback = createPricingStore(); let repoPromise;
-  const getRepo = () => repoPromise ??= (repository ? Promise.resolve(repository) : createApplicationRepository({ env, seed: initialApplicationState })).catch(error => { repoPromise = undefined; throw error; });
+  const getRepo = () => repoPromise ??= (repository ? Promise.resolve(repository) : createApplicationRepository({ env, seed: initialApplicationState }))
+    .then(async value => {
+      // Legacy personnel seeding changes planning IDs/timestamps. Persist it
+      // once at startup; never generate a different plan in each read-copy.
+      await value.transact(state => { ensurePersonnel(state); refreshStaffingTasks(state); });
+      return value;
+    }).catch(error => { repoPromise = undefined; throw error; });
   const principalStore = new Proxy({}, { get: (_, key) => key === 'runFresh' ? withPrincipal : typeof (context.getStore()?.pricing ?? fallback)[key] === 'function' ? (...args) => (context.getStore()?.pricing ?? fallback)[key](...args) : undefined });
   async function withPrincipal(operation) {
-    const state = await (await getRepo()).transact(state => clone(state.pricing));
+    // All checks in one request use its freshly loaded principal. Re-entering
+    // from terminal/environment must not reload the entire application again.
+    if (context.getStore()) return operation();
+    const repository = await getRepo();
+    const state = await (repository.read
+      ? repository.read(state => clone(state.pricing), { domains: ['pricing'] })
+      : repository.transact(state => clone(state.pricing)));
     const pricing = createPricingStore({ initialState: state }); fallback = pricing;
     return context.run({ pricing }, operation);
   }
@@ -284,6 +298,27 @@ export function createApplicationService({ repository, env = process.env, projec
     try {
       if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) fail('Anropet måste komma från samma webbplats.', 403);
       const domain = url.pathname.slice('/api/application/'.length);
+      if (domain === 'customer-review') {
+        if (req.method !== 'POST') fail('Metoden stöds inte.', 405);
+        if (!sendCustomerReview) fail('Kundterminalens serverkoppling saknas.', 503);
+        const input = await body(req), repository = await getRepo();
+        const run = () => repository.transact(async (state, revision, audit) => {
+          const pricing = createPricingStore({ initialState: state.pricing });
+          const principal = requestPrincipal(pricing, req);
+          const currentApprovals = await projections(input.cardId);
+          reflectApprovals(state.office, currentApprovals, state.metadata.officeSeed?.cards);
+          return prepareCustomerReview({ state, input, principal, send: (payload, identity) => sendCustomerReview(payload, identity, req),
+            runWithPricing: (pricing, callback) => context.run({ pricing }, callback),
+            reflectApprovals, officeView, revision, audit });
+        }, { committedRevision: true });
+        const started = performance.now();
+        const { result, metrics } = await measureDatabaseWork(() => repository.runInTransaction ? repository.runInTransaction(run) : run());
+        res.setHeader('Server-Timing', [`review;dur=${(performance.now() - started).toFixed(1)}`,
+          `db_pool;dur=${metrics.poolWaitMs.toFixed(1)}`, `db_sql;dur=${metrics.sqlMs.toFixed(1)}`,
+          `db_lock_query;dur=${metrics.lockQueryMs.toFixed(1)}`, `db_commit;dur=${metrics.commitMs.toFixed(1)}`,
+          `db_queries;desc="${metrics.sqlCount}"`].join(', '));
+        json(res, 200, result); return true;
+      }
       if (domain === 'personnel') {
         if (!['GET','POST'].includes(req.method)) fail('Metoden stöds inte.',405);
         const command = req.method === 'POST' ? await body(req) : null;
@@ -327,15 +362,20 @@ export function createApplicationService({ repository, env = process.env, projec
       let payload = req.method === 'POST' ? await body(req) : null;
       if (payload?.kind === 'import') payload = { importData: payload.data };
       if (payload?.kind === 'archive') payload = { archiveData: payload.data };
-      const approvals = domain === 'office' ? await projections() : [];
-      const result = await (await getRepo()).transact(async (state, revision, audit) => {
+      const approvals = domain === 'office' && req.method !== 'GET' ? await projections() : [];
+      const repository = await getRepo();
+      const operate = async (state, revision, audit = []) => {
         const pricing = createPricingStore({ initialState: state.pricing });
         let importConflicts = 0;
         const p = requestPrincipal(pricing, req);
         if (p.actor.id === 'mobile-demo' && domain !== 'mobile') fail('Mobilkontot får bara använda mobilflödet.', 403);
         demand(p, domain === 'transport' ? 'transportRead' : 'view');
         if(domain==='transport')ensurePersonnel(state);
-        reflectApprovals(state.office, approvals, state.metadata.officeSeed?.cards);
+        // Read projections on this same PostgreSQL snapshot, reusing the live
+        // pricing principal already selected above instead of another roundtrip.
+        const currentApprovals = domain === 'office' && req.method === 'GET'
+          ? await context.run({ pricing }, () => projections()) : approvals;
+        reflectApprovals(state.office, currentApprovals, state.metadata.officeSeed?.cards);
         state.office.users = clone(state.pricing.users);
         if (payload?.archiveData) {
           const hash = createHash('sha256').update(JSON.stringify(payload.archiveData)).digest('hex');
@@ -446,11 +486,15 @@ export function createApplicationService({ repository, env = process.env, projec
         }
         return { data: clone(domain === 'office' ? officeView(state, p) : state[domain]), catalog, customerPrices: domain === 'mobile' ? customerPrices : undefined, revision, storage: 'database', storageKind: (await getRepo()).kind, demo: true, deliveryEnabled: false,
           importConflicts, importArchived: Boolean(payload?.importData), importNotice: payload?.importData ? 'Tidigare testdata har arkiverats på servern. Befintliga serverkort och ekonomiska original har inte skrivits över.' : undefined };
-      });
+      };
+      const result = await (req.method === 'GET' && repository.read
+        ? repository.read(operate, { domains: ['metadata', 'pricing', 'office', 'mobile', ...(domain === 'transport' ? ['transport', 'personnel'] : [])] })
+        : repository.transact(operate, { committedRevision: true }));
       json(res, 200, result);
     } catch (error) {
-      if (!(error instanceof PricingError) && error.name !== 'ZodError') console.error('Business API failure:', error.stack);
-      json(res, error instanceof PricingError ? error.status : error.name === 'ZodError' ? 422 : 503, { error: error instanceof PricingError ? error.message : error.name === 'ZodError' ? 'Kontrollera de ändrade uppgifterna.' : 'Gemensam databas kunde inte nås. Ändringen har inte bekräftats sparad.' });
+      const known = error instanceof PricingError || Number.isInteger(error.status) && error.status >= 400 && error.status < 500;
+      if (!known && error.name !== 'ZodError') console.error('Business API failure:', error.stack);
+      json(res, known ? error.status : error.name === 'ZodError' ? 422 : 503, { error: known ? error.message : error.name === 'ZodError' ? 'Kontrollera de ändrade uppgifterna.' : 'Gemensam databas kunde inte nås. Ändringen har inte bekräftats sparad.' });
     }
     return true;
   }
@@ -462,7 +506,8 @@ export function createApplicationService({ repository, env = process.env, projec
     let status = 200, headers = {}, response;
     const buffered = { writeHead(code, fields) { status = code; headers = { ...headers, ...fields }; }, setHeader(key, value) { headers[key] = value; }, end(value) { response = value; } };
     try {
-      await (await getRepo()).transact(async (state, _, audit) => {
+      const repository = await getRepo();
+      const operate = async (state, _, audit = []) => {
         const pricing = createPricingStore({ initialState: state.pricing });
         const outbox = createTransportOutbox({ initialState: state.outbox });
         await context.run({ pricing }, () => pricingRoute ? createPricingApi({ store: pricing })(req, buffered, url) : createTransportIntegrationsApi({ principalStore: pricing, outbox })(req, buffered, url));
@@ -474,7 +519,9 @@ export function createApplicationService({ repository, env = process.env, projec
           state.office.users = clone(next.users);
           fallback = pricing;
         }
-      });
+      };
+      if (req.method === 'GET' && repository.read) await repository.read(operate, { domains: ['pricing', 'outbox', 'office'] });
+      else await repository.transact(operate);
       if (response) { try { const value = JSON.parse(response); value.memoryOnly = false; value.storage = 'database'; value.storageKind = (await getRepo()).kind; response = JSON.stringify(value); } catch {} }
       res.writeHead(status, headers); res.end(response);
     } catch { json(res, 503, { error: 'Databasen kunde inte bekräfta ändringen. Försök igen.', memoryOnly: false }); }

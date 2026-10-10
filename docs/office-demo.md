@@ -1,4 +1,37 @@
-# JEROC kontorsdemo 0.12.4
+# JEROC kontorsdemo 0.13.0
+
+## Nytt i 0.13.0 – snabbare kundvisning och miljömottagning
+
+**Visa på kundterminal** använder ett samlat serveranrop för frysta priser,
+kundgranskning och terminalreservation. Allt sparas i samma PostgreSQL-transaktion;
+en upptagen terminal lämnar inte kvar en halvfärdig pris- eller granskningsversion.
+Omskick efter avbruten visning kan återanvända oförändrade frysta priser.
+
+Kontoret använder serverns bekräftade svar direkt. Kundgodkännande och
+miljömottagning behöver inte invänta en extra hämtning av hela arbetskön.
+Realtidshändelser ersätter tvåsekunderspollningen av dessa flöden. Återanslutning
+hämtar aktuellt tillstånd; en långsammare reservhämtning finns vid avbrott.
+Terminalstatusen **Visad** sätts först när rätt avräkningsversion faktiskt har
+renderats på terminalen. Rollbyte, samtidiga ändringar och gamla svar skyddas
+fortsatt mot att skriva över aktuell information.
+
+Databasläsningar hämtar berörda uppgifter utan skrivlås. Miljömottagningens
+slutliga lagerkontroll görs fortfarande under lås före commit. Behörigheter,
+kundgodkännande före mottagning, attestgränser och versionskontroller kvarstår.
+PDF-original genereras via en beständig jobbkö efter sparningen. Köjobbet och
+den oföränderliga dokumentversionen registreras tillsammans med kundärendet;
+ett serveravbrott tappar inte jobbet och en senare korrigering skriver inte över
+det tidigare originalet.
+
+Render använder befintlig `DATABASE_URL`. Databasmigrationen för PDF-jobb
+körs automatiskt vid start. Ingen testdata nollställs. Ladda om kontorsfliken
+efter publicering så att den uppdaterade personal-sessionen används.
+Betald Renderplan hjälper mot inaktivitet och resursbegränsningar; faktiska
+svarstider på Render måste mätas efter uppgraderingen.
+
+Se [mätningar och reproducerbart prov](workflow-performance.md) för jämförelsen
+med föregående version. Riktade PostgreSQL-, samtidighets-, dokument- och
+webbläsarprov samt produktionsbygget ingår i verifieringen.
 
 ## Nytt i 0.12.4 – sammanhängande elektrisk fokusmarkering
 

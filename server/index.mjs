@@ -61,7 +61,7 @@ async function handle(req, res) {
   if (await applicationApi(req, res, url)) return;
   if (await documentsApi(req, res, url)) return;
   if (pathname.startsWith("/api/terminal-demo") || pathname.startsWith("/api/environment")) {
-    const handled = await applicationApi.withPrincipal(async () => (await terminalDemoApi(req, res, url)) || (await environmentApi(req, res, url)));
+    const handled = (await terminalDemoApi(req, res, url)) || (await environmentApi(req, res, url));
     if (handled) return;
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -138,20 +138,24 @@ const server = createServer((req, res) => {
   });
 });
 const applicationApi = createApplicationService({ approvalProvider: () => terminalDemoApi.projections(),
+  projections: cardId => terminalDemoApi.projections(cardId),
+  sendCustomerReview: (payload, principal, req) => terminalDemoApi.sendPrepared(payload, principal, req),
   siteProvider: () => environmentApi.getSites(),
   environmentProvider: () => environmentApi.getLogisticsSource(),
 });
 const principalStore = applicationApi.principalStore;
 const environmentApi = createEnvironmentApi({ principalStore,
   approvalGuard: (input, operation) => terminalDemoApi.withApprovedCard(input, operation),
-  outboundProvider: async () => (await applicationApi.getRepository()).transact(state =>
+  outboundProvider: async () => (await applicationApi.getRepository()).read(state =>
     (state.logistics?.inventoryMovements ?? []).filter(row => row.kind === 'outbound' && row.hazardous)
       .map(row => ({ id: row.id, siteId: row.siteId, articleId: row.articleId, wasteCode: row.wasteCode,
-        weight: row.kg, receivedAt: row.at, kind: 'outbound', sourceId: row.sourceId }))),
+        weight: row.kg, receivedAt: row.at, kind: 'outbound', sourceId: row.sourceId })), { domains: ['logistics'] }),
 });
 const terminalDemoApi = createTerminalDemoApi({ principalStore, siteProvider: () => environmentApi.getSites(),
   environmentApprovalCheck: approval => environmentApi.assertReceiptForAttest(approval),
-  onApprovalChanged: approval => documentsApi.ensureApproval(approval),
+  onApprovalChanged: (approval, job) => job
+    ? documentsApi.archiveApprovalJob(approval, job)
+    : documentsApi.ensureApproval(approval),
 });
 const documentsApi = createDocumentsApi({
   renderPdf,
@@ -166,7 +170,7 @@ const documentsApi = createDocumentsApi({
     const repository = await applicationApi.getRepository();
     // Release the application aggregate before reading the terminal/environment
     // aggregates. No nested cross-module locks while rendering or archiving PDF.
-    const source = await repository.transact(state => structuredClone({
+    const source = await repository.read(state => structuredClone({
       office: state.office,
       transport: state.transport,
       personnel: state.personnel,
@@ -174,7 +178,7 @@ const documentsApi = createDocumentsApi({
       pricing: { articles: [...new Map((state.pricing.articleHistory ?? []).map(
         article => [article.id, { id: article.id, name: article.name }],
       )).values()] },
-    }));
+    }), { domains: ['office', 'transport', 'personnel', 'logistics', 'pricing'] });
     const approvals = await terminalDemoApi.documentProjections();
     const sites = await environmentApi.getSites();
     return { ...source, approvals, sites };
@@ -188,6 +192,11 @@ server.on('error', (error) => {
   console.error('Servern kunde inte starta:', error.code);
   process.exit(1);
 });
+// Complete migrations/seeding before accepting a request. Read-only snapshots
+// and SSE reconnects never need to initialize another repository while open.
+await applicationApi.getRepository();
+await environmentApi.initialize();
+await terminalDemoApi.initialize?.();
 server.listen(port, '0.0.0.0', () => {
   console.log(`JEROC demo lyssnar på port ${server.address().port}`);
 });

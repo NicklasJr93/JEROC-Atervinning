@@ -100,12 +100,18 @@ test('kundbyte uppdaterar dokumentförval, manuellt nummer bevaras och hopfälld
   expect(prematureAttest.body.code).toBe('environment_receipt_required');
   await expect(confirm).not.toHaveClass(/needs-details/);
   await expect(confirm).toBeEnabled();
+  const receiptReadbacks: string[] = [];
+  page.on('request', request => {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/environment/state')
+      receiptReadbacks.push(request.url());
+  });
   await confirm.click();
   await expect(dialog).toContainText('Blybatterier');
   await expect(dialog).not.toContainText('Koppar');
   await dialog.getByRole('button', { name: 'Bekräfta mottagning', exact: true }).click();
   await expect.poll(async () => (await state(page)).receipts.find(item => item.sourceId === sourceId)?.snapshot.incomingDocument).toMatchObject({ status: 'provided', selection: 'manual', reference: 'TD-123' });
   await expect(panel.locator('.environment-receipt-editor')).toHaveCount(0);
+  expect(receiptReadbacks).toEqual([]);
   const attest = await attestReview(page, approval.id);
   expect(attest.ok).toBe(true);
   expect(attest.body.status).toBe('attested');

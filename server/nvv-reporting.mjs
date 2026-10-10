@@ -130,7 +130,7 @@ function projection(state, context, client, time) {
 }
 
 /** Short durable reservations surround network I/O; no database lock spans HTTP. */
-export function createNvvReporting({ transaction, principalFor, demandSite, resolveReport, client, now = () => new Date() }) {
+export function createNvvReporting({ transaction, read = transaction, principalFor, demandSite, resolveReport, client, now = () => new Date() }) {
   const adapter = client;
   let cached = { mode: 'disabled', ready: false, missing: ['NVV-konfigurationen är ännu inte inläst.'], issues: [], certificate: { configured: false, validated: false, metadataAvailable: false } };
   client = { ...adapter, status: () => cached };
@@ -180,7 +180,7 @@ export function createNvvReporting({ transaction, principalFor, demandSite, reso
   return {
     prepare,
     projection: (state, context, time) => { expireJobs(state, time); return projection(state, context, client, time); },
-    status(token) { return transaction((state, time) => { const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead'); expireJobs(state, time); return statusValue(state); }); },
+    status(token) { return read((state, time) => { const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead'); expireJobs(state, time); return statusValue(state); }, { settingsOnly: true }); },
     saveReporter(payload, token) {
       const request = parse(reporterSchema, payload);
       return transaction((state, time) => {
@@ -193,12 +193,12 @@ export function createNvvReporting({ transaction, principalFor, demandSite, reso
       });
     },
     async check(token) {
-      const reservation = await transaction((state, time) => {
+      const reservation = await read((state, time) => {
         const { principal } = principalFor(state, token, time); admin(principal);
         const value = statusValue(state);
         if (!value.configured) fail('Anslutningen kan inte provas ännu: ' + value.missing.join(' '), 422, 'nvv_setup_required');
         return { principal, reporterVersion: value.reporterVersion, configurationId: safeConfig(client).configurationId };
-      });
+      }, { settingsOnly: true });
       let result, configurationId = reservation.configurationId;
       try {
         if (adapter.checkWithConfiguration) { const checked = await adapter.checkWithConfiguration(); result = checked.result; configurationId = checked.configurationId; }
@@ -210,7 +210,7 @@ export function createNvvReporting({ transaction, principalFor, demandSite, reso
         audit(state, time, reservation.principal, 'nvv.connection_checked', { mode: result.mode, connected: result.connected }); return statusValue(state);
       });
     },
-    detail(reportId, token) { return transaction((state, time) => { const { context } = authorize(state, time, token, reportId); expireJobs(state, time); return detail(state, context, time); }); },
+    detail(reportId, token) { return read((state, time) => { const { context } = authorize(state, time, token, reportId); expireJobs(state, time); return detail(state, context, time); }, { reportId }); },
     async send(reportId, payload, token) {
       const request = parse(z.object({ receiptVersion: z.number().int().positive(), idempotencyKey: z.string().trim().min(1).max(100) }).strict(), payload);
       const reservation = await transaction((state, time) => {

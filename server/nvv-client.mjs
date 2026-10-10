@@ -1,6 +1,6 @@
 import https from 'node:https';
 import tls from 'node:tls';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 
 export const NVV_TEST_API_URL = 'https://apimtest.naturvardsverket.se/btfa/anteckning/v1';
@@ -64,47 +64,93 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
   let tokenPromise = null;
   const knownTokens = new Set();
   const mockRecords = new Map();
+  let cachedConfiguration;
+  const configurationLoads = new Map();
 
-  async function configuration() {
+  function configurationInput() {
     const mode = String(env.NVV_ENVIRONMENT || 'disabled').trim().toLowerCase();
     const apiBaseUrl = String(env.NVV_API_BASE_URL || NVV_TEST_API_URL).replace(/\/$/, '');
     const tokenUrl = String(env.NVV_TOKEN_URL || NVV_TEST_TOKEN_URL);
-    const issues = [];
-    const missing = [];
-    if (!['disabled', 'mock', 'test'].includes(mode)) issues.push('Endast disabled, mock eller test stöds.');
-    if (apiBaseUrl !== NVV_TEST_API_URL || tokenUrl !== NVV_TEST_TOKEN_URL) issues.push('Endast Naturvårdsverkets fasta HTTPS-adresser för TEST får användas.');
     const systemId = String(env.NVV_CLIENT_SYSTEM_ID || '').trim();
     const clientId = String(env.NVV_CLIENT_ID || '').trim();
     const clientSecret = String(env.NVV_CLIENT_SECRET || '');
     const passphrase = env.NVV_CLIENT_PFX_PASSWORD === undefined ? undefined : String(env.NVV_CLIENT_PFX_PASSWORD);
     const secretFile = String(env.NVV_CLIENT_PFX_SECRET_FILE || '');
+    const key = createHash('sha256').update(JSON.stringify([mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, secretFile])).digest('hex');
+    return { mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, secretFile, key };
+  }
+  const fileIdentity = value => [value.dev, value.ino, value.size, value.mtimeNs, value.ctimeNs].join(':');
+
+  async function loadConfiguration(input, forceFileRead) {
+    const { mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, secretFile, key } = input;
+    const issues = [], missing = [];
+    if (!['disabled', 'mock', 'test'].includes(mode)) issues.push('Endast disabled, mock eller test stöds.');
+    if (apiBaseUrl !== NVV_TEST_API_URL || tokenUrl !== NVV_TEST_TOKEN_URL) issues.push('Endast Naturvårdsverkets fasta HTTPS-adresser för TEST får användas.');
     let pfx;
     let validated = false;
+    let identity = 'unused';
     if (mode === 'test') {
       for (const [name, value] of [['NVV_CLIENT_ID', clientId], ['NVV_CLIENT_SECRET', clientSecret], ['NVV_CLIENT_PFX_SECRET_FILE', secretFile], ['NVV_CLIENT_SYSTEM_ID', systemId]]) if (!value) missing.push(name);
       if (passphrase === undefined) missing.push('NVV_CLIENT_PFX_PASSWORD');
       if (systemId && (!/^[\x20-\x7e]{1,200}$/.test(systemId))) issues.push('Systemnamn och version måste vara en giltig HTTP-header.');
       if (secretFile && passphrase !== undefined && !issues.length) {
         try {
-          const encoded = (await readFile(secretFile, 'utf8')).replace(/\s/g, '');
+          // Reads only inspect metadata when the certificate has not changed.
+          // Real HTTP operations reload bytes as well, including a replacement
+          // that preserved timestamps. Never retain a good certificate after a
+          // missing/unreadable file or a change during its read.
+          let encoded;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const before = fileIdentity(await stat(secretFile, { bigint: true }));
+            if (!forceFileRead && cachedConfiguration?.key === key && cachedConfiguration.identity === before)
+              return cachedConfiguration.config;
+            encoded = (await readFile(secretFile, 'utf8')).replace(/\s/g, '');
+            identity = fileIdentity(await stat(secretFile, { bigint: true }));
+            if (before === identity) break;
+            encoded = undefined;
+          }
+          if (encoded === undefined) throw new Error('CHANGING_PFX');
           if (!encoded || encoded.length > 2 * 1024 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 !== 0) throw new Error('INVALID_PFX');
           pfx = Buffer.from(encoded, 'base64');
-          tls.createSecureContext({ pfx, passphrase, minVersion: 'TLSv1.2' });
+          if (!(cachedConfiguration?.key === key && cachedConfiguration.config.certificate.validated && cachedConfiguration.config.pfx?.equals(pfx)))
+            tls.createSecureContext({ pfx, passphrase, minVersion: 'TLSv1.2' });
           validated = true;
         } catch {
+          // Errors are not cached: the next call must detect recovery, changed
+          // file access, or a restored certificate without needing a restart.
+          if (cachedConfiguration?.key === key) cachedConfiguration = undefined;
           issues.push('Klientcertifikatet kunde inte läsas eller öppnas. Kontrollera base64-filen och lösenordet.');
         }
       }
     }
     const ready = ['mock', 'test'].includes(mode) && !missing.length && !issues.length;
     const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-    const secrets = [clientId, clientSecret, passphrase, secretFile, basic, cachedToken?.value].filter(Boolean);
+    const secrets = [clientId, clientSecret, passphrase, secretFile, basic].filter(Boolean);
     const fingerprint = createHash('sha256').update(JSON.stringify([mode, apiBaseUrl, tokenUrl, clientId, clientSecret, passphrase, systemId])).update(pfx || Buffer.alloc(0)).digest('hex');
-    return { mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, pfx, basic, secrets, fingerprint, ready, missing, issues, certificate: { configured: Boolean(secretFile), validated, metadataAvailable: false } };
+    const config = { mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, pfx, basic, secrets, fingerprint, ready, missing, issues, certificate: { configured: Boolean(secretFile), validated, metadataAvailable: false } };
+    if (!issues.length && configurationInput().key === key) cachedConfiguration = { key, identity, config };
+    return config;
+  }
+
+  async function configuration({ forceFileRead = false } = {}) {
+    // Capture one coherent environment version before asynchronous filesystem
+    // work. A concurrent rotation must not rewrite an in-flight check's identity.
+    const input = configurationInput(), loadKey = `${input.key}:${forceFileRead}`;
+    let pending = configurationLoads.get(loadKey);
+    if (!pending) {
+      pending = loadConfiguration(input, forceFileRead);
+      configurationLoads.set(loadKey, pending);
+    }
+    try {
+      const config = await pending;
+      return { ...config, secrets: [...config.secrets, ...(cachedToken?.value ? [cachedToken.value] : [])] };
+    } finally {
+      if (configurationLoads.get(loadKey) === pending) configurationLoads.delete(loadKey);
+    }
   }
 
   function publicConfiguration(config) {
-    return { mode: ['mock', 'test', 'disabled'].includes(config.mode) ? config.mode : 'invalid', enabled: ['mock', 'test'].includes(config.mode), ready: config.ready, apiBaseUrl: NVV_TEST_API_URL, tokenUrl: NVV_TEST_TOKEN_URL, systemId: safeValue(config.systemId || null, config.secrets), missing: config.missing, issues: config.issues, certificate: config.certificate };
+    return { mode: ['mock', 'test', 'disabled'].includes(config.mode) ? config.mode : 'invalid', enabled: ['mock', 'test'].includes(config.mode), ready: config.ready, apiBaseUrl: NVV_TEST_API_URL, tokenUrl: NVV_TEST_TOKEN_URL, systemId: safeValue(config.systemId || null, config.secrets), missing: [...config.missing], issues: [...config.issues], certificate: { ...config.certificate } };
   }
 
   async function token(config, force = false) {
@@ -225,14 +271,14 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
   }
 
   async function checkWithConfiguration() {
-    const config = await configuration();
+    const config = await configuration({ forceFileRead: true });
     return { result: await checkConfigured(config), configurationId: config.fingerprint };
   }
 
   async function check() { return (await checkWithConfiguration()).result; }
 
   async function submit({ method, path, payload, trackingId } = {}) {
-    const config = await configuration();
+    const config = await configuration({ forceFileRead: true });
     trackingId = validTracking(trackingId);
     if (!config.ready) return unavailable(config, trackingId);
     const mockCorrection = config.mode === 'mock' && method === 'PUT' && typeof path === 'string' && path.startsWith('/insamlingar/SIM-') && uuid.test(path.slice('/insamlingar/SIM-'.length));
@@ -248,7 +294,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
   }
 
   async function read({ avfallId, from, to } = {}) {
-    const config = await configuration();
+    const config = await configuration({ forceFileRead: true });
     const trackingId = randomUUID();
     if (!config.ready) return unavailable(config, trackingId);
     if (config.mode === 'mock') return { outcome: 'accepted', mode: 'mock', simulated: true, httpStatus: 200, trackingId, response: avfallId ? mockRecords.get(avfallId) || null : { anteckningar: [...mockRecords.values()], simulated: true } };

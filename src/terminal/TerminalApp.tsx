@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowLeft, Check, CheckCircle2, ChevronDown, CircleAlert, ClipboardList, FileText, HelpCircle, IdCard, LoaderCircle, LockKeyhole, LogOut, Monitor, Printer, ShieldCheck, UserRound, WifiOff, X } from 'lucide-react';
 import { TerminalDemoError, terminalDemoApi } from '../office/terminal-demo-client';
-import type { PublicApproval, TerminalSessionState } from '../office/terminal-demo-types';
+import { parseTerminalSession, publicApprovalSchema, type PublicApproval, type TerminalSessionState } from '../office/terminal-demo-types';
 import { SettlementView } from './SettlementView';
 import './terminal.css';
 
@@ -53,8 +53,9 @@ export default function TerminalApp() {
   const [menuOpen, setMenuOpen] = useState(false);
   const generation = useRef(0);
   const requestSequence = useRef(0);
-  const connectionRef = useRef(false);
-  const refreshTimeRef = useRef(0);
+  const sessionRef = useRef<TerminalSessionState | null>(null);
+  const refreshFlight = useRef<{ generation: number; promise: Promise<void>; controller: AbortController } | undefined>(undefined);
+  const displayedRef = useRef('');
   const previousApprovalRef = useRef<PublicApproval | null>(null);
   const terminalId = session?.terminal.id;
   const approval = connected ? session?.approval ?? null : null;
@@ -65,31 +66,49 @@ export default function TerminalApp() {
   }, []);
   const markDisconnected = useCallback(() => {
     requestSequence.current += 1;
-    connectionRef.current = false; setConnected(false);
+    setConnected(false);
     setSession(current => current ? { ...current, approval: null } : current);
     clearCustomer();
   }, [clearCustomer]);
 
-  const refresh = useCallback(async () => {
+  const acceptSession = useCallback((payload: unknown, currentGeneration: number) => {
+    if (currentGeneration !== generation.current) return false;
+    const current = parseTerminalSession(payload), previous = sessionRef.current;
+    if (previous && (current.terminal.id !== previous.terminal.id ||
+        (previous.connectionId && current.connectionId !== previous.connectionId))) { markDisconnected(); return false; }
+    if (previous?.revision !== undefined && current.revision !== undefined && current.revision < previous.revision) return false;
+    if (previous?.approval && current.approval?.id === previous.approval.id &&
+        (current.approval.version < previous.approval.version ||
+          (current.approval.version === previous.approval.version && Date.parse(current.approval.updatedAt) < Date.parse(previous.approval.updatedAt)))) return false;
+    if (document.visibilityState === 'hidden') { markDisconnected(); return false; }
+    ++requestSequence.current;
+    sessionRef.current = current; setConnected(true); setSession(current); setLoading(false);
+    return true;
+  }, [markDisconnected]);
+
+  const refresh = useCallback((): Promise<void> => {
     const currentGeneration = generation.current;
-    const sequence = ++requestSequence.current;
-    refreshTimeRef.current = Date.now();
-    try {
-      const current = await terminalDemoApi.session();
-      if (currentGeneration !== generation.current || sequence !== requestSequence.current) return;
-      if (document.visibilityState === 'hidden') { markDisconnected(); return; }
-      connectionRef.current = true; setConnected(true); setSession(current); setLoading(false);
-    } catch (caught) {
-      if (currentGeneration !== generation.current || sequence !== requestSequence.current) return;
-      if (caught instanceof TerminalDemoError && caught.status === 401) { setSession(null); clearCustomer(); }
-      else markDisconnected();
-      setLoading(false);
-    }
-  }, [clearCustomer, markDisconnected]);
+    if (refreshFlight.current?.generation === currentGeneration) return refreshFlight.current.promise;
+    const sequence = ++requestSequence.current, controller = new AbortController();
+    const pending = { generation: currentGeneration, controller, promise: Promise.resolve() };
+    pending.promise = (async () => {
+      try {
+        const current = await terminalDemoApi.session(controller.signal);
+        if (sequence === requestSequence.current) acceptSession(current, currentGeneration);
+      } catch (caught) {
+        if (controller.signal.aborted || currentGeneration !== generation.current || sequence !== requestSequence.current) return;
+        if (caught instanceof TerminalDemoError && caught.status === 401) { sessionRef.current = null; setSession(null); clearCustomer(); }
+        else markDisconnected();
+        setLoading(false);
+      } finally { if (refreshFlight.current === pending) refreshFlight.current = undefined; }
+    })();
+    refreshFlight.current = pending;
+    return pending.promise;
+  }, [acceptSession, clearCustomer, markDisconnected]);
 
   useEffect(() => {
     void refresh();
-    return () => { generation.current += 1; };
+    return () => { generation.current += 1; refreshFlight.current?.controller.abort(); };
   }, [refresh]);
 
   useEffect(() => {
@@ -110,42 +129,77 @@ export default function TerminalApp() {
     if (!terminalId) return;
     const source = new EventSource('/api/terminal-demo/terminal-events', { withCredentials: true });
     const eventGeneration = generation.current;
-    const update = () => { if (eventGeneration === generation.current) void refresh(); };
-    const disconnect = () => { if (eventGeneration === generation.current) markDisconnected(); };
-    source.onopen = update;
-    source.onmessage = update;
-    source.onerror = disconnect;
+    let lastEventAt = 0;
+    const update = (event: MessageEvent<string>) => {
+      if (eventGeneration !== generation.current) return;
+      try { if (acceptSession(JSON.parse(event.data), eventGeneration)) lastEventAt = Date.now(); }
+      catch { markDisconnected(); void refresh(); }
+    };
+    const disconnect = () => { if (eventGeneration === generation.current) { lastEventAt = 0; markDisconnected(); } };
+    source.onmessage = update; source.onerror = disconnect;
     source.addEventListener('state', update);
-    source.addEventListener('update', update);
-    source.addEventListener('session-ended', disconnect);
+    source.addEventListener('heartbeat', (event: MessageEvent<string>) => {
+      if (eventGeneration !== generation.current) return;
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.connectionId === sessionRef.current?.connectionId) lastEventAt = Date.now();
+      } catch { /* Malformed heartbeats cannot keep a customer view alive. */ }
+    });
+    source.addEventListener('session-ended', () => { source.close(); disconnect(); void refresh(); });
+    // Healthy SSE delivers its own scoped baseline and authenticated heartbeats.
+    // Fallback is single-flight and never fetches again for an ordinary event.
     const heartbeat = window.setInterval(() => {
-      if (!connectionRef.current || Date.now() - refreshTimeRef.current >= 9_000) void refresh();
-    }, 3_000);
-    const visibility = () => { if (document.hidden) markDisconnected(); else void refresh(); };
+      if (document.hidden) return;
+      if (source.readyState !== EventSource.OPEN || Date.now() - lastEventAt > 45_000) {
+        disconnect();
+        void terminalDemoApi.heartbeat().then(() => refresh()).catch(disconnect);
+      }
+    }, 30_000);
+    const visibility = () => { if (document.hidden) disconnect(); else void refresh(); };
     const online = () => void refresh();
-    const offline = () => markDisconnected();
+    const offline = disconnect;
     document.addEventListener('visibilitychange', visibility);
-    window.addEventListener('online', online);
-    window.addEventListener('offline', offline);
+    window.addEventListener('online', online); window.addEventListener('offline', offline);
     return () => { source.close(); window.clearInterval(heartbeat); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('online', online); window.removeEventListener('offline', offline); };
-  }, [terminalId, refresh, markDisconnected]);
+  }, [terminalId, acceptSession, refresh, markDisconnected]);
+
+  useEffect(() => {
+    if (!connected || !approval || approval.status !== 'waiting' || approval.displayedAt) return;
+    const key = `${approval.id}/${approval.version}/${approval.snapshot.hash}`;
+    if (displayedRef.current === key) return;
+    const currentGeneration = generation.current;
+    let cancelled = false, frame = 0, retry: ReturnType<typeof setTimeout> | undefined;
+    const acknowledge = async () => {
+      if (cancelled || document.hidden || currentGeneration !== generation.current) return;
+      try {
+        await terminalDemoApi.displayed(approval.id, approval.version, approval.snapshot.hash);
+        if (!cancelled && currentGeneration === generation.current) displayedRef.current = key;
+      } catch {
+        // Display acknowledgement is idempotent and can retry. It never signs
+        // the review or hides a successfully rendered review on a transient error.
+        if (!cancelled) retry = setTimeout(() => void acknowledge(), 5_000);
+      }
+    };
+    frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => void acknowledge()); });
+    return () => { cancelled = true; cancelAnimationFrame(frame); clearTimeout(retry); };
+  }, [approvalKey, approval?.snapshot.hash, approval?.status, approval?.displayedAt, connected]);
 
   const login = async (event: FormEvent) => {
     event.preventDefault(); if (loginPending) return;
     setError(''); setLoginPending(true);
     const currentGeneration = ++generation.current;
-    requestSequence.current += 1;
+    requestSequence.current += 1; refreshFlight.current?.controller.abort(); sessionRef.current = null;
     try {
       const result = await terminalDemoApi.login(username.trim(), password);
       if (currentGeneration !== generation.current) return;
-      connectionRef.current = true; setSession(result); setConnected(true); setPassword(''); setNotice(''); clearCustomer();
+      sessionRef.current = result; setSession(result); setConnected(true); setPassword(''); setNotice(''); clearCustomer();
     } catch (caught) { if (currentGeneration === generation.current) setError(errorLabel(caught)); }
     finally { if (currentGeneration === generation.current) setLoginPending(false); }
   };
 
   const logout = async () => {
     generation.current += 1; requestSequence.current += 1;
-    setSession(null); setMenuOpen(false); setConnected(false); connectionRef.current = false; clearCustomer();
+    refreshFlight.current?.controller.abort(); sessionRef.current = null; setSession(null); setMenuOpen(false); setConnected(false); clearCustomer();
     try { await terminalDemoApi.logout(); } catch { setError('Kunde inte avsluta serverinloggningen. Kontrollera anslutningen och försök igen.'); }
   };
 
@@ -154,15 +208,17 @@ export default function TerminalApp() {
     const currentGeneration = generation.current;
     setResponding(true); setError('');
     try {
-      await terminalDemoApi.respond(approval.id, { action, termsAccepted, ...(action === 'change_requested' ? { comment: [changeReason, comment.trim()].filter(Boolean).join(': ') } : {}) });
+      const response = publicApprovalSchema.parse(await terminalDemoApi.respond(approval.id, { action, termsAccepted, ...(action === 'change_requested' ? { comment: [changeReason, comment.trim()].filter(Boolean).join(': ') } : {}) }));
       if (currentGeneration !== generation.current) return;
       setDialog(null); setChangeOpen(false);
       if (action === 'change_requested') setNotice('Din ändringsbegäran är skickad till personalen.');
-      await refresh();
+      const previous = sessionRef.current;
+      if (previous?.approval?.id === approval.id && previous.approval.version === approval.version)
+        acceptSession({ ...previous, approval: response, revision: response.revision ?? previous.revision }, currentGeneration);
     } catch (caught) {
       if (currentGeneration !== generation.current) return;
-      if (caught instanceof TerminalDemoError && caught.status === 401) { setSession(null); clearCustomer(); }
-      else { setError(errorLabel(caught)); await refresh(); }
+      if (caught instanceof TerminalDemoError && caught.status === 401) { sessionRef.current = null; setSession(null); clearCustomer(); }
+      else { setError(errorLabel(caught)); void refresh(); }
     } finally { if (currentGeneration === generation.current) setResponding(false); }
   };
 

@@ -396,6 +396,13 @@ test('ett kontobyte i en annan flik kan inte spara det öppna miljökortet som f
   const anotherTab = await context.newPage();
   try {
     await anotherTab.goto('/kontor');
+    // Reconcile visibility while the shared cookie still belongs to admin.
+    // Changing it through the other tab's API request then isolates the stale
+    // save check from the independent guard that removes controls on focus.
+    const resumed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/environment/state' && response.request().method() === 'GET');
+    await page.bringToFront();
+    expect((await resumed).ok()).toBe(true);
+    await expect(panel.getByRole('button', { name: 'Spara utkast', exact: true })).toBeEnabled();
     const changed = await anotherTab.request.post('/api/environment/demo-session', { data: { userId: 'lars', effectiveUserId: 'lars' } });
     expect(changed.ok()).toBeTruthy();
     const attempt = page.waitForResponse(response => response.url().includes(`/api/environment/drafts/${fixture.sourceId}`) && response.request().method() === 'PUT');

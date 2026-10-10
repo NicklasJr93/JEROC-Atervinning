@@ -101,10 +101,14 @@ async function sendToTerminal(page: Page, cardId: number, terminal: DemoTerminal
   const picker = page.getByLabel('Terminal för kundgodkännande', { exact: true });
   await expect(picker.locator(`option[value="${terminal.id}"]`)).toBeEnabled();
   await picker.selectOption(terminal.id);
+  const confirmed = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/application/customer-review'));
   await page.getByRole('button', { name: 'Visa på terminal', exact: true }).click();
   await expect(page).toHaveURL(before);
   await expect(page.locator('.office-sidebar').getByRole('button', { name: /^Invägningar(?: \d+ aktiva kort)?$/ })).toHaveClass(/active/);
   await expect(page.locator('.approval-controls')).toContainText('Inväntar kund');
+  const response = await confirmed;
+  await response.finished();
+  console.info('Customer review timing:', JSON.stringify({ serverTiming: response.headers()['server-timing'], responseMs: response.request().timing().responseEnd }));
   return approvalOf(page, cardId);
 }
 
@@ -129,6 +133,7 @@ test('två terminaler visar egna frysta avräkningar och personalens kontroll f�
   const { cards, prefix } = await fixture(page.request);
   const terminals: DemoTerminal[] = [];
   const contexts: BrowserContext[] = [];
+  let releaseDisplay = () => {};
   await installFixture(page, cards);
   try {
     await loginOffice(page);
@@ -136,10 +141,25 @@ test('två terminaler visar egna frysta avräkningar och personalens kontroll f�
     const first = await mobileTerminal(browser, baseURL!, terminals[0]);
     const second = await mobileTerminal(browser, baseURL!, terminals[1]);
     contexts.push(first.context, second.context);
+    const displayGate = new Promise<void>(resolve => { releaseDisplay = resolve; });
+    let displayedRequest: { version: number; snapshotHash: string } | undefined;
+    await first.page.route('**/api/terminal-demo/approvals/*/displayed', async route => {
+      displayedRequest = route.request().postDataJSON();
+      await displayGate;
+      await route.continue();
+    });
     await page.getByLabel('Anläggning', { exact: true }).selectOption('norrtalje');
     await page.getByLabel('Förvald kundterminal', { exact: true }).selectOption(terminals[0].id);
     await expect.poll(async () => (await stateOf(page)).defaults.find(item => item.userId === 'admin' && item.siteId === 'norrtalje')?.terminalId).toBe(terminals[0].id);
+    const sends: string[] = [];
+    page.on('request', request => {
+      if (request.method() === 'POST' && ['/api/application/customer-review', '/api/pricing/snapshots', `${service}/approvals`].some(path => request.url().endsWith(path)))
+        sends.push(new URL(request.url()).pathname);
+    });
     const sent = await sendToTerminal(page, cards[0].id, terminals[0]);
+    expect(sends).toEqual(['/api/application/customer-review']);
+    expect(sent.displayedAt).toBeUndefined();
+    await expect(page.locator('.approval-controls')).toContainText('Inväntar terminalens bekräftelse');
     await expect(first.page.getByRole('heading', { name: 'Granska och godkänn din avräkning', exact: true })).toBeVisible();
     await expect(first.page.getByText(`Invägningskort INV-${cards[0].id}`, { exact: true })).toBeVisible();
     await expect(first.page.locator('.terminal-material-table')).toContainText('83 kg');
@@ -147,6 +167,10 @@ test('två terminaler visar egna frysta avräkningar och personalens kontroll f�
     await expect(first.page.getByRole('checkbox')).not.toBeChecked();
     await expect(second.page.getByRole('heading', { name: 'Invänta personal', exact: true })).toBeVisible();
     await expect(second.page.getByText(new RegExp(`INV-${cards[0].id}`))).toHaveCount(0);
+    await expect.poll(() => displayedRequest).toEqual({ version: sent.version, snapshotHash: sent.snapshot.hash });
+    releaseDisplay();
+    await expect.poll(async () => (await approvalOf(page, cards[0].id)).displayedAt).toBeTruthy();
+    await expect(page.locator('.approval-controls')).toContainText(`Kundvisningen är aktiv på ${terminals[0].name}`);
 
     const other = await sendToTerminal(page, cards[1].id, terminals[1]);
     await expect(second.page.getByText(`Invägningskort INV-${cards[1].id}`, { exact: true })).toBeVisible();
@@ -208,6 +232,7 @@ test('två terminaler visar egna frysta avräkningar och personalens kontroll f�
     expect((await approvalOf(page, cards[1].id)).id).toBe(other.id);
     await expect(second.page.getByText(`Invägningskort INV-${cards[1].id}`, { exact: true })).toBeVisible();
   } finally {
+    releaseDisplay();
     await cleanup(page, terminals, cards.map(card => card.id));
     await Promise.all(contexts.map(context => context.close()));
   }
@@ -225,9 +250,9 @@ test('avslutad kundvisning kan skickas igen oförändrad till samma terminal med
     await loginOffice(page);
     terminals.push(await createTerminal(page, prefix, '1'));
     mobile = await mobileTerminal(browser, baseURL!, terminals[0]);
-    const pricingRequest = page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/api/pricing/snapshots'));
+    const reviewRequest = page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/api/application/customer-review'));
     const original = await sendToTerminal(page, cards[0].id, terminals[0]);
-    expect((await pricingRequest).postDataJSON().rows[0]).not.toHaveProperty('override');
+    expect((await reviewRequest).postDataJSON().expectedCard.rows[0].source).toBe('Volympris');
     expect(original.snapshot.card.pricingSnapshotId).toBeTruthy();
     await expect(mobile.page.getByText(`Invägningskort INV-${cards[0].id}`, { exact: true })).toBeVisible();
 
@@ -279,7 +304,7 @@ test('misslyckade terminalutskick visar felet i den öppna dialogen och kan åte
     terminals.push(await createTerminal(page, prefix, '1'));
     mobile = await mobileTerminal(browser, baseURL!, terminals[0]);
     await page.goto(`/kontor#/weighings/${cards[0].id}`);
-    await page.route('**/api/terminal-demo/approvals', async route => {
+    await page.route('**/api/application/customer-review', async route => {
       sendKeys.push(route.request().postDataJSON().idempotencyKey);
       await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: failureMessage, code: 'terminal_busy' }) });
     });
@@ -299,7 +324,7 @@ test('misslyckade terminalutskick visar felet i den öppna dialogen och kan åte
     expect(sendKeys).toHaveLength(2);
     expect(sendKeys[1]).toBe(sendKeys[0]);
 
-    await page.unroute('**/api/terminal-demo/approvals');
+    await page.unroute('**/api/application/customer-review');
     await dialog.getByRole('button', { name: 'Visa på terminal', exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await expect(page.locator('.approval-controls')).toContainText('Inväntar kund');

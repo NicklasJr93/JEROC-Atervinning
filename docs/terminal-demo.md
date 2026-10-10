@@ -1,4 +1,28 @@
-# JEROC kundterminaldemo 0.7.1
+# JEROC kundterminaldemo – kontor 0.13.0
+
+## Samlat utskick, realtid och PDF-jobb i 0.13.0
+
+Prissnapshot, kundgranskning, terminalreservation och preliminärt PDF-jobb
+registreras atomiskt i samma PostgreSQL-transaktion. Kontoret visar svaret
+direkt. Statusen **Skickad** betyder att servern sparat visningen; **Visad**
+betyder att terminalen bekräftat renderingen av exakt ID, version och hash.
+Godkänd av kund och internt attesterad är fortsatt separata steg.
+
+Terminalen får ändringar genom SSE och skickar separat närvaro. Återanslutning
+hämtar hela aktuella kundvisningen. Händelserna innehåller inga kunduppgifter
+och gamla händelser får inte återställa en avslutad visning. Närvaro räknas som
+online i 35 sekunder; ett avbrott på 90 sekunder kan avsluta aktiv kundvisning.
+
+PDF-generering sker efter commit via en beständig, låst jobbkö. Preliminära,
+kundgodkända och slutliga milstolpar behåller respektive frysta underlag och
+anläggningsuppgifter även om kortet korrigeras eller visningen avslutas senare.
+Misslyckade jobb försöks om utan att skapa ett nytt dokumentoriginal eller
+skicka någon ekonomitransaktion eller NVV-rapport. PDF-filen kan därför bli
+tillgänglig strax efter att knapptrycket bekräftats.
+
+Efter publicering: ladda om kontoret för den uppdaterade sessionscookien.
+Terminalens befintliga enhetsinloggning återanvänds. Se
+[prestandadokumentationen](workflow-performance.md) för mätningar och prov.
 
 ## Uppdaterad stegordning i kontor 0.9.0
 
@@ -26,7 +50,7 @@ Terminaler, sessioner, förval, avräkningsversioner, kundsvar och deras histori
 1. Skapa en PostgreSQL-databas i Render, i samma workspace och region som JEROC:s webbtjänst. Den nuvarande konfigurationen anger Frankfurt; kontrollera även webbtjänstens faktiska region i Render.
 2. Välj en tillgänglig plan. Om Render erbjuder en gratis provdatabas, kontrollera slutdatum och villkor innan du använder den. En gratis provplan innebär inte permanent, kostnadsfri lagring. Välj en betald databas om demon behöver leva vidare utan provperiodens begränsningar. Planera för säkerhetskopiering av data ni vill behålla.
 3. Kopiera databasens **Internal Database URL**. Öppna JEROC-webbtjänstens **Environment** och skapa `DATABASE_URL` med den interna anslutningssträngen som värde.
-4. Spara och publicera om webbtjänsten. Den befintliga byggprocessen och `npm start` används. Schemat i `server/migrations/terminal-demo-001.sql` skapas automatiskt vid terminaltjänstens första databasanslutning.
+4. Spara och publicera om webbtjänsten. Den befintliga byggprocessen och `npm start` används. Migrationerna `server/migrations/terminal-demo-001.sql` och `terminal-demo-002.sql` körs automatiskt vid start; befintliga konton och kundärenden bevaras.
 5. Öppna `/kontor`, välj **Systemadmin** och öppna **Terminaler**. Om meddelandet om `DATABASE_URL` fortfarande visas, kontrollera att variabeln ligger på rätt webbtjänst och att databas och webbtjänst finns i samma region.
 
 Anslutningssträngen innehåller ett lösenord. Spara den endast som servervariabel i Render. Lägg den aldrig i Git, en publik webbläsarvariabel, en skärmbild eller ett testunderlag. Mobilen behöver ingen databasadress och ingen databasbehörighet.

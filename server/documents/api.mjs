@@ -58,6 +58,7 @@ export function createDocumentsApi({ env = process.env, repository, sourceProvid
     return true;
   };
   api.ensureApproval = async approval => (await service()).ensureApproval(approval);
+  api.archiveApprovalJob = async (approval, job) => (await service()).archiveApprovalJob(approval, job);
   api.close = async () => { if (repositoryPromise) await repositoryPromise.then(repository => repository.close()).catch(() => {}); };
   return api;
 }

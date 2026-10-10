@@ -74,6 +74,7 @@ export interface EnvironmentalDraft {
   id: string; sourceId: string; cardId: number; siteId: string; version: number;
   updatedAt: string; updatedBy: string; actualUserId: string; effectiveUserId: string;
   input: EnvironmentalDraftInput;
+  environmentPatch?: EnvironmentalSourceProjection;
 }
 export type EnvironmentalReceiptSnapshot = Omit<EnvironmentalReceiptInput, 'idempotencyKey' | 'rows' | 'expectedDraftVersion'> & {
   version: number;
@@ -98,6 +99,7 @@ export interface EnvironmentalReceipt {
   originalHash?: string;
   correctionHistory?: EnvironmentalCorrection[];
   deviations: { code: string; message: string }[]; reportIds: string[]; inventoryIds: string[];
+  environmentPatch?: EnvironmentalSourceProjection;
 }
 export interface EnvironmentalReport {
   id: string; receiptId: string; sourceId: string; cardId: number; siteId: string;
@@ -128,6 +130,13 @@ export interface EnvironmentState {
   inventory: EnvironmentalInventory[]; reports: EnvironmentalReport[];
   drafts: EnvironmentalDraft[]; corrections: EnvironmentalCorrection[];
   reportHistory: EnvironmentalReportHistory[];
+}
+export interface EnvironmentalSourceProjection {
+  demo?: true; revision: number; sourceId: string;
+  receipt: EnvironmentalReceipt | null; draft: EnvironmentalDraft | null;
+  classifications: WasteClassification[]; sites: EnvironmentSite[]; storagePolicies: EnvironmentalStoragePolicy[];
+  municipalities?: EnvironmentalMunicipality[];
+  reports: EnvironmentalReport[]; reportHistory: EnvironmentalReportHistory[]; inventory: EnvironmentalInventory[];
 }
 export const emptyClassification = (articleId: string): WasteClassification => ({
   articleId, version: 0, hazardous: false, wasteCode: '', wasteDescription: '', handlingInstructions: '', adrRequired: false,

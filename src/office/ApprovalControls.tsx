@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Clock3, FileText, Mail, MessageSquare, Monitor, Send, ShieldCheck, Users, X } from 'lucide-react';
-import { terminalDemoApi } from './terminal-demo-client';
+import { terminalDemoApi, type TerminalStaffIdentity } from './terminal-demo-client';
 import ElectricFocusBorder from './ElectricFocusBorder';
 import { approvalLabels, type TerminalApproval, type TerminalDemoState } from './terminal-demo-types';
 import './terminals.css';
@@ -12,8 +12,12 @@ export type ApprovalControlsProps = {
   disabledReason?: string; onPreview?: () => void;
   onSend: (terminalId: string, siteId: string) => Promise<void | boolean>;
   onRefresh: () => Promise<void>; onNotice: (message: string) => void;
+  onConfirmed?: (approval: TerminalApproval) => void; onBeforeAction?: () => Promise<void>;
+  principal?: TerminalStaffIdentity;
 };
-export default function ApprovalControls({ approval, state, siteId, terminalId, canSend, canConfirmId, canCancel, canSeeMoney = true, guidance, disabledReason, onPreview, onSend, onRefresh, onNotice }: ApprovalControlsProps) {
+export default function ApprovalControls({ approval, state, siteId, terminalId, canSend, canConfirmId, canCancel, canSeeMoney = true, guidance, disabledReason, onPreview, onSend, onRefresh, onConfirmed, onBeforeAction, onNotice, principal }: ApprovalControlsProps) {
+  const principalKey = `${principal?.actualUserId ?? ''}/${principal?.effectiveUserId ?? ''}`;
+  const principalRef = useRef(principalKey); principalRef.current = principalKey;
   const [panel, setPanel] = useState(false);
   const [selectedTerminal, setSelectedTerminal] = useState('');
   const [busy, setBusy] = useState(false);
@@ -31,34 +35,40 @@ export default function ApprovalControls({ approval, state, siteId, terminalId, 
     setSelectedTerminal(choices.some(terminal => terminal.id === terminalId) ? terminalId : choices.length === 1 ? choices[0].id : '');
     setError(''); setPanel(true);
   };
-  useEffect(() => { setPanel(false); setConfirmAction(undefined); setError(''); }, [approval?.id]);
+  useEffect(() => { setPanel(false); setConfirmAction(undefined); setError(''); setBusy(false); }, [approval?.id, principalKey]);
   async function send() {
     if (!canSend || !availableTerminals.some(terminal => terminal.id === selectedTerminal) || busy) return;
     setBusy(true); setError('');
+    const actionPrincipal = principalKey;
     try {
       const result = await onSend(selectedTerminal, siteId);
+      if (principalRef.current !== actionPrincipal) return;
       if (result === false) setError('Avräkningen kunde inte visas. Kontrollera underlaget och försök igen.');
       else setPanel(false);
     }
-    catch (failure) { setError(failure instanceof Error ? failure.message : 'Avräkningen kunde inte visas.'); }
-    finally { setBusy(false); }
+    catch (failure) { if (principalRef.current === actionPrincipal) setError(failure instanceof Error ? failure.message : 'Avräkningen kunde inte visas.'); }
+    finally { if (principalRef.current === actionPrincipal) setBusy(false); }
   }
   async function act() {
     if (!approval || !confirmAction || busy) return;
     setBusy(true); setError('');
+    const actionPrincipal = principalKey;
     try {
-      if (confirmAction === 'id') await terminalDemoApi.confirmId(approval.id);
-      else await terminalDemoApi.cancel(approval.id);
-      await onRefresh(); setConfirmAction(undefined);
+      await onBeforeAction?.();
+      if (principalRef.current !== actionPrincipal) return;
+      const confirmed = confirmAction === 'id' ? await terminalDemoApi.confirmId(approval.id, principal) : await terminalDemoApi.cancel(approval.id, principal);
+      if (principalRef.current !== actionPrincipal) return;
+      onConfirmed?.(confirmed); setConfirmAction(undefined);
+      if (!onConfirmed) void onRefresh();
       onNotice(confirmAction === 'id' ? 'Legitimationen är kontrollerad och kundgodkännandet registrerat. Kortet går vidare till intern attest.' : 'Kundvisningen har avslutats.');
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Åtgärden kunde inte utföras.'); }
-    finally { setBusy(false); }
+    } catch (failure) { if (principalRef.current === actionPrincipal) setError(failure instanceof Error ? failure.message : 'Åtgärden kunde inte utföras.'); }
+    finally { if (principalRef.current === actionPrincipal) setBusy(false); }
   }
   const active = approval && (approval.status === 'waiting' || approval.status === 'id_requested');
   const approved = approval?.status === 'approved' || approval?.status === 'attested';
   const terminalName = state?.terminals.find(terminal => terminal.id === approval?.terminalId)?.name ?? 'Kundterminal';
   const approvedTime = approval?.approvedAt ? new Date(approval.approvedAt).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-  const description = approval?.status === 'waiting' ? 'Kunden granskar avräkningen före JEROC:s interna attest.'
+  const description = approval?.status === 'waiting' ? approval.displayedAt ? 'Kunden granskar avräkningen före JEROC:s interna attest.' : 'Avräkningen är skickad. Inväntar kundterminalens bekräftelse.'
     : approval?.status === 'id_requested' ? 'Kontrollera kundens legitimation på plats innan godkännandet bekräftas.'
       : approval?.status === 'change_requested' ? 'Komplettera kortet och visa en ny version för kunden.'
         : approved ? `Granskningsversion ${approval.version} · Kundterminal ${terminalName}`
@@ -72,7 +82,7 @@ export default function ApprovalControls({ approval, state, siteId, terminalId, 
       {approved && onPreview && <button type="button" className="office-btn outline approval-preview" onClick={onPreview}><FileText size={16} />Granska avräkning</button>}
     </div>
     {approval && !approved && <div className="approval-version-facts"><span>Avräkning · version {approval.version}</span>{canSeeMoney && <strong>{approval.snapshot.net.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK' })}</strong>}<small>{terminalName} · skickad av {approval.sentBy}</small>{onPreview && <button type="button" className="office-link" onClick={onPreview}><FileText size={14} />Granska avräkning</button>}</div>}
-    {approval?.status === 'waiting' && <p className="approval-info-line"><Clock3 size={15} />Kundvisningen är aktiv på {terminalName}.</p>}
+    {approval?.status === 'waiting' && <p className="approval-info-line"><Clock3 size={15} />{approval.displayedAt ? `Kundvisningen är aktiv på ${terminalName}.` : `Skickad till ${terminalName}. Inväntar terminalens bekräftelse.`}</p>}
     {approval?.status === 'change_requested' && <div className="approval-change-request"><strong><MessageSquare size={15} />Kunden begär ändring</strong><p>{approval.comment}</p><small>En ny version behöver granskas och godkännas innan intern attest.</small></div>}
     {!active && !approved && <div className="approval-channel-tiles">
       <button type="button" className="approval-channel-tile" disabled={!!sendDisabledReason || busy} onClick={open} title={sendDisabledReason || 'Välj en ledig kundterminal'} aria-label={approval ? 'Visa ny version på kundterminal' : 'Visa på kundterminal'} aria-describedby={sendDisabledReason ? 'approval-send-disabled-reason' : undefined}><Monitor size={24} /><span><strong>{approval ? 'Visa ny version på kundterminal' : 'Visa på kundterminal'}</strong><small id="approval-send-disabled-reason">{sendDisabledReason || 'Välj terminal och visa avräkningen för kunden'}</small></span></button>

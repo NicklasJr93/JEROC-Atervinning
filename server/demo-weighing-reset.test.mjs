@@ -51,10 +51,12 @@ test('one-time terminal reset persists across reopening and retains subsequent w
     assert.deepEqual(migrated.approvals, []);
     assert.deepEqual(migrated.requests, []);
     await repository.transact((state) => state.approvals.push({ id: 'fresh', cardId: 2050, status: 'waiting' }));
+    assert.deepEqual(await repository.documentJobs(), [], 'Incomplete demo records must be retained without inventing a PDF job');
     await repository.close();
     repository = await createTerminalDemoRepository({ filename, env: {} });
     const reopened = await repository.transact((state) => structuredClone(state));
     assert.equal(reopened.approvals[0].id, 'fresh');
+    assert.deepEqual(await repository.documentJobs(), [], 'Reopening must also skip PDF backfill for incomplete records');
     assert.equal(reopened.terminals[0].id, 'retained-terminal');
     assert.equal(reopened.audit.filter((entry) => entry.action === 'demo.weighings_reset').length, 1);
   } finally {

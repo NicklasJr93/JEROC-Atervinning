@@ -4,6 +4,7 @@ import type {
   EnvironmentSessionState, EnvironmentState, WasteClassification,
   EnvironmentSite, EnvironmentSiteInput, EnvironmentalStorageAssessment, EnvironmentalStoragePolicy, EnvironmentalStoragePolicyInput,
   NvvIntegrationStatus, NvvReporterInput, NvvReportDetail,
+  EnvironmentalSourceProjection,
 } from './environment-types';
 
 let csrfToken = '';
@@ -33,6 +34,7 @@ export const environmentApi = {
   logout: async () => { await environmentRequest('/logout', 'POST', {}); csrfToken = ''; sessionIdentity = undefined; },
   forgetSession: () => { csrfToken = ''; sessionIdentity = undefined; },
   state: (signal?: AbortSignal, siteId?: string) => environmentRequest<EnvironmentState>(`/state${siteId && siteId !== 'all' ? `?siteId=${encodeURIComponent(siteId)}` : ''}`, 'GET', undefined, signal),
+  source: (sourceId: string, signal?: AbortSignal) => environmentRequest<EnvironmentalSourceProjection>(`/sources/${encodeURIComponent(sourceId)}`, 'GET', undefined, signal),
   classify: (articleId: string, value: Omit<WasteClassification, 'articleId' | 'version' | 'updatedAt' | 'updatedBy'> & { expectedVersion: number }) => environmentRequest<WasteClassification>(`/classifications/${encodeURIComponent(articleId)}`, 'PUT', value),
   receive: (value: EnvironmentalReceiptInput) => environmentRequest<EnvironmentalReceipt>('/receipts', 'POST', value),
   draft: (sourceId: string, signal?: AbortSignal) => environmentRequest<EnvironmentalDraft | null>(`/drafts/${encodeURIComponent(sourceId)}`, 'GET', undefined, signal),

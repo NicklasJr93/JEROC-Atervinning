@@ -144,6 +144,18 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     for (const stage of stages) documents.push(await archive(await frozenApprovalDocument(approval, sources, stage), 'settlement', approval.cardId, approval.version, stage, approval.siteId, actor));
     return documents;
   }
+  // Server-only durable job entry point. Unlike a public DTO hook, this uses
+  // the immutable signing milestone captured in the approval transaction. A
+  // later cancellation cannot erase the customer's reviewed PDF original.
+  async function archiveApprovalJob(approval, job) {
+    if (!['preliminary', 'reviewed', 'final'].includes(job?.stage) || !approval?.snapshot?.hash ||
+      job.sourceHash !== approval.snapshot.hash) fail('PDF-jobbets låsta underlag stämmer inte.', 409, 'snapshot_missing');
+    const sources = await sourceProvider();
+    if (job.siteSnapshot) sources.sites = [copy(job.siteSnapshot)];
+    const actor = { actor: { id: approval.actualUserId ?? 'system' }, user: { id: approval.effectiveUserId ?? 'system' } };
+    const snapshot = await frozenApprovalDocument(copy(approval), sources, job.stage);
+    return archive(snapshot, 'settlement', approval.cardId, approval.version, job.stage, approval.siteId, actor);
+  }
   async function list({ kind, sourceId }, principal) {
     if (!['settlement', 'receipt', 'transport'].includes(kind) || !sourceId) fail('Ange dokumenttyp och käll-ID.', 422, 'invalid_input');
     if (kind === 'settlement') {
@@ -272,5 +284,5 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     if (documentHash(record.pdf) !== record.pdfHash) fail('Dokumentets kontrollsumma stämmer inte. Originalet lämnas orört.', 503, 'file_integrity_error');
     return record;
   }
-  return { list, generateSettlement, generateReceipt, transport, saveTransport, generateTransport, download, ensureApproval };
+  return { list, generateSettlement, generateReceipt, transport, saveTransport, generateTransport, download, ensureApproval, archiveApprovalJob };
 }

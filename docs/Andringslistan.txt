@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.12.4.
+Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.13.0.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
@@ -1290,3 +1290,24 @@ Status: Planerad, beställd för ÄL 2026-10-10. Ingen implementation påbörjad
   Ändrade farliga rader kräver miljörättelse om mottagningen registrerats.
   Ändringen får inte automatiskt skicka en ny rapport till NVV.
 - Kort utan materialrader får inte färdigställas.
+
+065 – Snabbare terminalvisning och miljömottagning
+Status: Implementerad i kontorsdemo 0.13.0 efter godkänd start 2026-10-10.
+- Samla serverns prissättning, fryst kundgranskning och terminalreservation
+  i ett anrop och en PostgreSQL-transaktion. Upptagen terminal eller fel
+  återställer hela operationen. Återförsök är idempotenta.
+- Läs bara berörda databasuppgifter utan skrivlås. Lagerkontrollen vid
+  bekräftad mottagning sker fortfarande under lås mot aktuellt lager.
+- Använd bekräftade svar direkt i UI utan blockerande återhämtning av hela
+  arbetskön. Bevara samtidiga osparade ändringar och avvisa verkliga konflikter.
+- SSE för kundgodkännande och miljömottagning, med återanslutning, rättigheter,
+  versionskontroller och långsammare reservhämtning. Separat terminalnärvaro.
+- Skickad/Visad skiljs åt: terminalen bekräftar exakt renderad avräkningsversion.
+- Beständig PDF-jobbkö sparas i samma commit som granskningsmilstolpen.
+  Generering efter commit, säkert återförsök/omstart och oföränderliga original.
+- Mät databasrundor och svarstider; jämförelse och reproducerbart lokalt prov
+  finns i docs/workflow-performance.md. Inga riktiga kundärenden eller externa
+  NVV-/betalningsanrop används i prestandaprovet.
+- Befintlig DATABASE_URL används. Ny migration körs automatiskt; befintliga
+  testkort, kundgodkännanden och journaler bevaras. Renderuppgradering görs
+  separat av användaren. Verklig Renderlatens följs upp efter publicering.

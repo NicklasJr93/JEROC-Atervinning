@@ -2,6 +2,10 @@ import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from
 import { z } from 'zod';
 import { createPricingStore, PricingError, money } from './pricing.mjs';
 import { createTerminalDemoRepository, TerminalDemoError } from './terminal-demo-storage.mjs';
+import { afterDatabaseCommit } from './database-runtime.mjs';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+const expectedStaffIdentity = new AsyncLocalStorage();
 
 const DEFAULT_SITES = [{ id: 'norrtalje', name: 'Norrtälje', active: true }, { id: 'rimbo', name: 'Rimbo', active: true }];
 const ACTIVE = ['waiting', 'id_requested'];
@@ -121,9 +125,10 @@ function terminalDTO(state, terminal, now, sites) {
     busy: Boolean(approval), ...(approval ? { activeApprovalId: approval.id } : {}), ...(terminal.lastSeen ? { lastSeen: terminal.lastSeen } : {}) };
 }
 
-function approvalDTO(approval, principal) {
+function approvalDTO(approval, principal, revision) {
   const result = copy(approval);
-  delete result.expiresAt; delete result.correctionIds; delete result.approvedHash; delete result.approvedMethod;
+  if (revision !== undefined) result.revision = revision;
+  delete result.expiresAt; delete result.correctionIds; delete result.approvedHash; delete result.approvedMethod; delete result.siteSnapshot;
   // The original persisted review snapshot is never mutated. These OfficeCard
   // fields form a workflow projection for existing office queues only.
   result.snapshot.card.status = approval.status === 'approved' ? 'attest'
@@ -156,10 +161,10 @@ function approvalDTO(approval, principal) {
   return result;
 }
 
-function publicApproval(approval) {
+function publicApproval(approval, revision) {
   if (!approval) return null;
   const snapshot = approval.snapshot;
-  return { id: approval.id, version: approval.version, status: approval.status, updatedAt: approval.updatedAt,
+  return { id: approval.id, version: approval.version, status: approval.status, updatedAt: approval.updatedAt, ...(revision === undefined ? {} : {revision}), ...(approval.displayedAt ? {displayedAt:approval.displayedAt} : {}),
     snapshot: { cardId: approval.cardId, version: approval.version, customerName: snapshot.customer.name,
       customerNumber: snapshot.customer.customerNumber, siteName: snapshot.card.yard,
       rows: copy(snapshot.rows), gross: snapshot.gross, offset: snapshot.offset, net: snapshot.net,
@@ -172,10 +177,25 @@ function publicApproval(approval) {
  * business state always commits to the configured durable database. */
 export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, environmentApprovalCheck, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
   if (!repository) throw new Error('A durable terminal repository is required.');
+  const presenceTimers = new Map();
+  const schedulePresenceExpiry = terminalId => {
+    const previous=presenceTimers.get(terminalId);
+    if(previous){clearTimeout(previous.offline);clearTimeout(previous.disconnected);}
+    const offline=setTimeout(()=>{
+      // This invalidation carries no device/customer fields. A different
+      // instance may have refreshed presence meanwhile; readers recheck it.
+      void repository.events?.publish({domain:'terminal-presence',revision:now().getTime()}).catch(()=>{});
+    },ONLINE_AGE+1);offline.unref();
+    const disconnected=setTimeout(()=>{
+      presenceTimers.delete(terminalId);
+      void service.sweep().catch(()=>{});
+    },DISCONNECT_AGE+1);disconnected.unref();
+    presenceTimers.set(terminalId,{offline,disconnected});
+  };
   const transaction = async (operation) => {
     // The persisted environment catalog is read per operation. A shared mutable
     // cache could leak a concurrent request's facility scope or stale settings.
-    const catalog = (await siteProvider()).map(({ id: siteId, name, active }) => ({ id: siteId, name, active: active !== false }));
+    const catalog = (await siteProvider()).map(site => ({ ...site, id: site.id, name: site.name, active: site.active !== false }));
     // Obtain the immutable catalog before taking the terminal reservation lock.
     // Awaiting another repository while holding SQLite's synchronous lock would
     // block a concurrent local connection from completing its transaction.
@@ -184,14 +204,29 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     });
     return principalStore.runFresh ? principalStore.runFresh(run) : run();
   };
+  const readOperation = async (operation, options) => {
+    return (repository.read ?? repository.transact).call(repository, state => {
+      const run = async () => {
+        // These reads share one PostgreSQL snapshot, including current staff
+        // permissions and facility scope. SQLite reads hold no write lock.
+        const catalog = (await siteProvider()).map(({id:siteId,name,active}) => ({id:siteId,name,active:active!==false}));
+        const value = copy(state), time = now(); cleanup(value,time,catalog);
+        return operation(value,time,catalog);
+      };
+      return principalStore.runFresh ? principalStore.runFresh(run) : run();
+    },options);
+  };
   const staff = (state, value, time) => {
     if (!value) throw new TerminalDemoError('Välj ett demokonto på kontoret.', 401, 'staff_session_required');
     const session = state.staffSessions.find((item) => item.tokenHash === hash(value) && Date.parse(item.expiresAt) > time.getTime());
     if (!session) throw new TerminalDemoError('Kontorets demosession har gått ut. Logga in igen.', 401, 'staff_session_required');
     // Re-resolve on every call: revoking a permission takes effect immediately.
+    const expected = expectedStaffIdentity.getStore();
+    if (expected && (expected.actualUserId !== session.actualUserId || expected.effectiveUserId !== session.effectiveUserId))
+      throw new TerminalDemoError('Kontorets aktiva användare har ändrats. Försök igen i den aktuella vyn.',409,'staff_identity_changed');
     return principalStore.principal(session.actualUserId, session.effectiveUserId);
   };
-  const device = (state, value, time, seen = true) => {
+  const device = (state, value, time, seen = false) => {
     const session = value && state.terminalSessions.find((item) => item.tokenHash === hash(value) && Date.parse(item.expiresAt) > time.getTime());
     const terminal = session && state.terminals.find((item) => item.id === session.terminalId && item.active);
     if (!terminal) throw new TerminalDemoError('Logga in på terminalen.', 401, 'terminal_session_required');
@@ -213,11 +248,11 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     const approval = activeApproval(state, terminalId);
     if (approval) releaseApproval(state, approval, 'cancelled', time, principal, reason);
   };
-  return {
-    projections: () => transaction(state => state.approvals.map(approval => approvalDTO(approval, {user: {level: "Systemadmin"}}))),
+  const service = {
+    projections: cardId => readOperation(state => state.approvals.map(approval => approvalDTO(approval, {user: {level: "Systemadmin"}},state.revision)),{projections:true,...(cardId===undefined?{}:{cardId})}),
     // Internal document source only. Never return confirmation hashes or private
     // approval fields through the public terminal API.
-    documentProjections: () => transaction(state => structuredClone(state.approvals)),
+    documentProjections: () => readOperation(state => structuredClone(state.approvals),{projections:true}),
     repository,
     // Server-only callback. Holding the terminal aggregate lock prevents a
     // cancelled/superseded customer version from winning a concurrent receipt.
@@ -246,16 +281,16 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
       return { token: secret, result: { demo: true, actualUserId: principal.actor.id, effectiveUserId: principal.user.id } };
     },
     read(staffToken, filterSite) {
-      return transaction((state, time, catalog) => {
+      return readOperation((state, time, catalog) => {
         const principal = staff(state, staffToken, time); demand(principal, 'customerApprovalRead');
         if (filterSite && filterSite !== 'all') demandSite(principal, filterSite, catalog);
         const sites = allowedSites(principal, catalog).filter((site) => !filterSite || filterSite === 'all' || site.id === filterSite);
         const visible = new Set(sites.map((site) => site.id));
-        return { configured: true, revision: state.revision, sites: copy(sites),
+        return { configured: true, actualUserId:principal.actor.id, effectiveUserId:principal.user.id, revision: state.revision, sites: copy(sites),
           terminals: state.terminals.filter((terminal) => visible.has(terminal.siteId)).map((terminal) => terminalDTO(state, terminal, time, catalog)),
-          approvals: canSeeMoney(principal) ? state.approvals.filter((approval) => visible.has(approval.siteId)).map((approval) => approvalDTO(approval, principal)) : [],
+          approvals: canSeeMoney(principal) ? state.approvals.filter((approval) => visible.has(approval.siteId)).map((approval) => approvalDTO(approval, principal,state.revision)) : [],
           defaults: state.defaults.filter((value) => visible.has(value.siteId) && (value.userId === principal.user.id || principal.user.level === 'Systemadmin')).map(copy) };
-      });
+      },{staffState:true,staffHash:hash(staffToken??''),...(filterSite&&filterSite!=='all'?{siteId:filterSite}:{})});
     },
     createTerminal(payload, staffToken) {
       const request = validate(z.object({ name: text, username, password, siteId }).strict(), payload);
@@ -327,19 +362,34 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         state.loginAttempts = state.loginAttempts.filter((attempt) => attempt.key !== attemptKey);
         state.terminalSessions.push({ terminalId: terminal.id, tokenHash: hash(secret), expiresAt: new Date(time.getTime() + TERMINAL_AGE).toISOString() });
         terminal.lastSeen = time.toISOString(); audit(state, time, 'terminal.login', undefined, { terminalId: terminal.id });
-        return { terminal: terminalDTO(state, terminal, time, catalog), siteName: catalog.find((site) => site.id === terminal.siteId)?.name ?? terminal.siteId,
-          approval: publicApproval(activeApproval(state, terminal.id)) };
+        return { revision:state.revision, connectionId:hash(state.terminalSessions.find(session=>session.terminalId===terminal.id)?.tokenHash ?? terminal.id).slice(0,24), terminal: terminalDTO(state, terminal, time, catalog), siteName: catalog.find((site) => site.id === terminal.siteId)?.name ?? terminal.siteId,
+          approval: publicApproval(activeApproval(state, terminal.id),state.revision) };
       });
       if (result.error) throw result.error;
       return { token: secret, result };
     },
     session(deviceToken) {
-      return transaction((state, time, catalog) => {
+      return readOperation((state, time, catalog) => {
         const terminal = device(state, deviceToken, time);
-        return { terminal: terminalDTO(state, terminal, time, catalog), siteName: catalog.find((site) => site.id === terminal.siteId)?.name ?? terminal.siteId,
-          approval: publicApproval(activeApproval(state, terminal.id)) };
-      });
+        return { revision:state.revision, connectionId:hash(state.terminalSessions.find(session=>session.terminalId===terminal.id)?.tokenHash ?? terminal.id).slice(0,24), terminal: terminalDTO(state, terminal, time, catalog), siteName: catalog.find((site) => site.id === terminal.siteId)?.name ?? terminal.siteId,
+          approval: publicApproval(activeApproval(state, terminal.id),state.revision) };
+      },{deviceHash:hash(deviceToken??'')});
     },
+    async heartbeat(deviceToken) {
+      const terminalId=await readOperation((state,time)=>device(state,deviceToken,time,false).id,{deviceHash:hash(deviceToken??'')});
+      await repository.touchPresence?.(terminalId,now().toISOString());
+      schedulePresenceExpiry(terminalId);
+      return {alive:true};
+    },
+    async sweep() {
+      const needed=await (repository.read??repository.transact).call(repository,async state=>{
+        const catalog=(await siteProvider()).map(({id,name,active})=>({id,name,active:active!==false}));
+        const value=copy(state);cleanup(value,now(),catalog);return value.revision!==state.revision;
+      },{maintenance:true});
+      if(needed)await transaction(()=>{});
+    },
+    async staffValidity(staffToken) {return readOperation((state,time)=>{const p=staff(state,staffToken,time);demand(p,'customerApprovalRead');return {actualUserId:p.actor.id,effectiveUserId:p.user.id};},{staffHash:hash(staffToken??'')});},
+    close() {for(const timers of presenceTimers.values()){clearTimeout(timers.offline);clearTimeout(timers.disconnected);}presenceTimers.clear();},
     logout(deviceToken) {
       return transaction((state, time, catalog) => {
         const terminal = device(state, deviceToken, time);
@@ -347,15 +397,17 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         audit(state, time, 'terminal.logout', undefined, { terminalId: terminal.id }); return { loggedOut: true };
       });
     },
-    send(payload, staffToken) {
+    send(payload, staffToken, preparedIdentity, requireStaffSession = false) {
       const request = validate(sendSchema, payload);
       return transaction((state, time, catalog) => {
-        const principal = staff(state, staffToken, time); demand(principal, 'prepare', 'customerApprovalRead'); demandMoney(principal); demandSite(principal, request.siteId, catalog);
+        const principal = preparedIdentity && !requireStaffSession ? principalStore.principal(preparedIdentity.actorId,preparedIdentity.userId) : staff(state, staffToken, time);
+        if (preparedIdentity && (principal.actor.id !== preparedIdentity.actorId || principal.user.id !== preparedIdentity.userId)) throw new TerminalDemoError('Kontorets aktiva användare har ändrats. Försök igen i den aktuella vyn.',409,'staff_identity_changed');
+        demand(principal, 'prepare', 'customerApprovalRead'); demandMoney(principal); demandSite(principal, request.siteId, catalog);
         const fingerprint = hash(JSON.stringify(request));
         const existingRequest = state.requests.find((entry) => entry.key === request.idempotencyKey && entry.userId === principal.user.id);
         if (existingRequest) {
           if (existingRequest.fingerprint !== fingerprint) throw new TerminalDemoError('Utskickets ID används för ett annat underlag.', 409, 'idempotency_conflict');
-          return approvalDTO(state.approvals.find((entry) => entry.id === existingRequest.approvalId), principal);
+          return approvalDTO(state.approvals.find((entry) => entry.id === existingRequest.approvalId), principal,state.revision);
         }
         demandActiveSite(principal, request.siteId, catalog);
         const previous = state.approvals.filter((entry) => entry.cardId === request.card.id).at(-1);
@@ -409,11 +461,11 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         const approval = { id: randomUUID(), cardId: request.card.id, siteId: request.siteId, terminalId: terminal.id,
           version: (previous?.version ?? 0) + 1, status: 'waiting', createdAt: time.toISOString(), updatedAt: time.toISOString(),
           expiresAt: new Date(time.getTime() + approvalAge).toISOString(), sentBy: principal.user.name,
-          actualUserId: principal.actor.id, effectiveUserId: principal.user.id, correctionIds: request.correctionIds, snapshot };
+          actualUserId: principal.actor.id, effectiveUserId: principal.user.id, correctionIds: request.correctionIds, siteSnapshot: copy(selectedSite), snapshot };
         state.approvals.push(approval);
         state.requests.push({ key: request.idempotencyKey, userId: principal.user.id, fingerprint, approvalId: approval.id });
         audit(state, time, 'approval.sent', principal, { approvalId: approval.id, cardId: approval.cardId, terminalId: terminal.id, version: approval.version });
-        return approvalDTO(approval, principal);
+        return approvalDTO(approval, principal,state.revision);
       });
     },
     respond(approvalId, payload, deviceToken) {
@@ -424,12 +476,21 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         if (!approval || approval.id !== approvalId) throw new TerminalDemoError('Kundvisningen har ersatts eller avslutats.', 409, 'stale_approval');
         if (request.action === 'id_requested' && !request.termsAccepted) throw new TerminalDemoError('Bekräfta säljarens intygande först.');
         if (request.action === 'change_requested' && !request.comment) throw new TerminalDemoError('Beskriv vad som behöver ändras.');
-        if (approval.status === 'id_requested' && request.action === 'id_requested') return publicApproval(approval);
+        if (approval.status === 'id_requested' && request.action === 'id_requested') return publicApproval(approval,state.revision);
         approval.status = request.action; approval.updatedAt = time.toISOString();
         if (request.comment) approval.comment = request.comment;
         if (request.action === 'id_requested') approval.termsAcceptedAt = time.toISOString();
         audit(state, time, `approval.${request.action}`, undefined, { terminalId: terminal.id, approvalId, version: approval.version });
-        return publicApproval(approval);
+        return publicApproval(approval,state.revision);
+      });
+    },
+    displayed(approvalId,payload,deviceToken) {
+      const request=validate(z.object({version:z.number().int().positive(),snapshotHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),payload);
+      return transaction((state,time)=>{
+        const terminal=device(state,deviceToken,time,false),approval=activeApproval(state,terminal.id);
+        if(!approval||approval.id!==approvalId||approval.version!==request.version||approval.snapshot.hash!==request.snapshotHash)throw new TerminalDemoError('Kundvisningen har ersatts eller avslutats.',409,'stale_approval');
+        if(!approval.displayedAt){approval.displayedAt=time.toISOString();approval.updatedAt=time.toISOString();audit(state,time,'approval.displayed',undefined,{terminalId:terminal.id,approvalId,version:approval.version});}
+        return publicApproval(approval,state.revision);
       });
     },
     cancel(approvalId, staffToken) {
@@ -438,26 +499,26 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         const approval = getApproval(state, approvalId, principal, catalog);
         if (approval.status === 'attested') throw new TerminalDemoError('Kortet är redan attesterat. Använd rättelseflödet.', 409, 'card_locked');
         if (approval.status !== 'cancelled') releaseApproval(state, approval, 'cancelled', time, principal, 'Kundvisningen avslutades av kontoret.');
-        return approvalDTO(approval, principal);
+        return approvalDTO(approval, principal,state.revision);
       });
     },
     confirmId(approvalId, staffToken) {
       return transaction((state, time, catalog) => {
         const principal = staff(state, staffToken, time); demand(principal, 'prepare', 'verifyId'); demandMoney(principal);
         const approval = getApproval(state, approvalId, principal, catalog);
-        if (approval.status === 'approved') return approvalDTO(approval, principal);
+        if (approval.status === 'approved') return approvalDTO(approval, principal,state.revision);
         if (approval.status !== 'id_requested') throw new TerminalDemoError('Kunden måste först välja legitimation och bekräfta intygandet på terminalen.', 409, 'id_not_requested');
         approval.status = 'approved'; approval.approvedBy = principal.user.name; approval.approvedAt = time.toISOString();
         approval.approvedMethod = 'staff_checked_id_demo'; approval.approvedHash = approval.snapshot.hash; approval.updatedAt = time.toISOString();
         audit(state, time, 'approval.approved_by_staff', principal, { approvalId, version: approval.version, hash: approval.snapshot.hash, method: approval.approvedMethod });
-        return approvalDTO(approval, principal);
+        return approvalDTO(approval, principal,state.revision);
       });
     },
     attest(approvalId, staffToken) {
       return transaction(async (state, time, catalog) => {
         const principal = staff(state, staffToken, time); demand(principal, 'attest');
         const approval = getApproval(state, approvalId, principal, catalog);
-        if (approval.status === 'attested') return approvalDTO(approval, principal);
+        if (approval.status === 'attested') return approvalDTO(approval, principal,state.revision);
         if (approval.status !== 'approved' || approval.approvedHash !== approval.snapshot.hash) throw new TerminalDemoError('Aktuell avräkningsversion måste vara kundgodkänd före intern attest.', 409, 'customer_approval_required');
         if (!principal.user.ownAttest && (principal.user.id === approval.effectiveUserId || principal.actor.id === approval.actualUserId)) throw new TerminalDemoError('Du får inte attestera ditt eget underlag.', 403, 'own_attest_forbidden');
         if (approval.snapshot.gross > principal.user.maxAttest) throw new TerminalDemoError('Beloppet överstiger din attestgräns.', 403, 'attest_limit');
@@ -471,10 +532,11 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         approval.status = 'attested'; approval.attestedBy = principal.user.name; approval.attestedUserId = principal.user.id;
         approval.attestedAt = time.toISOString(); approval.updatedAt = time.toISOString();
         audit(state, time, 'approval.internally_attested', principal, { approvalId, version: approval.version, hash: approval.snapshot.hash, ...(receipt?.required ? { environmentReceipt: receipt } : {}) });
-        return approvalDTO(approval, principal);
+        return approvalDTO(approval, principal,state.revision);
       });
     },
   };
+  return service;
 }
 
 const MAX_BODY = 256 * 1024;
@@ -487,7 +549,12 @@ function cookie(req, name) {
 }
 function setCookie(req, res, name, value, age, env) {
   const secure = Boolean(env.RENDER || req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https');
-  res.setHeader('Set-Cookie', `${name}=${value}; Path=/api/terminal-demo; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(age / 1000)}${secure ? '; Secure' : ''}`);
+  const attributes=`HttpOnly; SameSite=Strict; Max-Age=${Math.floor(age / 1000)}${secure ? '; Secure' : ''}`;
+  // Compound application commands need the same authenticated office cookie.
+  // Delete its legacy narrower cookie so it cannot shadow the new session.
+  res.setHeader('Set-Cookie',name===STAFF_COOKIE
+    ? [`${name}=${value}; Path=/; ${attributes}`,`${name}=; Path=/api/terminal-demo; HttpOnly; SameSite=Strict; Max-Age=0${secure ? '; Secure' : ''}`]
+    : `${name}=${value}; Path=/api/terminal-demo; ${attributes}`);
 }
 function json(res, status, value, head = false) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
@@ -510,53 +577,117 @@ async function body(req) {
   catch { throw new TerminalDemoError('Ogiltig JSON.'); }
 }
 
-export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, onApprovalChanged, env = process.env, now, approvalAge } = {}) {
-  let repositoryPromise;
-  let storePromise;
+export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, onApprovalChanged, env = process.env, now = () => new Date(), approvalAge } = {}) {
+  let repositoryPromise, storePromise, jobsRunning, jobTimer, maintenanceTimer, backgroundStarted = false, closed = false;
+  const eventStreams = new Set();
   const getStore = () => {
     if (!storePromise) {
       repositoryPromise = repository ? Promise.resolve(repository) : createTerminalDemoRepository({ env });
-      storePromise = repositoryPromise.then((value) => createTerminalDemoStore({ repository: value, principalStore, siteProvider, environmentApprovalCheck, now, approvalAge }));
-      // A temporary startup failure must not poison every later retry.
+      storePromise = repositoryPromise.then(value => createTerminalDemoStore({ repository: value, principalStore, siteProvider, environmentApprovalCheck, now, approvalAge }));
       const attempt = storePromise;
-      attempt.catch(() => {
+      attempt.then(() => afterDatabaseCommit(startBackground), () => {
         if (storePromise === attempt) { storePromise = undefined; repositoryPromise = undefined; }
       });
     }
     return storePromise;
   };
-  const eventStreams = new Set();
-  async function archiveChangedApproval(result) {
-    if (!onApprovalChanged) return;
-    // Approval is already committed. A PDF failure must never roll it back or
-    // mislead the user into repeating a successful customer/attest action.
-    // The document API also recovers missing versions from persisted snapshots.
-    try { await onApprovalChanged(result); }
-    catch { console.error('PDF-arkivering väntar på återförsök.'); }
+  // The persistent queue is part of the approval transaction. The worker owns a
+  // fenced lease and archives its immutable milestone, even if the current card
+  // is later cancelled. A failed archive remains pending across server restarts.
+  const drainJobs = async () => {
+    if (!onApprovalChanged || closed) return;
+    if (jobsRunning) return jobsRunning;
+    jobsRunning = (async () => {
+      const repo = await repositoryPromise;
+      while (!closed) {
+        const job = await repo.claimDocumentJob(now().toISOString());
+        if (!job) break;
+        let failure;
+        try { await onApprovalChanged(job.approval, { stage: job.stage, jobId: job.id, sourceHash: job.sourceHash, siteSnapshot: job.siteSnapshot }); }
+        catch (error) { failure = error; }
+        await repo.finishDocumentJob(job, failure, now().toISOString());
+        if (failure) break;
+      }
+    })().finally(() => { jobsRunning = undefined; });
+    return jobsRunning;
+  };
+  const scheduleJobs = () => afterDatabaseCommit(() => {
+    if (!closed && onApprovalChanged) setImmediate(() => { void drainJobs().catch(() => console.warn('PDF-arkivering väntar på återförsök.')); });
+  });
+  function startBackground() {
+    if (closed || backgroundStarted) return;
+    backgroundStarted = true;
+    if (onApprovalChanged) {
+      scheduleJobs();
+      jobTimer = setInterval(() => { void drainJobs().catch(() => console.warn('PDF-arkivering väntar på återförsök.')); }, 10000); jobTimer.unref();
+    }
+    maintenanceTimer = setInterval(() => { void getStore().then(store => store.sweep()).catch(() => {}); }, 15000); maintenanceTimer.unref();
   }
-  async function stream(req, res, reader) {
-    const initial = await reader();
+  async function stream(req, res, store, staffToken, deviceToken, selectedSite, terminalStream) {
+    const expected = expectedStaffIdentity.getStore();
+    const reader = terminalStream ? () => store.session(deviceToken) : () => expectedStaffIdentity.run(expected, () => store.read(staffToken, selectedSite));
+    const baselineChanges=new Map();let deliverChange;
+    // Subscribe before the snapshot read: a commit that races the baseline is
+    // reconciled immediately instead of waiting for the recovery interval.
+    const unsubscribe=store.repository.events.subscribe(change=>{
+      if(deliverChange)deliverChange(change);else baselineChanges.set(change.domain,change);
+    });
+    let initial;
+    try {
+      await store.repository.events.ready();
+      if (terminalStream) await store.heartbeat(deviceToken);
+      initial=await reader();
+    }catch(error){unsubscribe();throw error;}
+    const identity = terminalStream ? { connectionId: initial.connectionId } : { actualUserId: initial.actualUserId, effectiveUserId: initial.effectiveUserId };
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store',
       Connection: 'keep-alive', 'X-Accel-Buffering': 'no', 'Referrer-Policy': 'no-referrer' });
     res.flushHeaders();
-    let fingerprint = hash(JSON.stringify(initial));
-    res.write(`event: state\ndata: ${JSON.stringify(initial)}\n\n`);
-    let reading = false;
-    const timer = setInterval(async () => {
-      if (reading || res.destroyed) return;
+    let fingerprint = hash(JSON.stringify(initial)), reading = false, pending, stopped = false;
+    const write = (event, value, eventId = randomUUID()) => { if (!stopped && !res.destroyed) res.write(`id: ${eventId}\nevent: ${event}\ndata: ${JSON.stringify(value)}\n\n`); };
+    write('state', initial);
+    const refresh = async (eventId, force = false) => {
+      if (stopped || res.destroyed) return;
+      if (reading) { pending = { eventId, force }; return; }
       reading = true;
       try {
-        const value = await reader(); const next = hash(JSON.stringify(value));
-        if (next !== fingerprint) { fingerprint = next; res.write(`event: state\ndata: ${JSON.stringify(value)}\n\n`); }
-        else res.write(': heartbeat\n\n');
-      } catch { res.write('event: session-ended\ndata: {}\n\n'); res.end(); }
-      finally { reading = false; }
-    }, 2000);
-    timer.unref();
-    const close = () => { clearInterval(timer); eventStreams.delete(close); if (!res.destroyed) res.end(); };
-    eventStreams.add(close); req.on('close', close);
+        const value = await reader();
+        // A session epoch never inherits the previous display, even with a
+        // higher aggregate revision after a controlled device takeover.
+        if (terminalStream && value.connectionId !== identity.connectionId) throw new TerminalDemoError('Terminalsessionen har ersatts.', 401);
+        if (!terminalStream && (value.actualUserId !== identity.actualUserId || value.effectiveUserId !== identity.effectiveUserId)) throw new TerminalDemoError('Kontorets session har ersatts.',401);
+        const next = hash(JSON.stringify(value));
+        if (force || next !== fingerprint) { fingerprint = next; write('state', value, eventId); }
+      } catch { write('session-ended', {}); close(); }
+      finally { reading = false; if (pending && !stopped) { const next=pending; pending=undefined; void refresh(next.eventId,next.force); } }
+    };
+    deliverChange = change => {
+      if (stopped) return;
+      write('change', { ...change, ...identity }, change.eventId);
+      if (['terminal','terminal-presence','application'].includes(change.domain)) void refresh(change.eventId);
+    };
+    let checking = false;
+    const safety = setInterval(async () => {
+      if (checking || stopped) return;
+      checking = true;
+      try {
+        if (terminalStream) await store.heartbeat(deviceToken);
+        else {
+          const current = await expectedStaffIdentity.run(expected,()=>store.staffValidity(staffToken));
+          if (current.actualUserId !== identity.actualUserId || current.effectiveUserId !== identity.effectiveUserId) throw new TerminalDemoError('Sessionen har ersatts.',401);
+        }
+        write('heartbeat', identity);
+      } catch { write('session-ended', {}); close(); }
+      finally { checking = false; }
+    },15000); safety.unref();
+    // Recovery bounds a lost notification. Healthy streams otherwise read only
+    // on changes; there is no 2-second aggregate poll or presence rewrite.
+    const recovery = setInterval(() => { void refresh(); },30000); recovery.unref();
+    const close = () => { if (stopped) return; stopped=true; unsubscribe(); clearInterval(safety); clearInterval(recovery); eventStreams.delete(close); if (!res.destroyed) res.end(); };
+    eventStreams.add(close); res.on('close',close);
+    for(const change of baselineChanges.values())deliverChange(change);
+    baselineChanges.clear();
   }
-  const api = async (req, res, url) => {
+  const handle = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/terminal-demo')) return false;
     try {
       checkOrigin(req);
@@ -567,8 +698,9 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
       const head = req.method === 'HEAD';
       if (read && route === '/state') json(res, 200, await store.read(staffToken, url.searchParams.get('siteId')), head);
       else if (read && route === '/session') json(res, 200, await store.session(deviceToken), head);
-      else if (req.method === 'GET' && route === '/events') await stream(req, res, () => store.read(staffToken, url.searchParams.get('siteId')));
-      else if (req.method === 'GET' && route === '/terminal-events') await stream(req, res, () => store.session(deviceToken));
+      else if (req.method === 'GET' && route === '/events') await stream(req,res,store,staffToken,deviceToken,url.searchParams.get('siteId'),false);
+      else if (req.method === 'GET' && route === '/terminal-events') await stream(req,res,store,staffToken,deviceToken,undefined,true);
+      else if (req.method === 'POST' && route === '/heartbeat') { await body(req); json(res,200,await store.heartbeat(deviceToken)); }
       else if (req.method === 'POST' && route === '/staff-session') {
         const result = await store.staffSession(await body(req), staffToken);
         setCookie(req, res, STAFF_COOKIE, result.token, STAFF_AGE, env); json(res, 200, result.result);
@@ -581,23 +713,19 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
       } else if (req.method === 'POST' && route === '/terminals') json(res, 201, await store.createTerminal(await body(req), staffToken));
       else if (req.method === 'PUT' && route === '/defaults') json(res, 200, await store.defaultTerminal(await body(req), staffToken));
       else if (req.method === 'POST' && route === '/approvals') {
-        const result = await store.send(await body(req), staffToken);
-        await archiveChangedApproval(result);
-        json(res, 201, result);
-      }
-      else {
+        const result = await store.send(await body(req), staffToken); scheduleJobs(); json(res, 201, result);
+      } else {
         const terminal = route.match(/^\/terminals\/([^/]+)(?:\/(release))?$/);
-        const approval = route.match(/^\/approvals\/([^/]+)\/(cancel|confirm-id|attest|respond)$/);
+        const approval = route.match(/^\/approvals\/([^/]+)\/(cancel|confirm-id|attest|respond|displayed)$/);
         if (terminal && req.method === 'PATCH' && !terminal[2]) json(res, 200, await store.updateTerminal(terminal[1], await body(req), staffToken));
         else if (terminal && req.method === 'POST' && terminal[2] === 'release') { await body(req); json(res, 200, await store.releaseTerminal(terminal[1], staffToken)); }
         else if (approval && req.method === 'POST') {
-          const value = await body(req);
-          const action = approval[2];
+          const value = await body(req), action = approval[2];
           const result = action === 'respond' ? await store.respond(approval[1], value, deviceToken)
-            : action === 'cancel' ? await store.cancel(approval[1], staffToken)
-              : action === 'confirm-id' ? await store.confirmId(approval[1], staffToken) : await store.attest(approval[1], staffToken);
-          if (action === 'confirm-id' || action === 'attest') await archiveChangedApproval(result);
-          json(res, 200, result);
+            : action === 'displayed' ? await store.displayed(approval[1],value,deviceToken)
+              : action === 'cancel' ? await store.cancel(approval[1], staffToken)
+                : action === 'confirm-id' ? await store.confirmId(approval[1], staffToken) : await store.attest(approval[1], staffToken);
+          scheduleJobs(); json(res, 200, result);
         } else throw new TerminalDemoError('API-vyn finns inte eller metoden stöds inte.', 404, 'not_found');
       }
     } catch (error) {
@@ -610,12 +738,27 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
     }
     return true;
   };
+  const api = (req,res,url) => {
+    const actualUserId=req.headers['x-terminal-actual-user'],effectiveUserId=req.headers['x-terminal-effective-user'];
+    return expectedStaffIdentity.run(actualUserId||effectiveUserId?{actualUserId,effectiveUserId}:undefined,()=>handle(req,res,url));
+  };
+  api.initialize = async () => { await getStore(); };
+  api.sendPrepared = async (payload,identity,req) => {
+    const expected=req?{actualUserId:req.headers['x-terminal-actual-user']??identity.actorId,effectiveUserId:req.headers['x-terminal-effective-user']??identity.userId}:undefined;
+    const result=await expectedStaffIdentity.run(expected,async()=>(await getStore()).send(payload,req?cookie(req,STAFF_COOKIE):undefined,identity,Boolean(req)));
+    scheduleJobs();return result;
+  };
   api.withApprovedCard = async (input, operation) => (await getStore()).withApprovedCard(input, operation);
-  api.projections = async () => (await getStore()).projections();
+  api.projections = async cardId => (await getStore()).projections(cardId);
   api.documentProjections = async () => (await getStore()).documentProjections();
+  api.drainDocumentJobs = async () => { await getStore(); return drainJobs(); };
+  api.documentJobs = async () => { await getStore(); return (await repositoryPromise).documentJobs(); };
   api.close = async () => {
+    closed=true; clearInterval(jobTimer); clearInterval(maintenanceTimer);
     for (const close of [...eventStreams]) close();
-    if (repositoryPromise) await repositoryPromise.then((value) => value.close()).catch(() => {});
+    if (jobsRunning) await jobsRunning.catch(()=>{});
+    if(storePromise)await storePromise.then(store=>store.close()).catch(()=>{});
+    if (repositoryPromise) await repositoryPromise.then(value => value.close()).catch(() => {});
   };
   return api;
 }

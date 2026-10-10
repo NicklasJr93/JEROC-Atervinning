@@ -197,7 +197,8 @@ export function OfficeApp() {
       ? (data.users.find((u) => u.id === actingId && u.active !== false) ?? actualUser)
       : actualUser;
   const principalRef = useRef('');
-  principalRef.current = `${actualUser?.id ?? ''}:${user?.id ?? ''}`;
+  const principalIdentity = `${actualUser?.id ?? ''}:${user?.id ?? ''}:${user?.level ?? ''}/${user?.permissions.join(',') ?? ''}/${user?.siteIds?.join(',') ?? 'all'}`;
+  principalRef.current = principalIdentity;
   const acting = Boolean(actualUser && user && actualUser.id !== user.id);
 
   const terminalDemo = useTerminalDemo(actualUser, user);
@@ -225,13 +226,14 @@ export function OfficeApp() {
   };
   const [selectedTerminalId, setSelectedTerminalId] = useState('');
   useEffect(() => { setSelectedTerminalId(''); }, [user?.id, siteFilter]);
+  const approvalWorkflowKey = terminalDemo.state?.approvals.map(approval => `${approval.id}/${approval.version}/${approval.status}`).sort().join('|');
   useEffect(() => {
     if (!terminalDemo.state || !user) return;
     // Approval status, frozen prices, audit and payment history are projected
     // together by the office API. A terminal response (possibly redacted for
     // this user) must never become a new business-data write for every card.
     void shared.refresh();
-  }, [terminalDemo.state?.revision, user?.id, actualUser?.id]);
+  }, [approvalWorkflowKey, user?.id, actualUser?.id]);
   const auditActor = user
     ? `${acting ? `${actualUser!.name} som ` : ''}${user.name} · Kontor Norrtälje`
     : '';
@@ -304,6 +306,7 @@ export function OfficeApp() {
   const [quickCustomerOpen, setQuickCustomerOpen] = useState(false);
   const [customerCreation, setCustomerCreation] = useState<{ cardId: number; returnRoute: string; draft: OfficeCustomer; principal: string }>();
   const [approvalPreview, setApprovalPreview] = useState<TerminalApproval>();
+  const reviewRequestRef = useRef<{ fingerprint: string; key: string } | undefined>(undefined);
   useEffect(() => {
     setPayBalance(false);
     setDocumentType(undefined);
@@ -551,104 +554,63 @@ export function OfficeApp() {
     }
   }
   async function prepareCard(card: OfficeCard, terminal: { id: string; siteId: string }) {
-    if (
-      !user ||
-      !actualUser ||
-      !can(user, 'prepare') ||
-      !can(user, 'customerApprovalRead') ||
-      priceBusy ||
-      blocked ||
-      !['new', 'complement'].includes(card.status) ||
-      !card.customerId ||
-      !(
-        validPaymentDetails(card.paymentDetails) || Boolean(card.payment.trim())
-      )
-    )
-      return false;
+    if (!user || !actualUser || !can(user, 'prepare') || !can(user, 'customerApprovalRead') ||
+        priceBusy || blocked || !['new', 'complement'].includes(card.status) || !card.customerId ||
+        !(validPaymentDetails(card.paymentDetails) || Boolean(card.payment.trim()))) return false;
     if (!card.origin.trim() || detailsDirty || !dataRef.current.cards.find(item => item.id === card.id)?.origin.trim()) {
-      setMessage(
-        'Fyll i och spara ursprungsadressen innan kundgodkännandet startas.',
-      );
+      setMessage('Fyll i och spara ursprungsadressen innan kundgodkännandet startas.');
       return false;
     }
     const principalId = principalRef.current;
     setPriceBusy(true);
     try {
-      const archive = await pricingRequest<{ snapshots: { id: string }[] }>(
-        `snapshots?cardId=${card.id}`,
-        user,
-        actualUser,
-      );
-      const previousSnapshot = archive.snapshots.at(-1);
-      const snapshot = await pricingRequest<PricingQuote & { id: string }>(
-        'snapshots',
-        user,
-        actualUser,
-        {
-          cardId: String(card.id),
-          ...(previousSnapshot
-            ? { supersedesSnapshotId: previousSnapshot.id }
-            : {}),
-          customerId: card.customerId,
-          deliveredAt: card.date,
-          excludeCardId: String(card.id),
-          rows: card.rows.map((r) => ({
-            articleId: r.articleId,
-            weight: r.weight,
-            ...(can(user, 'changePrice') && !r.pricePending && (r.manualOverride || !r.source)
-              ? {
-                  override: {
-                    price: r.price,
-                    tier: r.tier,
-                    reason: r.manualOverride
-                      ? 'Spårbar prisändring på viktkort'
-                      : 'Befintligt prissatt demounderlag',
-                  },
-                }
-              : {}),
-          })),
-        },
-      );
+      // The command uses the durable card, not an optimistic queued browser copy.
+      // Freeze, reservation and customer review are one server-confirmed command.
+      await shared.flush();
       if (principalRef.current !== principalId) return false;
-      const rows = snapshot.rows.map((r, i) => ({
-        ...card.rows[i],
-        price: r.price ?? card.rows[i].price,
-        pricePending: r.price == null,
-        tier:
-          r.tier === 'Special'
-            ? ('Eget' as const)
-            : (r.tier as OfficeCard['rows'][number]['tier']),
-        volumeBefore: r.volumeBefore ?? undefined,
-        volumeWithDelivery: r.volumeWithDelivery ?? undefined,
-        source: r.source,
-      }));
-      const customer = dataRef.current.customers.find(item => item.id === card.customerId) ?? card.customerSnapshot;
-      if (!customer || snapshot.total == null || rows.some(row => row.pricePending)) throw new Error('Kund och fullständiga priser krävs för kundvisningen.');
-      const frozen: OfficeCard = {
-        ...card, rows, siteId: terminal.siteId, pricingSnapshotId: snapshot.id,
-        pricedAt: card.date, pricingTotal: snapshot.total, financialPending: false, pricingRowsPending: false,
-        preparedBy: user.id, customerSnapshot: customer,
-        paymentDetails: card.paymentDetails ?? customer.paymentProfile,
-      };
-      const preview = settlementPreview({ ...dataRef.current, cards: dataRef.current.cards.map(item => item.id === card.id ? { ...frozen, status: 'ready' as const } : item) }, card.id);
-      const sentReview = await terminalDemoApi.send({
-        card: frozen, customer, terminalId: terminal.id, siteId: terminal.siteId,
-        rows: rows.map(row => ({ articleId: row.articleId, name: row.articleName ?? articleById(row.articleId)?.name ?? row.articleId, weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })),
-        offset: preview.offset, correctionIds: preview.negativeCorrectionIds,
-        idempotencyKey: `review-${snapshot.id}-${terminal.id}-${card.customerApproval?.version ?? 0}`,
-      });
-      if (!['waiting', 'id_requested'].includes(sentReview.status)) throw new Error('Kundvisningen kunde inte startas. Läs in kortet och försök igen.');
-      await terminalDemo.refresh();
-      setMessage('Avräkningen visas på kundterminalen. Inväntar kundens svar.');
+      const current = dataRef.current.cards.find(item => item.id === card.id);
+      if (!current || !['new', 'complement'].includes(current.status)) throw new Error('Kortet har ändrats. Läs in det och försök igen.');
+      const expectedCard = structuredClone(current);
+      const fingerprint = JSON.stringify({ principalId, expectedCard, terminal });
+      if (reviewRequestRef.current?.fingerprint !== fingerprint) reviewRequestRef.current = { fingerprint, key: `review-${crypto.randomUUID()}` };
+      const result = await terminalDemoApi.customerReview({
+        cardId: card.id, terminalId: terminal.id, siteId: terminal.siteId,
+        expectedCard, idempotencyKey: reviewRequestRef.current.key,
+      }, actualUser.id, user.id);
+      if (principalRef.current !== principalId) return false;
+      if (!['waiting', 'id_requested'].includes(result.approval.status)) throw new Error('Kundvisningen kunde inte startas. Läs in kortet och försök igen.');
+      const projection = officeSchema.shape.cards.element.parse(result.cardProjection);
+      shared.applyConfirmed(live => ({ ...live, cards: live.cards.map(item => item.id === projection.id ? projection : item) }), result.revision);
+      terminalDemo.applyApproval(result.approval);
+      setMessage(result.approval.displayedAt
+        ? 'Avräkningen visas på kundterminalen. Inväntar kundens svar.'
+        : 'Avräkningen är skickad till kundterminalen. Inväntar kundens svar.');
+      // Other queue totals can reconcile independently of this committed result.
+      void shared.refresh();
       return true;
-    } catch (e) {
-      const failure = e instanceof Error ? e : new Error('Underlaget kunde inte låsas. Försök igen.');
-      setMessage(failure.message);
-      throw failure;
+    } catch (failure) {
+      const error = failure instanceof Error ? failure : new Error('Underlaget kunde inte låsas. Försök igen.');
+      if (principalRef.current === principalId) setMessage(error.message);
+      throw error;
     } finally {
-      setPriceBusy(false);
+      if (principalRef.current === principalId) setPriceBusy(false);
     }
   }
+  function applyConfirmedApproval(approval: TerminalApproval) {
+    if (principalRef.current !== principalIdentity) return;
+    terminalDemo.applyApproval(approval);
+    // This is the server's scoped workflow projection, never a business-data save.
+    const frozen = officeSchema.shape.cards.element.safeParse({
+      ...approval.snapshot.card, siteId: approval.siteId, customerSnapshot: approval.snapshot.customer,
+      customerApproval: { id: approval.id, version: approval.version, status: approval.status, updatedAt: approval.updatedAt,
+        approvedBy: approval.approvedBy, approvedAt: approval.approvedAt, attestedBy: approval.attestedBy, attestedAt: approval.attestedAt },
+    });
+    if (frozen.success) shared.applyConfirmed(live => ({ ...live, cards: live.cards.map(item => item.id !== approval.cardId ? item :
+      // A cancelled review must not restore an earlier draft over newer edits.
+      approval.status === 'cancelled' ? { ...item, status: 'complement', customerApproval: frozen.data.customerApproval } : frozen.data) }));
+    void shared.refresh();
+  }
+
   async function attestCard(card: OfficeCard) {
     if (!user || !actualUser || attestBusy || priceBusy || blocked || !can(user, 'attest')) return;
     const current = dataRef.current.cards.find(item => item.id === card.id);
@@ -657,10 +619,11 @@ export function OfficeApp() {
     setAttestBusy(true);
     try {
       if (current.customerApproval) {
-        await terminalDemoApi.attest(current.customerApproval.id);
+        await shared.flush();
         if (principalRef.current !== principal) return;
-        await terminalDemo.refresh();
-        await shared.refresh();
+        const approval = await terminalDemoApi.attest(current.customerApproval.id, { actualUserId: actualUser.id, effectiveUserId: user.id });
+        if (principalRef.current !== principal) return;
+        applyConfirmedApproval(approval);
       } else if (!update({ ...current, status: current.paymentDetails?.method === 'balance' ? 'balance' : 'ready', approvedBy: user.id },
         current.paymentDetails?.method === 'balance' ? 'Kortet attesterat. Beloppet sparat på kundens saldo.' : 'Kortet attesterat och klart för utbetalning.', 'attest')) return;
       setMessage(current.paymentDetails?.method === 'balance' ? 'JEROC-attesterat. Beloppet ligger på kundens saldo.' : 'Kortet är JEROC-attesterat och klart för manuell utbetalning.');
@@ -670,14 +633,20 @@ export function OfficeApp() {
     } finally { setAttestBusy(false); }
   }
   async function returnCard(card: OfficeCard) {
-    if (!user || blocked || attestBusy || priceBusy || !can(user, 'attest')) return;
+    if (!user || !actualUser || blocked || attestBusy || priceBusy || !can(user, 'attest')) return;
     if (card.customerApproval) {
       if (!can(user, 'prepare')) return;
+      const principal = principalRef.current;
+      setAttestBusy(true);
       try {
-        await terminalDemoApi.cancel(card.customerApproval.id);
-        await terminalDemo.refresh();
+        await shared.flush();
+        if (principalRef.current !== principal) return;
+        const approval = await terminalDemoApi.cancel(card.customerApproval.id, { actualUserId: actualUser.id, effectiveUserId: user.id });
+        if (principalRef.current !== principal) return;
+        applyConfirmedApproval(approval);
         setMessage('Kundgodkännandet har återkallats. Komplettera kortet och visa en ny version för kunden.');
-      } catch (failure) { setMessage(failure instanceof Error ? failure.message : 'Kortet kunde inte returneras.'); }
+      } catch (failure) { if (principalRef.current === principal) setMessage(failure instanceof Error ? failure.message : 'Kortet kunde inte returneras.'); }
+      finally { if (principalRef.current === principal) setAttestBusy(false); }
     } else update({ ...card, status: 'complement' }, 'Returnerat för komplettering.', 'attest');
   }
   const editable =
@@ -1669,6 +1638,7 @@ export function OfficeApp() {
                     )}
                   </section>
                   {(can(user, 'customerApprovalRead') || can(user, 'prepare')) && <ApprovalControls
+                    principal={{ actualUserId: actualUser!.id, effectiveUserId: user.id }}
                     guidance={panelGuidance('approval')}
                     approval={selectedApproval}
                     state={terminalDemo.state}
@@ -1682,6 +1652,8 @@ export function OfficeApp() {
                     canSeeMoney={approvalMoneyVisible(user)}
                     onSend={(terminalId, siteId) => prepareCard(selected, { id: terminalId, siteId })}
                     onRefresh={terminalDemo.refresh}
+                    onBeforeAction={shared.flush}
+                    onConfirmed={applyConfirmedApproval}
                     onNotice={setMessage}
                   />}
                   {can(user, 'environmentRead') && selected.kind !== 'correction' && (
