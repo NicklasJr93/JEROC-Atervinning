@@ -26,12 +26,15 @@ Det tidigare kontrollförsökets begäran har `verksamhetsutovare: "5560000167"`
 `verksamhetensNamn: "Testbolag 1"`. Inga ombudsfält skickas: verksamhetsutövaren
 rapporterar själv och OpenAPI anger att ombud då ska utelämnas.
 
-Vi har verifierat certifikatet som den faktiska HTTPS-anslutningen använder.
+Vi har verifierat det klientcertifikat som serverns TLS-socket visar som laddat.
 Det är Expisofts Testbolag 1, organisationsnummer `5560000167`, utfärdare
 ExpiTrust Test CA v8, giltigt 2026-04-09–2028-04-09 och med clientAuth.
 Certifikatets SHA-256-fingeravtryck är:
 
 `71:0F:90:58:33:AA:17:60:90:89:48:AC:2A:DD:87:F3:B0:12:64:4E:88:6C:84:B5:FB:AB:13:A7:E5:5D:72:27`
+
+Denna lokala metadata bevisar inte vilket certifikat eller organisationsvärde
+er gateway faktiskt tog emot eller använde i rapporteringskontrollen.
 
 Felet kvarstår även efter ett kontrollerat nytt försök med en ny TLS-anslutning
 utan återanvändning av tidigare anslutning eller TLS-session.
@@ -56,7 +59,10 @@ Kan ni hjälpa oss att kontrollera följande för detta TraceId?
    eller någon annan registrering?
 2. Vilken X.509-egenskap och OID läser ni, och hur normaliseras värdet? Vi vill
    särskilt förstå hanteringen av `serialNumber` respektive
-   `organizationIdentifier` och eventuellt svenskt `16`-prefix.
+   `organizationIdentifier` och eventuellt svenskt `16`-prefix. Vårt certifikat
+   har `serialNumber` (`2.5.4.5`) med värdet `165560000167` i samma multivärda
+   RDN som CN `Testbolag 1`; `organizationIdentifier` (`2.5.4.97`) saknas.
+   Stöder er identitetsläsare den Subject-layouten?
 3. Krävs en särskild koppling i anslutningsportalen mellan vårt testkonto och
    Expisofts Testbolag 1-certifikat? Finns någon särskild identitets- eller
    ombudsregel för detta generella testcertifikat?
@@ -133,3 +139,6 @@ certifikatets identitetsfält/profil samt kopplingen till API-anslutningen.
   den aktuella publika benämningen ExpiTrust Test CA v8.
 - [Certifikatgranskning](certifikatgranskning.md): offlinegranskad offentlig
   metadata och fingeravtryck för det uppladdade Testbolag 1-certifikatet.
+- [Fördjupad dokumentgenomgång 2026-10-10](dokumentgenomgang-2026-10-10.md):
+  täckning av alla 17 PDF:er/69 sidor, Swagger-jämförelse och ytterligare
+  offentliga Expisoft-policyer. Inga nya rapporter skickades vid den granskningen.

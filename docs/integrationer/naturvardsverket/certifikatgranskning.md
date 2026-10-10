@@ -2,14 +2,22 @@
 
 ## Uppföljning 2026-10-10
 
+Alla **17 PDF:er och 69 sidor** har nu också gåtts igenom på nytt, tillsammans
+med aktuell Swagger och ytterligare offentliga certifikatpolicyer.
+Se [den fördjupade dokumentgenomgången](dokumentgenomgang-2026-10-10.md).
+PDF-översikten anger uttryckligen att Bolag A och Testbolag 1 har samma
+organisationsnummer. Någon särskild NVV-roll eller ytterligare
+registreringsinstruktion för Testbolag 1 finns inte i paketet.
+
 Användaren har nu lämnat ett faktiskt P12-certifikat för **Testbolag1**.
 Offlinegranskningen verifierade organisation `5560000167`, ExpiTrust Test CA v8,
 giltighet 2026-04-09 till 2028-04-09, RSA 2048, serverAuth och clientAuth,
 privat nyckel och medföljande CA-kedja. Certifikatets signatur och CA:s
 självsignatur verifierades. Node TLS kan öppna filen med hämtningsbrevets
 lösenord. Inga certifikatbyte eller lösenord finns i repot.
-NVV:s acceptans och kopplingen till JEROC:s OAuth-anslutning måste ännu provas.
-Se [aktuell TEST-etapp](nvv-test-demo.md).
+OAuth och kodlisteanrop har fungerat, men rapporteringsförsöken har avvisats
+med fel 1023. NVV:s identitetstolkning för rapportering är därför inte verifierad.
+Se [aktuella felsökningsresultat](felsokning-1023.md).
 
 Det uppladdade klientcertifikatets offentliga SHA-256-fingeravtryck är
 `71:0F:90:58:33:AA:17:60:90:89:48:AC:2A:DD:87:F3:B0:12:64:4E:88:6C:84:B5:FB:AB:13:A7:E5:5D:72:27`.
