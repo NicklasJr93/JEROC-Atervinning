@@ -1,11 +1,21 @@
 import type { ContainerType, TransportAction, TransportDriver, TransportOrder, TransportPlan, TransportVehicle } from '../transport/types';
 
-export type LogisticsPermission = 'workOrdersRead' | 'workOrdersWrite' | 'vesselsRead' | 'vesselsWrite' | 'warehouseRead' | 'warehouseWrite' | 'customerAccounts' | 'carrierAccounts';
+export type LogisticsPermission = 'workOrdersRead' | 'workOrdersWrite' | 'vesselsRead' | 'vesselsWrite' | 'warehouseRead' | 'warehouseWrite' | 'customerAccounts' | 'carrierAccounts' | 'prepare';
 export interface LogisticsPlace { name: string; address: string; postalCode: string; city: string; number?: string; contact?: string; phone?: string }
 export interface LogisticsWindow { date: string; from?: string; to?: string }
 export interface LogisticsMaterial { articleId: string; name: string; plannedKg: number; actualKg?: number; hazardous: boolean; wasteCode: string }
 export interface LogisticsSignature { role: 'sender' | 'carrier'; actorId: string; actorName: string; at: string; documentVersion: number; documentHash: string; method: 'demo_staff' | 'demo_account' }
 export interface LogisticsDocument { version: number; hash: string; preparedAt: string; signatures: LogisticsSignature[]; status: 'draft' | 'prepared'; snapshot: { from: LogisticsPlace; to: LogisticsPlace; carrierId?: string; driverId?: string; vehicleId?: string; rows: LogisticsMaterial[]; handling: string } }
+export interface LogisticsWeighing {
+  id: string; workOrderId: string; version: number; status: 'prepared' | 'started' | 'completed'; siteId: string;
+  customerId?: string; origin: string; reference: string;
+  rows: { articleId: string; name: string; plannedKg: number; hazardous: boolean; wasteCode: string; weight?: number }[];
+  environmentPreparation?: { status: 'prepared'; rows: { articleId: string; name: string; wasteCode: string }[] };
+  createdAt: string; updatedAt: string; startedAt?: string; completedAt?: string; cardId?: number;
+}
+export interface LogisticsWeighingInput {
+  customerId?: string; origin: string; reference: string; rows: { articleId: string; weight?: number }[];
+}
 export interface LogisticsOrderDetail {
   orderId: string; version: number; siteId: string; operator: 'own' | 'external'; carrierId?: string;
   vesselId?: string; replacementVesselId?: string; agreementId?: string; source: 'office' | 'customer' | 'agreement' | 'warehouse';
@@ -13,7 +23,7 @@ export interface LogisticsOrderDetail {
   assignedDriverId?: string; assignedVehicleId?: string;
   carrierRequest: { status: 'draft' | 'sent' | 'accepted' | 'declined' | 'time_proposed'; version: number; sentAt?: string; respondedAt?: string; comment?: string; proposedWindow?: LogisticsWindow };
   execution: { stage: 'pending' | 'travelling_empty' | 'at_pickup' | 'loaded' | 'departed' | 'delivered'; officeCleared: boolean; departedAt?: string; deliveredAt?: string };
-  document?: LogisticsDocument; priority: 'normal' | 'asap'; handling: string; updatedAt: string;
+  document?: LogisticsDocument; weighing?: LogisticsWeighing; priority: 'normal' | 'asap'; handling: string; updatedAt: string;
 }
 export interface LogisticsOrder extends TransportOrder { detail: LogisticsOrderDetail }
 export interface LogisticsVessel { id: string; name: string; type: ContainerType; size: string; siteId: string; active: boolean; customerId?: string; agreementId?: string; place?: LogisticsPlace; status: 'available' | 'placed' | 'reserved' | 'maintenance'; fullness?: number; materialArticleId?: string; version: number }
@@ -32,7 +42,7 @@ export interface LogisticsOfficeState {
   stock: LogisticsStock[]; inventoryMovements: LogisticsInventoryMovement[]; customers: LogisticsCustomer[];
   carriers: LogisticsCarrier[]; drivers: TransportDriver[]; vehicles: TransportVehicle[]; accounts: LogisticsAccount[];
   articles: { id: string; name: string; hazardous: boolean; wasteCode: string; handlingInstructions: string }[];
-  result?: { orderId?: string; requestId?: string };
+  result?: { orderId?: string; requestId?: string; cardId?: number };
   deliveryOutbox?: LogisticsDeliveryPreview[];
 }
 export interface LogisticsOrderInput {
@@ -46,6 +56,8 @@ export interface LogisticsOrderInput {
 export type LogisticsOfficeCommand =
   | { action: 'order.create'; input: LogisticsOrderInput; idempotencyKey: string }
   | { action: 'order.edit'; orderId: string; expectedVersion: number; input: LogisticsOrderInput }
+  | { action: 'order.weighing.start' | 'order.weighing.complete'; orderId: string; expectedVersion: number }
+  | { action: 'order.weighing.save'; orderId: string; expectedVersion: number; input: LogisticsWeighingInput }
   | { action: 'order.book'; orderId: string; expectedVersion: number; plan: TransportPlan }
   | { action: 'order.cancel'; orderId: string; expectedVersion: number; reason: string }
   | { action: 'order.send'; orderId: string; expectedVersion: number }

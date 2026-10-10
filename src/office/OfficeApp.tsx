@@ -220,7 +220,7 @@ export function OfficeApp() {
   }, [actualUser?.id, user?.id, JSON.stringify(user?.permissions)]);
   const createLogisticsOrder = (prefill: WorkOrderPrefill) => {
     setWorkOrderPrefill(prefill);
-    navigate('/work-orders/new');
+    navigate('/work-orders/new', { state: { workOrderPrefill: prefill, returnTo: location.pathname } });
   };
   const [selectedTerminalId, setSelectedTerminalId] = useState('');
   useEffect(() => { setSelectedTerminalId(''); }, [user?.id, siteFilter]);
@@ -1274,6 +1274,8 @@ export function OfficeApp() {
           <span>
             Kontoret <ChevronRight size={14} />{' '}
             {section === 'users' ? 'Personal' : nav.find((n) => n.id === section)?.name ?? 'Vägning'}
+            {section === 'work-orders' && location.pathname.endsWith('/new') && <><ChevronRight size={14} />Ny arbetsorder</>}
+            {section === 'work-orders' && location.pathname.endsWith('/edit') && <><ChevronRight size={14} />Redigera arbetsorder</>}
           </span>
           <label className="office-search">
             <Search size={17} />
@@ -1367,7 +1369,7 @@ export function OfficeApp() {
               <div className="office-title">
                 <div>
                   <span className="office-eyebrow">
-                    UNDERLAG FRÅN GÅRDSPLAN · {selected.yard}
+                    {selected.workOrderId ? 'UNDERLAG FRÅN ARBETSORDER' : 'UNDERLAG FRÅN GÅRDSPLAN'} · {selected.yard}
                   </span>
                   <h1>Invägning #{selected.id}</h1>
                   <p>
@@ -1376,6 +1378,9 @@ export function OfficeApp() {
                       ? ` · Fordonsvåg ${selected.registration}`
                       : ''}
                   </p>
+                  {selected.workOrderId && can(user, 'workOrdersRead') && <button className="office-link" onClick={() => navigate(`/work-orders/${encodeURIComponent(selected.workOrderId!)}`)}>
+                    Arbetsorder {selected.workOrderId}<ChevronRight size={14} />
+                  </button>}
                 </div>
                 <Status status={selected.status} />
               </div>
@@ -2156,6 +2161,7 @@ export function OfficeApp() {
             <Suspense fallback={<div role="status">Hämtar arbetsorder…</div>}><WorkOrdersWorkspace
               key={`${actualUser!.id}:${user.id}`} actorId={actualUser!.id} userId={user.id} user={user}
               selectedSite={siteFilter} prefill={workOrderPrefill} onPrefillConsumed={() => setWorkOrderPrefill(undefined)}
+              onOpenWeighing={async cardId => { await shared.refresh(); navigate(`/weighings/${cardId}`); }}
               onNavigatePlanning={id => navigate(`/transport?order=${encodeURIComponent(id)}`)} onNotice={setMessage} /></Suspense>
           ) : section === 'warehouse' ? (
             <Suspense fallback={<div role="status">Hämtar lagret…</div>}><WarehouseWorkspace

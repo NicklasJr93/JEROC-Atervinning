@@ -4,3 +4,43 @@
 
 .office .wo-workspace label.wo-search{display:flex;flex-direction:row;align-items:center;margin:0}.office .wo-workspace label.wo-form-line,.office .wo-dialog label.wo-form-line{display:flex;flex-direction:row;align-items:center;margin:0}.wo-notifications details{margin-top:8px}.wo-notifications details summary{cursor:pointer}
 .office .office-main .wo-workspace .wo-filters .wo-search{display:flex;flex-direction:row;align-items:center;gap:8px;min-height:38px;height:38px;margin:0;padding:0 10px;min-width:0;width:auto}.office .office-main .wo-workspace .wo-filters .wo-search input{flex:1;display:block;min-width:0;width:100%;height:24px;min-height:24px;margin:0;padding:0;border:0;background:transparent}.office .office-main .wo-workspace .wo-filters .wo-search svg{flex-shrink:0}.office .office-main .wo-workspace .wo-filters select{height:38px;min-height:38px;width:100%;min-width:0;margin:0;padding:8px 10px}.office .wo-dialog label.wo-field{display:flex;flex-direction:column;gap:7px;margin:0}.office .wo-dialog .wo-field input,.office .wo-dialog .wo-field select,.office .wo-dialog .wo-field textarea{margin:0}
+
+.office .wo-order-form-page { min-width: 0; }
+.office .wo-form-back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; }
+.office .wo-order-form-layout { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(0,1fr); grid-template-areas: 'type type' 'place operator' 'material time' 'instructions instructions'; align-items: start; gap: 15px; }
+.office .wo-order-form-layout .wo-form-section { min-width: 0; margin: 0; padding: 18px; }
+.office .wo-order-form-layout .wo-form-section > h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.office .wo-order-form-layout .wo-form-section > h3 svg { color: #176eee; }
+.office .wo-form-type { grid-area: type; }
+.office .wo-form-type-grid { margin-bottom: 0; }
+.office .wo-form-place { grid-area: place; }
+.office .wo-form-operator { grid-area: operator; }
+.office .wo-form-time { grid-area: time; }
+.office .wo-form-material { grid-area: material; }
+.office .wo-form-instructions { grid-area: instructions; }
+.office .wo-form-savebar { position: sticky; bottom: 0; z-index: 15; display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 14px 17px; margin-top: 18px; background: #fff; border: 1px solid #dfe8f5; border-radius: 10px; box-shadow: 0 -4px 20px #1a426c0b; }
+.office .wo-form-savebar .wo-actions { flex-shrink: 0; }
+.office .wo-form-save-hint { color: #879ab1; font-size: 11px; line-height: 1.5; }
+.office .wo-form-save-error { color: #b65143; font-size: 12px; line-height: 1.5; }
+.office .wo-weighing-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.office .wo-weighing-summary > div:first-child { flex: 1; min-width: 0; }
+.office .wo-weighing-summary strong { display: block; font-size: 13px; }
+.office .wo-weighing-summary small { display: block; margin-top: 5px; font-size: 11px; color: #7f93ad; line-height: 1.5; }
+.office .wo-weighing-editor { border-top: 1px solid #e8eff8; padding-top: 17px; margin-top: 17px; }
+.office .wo-weighing-rows { margin-top: 18px; }
+.office .wo-weighing-rows .wo-material-row { grid-template-columns: minmax(0,1fr) minmax(120px,170px) 34px; align-items: start; }
+.office .wo-weighing-rows .wo-icon-button { margin-top: 22px; }
+.office .wo-weighing-rows .wo-material-row input,.office .wo-weighing-rows .wo-material-row select { width: 100%; min-width: 0; }
+.office .wo-weighing-environment { display: flex; align-items: flex-start; gap: 7px; margin-top: 16px; padding: 10px 12px; border-radius: 8px; background: #f0f9f4; color: #3e8260; font-size: 11px; line-height: 1.5; }
+.office .wo-weighing-environment svg { flex-shrink: 0; margin-top: 1px; }
+.office .wo-weighing-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 16px; margin-top: 16px; border-top: 1px solid #e8eff8; }
+.office .wo-weighing-actions > span { font-size: 11px; color: #8296af; }
+@media(max-width:1000px) { .office .wo-order-form-layout { grid-template-columns: 1fr; grid-template-areas: 'type' 'place' 'operator' 'time' 'material' 'instructions'; } }
+@media(max-width:650px) {
+  .office .wo-order-form-layout { gap: 12px; }
+  .office .wo-order-form-layout .wo-form-section { padding: 15px; }
+  .office .wo-form-savebar { flex-wrap: wrap; padding: 12px; }
+  .office .wo-form-savebar .wo-actions { width: 100%; justify-content: flex-end; }
+  .office .wo-weighing-summary,.office .wo-weighing-actions { align-items: flex-start; flex-direction: column; }
+  .office .wo-weighing-rows .wo-material-row { grid-template-columns: minmax(0,1fr) 100px 30px; gap: 7px; }
+}
