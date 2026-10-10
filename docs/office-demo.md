@@ -1,4 +1,38 @@
-# JEROC kontorsdemo 0.12.0
+# JEROC kontorsdemo 0.12.1
+
+## Nytt i 0.12.1 – arbetsorderformulär och förberedda vägningar
+
+Ny och redigerad arbetsorder öppnas som en egen kontorssida med alla
+inställningar, tydliga sektioner och kvarliggande Spara/Avbryt. Lager och kärl
+förifyller samma sida; Avbryt återgår till ursprungsvyn.
+
+Första sparade materialraden på en hämtning eller ett byte skapar ett enda
+förberett vägningsutkast, sparat på servern och kopplat till arbetsordern.
+Det får ännu inget INV-nummer. Farliga artiklar får en miljöförberedelse från
+artikelregistret. Uppskattade mängder skapar inte lager, mottagningsbekräftelse
+eller NVV-rapport.
+
+Verkliga vikter registreras i den kopplade vägningen. Färdigställning ger ett
+permanent nummer och ett kontorskort en gång, med länkar åt båda håll.
+Kundgodkännande, miljömottagning, intern attest och ekonomi använder sedan
+befintliga flöden. Avbrutna arbetsordrar tar bort oanvända förberedelser;
+färdigställda vägningar och deras nummer/historik bevaras. Utleveranser skapar
+inga inkommande inköpskort.
+
+Arbetsorderändringen använder befintligt `DATABASE_URL` utan nya Renderfält.
+För NVV finns en [stegvis Render-guide](integrationer/naturvardsverket/render-snabbstart.md).
+
+Verifiering 0.12.1: produktionsbygget och Expo-typkontrollen passerade.
+279 servertester passerade utan fel; fem valfria PostgreSQL-prov hoppades över
+eftersom separat testanslutning saknades. Persistens- och samtidighetsproven
+använde isolerade SQLite-databaser. Tre riktade webbläsarflöden passerade:
+helsida och kopplad vägning, kärlförval med avbrutet oanvänt utkast samt
+utleverans med lagerförval. Omladdning, samma UUID, verkliga vikter, en enda
+nummerallokering och länkar åt båda håll verifierades. Ny arbetsorder har
+granskats vid 1440 och 390 pixlar utan horisontell överströmning eller
+JavaScriptfel. Inget verkligt NVV-API-anrop har gjorts.
+
+[Skärmbilder från den byggda versionen](office-demo/v0.12.1/README.md).
 
 ## Nytt i 0.12.0 – integrationer och NVV:s första testetapp
 

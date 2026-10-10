@@ -55,6 +55,7 @@ async function expectNoPhysicalReceipt(request: APIRequestContext, sourceId: str
 }
 async function screenshot(page: Page, testInfo: TestInfo, filename: string) {
   const path = testInfo.outputPath(filename);
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path, fullPage: true });
   await testInfo.attach(filename, { path, contentType: 'image/png' });
 }

@@ -1,4 +1,4 @@
-# Arbetsorder, lager och kundportal – kontorsdemo 0.11.0
+# Arbetsorder, lager och kundportal – kontorsdemo 0.12.1
 
 Den befintliga JEROC-appen har nu gemensamma arbetsorder för **Hämtning**,
 **Byte**, **Utställning** och **Utleverans**. Kontoret, planeraren, kundportalen,
@@ -23,6 +23,32 @@ bokas. Exakt kalenderbokning är ett separat val och använder befintliga
 kontroller för schema, frånvaro, kompetenser samt förar-/fordonskrockar.
 Standardtidsåtgången är 60 minuter. Ett önskat datum eller tidsfönster blir
 inte en kalenderbokning av att arbetsordern skapas.
+
+**Ny arbetsorder** öppnar `/kontor#/work-orders/new`; redigering öppnar
+`/kontor#/work-orders/:id/edit`. Formulären är hela kontorssidor med alla
+inställningar och kvarliggande Spara/Avbryt. Direktlänkar och omladdning
+behåller valt uppdrag. Förval från lager/kärl följer med i sidans navigation,
+och Avbryt återgår till den vy där beställningen startades.
+
+## Kopplad vägning och nummersättning
+
+En hämtning eller ett byte utan material skapar inget vägningsutkast. Första
+sparade materialraden skapar ett gemensamt förberett underlag kopplat till
+arbetsorderns ID. Fler rader uppdaterar samma oanvända underlag. För farliga
+artiklar förbereds även miljöuppgifter från klassificeringen. Dessa uppgifter
+utgör inte en faktisk mottagning eller ett skickat NVV-underlag.
+
+Förberedelsen har ett internt UUID och inget INV-/avräkningsnummer. Planerad
+mängd hålls separat från faktisk vikt. På arbetsordern startar behörig personal
+vägningen och registrerar verkliga vikter. Vid färdigställning tilldelar servern
+ett permanent INV-nummer atomiskt och skapar ett kontorskort en gång, med kund,
+ursprung och arbetsorderlänk. Samma kort öppnas vid återförsök. Kundgodkännande,
+miljömottagning och attest följer befintliga regler.
+
+När en arbetsorder avbryts före påbörjad vägning tas oanvända förberedelser bort
+utan att förbruka nummer. Påbörjade och färdigställda underlag behåller sin
+spårbarhet. Färdigställda nummer återanvänds aldrig. Utställningar, tomma
+hämtningar och utleveranser skapar inga inkommande inköpskort.
 
 Kartpositioner följer transportmodellens sparade koordinater. En ny adress
 geokodas inte automatiskt i denna etapp; adressautocomplete och ruttförslag
@@ -120,7 +146,12 @@ underlag ligger kvar i historiken. Arbetsordrarna ligger fortsatt
 i det gemensamma transportregistret. `state.logisticsAuth` innehåller
 portalens konton med lösenordshashar, sessionshashar och inloggningsförsök.
 
-Båda domänerna sparas genom befintlig verksamhetsrepository, i PostgreSQL
+`state.workOrderWeighing` sparar de förberedda vägningarna separat: internt ID,
+arbetsorderkoppling, status/version, planerade och verkliga mängder,
+miljöförberedelse samt det slutliga kontorskortets ID. Befintliga databaser
+får domänen utan att äldre uppgifter nollställs.
+
+Alla dessa domäner sparas genom befintlig verksamhetsrepository, i PostgreSQL
 när `DATABASE_URL` är konfigurerad. Lokalt används samma repositories
 beständiga SQLite-utvecklingsläge. Ingen separat databas eller ny
 Renderinställning krävs för logistiken. Detta beskriver lagringskopplingen,
@@ -141,10 +172,11 @@ versionskonflikter och kund-/åkerikoppling även vid direkta API-anrop.
 
 ## Planerade integrationssteg
 
-NVV:s **BTFA.Anteckning** testmiljö kopplas i en separat etapp: fastställda
-rapporteringsroller, aktuellt API-schema, testcertifikat/credentials,
-verkligt svar/avfalls-ID samt återförsök utan dubbelrapportering.
-Ingen sådan utgående överföring aktiveras i detta bygge.
+NVV:s första **BTFA.Anteckning TEST**-adapter finns från 0.12.0 för
+företagsmottagningar och rättelser. Den är avstängd som standard och kräver
+separata [Renderinställningar](integrationer/naturvardsverket/render-snabbstart.md)
+och ett uttryckligt utskick. Utgående transport-/borttransportrapporter är
+fortsatt en separat etapp. Arbetsorderförberedelser skickar aldrig rapporter.
 
 Spiris/Visma eEkonomi är det valda målet för nästa sandboxetapp, som är ett
 separat ekonomisteg efter kundgodkännande

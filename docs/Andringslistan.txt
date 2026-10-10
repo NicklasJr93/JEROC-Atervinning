@@ -1198,3 +1198,20 @@ Status: Implementerad i kontorsdemo 0.12.0 efter beställning 2026-10-10.
   återstår. Det visas inget påhittat anslutet konto på planerade integrationer.
 - NVV-inställningar återanvänds från Integrationer; rapportarbete/kvittenser
   ligger kvar i Miljörapportering. Inga betalnings- eller mejlkopplingar aktiveras.
+
+059 – Arbetsorder som helsida och kopplad vägning utan förtida nummer
+Status: Implementerad i kontorsdemo 0.12.1 efter godkänd start 2026-10-10.
+- Skapa och redigera arbetsorder på egna kontorssidor; samtliga inställningar,
+  tydliga sektioner, kvarliggande Spara/Avbryt och förval från lager/kärl.
+- Ingen materialrad innebär inget utkast. Första sparade raden på hämtning/byte
+  skapar ett beständigt gemensamt AO-länkat vägningsunderlag med internt ID.
+- Farliga artiklar ger en miljöförberedelse, aldrig ett automatiskt skickat
+  NVV-underlag, faktisk mottagning eller lagerregistrering.
+- Planerad mängd hålls separat från invägd vikt. Permanent INV-nummer tilldelas
+  först när faktisk vägning färdigställs. Samma utkast/kort återanvänds;
+  samtidiga färdigställningar får inte ge dubletter eller nummerkonflikter.
+- Avbrytande före start tar bort oanvända förberedelser. Registrerade vägningar
+  behåller nummer och historik. Utleverans skapar inget inkommande inköpskort.
+- Kundgodkännande, miljömottagning och attest följer befintliga steg och regler.
+- Befintlig verksamhetsdatabas används; inga nya Renderfält för arbetsorder.
+  NVV:s sex serverfält och certifikatfil beskrivs i render-snabbstart.md.
