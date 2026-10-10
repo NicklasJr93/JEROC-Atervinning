@@ -1088,13 +1088,24 @@ Status: Implementerat i kontorsdemo 0.10.0, 2026-10-10.
   Inga påhittade faktura-/Visma-nummer, BankID eller externa överföringar införs.
 - Teknisk beskrivning och provflöden: docs/pdf-archive.md.
 
-055 – Extern arbetsorder, åkerisvar och mejlavisering – mockuper
+055 – Egna chaufförer, externa arbetsordrar och mejlavisering – mockuper
 Status: Mockuper framtagna 2026-10-10. Fristående designunderlag; appbygge inväntar
 granskning av flödet. Inga riktiga mejlutskick aktiveras.
 - Kontoret beställer utleverans från anläggning/lager med mottagare, material,
-  uppskattad mängd, åkeri och önskad tid. Fasta öppettider hålls separat.
+  uppskattad mängd och egen chaufför eller externt åkeri. Egen planerad tid,
+  externt tidsönskemål och fasta öppettider hålls separat.
+- Förtydligat 2026-10-10: Egna chaufförer är förval och huvudflöde. Välj
+  Extern transportör vid behov; då visas åkeri, förfrågan och mejlavisering.
+  Egna uppdrag kopplas direkt till JEROC:s förare/fordon och planerare.
 - Samma arbetsorder följer kontor, åkeri, chaufför, planerare och dokument.
   Åkeriet accepterar/avböjer/föreslår tid och väljer egna förare/fordon senare.
+- Åkeriet kan tacka ja eller nej utan att ange exakt tid. Tider är önskemål,
+  annat tidsförslag är valfritt och kontorets tidsbekräftelse är ingen spärr
+  för uppdragsacceptans eller bemanning. Ja får inte bli en påhittad bokad tid.
+- Chaufförsvyn markerar farligt avfall och visar rätt dokumentversion samt
+  kvarvarande underskrifter före avfärd med last. Lästa instruktioner är ett
+  separat moment. Utkast, uppskattad vikt och simulerad underskrift visas
+  tydligt; kontrollerade verkliga uppgifter krävs i kommande appetapp.
 - Ny transportförfrågan förbereder mejl till åkeriets transportledare.
   Nytt uppdrag, ändring/återkallelse och påminnelse ska också kunna aviseras.
   Länken öppnar rätt tillåten order efter inloggning; inget svar ges av att

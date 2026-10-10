@@ -18,14 +18,19 @@ Ett godkännande av planen ersätter inte dessa etappgodkännanden.
 
 ## Nytt beslut om extern transportör
 
-Arbetsordern **tilldelas ett åkeri**. Åkeriet bemannar uppdraget och bekräftar
-tid; JEROC behöver inte boka deras chaufförer i sin interna förarkalender.
+Förtydligat 2026-10-10: **egna chaufförer är huvudflöde och förval**. Extern
+transportör väljs vid behov. Den externa arbetsordern **tilldelas ett åkeri**.
+Åkeriet bemannar och svarar ja/nej; JEROC behöver inte boka deras chaufförer i
+sin interna förarkalender. Externa tider är önskemål; annat tidsförslag är valfritt.
 Samma order ligger bakom kontorets lista, karta/planerare och den externa portalen.
 
 - JEROC anger önskad dag eller tidsintervall samt eventuella fasta krav,
   exempelvis öppettider. Önskemålet visas inte som en bekräftad bokning.
 - Åkeriets ansvariga kan acceptera, tacka nej eller föreslå annan tid.
-  Önskad, föreslagen, överenskommen och faktisk tid sparas separat.
+  Det räcker att tacka ja utan att ange exakt tid; kontorets tidsbekräftelse
+  är ingen spärr för acceptans eller bemanning. Önskad, föreslagen,
+  överenskommen och faktisk tid sparas separat. Föreslagen och överenskommen
+  tid är valfria; ett ja gör inte tidsönskemålet till bekräftad tid.
 - JEROC skapar/godkänner åkeriets åtkomst. Åkeriets administratör får sedan
   registrera och hantera sina egna personliga chaufförskonton.
 - Åkeriets ansvariga väljer chaufför bland det egna åkeriets aktiva förare.
