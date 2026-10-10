@@ -79,19 +79,19 @@ export function createNvvSandbox({ transaction, read, principalFor, client }) {
     const keyHash = hash([principal.actor.id, principal.user.id, request.idempotencyKey]);
     const prior = state.nvvSandboxRuns.find(run => run.id === request.requestId || run.keyHash === keyHash);
     if (!prior) return { keyHash };
-    if (prior.id !== request.requestId || prior.keyHash !== keyHash || prior.payloadHash !== hash(request.payload))
+    if (prior.diagnosticOperation || prior.id !== request.requestId || prior.keyHash !== keyHash || prior.payloadHash !== hash(request.payload))
       fail('Samma testförsök innehåller andra uppgifter. Skapa ett nytt testförsök.', 409, 'idempotency_conflict');
     return { prior, keyHash };
   };
   return {
     async status(token) {
       const context = await read((state, time) => { authorize(state, time, token); return { reporter: copy(state.nvvSettings.at(-1) ?? null), time,
-        runs: state.nvvSandboxRuns.slice().sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 50).map(run => publicRun(run, time)) }; });
+        runs: state.nvvSandboxRuns.filter(run => !run.diagnosticOperation).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 50).map(run => publicRun(run, time)) }; });
       const config = await client.status();
       return { mode: config.mode, ready: config.mode === 'test' && config.ready, missing: [...new Set([...(config.missing ?? []), ...(config.issues ?? []), ...(config.mode === 'test' ? [] : ['Fristående testutskick kräver NVV TEST.'])])],
         certificate: copy(config.certificate ?? null), template: template(config, context.reporter, context.time), runs: context.runs };
     },
-    run(id, token) { return read((state, time) => { authorize(state, time, token); const run = state.nvvSandboxRuns.find(item => item.id === id);
+    run(id, token) { return read((state, time) => { authorize(state, time, token); const run = state.nvvSandboxRuns.find(item => item.id === id && !item.diagnosticOperation);
       if (!run) fail('Testförsöket finns inte.', 404, 'not_found'); return publicRun(run, time); }); },
     async send(payload, token) {
       const request = parseNvvSandboxInput(payload);

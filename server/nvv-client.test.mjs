@@ -182,10 +182,13 @@ test('valid PFX config exposes only public readiness and safely checks nested co
 
 test('check diagnostics report the actual OAuth rejection and no code-list request that never happened', async t => {
   const f = await fixture(t), calls = [];
-  const client = createNvvClient({ env: f.env, request: async input => { calls.push(input); return { statusCode: 400, body: { error: 'invalid_client', error_description: `Denied ${f.env.NVV_CLIENT_SECRET} ${f.env.NVV_CLIENT_ID}`, access_token: 'invalid-private-token', extra: { echo: 'invalid-private-token', file: f.env.NVV_CLIENT_PFX_SECRET_FILE } } }; } });
+  const client = createNvvClient({ env: f.env, request: async input => { calls.push(input); return { statusCode: 400,
+    transport: { protocol: 'TLSv1.2', cipher: `TLS_FIXTURE_${f.env.NVV_CLIENT_PFX_PASSWORD}` },
+    body: { error: 'invalid_client', error_description: `Denied ${f.env.NVV_CLIENT_SECRET} ${f.env.NVV_CLIENT_ID}`, access_token: 'invalid-private-token', extra: { echo: 'invalid-private-token', file: f.env.NVV_CLIENT_PFX_SECRET_FILE } } }; } });
   const checked = await client.check(); assert.equal(checked.connected, false); assert.equal(calls.length, 1); assert.equal(calls[0].url, NVV_TEST_TOKEN_URL);
   assert.equal(checked.diagnostics.length, 1); const diagnostic = checked.diagnostics[0];
   assert.equal(diagnostic.method, 'POST'); assert.equal(diagnostic.path, '/oauth2/token'); assert.equal(diagnostic.httpStatus, 400); assert.equal(diagnostic.outcome, 'rejected'); assert.equal(diagnostic.trackingId, undefined); assert.equal(diagnostic.response.error, 'invalid_client');
+  assert.deepEqual(diagnostic.transport, { protocol: 'TLSv1.2', cipher: 'TLS_FIXTURE_[redacted]' });
   for (const secret of [f.env.NVV_CLIENT_SECRET, f.env.NVV_CLIENT_ID, f.env.NVV_CLIENT_PFX_SECRET_FILE, 'invalid-private-token']) assert.equal(JSON.stringify(checked).includes(secret), false);
 });
 
@@ -459,12 +462,12 @@ test('fresh verified mTLS requests use new connections and expose the actual cli
     reused: socket.isSessionReused(), fingerprint: socket.getPeerX509Certificate().fingerprint256 }));
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
-  const input = { url: `https://127.0.0.1:${server.address().port}/local-only`, method: 'GET', pfx: localOnlyPfx, passphrase: 'fixture-only-password' };
+  const input = { url: `https://127.0.0.1:${server.address().port}/local-only`, method: 'GET', pfx: localOnlyPfx, passphrase: 'fixture-only-password', maxTlsVersion: 'TLSv1.2' };
   const script = `import assert from 'node:assert/strict';
     import { requestHttps } from ${JSON.stringify(new URL('./nvv-client.mjs', import.meta.url).href)};
     const input = ${JSON.stringify(input)}; input.pfx=Buffer.from(input.pfx,'base64');
     const results=[]; for(let index=0;index<2;index++) results.push(await requestHttps(input));
-    for(const result of results) {assert.equal(result.statusCode,200); assert.equal(result.clientCertificate.fingerprint256,${JSON.stringify(clientCertificate.fingerprint256)});}
+    for(const result of results) {assert.equal(result.statusCode,200); assert.equal(result.clientCertificate.fingerprint256,${JSON.stringify(clientCertificate.fingerprint256)});assert.equal(result.transport.protocol,'TLSv1.2');assert.match(result.transport.cipher,/^TLS_/);}
     console.log(JSON.stringify(results.map(result=>result.clientCertificate)));`;
   const childEnv = { ...process.env, NODE_EXTRA_CA_CERTS: caFile }; delete childEnv.NODE_TLS_REJECT_UNAUTHORIZED;
   const run = promisify(execFile);
@@ -503,4 +506,57 @@ test('actual socket certificate diagnostics survive normalization without privat
   }
   for (const forbidden of [localOnlyPfx, 'PRIVATE MATERIAL', f.env.NVV_CLIENT_PFX_PASSWORD, f.env.NVV_CLIENT_PFX_SECRET_FILE])
     assert.equal(JSON.stringify([checked, rejected]).includes(forbidden), false);
+});
+
+test('diagnostic sessions reject unsupported profiles, unapproved anonymous certificates and non-TEST modes without I/O or secret exposure', async t => {
+  const f = await fixture(t), client = createNvvClient({ env: f.env, request: f.request });
+  assert.equal((await client.status()).ready, true);
+  const profiles = [null, [], 'not a profile', { tls: 'tls13' }, { endpoint: 'https://wrong.invalid' },
+    { certificate: { p12Base64: localOnlyPfx, password: f.env.NVV_CLIENT_PFX_PASSWORD, path: f.env.NVV_CLIENT_PFX_SECRET_FILE } },
+    { certificate: { p12Base64: 'not-base64', password: 'incorrect-private-password' } },
+    { certificate: { p12Base64: localOnlyPfx, password: 'incorrect-private-password' } },
+    { certificate: { p12Base64: localOnlyPfx, password: f.env.NVV_CLIENT_PFX_PASSWORD } }, {}];
+  for (const profile of profiles) await assert.rejects(() => client.diagnosticSession(profile), cause => {
+    assert.equal(cause.code, 'diagnostic_invalid');
+    for (const secret of [localOnlyPfx, f.env.NVV_CLIENT_PFX_PASSWORD, f.env.NVV_CLIENT_SECRET, f.env.NVV_CLIENT_PFX_SECRET_FILE, 'incorrect-private-password'])
+      assert.equal(String(cause).includes(secret), false);
+    return true;
+  });
+  for (const mode of ['production', 'mock', 'disabled']) {
+    const denied = createNvvClient({ env: { ...f.env, NVV_ENVIRONMENT: mode }, request: f.request });
+    await assert.rejects(() => denied.diagnosticSession({ tls: 'tls12' }), cause => cause.code === 'diagnostic_invalid');
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('diagnostic reads bound MaxAntalPerSida to 1–5 and reject invalid limits before network', async t => {
+  const f = await fixture(t), client = createNvvClient({ env: f.env, request: f.request });
+  for (const maxCount of [1, 5]) {
+    const result = await client.read({ from: '2026-10-10T10:00:00Z', to: '2026-10-10T11:00:00Z', maxCount });
+    assert.equal(result.outcome, 'accepted');
+    const url = new URL(f.calls.at(-1).url);
+    assert.equal(url.pathname, new URL(NVV_TEST_API_URL).pathname + '/anteckningar');
+    assert.equal(url.searchParams.get('MaxAntalPerSida'), String(maxCount)); assert.equal(url.searchParams.get('Sida'), '1');
+    assert.equal(url.searchParams.get('DatumTidFran'), '2026-10-10T10:00:00Z');
+    assert.equal(url.searchParams.get('DatumTidTom'), '2026-10-10T11:00:00Z');
+    assert.equal(f.calls.at(-1).method, 'GET');
+  }
+  const before = f.calls.length;
+  for (const maxCount of [0, 6, -1, 1.5, '5', NaN, Infinity]) {
+    const result = await client.read({ maxCount });
+    assert.equal(result.outcome, 'rejected'); assert.equal(result.error.code, 'NVV_LIMIT');
+  }
+  assert.equal(f.calls.length, before);
+});
+
+test('normalized transport diagnostics include only bounded redacted TLS protocol and cipher', async t => {
+  const f = await fixture(t), transport = { protocol: `TLSv1.2 ${f.env.NVV_CLIENT_SECRET}`, cipher: `TLS_FIXTURE_${f.env.NVV_CLIENT_PFX_PASSWORD}`,
+    pfx: localOnlyPfx, password: f.env.NVV_CLIENT_PFX_PASSWORD, privateKey: 'PRIVATE MATERIAL' };
+  const client = createNvvClient({ env: f.env, request: async input => input.url === NVV_TEST_TOKEN_URL ? f.request(input)
+    : { statusCode: 400, transport, body: { Code: 1023, Message: 'Synthetic validation rejection' } } });
+  const result = await client.submit({ method: 'POST', path: '/insamlingar', payload });
+  assert.equal(result.error.code, 'NVV_REPORTER_IDENTITY');
+  assert.deepEqual(result.transport, { protocol: 'TLSv1.2 [redacted]', cipher: 'TLS_FIXTURE_[redacted]' });
+  for (const forbidden of [f.env.NVV_CLIENT_SECRET, f.env.NVV_CLIENT_PFX_PASSWORD, localOnlyPfx, 'PRIVATE MATERIAL'])
+    assert.equal(JSON.stringify(result).includes(forbidden), false);
 });

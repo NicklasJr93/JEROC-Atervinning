@@ -6,6 +6,7 @@ import { assessEnvironmentalStorage, currentEnvironmentSites, currentStoragePoli
 import { createNvvClient } from './nvv-client.mjs';
 import { createNvvReporting } from './nvv-reporting.mjs';
 import { createNvvSandbox } from './nvv-sandbox.mjs';
+import { createNvvDiagnostics } from './nvv-diagnostics.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { afterDatabaseCommit } from './database-runtime.mjs';
 
@@ -365,6 +366,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
   nvv = createNvvReporting({ transaction: operation => transaction(operation, { nvv: true }),
     read: (operation, options = {}) => read(operation, { nvv: true, entities: options.settingsOnly ? ['sessions', 'siteRecords', 'nvvSettings', 'nvvChecks'] : nvvEntities, ...options }), principalFor, demandSite, resolveReport: nvvReportContext, client: nvvClient, now });
   const sandbox = createNvvSandbox({ transaction, read: operation => read(operation, { entities: ['sessions', 'nvvSettings', 'nvvSandboxRuns'] }), principalFor, client: nvvClient });
+  const diagnostics = createNvvDiagnostics({ transaction, read: operation => read(operation, { entities: ['sessions', 'nvvSandboxRuns'] }), principalFor, client: nvvClient });
   const sourceProjection = (state, principal, sourceId, time) => {
     const original = state.receipts.find(record => record.sourceId === sourceId), draft = state.drafts.find(record => record.sourceId === sourceId);
     if (original) demandSite(state, principal, original.siteId);
@@ -395,6 +397,9 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     nvvSandbox: token => sandbox.status(token),
     nvvSandboxRun: (id, token) => sandbox.run(id, token),
     nvvSandboxSend: (payload, token) => sandbox.send(payload, token),
+    nvvDiagnostics: token => diagnostics.status(token),
+    nvvDiagnosticSend: (payload, token) => diagnostics.send(payload, token),
+    nvvDiagnosticRun: (id, token) => diagnostics.run(id, token),
     nvvSaveReporter: (payload, token) => nvv.saveReporter(payload, token),
     nvvCheck: token => nvv.check(token),
     nvvDetail: (reportId, token) => nvv.detail(reportId, token),

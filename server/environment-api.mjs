@@ -90,6 +90,7 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
           const storage = route.match(/^\/storage(?:\/policies)?\/([a-zA-Z0-9_-]{1,100})$/);
           const nvvReport = route.match(/^\/nvv\/reports\/([^/]+)(?:\/(send|reconcile))?$/);
           const sandboxRun = route.match(/^\/nvv\/sandbox\/runs\/([a-fA-F0-9-]{36})$/);
+          const diagnosticRun = route.match(/^\/nvv\/diagnostics\/runs\/([a-fA-F0-9-]{36})$/);
           let nvvReportId;
           if (nvvReport) { try { nvvReportId = decodeURIComponent(nvvReport[1]); if (nvvReportId.length > 200) throw new Error(); } catch { throw new EnvironmentError('Ogiltigt miljöunderlags-ID.', 400, 'report_invalid'); } }
           if (read && route === '/integrations/catalog') {
@@ -109,6 +110,9 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
           else if (read && route === '/nvv/sandbox') json(res, 200, await store.nvvSandbox(token), req.method === 'HEAD');
           else if (req.method === 'POST' && route === '/nvv/sandbox') json(res, 200, await store.nvvSandboxSend(await body(req), token));
           else if (read && sandboxRun) json(res, 200, await store.nvvSandboxRun(sandboxRun[1], token), req.method === 'HEAD');
+          else if (read && route === '/nvv/diagnostics') json(res, 200, await store.nvvDiagnostics(token), req.method === 'HEAD');
+          else if (req.method === 'POST' && route === '/nvv/diagnostics') json(res, 200, await store.nvvDiagnosticSend(await body(req), token));
+          else if (read && diagnosticRun) json(res, 200, await store.nvvDiagnosticRun(diagnosticRun[1], token), req.method === 'HEAD');
           else if (req.method === 'PUT' && route === '/nvv/reporter') json(res, 200, await store.nvvSaveReporter(await body(req), token));
           else if (req.method === 'POST' && route === '/nvv/check') { const input = await body(req); if (!z.object({}).strict().safeParse(input).success) throw new EnvironmentError('Anslutningsprovet tar inga klientuppgifter.', 422); json(res, 200, await store.nvvCheck(token)); }
           else if (read && nvvReport && !nvvReport[2]) json(res, 200, await store.nvvDetail(nvvReportId, token), req.method === 'HEAD');

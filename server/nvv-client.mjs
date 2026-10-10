@@ -29,14 +29,14 @@ function parseBody(body) {
   try { return JSON.parse(text); } catch { return text; }
 }
 
-export function requestHttps({ url, method, headers, body, pfx, passphrase, timeoutMs = 20_000 }) {
+export function requestHttps({ url, method, headers, body, pfx, passphrase, maxTlsVersion, timeoutMs = 20_000 }) {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     // Each OAuth/API request performs its own complete mTLS handshake. Neither
     // a reused connection nor a cached TLS session may carry gateway identity.
     const agent = new https.Agent({ keepAlive: false, maxCachedSessions: 0 });
     let req;
-    try { req = https.request(target, { method, headers, pfx, passphrase, agent, rejectUnauthorized: true, minVersion: 'TLSv1.2' }, (res) => {
+    try { req = https.request(target, { method, headers, pfx, passphrase, agent, rejectUnauthorized: true, minVersion: 'TLSv1.2', ...(maxTlsVersion ? { maxVersion: maxTlsVersion } : {}) }, (res) => {
       let clientCertificate;
       try {
         const actual = req.socket?.getX509Certificate?.();
@@ -52,7 +52,8 @@ export function requestHttps({ url, method, headers, body, pfx, passphrase, time
       });
       res.on('aborted', () => req.destroy(new Error('NVV_RESPONSE_ABORTED')));
       res.on('error', reject);
-      res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8'), ...(clientCertificate && { clientCertificate }) }));
+      const transport = { protocol: req.socket?.getProtocol?.() ?? null, cipher: req.socket?.getCipher?.()?.standardName ?? null };
+      res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8'), ...(clientCertificate && { clientCertificate }), transport }));
     }); } catch (cause) { agent.destroy(); reject(cause); return; }
     const timer = setTimeout(() => req.destroy(new Error('NVV_TIMEOUT')), timeoutMs);
     timer.unref();
@@ -116,7 +117,7 @@ function publicClientCertificate(value, secrets) {
 }
 
 /** TEST-only adapter. All external I/O is injectable; a missing mode disables it. */
-export function createNvvClient({ env = process.env, request = requestHttps, now = Date.now } = {}) {
+export function createNvvClient({ env = process.env, request = requestHttps, now = Date.now, diagnosticCertificate, maxTlsVersion } = {}) {
   let cachedToken = null;
   let tokenPromise = null;
   const knownTokens = new Set();
@@ -131,9 +132,9 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
     const systemId = String(env.NVV_CLIENT_SYSTEM_ID || '').trim();
     const clientId = String(env.NVV_CLIENT_ID || '').trim();
     const clientSecret = String(env.NVV_CLIENT_SECRET || '');
-    const passphrase = env.NVV_CLIENT_PFX_PASSWORD === undefined ? undefined : String(env.NVV_CLIENT_PFX_PASSWORD);
-    const secretFile = String(env.NVV_CLIENT_PFX_SECRET_FILE || '');
-    const key = createHash('sha256').update(JSON.stringify([mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, secretFile])).digest('hex');
+    const passphrase = diagnosticCertificate ? diagnosticCertificate.password : env.NVV_CLIENT_PFX_PASSWORD === undefined ? undefined : String(env.NVV_CLIENT_PFX_PASSWORD);
+    const secretFile = diagnosticCertificate ? 'memory-only-test-certificate' : String(env.NVV_CLIENT_PFX_SECRET_FILE || '');
+    const key = createHash('sha256').update(JSON.stringify([mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, secretFile, maxTlsVersion])).update(diagnosticCertificate?.pfx ?? Buffer.alloc(0)).digest('hex');
     return { mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, secretFile, key };
   }
   const fileIdentity = value => [value.dev, value.ino, value.size, value.mtimeNs, value.ctimeNs].join(':');
@@ -142,6 +143,8 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
     const { mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, secretFile, key } = input;
     const issues = [], missing = [];
     if (!['disabled', 'mock', 'test'].includes(mode)) issues.push('Endast disabled, mock eller test stöds.');
+    if (diagnosticCertificate && mode !== 'test') issues.push('Tillfälliga diagnostikcertifikat får endast användas i TEST.');
+    if (maxTlsVersion !== undefined && maxTlsVersion !== 'TLSv1.2') issues.push('Diagnostik stöder endast standard-TLS eller TLS 1.2.');
     if (apiBaseUrl !== NVV_TEST_API_URL || tokenUrl !== NVV_TEST_TOKEN_URL) issues.push('Endast Naturvårdsverkets fasta HTTPS-adresser för TEST får användas.');
     let pfx;
     let validated = false;
@@ -157,7 +160,9 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
           // Real HTTP operations reload bytes as well, including a replacement
           // that preserved timestamps. Never retain a good certificate after a
           // missing/unreadable file or a change during its read.
-          let encoded;
+          let encoded = diagnosticCertificate?.pfx.toString('base64');
+          if (diagnosticCertificate) identity = 'memory-only';
+          else {
           for (let attempt = 0; attempt < 3; attempt++) {
             const before = fileIdentity(await stat(secretFile, { bigint: true }));
             if (!forceFileRead && cachedConfiguration?.key === key && cachedConfiguration.identity === before)
@@ -166,6 +171,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
             identity = fileIdentity(await stat(secretFile, { bigint: true }));
             if (before === identity) break;
             encoded = undefined;
+          }
           }
           if (encoded === undefined) throw new Error('CHANGING_PFX');
           if (!encoded || encoded.length > 2 * 1024 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 !== 0) throw new Error('INVALID_PFX');
@@ -188,7 +194,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
     }
     const ready = ['mock', 'test'].includes(mode) && !missing.length && !issues.length;
     const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-    const secrets = [clientId, clientSecret, passphrase, secretFile, basic].filter(Boolean);
+    const secrets = [clientId, clientSecret, passphrase, secretFile, basic, diagnosticCertificate?.pfx.toString('base64')].filter(Boolean);
     const fingerprint = createHash('sha256').update(JSON.stringify([mode, apiBaseUrl, tokenUrl, clientId, clientSecret, passphrase, systemId])).update(pfx || Buffer.alloc(0)).digest('hex');
     const config = { mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, pfx, basic, secrets, fingerprint, ready, missing, issues, certificate: { configured: Boolean(secretFile), validated, ...certificateMetadata } };
     if (!issues.length && configurationInput().key === key) cachedConfiguration = { key, identity, config };
@@ -221,13 +227,13 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
     if (tokenPromise?.fingerprint === config.fingerprint) return tokenPromise.promise;
     const pending = { fingerprint: config.fingerprint };
     pending.promise = (async () => {
-      const response = await request({ url: config.tokenUrl, method: 'POST', headers: { Authorization: `Basic ${config.basic}`, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: 'grant_type=client_credentials', pfx: config.pfx, passphrase: config.passphrase, timeoutMs: 20_000 });
+      const response = await request({ url: config.tokenUrl, method: 'POST', headers: { Authorization: `Basic ${config.basic}`, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: 'grant_type=client_credentials', pfx: config.pfx, passphrase: config.passphrase, ...(maxTlsVersion && { maxTlsVersion }), timeoutMs: 20_000 });
       const body = parseBody(response.body);
       const seconds = Number(body?.expires_in);
       // Even a malformed token response can echo its token in an error field.
       if (typeof body?.access_token === 'string' && body.access_token.length <= 16384) knownTokens.add(body.access_token);
       if (knownTokens.size > 64) knownTokens.delete(knownTokens.values().next().value);
-      if (statusCode(response) !== 200 || typeof body?.access_token !== 'string' || !/^[\x21-\x7e]{1,16384}$/.test(body.access_token) || !Number.isFinite(seconds) || seconds <= 0 || (body.token_type && String(body.token_type).toLowerCase() !== 'bearer')) throw Object.assign(new Error('NVV_AUTH_FAILED'), { nvvStatusCode: statusCode(response), nvvResponseBody: body, ...(response.clientCertificate && { nvvClientCertificate: response.clientCertificate }) });
+      if (statusCode(response) !== 200 || typeof body?.access_token !== 'string' || !/^[\x21-\x7e]{1,16384}$/.test(body.access_token) || !Number.isFinite(seconds) || seconds <= 0 || (body.token_type && String(body.token_type).toLowerCase() !== 'bearer')) throw Object.assign(new Error('NVV_AUTH_FAILED'), { nvvStatusCode: statusCode(response), nvvResponseBody: body, ...(response.clientCertificate && { nvvClientCertificate: response.clientCertificate }), ...(response.transport && { nvvTransport: response.transport }) });
       cachedToken = { value: body.access_token, fingerprint: config.fingerprint, until: clock(now) + seconds * 1000 - Math.min(30_000, seconds * 100) };
       return cachedToken.value;
     })();
@@ -237,9 +243,9 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
 
   async function call(config, { method, path, payload, trackingId }) {
     let bearer;
-    const authenticationFailure = cause => ({ authError: true, statusCode: cause?.nvvStatusCode ?? null, body: cause?.nvvResponseBody ?? null, ...(cause?.nvvClientCertificate && { clientCertificate: cause.nvvClientCertificate }) });
+    const authenticationFailure = cause => ({ authError: true, statusCode: cause?.nvvStatusCode ?? null, body: cause?.nvvResponseBody ?? null, ...(cause?.nvvClientCertificate && { clientCertificate: cause.nvvClientCertificate }), ...(cause?.nvvTransport && { transport: cause.nvvTransport }) });
     try { bearer = await token(config); } catch (cause) { return authenticationFailure(cause); }
-    const execute = async (value) => request({ url: `${config.apiBaseUrl}${path}`, method, headers: { Authorization: `Bearer ${value}`, 'NV-Client-System-ID': config.systemId, 'NV-Client-Tracking-ID': trackingId, Accept: 'application/json', ...(payload !== undefined ? { 'Content-Type': 'application/json; charset=UTF-8' } : {}) }, body: payload === undefined ? undefined : JSON.stringify(payload), pfx: config.pfx, passphrase: config.passphrase, timeoutMs: 20_000 });
+    const execute = async (value) => request({ url: `${config.apiBaseUrl}${path}`, method, headers: { Authorization: `Bearer ${value}`, 'NV-Client-System-ID': config.systemId, 'NV-Client-Tracking-ID': trackingId, Accept: 'application/json', ...(payload !== undefined ? { 'Content-Type': 'application/json; charset=UTF-8' } : {}) }, body: payload === undefined ? undefined : JSON.stringify(payload), pfx: config.pfx, passphrase: config.passphrase, ...(maxTlsVersion && { maxTlsVersion }), timeoutMs: 20_000 });
     try {
       let response = await execute(bearer);
       if (statusCode(response) === 401) {
@@ -265,7 +271,10 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
     const echoed = result?.headers?.['nv-client-tracking-id'] ?? result?.headers?.['NV-Client-Tracking-ID'];
     const safeTracking = safeValue(typeof echoed === 'string' && /^[\x20-\x7e]{1,200}$/.test(echoed) ? echoed : trackingId, secrets);
     const clientCertificate = publicClientCertificate(result?.clientCertificate, secrets);
-    const base = { mode: config.mode, httpStatus, trackingId: safeTracking, response, ...(clientCertificate && { clientCertificate }), ...(meta.truncated ? { responseTruncated: true } : {}) };
+    const safeTransport = result?.transport && safeValue(result.transport, secrets);
+    const transport = safeTransport && { protocol: typeof safeTransport.protocol === 'string' ? safeTransport.protocol.slice(0, 30) : null,
+      cipher: typeof safeTransport.cipher === 'string' ? safeTransport.cipher.slice(0, 100) : null };
+    const base = { mode: config.mode, httpStatus, trackingId: safeTracking, response, ...(clientCertificate && { clientCertificate }), ...(transport && { transport }), ...(meta.truncated ? { responseTruncated: true } : {}) };
     if (result?.authError) return { ...base, outcome: 'rejected', error: error('NVV_AUTHENTICATION', 'Autentisering mot Naturvårdsverket misslyckades.') };
     if (result?.networkError || !httpStatus) return { ...base, outcome: 'unknown', error: error('NVV_UNKNOWN_OUTCOME', write ? 'Svaret från Naturvårdsverket saknas. Avstämning krävs före nytt utskick.' : 'Naturvårdsverket kunde inte nås.') };
     if (write && httpStatus === 408) return { ...base, outcome: 'unknown', error: error('NVV_UNKNOWN_OUTCOME', 'Naturvårdsverket svarade med timeout. Avstämning krävs före nytt utskick.') };
@@ -315,7 +324,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
       diagnostics.push({ method: result.authError ? 'POST' : 'GET', path: result.authError ? '/oauth2/token' : path,
         httpStatus: normalizedResult.httpStatus, ...(normalizedResult.trackingId && !result.authError && { trackingId: normalizedResult.trackingId }),
         outcome: result.authError && !(normalizedResult.httpStatus >= 400 && normalizedResult.httpStatus < 500) ? 'unknown' : normalizedResult.outcome,
-        response: summary ?? excerpt(normalizedResult.response), ...(normalizedResult.clientCertificate && { clientCertificate: normalizedResult.clientCertificate }) });
+        response: summary ?? excerpt(normalizedResult.response), ...(normalizedResult.clientCertificate && { clientCertificate: normalizedResult.clientCertificate }), ...(normalizedResult.transport && { transport: normalizedResult.transport }) });
       return normalizedResult;
     };
     const wasteTracking = randomUUID();
@@ -364,7 +373,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
     return normalized(config, await call(config, { method, path, payload, trackingId }), trackingId, { write: true });
   }
 
-  async function read({ avfallId, from, to } = {}) {
+  async function read({ avfallId, from, to, maxCount } = {}) {
     const config = await configuration({ forceFileRead: true });
     const trackingId = randomUUID();
     if (!config.ready) return unavailable(config, trackingId);
@@ -375,9 +384,37 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
       if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return { outcome: 'rejected', mode: 'test', httpStatus: null, trackingId, response: null, error: error('NVV_DATE', 'Datumintervallet är inte giltigt.') };
       query.set(key, value);
     }
+    if (maxCount !== undefined) {
+      if (!Number.isInteger(maxCount) || maxCount < 1 || maxCount > 5) return { outcome: 'rejected', mode: 'test', httpStatus: null, trackingId, response: null, error: error('NVV_LIMIT', 'Diagnostikens sidstorlek måste vara 1–5.') };
+      query.set('MaxAntalPerSida', String(maxCount)); query.set('Sida', '1');
+    }
     const path = avfallId ? `/anteckningar/${avfallId}` : `/anteckningar${query.size ? `?${query}` : ''}`;
     return normalized(config, await call(config, { method: 'GET', path, trackingId }), trackingId);
   }
 
-  return { status, check, submit, read, configurationSnapshot, checkWithConfiguration };
+  async function diagnosticSession(profile = {}) {
+    const invalid = () => Object.assign(new Error('Diagnostikprofilen är inte giltig för NVV TEST.'), { code: 'diagnostic_invalid' });
+    const config = await configuration({ forceFileRead: true });
+    if (config.mode !== 'test' || !config.ready) throw invalid();
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile) || Object.keys(profile).some(key => !['tls', 'certificate'].includes(key)) || !['auto', 'tls12', undefined].includes(profile.tls)) throw invalid();
+    let override;
+    if (profile.certificate !== undefined) {
+      const input = profile.certificate;
+      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['p12Base64', 'password'].includes(key)) || typeof input.password !== 'string' || input.password.length > 300 || typeof input.p12Base64 !== 'string' || input.p12Base64.length > 24000 || input.p12Base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(input.p12Base64)) throw invalid();
+      override = { pfx: Buffer.from(input.p12Base64, 'base64'), password: input.password };
+    } else override = { pfx: Buffer.from(config.pfx), password: config.passphrase };
+    let metadata;
+    try { metadata = loadedCertificateMetadata(tls.createSecureContext({ pfx: override.pfx, passphrase: override.password, minVersion: 'TLSv1.2' })); } catch { throw invalid(); }
+    const permitted = new Set([
+      '71:0F:90:58:33:AA:17:60:90:89:48:AC:2A:DD:87:F3:B0:12:64:4E:88:6C:84:B5:FB:AB:13:A7:E5:5D:72:27',
+      '4B:C9:2F:9C:71:8B:AB:3D:22:C2:D5:CE:EC:86:17:24:B2:2C:7A:8A:FB:9F:11:EE:9D:A2:30:62:6F:7D:4C:4E',
+      '52:D6:B5:D6:F2:CA:9C:D3:41:A0:16:C2:6E:91:B1:38:37:9A:5A:FC:06:41:8B:49:9C:F1:51:B6:D8:73:D5:7F',
+    ]);
+    if (!permitted.has(metadata.fingerprint256) || !metadata.organisationNumber || Date.parse(metadata.validFrom) > clock(now) || Date.parse(metadata.validTo) <= clock(now)) throw invalid();
+    // Isolated TEST client: credentials never enter persisted input or global
+    // configuration, and every operation gets a new OAuth cache/handshake.
+    return createNvvClient({ env: { ...env }, request, now, diagnosticCertificate: override, ...(profile.tls === 'tls12' && { maxTlsVersion: 'TLSv1.2' }) });
+  }
+
+  return { status, check, submit, read, configurationSnapshot, checkWithConfiguration, diagnosticSession };
 }
