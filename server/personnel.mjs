@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import { PricingError, createPricingStore } from './pricing.mjs';
 import { createTransportOutbox } from './transport-integrations.mjs';
+import { ensureLogistics, driverOrderView, applyDriverAction, validateLogisticsTransportChange } from './logistics.mjs';
 import { personSchema, companySchema, employmentSchema, salarySchema, scheduleSchema, absenceSchema, competencySchema, personnelPlanIssues, applyTransportChange, transportSchema } from '../dist-server/domain-models.mjs';
 
 export const personnelRights=['personnelRead','personnelWrite','employmentRead','employmentWrite','salaryRead','salaryWrite','absenceRead','absenceWrite','competenciesWrite','staffingWrite','externalAccounts'];
@@ -40,8 +41,9 @@ function saveRecord(rows,value,key='id') {
 function employmentPerson(state,p,id) {const person=checkPerson(state,p,id);if(person.kind!=='employee')fail('Anställning och lön registreras bara för JEROC:s anställda.',422);return person;}
 
 function saveExternalAccount(state,p,person,input,transactionAudit) {
-  demand(p,'externalAccounts');
-  if(person.kind!=='external' || !person.companyId || !person.driverId)fail('Kontot kräver extern person med åkeri och förarprofil.',422);
+  demand(p,person.kind==='external'?'externalAccounts':'users');
+  if(person.kind==='employee' && p.user.level!=='Systemadmin' && state.pricing.users.find(user=>user.id===person.userId)?.level==='Systemadmin')fail('Du kan inte ändra en systemadministratörs chaufförsinloggning.',403);
+  if(!person.canDrive || !person.driverId || person.kind==='external' && !person.companyId)fail('Kontot kräver en förarprofil och, för externa förare, ett åkeri.',422);
   const username=parse(z.string().trim().toLowerCase().min(3).max(80).regex(/^[a-z0-9._-]+$/),input.username),active=parse(z.boolean(),input.active),old=state.personnelAuth.accounts.find(a=>a.personId===person.id);
   if(active && !person.active)fail('Aktivera personprofilen innan chaufförskontot aktiveras.',422);
   if(state.personnelAuth.accounts.some(a=>a.personId!==person.id && a.username===username))fail('Inloggningsnamnet används redan.',422);
@@ -50,7 +52,7 @@ function saveExternalAccount(state,p,person,input,transactionAudit) {
   const account={personId:person.id,username,active,createdAt:old?.createdAt??stamp(),updatedAt:stamp(),lastLoginAt:old?.lastLoginAt,password};
   state.personnelAuth.accounts=state.personnelAuth.accounts.filter(a=>a.personId!==person.id).concat(account);state.personnelAuth.sessions=state.personnelAuth.sessions.filter(s=>s.personId!==person.id);
   state.personnel.externalAccounts=state.personnelAuth.accounts.map(({password,...a})=>a);
-  audit(state,p,'externalAccount.saved',person.id,'Externt konto sparat. Tidigare sessioner har avslutats.',transactionAudit);
+  audit(state,p,person.kind==='external'?'externalAccount.saved':'driverAccount.saved',person.id,'Chaufförskonto sparat. Tidigare sessioner har avslutats.',transactionAudit);
 }
 function staffCreation(state,p,person,input) {
   demand(p,'users');
@@ -140,7 +142,8 @@ export function personnelProjection(state,p,planning=false,siteCatalog=[{id:'nor
   if(planning || !personnelCan(p,'salaryRead'))data.salaries=[];
   if(planning || !personnelCan(p,'employmentRead'))data.employment=[];
   if(planning || !personnelCan(p,'absenceRead'))data.absences=data.absences.map(({kind,createdBy,...a})=>a);
-  if(planning || !personnelCan(p,'externalAccounts'))data.externalAccounts=[];
+  if(planning)data.externalAccounts=[];
+  else data.externalAccounts=data.externalAccounts.filter(account=>{const person=data.people.find(person=>person.id===account.personId);return person && personnelCan(p,person.kind==='external'?'externalAccounts':'users');});
   if(planning){data.audit=[];data.people=data.people.map(person=>({...person,phone:'',email:'',address:'',userId:undefined,employeeNumber:undefined}));data.companies=data.companies.map(c=>({...c,number:'',contact:'',phone:'',email:''}));}
   else if(!personnelCan(p,'salaryRead'))data.audit=data.audit.filter(entry=>!entry.action.startsWith('salary.'));
   const transport=clone(state.transport);
@@ -170,7 +173,7 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
       if(!visible(p,person) || p.user.siteIds && person.siteIds.some(id=>!p.user.siteIds.includes(id)))fail('Välj tillåtna anläggningar.',403);
       if(person.siteIds.some(id=>!siteCatalog.some(site=>site.id===id && site.active!==false)))fail('Välj en registrerad aktiv anläggning.',422);
       if(person.kind==='external' && (!person.companyId || !d.companies.some(c=>c.id===person.companyId)))fail('Extern chaufför måste kopplas till ett åkeri.',422);
-      if(person.kind==='external' && person.userId || person.kind==='employee' && state.personnelAuth.accounts.some(a=>a.personId===person.id))fail('Personal- och chaufförsinloggningar kan inte blandas. Behåll personens kontotyp.',422);
+      if(person.kind==='external' && person.userId || old && person.kind!==old.kind && state.personnelAuth.accounts.some(a=>a.personId===person.id))fail('Behåll personens kontotyp när det finns en chaufförsinloggning.',422);
       if(creation && (creation.kind==='staff')!==(person.kind==='employee'))fail('Välj en inloggning som passar personens kontotyp.',422);
       if(person.managerId && !d.people.some(manager=>manager.id===person.managerId && manager.kind==='employee' && manager.active))fail('Välj en aktiv anställd som ansvarig.',422);
       if(person.managerId && person.managerId!==old?.managerId)checkPerson(state,p,person.managerId);
@@ -229,12 +232,22 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
       demand(p,'staffingWrite');demand(p,'transportPlan');const tasks=tasksFor(state,p,command.taskIds),replacement=checkPerson(state,p,command.replacementPersonId);if(!replacement.canDrive || !replacement.driverId)fail('Välj en bokningsbar förare.',422);
       const issues=replacementIssues(state,replacement,tasks);if(issues.length)fail(issues.join(' '),422);
       const previousEvents=new Set(state.transport.events.map(e=>e.id));
-      for(const task of tasks){const order=state.transport.orders.find(o=>o.id===task.orderId);state.transport=applyTransportChange(state.transport,{type:'reschedule',id:order.id,plan:{date:order.date,startMinute:order.startMinute,durationMinutes:order.durationMinutes,driverId:replacement.driverId,vehicleId:replacement.vehicleId??order.vehicleId}},actorOf(p));Object.assign(task,{status:'resolved',replacementPersonId:replacement.id,resolvedBy:p.user.id,resolvedAt:stamp()});}
+      for(const task of tasks){
+        const before=state.transport,order=before.orders.find(o=>o.id===task.orderId);
+        const next=applyTransportChange(before,{type:'reschedule',id:order.id,plan:{date:order.date,startMinute:order.startMinute,durationMinutes:order.durationMinutes,driverId:replacement.driverId,vehicleId:replacement.vehicleId??order.vehicleId}},actorOf(p));
+        validateLogisticsTransportChange(state,before,next);state.transport=next;
+        Object.assign(task,{status:'resolved',replacementPersonId:replacement.id,resolvedBy:p.user.id,resolvedAt:stamp()});
+      }
       const box=createTransportOutbox({initialState:state.outbox});box.prepare({events:state.transport.events.filter(e=>!previousEvents.has(e.id))},p);state.outbox=box.exportState();
       audit(state,p,'staffing.resolved',replacement.id,`${tasks.length} uppdrag har fått ersättare. Tider och kunduppgifter är bevarade.`,transactionAudit);break;
     }
     case 'externalAccount.save': {
-      saveExternalAccount(state,p,checkPerson(state,p,command.personId),command,transactionAudit);break;
+      const person=checkPerson(state,p,command.personId);if(person.kind!=='external')fail('Välj en extern chaufför.',422);
+      saveExternalAccount(state,p,person,command,transactionAudit);break;
+    }
+    case 'driverAccount.save': {
+      const person=checkPerson(state,p,command.personId);if(person.kind!=='employee')fail('Välj en anställd förare.',422);
+      saveExternalAccount(state,p,person,command,transactionAudit);break;
     }
     default:fail('Personalåtgärden finns inte.',404);
   }
@@ -262,8 +275,10 @@ export function validatePersonnelTransportChange(state,previous,next) {
 
 export function createDriverApi({getRepository,readBody,json}) {
   const cookieName='jeroc_driver';
-  const orderView=({audit,confirmation,...order})=>({...order,audit:[]});
-  const companyView=company=>({id:company.id,name:company.name});
+  const orderView=order=>Object.fromEntries(['id','customerId','customerName','address','city','contact','phone','action','vesselType','material','vesselSize','pickupVessel','replacementVessel','notes','lat','lng','durationMinutes','status','date','startMinute','driverId','vehicleId','requestedDate','updatedAt','bookingVersion','requiredCompetencies','detail'].filter(key=>order[key]!==undefined).map(key=>[key,clone(order[key])]).concat([['audit',[]]]));
+  const companyView=company=>({id:company?.id??'jeroc',name:company?.name??'JEROC Återvinning AB'});
+  const enabledPerson=(state,person)=>person?.active && person.canDrive && person.driverId && (person.kind==='employee' ? !person.userId || state.pricing.users.some(user=>user.id===person.userId && user.active!==false) : state.personnel.companies.some(company=>company.id===person.companyId));
+  const sessionView=(state,person)=>({person:{id:person.id,name:person.name,kind:person.kind,driverId:person.driverId,companyId:person.companyId},company:companyView(state.personnel.companies.find(company=>company.id===person.companyId)),demo:true});
   function cookie(req){return req.headers.cookie?.split(';').map(s=>s.trim()).find(s=>s.startsWith(cookieName+'='))?.slice(cookieName.length+1);}
   const setCookie=(res,token,req,maxAge=8*3600)=>res.setHeader('Set-Cookie',`${cookieName}=${token}; HttpOnly; Path=/api/driver; SameSite=Strict; Max-Age=${maxAge}${req.socket.encrypted || req.headers['x-forwarded-proto']==='https'?'; Secure':''}`);
   return async(req,res,url)=>{
@@ -272,29 +287,40 @@ export function createDriverApi({getRepository,readBody,json}) {
       if(req.headers.origin && new URL(req.headers.origin).host!==req.headers.host)fail('Anropet måste komma från samma webbplats.',403);
       const path=url.pathname.slice('/api/driver/'.length),payload=req.method==='POST'?await readBody(req):null;
       const result=await (await getRepository()).transact((state,_,transactionAudit)=>{
-        ensurePersonnel(state);const auth=state.personnelAuth;auth.sessions=auth.sessions.filter(s=>Date.parse(s.expiresAt)>Date.now());auth.attempts=auth.attempts.filter(a=>Date.parse(a.at)>Date.now()-15*60*1000);
+        ensurePersonnel(state);ensureLogistics(state);const auth=state.personnelAuth;auth.sessions=auth.sessions.filter(s=>Date.parse(s.expiresAt)>Date.now());auth.attempts=auth.attempts.filter(a=>Date.parse(a.at)>Date.now()-15*60*1000);
         if(path==='login') {
           if(req.method!=='POST')fail('Metoden stöds inte.',405);
           const input=parse(z.object({username:z.string().trim().toLowerCase().min(1).max(80),password:z.string().min(1).max(200)}),payload),address=hash(req.socket.remoteAddress??'unknown');
           if(auth.attempts.filter(a=>a.address===address).length>=12)fail('För många inloggningsförsök. Vänta 15 minuter.',429);
           const account=auth.accounts.find(a=>a.username===input.username),person=state.personnel.people.find(p=>p.id===account?.personId);
-          if(!account?.active || !person?.active || !state.personnel.companies.some(c=>c.id===person.companyId) || !passwordValid(input.password,account.password)){auth.attempts.push({address,at:stamp()});return {failure:'Fel inloggning eller inaktivt konto.'};}
+          if(!account?.active || !enabledPerson(state,person) || !passwordValid(input.password,account.password)){auth.attempts.push({address,at:stamp()});return {failure:'Fel inloggning eller inaktivt konto.'};}
           const token=randomBytes(32).toString('base64url');auth.sessions.push({tokenHash:hash(token),personId:person.id,companyId:person.companyId,expiresAt:new Date(Date.now()+8*3600000).toISOString()});account.lastLoginAt=stamp();state.personnel.externalAccounts=auth.accounts.map(({password,...a})=>a);
-          transactionAudit.push({action:'externalDriver.login',personId:person.id,at:stamp()});
-          return {cookie:token,value:{person:{id:person.id,name:person.name,driverId:person.driverId,companyId:person.companyId},company:companyView(state.personnel.companies.find(c=>c.id===person.companyId)),demo:true}};
+          transactionAudit.push({action:'driver.login',personId:person.id,at:stamp()});
+          return {cookie:token,value:sessionView(state,person)};
         }
         const session=auth.sessions.find(s=>s.tokenHash===hash(cookie(req)??'')),person=state.personnel.people.find(p=>p.id===session?.personId),account=auth.accounts.find(a=>a.personId===person?.id);
-        if(!session || !person?.active || person.kind!=='external' || !account?.active || session.companyId!==person.companyId || !state.personnel.companies.some(c=>c.id===person.companyId))fail('Logga in som extern chaufför.',401);
+        if(!session || !enabledPerson(state,person) || !account?.active || session.companyId!==person.companyId)fail('Logga in som chaufför.',401);
         if(path==='logout' && req.method==='POST'){auth.sessions=auth.sessions.filter(s=>s!==session);return {cookie:'',logout:true,value:{ok:true}};}
         const driver=state.transport.drivers.find(d=>d.id===person.driverId);
         if(!driver || driver.personId!==person.id || driver.companyId!==person.companyId)fail('Kontot saknar en giltig koppling till förare och åkeri.',403);
-        if(path==='session' && req.method==='GET')return {value:{person:{id:person.id,name:person.name,driverId:person.driverId,companyId:person.companyId},company:companyView(state.personnel.companies.find(c=>c.id===person.companyId)),demo:true}};
-        const orders=state.transport.orders.filter(o=>o.driverId===driver.id);
+        if(path==='session' && req.method==='GET')return {value:sessionView(state,person)};
+        const orders=state.transport.orders.filter(order=>(state.logistics?.details[order.id]?.assignedDriverId??order.driverId)===driver.id).map(order=>driverOrderView(state,person,order)).filter(Boolean);
         if(path==='orders' && req.method==='GET')return {value:{orders:clone(orders.map(orderView)),demo:true}};
+        const logisticsMatch=path.match(/^orders\/([^/]+)\/logistics$/);
+        if(logisticsMatch && req.method==='POST') {
+          const order=orders.find(order=>order.id===decodeURIComponent(logisticsMatch[1]));if(!order)fail('Uppdraget är inte tilldelat dig.',403);
+          if(!order.detail)fail('Detta äldre uppdrag följer det tidigare statusflödet.',409);
+          const updated=applyDriverAction(state,person,order.id,payload,transactionAudit);refreshStaffingTasks(state);
+          return {value:{order:orderView(updated),demo:true}};
+        }
         const match=path.match(/^orders\/([^/]+)\/status$/);
         if(match && req.method==='POST') {
-          const order=orders.find(o=>o.id===match[1]);if(!order)fail('Uppdraget är inte tilldelat dig.',403);
+          const order=orders.find(o=>o.id===decodeURIComponent(match[1]));if(!order)fail('Uppdraget är inte tilldelat dig.',403);
           const input=parse(z.object({status:z.enum(['on_way','done'])}),payload);
+          if(order.detail) {
+            const updated=applyDriverAction(state,person,order.id,{action:input.status==='on_way'?'travel.empty':'deliver',expectedVersion:order.detail.version},transactionAudit);refreshStaffingTasks(state);
+            return {value:{order:orderView(updated),demo:true}};
+          }
           if(order.status===input.status)return {value:{order:clone(orderView(order)),demo:true}};
           if((input.status==='on_way' && order.status!=='booked') || (input.status==='done' && order.status!=='on_way'))fail('Uppdraget måste påbörjas innan det slutförs.');
           if(input.status==='on_way'){const issues=personnelPlanIssues(state.personnel,state.transport,order.id,order);if(issues.length)fail(issues.join(' '),422);}

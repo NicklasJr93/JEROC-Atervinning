@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.10.0';
+export const OFFICE_VERSION = '0.11.0';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -26,6 +26,14 @@ export const permissionNames = {
   reports: 'Se ekonomisk översikt',
   transportRead: 'Läsa transportplanering',
   transportPlan: 'Skapa, boka och ändra transporter',
+  workOrdersRead: 'Läsa arbetsorder',
+  workOrdersWrite: 'Skapa och hantera arbetsorder',
+  vesselsRead: 'Läsa kärl och avtal',
+  vesselsWrite: 'Hantera kärl och avtal',
+  warehouseRead: 'Läsa lager',
+  warehouseWrite: 'Registrera lager och utleveranser',
+  customerAccounts: 'Hantera kundportalens konton',
+  carrierAccounts: 'Hantera åkeriportalens konton',
   customerApprovalRead: 'Läsa kundgodkännanden',
   environmentRead: 'Läsa miljöunderlag och mottagningar',
   environmentWrite: 'Registrera faktisk mottagning och miljöuppgifter',

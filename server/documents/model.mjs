@@ -15,7 +15,12 @@ const demandSite = (principal, siteId) => { authenticated(principal); if (!siteI
 const demandSettlement = (principal, siteId) => { demand(principal, 'view'); demandSite(principal, siteId); if (!moneyVisible(principal)) fail('Du saknar behörighet att se hela avräkningens priser.', 403, 'financial_visibility_required'); };
 const visibleSite = (principal, siteId) => Boolean(siteId) && (!Array.isArray(principal.user.siteIds) || principal.user.siteIds.includes(siteId));
 const demandReceipt = principal => { if (!['pay', 'reports'].some(right => can(principal, right))) fail('Du saknar behörighet till betalningsjournalen.', 403, 'forbidden'); };
-const demandTransport = principal => { demand(principal, 'transportRead'); if (Array.isArray(principal.user.siteIds)) fail('Transportplaneringen saknar ännu säker anläggningsindelning. Dokumenten kräver tillgång till alla anläggningar.', 403, 'transport_scope_unavailable'); };
+const demandTransport = (principal, siteId) => {
+  authenticated(principal);
+  if (!can(principal, 'transportRead') && !can(principal, 'workOrdersRead')) fail('Du saknar behörighet till transportdokument.', 403, 'forbidden');
+  if (siteId) demandSite(principal, siteId);
+  else if (Array.isArray(principal.user.siteIds)) fail('Äldre arbetsorder saknar säker anläggningsindelning. Dokumenten kräver tillgång till alla anläggningar.', 403, 'transport_scope_unavailable');
+};
 const short = z.string().trim().max(300).default('');
 const partySchema = z.object({ name: short, number: short, address: short, postalCode: short, city: short }).strict();
 const dateText = z.string().trim().max(40).default('').refine(value => !value || /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value) && Number.isFinite(Date.parse(value)), 'Ange ett giltigt datum.');
@@ -32,7 +37,7 @@ const siteFor = (sources, card) => (sources.sites ?? []).find(site => site.id ==
 const companyFor = (sources, site) => ({ name: sources.company?.name ?? 'JEROC Återvinning AB', number: sources.company?.number ?? '', vat: sources.company?.vat ?? '', address: site?.address ?? sources.company?.address ?? '', postalCode: site?.postalCode ?? sources.company?.postalCode ?? '', city: site?.city ?? sources.company?.city ?? '' });
 const latestApproval = (sources, cardId) => (sources.approvals ?? []).filter(approval => String(approval.cardId) === String(cardId)).sort((left, right) => right.version - left.version)[0];
 const validApproved = approval => ['approved', 'attested'].includes(approval.status) && Boolean(approval.approvedAt && approval.approvedMethod) && approval.approvedHash === approval.snapshot.hash;
-const titleFor = (kind, stage) => kind === 'transport' ? 'Transportdokument · utkast' : kind === 'receipt' ? 'Utbetalningskvitto · demo' : stage === 'final' ? 'Avräkningsnota · JEROC-attesterad' : stage === 'reviewed' ? 'Avräkningsnota · kundgodkänd, preliminär' : 'Avräkningsnota · preliminär';
+const titleFor = (kind, stage) => kind === 'transport' ? stage === 'final' ? 'Transportdokument · registrerad avfärd, demo' : 'Transportdokument · utkast' : kind === 'receipt' ? 'Utbetalningskvitto · demo' : stage === 'final' ? 'Avräkningsnota · JEROC-attesterad' : stage === 'reviewed' ? 'Avräkningsnota · kundgodkänd, preliminär' : 'Avräkningsnota · preliminär';
 export const documentMetadata = record => Object.fromEntries(Object.entries({ id: record.id, kind: record.kind, sourceId: record.sourceId, sourceVersion: record.sourceVersion, stage: record.stage, siteId: record.siteId, title: record.title, sourceHash: record.sourceHash, pdfHash: record.pdfHash, templateVersion: record.templateVersion, createdAt: record.createdAt, bytes: record.bytes, downloadUrl: `/api/documents/${encodeURIComponent(record.id)}/download` }).filter(([, value]) => value !== undefined));
 
 function approvalSnapshot(approval, sources, stage) {
@@ -144,7 +149,7 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     if (kind === 'settlement') {
       const { sources, card } = await settlementSources(sourceId, principal);
       for (const approval of (sources.approvals ?? []).filter(value => String(value.cardId) === String(card.id) && visibleSite(principal, value.siteId))) await ensureApproval(approval, sources);
-    } else if (kind === 'transport') { demandTransport(principal); const sources = await sourceProvider(); if (!sources.transport?.orders?.some(order => order.id === sourceId)) fail('Arbetsordern finns inte.', 404, 'source_not_found'); }
+    } else if (kind === 'transport') { const sources = await sourceProvider(); const order = sources.transport?.orders?.find(order => order.id === sourceId); if (!order) fail('Arbetsordern finns inte.', 404, 'source_not_found'); demandTransport(principal, order.siteId); }
     else { await receiptSources(sourceId, principal); }
     return { documents: (await repository.transact(database => database.documents(kind, sourceId))).filter(record => visibleSite(principal, record.siteId)).map(documentMetadata), demo: true, storage: repository.kind };
   }
@@ -176,9 +181,28 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     return { document: await archive(snapshot, 'receipt', paymentId, approval.version, 'final', approval.siteId, principal), demo: true };
   }
   async function initialTransport(orderId, principal) {
-    demandTransport(principal);
     const sources = await sourceProvider(), order = sources.transport?.orders?.find(order => order.id === orderId);
     if (!order) fail('Arbetsordern finns inte.', 404, 'source_not_found');
+    demandTransport(principal, order.siteId);
+    const detail = sources.logistics?.details?.[orderId];
+    if (detail) {
+      const frozen = detail.document?.snapshot;
+      const driver = sources.transport.drivers?.find(value => value.id === (frozen?.driverId ?? detail.assignedDriverId ?? order.driverId));
+      const carrier = sources.personnel?.companies?.find(value => value.id === (frozen?.carrierId ?? detail.carrierId ?? driver?.companyId));
+      const site = sources.sites?.find(value => value.id === detail.siteId);
+      const rows = frozen?.rows ?? detail.materialRows;
+      const draft = { orderId, version: detail.document?.version ?? 0, siteId: detail.siteId,
+        direction: order.action === 'outbound' ? 'outbound' : 'pickup', managed: true,
+        sender: party(frozen?.from ?? detail.from), receiver: party(frozen?.to ?? detail.to),
+        carrier: carrier ? party(carrier) : party(companyFor(sources, site)), driver: driver?.name ?? '',
+        registration: sources.transport.vehicles?.find(value => value.id === (frozen?.vehicleId ?? detail.assignedVehicleId ?? order.vehicleId))?.registration ?? '',
+        startAt: detail.execution.departedAt ?? order.date ?? detail.confirmedWindow?.date ?? '', requestedAt: detail.requestedWindow?.date ?? '',
+        handling: frozen?.handling ?? detail.handling, reference: orderId,
+        rows: rows.map(row => ({ articleId: row.articleId, name: row.name, wasteCode: row.wasteCode, weight: row.actualKg ?? row.plannedKg })),
+        updatedAt: detail.document?.preparedAt ?? detail.updatedAt,
+      };
+      return { draft: { ...draft, missing: [] }, sources, order, detail };
+    }
     const saved = await repository.transact(database => database.transportDraft(orderId));
     if (saved) return { draft: { ...saved, missing: missingTransport(saved) }, sources, order };
     const site = sources.sites?.find(site => site.id === order.siteId) ?? sources.sites?.find(site => site.active !== false);
@@ -193,8 +217,9 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
   }
   async function transport(orderId, principal) { const { draft, sources } = await initialTransport(orderId, principal); return { draft, sites: sources.sites.filter(site => site.active !== false).map(site => ({ id: site.id, name: site.name, party: party(companyFor(sources, site)) })), documents: (await repository.transact(database => database.documents('transport', orderId))).map(documentMetadata), demo: true }; }
   async function saveTransport(orderId, input, principal) {
-    demandTransport(principal); demand(principal, 'transportPlan');
-    const request = parse(transportDocumentInputSchema, input), { sources } = await initialTransport(orderId, principal);
+    demand(principal, 'transportPlan');
+    const request = parse(transportDocumentInputSchema, input), { sources, detail } = await initialTransport(orderId, principal);
+    if (detail) fail('Ändra transportuppgifterna på arbetsordern. Dokument och underskrifter följer dess aktuella version.', 409, 'managed_document');
     if (!sources.sites?.some(site => site.id === request.siteId && site.active !== false)) fail('Välj en aktiv anläggning.', 422, 'site_missing');
     demandSite(principal, request.siteId);
     return repository.transact(async database => {
@@ -210,9 +235,28 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     });
   }
   async function generateTransport(orderId, principal) {
-    demandTransport(principal);
-    const { draft, sources } = await initialTransport(orderId, principal);
+    const { draft, sources, detail } = await initialTransport(orderId, principal);
     if (!draft.version) fail('Spara transportdokumentets uppgifter innan PDF skapas.', 409, 'draft_required');
+    if (detail) {
+      const document = detail.document;
+      const departed = ['departed', 'delivered'].includes(detail.execution.stage);
+      const hazardous = document.snapshot.rows.some(row => row.hazardous);
+      const validSignatures = document.signatures.filter(signature => signature.documentVersion === document.version && signature.documentHash === document.hash);
+      if (departed && hazardous && !['sender', 'carrier'].every(role => validSignatures.some(signature => signature.role === role)))
+        fail('Underskrifter för den aktuella transportversionen saknas.', 409, 'signature_required');
+      const stage = departed ? 'final' : 'draft';
+      const site = sources.sites.find(value => value.id === detail.siteId);
+      const snapshot = { type: 'transport', status: stage, id: `TD-${orderId}-V${document.version}`, version: document.version,
+        issuedAt: departed ? detail.execution.departedAt : document.preparedAt, sourceId: orderId,
+        site: copy(site), company: companyFor(sources, site), sender: draft.sender, receiver: draft.receiver, carrier: draft.carrier,
+        rows: draft.rows, totalWeight: draft.rows.reduce((sum, row) => sum + (row.weight ?? 0), 0), reference: orderId,
+        origin: [draft.sender.address, draft.sender.postalCode, draft.sender.city].filter(Boolean).join(', '), missing: [],
+        transport: { direction: draft.direction, driver: draft.driver, registration: draft.registration, startAt: draft.startAt,
+          requestedAt: draft.requestedAt, handling: draft.handling,
+          signatures: validSignatures.map(signature => ({ role: signature.role, person: signature.actorName, at: signature.at,
+            method: 'Testbekräftelse · demo', version: signature.documentVersion })) }, demo: true };
+      return { document: await archive(snapshot, 'transport', orderId, document.version, stage, detail.siteId, principal), draft, demo: true };
+    }
     const site = sources.sites.find(site => site.id === draft.siteId);
     const snapshot = { type: 'transport', status: 'draft', id: `TD-${orderId}-V${draft.version}`, version: draft.version, issuedAt: draft.updatedAt, sourceId: orderId, sourceHash: documentHash(draft), site: copy(site), company: companyFor(sources, site), sender: draft.sender, receiver: draft.receiver, carrier: draft.carrier,
       rows: draft.rows.map(row => ({ ...row, wasteCode: row.wasteCode.replace(/[ *]/g, '') })), totalWeight: draft.rows.reduce((sum, row) => sum + (row.weight ?? 0), 0), reference: draft.reference, missing: draft.missing,
@@ -223,7 +267,7 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     authenticated(principal);
     const record = await repository.transact(database => database.document(documentId, true));
     if (!record) fail('Dokumentet finns inte.', 404, 'document_not_found');
-    if (record.kind === 'transport') { demandTransport(principal); demandSite(principal, record.siteId); }
+    if (record.kind === 'transport') { demandTransport(principal, record.siteId); }
     else { demandSettlement(principal, record.siteId); if (record.kind === 'receipt') demandReceipt(principal); }
     if (documentHash(record.pdf) !== record.pdfHash) fail('Dokumentets kontrollsumma stämmer inte. Originalet lämnas orört.', 503, 'file_integrity_error');
     return record;

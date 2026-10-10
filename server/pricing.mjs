@@ -36,6 +36,14 @@ export const permissions = [
   'customerPriceEdit',
   'transportRead',
   'transportPlan',
+  'workOrdersRead',
+  'workOrdersWrite',
+  'vesselsRead',
+  'vesselsWrite',
+  'warehouseRead',
+  'warehouseWrite',
+  'customerAccounts',
+  'carrierAccounts',
   'customerApprovalRead',
   'environmentRead',
   'environmentWrite',
@@ -1505,6 +1513,11 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
       competenciesWrite: ['personnelRead'],
       staffingWrite: ['personnelRead', 'transportRead', 'transportPlan'],
       externalAccounts: ['personnelRead'],
+      workOrdersWrite: ['workOrdersRead'],
+      vesselsWrite: ['vesselsRead'],
+      warehouseWrite: ['warehouseRead'],
+      customerAccounts: ['vesselsRead'],
+      carrierAccounts: ['workOrdersRead'],
     };
     for (const user of users) if (user.level !== 'Systemadmin')
       for (const [right, required] of Object.entries(personnelPrerequisites))

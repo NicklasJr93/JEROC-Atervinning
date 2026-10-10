@@ -1,5 +1,5 @@
 export type ContainerType = 'container' | 'battery' | 'bin' | 'cage';
-export type TransportAction = 'pickup' | 'exchange' | 'placement';
+export type TransportAction = 'pickup' | 'exchange' | 'placement' | 'outbound';
 export type TransportStatus = 'unbooked' | 'booked' | 'on_way' | 'done' | 'cancelled';
 export const vesselTypes: Record<ContainerType, { label: string; color: string }> = {
   container: { label: 'Container', color: '#1673ff' },
@@ -8,7 +8,7 @@ export const vesselTypes: Record<ContainerType, { label: string; color: string }
   cage: { label: 'Bur', color: '#8438ec' },
 };
 export const actionLabels: Record<TransportAction, string> = {
-  pickup: 'Hämtning', exchange: 'Byte', placement: 'Utställning',
+  pickup: 'Hämtning', exchange: 'Byte', placement: 'Utställning', outbound: 'Utleverans',
 };
 export const transportStatusLabels: Record<TransportStatus, string> = {
   unbooked: 'Obokat', booked: 'Bokat', on_way: 'På väg', done: 'Klart', cancelled: 'Avbrutet',
@@ -26,6 +26,7 @@ export interface TransportVehicle {
   requiredCompetencies?: string[];
 }
 export interface TransportOrder {
+  siteId?: string; operator?: 'own' | 'external';
   id: string; customerId?: string; customerName: string; address: string; city: string;
   contact: string; phone: string; action: TransportAction; vesselType: ContainerType;
   material: string; vesselSize: string; pickupVessel: string; replacementVessel: string;

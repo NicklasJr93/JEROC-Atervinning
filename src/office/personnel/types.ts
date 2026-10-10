@@ -36,4 +36,5 @@ export type PersonnelCommand =
   | { action: 'absence.cancel'; absenceId: string; revision: number }
   | { action: 'replacement.preview'; taskIds: string[] }
   | { action: 'staffing.assign'; taskIds: string[]; replacementPersonId: string }
-  | { action: 'externalAccount.save'; personId: string; username: string; active: boolean; password?: string };
+  | { action: 'externalAccount.save'; personId: string; username: string; active: boolean; password?: string }
+  | { action: 'driverAccount.save'; personId: string; username: string; active: boolean; password?: string };

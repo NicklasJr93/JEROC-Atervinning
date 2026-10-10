@@ -6,6 +6,7 @@ import { createPricingStore, PricingError } from './pricing.mjs';
 import { createPricingApi } from './pricing-api.mjs';
 import { createTransportOutbox, createTransportIntegrationsApi } from './transport-integrations.mjs';
 import { ensurePersonnel, personnelCommand, personnelProjection, personnelCan, validatePersonnelTransportChange, refreshStaffingTasks, createDriverApi } from './personnel.mjs';
+import { createLogisticsApi, validateLogisticsTransportChange } from './logistics.mjs';
 import { officeSchema, seedOffice, migrateOffice, storeSchema, isComplete, rowWeight, transportSchema, seedTransport, articles, recordPayment, validPaymentDetails } from '../dist-server/domain-models.mjs';
 
 const clone = value => structuredClone(value);
@@ -262,7 +263,7 @@ function requestPrincipal(store, req) {
   return store.principal(actor, user);
 }
 
-export function createApplicationService({ repository, env = process.env, projections, approvalProvider = async () => [], siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}] } = {}) {
+export function createApplicationService({ repository, env = process.env, projections, approvalProvider = async () => [], siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider } = {}) {
   projections ??= approvalProvider;
   const context = new AsyncLocalStorage(); let fallback = createPricingStore(); let repoPromise;
   const getRepo = () => repoPromise ??= (repository ? Promise.resolve(repository) : createApplicationRepository({ env, seed: initialApplicationState })).catch(error => { repoPromise = undefined; throw error; });
@@ -399,6 +400,7 @@ export function createApplicationService({ repository, env = process.env, projec
             const base = transportSchema.parse(payload.base), next = transportSchema.parse(payload.next);
             if (!equal(state.transport, base)) fail('Planeringen ändrades av en annan användare. Ladda om före bokning.');
             validatePersonnelTransportChange(state,base,next);
+            validateLogisticsTransportChange(state,base,next);
             for (const event of next.events.filter(event => !state.transport.events.some(old => old.id === event.id))) if (event.actualUserId !== p.actor.id || event.effectiveUserId !== p.user.id) fail('Transporthändelsens användare stämmer inte med sessionen.', 403);
             for (const old of state.transport.events) if (!next.events.some(event => event.id === old.id && equal(event, old))) fail('Transporthistoriken kan inte skrivas över.');
             state.transport = next;
@@ -472,7 +474,8 @@ export function createApplicationService({ repository, env = process.env, projec
     return true;
   }
   const driverApi = createDriverApi({getRepository:getRepo,readBody:body,json});
-  const api = async (req, res, url) => await driverApi(req,res,url) || await durableApi(req, res, url) || await businessApi(req, res, url);
+  const logisticsApi = createLogisticsApi({getRepository:getRepo,readBody:body,json,siteProvider,environmentProvider});
+  const api = async (req, res, url) => await logisticsApi(req,res,url) || await driverApi(req,res,url) || await durableApi(req, res, url) || await businessApi(req, res, url);
   Object.assign(api, { principalStore, withPrincipal, businessApi, durableApi, getRepository: getRepo, close: async () => { if (repoPromise) await (await repoPromise).close(); } });
   return api;
 }

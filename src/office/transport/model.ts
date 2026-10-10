@@ -70,7 +70,8 @@ const eventSchema = z.object({
 const orderSchema = z.object({
   id: requiredText, customerId: requiredText.optional(), customerName: requiredText,
   address: requiredText, city: requiredText, contact: textSchema, phone: textSchema,
-  action: z.enum(['pickup', 'exchange', 'placement']), vesselType: vesselSchema,
+  action: z.enum(['pickup', 'exchange', 'placement', 'outbound']), vesselType: vesselSchema,
+  siteId: requiredText.optional(), operator: z.enum(['own', 'external']).optional(),
   material: textSchema, vesselSize: textSchema, pickupVessel: textSchema,
   replacementVessel: textSchema, notes: textSchema,
   lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180),
@@ -145,6 +146,10 @@ export const transportSchema = baseDataSchema.superRefine((data, context) => {
       }
     } else if (order.status === 'cancelled' && order.date === undefined && order.startMinute === undefined && order.driverId === undefined && order.vehicleId === undefined) {
       // An unbooked order may also be cancelled. Scheduled cancellations retain their old plan.
+    } else if (order.status === 'done' && order.siteId && order.operator && order.date === undefined && order.startMinute === undefined && order.driverId === undefined && order.vehicleId === undefined) {
+      // The shared workflow may finish an assigned carrier/yard operation that
+      // never occupied an internal calendar slot. Its actual departure and
+      // delivery proof live in the server-owned logistics detail.
     } else if (!order.date || order.startMinute === undefined || !order.driverId || !order.vehicleId) {
       problem = 'Bokade arbeten måste ha datum, tid, förare och fordon.';
     } else {

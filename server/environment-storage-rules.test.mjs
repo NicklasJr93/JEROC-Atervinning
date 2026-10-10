@@ -71,6 +71,24 @@ test('legacy receipts survive the storage migration without seeded limits or an 
   assert.equal((await f.store.receive(input, f.admin.token)).id, original.id);
 }));
 
+test('actual outbound stock frees environmental capacity without copying movements into receipt history', async () => fixture(async f => {
+  await f.store.receive(receiptInput(), f.admin.token);
+  await f.policy({ totalMaxKg: 15, rules: [{ wasteCode: '160601', allowed: true, maxKg: 15 }] });
+  const outbound = [{ id: 'outbound-AO-100', siteId: 'norrtalje', articleId: 'lead-battery', wasteCode: '160601',
+    weight: -8, receivedAt: f.now().toISOString(), kind: 'outbound' }];
+  const linked = createEnvironmentStore({ repository: f.repository, principalStore: f.principalStore, now: f.now,
+    outboundProvider: async () => structuredClone(outbound) });
+  const before = await linked.state(f.admin.token);
+  assert.equal(before.inventory.reduce((sum, row) => sum + row.weight, 0), 2);
+  const received = await linked.receive(receiptInput(), f.admin.token);
+  assert.equal(received.snapshot.storageAssessment.checks.find(check => check.code === 'site_capacity').projectedKg, 12);
+  assert.equal((await linked.logisticsSource()).inventory.reduce((sum, row) => sum + row.weight, 0), 20);
+  assert.equal((await linked.state(f.admin.token)).inventory.reduce((sum, row) => sum + row.weight, 0), 12);
+  assert.equal((await linked.state(f.admin.token)).inventory.filter(row => row.id === 'outbound-AO-100').length, 1);
+  const raw = JSON.parse(await f.repository.backup());
+  assert.equal(raw.inventory.some(row => row.kind === 'outbound'), false);
+}));
+
 test('the dynamic facility register is versioned, durable, scoped and validates complete addresses', async () => fixture(async f => {
   await rejects(() => f.store.saveSite('new-site', siteInput({ address: '' }), f.admin.token), 422);
   await rejects(() => f.store.saveSite('new-site', siteInput({ municipalityCode: '9999' }), f.admin.token), 422);

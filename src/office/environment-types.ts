@@ -111,7 +111,7 @@ export interface EnvironmentalReportHistory extends Omit<EnvironmentalReport, 's
 }
 export interface EnvironmentalInventory {
   id: string; receiptId: string; sourceId: string; cardId: number; siteId: string;
-  articleId: string; wasteCode: string; weight: number; receivedAt: string; kind: 'receipt' | 'correction';
+  articleId: string; wasteCode: string; weight: number; receivedAt: string; kind: 'receipt' | 'correction' | 'outbound';
   classification?: WasteClassification;
   correctionId?: string;
 }

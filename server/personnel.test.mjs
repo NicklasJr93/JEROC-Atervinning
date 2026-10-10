@@ -66,6 +66,51 @@ test('external accounts hash credentials, restrict assigned orders and revoke se
   assert.equal((await a(`/api/driver/orders/${order.id}/status`,{status:'done'},'admin',cookie)).status,409);assert.equal((await a(`/api/driver/orders/${order.id}/status`,{status:'on_way'},'admin',cookie)).status,200);assert.equal((await a(`/api/driver/orders/${order.id}/status`,{status:'done'},'admin',cookie)).status,200);
   assert.equal((await a(personnel,{action:'externalAccount.save',personId:'person-oskar',username:'oskar.extern',active:false})).status,200);assert.equal((await a('/api/driver/session',undefined,'admin',cookie)).status,401);
 }));
+test('employee driver credentials are personal, hashed, editable and revoked with the staff account',async()=>fixture(async({a,repository})=>{
+  const id=`person-${randomUUID()}`,created=await a(personnel,{action:'person.save',person:{id,name:'Egen testförare',kind:'employee',siteIds:['norrtalje'],canDrive:true,vehicleId:'vehicle-kalle'},createAccount:{kind:'staff'}});
+  assert.equal(created.status,200,created.error);const person=created.data.people.find(person=>person.id===id);
+  const saved=await a(personnel,{action:'driverAccount.save',personId:id,username:'own.driver',active:true,password:'Own-Driver-Test-2026!'});assert.equal(saved.status,200,saved.error);
+  assert.ok(!JSON.stringify(saved).includes('digest'));const repo=await repository(),auth=await repo.transact(state=>structuredClone(state.personnelAuth));assert.ok(auth.accounts.find(account=>account.personId===id).password.digest);assert.ok(!JSON.stringify(auth).includes('Own-Driver-Test-2026!'));
+  const login=await a('/api/driver/login',{username:'own.driver',password:'Own-Driver-Test-2026!'});assert.equal(login.status,200,login.error);assert.equal(login.person.kind,'employee');assert.equal(login.company.name,'JEROC Återvinning AB');const cookie=login.cookie.split(';')[0];
+  assert.equal((await a('/api/driver/session',undefined,null,cookie)).status,200);
+  const orders=await a('/api/driver/orders',undefined,null,cookie);assert.equal(orders.status,200);assert.ok(orders.orders.every(order=>order.driverId===person.driverId));assert.equal((await a(personnel,undefined,null,cookie)).status,401);
+  const edited=await a(personnel,{action:'person.save',person:{...saved.data.people.find(person=>person.id===id),phone:'070-000 99 99'}});assert.equal(edited.status,200,edited.error);assert.equal((await a('/api/driver/session',undefined,null,cookie)).status,200);
+  const users=(await a('/api/pricing/state')).users.map(user=>user.id===person.userId?{...user,active:false}:user);assert.equal((await a('/api/pricing/users',{users})).status,200);assert.equal((await a('/api/driver/session',undefined,null,cookie)).status,401);assert.equal((await a('/api/driver/login',{username:'own.driver',password:'Own-Driver-Test-2026!'})).status,401);
+}));
+test('driver-account management requires users rights for employees and never reuses office demo identity as login',async()=>fixture(async({a})=>{
+  assert.equal((await a('/api/driver/login',{username:'admin',password:'JerocDemo2026!'})).status,401);
+  assert.equal((await a(personnel,{action:'driverAccount.save',personId:'person-kalle',username:'kalle.test',active:true,password:'Kalle-Test-2026!'},'kajsa')).status,403);
+  assert.equal((await a(personnel,{action:'externalAccount.save',personId:'person-kalle',username:'kalle.test',active:true,password:'Kalle-Test-2026!'})).status,422);
+  assert.equal((await a(personnel,{action:'driverAccount.save',personId:'person-oskar',username:'oskar.test',active:true,password:'Oskar-Test-2026!'})).status,422);
+}));
+test('staffing replacement synchronizes managed transport assignment and invalidates former signatures and clearance',async()=>fixture(async({a,repository})=>{
+  const hr=await a(personnel),original=hr.transport.orders.find(order=>order.id==='AO-1201');
+  let overview=await a('/api/logistics/office');assert.equal(overview.status,200,overview.error);
+  let order=overview.orders.find(order=>order.id===original.id);
+  for(const command of [
+    {action:'order.load',rows:[]},
+    {action:'order.document'},
+    {action:'order.sign',role:'sender'},
+    {action:'order.sign',role:'carrier'},
+    {action:'order.clearance',cleared:true},
+  ]) {
+    overview=await a('/api/logistics/office',{...command,orderId:order.id,expectedVersion:order.detail.version,...(command.action==='order.sign'?{documentVersion:order.detail.document.version}:{})});
+    assert.equal(overview.status,200,overview.error);order=overview.orders.find(value=>value.id===original.id);
+  }
+  assert.equal(order.detail.document.signatures.length,2);assert.equal(order.detail.execution.officeCleared,true);
+  const priorDocument=structuredClone(order.detail.document),priorVersion=order.detail.version;
+  for(const [personId,username] of [['person-kalle','replacement.old'],['person-lina','replacement.new']])assert.equal((await a(personnel,{action:'driverAccount.save',personId,username,active:true,password:'Replacement-Test-2026!'})).status,200);
+  const oldLogin=await a('/api/driver/login',{username:'replacement.old',password:'Replacement-Test-2026!'}),newLogin=await a('/api/driver/login',{username:'replacement.new',password:'Replacement-Test-2026!'});assert.equal(oldLogin.status,200,oldLogin.error);assert.equal(newLogin.status,200,newLogin.error);
+  const oldCookie=oldLogin.cookie.split(';')[0],newCookie=newLogin.cookie.split(';')[0];
+  assert.ok((await a('/api/driver/orders',undefined,null,oldCookie)).orders.some(value=>value.id===order.id));
+  const absence=await a(personnel,{action:'absence.save',absence:{personId:'person-kalle',kind:'sick',fromDate:original.date,toDate:original.date,allDay:true}});assert.equal(absence.status,200,absence.error);
+  const task=absence.data.staffingTasks.find(task=>task.orderId===order.id && task.status==='open');assert.ok(task);
+  const assigned=await a(personnel,{action:'staffing.assign',taskIds:[task.id],replacementPersonId:'person-lina'});assert.equal(assigned.status,200,assigned.error);
+  const changed=(await a('/api/logistics/office')).orders.find(value=>value.id===order.id);assert.equal(changed.driverId,'lina');assert.equal(changed.detail.assignedDriverId,'lina');assert.equal(changed.detail.assignedVehicleId,'vehicle-lina');assert.ok(changed.detail.version>priorVersion);assert.equal(changed.detail.execution.officeCleared,false);assert.equal(changed.detail.document,undefined);assert.equal(changed.detail.confirmedWindow.date,original.date);assert.equal(changed.detail.confirmedWindow.from,`${Math.floor(original.startMinute/60)}`.padStart(2,'0')+':'+`${original.startMinute%60}`.padStart(2,'0'));
+  const repo=await repository(),history=await repo.transact(state=>state.logistics.details[order.id].documentHistory);assert.ok(history.some(document=>document.hash===priorDocument.hash && document.signatures.length===2));
+  assert.ok(!(await a('/api/driver/orders',undefined,null,oldCookie)).orders.some(value=>value.id===order.id));assert.ok((await a('/api/driver/orders',undefined,null,newCookie)).orders.some(value=>value.id===order.id));
+  assert.equal((await a(`/api/driver/orders/${order.id}/logistics`,{action:'travel.empty',expectedVersion:changed.detail.version},null,oldCookie)).status,403);
+}));
 test('facility-scoped personnel rights cannot read or mutate another site or private payroll',async()=>fixture(async({a})=>{
   const admin=await a(personnel),users=(await a('/api/pricing/state')).users.map(u=>u.id==='kajsa'?{...u,siteIds:['rimbo'],permissions:['personnelRead','personnelWrite','salaryRead','salaryWrite','absenceRead','absenceWrite','transportRead']}:u);assert.equal((await a('/api/pricing/users',{users})).status,200);
   const scoped=await a(personnel,undefined,'kajsa');assert.equal(scoped.status,200);assert.ok(scoped.data.people.every(p=>p.siteIds.includes('rimbo')));assert.equal(scoped.data.salaries.length,0);assert.equal((await a(personnel,{action:'salary.save',salary:admin.data.salaries[0]},'kajsa')).status,403);

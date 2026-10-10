@@ -97,7 +97,7 @@ async function handle(req, res) {
     reply(res, 404, 'Not found');
     return;
   }
-  const staticPath = ['/', '/kontor', '/kontor/', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
+  const staticPath = ['/', '/kontor', '/kontor/', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
   const file = resolve(dist, `.${staticPath}`);
   const within = relative(dist, file);
   if (within.startsWith('..') || isAbsolute(within)) {
@@ -139,10 +139,15 @@ const server = createServer((req, res) => {
 });
 const applicationApi = createApplicationService({ approvalProvider: () => terminalDemoApi.projections(),
   siteProvider: () => environmentApi.getSites(),
+  environmentProvider: () => environmentApi.getLogisticsSource(),
 });
 const principalStore = applicationApi.principalStore;
 const environmentApi = createEnvironmentApi({ principalStore,
   approvalGuard: (input, operation) => terminalDemoApi.withApprovedCard(input, operation),
+  outboundProvider: async () => (await applicationApi.getRepository()).transact(state =>
+    (state.logistics?.inventoryMovements ?? []).filter(row => row.kind === 'outbound' && row.hazardous)
+      .map(row => ({ id: row.id, siteId: row.siteId, articleId: row.articleId, wasteCode: row.wasteCode,
+        weight: row.kg, receivedAt: row.at, kind: 'outbound', sourceId: row.sourceId }))),
 });
 const terminalDemoApi = createTerminalDemoApi({ principalStore, siteProvider: () => environmentApi.getSites(),
   environmentApprovalCheck: approval => environmentApi.assertReceiptForAttest(approval),
@@ -165,6 +170,7 @@ const documentsApi = createDocumentsApi({
       office: state.office,
       transport: state.transport,
       personnel: state.personnel,
+      logistics: state.logistics,
       pricing: { articles: [...new Map((state.pricing.articleHistory ?? []).map(
         article => [article.id, { id: article.id, name: article.name }],
       )).values()] },

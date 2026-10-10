@@ -231,9 +231,15 @@ export function addSwedishWorkingDays(receivedAt, count) {
   return dateNumber(day);
 }
 
-export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true, approvalGuard }) {
+export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true, approvalGuard, outboundProvider = async () => [] }) {
   if (!repository || !principalStore) throw new Error('Environment requires durable repository and principal store.');
-  const transaction = (operation) => { const run = () => repository.transact((state) => {
+  const outboundSnapshots = new WeakMap();
+  // Read the application ledger before taking the environmental aggregate lock.
+  // Never persist copied movements or hold cross-module locks at the same time.
+  const transaction = (operation) => { const run = async () => {
+    const outbound = await outboundProvider();
+    return repository.transact((state) => {
+    outboundSnapshots.set(state, outbound);
     const time = now();
     if (!state.siteRecords.length) state.siteRecords.push(...ENVIRONMENT_SITES.map((site) => ({ ...site, version: 1, active: true,
       permitReference: '', permitNotes: '', updatedAt: time.toISOString(), updatedBy: 'Befintlig anläggning' })));
@@ -248,7 +254,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     state.sessions = state.sessions.filter((session) => Date.parse(session.expiresAt) > time.getTime());
     state.loginAttempts = state.loginAttempts.filter((attempt) => Date.parse(attempt.at) > time.getTime() - LOGIN_WINDOW);
     return operation(state, time);
-  }); return principalStore.runFresh ? principalStore.runFresh(run) : run(); };
+  }); }; return principalStore.runFresh ? principalStore.runFresh(run) : run(); };
   const principalFor = (state, token, time) => {
     const session = token && state.sessions.find((record) => record.tokenHash === environmentHash(token) && Date.parse(record.expiresAt) > time.getTime());
     if (!session) throw new EnvironmentError('Logga in för att öppna de gemensamma miljöuppgifterna.', 401, 'session_required');
@@ -276,7 +282,8 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
   // General facility checks and older full-material receipts remain supported.
   const scopedRows = (rows, materialScope) => materialScope === 'hazardous' ? rows.filter((row) => row.classification.hazardous) : rows;
   const physicalRows = (rows) => rows.map(({ articleId, weight }) => ({ articleId, weight }));
-  const assessStorage = (state, siteId, rows, previousRows, time) => assessEnvironmentalStorage(state,
+  const assessStorage = (state, siteId, rows, previousRows, time) => assessEnvironmentalStorage({ ...state,
+    inventory: [...state.inventory, ...(outboundSnapshots.get(state) ?? [])] },
     { siteId, rows, previousRows, checkedAt: time.toISOString() });
   const demandStorageCapacity = (assessment) => {
     if (!assessment.canReceive) throw new EnvironmentError(assessment.checks.filter((check) => check.severity === 'blocked')
@@ -287,6 +294,14 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     // Internal server catalogue for terminal/pricing integration, never an
     // unauthenticated customer HTTP endpoint.
     catalog() { return transaction((state) => copy(currentEnvironmentSites(state))); },
+    logisticsSource() { return transaction(state => {
+      const articleIds = [...new Set(state.classifications.map(record => record.articleId))];
+      return { classifications: articleIds.map(articleId => copy(currentClassification(state, articleId))),
+        inventory: copy([
+          ...state.inventory.map(record => ({ ...record, classification: state.receipts.find(receipt => receipt.id === record.receiptId)?.snapshot.rows.find(row => row.articleId === record.articleId)?.classification })),
+          ...state.corrections.flatMap(record => record.inventoryMovements),
+        ]) };
+    }); },
     demoSession(payload, previousToken) {
       if (!demoMode) throw new EnvironmentError('Automatisk demoinloggning är avstängd.', 503, 'demo_disabled');
       const request = parse(z.object({ userId: id, effectiveUserId: id.optional() }).strict(), payload), token = secret();
@@ -363,6 +378,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         receipts: originals.map((record) => effectiveReceipt(state, record)), inventory: copy([
           ...state.inventory.filter((record) => visible.has(record.siteId)).map((record) => ({ ...record, classification: state.receipts.find((receipt) => receipt.id === record.receiptId)?.snapshot.rows.find((row) => row.articleId === record.articleId)?.classification })),
           ...state.corrections.filter((record) => visible.has(record.siteId)).flatMap((record) => record.inventoryMovements),
+          ...(outboundSnapshots.get(state) ?? []).filter(record => visible.has(record.siteId)),
         ]), reports: copy(reports), reportHistory: copy(reportHistory),
       };
     }); },

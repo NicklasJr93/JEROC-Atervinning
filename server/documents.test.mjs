@@ -259,7 +259,8 @@ test('site, financial visibility, revoked accounts and authentication are checke
   await assert.rejects(() => service.download(document.id, noMoney), expectError(403, 'financial_visibility_required'));
   await assert.rejects(() => service.download(document.id, undefined), expectError(401, 'authentication_required'));
   await assert.rejects(() => service.download(document.id, { ...admin, actor: { ...admin.actor, active: false } }), expectError(401, 'authentication_required'));
-  await assert.rejects(() => service.transport('AO-1042', worker(['transportRead'], ['norrtalje'])), expectError(403, 'transport_scope_unavailable'));
+  assert.equal((await service.transport('AO-1042', worker(['transportRead'], ['norrtalje']))).draft.siteId, 'norrtalje');
+  await assert.rejects(() => service.transport('AO-1042', worker(['transportRead'], ['rimbo'])), expectError(403, 'site_forbidden'));
   await assert.rejects(() => service.transport('AO-1042', worker([])), expectError(403, 'forbidden'));
 }));
 
