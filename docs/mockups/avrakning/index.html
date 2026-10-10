@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JEROC – avräkningsnota A4, mockup</title>
+  <link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+  <div class="paper-toolbar">
+    <span>Designförslag · fiktiva uppgifter</span>
+    <a id="state-link" href="?state=preliminary">Visa preliminär nota</a>
+    <button type="button" onclick="window.print()"><span data-icon="FileText"></span>Skriv ut / spara PDF</button>
+  </div>
+  <article class="a4" aria-label="Avräkningsnota, designmockup">
+    <header class="document-heading">
+      <img src="assets/jeroc-logo.png" alt="JEROC Återvinning">
+      <div class="document-title"><h1>AVRÄKNINGSNOTA</h1><span></span><p>Inköp av skrot · belopp i SEK</p></div>
+      <div class="document-badge"><span data-icon="FileText"></span><div><strong id="document-badge-title">Självfakturering</strong><small id="document-badge-note">Enligt avtal · DEMO</small></div></div>
+    </header>
+
+    <dl class="document-identifiers">
+      <div><dt><span data-icon="FileText"></span>Avräkningsreferens</dt><dd>AV-2026-00128</dd></div>
+      <div><dt><span data-icon="FileText"></span>Självfakturanummer</dt><dd id="self-invoice-number">HR-2026-001</dd></div>
+      <div><dt><span data-icon="Briefcase"></span>Invägningsunderlag</dt><dd>INV-2026-00456</dd></div>
+      <div><dt><span data-icon="CalendarDays"></span><span id="issue-date-label">Utfärdandedatum</span></dt><dd id="issue-date">2026-10-10</dd></div>
+      <div><dt><span data-icon="CalendarDays"></span>Mottagningsdatum</dt><dd>2026-10-09</dd></div>
+      <div><dt><span data-icon="CircleCheck"></span><span id="document-status-label">Status vid utfärdandet</span></dt><dd id="document-status">UTFÄRDAD · DEMO</dd></div>
+    </dl>
+
+    <div class="parties">
+      <section class="party party-blue">
+        <span class="circle-icon" data-icon="Building2"></span>
+        <div><h2>Köpare</h2><strong>JEROC Återvinning AB</strong><p>Org.nr 559123-4567</p><p>Momsreg.nr SE559123456701</p><p>Ängsvägen 19, 761 41 Norrtälje</p></div>
+      </section>
+      <section class="party party-green">
+        <span class="circle-icon" data-icon="Building2"></span>
+        <div><h2>Säljare</h2><strong>Hasses Rör AB</strong><p>Org.nr 556123-4567 · Kundnr K-00142</p><p>Momsreg.nr SE556123456701</p><p>Verkstadsvägen 7, 183 65 Täby</p></div>
+      </section>
+    </div>
+
+    <section class="reference-strip" aria-label="Referenser och anläggning">
+      <div><small>Säljarens referens</small><strong>Hasse / Täbyprojektet</strong></div>
+      <div><small>JEROC:s referens</small><strong>Nicklas Juhlin Rosén</strong></div>
+      <div><small>Mottagande anläggning</small><strong>Norrtälje</strong></div>
+    </section>
+
+    <table class="materials">
+      <thead><tr><th>Artikel / material</th><th>Vikt · kg</th><th>Pris · kr/kg</th><th>Belopp · kr</th></tr></thead>
+      <tbody>
+        <tr><td>Koppar klass 1</td><td>182</td><td>64,00</td><td>11 648,00</td></tr>
+        <tr><td>Mässing</td><td>96</td><td>38,00</td><td>3 648,00</td></tr>
+        <tr><td>Järnskrot</td><td>1 240</td><td>1,85</td><td>2 294,00</td></tr>
+        <tr><td>Aluminium</td><td>420</td><td>16,00</td><td>6 720,00</td></tr>
+        <tr><td>Rostfritt</td><td>310</td><td>12,50</td><td>3 875,00</td></tr>
+        <tr><td>Kabel, koppar</td><td>85</td><td>48,00</td><td>4 080,00</td></tr>
+        <tr><td>Blandmetall</td><td>260</td><td>4,50</td><td>1 170,00</td></tr>
+        <tr><td>Zink</td><td>140</td><td>9,50</td><td>1 330,00</td></tr>
+        <tr><td>Bly</td><td>110</td><td>11,20</td><td>1 232,00</td></tr>
+        <tr><td>Elmotorer</td><td>190</td><td>7,80</td><td>1 482,00</td></tr>
+      </tbody>
+      <tfoot><tr><td>Summa material</td><td>3 033 kg</td><td></td><td>37 479,00 kr</td></tr></tfoot>
+    </table>
+
+    <div class="settlement-grid">
+      <section class="payment-section">
+        <h2><span data-icon="CreditCard"></span>Utbetalningsuppgifter</h2>
+        <dl>
+          <div><dt>Betalningssätt</dt><dd>Bankkonto</dd></div>
+          <div><dt>Mottagare</dt><dd>Hasses Rör AB</dd></div>
+          <div><dt>Konto</dt><dd>Swedbank · ***4567</dd></div>
+          <div><dt>Planerad utbetalning</dt><dd>2026-10-12</dd></div>
+          <div><dt id="payment-status-label">Status vid utfärdandet</dt><dd class="payment-status" id="payment-status">Inväntar utbetalning</dd></div>
+        </dl>
+        <p class="payment-note" id="payment-note">Notan är ett inköpsunderlag, inte ett kvitto på genomförd betalning.</p>
+      </section>
+
+      <section class="totals-section" aria-label="Avräkning och nettoutbetalning">
+        <dl class="totals">
+          <div><dt>Materialbelopp</dt><dd>37 479,00 kr</dd></div>
+          <div><dt>Sorteringsavdrag <small>överenskommet</small></dt><dd>−150,00 kr</dd></div>
+          <div class="settlement-total"><dt>Avräkningsbelopp</dt><dd>37 329,00 kr</dd></div>
+          <div class="vat-row"><dt>Moms tas inte ut</dt><dd>Omvänd betalningsskyldighet</dd></div>
+          <div class="balance-offset"><dt>Kvittning mot kundsaldo</dt><dd>−500,00 kr</dd></div>
+        </dl>
+        <p class="offset-reference">Rättelse R-2026-00017 · viktkort INV-2026-00412</p>
+        <div class="payout-total"><span data-icon="Wallet"></span><div><small id="payout-label">Att utbetala</small><strong>36 829,00 <em>SEK</em></strong></div></div>
+      </section>
+    </div>
+
+    <section class="approval-section" aria-label="Godkännande och intern attest">
+      <div class="section-title"><h2>Godkännande & attest</h2><span id="approval-badge">Dokumentversion 1 · simulerade uppgifter</span></div>
+      <div class="approval-grid">
+        <section class="approval-card"><div class="approval-heading"><span data-icon="CircleCheck"></span><h3>Säljarens godkännande</h3></div><strong id="seller-approval-name">Hasse Nilsson · Hasses Rör AB</strong><p id="seller-approval-detail">Godkänt på plats · 2026-10-09 kl. 14:20</p><small id="seller-approval-method">Legitimation kontrollerad av Anna Berg · version 1</small></section>
+        <section class="approval-card"><div class="approval-heading"><span data-icon="ShieldCheck"></span><h3>JEROC:s interna attest</h3></div><strong id="attest-name">Sofia Lundin</strong><p id="attest-detail">Attesterat · 2026-10-09 kl. 14:32</p><small id="attest-method">Behörig attesterare · samma dokumentversion 1</small></section>
+      </div>
+    </section>
+
+    <footer class="document-footer">
+      <p id="tax-note"><strong>Omvänd betalningsskyldighet.</strong> Köparen redovisar moms på inköp av metallskrot enligt tillämpliga regler. Självfakturan utfärdas i säljarens namn och för säljarens räkning enligt avtal.</p>
+      <div class="footer-meta"><span id="archive-note">Utfärdad version 1 · betalningsstatus bevarad från utfärdandet</span><span>Sida 1 av 1</span></div>
+      <p class="demo-disclaimer">DESIGNMOCKUP · Alla företagsuppgifter, belopp och godkännanden är fiktiva. Ingen betalning eller bokföring har gjorts.</p>
+    </footer>
+  </article>
+  <script src="assets/icons.js"></script>
+  <script>
+    const options = new URLSearchParams(location.search);
+    if (options.get('capture') === '1') document.body.classList.add('capture');
+    document.querySelectorAll('[data-icon]').forEach(el => {
+      if (typeof icon === 'function') el.innerHTML = icon(el.dataset.icon, 18);
+    });
+    if (options.get('state') === 'preliminary') {
+      document.body.classList.add('preliminary');
+      const values = {
+        'document-badge-title': 'Preliminär',
+        'document-badge-note': 'EJ BOKFÖRD · DEMO',
+        'self-invoice-number': 'Utfärdas efter attest',
+        'issue-date-label': 'Förhandsvisningsdatum',
+        'issue-date': '2026-10-10',
+        'document-status-label': 'Granskningsstatus',
+        'document-status': 'EJ GODKÄND',
+        'payment-status': 'Inväntar godkännande',
+        'payment-status-label': 'Betalningsstatus',
+        'payment-note': 'Förhandsvisning av planerad avräkning. Ingen betalning har registrerats.',
+        'payout-label': 'Beräknat att utbetala',
+        'approval-badge': 'Preliminärt underlag · ingen godkänd version',
+        'seller-approval-name': 'Inväntar säljarens godkännande',
+        'seller-approval-detail': 'Godkännandemetod och tid registreras senare.',
+        'seller-approval-method': 'Självfaktureringsavtal finns i detta demoexempel.',
+        'attest-name': 'Inväntar intern attest',
+        'attest-detail': 'Underlaget granskas före utfärdandet.',
+        'attest-method': 'Attesterare och tid registreras efter godkännande.',
+        'tax-note': 'Planerad momsbehandling: omvänd betalningsskyldighet. Förhandsvisning enligt självfaktureringsavtal i detta demoexempel. Fakturan är ännu inte utfärdad.',
+        'archive-note': 'PRELIMINÄR · EJ BOKFÖRD · ingen utfärdad dokumentversion',
+      };
+      Object.entries(values).forEach(([id, text]) => document.getElementById(id).textContent = text);
+      const stateLink = document.getElementById('state-link');
+      stateLink.href = '?state=final';
+      stateLink.textContent = 'Visa utfärdad nota';
+      document.querySelectorAll('.approval-heading [data-icon]').forEach(el => {
+        if (typeof icon === 'function') el.innerHTML = icon('Clock', 18);
+      });
+    }
+  </script>
+</body>
+</html>

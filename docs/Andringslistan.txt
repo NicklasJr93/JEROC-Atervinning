@@ -1029,3 +1029,26 @@ Status: Mockuper framtagna på beställning 2026-10-09, A4-förslag uppdaterat
   rörelsehistorik, utan krav på att personal manuellt väljer inkommande
   kundpartier. Förenklingen återstår i lager- och utleveransvyerna.
 - Tidigare dokumentmockuper och verksamhetskod är oförändrade.
+
+053 – Avräkningsnota, reviderad A4-mockup
+Status: Mockuper framtagna på beställning 2026-10-10 efter fältgranskning.
+Appbygge inväntar granskning.
+- Behåll användarens JEROC-dokumentstil med blå materialtabell och grön summa.
+  Visa ett komplett köparblock; avräknings-ID, säljarspecifikt självfakturanummer
+  och invägningsnummer visas en gång vardera som skilda identiteter.
+- Tio materialrader, anläggning, total nettovikt, SEK, dokumentversion och
+  separata datum för utfärdande och mottagning.
+- Kompakt versionsanknutet kundgodkännande med metod/tid, skilt från
+  JEROC:s interna attest med attestperson/tid. Godkännanden är simulerade här.
+- Förklara sorteringsavdrag och kvittning mot tidigare kundsaldo; skilj
+  avräkningsbelopp från faktiskt att utbetala. Maskerat betalkonto och planerad
+  betalningsdag visas i bankexemplet; andra betalsätt villkorsstyrs i appbygget.
+- Företagsexempel med självfakturering enligt simulerat avtal och omvänd
+  betalningsskyldighet. Dessa etiketter ska inte användas generellt för alla
+  kundtyper eller affärer. Visa inte omvänd betalningsskyldighet som 0 % moms.
+- Preliminär variant saknar slutligt fakturanummer och genomförda godkännanden.
+  Visa PRELIMINÄR – EJ BOKFÖRD fram till rätt utfärdandesteg.
+- PDF-original avser utfärdandet. Senare betalnings-/bokföringsreferenser
+  visas digitalt eller i separata kvitton/bilagor; originalet skrivs inte över.
+- Fristående bilder, A4-PDF:er och ZIP under docs/mockups/avrakning/README.md.
+  Inget nytt PDF-arkiv, verksamhetskod, databasflöde eller integration införs.
