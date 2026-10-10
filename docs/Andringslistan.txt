@@ -1311,3 +1311,10 @@ Status: Implementerad i kontorsdemo 0.13.0 efter godkänd start 2026-10-10.
 - Befintlig DATABASE_URL används. Ny migration körs automatiskt; befintliga
   testkort, kundgodkännanden och journaler bevaras. Renderuppgradering görs
   separat av användaren. Verklig Renderlatens följs upp efter publicering.
+
+066 – Attestera som högerställd huvudåtgärd
+Status: Planerad, beställd för ÄL 2026-10-10. Ingen implementation påbörjad.
+- Placera den gröna Attestera-knappen längst till höger i attestkortets
+  åtgärdsrad. Returnera för komplettering ligger som textåtgärd direkt till vänster.
+- Attestgräns och status ligger före åtgärderna. Behåll samma ordning när
+  layouten radbryts på mindre skärmar och vid tangentbordsnavigering.
