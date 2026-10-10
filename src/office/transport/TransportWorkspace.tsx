@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Plus, Search, X, MapPin, Truck, Clock3, GripVertical, Pencil, CalendarCheck, Undo2, Info, Navigation, ArrowDownToLine, ArrowUpFromLine, Repeat2, ShieldCheck, AlertCircle } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Plus, Search, X, MapPin, Truck, Clock3, GripVertical, Pencil, CalendarCheck, Undo2, Info, Navigation, ArrowDownToLine, ArrowUpFromLine, Repeat2, ShieldCheck, AlertCircle, FileText } from 'lucide-react';
 import { can, type OfficeCustomer, type OfficeUser } from '../model';
 import TransportMap from './TransportMap';
 import TransportCalendar from './TransportCalendar';
@@ -14,6 +14,8 @@ import { readPersonnelAvailability } from '../personnel/client';
 import { personnelPlanIssues } from '../personnel/model';
 import type { PersonnelResponse } from '../personnel/types';
 import { transportUnavailableSpans } from './personnel-availability';
+import TransportDocumentPanel from '../documents/TransportDocumentPanel';
+import '../documents/documents.css';
 
 type Panel = { kind: 'details' | 'edit'; id: string } | { kind: 'book'; id: string; plan: TransportPlan } | { kind: 'create' } | null;
 type Props = {
@@ -61,6 +63,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
         ? previous : { id: null, surface: null });
   }
   const [panel, setPanel] = useState<Panel>(null);
+  const [documentOrderId, setDocumentOrderId] = useState<string>();
   const [draggedOrderId, setDraggedOrderId] = useState<string | null>(null);
   const [mapFocus, setMapFocus] = useState<TransportFocusRequest>();
   const [calendarFocus, setCalendarFocus] = useState<TransportFocusRequest>();
@@ -328,6 +331,9 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const nearby = selected?.status === 'unbooked' ? nearest(selected) : undefined;
   return (
     <section className="transport-workspace" data-testid="transport-workspace">
+      {documentOrderId && <TransportDocumentPanel key={`${actualUser.id}:${user.id}:${documentOrderId}`} orderId={documentOrderId}
+        identity={{actualUserId:actualUser.id,userId:user.id}} canEdit={can(user, 'transportPlan') && shared.ready && !blocked && !officeBlocked}
+        onClose={() => setDocumentOrderId(undefined)} />}
       <canvas className="transport-drag-ghost" ref={queueDragGhost} width={1} height={1} aria-hidden="true" />
       <header className="transport-toolbar">
         <button className="transport-back" onClick={onExit}><ArrowLeft size={17} /><span>Till kontoret</span></button>
@@ -442,6 +448,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
                 <button onClick={() => showOnMap(selected)}><Navigation size={16} />Visa på karta</button>
                 {selected.date && <button onClick={() => showInCalendar(selected)}><CalendarDays size={16} />Visa i planeraren</button>}
               </div>
+              <section className="transport-document-summary"><h4><FileText size={16} /> Transportdokument</h4><p>Förbered och arkivera ett PDF-utkast för hämtning eller utleverans.</p><button className="office-btn outline" onClick={() => setDocumentOrderId(selected.id)}><FileText size={15} /> Öppna transportunderlag</button></section>
               <TransportIntegrations data={data} actor={actor} selectedOrder={selected} outbox={outbox} onChange={(next, message) => updatePlanning(() => next, message)} onError={setError} />
               <details className="transport-audit"><summary>Historik · {selected.audit.length}</summary>
                 {selected.audit.slice().reverse().map((entry, index) => <div key={entry.at + ':' + index}><strong>{entry.text}</strong><span>{entry.actor}</span>

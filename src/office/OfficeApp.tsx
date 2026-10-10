@@ -1748,6 +1748,15 @@ export function OfficeApp() {
                           )}
                         </>
                       )}
+                    {!['ready', 'paid', 'balance'].includes(selected.status) && (
+                      <button
+                        className="office-btn outline"
+                        disabled={!selectedCustomer || !cardMoneyVisible(user, selected)}
+                        onClick={() => setDocumentType('settlement')}
+                      >
+                        <Printer size={16} /> Förhandsvisa avräkning
+                      </button>
+                    )}
                     {['ready', 'paid', 'balance'].includes(selected.status) && (
                       <>
                         <p className="office-lock">
@@ -2196,8 +2205,10 @@ export function OfficeApp() {
               </button>
             </section>
           )}
-          {documentType && selected && cardMoneyVisible(user, selected) && (
+          {documentType && actualUser && selected && cardMoneyVisible(user, selected) && (
             <OfficeDocument
+              user={user}
+              actualUser={actualUser}
               card={selected}
               customer={selectedCustomer}
               payment={data.payments.find((p) => p.cardId === selected.id)}

@@ -1,4 +1,5 @@
-import { Printer, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { FileText, Printer, RefreshCw, X } from 'lucide-react';
 import { articleById } from '../data';
 import { kilos, money } from '../model';
 import {
@@ -6,8 +7,12 @@ import {
   type OfficeCard,
   type OfficeCustomer,
   type OfficePayment,
+  type OfficeUser,
 } from './model';
 import { paymentSummary } from './customer-model';
+import ArchiveViewer from './documents/ArchiveViewer';
+import { documentApi, documentStageNames, documentsNewestFirst, type ArchivedDocument, type DocumentStage } from './documents/client';
+import './documents/documents.css';
 
 export default function OfficeDocument({
   card,
@@ -17,16 +22,58 @@ export default function OfficeDocument({
   onClose,
   showPaymentDetails,
   showRowPrice,
+  user,
+  actualUser,
 }: {
   card: OfficeCard;
   customer?: OfficeCustomer;
   payment?: OfficePayment;
   type: 'settlement' | 'receipt';
+  user: OfficeUser; actualUser: OfficeUser;
   onClose: () => void;
   showPaymentDetails: boolean;
   showRowPrice: (row: OfficeCard['rows'][number]) => boolean;
 }) {
   const receipt = type === 'receipt';
+  const sourceId = receipt ? payment?.id : card.id;
+  const identity = {actualUserId:actualUser.id,userId:user.id};
+  const [documents, setDocuments] = useState<ArchivedDocument[]>([]);
+  const [preferredId, setPreferredId] = useState<string>();
+  const [view, setView] = useState<'pdf' | 'preview'>('pdf');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const validApprovalStatus = card.customerApproval?.status === 'approved' || card.customerApproval?.status === 'attested';
+  const frozenReview = card.customerApproval && ['waiting', 'id_requested', 'approved', 'attested'].includes(card.customerApproval.status);
+  const stage: Exclude<DocumentStage, 'draft'> = card.customerApproval?.status === 'attested' && card.customerApproval.attestedAt ? 'final' : validApprovalStatus && card.customerApproval?.approvedAt ? 'reviewed' : 'preliminary';
+  const fullPriceAccess = card.rows.every(showRowPrice);
+  const mayGenerate = sourceId !== undefined && fullPriceAccess && (!receipt || showPaymentDetails);
+  useEffect(() => {
+    const controller = new AbortController(); setLoading(true); setError(''); setDocuments([]); setPreferredId(undefined); setNotice('');
+    if (sourceId === undefined) { setError('Utbetalningskvittot saknar en registrerad betalning. Utskriftsvyn finns kvar.'); setView('preview'); setLoading(false); return; }
+    void documentApi.list(receipt ? 'receipt' : 'settlement', sourceId, identity, controller.signal).then(value => {
+      if (controller.signal.aborted) return;
+      const ordered = documentsNewestFirst(value.documents); setDocuments(ordered);
+      const current = receipt ? ordered[0] : frozenReview ? ordered.find(document => document.stage === stage && document.sourceVersion === card.customerApproval?.version) : undefined;
+      setPreferredId(current?.id); setView(current ? 'pdf' : 'preview');
+    }).catch(reason => { if (!controller.signal.aborted) { setError(reason instanceof Error ? reason.message : 'Dokumentarkivet kunde inte hämtas.'); setView('preview'); } })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [sourceId, receipt, actualUser.id, user.id, stage, card.customerApproval?.version, card.customerApproval?.status, attempt]);
+  async function generate() {
+    if (!mayGenerate || saving) return;
+    setSaving(true); setError(''); setNotice('');
+    try {
+      const result = receipt ? await documentApi.receipt(payment!.id, identity) : await documentApi.settlement(card.id, stage, identity);
+      setDocuments(previous => [result.document, ...previous.filter(document => document.id !== result.document.id)]);
+      setPreferredId(result.document.id); setView('pdf'); setNotice('PDF-filen är arkiverad.');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'PDF-filen kunde inte skapas.'); }
+    finally { setSaving(false); }
+  }
+  function printPreview() { setView('preview'); requestAnimationFrame(() => window.print()); }
+
   return (
     <div
       className="office-document-overlay"
@@ -35,16 +82,28 @@ export default function OfficeDocument({
       aria-label={receipt ? 'Utbetalningskvitto' : 'Avräkningsnota'}
     >
       <div className="office-document-actions">
-        <button className="office-btn outline" onClick={() => window.print()}>
-          <Printer size={16} />
-          Skriv ut / spara som PDF
+        <button className="office-btn" onClick={() => void generate()} disabled={saving || loading || !mayGenerate}>
+          <FileText size={16} /> {saving ? 'Skapar PDF…' : 'Skapa arkiverad PDF'}
+        </button>
+        <button className="office-btn outline" onClick={printPreview}>
+          <Printer size={16} /> Skriv ut förhandsvisning
         </button>
         <button className="office-btn outline" onClick={onClose}>
           <X size={16} />
           Stäng underlag
         </button>
       </div>
-      <article className="office-document">
+      <section className="document-panel">
+        <div className="document-toolbar"><div><h2>{receipt ? 'Utbetalningskvitto' : 'Avräkningsnota'} · #{card.id}</h2><span className={`document-stage ${receipt ? 'final' : stage}`}>{receipt ? 'Registrerad utbetalning' : documentStageNames[stage]}</span></div><button className="office-btn outline" onClick={() => setAttempt(value => value + 1)} disabled={loading || saving}><RefreshCw size={15} /> Uppdatera</button></div>
+        <nav className="document-tabs" aria-label="Dokumentvy"><button className={view === 'pdf' ? 'active' : ''} onClick={() => setView('pdf')}>PDF & historik{documents.length ? ` (${documents.length})` : ''}</button><button className={view === 'preview' ? 'active' : ''} onClick={() => setView('preview')}>Förhandsvisning</button></nav>
+        {error && <div className="document-error" role="alert">{error}</div>}
+        {notice && <p role="status">{notice}</p>}
+        {!fullPriceAccess && <p>PDF med priser kräver behörighet till underlagets priser.</p>}
+        {loading && <div className="document-empty" role="status">Hämtar dokumentarkivet…</div>}
+        {!loading && view === 'pdf' && <ArchiveViewer documents={documents} identity={identity} preferredId={preferredId} />}
+        {view === 'preview' && <p>Förhandsvisning för utskrift. Det arkiverade originalet finns under PDF & historik när en PDF har skapats.</p>}
+      </section>
+      {view === 'preview' && <article className="office-document">
         <header>
           <img src="/images/jeroc-logo-v2.png" alt="JEROC Återvinning" />
           <div>
@@ -112,11 +171,11 @@ export default function OfficeDocument({
             </div>
           )}
         </dl>
-        {card.customerApproval?.approvedAt && <section className="office-document-approval">
-          <h2>Kundgodkänd &amp; JEROC-attesterad</h2>
+        {validApprovalStatus && card.customerApproval?.approvedAt && <section className="office-document-approval">
+          <h2>Kundgodkänd{card.customerApproval.status === 'attested' && card.customerApproval.attestedAt && ' · JEROC-attesterad'}</h2>
           <p>Kundgodkännande med fysisk legitimation · version {card.customerApproval.version}<br />
             Bekräftat av {card.customerApproval.approvedBy} · {new Date(card.customerApproval.approvedAt).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' })}<br />
-            {card.customerApproval.attestedAt && <>JEROC-attest: {card.customerApproval.attestedBy} · {new Date(card.customerApproval.attestedAt).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' })}</>}
+            {card.customerApproval.status === 'attested' && card.customerApproval.attestedAt && <>JEROC-attest: {card.customerApproval.attestedBy} · {new Date(card.customerApproval.attestedAt).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' })}</>}
           </p>
         </section>}
         <table>
@@ -145,7 +204,7 @@ export default function OfficeDocument({
         </table>
         <div className="office-document-totals">
           <p>
-            Viktkortets belopp<strong>{money(amount(card))} kr</strong>
+            Viktkortets belopp<strong>{fullPriceAccess ? `${money(amount(card))} kr` : '—'}</strong>
           </p>
           {receipt && (
             <>
@@ -210,7 +269,7 @@ export default function OfficeDocument({
           Det här är ett demounderlag. Ingen betalning eller bokföring har
           skickats. Moms och konton behöver fastställas innan skarp drift.
         </footer>
-      </article>
+      </article>}
     </div>
   );
 }

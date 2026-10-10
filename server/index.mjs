@@ -8,6 +8,9 @@ import { proxyExpo, startExpoGo } from './expo-go.mjs';
 import { createApplicationService } from './application.mjs';
 import { createTerminalDemoApi } from './terminal-demo.mjs';
 import { createEnvironmentApi } from './environment-api.mjs';
+import { createDocumentsApi } from './documents/api.mjs';
+import { renderPdf } from './documents/render.mjs';
+import { PricingError } from './pricing.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -56,6 +59,7 @@ async function handle(req, res) {
     return;
   }
   if (await applicationApi(req, res, url)) return;
+  if (await documentsApi(req, res, url)) return;
   if (pathname.startsWith("/api/terminal-demo") || pathname.startsWith("/api/environment")) {
     const handled = await applicationApi.withPrincipal(async () => (await terminalDemoApi(req, res, url)) || (await environmentApi(req, res, url)));
     if (handled) return;
@@ -142,6 +146,33 @@ const environmentApi = createEnvironmentApi({ principalStore,
 });
 const terminalDemoApi = createTerminalDemoApi({ principalStore, siteProvider: () => environmentApi.getSites(),
   environmentApprovalCheck: approval => environmentApi.assertReceiptForAttest(approval),
+  onApprovalChanged: approval => documentsApi.ensureApproval(approval),
+});
+const documentsApi = createDocumentsApi({
+  renderPdf,
+  resolvePrincipal: req => applicationApi.withPrincipal(() => {
+    const actor = req.headers['x-demo-actor'];
+    const user = req.headers['x-demo-user'] ?? actor;
+    if (typeof actor !== 'string' || typeof user !== 'string')
+      throw new PricingError('Välj ett giltigt demokonto.', 401);
+    return principalStore.principal(actor, user);
+  }),
+  sourceProvider: async () => {
+    const repository = await applicationApi.getRepository();
+    // Release the application aggregate before reading the terminal/environment
+    // aggregates. No nested cross-module locks while rendering or archiving PDF.
+    const source = await repository.transact(state => structuredClone({
+      office: state.office,
+      transport: state.transport,
+      personnel: state.personnel,
+      pricing: { articles: [...new Map((state.pricing.articleHistory ?? []).map(
+        article => [article.id, { id: article.id, name: article.name }],
+      )).values()] },
+    }));
+    const approvals = await terminalDemoApi.documentProjections();
+    const sites = await environmentApi.getSites();
+    return { ...source, approvals, sites };
+  },
 });
 const expoGo = startExpoGo({ onFailure: () => {
   console.error('Expo-servern har stannat. Startar om tjänsten.');
@@ -159,7 +190,7 @@ async function stop(code = 0) {
   if (stopping) return;
   stopping = true;
   setTimeout(() => process.exit(1), 10000).unref();
-  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close(), environmentApi.close(), applicationApi.close()]);
+  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close()]);
   process.exit(code);
 }
 process.on('SIGTERM', () => stop());

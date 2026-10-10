@@ -1030,9 +1030,20 @@ Status: Mockuper framtagna på beställning 2026-10-09, A4-förslag uppdaterat
   kundpartier. Förenklingen återstår i lager- och utleveransvyerna.
 - Tidigare dokumentmockuper och verksamhetskod är oförändrade.
 
+Förtydligad lageröversikt 2026-10-10:
+- Visa material och sammanlagd lagermängd, inte individuella viktkort eller
+  källpartier i översikten. Filter: Alla anläggningar eller vald anläggning,
+  exempelvis Norrtälje/Rimbo från anläggningsregistret.
+- Behåll koppling till viktkort och lagerhändelser i bakgrunden för spårbarhet.
+  Fördjupning sker i materialets lagerhistorik vid behov. Ingen manuell
+  hantering av hundratals inkommande viktkort krävs i lagerarbetsvyn.
+- Detta gäller kommande lagerbygge; tidigare lagerbilder är fortfarande
+  designunderlag och lager-/utleveransflödet är inte infört i appen ännu.
+
 053 – Avräkningsnota, reviderad A4-mockup
-Status: Mockuper framtagna på beställning 2026-10-10 efter fältgranskning.
-Appbygge inväntar granskning.
+Status: Mockuper godkända 2026-10-10 efter fältgranskning. PDF-generering
+och versionsarkiv implementerat i 0.10.0 enligt punkt 054. Verifierad
+momshantering/självfakturering och ekonomiintegration återstår senare.
 - Behåll användarens JEROC-dokumentstil med blå materialtabell och grön summa.
   Visa ett komplett köparblock; avräknings-ID, säljarspecifikt självfakturanummer
   och invägningsnummer visas en gång vardera som skilda identiteter.
@@ -1051,4 +1062,28 @@ Appbygge inväntar granskning.
 - PDF-original avser utfärdandet. Senare betalnings-/bokföringsreferenser
   visas digitalt eller i separata kvitton/bilagor; originalet skrivs inte över.
 - Fristående bilder, A4-PDF:er och ZIP under docs/mockups/avrakning/README.md.
-  Inget nytt PDF-arkiv, verksamhetskod, databasflöde eller integration införs.
+  Mockupframtagningen ändrade inte verksamhetskod eller databas. Senare
+  PDF-implementation och dess begränsningar redovisas i punkt 054.
+
+054 – Servergenererade PDF-original och transportutkast
+Status: Implementerat i kontorsdemo 0.10.0, 2026-10-10.
+- Gemensam A4-motor för avräkningsnota, transportdokument och utbetalningskvitto.
+  JEROC-logga, blå materialtabell, gröna summor och automatisk sidbrytning.
+- Förhandsvisa avräkning före kundgranskning. Terminalvisning, personalbekräftat
+  kundgodkännande och intern attest sparar separata PDF-versioner automatiskt.
+  Gamla original bevaras; saknade versioner kan återskapas från frysta serverdata.
+- PDF-bytefiler, dokumentdata, hash, mallversion och audit sparas beständigt i
+  befintlig PostgreSQL. Samtidiga försök skapar inga dubbla original. Lagringen
+  kräver befintligt DATABASE_URL i Render; inga nya externa tjänster behövs.
+- Kontorets PDF & historik låter användaren öppna och ladda ned sparade versioner.
+  Aktuell anläggnings-/pris-/betalningsbehörighet kontrolleras på servern.
+- Transportunderlag öppnas från en befintlig arbetsorder. Samma mall fungerar
+  för hämtning till JEROC och utleverans från JEROC; parter och adresser kan ändras.
+  Uppgifterna sparas i nya revisioner och PDF:en märks alltid UTKAST i denna etapp.
+- Verkliga underskrifter, lageravdrag och fastställd lastad avfärd kommer i
+  lager-/utleveransetappen. Transport-PDF innehåller inga priser eller betalkonton.
+- Utbetalningskvitto använder befintlig manuell betalningsjournal; avräkningen
+  ändras inte i efterhand. Rättelsenota och avtals-/miljöbilagor återstår senare.
+- Momshantering/självfaktureringsavtal behöver fastställas inför verklig drift.
+  Inga påhittade faktura-/Visma-nummer, BankID eller externa överföringar införs.
+- Teknisk beskrivning och provflöden: docs/pdf-archive.md.

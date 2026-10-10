@@ -1,4 +1,30 @@
-# JEROC kontorsdemo 0.9.1
+# JEROC kontorsdemo 0.10.0
+
+## Nytt i 0.10.0 – servergenererade PDF-original
+
+Avräkningsnota får sparade PDF-versioner före kundgodkännande, efter
+kundgodkännande och efter intern attest. Gransknings-/godkännandestegen
+arkiverar automatiskt från serverns frysta underlag. **PDF & historik** visar
+originalen, som kan öppnas och laddas ned utan att skrivas om vid senare ändring.
+Utbetalningskvitto kan skapas från den manuella betalningsjournalen.
+
+Arbetsorder i **Transportplanering** har **Öppna transportunderlag**. Samma A4-mall
+används för hämtning och utleverans, med versionssparade uppgifter och PDF-utkast.
+Verkliga underskrifter, lageravdrag och fastställda transportdokument kommer i
+lager-/utleveransetappen. Priser och betalningsuppgifter finns inte i transport-PDF.
+
+PDF-bytefiler och fryst dokumentdata sparas i befintlig PostgreSQL. Ingen ny
+Renderinställning behövs. Kontoret är fortsatt demo; momshantering behöver
+fastställas och inga externa integrationer aktiveras.
+Se [dokumentflöden, arkiv och begränsningar](pdf-archive.md).
+
+Verifiering 0.10.0: produktionsbygget och Expo-typkontrollen passerade.
+Ordinarie servertestning gav 200 passerade och tre valfria PostgreSQL-tester
+överhoppade. Därefter passerade två riktade dokumenthooktest och sju slutliga
+PDF-renderingstest; dokumentmodulens 21 kontroller passerade även med isolerad
+PostgreSQL. Webbläsarsviten gav 176 passerade av 178. Två testfixturer
+korrigerades; de tre PDF-flödena och det berörda mobilflödet passerade sedan
+tillsammans, vilket verifierar samtliga 178 fall över körningarna.
 
 ## Nytt i 0.9.1 – personal och konton på samma plats
 

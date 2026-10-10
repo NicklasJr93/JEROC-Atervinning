@@ -215,6 +215,9 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
   };
   return {
     projections: () => transaction(state => state.approvals.map(approval => approvalDTO(approval, {user: {level: "Systemadmin"}}))),
+    // Internal document source only. Never return confirmation hashes or private
+    // approval fields through the public terminal API.
+    documentProjections: () => transaction(state => structuredClone(state.approvals)),
     repository,
     // Server-only callback. Holding the terminal aggregate lock prevents a
     // cancelled/superseded customer version from winning a concurrent receipt.
@@ -507,7 +510,7 @@ async function body(req) {
   catch { throw new TerminalDemoError('Ogiltig JSON.'); }
 }
 
-export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, env = process.env, now, approvalAge } = {}) {
+export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, onApprovalChanged, env = process.env, now, approvalAge } = {}) {
   let repositoryPromise;
   let storePromise;
   const getStore = () => {
@@ -523,6 +526,14 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
     return storePromise;
   };
   const eventStreams = new Set();
+  async function archiveChangedApproval(result) {
+    if (!onApprovalChanged) return;
+    // Approval is already committed. A PDF failure must never roll it back or
+    // mislead the user into repeating a successful customer/attest action.
+    // The document API also recovers missing versions from persisted snapshots.
+    try { await onApprovalChanged(result); }
+    catch { console.error('PDF-arkivering väntar på återförsök.'); }
+  }
   async function stream(req, res, reader) {
     const initial = await reader();
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store',
@@ -569,7 +580,11 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
         setCookie(req, res, TERMINAL_COOKIE, '', 0, env); json(res, 200, result);
       } else if (req.method === 'POST' && route === '/terminals') json(res, 201, await store.createTerminal(await body(req), staffToken));
       else if (req.method === 'PUT' && route === '/defaults') json(res, 200, await store.defaultTerminal(await body(req), staffToken));
-      else if (req.method === 'POST' && route === '/approvals') json(res, 201, await store.send(await body(req), staffToken));
+      else if (req.method === 'POST' && route === '/approvals') {
+        const result = await store.send(await body(req), staffToken);
+        await archiveChangedApproval(result);
+        json(res, 201, result);
+      }
       else {
         const terminal = route.match(/^\/terminals\/([^/]+)(?:\/(release))?$/);
         const approval = route.match(/^\/approvals\/([^/]+)\/(cancel|confirm-id|attest|respond)$/);
@@ -581,6 +596,7 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
           const result = action === 'respond' ? await store.respond(approval[1], value, deviceToken)
             : action === 'cancel' ? await store.cancel(approval[1], staffToken)
               : action === 'confirm-id' ? await store.confirmId(approval[1], staffToken) : await store.attest(approval[1], staffToken);
+          if (action === 'confirm-id' || action === 'attest') await archiveChangedApproval(result);
           json(res, 200, result);
         } else throw new TerminalDemoError('API-vyn finns inte eller metoden stöds inte.', 404, 'not_found');
       }
@@ -596,6 +612,7 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
   };
   api.withApprovedCard = async (input, operation) => (await getStore()).withApprovedCard(input, operation);
   api.projections = async () => (await getStore()).projections();
+  api.documentProjections = async () => (await getStore()).documentProjections();
   api.close = async () => {
     for (const close of [...eventStreams]) close();
     if (repositoryPromise) await repositoryPromise.then((value) => value.close()).catch(() => {});
