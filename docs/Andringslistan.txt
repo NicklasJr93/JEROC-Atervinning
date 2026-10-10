@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.12.3.
+Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.12.4.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
@@ -781,7 +781,8 @@ Status: Genomförd i kontorsdemo 0.7.3.
 
 041 – Visuell flödesguidning och miljökort endast när det behövs
 Status: Genomförd i kontorsdemo 0.7.3 enligt godkänd uppföljning.
-- Nästa tillgängliga moment får en diskret pulserande blå kontur. Övriga
+- Nästa tillgängliga moment får en sammanhängande blå elektrisk kontur
+  enligt ÄL063, uppdaterad i 0.12.4. Övriga
   momentkort blir cirka 15 procent mer transparenta och är fortfarande klickbara.
 - Ingen extra text som Börja här, Starta här eller Nästa steg visas.
 - Guidningen följer sparade kund-/ursprungs- och betalningsuppgifter,
@@ -789,7 +790,7 @@ Status: Genomförd i kontorsdemo 0.7.3 enligt godkänd uppföljning.
   Material, sammanställning och spårbarhet får ingen sådan markering.
 - Guidningen är visuell och inför inga nya lås eller beroenden. Fysisk mottagning
   är fortfarande separat från kundgodkännande och ekonomi. Låsta kort guidas inte.
-- Minskad rörelse enligt enhetens inställning ger stilla kontur utan pulsering.
+- Minskad rörelse enligt enhetens inställning ger en stilla kontur.
 - Miljökortet döljs när inga artiklar är klassificerade som farligt avfall.
   Det visas när en sådan artikel läggs till. Finns redan en registrerad mottagning
   visas kortet fortsatt för granskning och spårbarhet även om artiklarna ändras.
@@ -1256,15 +1257,15 @@ Status: Implementerad i mobilwebb 0.3.1 / kontorsdemo 0.12.3, 2026-10-10.
   knapptryckning får inte dölja ett verkligt fel före bekräftad sparning.
 
 063 – Sammanhängande elektrisk fokusmarkering på invägningskort
-Status: Godkänd mockup, planerad för appen 2026-10-10.
+Status: Implementerad i kontorsdemo 0.12.4 efter godkänd start 2026-10-10.
 - Ersätt den pulserande fokusmarkeringen med en sammanhängande JEROC-blå
   elektrisk kontur runt det kort där nästa moment ska göras. Ingen extra
   instruktionstext; behåll befintlig logik för vilket moment som är aktuellt.
 - Små krusningar följer en sluten kant med lugna hörn och diskret glöd.
   Inga separata utstickande blixtgrenar eller hörn som expanderar in/ut.
-- Senaste godkända variant: dubbelt så tjock kant som det lugnare förslaget
-  och 20 % högre hastighet, 2,5 sekunder per cykel. Innehållet ligger stilla.
-- Effekten använder CSS, SVG och lite JavaScript. Behåll stöd för minskad
-  rörelse och undvik att animationen flyttar formulär eller blockerar klick.
+- Godkänd variant: 2,1 px kant och 2,5 sekunder per cykel.
+  Innehållet ligger stilla.
+- Effekten använder en sluten SVG-kontur med diskret glöd. Minskad rörelse
+  ger en stilla kontur. Animationen flyttar inte formulär och blockerar inte klick.
 - Godkänd animerad förhandsvisning: docs/mockups/kortfokus-elektrisk/README.md.
-  Appens fokusmarkering är ännu inte ändrad.
+  Appens fokusmarkering följer samma godkända utformning.

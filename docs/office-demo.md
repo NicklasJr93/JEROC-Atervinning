@@ -1,4 +1,21 @@
-# JEROC kontorsdemo 0.12.3
+# JEROC kontorsdemo 0.12.4
+
+## Nytt i 0.12.4 – sammanhängande elektrisk fokusmarkering
+
+Nästa tillgängliga moment på invägningskortet markeras med den godkända
+sammanhängande JEROC-blå elektriska kanten. Konturen är 2,1 px tjock och
+har en lugn cykel på 2,5 sekunder, små krusningar, stabila hörn och svag glöd.
+Kortets innehåll ligger stilla; inga separata blixtgrenar sticker ut.
+
+Guidningen använder befintlig moment- och behörighetslogik. Inga nya
+instruktionstexter, lås eller flödessteg tillkommer. Formulärens position och
+klickytor påverkas inte. Inställningen för minskad rörelse ger en stilla kontur.
+Den godkända [animerade förhandsvisningen](mockups/kortfokus-elektrisk/README.md)
+bevaras som designunderlag. Befintliga Renderinställningar används.
+
+Animationen pausar utanför bild och när webbläsarfliken är dold.
+Verifiering 0.12.4: produktionsbygget och en snabb webbläsarkontroll av
+animation, storleksändring, klick och minskad rörelse passerade.
 
 ## Nytt i 0.12.3 / mobilwebb 0.3.1 – bakgrundssparning utan hoppande vy
 
@@ -324,8 +341,9 @@ utskicks-ID; återförsök av samma försök återanvänder sitt ID för att und
 dubletter. Misslyckat utskick visar felet i terminaldialogen, som förblir öppen.
 Den avbrutna versionen ligger kvar i historiken.
 
-På öppna invägningskort får nästa tillgängliga moment en diskret pulserande
-blå kontur. Övriga momentkort dämpas cirka 15 procent och går fortfarande
+På öppna invägningskort markeras nästa tillgängliga moment. Från 0.12.4
+används den godkända sammanhängande elektriska kanten. Övriga momentkort
+dämpas cirka 15 procent och går fortfarande
 att använda. Guidningen följer sparade uppgifter och behörigheter; den lägger
 inte till någon text som Börja här eller Nästa steg. Material, sammanställning
 och spårbarhet behåller sin vanliga visning. Inställningen för minskad rörelse

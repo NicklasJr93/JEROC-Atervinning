@@ -41,6 +41,7 @@ import TerminalWorkspace, { TerminalSelectors } from './TerminalWorkspace';
 import CustomerApprovalsWorkspace, { ApprovalVersionPreview } from './CustomerApprovalsWorkspace';
 import ApprovalControls from './ApprovalControls';
 import OfficeCardAttest from './OfficeCardAttest';
+import ElectricFocusBorder from './ElectricFocusBorder';
 import QuickCustomerModal from './QuickCustomerModal';
 import AddWeighingArticleModal from './AddWeighingArticleModal';
 import StaffAccountPanel from './personnel/StaffAccountPanel';
@@ -1554,6 +1555,7 @@ export function OfficeApp() {
                     )}
                   </section>
                   <section className={`office-panel office-card-customer${panelClass('customer')}`}>
+                    <ElectricFocusBorder active={focusPanel === 'customer'} />
                     <h2>Kund, referens & ursprung</h2>
 <div className="office-customer-picker">
                     <label>
@@ -1633,6 +1635,7 @@ export function OfficeApp() {
                     />
                   </section>
                   <section className={`office-panel office-card-payment${panelClass('payment')}`}>
+                    <ElectricFocusBorder active={focusPanel === 'payment'} />
                     <h2>Utbetalning</h2>
                     {can(user, 'paymentDetails') ||
                     can(user, 'pay') ||

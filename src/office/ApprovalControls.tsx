@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Clock3, FileText, Mail, MessageSquare, Monitor, Send, ShieldCheck, Users, X } from 'lucide-react';
 import { terminalDemoApi } from './terminal-demo-client';
+import ElectricFocusBorder from './ElectricFocusBorder';
 import { approvalLabels, type TerminalApproval, type TerminalDemoState } from './terminal-demo-types';
 import './terminals.css';
 
@@ -63,6 +64,7 @@ export default function ApprovalControls({ approval, state, siteId, terminalId, 
         : approved ? `Granskningsversion ${approval.version} · Kundterminal ${terminalName}`
           : 'Visa avräkningen för kunden innan den går vidare till intern attest.';
   return <section className={`office-panel approval-controls${approved ? ' approval-controls-approved' : ''}${guidance ? ` office-guidance-${guidance}` : ''}`}>
+    <ElectricFocusBorder active={guidance === 'focus'} />
     <div className="approval-controls-heading">
       <span className={`approval-heading-icon${approved ? ' approved' : ''}`}>{approved ? <CheckCircle2 size={25} /> : <Users size={24} />}</span>
       <div className="approval-heading-copy"><h2>Kundgodkännande</h2><p>{description}</p>{approved && approval.approvedBy && <p className="approval-approved-line">Fysisk legitimation bekräftad av {approval.approvedBy}{approvedTime && ` · ${approvedTime}`}</p>}</div>

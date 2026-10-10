@@ -2,6 +2,7 @@ import { BadgeCheck, Check, ClipboardCheck, ShieldCheck } from 'lucide-react';
 import { money } from '../model';
 import { amount, can, type OfficeCard, type OfficeUser } from './model';
 import type { TerminalApproval } from './terminal-demo-types';
+import ElectricFocusBorder from './ElectricFocusBorder';
 
 type Props = {
   card: OfficeCard;
@@ -39,6 +40,7 @@ export default function OfficeCardAttest({ card, user, actualUser, users, approv
     : 'Kundgodkännandet är klart. Granska underlaget och attestera här.';
 
   return <section className={`office-panel office-card-attest${finished ? ' is-attested' : ''}${guidance ? ` office-guidance-${guidance}` : ''}`} aria-labelledby="office-card-attest-title">
+    <ElectricFocusBorder active={guidance === 'focus'} />
     <div className="office-attest-info"><ShieldCheck size={28} aria-hidden="true" /><div><h2 id="office-card-attest-title">Attest</h2><p>{reason}</p></div></div>
     {permitted && !finished && <div className="office-attest-limit"><BadgeCheck size={20} aria-hidden="true" /><div><small>Din attestgräns</small><strong>{money(user.maxAttest)} kr</strong></div></div>}
     <span className={`office-attest-status${ready && permitted && !overLimit && !ownBlocked ? ' ready' : ''}`}><ClipboardCheck size={16} aria-hidden="true" />{finished ? 'JEROC-attesterad' : !approved ? 'Inväntar kundgodkännande' : receiptPending ? 'Inväntar mottagning' : ready && (overLimit || ownBlocked) ? 'Attest spärrad' : ready ? 'Redo för attest' : 'Inväntar prisunderlag'}</span>
