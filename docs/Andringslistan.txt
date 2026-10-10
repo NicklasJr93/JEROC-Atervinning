@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.13.0.
+Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.13.1.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
@@ -1318,3 +1318,18 @@ Status: Planerad, beställd för ÄL 2026-10-10. Ingen implementation påbörjad
   åtgärdsrad. Returnera för komplettering ligger som textåtgärd direkt till vänster.
 - Attestgräns och status ligger före åtgärderna. Behåll samma ordning när
   layouten radbryts på mindre skärmar och vid tangentbordsnavigering.
+
+067 – NVV:s klientcertifikat och rapportörsidentitet
+Status: Implementerad i kontorsdemo 0.13.1, felsökning beställd 2026-10-10.
+- Läs offentliga metadata från serverns faktiska PFX/TLS-certifikat, utan
+  att visa certifikatbyte, privata nycklar, lösenord eller hemliga filvägar.
+  Visa organisation, orgnummer, utfärdare, giltighet och SHA-256-fingeravtryck
+  i NVV-inställningarna. Skilj dem från manuellt angivna uppgifter.
+- Stoppa egen rapportering om ett entydigt avläst certifikatnummer skiljer
+  sig från verksamhetsutövaren. Okänd identitet får inte visas som verifierad.
+- Hantera även NVV:s Message/Errors/Code med inledande versaler; förklara
+  fel 1023 och bevara samtliga felkoder och råsvaret i historiken.
+- Spara offentliga certifikatuppgifter med nya frysta rapportversioner.
+  Tidigare mottagningar, prisbilder och rapportoriginal ändras inte.
+- Ingen automatisk ombudsrapportering eller omsändning. Rapporteringens
+  acceptans hos NVV är ett separat test från certifikatläsning och kodlistor.

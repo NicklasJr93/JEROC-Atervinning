@@ -1,7 +1,7 @@
 import https from 'node:https';
 import tls from 'node:tls';
 import { readFile, stat } from 'node:fs/promises';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, X509Certificate } from 'node:crypto';
 
 export const NVV_TEST_API_URL = 'https://apimtest.naturvardsverket.se/btfa/anteckning/v1';
 export const NVV_TEST_TOKEN_URL = 'https://apimtest.naturvardsverket.se/oauth2/token';
@@ -58,6 +58,45 @@ function statusCode(result) { return Number(result?.statusCode ?? result?.status
 function clock(now) { const value = now(); return value instanceof Date ? value.getTime() : Number(value); }
 function iso(now) { return new Date(clock(now)).toISOString(); }
 
+const emptyCertificateMetadata = () => ({ metadataAvailable: false, organisationName: null, organisationNumber: null,
+  issuer: null, validFrom: null, validTo: null, fingerprint256: null });
+const subjectValues = (subject, names) => names.flatMap(name => {
+  const value = subject?.[name];
+  return (Array.isArray(value) ? value : [value]).filter(item => typeof item === 'string' && item.length <= 500).map(item => item.trim()).filter(Boolean);
+});
+function certificateOrganisationNumber(value) {
+  let number = value.toUpperCase().replace(/[\s-]/g, '');
+  if (/^NTRSE\d{10}$/.test(number)) number = number.slice(5);
+  else if (/^SE\d{10}(?:01)?$/.test(number)) number = number.slice(2, 12);
+  else if (/^16\d{10}$/.test(number)) number = number.slice(2);
+  // A Swedish organisation number has a third digit >= 2. In particular, do
+  // not turn a person identifier with a 19/20 century prefix into a company.
+  return /^\d{2}[2-9]\d{7}$/.test(number) ? number : null;
+}
+
+/** Public metadata of the certificate loaded for TLS, not a claim that NVV
+ * accepted it. Never return the subject, certificate serial, DER or key bytes. */
+export function describeNvvCertificate(raw) {
+  try {
+    const certificate = raw instanceof X509Certificate ? raw : new X509Certificate(raw);
+    const subject = certificate.toLegacyObject().subject;
+    const names = [...new Set(subjectValues(subject, ['O', 'organizationName', 'organisationName', '2.5.4.10']))];
+    const identifiers = subjectValues(subject, ['serialNumber', '2.5.4.5', 'organizationIdentifier', 'organisationIdentifier', '2.5.4.97']);
+    const numbers = [...new Set(identifiers.map(certificateOrganisationNumber).filter(Boolean))];
+    return { metadataAvailable: true, organisationName: names.length === 1 ? names[0] : null,
+      organisationNumber: numbers.length === 1 ? numbers[0] : null,
+      issuer: certificate.issuer.slice(0, 2000), validFrom: new Date(certificate.validFrom).toISOString(),
+      validTo: new Date(certificate.validTo).toISOString(), fingerprint256: certificate.fingerprint256 };
+  } catch { return emptyCertificateMetadata(); }
+}
+
+function loadedCertificateMetadata(context) {
+  try {
+    const raw = context?.context?.getCertificate?.();
+    return raw ? describeNvvCertificate(raw) : emptyCertificateMetadata();
+  } catch { return emptyCertificateMetadata(); }
+}
+
 /** TEST-only adapter. All external I/O is injectable; a missing mode disables it. */
 export function createNvvClient({ env = process.env, request = requestHttps, now = Date.now } = {}) {
   let cachedToken = null;
@@ -88,6 +127,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
     if (apiBaseUrl !== NVV_TEST_API_URL || tokenUrl !== NVV_TEST_TOKEN_URL) issues.push('Endast Naturvårdsverkets fasta HTTPS-adresser för TEST får användas.');
     let pfx;
     let validated = false;
+    let certificateMetadata = emptyCertificateMetadata();
     let identity = 'unused';
     if (mode === 'test') {
       for (const [name, value] of [['NVV_CLIENT_ID', clientId], ['NVV_CLIENT_SECRET', clientSecret], ['NVV_CLIENT_PFX_SECRET_FILE', secretFile], ['NVV_CLIENT_SYSTEM_ID', systemId]]) if (!value) missing.push(name);
@@ -112,8 +152,13 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
           if (encoded === undefined) throw new Error('CHANGING_PFX');
           if (!encoded || encoded.length > 2 * 1024 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 !== 0) throw new Error('INVALID_PFX');
           pfx = Buffer.from(encoded, 'base64');
-          if (!(cachedConfiguration?.key === key && cachedConfiguration.config.certificate.validated && cachedConfiguration.config.pfx?.equals(pfx)))
-            tls.createSecureContext({ pfx, passphrase, minVersion: 'TLSv1.2' });
+          if (cachedConfiguration?.key === key && cachedConfiguration.config.certificate.validated && cachedConfiguration.config.pfx?.equals(pfx)) {
+            const { configured: _configured, validated: _validated, ...metadata } = cachedConfiguration.config.certificate;
+            certificateMetadata = metadata;
+          } else {
+            const context = tls.createSecureContext({ pfx, passphrase, minVersion: 'TLSv1.2' });
+            certificateMetadata = loadedCertificateMetadata(context);
+          }
           validated = true;
         } catch {
           // Errors are not cached: the next call must detect recovery, changed
@@ -127,7 +172,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
     const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
     const secrets = [clientId, clientSecret, passphrase, secretFile, basic].filter(Boolean);
     const fingerprint = createHash('sha256').update(JSON.stringify([mode, apiBaseUrl, tokenUrl, clientId, clientSecret, passphrase, systemId])).update(pfx || Buffer.alloc(0)).digest('hex');
-    const config = { mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, pfx, basic, secrets, fingerprint, ready, missing, issues, certificate: { configured: Boolean(secretFile), validated, metadataAvailable: false } };
+    const config = { mode, apiBaseUrl, tokenUrl, systemId, clientId, clientSecret, passphrase, pfx, basic, secrets, fingerprint, ready, missing, issues, certificate: { configured: Boolean(secretFile), validated, ...certificateMetadata } };
     if (!issues.length && configurationInput().key === key) cachedConfiguration = { key, identity, config };
     return config;
   }
@@ -150,7 +195,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
   }
 
   function publicConfiguration(config) {
-    return { mode: ['mock', 'test', 'disabled'].includes(config.mode) ? config.mode : 'invalid', enabled: ['mock', 'test'].includes(config.mode), ready: config.ready, apiBaseUrl: NVV_TEST_API_URL, tokenUrl: NVV_TEST_TOKEN_URL, systemId: safeValue(config.systemId || null, config.secrets), missing: [...config.missing], issues: [...config.issues], certificate: { ...config.certificate } };
+    return { mode: ['mock', 'test', 'disabled'].includes(config.mode) ? config.mode : 'invalid', enabled: ['mock', 'test'].includes(config.mode), ready: config.ready, apiBaseUrl: NVV_TEST_API_URL, tokenUrl: NVV_TEST_TOKEN_URL, systemId: safeValue(config.systemId || null, config.secrets), missing: [...config.missing], issues: [...config.issues], certificate: safeValue(config.certificate, config.secrets) };
   }
 
   async function token(config, force = false) {
@@ -205,7 +250,14 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
     if (result?.authError) return { ...base, outcome: 'rejected', error: error('NVV_AUTHENTICATION', 'Autentisering mot Naturvårdsverket misslyckades.') };
     if (result?.networkError || !httpStatus) return { ...base, outcome: 'unknown', error: error('NVV_UNKNOWN_OUTCOME', write ? 'Svaret från Naturvårdsverket saknas. Avstämning krävs före nytt utskick.' : 'Naturvårdsverket kunde inte nås.') };
     if (write && httpStatus === 408) return { ...base, outcome: 'unknown', error: error('NVV_UNKNOWN_OUTCOME', 'Naturvårdsverket svarade med timeout. Avstämning krävs före nytt utskick.') };
-    if (httpStatus >= 400 && httpStatus < 500) return { ...base, outcome: 'rejected', error: error(httpStatus === 401 || httpStatus === 403 ? 'NVV_AUTHENTICATION' : 'NVV_VALIDATION', typeof response?.message === 'string' ? response.message : 'Naturvårdsverket avvisade begäran.', Array.isArray(response?.errors) ? response.errors : undefined) };
+    if (httpStatus >= 400 && httpStatus < 500) {
+      const errors = Array.isArray(response?.errors) ? response.errors : Array.isArray(response?.Errors) ? response.Errors : undefined;
+      const codes = [response?.code, response?.Code, ...(errors ?? []).flatMap(item => [item?.code, item?.Code])];
+      const identityMismatch = codes.some(value => (typeof value === 'string' || typeof value === 'number') && String(value).trim() === '1023');
+      const providerMessage = typeof response?.message === 'string' ? response.message : typeof response?.Message === 'string' ? response.Message : 'Naturvårdsverket avvisade begäran.';
+      return { ...base, outcome: 'rejected', error: error(identityMismatch ? 'NVV_REPORTER_IDENTITY' : httpStatus === 401 || httpStatus === 403 ? 'NVV_AUTHENTICATION' : 'NVV_VALIDATION',
+        identityMismatch ? 'NVV kunde inte matcha verksamhetsutövaren eller ombudet mot rapportörens organisationsnummer. Kontrollera klientcertifikatets identitet och rapporteringsrollen.' : providerMessage, errors) };
+    }
     if (write) {
       const id = httpStatus === 200 ? response?.avfallId : httpStatus === 201 ? response?.AvfallsId : undefined;
       if (typeof id === 'string' && uuid.test(id)) return { ...base, outcome: 'accepted', avfallId: id };

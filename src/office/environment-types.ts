@@ -174,6 +174,11 @@ export interface NvvIntegrationStatus {
   mode: NvvMode; configured: boolean; connected: boolean; missing: string[];
   reporter: NvvReporter | null; reporterVersion: number; lastCheck: NvvConnectionCheck | null;
   enabled?: boolean; productionEnabled?: false;
+  certificate?: {
+    configured: boolean; validated: boolean; metadataAvailable: boolean;
+    organisationName: string | null; organisationNumber: string | null;
+    issuer: string | null; validFrom: string | null; validTo: string | null; fingerprint256: string | null;
+  };
 }
 export interface NvvReportVersion {
   id: string; reportId: string; sourceReportIds: string[]; receiptId: string; receiptVersion: number;

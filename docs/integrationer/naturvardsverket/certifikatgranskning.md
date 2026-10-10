@@ -11,6 +11,13 @@ lösenord. Inga certifikatbyte eller lösenord finns i repot.
 NVV:s acceptans och kopplingen till JEROC:s OAuth-anslutning måste ännu provas.
 Se [aktuell TEST-etapp](nvv-test-demo.md).
 
+Det uppladdade klientcertifikatets offentliga SHA-256-fingeravtryck är
+`71:0F:90:58:33:AA:17:60:90:89:48:AC:2A:DD:87:F3:B0:12:64:4E:88:6C:84:B5:FB:AB:13:A7:E5:5D:72:27`.
+Kontorsdemo 0.13.1 läser samma slags metadata direkt ur serverns aktuella
+TLS-certifikat. Jämförelsen verifierar vilken fil servern laddar, men inte vilket
+organisationsnummer NVV:s gateway använder. Det senare måste utredas vid
+fortsatt fel 1023 trots matchande verksamhetsutövare och certifikat.
+
 Den ursprungliga ZIP-granskningen nedan avser endast leveransbreven.
 
 Granskat 2026-10-09. Underlag: den uppladdade filen `Testcertifikat-server-och-stämpellegitimationer-2026.zip`, dess PDF-handlingar och Expisofts offentliga produkt- och CA-information. Inga certifikat har installerats och inga API-anrop eller hämtningar med leveranskoder har gjorts.

@@ -41,6 +41,13 @@ export default function NvvIntegrationPanel({ user, actualUser, status, onChange
   const permitted = !!status && user.level === 'Systemadmin' && actualUser.level === 'Systemadmin' && !user.siteIds && !actualUser.siteIds && can(user, 'environmentIntegration');
   const currentPermission = useRef(permitted);
   currentPermission.current = permitted;
+  const certificate = status?.certificate;
+  const certificateMetadata = Boolean(certificate?.metadataAvailable);
+  const certificateNumber = certificateMetadata ? certificate?.organisationNumber : null;
+  const certificateMismatch = Boolean(status?.mode === 'test' && certificateNumber && form.number.trim() &&
+    form.number.replace(/[\s-]/g, '') !== certificateNumber);
+  const certificateDate = (value: string) => Number.isFinite(Date.parse(value))
+    ? new Date(value).toLocaleDateString('sv-SE', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Datum kunde inte läsas';
   useEffect(() => { if (!dirty) setForm(reporterInput(status)); }, [status?.reporterVersion, dirty]);
   useEffect(() => {
     request.current++; busy.current = false;
@@ -95,15 +102,32 @@ export default function NvvIntegrationPanel({ user, actualUser, status, onChange
         {permitted && <button ref={checkButton} type="button" className="office-btn outline" onClick={() => void perform('check')} disabled={!!pending || dirty || status?.mode === 'disabled'}><RefreshCw size={14} />{pending === 'check' ? 'Kontrollerar…' : status?.mode === 'mock' ? 'Prova simulerad anslutning' : 'Kontrollera testanslutning'}</button>}
       </div>
       {!!status?.missing.length && <div className="environment-alert"><CircleAlert size={16} /><div><strong>Återstår före testet</strong><ul>{status.missing.map(item => <li key={item}>{missingLabel(item)}</li>)}</ul></div></div>}
+      <section className="environment-extra-contacts" aria-label="Klientcertifikat på servern">
+        <strong>Klientcertifikat på servern</strong>
+        {certificateMetadata ? <>
+          <p className="nvv-readonly-notice"><strong>{certificate?.organisationName || 'Organisationsnamn saknas i certifikatet'}</strong>{certificateNumber && <> · {certificateNumber}</>}</p>
+          <p className="nvv-readonly-notice">Identiteten är läst från serverns certifikatfil. {certificate?.validated ? 'Certifikatfilen är inläst.' : 'Certifikatfilen kunde inte valideras.'}</p>
+          {(certificate?.issuer || certificate?.validFrom || certificate?.validTo || certificate?.fingerprint256) && <details className="environment-original-details">
+            <summary>Visa certifikatuppgifter</summary>
+            <dl className="environment-compact-facts">
+              {certificate.issuer && <div><dt>Utfärdare</dt><dd style={{ overflowWrap: 'anywhere' }}>{certificate.issuer}</dd></div>}
+              {certificate.validFrom && <div><dt>Giltigt från</dt><dd>{certificateDate(certificate.validFrom)}</dd></div>}
+              {certificate.validTo && <div><dt>Giltigt till</dt><dd>{certificateDate(certificate.validTo)}</dd></div>}
+              {certificate.fingerprint256 && <div><dt>SHA-256-fingeravtryck</dt><dd style={{ overflowWrap: 'anywhere' }}>{certificate.fingerprint256}</dd></div>}
+            </dl>
+          </details>}
+        </> : <p className="nvv-readonly-notice">{certificate?.configured ? 'Certifikatets identitet kunde inte läsas från servern.' : 'Certifikatets identitet är inte tillgänglig.'} Uppgifterna i formuläret är manuellt angivna.</p>}
+      </section>
       <form onSubmit={event => { event.preventDefault(); void perform('save'); }}>
         <h3>Rapporterande organisation</h3>
+        {certificateMismatch && <div className="environment-alert" role="alert"><CircleAlert size={16} /><span>Verksamhetsutövaren måste matcha serverns klientcertifikat vid egen rapportering.</span></div>}
         <div className="nvv-reporter-grid">
           <label>Organisationsnamn<input value={form.name} onChange={event => update('name', event.target.value)} disabled={!permitted || !!pending} maxLength={200} required /></label>
           <label>Organisationsnummer<input value={form.number} onChange={event => update('number', event.target.value)} disabled={!permitted || !!pending} maxLength={30} required /></label>
           <label>Kontaktperson<input value={form.contactName} onChange={event => update('contactName', event.target.value)} disabled={!permitted || !!pending} maxLength={200} required /></label>
           <label>E-post<input type="email" value={form.email} onChange={event => update('email', event.target.value)} disabled={!permitted || !!pending} maxLength={250} required /></label>
           <label>Telefon<input type="tel" value={form.phone} onChange={event => update('phone', event.target.value)} disabled={!permitted || !!pending} maxLength={40} required /></label>
-          <label>Organisation i klientcertifikatet<input value={form.certificateOrganisationNumber} onChange={event => update('certificateOrganisationNumber', event.target.value)} disabled={!permitted || !!pending} maxLength={30} required={status?.mode === 'test'} /><small>Ange testorganisationens nummer enligt certifikatet.</small></label>
+          <label>Organisation i klientcertifikatet<input value={form.certificateOrganisationNumber} onChange={event => update('certificateOrganisationNumber', event.target.value)} disabled={!permitted || !!pending} maxLength={30} required={status?.mode === 'test'} /><small>{certificateNumber ? <>Manuellt kontrollfält. Serverns certifikat tillhör {certificateNumber}. Fältet ändrar inte certifikatets identitet.</> : 'Manuellt kontrollfält. Servercertifikatets organisation är inte bekräftad här.'}</small></label>
         </div>
         <label className="nvv-identity-confirmation"><input type="checkbox" checked={form.testIdentityConfirmed} onChange={event => update('testIdentityConfirmed', event.target.checked)} disabled={!permitted || !!pending} /><span>Testidentiteten och certifikatets organisation har kontrollerats för denna NVV-anslutning.</span></label>
         <div className="environment-actions"><small>API-hemligheter och certifikat hanteras på servern. {status?.reporter && `Sparad version ${status.reporterVersion}.`}</small>{permitted && <div className="environment-action-buttons">{dirty && <button type="button" className="office-btn outline" disabled={!!pending} onClick={() => { setForm(reporterInput(status)); setDirty(false); setError(''); }}>Återställ ändringar</button>}<button type="submit" className="office-btn" disabled={!dirty || !!pending}><Save size={14} />{pending === 'save' ? 'Sparar…' : 'Spara testorganisation'}</button></div>}</div>

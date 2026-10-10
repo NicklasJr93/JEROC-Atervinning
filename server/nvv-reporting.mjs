@@ -35,13 +35,19 @@ function admin(principal) {
   if (principal.actor.level !== 'Systemadmin' || principal.user.level !== 'Systemadmin') fail('NVV-inställningar och anslutningsprov kräver att systemadmin arbetar som systemadmin.', 403, 'integration_admin_required');
   if (Array.isArray(principal.user.siteIds) || Array.isArray(principal.actor.siteIds)) fail('Globala NVV-inställningar kräver åtkomst till alla anläggningar.', 403, 'site_forbidden');
 }
-function reporterMissing(value, mode) {
+function reporterMissing(value, mode, certificate) {
   if (!value) return ['Komplettera verksamhetsutövaruppgifter: namn, organisationsnummer och kontaktperson.'];
   const missing = [];
   if (!companyNumber(value.number)) missing.push('Rapporterande verksamhet behöver ett svenskt organisationsnummer.');
   if (!reporterSchema.safeParse({ expectedVersion: value.version - 1, name: value.name, number: value.number, contactName: value.contactName, email: value.email, phone: value.phone,
     certificateOrganisationNumber: value.certificateOrganisationNumber, testIdentityConfirmed: value.testIdentityConfirmed }).success) missing.push('Komplettera rapporterande verksamhets kontaktuppgifter.');
   if (mode === 'test' && (!value.testIdentityConfirmed || value.certificateOrganisationNumber !== value.number)) missing.push('Bekräfta testförfarandet och att rapportörens organisationsnummer överensstämmer med klientcertifikatets organisation.');
+  // The editable certificate field is a declaration, never evidence of the
+  // deployed TLS identity. Own reporting must match the actual leaf certificate
+  // whenever its Swedish organisation number can be read unambiguously.
+  if (mode === 'test' && certificate?.metadataAvailable && certificate.organisationNumber
+    && certificate.organisationNumber !== value.number)
+    missing.push(`Serverns klientcertifikat tillhör ${certificate.organisationNumber}. Verksamhetsutövaren måste matcha detta organisationsnummer vid egen rapportering.`);
   return missing;
 }
 function safeConfig(client) {
@@ -75,7 +81,7 @@ const acceptedHeads = (state, versions) => {
  * Reporter settings never rewrite old receipt/operator snapshots or prices. */
 export function buildNvvReceipt(context, value, mode, time, config, state) {
   const { receipt, row } = context, snapshot = receipt.snapshot;
-  const missing = [...reporterMissing(value, mode)];
+  const missing = [...reporterMissing(value, mode, config.certificate)];
   if (mode === 'disabled') missing.unshift('NVV är avstängt. Aktivera mock eller TEST i serverns inställningar.');
   else if (!config.ready) missing.push(...config.missing);
   if (!companyNumber(snapshot.previousHolder?.number)) missing.push('Första TEST-etappen stöder företagsinlämning med svenskt organisationsnummer. Hushålls- och utlandsfallen verifieras separat.');
@@ -145,7 +151,7 @@ export function createNvvReporting({ transaction, read = transaction, principalF
     const context = resolveReport(state, reportId); demandSite(state, principal, context.receipt.siteId); return { principal, context };
   };
   const statusValue = state => {
-    const config = safeConfig(client), value = reporter(state), missing = [...config.missing, ...reporterMissing(value, config.mode)];
+    const config = safeConfig(client), value = reporter(state), missing = [...config.missing, ...reporterMissing(value, config.mode, config.certificate)];
     const check = currentCheck(state, config, value);
     return { mode: config.mode, enabled: config.enabled, configured: config.ready && missing.length === 0, connected: Boolean(check?.connected), missing: [...new Set(missing)], reporter: value ? clone(value) : null,
       reporterVersion: value?.version ?? 0, lastCheck: publicCheck(check), certificate: config.certificate, productionEnabled: false };
@@ -238,7 +244,7 @@ export function createNvvReporting({ transaction, read = transaction, principalF
         const version = { id: randomUUID(), reportId: context.reportId, sourceReportIds: context.sourceReportIds, receiptId: context.receipt.id, receiptVersion: context.receipt.version,
           siteId: context.receipt.siteId, sourceId: context.receipt.sourceId, wasteCode: context.row.classification.wasteCode, weight: prepared.weight, mode, role: 'collector_receipt',
           method, path: method === 'POST' ? '/insamlingar' : `/insamlingar/${previousAvfallId}`, payload: prepared.payload, payloadHash: hash(prepared.payload), schemaVersion: 'BTFA.Anteckning-v1-1.2.8',
-          reporterVersion: reporter(state).version, ...(previousAvfallId && { previousAvfallId }), createdAt: time.toISOString(), createdBy: principal.user.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id };
+          reporterVersion: reporter(state).version, clientCertificate: clone(config.certificate), ...(previousAvfallId && { previousAvfallId }), createdAt: time.toISOString(), createdBy: principal.user.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id };
         const trackingId = randomUUID(), startedAt = time.toISOString();
         state.nvvReports.push(version); state.nvvJobs.push({ id: randomUUID(), versionId: version.id, requestKey: key, status: 'in_flight', mode, trackingId, startedAt, leaseUntil: new Date(time.getTime() + LEASE_MS).toISOString(), updatedAt: startedAt });
         audit(state, time, principal, 'nvv.submit_reserved', { versionId: version.id, reportId, siteId: version.siteId, method, mode });

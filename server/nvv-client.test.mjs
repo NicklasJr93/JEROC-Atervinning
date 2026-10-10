@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createNvvClient, NVV_TEST_API_URL, NVV_TEST_TOKEN_URL } from './nvv-client.mjs';
+import tls from 'node:tls';
+import { X509Certificate } from 'node:crypto';
+import { createNvvClient, describeNvvCertificate, NVV_TEST_API_URL, NVV_TEST_TOKEN_URL } from './nvv-client.mjs';
 
 // Anonymous, self-signed fixture generated locally. This key identifies no real
 // organization, is publicly available test data, and is never used on a network.
@@ -33,6 +35,84 @@ test('NVV client is disabled by default and never performs I/O', async () => {
   const check = await client.check(); assert.equal(check.connected, false); assert.deepEqual(check.diagnostics, []);
   assert.equal((await client.submit({ method: 'POST', path: '/insamlingar', payload })).error.code, 'NVV_DISABLED');
   assert.equal(calls, 0);
+});
+
+test('loaded TLS certificate exposes only public X509 metadata and keeps it coherent across cache reads', async t => {
+  const f = await fixture(t), client = createNvvClient({ env: f.env, request: f.request });
+  const der = tls.createSecureContext({ pfx: Buffer.from(localOnlyPfx, 'base64'), passphrase: f.env.NVV_CLIENT_PFX_PASSWORD }).context.getCertificate();
+  const certificate = new X509Certificate(der), first = await client.status();
+  assert.deepEqual(first.certificate, { configured: true, validated: true, metadataAvailable: true,
+    organisationName: 'Not a real NVV identity', organisationNumber: null, issuer: certificate.issuer,
+    validFrom: new Date(certificate.validFrom).toISOString(), validTo: new Date(certificate.validTo).toISOString(), fingerprint256: certificate.fingerprint256 });
+  assert.equal(f.calls.length, 0);
+  const originalFingerprint = first.certificate.fingerprint256;
+  first.certificate.fingerprint256 = 'spoofed'; first.certificate.organisationNumber = '5560000167';
+  assert.equal((await client.status()).certificate.fingerprint256, originalFingerprint);
+  assert.equal((await client.status()).certificate.organisationNumber, null);
+  assert.deepEqual((await client.configurationSnapshot()).status.certificate, { ...first.certificate, fingerprint256: originalFingerprint, organisationNumber: null });
+  const submitted = await client.submit({ method: 'POST', path: '/insamlingar', payload });
+  assert.equal(submitted.outcome, 'accepted');
+  assert.equal((await client.status()).certificate.fingerprint256, originalFingerprint);
+  const publicJson = JSON.stringify(await client.status());
+  for (const secret of [localOnlyPfx, der.toString('base64'), f.env.NVV_CLIENT_PFX_PASSWORD, f.env.NVV_CLIENT_PFX_SECRET_FILE, f.env.NVV_CLIENT_SECRET, f.env.NVV_CLIENT_ID])
+    assert.equal(publicJson.includes(secret), false);
+  f.env.NVV_CLIENT_PFX_PASSWORD = 'incorrect-rotated-pin';
+  const rotated = await client.status();
+  assert.equal(rotated.ready, false); assert.equal(rotated.certificate.metadataAvailable, false);
+  assert.equal(rotated.certificate.fingerprint256, null); assert.equal(rotated.certificate.organisationNumber, null);
+});
+
+test('certificate organisation identity comes from explicit subject fields, without guessing from CN or certificate serial', t => {
+  const certificate = new X509Certificate(tls.createSecureContext({ pfx: Buffer.from(localOnlyPfx, 'base64'), passphrase: 'fixture-only-password' }).context.getCertificate());
+  let subject = {};
+  t.mock.method(certificate, 'toLegacyObject', () => ({ subject }));
+  for (const [field, value] of [['serialNumber', '165560000167'], ['2.5.4.5', '556000-0167'], ['organizationIdentifier', 'NTRSE-5560000167'], ['organisationIdentifier', 'SE5560000167'], ['2.5.4.97', 'SE556000016701']]) {
+    subject = { O: 'Testorganisation AB', [field]: value };
+    const metadata = describeNvvCertificate(certificate);
+    assert.equal(metadata.organisationNumber, '5560000167', `${field}: ${value}`);
+    assert.equal(metadata.organisationName, 'Testorganisation AB');
+  }
+  for (const value of ['190211108220', '194801301872', 'NTRNO-5560000167', 'arbitrary5560000167', '556000016799']) {
+    subject = { CN: 'Testorganisation 5560000167', serialNumber: value };
+    assert.equal(describeNvvCertificate(certificate).organisationNumber, null);
+    assert.equal(describeNvvCertificate(certificate).organisationName, null);
+  }
+  subject = { CN: '5560000167', organizationIdentifier: ['NTRSE-5560000167', 'NTRSE-5560065087'], O: ['First AB', 'Second AB'] };
+  assert.equal(describeNvvCertificate(certificate).organisationNumber, null);
+  assert.equal(describeNvvCertificate(certificate).organisationName, null);
+  assert.equal(describeNvvCertificate(Buffer.from('not a certificate')).metadataAvailable, false);
+});
+
+test('unavailable native certificate metadata preserves successful TLS validation and never leaks extraction errors', async t => {
+  const realCreate = tls.createSecureContext;
+  let nativeContext = {};
+  t.mock.method(tls, 'createSecureContext', options => { realCreate(options); return { context: nativeContext }; });
+  for (const broken of [{}, { getCertificate() { throw new Error('secret extraction details'); } }, { getCertificate: () => Buffer.from('invalid DER') }]) {
+    nativeContext = broken;
+    const f = await fixture(t), client = createNvvClient({ env: f.env, request: f.request });
+    const status = await client.status();
+    assert.equal(status.ready, true); assert.equal(status.certificate.validated, true);
+    assert.equal(status.certificate.metadataAvailable, false); assert.equal(status.certificate.fingerprint256, null);
+    assert.deepEqual(status.issues, []); assert.equal(JSON.stringify(status).includes('secret extraction'), false);
+    assert.equal((await client.submit({ method: 'POST', path: '/insamlingar', payload })).outcome, 'accepted');
+  }
+});
+
+test('NVV PascalCase 400 identity error retains every safe provider error and explains code1023', async t => {
+  const f = await fixture(t);
+  const body = { Message: 'Validation failed', Errors: [{ Code: 1023, Message: 'Organisation identity mismatch' }, { Code: 1004, Message: `Other field error ${f.env.NVV_CLIENT_SECRET}` }] };
+  const client = createNvvClient({ env: f.env, request: async input => input.url === NVV_TEST_TOKEN_URL ? f.request(input) : { statusCode: 400, body } });
+  const rejected = await client.submit({ method: 'POST', path: '/insamlingar', payload });
+  assert.equal(rejected.outcome, 'rejected'); assert.equal(rejected.httpStatus, 400);
+  assert.equal(rejected.error.code, 'NVV_REPORTER_IDENTITY');
+  assert.equal(rejected.error.message, 'NVV kunde inte matcha verksamhetsutövaren eller ombudet mot rapportörens organisationsnummer. Kontrollera klientcertifikatets identitet och rapporteringsrollen.');
+  assert.deepEqual(rejected.error.details.map(item => item.Code), [1023, 1004]);
+  assert.equal(rejected.response.Message, body.Message); assert.deepEqual(rejected.response.Errors, rejected.error.details);
+  assert.equal(JSON.stringify(rejected).includes(f.env.NVV_CLIENT_SECRET), false);
+  const generic = createNvvClient({ env: f.env, request: async input => input.url === NVV_TEST_TOKEN_URL ? f.request(input) : { statusCode: 400, body: { Message: 'Actual provider message', Code: 1004 } } });
+  assert.equal((await generic.submit({ method: 'POST', path: '/insamlingar', payload })).error.message, 'Actual provider message');
+  const topLevel = createNvvClient({ env: f.env, request: async input => input.url === NVV_TEST_TOKEN_URL ? f.request(input) : { statusCode: 400, body: { Code: '1023', Message: 'Identity mismatch' } } });
+  assert.equal((await topLevel.submit({ method: 'POST', path: '/insamlingar', payload })).error.code, 'NVV_REPORTER_IDENTITY');
 });
 
 test('production and custom endpoints are blocked before any network operation', async (t) => {
@@ -81,7 +161,7 @@ test('valid PFX config exposes only public readiness and safely checks nested co
   const state = await client.status();
   assert.equal(state.ready, true);
   assert.equal(state.certificate.validated, true);
-  assert.equal(state.certificate.metadataAvailable, false);
+  assert.equal(state.certificate.metadataAvailable, true);
   const result = await client.check();
   assert.equal(result.connected, true);
   assert.ok(result.wasteCodes.some((item) => item.code === '160601' && item.hazardous));

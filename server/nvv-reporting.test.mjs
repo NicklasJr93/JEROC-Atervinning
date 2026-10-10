@@ -49,6 +49,37 @@ test('NVV stays disabled by default and reporter setup is versioned without chan
   assert.equal((await f.store.nvvStatus(f.admin.token)).reporterVersion, 1);
 }, { mode: 'disabled' }));
 
+test('actual certificate identity overrides a matching manual declaration and is frozen with the report', async () => {
+  let checks = 0, submits = 0;
+  const certificate = { configured: true, validated: true, metadataAvailable: true,
+    organisationName: 'Testbolag 2', organisationNumber: '5560065087', issuer: 'Local fixture CA',
+    validFrom: '2026-04-09T00:00:00.000Z', validTo: '2028-04-09T00:00:00.000Z', fingerprint256: 'PUBLIC-FIXTURE-FINGERPRINT' };
+  const client = { status: async () => ({ mode: 'test', ready: true, missing: [], issues: [], certificate }),
+    async check() { checks++; return { mode: 'test', connected: true, checkedAt: '2026-10-10T10:30:00Z', wasteCodes: [{ code: '160601', hazardous: true }], transportModes: [{ code: 'R' }] }; },
+    async submit() { submits++; return { mode: 'test', outcome: 'accepted', httpStatus: 200, avfallId: randomUUID(), response: {} }; } };
+  await fixture(async f => {
+    await f.store.nvvSaveReporter(reporter, f.admin.token);
+    const status = await f.store.nvvStatus(f.admin.token);
+    assert.equal(status.configured, false);
+    assert.ok(status.missing.some(value => value.includes('5560065087') && value.includes('egen rapportering')));
+    await rejected(() => f.store.nvvCheck(f.admin.token), 'nvv_setup_required');
+    const { report } = await f.create();
+    await rejected(() => f.store.nvvSend(report.id, { receiptVersion: 1, idempotencyKey: 'mismatched-cert' }, f.admin.token), 'nvv_incomplete');
+    assert.equal(checks, 0); assert.equal(submits, 0);
+    assert.equal(JSON.parse(await f.repository.backup()).nvvReports.length, 0);
+    await f.store.nvvSaveReporter({ ...reporter, expectedVersion: 1, number: '5560065087', certificateOrganisationNumber: '5560065087' }, f.admin.token);
+    await f.store.nvvCheck(f.admin.token);
+    const sent = await f.store.nvvSend(report.id, { receiptVersion: 1, idempotencyKey: 'correct-cert' }, f.admin.token);
+    assert.equal(sent.status, 'reported'); assert.equal(submits, 1);
+    assert.deepEqual(sent.versions[0].clientCertificate, certificate);
+    certificate.organisationNumber = '5560000167';
+    await f.restart();
+    const history = await f.store.nvvDetail(report.id, f.admin.token);
+    assert.equal(history.versions[0].clientCertificate.organisationNumber, '5560065087');
+    assert.equal(history.versions[0].payload.verksamhetsutovare, '5560065087');
+  }, { client });
+});
+
 test('mock reception freezes only hazardous kg and saves one immutable response across click retries and restart', async () => fixture(async f => {
   await f.setup(); const { receipt, report } = await f.create(); const before = JSON.parse(await f.repository.backup());
   const a = await f.store.nvvSend(report.id, { receiptVersion: 1, idempotencyKey: 'send-once' }, f.admin.token);

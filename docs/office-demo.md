@@ -1,4 +1,21 @@
-# JEROC kontorsdemo 0.13.0
+# JEROC kontorsdemo 0.13.1
+
+## Nytt i 0.13.1 – NVV:s rapportörsidentitet
+
+NVV-inställningarna visar den organisation, utfärdare, giltighet och offentliga
+SHA-256-fingeravtryck som läses ur serverns faktiska klientcertifikat. Det manuella
+certifikatfältet ändrar inte denna identitet. Vid egen rapportering i TEST stoppas
+utskick om verksamhetsutövaren skiljer sig från certifikatets läsbara orgnummer.
+Om certifikatets organisation inte kan tolkas entydigt visas den som okänd.
+
+NVV:s fel med `Message`, `Errors` och `Code` bevaras och hanteras även med
+inledande versaler. Fel 1023 får en konkret förklaring om rapporteringsidentiteten.
+Nya rapportversioner sparar certifikatets offentliga metadata med den frysta
+payloaden. Befintliga rapporter, mottagningar och svar ändras inte.
+
+Detta är en felsökningsuppdatering: läst certifikatidentitet eller lyckade kodlistor
+bevisar inte att NVV accepterar rapportering. Inga ombudsfält läggs till automatiskt.
+Render använder befintliga inställningar och behöver ingen ny migration.
 
 ## Nytt i 0.13.0 – snabbare kundvisning och miljömottagning
 
