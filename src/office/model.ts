@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.11.0';
+export const OFFICE_VERSION = '0.12.0';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -40,6 +40,11 @@ export const permissionNames = {
   environmentClassify: 'Ändra artiklars miljöklassificering',
   environmentStorage: 'Hantera anläggningar, tillstånd och lagringsgränser',
   environmentReceiveException: 'Registrera mottagning vid kundtvist med motivering',
+  environmentReport: 'Skicka miljörapporter till NVV:s testmiljö',
+  environmentReportCorrect: 'Skicka miljörättelser till NVV:s testmiljö',
+  environmentIntegration: 'Hantera NVV:s testanslutning',
+  integrationsRead: 'Läsa integrationer och anslutningsstatus',
+  integrationsManage: 'Hantera organisationens integrationer',
   personnelRead: 'Läsa personalregistret',
   personnelWrite: 'Skapa och ändra personalprofiler',
   employmentRead: 'Läsa anställningsuppgifter',
@@ -241,7 +246,7 @@ export const statusNames = {
   paid: 'Demoutbetald',
   balance: 'Sparat på saldo',
 };
-export const sensitivePersonnelPermissions: Permission[] = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite'];
+export const sensitivePersonnelPermissions: Permission[] = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage'];
 export const can = (user: OfficeUser, right: Permission) =>
   sensitivePersonnelPermissions.includes(right)
     ? user.level === 'Systemadmin' || user.permissions.includes(right)
@@ -314,7 +319,7 @@ export function seedOffice(): OfficeData {
       id: 'lars',
       name: 'Lars Andersson',
       level: 'VD',
-      permissions: all,
+      permissions: all.filter(right => !['environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage'].includes(right)),
       maxAttest: 100000,
       ownAttest: true,
     },

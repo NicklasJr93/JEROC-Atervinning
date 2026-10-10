@@ -162,3 +162,62 @@
 @media(max-width:1200px) { .environment-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .environment-stats article { padding:14px; } .environment-workspace-title { align-items:flex-start; } }
 @media(max-width:800px) { .environment-workspace-title { flex-direction:column; align-items:stretch; } .environment-form-grid,.environment-places { grid-template-columns:1fr; } .environment-classification-options { grid-template-columns:1fr; } .environment-adr { align-items:flex-start; flex-direction:column; } .environment-access-actions { width:100%; } .office .environment-access-actions input { flex:1; width:auto; } .environment-stats { gap:9px; } .environment-stats article { align-items:flex-start; padding:12px; gap:9px; } .environment-stat-icon { width:32px; height:32px; } .environment-stats article strong { font-size:20px; } .environment-list-tools { padding:12px; } .office .environment-list-tools label.environment-search { min-width:100%; margin-left:0; } .office .environment-list-tools > select { width:100%; } .environment-receipt-original dl > div,.environment-detail-facts > div { grid-template-columns:1fr; gap:4px; } .environment-detail-backdrop { padding:12px; } .environment-detail-dialog { padding:18px; max-height:calc(100dvh - 24px); } }
 @media(max-width:800px) { .environment-compact-facts > div { grid-template-columns:1fr; gap:4px; padding:10px 0; } .environment-fact-secondary { display:block; margin-left:0; } .environment-document-inline { flex-direction:column; } .office .environment-document-inline > select { width:100%; flex:auto; } .environment-compact-facts > .environment-row-editor { padding:10px; } .environment-action-buttons { width:100%; } .environment-action-buttons .office-btn { flex:1; justify-content:center; } }
+
+/* NVV test reporting stays within the established environment workspace. */
+.office .environment-workspace .nvv-integration-panel { padding:0; margin-bottom:16px; }
+.office .environment-workspace .nvv-settings-toggle { display:flex; align-items:center; gap:11px; width:100%; padding:14px 17px; border:0; border-radius:10px; color:#264365; background:#fff; text-align:left; }
+.office .environment-workspace .nvv-settings-toggle > span:nth-child(2) { flex:1; min-width:0; }
+.office .environment-workspace .nvv-settings-toggle strong,.office .environment-workspace .nvv-settings-toggle small { display:block; }
+.office .environment-workspace .nvv-settings-toggle strong { font-size:13px; }
+.office .environment-workspace .nvv-settings-toggle small { font-size:10px; color:#8093ac; margin-top:4px; line-height:1.5; }
+.office .environment-workspace .nvv-settings-toggle > svg { flex-shrink:0; transition:transform .15s; }
+.office .environment-workspace .nvv-settings-toggle > svg.is-open { transform:rotate(180deg); }
+.office .environment-workspace .nvv-settings-body { padding:0 17px 17px; border-top:1px solid #edf2f8; }
+.office .environment-workspace .nvv-connection-summary { display:flex; align-items:center; justify-content:space-between; gap:15px; padding-top:15px; }
+.office .environment-workspace .nvv-connection-summary > div { flex:1; min-width:0; }
+.office .environment-workspace .nvv-connection-summary p,.office .environment-workspace .nvv-report-version-copy { margin:7px 0 0; font-size:11px; line-height:1.5; color:#7489a3; }
+.office .environment-workspace .nvv-connection-summary small { display:block; font-size:10px; color:#8698ad; margin-top:5px; }
+.office .environment-workspace .nvv-settings-body h3 { font-size:12px; margin:17px 0 11px; }
+.office .environment-workspace .nvv-settings-body ul,.office .environment-workspace .nvv-report-panel ul { margin:5px 0 0; padding-left:16px; }
+.office .environment-workspace .nvv-reporter-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.office .environment-workspace .nvv-reporter-grid label { display:block; min-width:0; font-size:11px; font-weight:600; margin:0; color:#6a809d; }
+.office .environment-workspace .nvv-reporter-grid input { display:block; width:100%; height:36px; min-height:0; padding:8px 10px; margin:5px 0 0; font-size:12px; color:#2d486a; border:1px solid #dce7f4; border-radius:7px; background:#fff; box-sizing:border-box; }
+.office .environment-workspace .nvv-reporter-grid input:disabled { background:#f6f9fc; color:#69819e; }
+.office .environment-workspace .nvv-reporter-grid small { display:block; font-size:10px; font-weight:400; color:#8396ad; margin-top:5px; line-height:1.4; }
+.office .environment-workspace .nvv-identity-confirmation { display:flex; flex-direction:row; align-items:flex-start; gap:8px; margin:14px 0 0; font-size:11px; color:#597794; line-height:1.5; }
+.office .environment-workspace .nvv-identity-confirmation input { margin:1px 0 0; width:15px; height:15px; min-height:0; padding:0; flex-shrink:0; }
+.office .environment-workspace .nvv-readonly-notice { margin:12px 0 0; color:#8195ad; font-size:10px; }
+.office .environment-workspace .nvv-report-panel { border-top:1px solid #e7edf5; padding-top:15px; margin-top:17px; }
+.office .environment-workspace .nvv-report-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.office .environment-workspace .nvv-report-heading h3 { display:flex; align-items:center; gap:7px; font-size:13px; margin:0; }
+.office .environment-workspace .nvv-acknowledgement { display:flex; align-items:center; gap:10px; padding:12px; margin-top:12px; border:1px solid #d9ecdf; border-radius:8px; background:#f0faf4; color:#177f4f; }
+.office .environment-workspace .nvv-acknowledgement.simulated { background:#edf5ff; border-color:#dce8f8; color:#4472a0; }
+.office .environment-workspace .nvv-acknowledgement strong,.office .environment-workspace .nvv-acknowledgement span { display:block; font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
+.office .environment-workspace .nvv-acknowledgement span { margin-top:3px; font-weight:600; }
+.office .environment-workspace .nvv-report-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:14px; }
+.office .environment-workspace .nvv-report-actions small { font-size:10px; color:#8095ac; }
+.office .environment-workspace .nvv-report-panel > details { margin-top:15px; padding:11px 12px; border:1px solid #e5edf5; border-radius:8px; }
+.office .environment-workspace .nvv-report-panel summary { cursor:pointer; color:#3c5c7c; font-size:11px; font-weight:600; line-height:1.6; }
+.office .environment-workspace .nvv-report-panel summary > span { margin-left:5px; font-size:10px; background:#edf3fb; border-radius:10px; padding:2px 6px; }
+.office .environment-workspace .nvv-send-history > p { font-size:11px; color:#8093ac; }
+.office .environment-workspace .nvv-send-history ol { border-left:1px solid #dce7f2; list-style:none; margin:14px 0 0 5px; padding:0 0 0 16px; }
+.office .environment-workspace .nvv-send-history li { position:relative; padding:0 0 17px; }
+.office .environment-workspace .nvv-send-history li::before { content:''; position:absolute; top:4px; left:-20px; width:7px; height:7px; border-radius:50%; background:#277af0; box-shadow:0 0 0 3px #fff; }
+.office .environment-workspace .nvv-send-history li:last-child { padding-bottom:0; }
+.office .environment-workspace .nvv-send-history li > strong { display:block; font-size:11px; line-height:1.5; color:#385675; }
+.office .environment-workspace .nvv-send-history li > span { display:block; font-size:10px; color:#879ab0; line-height:1.6; margin-top:3px; overflow-wrap:anywhere; }
+.office .environment-workspace .nvv-send-history li > p { font-size:11px; line-height:1.5; color:#b46e38; margin:6px 0; }
+.office .environment-workspace .nvv-technical-details { margin-top:7px; }
+.office .environment-workspace .nvv-technical-details summary { font-size:10px; font-weight:400; }
+.office .environment-workspace .nvv-report-panel pre { overflow:auto; max-height:300px; padding:10px; border:1px solid #e2eaf3; border-radius:6px; background:#f7fafd; color:#43617e; font-size:10px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
+.office .environment-workspace .nvv-report-panel details small { font-size:10px; line-height:1.5; color:#8195ac; overflow-wrap:anywhere; }
+.office .environment-workspace .nvv-frozen-payload { margin-top:11px; padding-top:11px; border-top:1px solid #e9eff6; }
+.office .environment-workspace .nvv-frozen-payload > p { font-size:10px; margin:7px 0; color:#7890a9; line-height:1.5; }
+@media(max-width:1050px) { .office .environment-workspace .nvv-reporter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:700px) {
+  .office .environment-workspace .nvv-reporter-grid { grid-template-columns:1fr; }
+  .office .environment-workspace .nvv-settings-toggle { flex-wrap:wrap; }
+  .office .environment-workspace .nvv-settings-toggle > .environment-pill { margin-left:49px; }
+  .office .environment-workspace .nvv-connection-summary { align-items:flex-start; flex-direction:column; }
+  .office .environment-workspace .nvv-report-actions .office-btn { width:100%; justify-content:center; }
+}

@@ -3,6 +3,7 @@ import type {
   EnvironmentalDraftInput, EnvironmentalReceipt, EnvironmentalReceiptInput,
   EnvironmentSessionState, EnvironmentState, WasteClassification,
   EnvironmentSite, EnvironmentSiteInput, EnvironmentalStorageAssessment, EnvironmentalStoragePolicy, EnvironmentalStoragePolicyInput,
+  NvvIntegrationStatus, NvvReporterInput, NvvReportDetail,
 } from './environment-types';
 
 let csrfToken = '';
@@ -41,4 +42,10 @@ export const environmentApi = {
   saveSite: (siteId: string, value: EnvironmentSiteInput) => environmentRequest<EnvironmentSite>(`/sites/${encodeURIComponent(siteId)}`, 'PUT', value),
   saveStoragePolicy: (siteId: string, value: EnvironmentalStoragePolicyInput) => environmentRequest<EnvironmentalStoragePolicy>(`/storage/policies/${encodeURIComponent(siteId)}`, 'PUT', value),
   checkStorage: (value: { siteId: string; rows: { articleId: string; weight: number }[]; receiptId?: string; materialScope?: 'hazardous' }, signal?: AbortSignal) => environmentRequest<EnvironmentalStorageAssessment>('/storage/check', 'POST', value, signal),
+  nvvStatus: (signal?: AbortSignal) => environmentRequest<NvvIntegrationStatus>('/nvv/status', 'GET', undefined, signal),
+  saveNvvReporter: (value: NvvReporterInput) => environmentRequest<NvvIntegrationStatus>('/nvv/reporter', 'PUT', value),
+  checkNvvConnection: () => environmentRequest<NvvIntegrationStatus>('/nvv/check', 'POST', {}),
+  nvvReport: (reportId: string, signal?: AbortSignal) => environmentRequest<NvvReportDetail>(`/nvv/reports/${encodeURIComponent(reportId)}`, 'GET', undefined, signal),
+  sendNvvReport: (reportId: string, value: { receiptVersion: number; idempotencyKey: string }) => environmentRequest<NvvReportDetail>(`/nvv/reports/${encodeURIComponent(reportId)}/send`, 'POST', value),
+  reconcileNvvReport: (reportId: string) => environmentRequest<NvvReportDetail>(`/nvv/reports/${encodeURIComponent(reportId)}/reconcile`, 'POST', {}),
 };

@@ -30,6 +30,7 @@ import {
   ClipboardList,
   Package,
   Container,
+  PlugZap,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
@@ -55,6 +56,7 @@ const PersonalWorkspace = lazy(() => import('./personnel/PersonalWorkspace'));
 const WorkOrdersWorkspace = lazy(() => import('./logistics/WorkOrdersWorkspace'));
 const WarehouseWorkspace = lazy(() => import('./logistics/WarehouseWorkspace'));
 const VesselsWorkspace = lazy(() => import('./logistics/VesselsWorkspace'));
+const IntegrationsWorkspace = lazy(() => import('./IntegrationsWorkspace'));
 import { logisticsRequest } from './logistics/client';
 import type { LogisticsOfficeState } from './logistics/types';
 import type { WorkOrderPrefill } from './logistics/WorkOrderForm';
@@ -726,6 +728,7 @@ export function OfficeApp() {
       icon: TrendingUp,
       right: 'lmeRead',
     },
+    { id: 'integrations', name: 'Integrationer', icon: PlugZap, right: 'integrationsRead' },
     { id: 'environment', name: 'Miljörapportering', icon: Leaf, right: 'environmentRead' },
     { id: 'facilities', name: 'Anläggningar', icon: Building2, right: 'environmentRead' },
     {
@@ -2186,6 +2189,9 @@ export function OfficeApp() {
               onOpenUser={id => navigate(`/personnel/accounts?user=${encodeURIComponent(id)}`)} /></Suspense>
           ) : section === 'environment' ? (
             <EnvironmentWorkspace user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} onOpenCard={open} />
+          ) : section === 'integrations' ? (
+            <Suspense fallback={<div className="office-panel" role="status">Hämtar integrationer…</div>}><IntegrationsWorkspace
+              key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} /></Suspense>
           ) : section === 'facilities' ? (
             <Suspense fallback={<div className="office-panel">Hämtar anläggningar…</div>}><FacilitiesWorkspace user={user} actualUser={actualUser!} onNotice={setMessage} /></Suspense>
           ) : section === 'customer-approvals' ? (

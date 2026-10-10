@@ -102,9 +102,13 @@ export interface EnvironmentalReceipt {
 export interface EnvironmentalReport {
   id: string; receiptId: string; sourceId: string; cardId: number; siteId: string;
   articleId: string; wasteCode: string; wasteDescription: string; weight: number;
-  status: 'ready' | 'incomplete'; missingFields: string[]; noteDueDate: string;
-  reportDueDate: string; createdAt: string; mode: 'prepared-only';
+  status: NvvReportStatus; missingFields: string[]; noteDueDate: string;
+  reportDueDate: string; createdAt: string; mode: 'prepared-only' | NvvMode;
   version?: number;
+  nvv?: {
+    status: NvvReportStatus; mode: 'prepared-only' | NvvMode; avfallId?: string; versionId?: string;
+    receiptVersion: number; configuredMode?: NvvMode; missingFields?: string[]; error?: { code?: string; message: string };
+  };
 }
 export interface EnvironmentalReportHistory extends Omit<EnvironmentalReport, 'status'> {
   status: 'superseded'; version: number;
@@ -134,3 +138,45 @@ export const transportModeNames: Record<EnvironmentalTransportMode, string> = {
 export const formatWasteCode = (code: string, hazardous = true) => `${code.replace(/\D/g, '').replace(/(\d{2})(\d{2})(\d{2})/, '$1 $2 $3')}${hazardous && code ? '*' : ''}`;
 export const environmentTime = (value: string) => new Date(value).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 export const environmentWeight = (value: number) => `${value.toLocaleString('sv-SE', { maximumFractionDigits: 3 })} kg`;
+
+export type NvvMode = 'disabled' | 'mock' | 'test';
+export type NvvReportStatus = 'ready' | 'incomplete' | 'sending' | 'reported' | 'simulated' | 'error' | 'unknown' | 'correction_required';
+export interface NvvReporterInput {
+  name: string; number: string; contactName: string; email: string; phone: string;
+  certificateOrganisationNumber: string; testIdentityConfirmed: boolean;
+  expectedVersion: number;
+}
+export interface NvvReporter extends Omit<NvvReporterInput, 'expectedVersion'> {
+  version: number; updatedAt: string; updatedBy: string;
+}
+export interface NvvConnectionCheck {
+  mode: NvvMode; connected: boolean; checkedAt: string;
+  wasteCodes: { code: string; description: string; hazardous: boolean }[];
+  transportModes: { code: string; description: string }[];
+  error?: { code?: string; message: string };
+}
+export interface NvvIntegrationStatus {
+  mode: NvvMode; configured: boolean; connected: boolean; missing: string[];
+  reporter: NvvReporter | null; reporterVersion: number; lastCheck: NvvConnectionCheck | null;
+  enabled?: boolean; productionEnabled?: false;
+}
+export interface NvvReportVersion {
+  id: string; reportId: string; sourceReportIds: string[]; receiptId: string; receiptVersion: number;
+  siteId: string; wasteCode: string; weight: number; mode: NvvMode;
+  method: 'POST' | 'PUT'; path: string; payload: unknown; payloadHash: string;
+  reporterVersion: number; previousAvfallId?: string; createdAt: string; createdBy: string;
+}
+export interface NvvAttempt {
+  id: string; versionId: string; trackingId: string; kind: 'submit' | 'read';
+  startedAt: string; finishedAt: string; outcome: 'accepted' | 'rejected' | 'unknown';
+  httpStatus: number | null; avfallId?: string; response: unknown;
+  error?: { code: string; message: string; details?: unknown }; mode: NvvMode;
+}
+export interface NvvReportDetail {
+  reportId: string; receiptVersion: number; status: NvvReportStatus; mode: 'prepared-only' | NvvMode;
+  avfallId?: string; missingFields: string[]; versions: NvvReportVersion[]; attempts: NvvAttempt[];
+  job?: {
+    id: string; versionId: string; status: 'queued' | 'in_flight' | 'accepted' | 'rejected' | 'unknown';
+    avfallId?: string; lastError?: { code?: string; message: string }; updatedAt: string;
+  };
+}
