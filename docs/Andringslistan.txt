@@ -1229,3 +1229,20 @@ Status: Implementerad i kontorsdemo 0.12.2 efter beställning 2026-10-10.
   eller öppna den igen när svaret kommer. Mobilvy och minskad rörelse.
 - Befintliga Renderinställningar används. TEST-åtkomst och kodlistor har
   verifierats; riktiga rapportkvittenser och rättelsekedja provas separat.
+
+061 – Två tydliga testnivåer för NVV-integrationen
+Status: Planerad, godkänd för ÄL 2026-10-10. Ingen implementation påbörjad.
+- Testa anslutning: kontrollera certifikat/TLS, autentisering och kodlistor
+  utan att skapa någon anteckning i avfallsregistret. Resultatet benämns
+  Anslutning verifierad, inte ett besked om verifierad rapportering.
+- Testa hela flödet: separat, uttryckligt startat prov med testunderlag
+  endast i NVV:s TEST-miljö. Verifiera mottagningsrapport, verkligt avfalls-ID,
+  återläsning och rättelse med nytt ID samt bevarad versions-/försöksjournal.
+- Popupen ska skilja på vad som pågår och vad NVV faktiskt har bekräftat,
+  med verkliga anrop, HTTP-status och begränsade svarsutdrag.
+- Fullständigt rapportprov ska aldrig finnas i produktionsläge eller
+  skickas automatiskt vid anslutning, sidvisning eller serverstart.
+- Vid framtida produktionskoppling används anslutningsprov utan skrivning.
+  Varje verklig rapport verifieras separat genom sitt myndighetssvar.
+- Osäkert utfall kräver avstämning före omsändning; inga blinda dublettprov.
+  Nuvarande klient förblir TEST-begränsad. Inga skarpa anrop aktiveras här.
