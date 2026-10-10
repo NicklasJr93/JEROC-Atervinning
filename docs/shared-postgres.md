@@ -1,4 +1,4 @@
-# Gemensam verksamhetsdatabas – kontor 0.8.0 / mobil 0.3.0
+# Gemensam verksamhetsdatabas – kontor 0.11.0 / mobil 0.3.0
 
 Render använder befintlig `DATABASE_URL`. Migrationen körs automatiskt när
 servern börjar använda lagringen. Den raderar inga befintliga tabeller.
@@ -7,7 +7,8 @@ Utan PostgreSQL vägrar verksamhets-API:erna att spara på Render. Lokal utveckl
 kan använda beständig `.data/application.sqlite`; SQLite är ingen Renderreserv.
 
 `jeroc_application_documents` innehåller versionerade, schema-validerade JSONB-modeller
-för pricing, office, mobile, transport och outbox. All verksamhetsändring av dessa
+för pricing, office, mobile, transport, outbox, personnel/personnelAuth och
+logistics/logisticsAuth. All verksamhetsändring av dessa
 modeller görs i en databastransaktion under radlås. Det är en samlad modell för den
 nuvarande demon; stor drift kan senare dela upp den i fler normaliserade tabeller.
 `jeroc_application_meta` ger ett gemensamt lås för samtidiga affärsändringar.
@@ -46,9 +47,13 @@ Servern läser den beständiga behörighetsmodellen, filtrerar anläggningar/pri
 bankuppgifter och kontrollerar skrivåtgärder. Ändrad kund-/atteststatus måste styrkas
 av terminaltjänsten. Betalningsjournalen är låst och beloppen verifieras mot det
 attesterade saldot. Utbetalningar är fortsatt manuell demoregistrering.
-Transportmodellen har ännu ingen anläggningsindelning; konton med begränsade
-anläggningar får därför inte läsa hela transportregistret. Använd ett konto
-med tillgång till alla anläggningar för att prova planeraren.
+Nya arbetsorder, lager, kärl och avtal använder `/api/logistics/office` och
+anläggningsfiltrering på servern. Arbetsorder är samma order-ID i
+transportmodellen; versionerat underlag och utförande ligger i `logistics.details`.
+Kund- och åkerikonton samt sessionshashar ligger i `logisticsAuth`, aldrig i
+klientens register. Portalerna använder egna säkra sessionscookies.
+Den befintliga planeraren hämtar hela transportregistret och kräver därför
+fortfarande åtkomst till alla anläggningar. Använd ett sådant konto för den.
 Kontorets valbara demokonton och X-Demo-identiteter är inte produktionsautentisering.
 Använd bara testdata tills verklig inloggning införts.
 
@@ -58,7 +63,8 @@ Klienterna hämtar andra användares ändringar ungefär var fjärde sekund.
 arbete behålls lokalt och försöks igen vid återanslutning. En konflikt kräver
 kontroll innan ändringen kan sparas; den får inte tyst skriva över serverdata.
 
-PDF-vyn är fortfarande utskrift, ingen ny lagring av PDF-original införs här.
+PDF-original, fryst dokumentdata och kontrollsummor sparas i separata
+PostgreSQL-tabeller enligt [dokumentarkivet](pdf-archive.md).
 Bilder/mockuper/appkod ligger i GitHub; serverhemligheter ligger i Render.
 Backendlager och ändringslogg följer modellfält automatiskt; nya moduler måste
 använda den gemensamma lagringen och ha migration samt riktade återläsningstester.

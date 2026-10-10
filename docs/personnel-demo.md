@@ -1,4 +1,4 @@
-# JEROC Personal – kontorsdemo 0.9.1
+# JEROC Personal – kontorsdemo 0.11.0
 
 Implementerat 2026-10-09 enligt de godkända [personalmockuperna](mockups/personal/README.md).
 Utseendet följer befintliga kontoret. Formulären är funktionella och sparas med
@@ -6,7 +6,17 @@ samma PostgreSQL-anslutning som resten av verksamhetsdemon.
 
 - [Personal](https://jeroc-atervinning.onrender.com/kontor#/personnel)
 - [Bemanning att lösa](https://jeroc-atervinning.onrender.com/kontor#/personnel/tasks)
-- [Extern chaufförsinloggning](https://jeroc-atervinning.onrender.com/chauffor)
+- [Chaufförsinloggning, egna och externa](https://jeroc-atervinning.onrender.com/chauffor)
+- [Åkeriets transportledning](https://jeroc-atervinning.onrender.com/akeri)
+
+I 0.11.0 kan också egna anställda förare få ett personligt chaufförskonto på
+personkortet. Hantering kräver kontoadministrationsrättigheten `users`;
+externa chaufförskonton använder fortsatt `externalAccounts`. Lösenord hashas
+på servern och gamla sessioner avslutas när kontot ändras. Spärrad personal
+eller ett spärrat kopplat personalkonto kan inte använda chaufförslogin.
+Chauffören ser endast aktuellt tilldelade uppdrag och samma arbetsorder som
+kontoret. Åkeriets transportledarkonto är separat och hanteras i Arbetsorder;
+det ger inte tillgång till JEROC:s personal-, löne- eller kontorsregister.
 
 ## Personalregistret och personkortet
 

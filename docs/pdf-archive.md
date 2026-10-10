@@ -1,4 +1,4 @@
-# PDF och dokumentarkiv – kontorsdemo 0.10.0
+# PDF och dokumentarkiv – kontorsdemo 0.11.0
 
 ## Dokument i denna version
 
@@ -32,21 +32,29 @@ moms. En attesterad demo-PDF är inte bevis på extern bokföring eller betalnin
 
 ### Transportdokument
 
-Öppna en arbetsorder i **Transportplanering**, välj **Öppna transportunderlag**
-och komplettera parter, adresser, material, avfallskod, vikt, förare, fordon och
-datum. Spara uppgifterna och välj **Skapa PDF-utkast**.
+Öppna en ny gemensam order i **Arbetsorder**. Registrera verkliga lastvikter,
+tilldela förare och fordon och välj **Förbered transportdokument**. Dokumentet
+fryser arbetsorderns parter, material, vikter och hanteringsuppgifter. PDF-vyn
+använder samma version; uppgifterna redigeras på arbetsordern. En ändring av
+underlaget upphäver tidigare testunderskrifter och kontorets klartecken.
+
+Äldre order utan den nya arbetsordermodellen har kvar sitt separata utkast via
+**Transportplanering → Öppna transportunderlag**. Befintliga original bevaras.
 
 Samma mall används för **hämtning** (kund → JEROC) och **utleverans**
-(JEROC → mottagare). Välj riktning i underlaget; kontrollera parterna och
-adresserna. Underlaget är kopplat till arbetsordern och ersätter inte den.
-Reservationer, lageravdrag och fastställande av utleverans införs i lageretappen.
+(JEROC → mottagare). Riktningen och parterna hämtas från den nya arbetsordern.
+Reservationer minskar fri mängd. Fysiskt lager minskar först vid bekräftad
+lastad avfärd, en gång per order och artikel.
 
-PDF:en märks **UTKAST**, även när alla fält är ifyllda. Verkliga underskrifter,
-fastställd lastad avfärd och slutligt transportdokument ingår inte ännu.
-Saknade uppgifter visas i underlaget. Dokumentet ändrar inte bokningar,
-lager eller myndighetsrapportering och innehåller inga inköpspriser eller
-betalningsuppgifter. ADR-bedömning och giltiga transportbehörigheter följer
-inte automatiskt av en avfallskod.
+Före avfärd märks PDF:en **UTKAST**. Efter registrerad lastad avfärd kan en
+separat slutlig demoversion arkiveras. För farliga material kräver avfärden
+aktuell dokumentversion och lämnarens samt transportörens testbekräftelser.
+Bekräftelserna är tydligt märkta demo, inte BankID eller juridiskt verifierade
+underskrifter. PDF-generering skickar inget till NVV och ändrar inte lagret.
+Transportdokument innehåller inga inköpspriser eller betalningsuppgifter.
+ADR-bedömning följer inte automatiskt av en avfallskod. Chaufför och åkeri
+granskar dokumentdata i sina portaler; PDF-arkivets nedladdning är ännu en
+kontorsfunktion med separat behörighetskontroll.
 
 ### Utbetalningskvitto och kommande typer
 
@@ -55,7 +63,7 @@ en egen PDF med betalningsjournalens uppgifter. Det slutliga avräkningsoriginal
 skrivs inte om för att visa en senare betalning. Kvitto kräver behörighet till
 betalningsjournalen.
 
-Rättelsenota, självfaktureringsavtal, signerad transportversion och separata
+Rättelsenota, självfaktureringsavtal, juridiskt signerad transportversion och separata
 miljö-/bokföringsbilagor kan införas med samma motor i senare etapper. Dessa
 dokumenttyper skapas inte automatiskt i denna version.
 
@@ -83,9 +91,11 @@ har införts. Den fullständiga backupmotorn tillhör fortsatt en senare etapp.
 Varje listning och hämtning kontrollerar kontorets aktuella demoidentitet,
 anläggningsåtkomst och pris-/betalningsbehörighet. Kontrollsumman verifieras
 innan ett arkiverat original lämnas ut. Terminalkonto och publik kundlänk får
-inte tillgång till kontorets PDF-API. Transportplanering saknar ännu fullständig
-anläggningsindelning, så transportunderlagen kräver tillgång till samtliga
-anläggningar tills den avgränsningen har införts.
+inte tillgång till kontorets PDF-API. Nya arbetsorder och deras dokument har
+anläggnings-ID och kontrolleras mot användarens tillåtna anläggningar. Äldre
+underlag utan en känd anläggning kräver fortfarande åtkomst till alla
+anläggningar. Den befintliga planeraren som helhet är fortsatt begränsad till
+konton med åtkomst till samtliga anläggningar.
 
 Kontorsinloggningen använder fortsatt befintlig demoidentitet. Ingen riktig
 Visma-, BankID-, SMS-, e-post-, bank- eller NVV-överföring aktiveras här.

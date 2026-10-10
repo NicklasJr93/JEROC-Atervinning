@@ -1,4 +1,29 @@
-# JEROC kontorsdemo 0.10.0
+# JEROC kontorsdemo 0.11.0
+
+## Nytt i 0.11.0 – gemensamma arbetsorder, lager och kundportal
+
+**Arbetsorder**, **Lager** och **Kärl & containrar** kopplar beställning,
+planering och verkligt utförande till samma uppdrag. Egna chaufförer är
+förval; externa åkerier kan svara och bemanna via `/akeri`. Kundens egna
+kärl och önskemål finns på `/kund`, och tilldelade chaufförsuppdrag på
+`/chauffor`. Kontona administreras från kontoret med egna lösenord.
+
+Lager visas per material/anläggning. Reservation och faktisk lastad avfärd
+är separata steg; fysiskt lager minskar först vid bekräftad avfärd.
+Farligt avfall återanvänder miljömottagningar och versionsbundna
+transportdokument. Mejl förbereds men skickas inte, underskrifter är
+demogodkännanden och inga NVV-/Vismaöverföringar eller bankanrop aktiveras.
+Befintliga uppgifter bevaras i samma beständiga serverlagring.
+Se [logistikens flöden, konton och begränsningar](logistics-demo.md).
+
+Verifiering 0.11.0: produktionsbygget och Expo-typkontrollen passerade.
+Servertestningen gav 229 passerade, fyra valfria PostgreSQL-tester
+överhoppade och inga fel. PostgreSQL-testanslutning saknades i denna miljö;
+de körda persistensproven använde isolerade SQLite-databaser.
+60 relevanta webbläsarfall verifierades över körningarna: 57 befintliga
+flöden och tre nya logistikflöden. Det externa transportprovet omfattar
+kundgodkännande, faktisk miljömottagning, åkeri/chaufför, dokumentversioner,
+avfärd, leverans och omladdning, med exakt ett lageravdrag.
 
 ## Nytt i 0.10.0 – servergenererade PDF-original
 

@@ -4,7 +4,7 @@
 
 1. Logga in på ditt Render-konto via länken ovan.
 2. Om Render ber om GitHub-åtkomst, koppla ditt GitHub-konto och ge tillgång till **NicklasJr93/JEROC-Atervinning**. För ett privat projekt måste Render kunna läsa just detta repository.
-3. Skapa en Blueprint från `main`. Konfigurationen i `render.yaml` skapar **jeroc-gardsapp-demo** som en **Node Web Service**, med Free-plan och Frankfurt som region. Mobil- och befintliga kontorsvyer kan öppnas utan databas. Den nya terminaldelen behöver PostgreSQL enligt [terminalinstruktionerna](terminal-demo.md#render-anslut-gemensam-lagring).
+3. Skapa en Blueprint från `main`. Konfigurationen i `render.yaml` skapar **jeroc-gardsapp-demo** som en **Node Web Service**, med Free-plan och Frankfurt som region. Anslut PostgreSQL med `DATABASE_URL` enligt [terminalinstruktionerna](terminal-demo.md#render-anslut-gemensam-lagring); kontor, mobil, terminaler, miljö, personal, lager och portaler behöver gemensam beständig lagring.
 4. Starta publiceringen och vänta tills bygget är klart. Render visar då tjänstens faktiska `https://….onrender.com`-adress.
 5. Öppna den adressen i mobilens webbläsare. Tryck **Öppna demokontot**, eller logga in med **niklas / Demo123!**. Datorn behöver inte vara igång.
 
@@ -23,7 +23,7 @@ Om länken inte förväljer projektet: välj **New → Blueprint** i Render och 
 | Environment Variable | `NODE_VERSION=24.19.0` |
 | Health Check Path | `/healthz` |
 
-Klicka **Deploy Web Service** när inställningarna är klara. Node-servern lyssnar på den `PORT` som Render ger den och serverar det färdiga webbbygget. Kontoret, mobilen och `/terminal` använder samma tjänst. För terminalkonton och kundgodkännanden ansluts en separat PostgreSQL-databas genom servervariabeln `DATABASE_URL`; det kräver inget nytt GitHub-repository.
+Klicka **Deploy Web Service** när inställningarna är klara. Node-servern lyssnar på den `PORT` som Render ger den och serverar det färdiga webbbygget. Kontoret, mobilen, `/terminal`, `/kund`, `/akeri` och `/chauffor` använder samma tjänst och befintlig PostgreSQL genom `DATABASE_URL`. Det kräver inget nytt GitHub-repository. Befintliga installationer med fungerande `DATABASE_URL` behöver ingen ny inställning för 0.11.0.
 
 Free-tjänsten kan gå i vila när den inte används; första öppningen kan då ta längre tid. Appen använder adresser med `#`, så sidornas navigering behöver ingen separat serverregel.
 
@@ -47,6 +47,11 @@ För att stänga av Expo Go men behålla webbdemon, ta bort `EXPO_TOKEN` från R
 
 Om en Static Site redan finns skapar du en ny Web Service och behåller den gamla tills den nya fungerar. En befintlig Render-tjänst byter inte typ automatiskt när `render.yaml` ändras. Den nya adressen får egen lokal webbläsarlagring.
 
-Demo-inloggningen är en del av den lokala prototypen och skyddar inte en publicerad sida. Använd fiktiva testuppgifter. Utkast ligger kvar i mobilens webbläsarlagring och synkas inte med andra enheter eller tidigare datoradresser. Inget skickas till kontoret.
+Kontorets och mobilens valbara demoinloggningar är fortsatt demo, så använd
+fiktiva testuppgifter. Mobilens register sparas nu på servern; färdiginsända
+vägningar blir kontorskort med samma stabila käll-ID. Osparat arbete kan ligga
+kvar som lokal återhämtningscache. Terminaler, chaufförer, kunder och åkerier
+har separata administrerade konton med hashade lösenord och sessionscookies.
+Se [gemensam databas](shared-postgres.md) och [arbetsorder/portaler](logistics-demo.md).
 
 GitHub innehåller konfigurationen. Själva kopplingen till Render och tjänstens adress blir klara först efter att publiceringen genomförts på ditt konto. Inga Render-lösenord eller API-nycklar behövs i repositoryt.
