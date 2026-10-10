@@ -55,7 +55,7 @@
   <main class="preview">
     <div class="preview-heading">
       <img class="logo" src="../images/jeroc-logo-v2.png" alt="JEROC Återvinning">
-      <div class="mockup-label"><span>Mockup · 1,5 sek/cykel</span><button class="pause-control" id="pause-orbit" type="button" aria-pressed="false">Pausa</button></div>
+      <div class="mockup-label"><span>Mockup · 2,5 sek/cykel</span><button class="pause-control" id="pause-orbit" type="button" aria-pressed="false">Pausa</button></div>
     </div>
     <section class="card" id="focus-card" aria-labelledby="card-title">
       <h1 id="card-title">Kund, referens &amp; ursprung</h1>
@@ -73,20 +73,14 @@
       <button class="save" type="button"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>Spara referens &amp; ursprung</button>
       <svg id="electric-border" aria-hidden="true" viewBox="0 0 510 458">
         <defs>
-          <filter id="electric-noise" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB">
-            <feTurbulence type="fractalNoise" baseFrequency=".095 .22" numOctaves="2" seed="7" result="noise">
-              <animate attributeName="baseFrequency" dur="1.5s" repeatCount="indefinite" values=".095 .22;.14 .29;.085 .18;.125 .25;.095 .22"/>
-            </feTurbulence>
-            <feDisplacementMap in="SourceGraphic" in2="noise" scale="8" xChannelSelector="R" yChannelSelector="G"/>
-          </filter>
-          <filter id="electric-glow" x="-8%" y="-8%" width="116%" height="116%"><feGaussianBlur stdDeviation="1.7"/></filter>
+          <filter id="electric-glow" x="-8%" y="-8%" width="116%" height="116%"><feGaussianBlur stdDeviation="1.2"/></filter>
         </defs>
-        <g filter="url(#electric-noise)">
-          <path id="electric-glow-path" fill="none" stroke="#278af2" stroke-width="3" opacity=".37" filter="url(#electric-glow)"/>
-          <path id="electric-core-path" fill="none" stroke="#2b8cff" stroke-width="1.15"/>
-          <path id="electric-highlight-path" fill="none" stroke="#9cdfff" stroke-width=".5" opacity=".68"/>
+        <path id="electric-guide" fill="none" stroke="none"/>
+        <g stroke-linecap="round" stroke-linejoin="round">
+          <path id="electric-glow-path" fill="none" stroke="#278af2" stroke-width="4.8" opacity=".24" filter="url(#electric-glow)"/>
+          <path id="electric-core-path" fill="none" stroke="#2b8cff" stroke-width="2.1" opacity=".83"/>
+          <path id="electric-highlight-path" fill="none" stroke="#b6eaff" stroke-width=".8" opacity=".55"/>
         </g>
-        <g id="electric-sparks" fill="none" stroke="#489fff" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </section>
     <p class="preview-footnote">Visuellt förslag · en tunn elektrisk kontur markerar kortet.</p>
@@ -95,11 +89,28 @@
     const card = document.getElementById('focus-card');
     const svg = document.getElementById('electric-border');
     const paths = ['electric-glow-path', 'electric-core-path', 'electric-highlight-path'].map(id => document.getElementById(id));
-    const sparks = document.getElementById('electric-sparks');
+    const guide = document.getElementById('electric-guide');
     const control = document.getElementById('pause-orbit');
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const ns = 'http://www.w3.org/2000/svg';
-    let manuallyPaused = false, dimensions = '';
+    const cycleSeconds = 2.5, tau = Math.PI * 2;
+    let manuallyPaused = false, dimensions = '', samples = [];
+    let elapsed = 0, previousFrame = null;
+    const playbackPaused = () => reducedMotion.matches || manuallyPaused;
+    const triangle = angle => Math.asin(Math.sin(angle)) * 2 / Math.PI;
+    function renderElectricBorder(seconds) {
+      const phase = seconds / cycleSeconds * tau;
+      // Every wave uses an integer number of periods around the same closed
+      // outline. The join and all corners stay connected as the texture travels.
+      const points = samples.map(({ x, y, nx, ny, position, cornerDamping }) => {
+        const roughness = Math.sin(position * tau * 31 - phase * 2) * .55
+          + triangle(position * tau * 73 - phase * 3) * .4
+          + Math.sin(position * tau * 127 - phase * 5) * .18;
+        const offset = roughness * cornerDamping;
+        return `${(x + nx * offset).toFixed(2)} ${(y + ny * offset).toFixed(2)}`;
+      });
+      const outline = `M${points.join('L')}Z`;
+      paths.forEach(path => path.setAttribute('d', outline));
+    }
     function resizeElectricBorder() {
       const width = card.clientWidth, height = card.clientHeight, edge = .5, radius = 13;
       const key = `${width}/${height}`;
@@ -108,31 +119,25 @@
       const right = width - edge, bottom = height - edge;
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
       const outline = `M${radius} ${edge}H${right-radius}Q${right} ${edge} ${right} ${radius}V${bottom-radius}Q${right} ${bottom} ${right-radius} ${bottom}H${radius}Q${edge} ${bottom} ${edge} ${bottom-radius}V${radius}Q${edge} ${edge} ${radius} ${edge}Z`;
-      paths.forEach(path => path.setAttribute('d', outline));
-      sparks.replaceChildren();
-      // Small irregular branches; each flashes briefly on its own schedule.
-      for (let index = 0; index < 16; index++) {
-        const side = index % 4, fraction = .15 + ((index * 37) % 71) / 100;
-        const x = side === 1 ? right : side === 3 ? edge : radius + fraction * (width - 2 * radius);
-        const y = side === 0 ? edge : side === 2 ? bottom : radius + fraction * (height - 2 * radius);
-        const nx = side === 1 ? 1 : side === 3 ? -1 : 0, ny = side === 0 ? -1 : side === 2 ? 1 : 0;
-        const tangent = index % 2 ? 1 : -1;
-        const branch = document.createElementNS(ns, 'path');
-        branch.setAttribute('d', `M${x} ${y}l${nx*2.5+ny*tangent} ${ny*2.5+nx*tangent}l${nx*1.8-ny*tangent*2} ${ny*1.8-nx*tangent*2}`);
-        branch.setAttribute('opacity', '0');
-        const flash = document.createElementNS(ns, 'animate');
-        const start = .04 + ((index * 29) % 78) / 100;
-        flash.setAttribute('attributeName', 'opacity');
-        flash.setAttribute('dur', '1.5s');
-        flash.setAttribute('repeatCount', 'indefinite');
-        flash.setAttribute('values', '0;0;.85;0;0');
-        flash.setAttribute('keyTimes', `0;${start.toFixed(3)};${(start+.018).toFixed(3)};${(start+.085).toFixed(3)};1`);
-        branch.append(flash); sparks.append(branch);
-      }
+      guide.setAttribute('d', outline);
+      const length = guide.getTotalLength(), count = Math.ceil(length / 2);
+      samples = Array.from({ length: count }, (_, index) => {
+        const distance = index / count * length;
+        const point = guide.getPointAtLength(distance);
+        const before = guide.getPointAtLength((distance - .5 + length) % length);
+        const after = guide.getPointAtLength((distance + .5) % length);
+        const dx = after.x - before.x, dy = after.y - before.y, magnitude = Math.hypot(dx, dy);
+        const cornerDistance = Math.max(Math.min(point.x, right - point.x), Math.min(point.y, bottom - point.y));
+        const blend = Math.min(1, Math.max(0, (cornerDistance - radius) / 8));
+        const cornerDamping = .25 + .75 * blend * blend * (3 - 2 * blend);
+        return { x: point.x, y: point.y, nx: dy / magnitude, ny: -dx / magnitude,
+          position: index / count, cornerDamping };
+      });
+      renderElectricBorder(elapsed);
     }
     function syncPlayback() {
-      const paused = reducedMotion.matches || manuallyPaused;
-      if (paused) svg.pauseAnimations(); else svg.unpauseAnimations();
+      const paused = playbackPaused();
+      previousFrame = null;
       control.setAttribute('aria-pressed', String(paused));
       control.textContent = paused ? 'Spela' : 'Pausa';
       control.disabled = reducedMotion.matches;
@@ -142,8 +147,23 @@
     reducedMotion.addEventListener('change', syncPlayback);
     resizeElectricBorder();
     new ResizeObserver(resizeElectricBorder).observe(card);
-    svg.setCurrentTime(0);
     syncPlayback();
+    // A deterministic preview clock also lets the exported GIF show one exact
+    // cycle, without changing the card or moving the whole SVG filter region.
+    window.electricPreview = {
+      seek(seconds) { elapsed = seconds; renderElectricBorder(seconds); },
+      get currentTime() { return elapsed; },
+      get paused() { return playbackPaused(); },
+    };
+    function animate(timestamp) {
+      if (!playbackPaused()) {
+        if (previousFrame !== null) elapsed += (timestamp - previousFrame) / 1000;
+        renderElectricBorder(elapsed);
+      }
+      previousFrame = timestamp;
+      requestAnimationFrame(animate);
+    }
+    requestAnimationFrame(animate);
   </script>
 </body>
 </html>

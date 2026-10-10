@@ -1,9 +1,11 @@
 # Elektrisk kortkontur – animerad mockup
 
-Förslag 2026-10-10, efter referensen med en elektrisk kortkant: små
-oregelbundna krusningar och korta blixtgrenar längs hela konturen. JEROC-blå
-färg och diskret glöd på det befintliga vita kortet. Kortets innehåll ligger
-stilla. Rörelsen har en cykel på 1,5 sekunder och kan pausas.
+Uppdaterat förslag 2026-10-10: en sammanhängande elektrisk kontur med små
+krusningar längs kanten, lugnare hörn och svagare glöd. Alla synliga linjer
+följer samma slutna kontur; de separata blixtgrenarna är borttagna. JEROC-blå
+färg på det befintliga vita kortet, vars innehåll ligger stilla. Efter senaste
+justeringen är kanten dubbelt så tjock och hastigheten 20 % högre än
+3-sekundersförslaget: 2,5 sekunder per cykel, med möjlighet att pausa.
 
 ![Animerad förhandsvisning](Kortfokus_Elektrisk.gif)
 
@@ -17,4 +19,4 @@ eller integration används i förhandsvisningen.
 
 Kontrollerat i Chromium vid 940 och 390 pixlars bredd: ingen horisontell
 överströmning eller JavaScriptfel. Minskad rörelse pausar animationen.
-GIF-filen visar 50 bildrutor à 30 ms, totalt 1 500 ms per cykel.
+GIF-filen visar 50 bildrutor à 50 ms, totalt 2 500 ms per cykel.
