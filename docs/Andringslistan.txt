@@ -1269,3 +1269,24 @@ Status: Implementerad i kontorsdemo 0.12.4 efter godkänd start 2026-10-10.
   ger en stilla kontur. Animationen flyttar inte formulär och blockerar inte klick.
 - Godkänd animerad förhandsvisning: docs/mockups/kortfokus-elektrisk/README.md.
   Appens fokusmarkering följer samma godkända utformning.
+
+064 – Lägg till/ta bort material och ändra vikt på viktkortet
+Status: Planerad, beställd för ÄL 2026-10-10. Ingen implementation påbörjad.
+- På viktkortet i kontoret ska det gå att lägga till materialrader, ta bort
+  materialrader och ändra vikten på en befintlig rad.
+- Tre separata behörigheter på användaren i Personal/Användare:
+  Får lägga till material, Får ta bort material och Får ändra vikt.
+  Varje åtgärd kontrolleras både i gränssnittet och på servern.
+  Dessa rättigheter ger inte i sig behörighet att ändra priser.
+- Ändringar räknar om vikt, priser och totalsumma enligt befintliga prisregler.
+  Spara vem som ändrade, tidpunkt och tidigare/nya uppgifter i spårbarheten.
+- Ändrat material eller ändrad vikt kräver kundgodkännande av den nya
+  avräkningsversionen innan intern attest. Återkalla pågående kundlänk eller
+  terminalsession och ogiltigförklara tidigare godkännande vid ändringen.
+  Befintliga godkännanden och
+  dokumentoriginal bevaras i historiken.
+- Registrerad miljömottagning och attesterade underlag får inte skrivas över;
+  använd befintliga spårbara rättelser där uppgifterna redan är låsta.
+  Ändrade farliga rader kräver miljörättelse om mottagningen registrerats.
+  Ändringen får inte automatiskt skicka en ny rapport till NVV.
+- Kort utan materialrader får inte färdigställas.
