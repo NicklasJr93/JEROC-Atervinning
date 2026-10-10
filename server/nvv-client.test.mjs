@@ -30,7 +30,7 @@ test('NVV client is disabled by default and never performs I/O', async () => {
   let calls = 0;
   const client = createNvvClient({ env: {}, request: async () => { calls++; } });
   assert.equal((await client.status()).mode, 'disabled');
-  assert.equal((await client.check()).connected, false);
+  const check = await client.check(); assert.equal(check.connected, false); assert.deepEqual(check.diagnostics, []);
   assert.equal((await client.submit({ method: 'POST', path: '/insamlingar', payload })).error.code, 'NVV_DISABLED');
   assert.equal(calls, 0);
 });
@@ -54,7 +54,7 @@ test('explicit mock returns SIM identifiers, supports correction, and never uses
   assert.equal(correction.outcome, 'accepted');
   assert.notEqual(correction.avfallId, initial.avfallId);
   assert.equal((await client.read({ avfallId: initial.avfallId })).response.payload.avfall.mangd, 250);
-  assert.equal((await client.check()).simulated, true);
+  const check = await client.check(); assert.equal(check.simulated, true); assert.deepEqual(check.diagnostics, []);
 });
 
 test('missing config, malformed PFX and wrong password do not contact NVV or leak secrets', async (t) => {
@@ -86,8 +86,46 @@ test('valid PFX config exposes only public readiness and safely checks nested co
   assert.equal(result.connected, true);
   assert.ok(result.wasteCodes.some((item) => item.code === '160601' && item.hazardous));
   assert.ok(result.transportModes.some((item) => item.code === 'R'));
+  assert.deepEqual(result.diagnostics.map(item => [item.method, item.path, item.httpStatus, item.outcome]), [['GET', '/avfallstyper', 200, 'accepted'], ['GET', '/transportsatt', 200, 'accepted']]);
+  assert.deepEqual(result.diagnostics[0].response, { summary: 'Sammanfattat utdrag ur NVV:s kodlista.', count: 3, sixDigitCodes: 1, example: { kod: '160601', beskrivning: 'Blybatterier', farligt: 'Ja' } });
+  assert.deepEqual(result.diagnostics[1].response.items, [{ transportsatt: 'R', beskrivning: 'Vägtransport' }]);
   assert.equal(f.calls.length, 1, 'token is reused for both authenticated reads');
   for (const secret of [f.env.NVV_CLIENT_ID, f.env.NVV_CLIENT_SECRET, f.env.NVV_CLIENT_PFX_PASSWORD, f.env.NVV_CLIENT_PFX_SECRET_FILE]) assert.ok(!JSON.stringify(state).includes(secret));
+});
+
+test('check diagnostics report the actual OAuth rejection and no code-list request that never happened', async t => {
+  const f = await fixture(t), calls = [];
+  const client = createNvvClient({ env: f.env, request: async input => { calls.push(input); return { statusCode: 400, body: { error: 'invalid_client', error_description: `Denied ${f.env.NVV_CLIENT_SECRET} ${f.env.NVV_CLIENT_ID}`, access_token: 'invalid-private-token', extra: { echo: 'invalid-private-token', file: f.env.NVV_CLIENT_PFX_SECRET_FILE } } }; } });
+  const checked = await client.check(); assert.equal(checked.connected, false); assert.equal(calls.length, 1); assert.equal(calls[0].url, NVV_TEST_TOKEN_URL);
+  assert.equal(checked.diagnostics.length, 1); const diagnostic = checked.diagnostics[0];
+  assert.equal(diagnostic.method, 'POST'); assert.equal(diagnostic.path, '/oauth2/token'); assert.equal(diagnostic.httpStatus, 400); assert.equal(diagnostic.outcome, 'rejected'); assert.equal(diagnostic.trackingId, undefined); assert.equal(diagnostic.response.error, 'invalid_client');
+  for (const secret of [f.env.NVV_CLIENT_SECRET, f.env.NVV_CLIENT_ID, f.env.NVV_CLIENT_PFX_SECRET_FILE, 'invalid-private-token']) assert.equal(JSON.stringify(checked).includes(secret), false);
+});
+
+test('OAuth diagnostics redact an oversized token before shortening an echoed error message', async t => {
+  const f = await fixture(t), oversizedToken = 'private-oversized-token-'.repeat(900);
+  const client = createNvvClient({ env: f.env, request: async () => ({ statusCode: 400, body: { error: 'invalid_client', access_token: oversizedToken, message: `Denied ${oversizedToken}` } }) });
+  const result = await client.check(); assert.equal(result.diagnostics[0].httpStatus, 400); assert.equal(result.diagnostics[0].response.message, 'Denied [redacted]'); assert.equal(JSON.stringify(result).includes('private-oversized-token'), false);
+});
+
+test('check diagnostics preserve a real GET401 before a failed OAuth refresh and show its actual status', async t => {
+  const f = await fixture(t); let authenticationCalls = 0, readCalls = 0;
+  const client = createNvvClient({ env: f.env, request: async input => {
+    if (input.url === NVV_TEST_TOKEN_URL) { authenticationCalls++; return authenticationCalls === 1 ? f.request(input) : { statusCode: 503, body: { message: 'OAuth service unavailable', token: 'local-test-bearer' } }; }
+    readCalls++; return { statusCode: 401, headers: { 'nv-client-tracking-id': 'real-tracking-401' }, body: { message: 'Expired authentication' } };
+  } });
+  const checked = await client.check(); assert.equal(checked.connected, false); assert.equal(authenticationCalls, 2); assert.equal(readCalls, 1);
+  assert.deepEqual(checked.diagnostics.map(item => [item.method, item.path, item.httpStatus, item.outcome]), [['GET', '/avfallstyper', 401, 'rejected'], ['POST', '/oauth2/token', 503, 'unknown']]);
+  assert.equal(checked.diagnostics[0].trackingId, 'real-tracking-401'); assert.equal(checked.diagnostics[1].response.message, 'OAuth service unavailable'); assert.equal(JSON.stringify(checked).includes('local-test-bearer'), false);
+});
+
+test('large real code-list responses produce only a bounded labelled diagnostics excerpt', async t => {
+  const f = await fixture(t), codes = Array.from({ length: 3000 }, (_, index) => ({ kod: String(100000 + index), beskrivning: 'Avfall '.repeat(100), farligt: 'Nej' }));
+  codes.push({ kod: '160601', beskrivning: `Blybatterier ${f.env.NVV_CLIENT_PFX_PASSWORD}`, farligt: 'Ja' });
+  const client = createNvvClient({ env: f.env, request: async input => input.url === NVV_TEST_TOKEN_URL ? f.request(input)
+    : { statusCode: 200, body: input.url.endsWith('/avfallstyper') ? codes : [{ transportsatt: 'R', beskrivning: 'Vägtransport' }] } });
+  const checked = await client.check(); assert.equal(checked.connected, true); assert.equal(checked.diagnostics[0].response.count, 3001); assert.equal(checked.diagnostics[0].response.sixDigitCodes, 3001);
+  assert.ok(JSON.stringify(checked.diagnostics).length < 1200); assert.equal(JSON.stringify(checked.diagnostics).includes(f.env.NVV_CLIENT_PFX_PASSWORD), false); assert.equal(checked.diagnostics[0].response.example.kod, '160601');
 });
 
 test('missing reference codes leave the connection check incomplete', async (t) => {

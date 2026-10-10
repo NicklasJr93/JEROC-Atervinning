@@ -13,9 +13,9 @@ function safeValue(value, secrets = [], depth = 0, meta = {}) {
   if (depth > 12) { meta.truncated = true; return '[truncated]'; }
   if (typeof value === 'string') {
     if (value.length > 8192) meta.truncated = true;
-    let safe = value.slice(0, 8192);
+    let safe = value;
     for (const secret of secrets) if (secret) safe = safe.split(secret).join('[redacted]');
-    return safe;
+    return safe.slice(0, 8192);
   }
   if (Array.isArray(value)) { if (value.length > 5000) meta.truncated = true; return value.slice(0, 5000).map((item) => safeValue(item, secrets, depth + 1, meta)); }
   if (value && typeof value === 'object') { if (Object.keys(value).length > 200) meta.truncated = true; return Object.fromEntries(Object.entries(value).slice(0, 200).map(([key, item]) => [safeValue(key, secrets, depth + 1, meta), secretKey.test(key) ? '[redacted]' : safeValue(item, secrets, depth + 1, meta)])); }
@@ -115,9 +115,10 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
       const response = await request({ url: config.tokenUrl, method: 'POST', headers: { Authorization: `Basic ${config.basic}`, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: 'grant_type=client_credentials', pfx: config.pfx, passphrase: config.passphrase, timeoutMs: 20_000 });
       const body = parseBody(response.body);
       const seconds = Number(body?.expires_in);
-      if (statusCode(response) !== 200 || typeof body?.access_token !== 'string' || !/^[\x21-\x7e]{1,16384}$/.test(body.access_token) || !Number.isFinite(seconds) || seconds <= 0 || (body.token_type && String(body.token_type).toLowerCase() !== 'bearer')) throw new Error('NVV_AUTH_FAILED');
-      knownTokens.add(body.access_token);
+      // Even a malformed token response can echo its token in an error field.
+      if (typeof body?.access_token === 'string' && body.access_token.length <= 16384) knownTokens.add(body.access_token);
       if (knownTokens.size > 64) knownTokens.delete(knownTokens.values().next().value);
+      if (statusCode(response) !== 200 || typeof body?.access_token !== 'string' || !/^[\x21-\x7e]{1,16384}$/.test(body.access_token) || !Number.isFinite(seconds) || seconds <= 0 || (body.token_type && String(body.token_type).toLowerCase() !== 'bearer')) throw Object.assign(new Error('NVV_AUTH_FAILED'), { nvvStatusCode: statusCode(response), nvvResponseBody: body });
       cachedToken = { value: body.access_token, fingerprint: config.fingerprint, until: clock(now) + seconds * 1000 - Math.min(30_000, seconds * 100) };
       return cachedToken.value;
     })();
@@ -127,14 +128,16 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
 
   async function call(config, { method, path, payload, trackingId }) {
     let bearer;
-    try { bearer = await token(config); } catch { return { authError: true }; }
+    const authenticationFailure = cause => ({ authError: true, statusCode: cause?.nvvStatusCode ?? null, body: cause?.nvvResponseBody ?? null });
+    try { bearer = await token(config); } catch (cause) { return authenticationFailure(cause); }
     const execute = async (value) => request({ url: `${config.apiBaseUrl}${path}`, method, headers: { Authorization: `Bearer ${value}`, 'NV-Client-System-ID': config.systemId, 'NV-Client-Tracking-ID': trackingId, Accept: 'application/json', ...(payload !== undefined ? { 'Content-Type': 'application/json; charset=UTF-8' } : {}) }, body: payload === undefined ? undefined : JSON.stringify(payload), pfx: config.pfx, passphrase: config.passphrase, timeoutMs: 20_000 });
     try {
       let response = await execute(bearer);
       if (statusCode(response) === 401) {
+        const previousResponse = response;
         cachedToken = null;
-        try { bearer = await token(config, true); } catch { return { authError: true, statusCode: 401 }; }
-        response = await execute(bearer);
+        try { bearer = await token(config, true); } catch (cause) { return { ...authenticationFailure(cause), previousResponse }; }
+        response = { ...await execute(bearer), previousResponse };
       }
       return response;
     } catch { return { networkError: true }; }
@@ -147,8 +150,9 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
   function normalized(config, result, trackingId, { write = false } = {}) {
     const httpStatus = statusCode(result);
     const meta = {};
-    const secrets = [...config.secrets, ...knownTokens];
-    const response = safeValue(parseBody(result?.body), secrets, 0, meta);
+    const parsed = parseBody(result?.body);
+    const secrets = [...config.secrets, ...knownTokens, ...(typeof parsed?.access_token === 'string' ? [parsed.access_token] : [])];
+    const response = safeValue(parsed, secrets, 0, meta);
     const echoed = result?.headers?.['nv-client-tracking-id'] ?? result?.headers?.['NV-Client-Tracking-ID'];
     const safeTracking = safeValue(typeof echoed === 'string' && /^[\x20-\x7e]{1,200}$/.test(echoed) ? echoed : trackingId, secrets);
     const base = { mode: config.mode, httpStatus, trackingId: safeTracking, response, ...(meta.truncated ? { responseTruncated: true } : {}) };
@@ -177,23 +181,47 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
   }
 
   async function checkConfigured(config) {
-    const checkedAt = iso(now);
-    if (!config.ready) return { ...publicConfiguration(config), connected: false, checkedAt, wasteCodes: [], transportModes: [], error: unavailable(config).error };
-    if (config.mode === 'mock') return { ...publicConfiguration(config), connected: true, simulated: true, checkedAt, wasteCodes: [{ code: '160601', description: 'Blybatterier', hazardous: true }], transportModes: [{ code: 'R', description: 'Vägtransport' }] };
+    const checkedAt = iso(now), diagnostics = [];
+    const base = { ...publicConfiguration(config), checkedAt, diagnostics };
+    if (!config.ready) return { ...base, connected: false, wasteCodes: [], transportModes: [], error: unavailable(config).error };
+    if (config.mode === 'mock') return { ...base, connected: true, simulated: true, wasteCodes: [{ code: '160601', description: 'Blybatterier', hazardous: true }], transportModes: [{ code: 'R', description: 'Vägtransport' }] };
+    const excerpt = (value, depth = 0) => {
+      if (depth > 4) return '[sammanfattat]';
+      if (typeof value === 'string') return value.slice(0, 800);
+      if (Array.isArray(value)) return value.slice(0, 8).map(item => excerpt(item, depth + 1));
+      if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).slice(0, 12).map(([key, item]) => [key, excerpt(item, depth + 1)]));
+      return value ?? null;
+    };
+    const record = (result, path, trackingId, summary) => {
+      if (result.previousResponse) record(result.previousResponse, path, trackingId);
+      const normalizedResult = normalized(config, result, result.authError ? undefined : trackingId);
+      diagnostics.push({ method: result.authError ? 'POST' : 'GET', path: result.authError ? '/oauth2/token' : path,
+        httpStatus: normalizedResult.httpStatus, ...(normalizedResult.trackingId && !result.authError && { trackingId: normalizedResult.trackingId }),
+        outcome: result.authError && !(normalizedResult.httpStatus >= 400 && normalizedResult.httpStatus < 500) ? 'unknown' : normalizedResult.outcome,
+        response: summary ?? excerpt(normalizedResult.response) });
+      return normalizedResult;
+    };
     const wasteTracking = randomUUID();
     const wasteResult = await call(config, { method: 'GET', path: '/avfallstyper', trackingId: wasteTracking });
     const waste = normalized(config, wasteResult, wasteTracking);
-    if (waste.outcome !== 'accepted') return { ...publicConfiguration(config), connected: false, checkedAt, wasteCodes: [], transportModes: [], error: waste.error };
-    const transportTracking = randomUUID();
-    const transport = normalized(config, await call(config, { method: 'GET', path: '/transportsatt', trackingId: transportTracking }), transportTracking);
-    if (transport.outcome !== 'accepted') return { ...publicConfiguration(config), connected: false, checkedAt, wasteCodes: [], transportModes: [], error: transport.error };
-    // Read the complete raw lists here: the public response journal is deliberately bounded.
-    const wasteCodes = [];
-    const visit = (items) => { for (const item of Array.isArray(items) ? items : []) { if (typeof item?.kod === 'string') wasteCodes.push({ code: safeValue(item.kod, [...config.secrets, ...knownTokens]), description: safeValue(String(item.beskrivning || ''), [...config.secrets, ...knownTokens]), hazardous: item.farligt === true || ['true', 'ja', '*'].includes(String(item.farligt).toLowerCase()) || (typeof item.ewc === 'string' && item.ewc.includes('*')) }); visit(item?.avfallstyper); } };
+    if (waste.outcome !== 'accepted') { record(wasteResult, '/avfallstyper', wasteTracking); return { ...base, connected: false, wasteCodes: [], transportModes: [], error: waste.error }; }
+    // Read the complete raw lists here; diagnostics retain only a labelled excerpt.
+    const wasteCodes = []; let batteryExample = null;
+    const visit = (items) => { for (const item of Array.isArray(items) ? items : []) { if (typeof item?.kod === 'string') {
+      wasteCodes.push({ code: safeValue(item.kod, [...config.secrets, ...knownTokens]), description: safeValue(String(item.beskrivning || ''), [...config.secrets, ...knownTokens]), hazardous: item.farligt === true || ['true', 'ja', '*'].includes(String(item.farligt).toLowerCase()) || (typeof item.ewc === 'string' && item.ewc.includes('*')) });
+      if (item.kod === '160601') batteryExample = excerpt(safeValue({ kod: item.kod, beskrivning: item.beskrivning ?? null, farligt: item.farligt ?? null, ...(item.ewc && { ewc: item.ewc }) }, [...config.secrets, ...knownTokens]));
+    } visit(item?.avfallstyper); } };
     visit(parseBody(wasteResult.body));
+    record(wasteResult, '/avfallstyper', wasteTracking, { summary: 'Sammanfattat utdrag ur NVV:s kodlista.', count: wasteCodes.length, sixDigitCodes: wasteCodes.filter(item => /^\d{6}$/.test(item.code)).length, example: batteryExample });
+    const transportTracking = randomUUID();
+    const transportResult = await call(config, { method: 'GET', path: '/transportsatt', trackingId: transportTracking });
+    const transport = normalized(config, transportResult, transportTracking);
+    if (transport.outcome !== 'accepted') { record(transportResult, '/transportsatt', transportTracking); return { ...base, connected: false, wasteCodes, transportModes: [], error: transport.error }; }
     const transportModes = (Array.isArray(transport.response) ? transport.response : []).filter((item) => typeof item?.transportsatt === 'string').map((item) => ({ code: item.transportsatt, description: String(item.beskrivning || '') }));
+    record(transportResult, '/transportsatt', transportTracking, { summary: 'Sammanfattat utdrag ur NVV:s transportsätt.', count: transportModes.length,
+      items: (Array.isArray(transport.response) ? transport.response : []).slice(0, 8).map(item => excerpt({ transportsatt: item.transportsatt, beskrivning: item.beskrivning ?? null })) });
     const connected = wasteCodes.some((item) => item.code === '160601') && transportModes.some((item) => item.code === 'R');
-    return { ...publicConfiguration(config), connected, checkedAt, wasteCodes, transportModes, ...(!connected ? { error: error('NVV_REFERENCE_DATA', 'Kodlistorna saknar blybatterier 160601 eller vägtransport R.') } : {}) };
+    return { ...base, connected, wasteCodes, transportModes, ...(!connected ? { error: error('NVV_REFERENCE_DATA', 'Kodlistorna saknar blybatterier 160601 eller vägtransport R.') } : {}) };
   }
 
   async function checkWithConfiguration() {
