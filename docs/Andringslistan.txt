@@ -1087,3 +1087,25 @@ Status: Implementerat i kontorsdemo 0.10.0, 2026-10-10.
 - Momshantering/självfaktureringsavtal behöver fastställas inför verklig drift.
   Inga påhittade faktura-/Visma-nummer, BankID eller externa överföringar införs.
 - Teknisk beskrivning och provflöden: docs/pdf-archive.md.
+
+055 – Extern arbetsorder, åkerisvar och mejlavisering – mockuper
+Status: Mockuper framtagna 2026-10-10. Fristående designunderlag; appbygge inväntar
+granskning av flödet. Inga riktiga mejlutskick aktiveras.
+- Kontoret beställer utleverans från anläggning/lager med mottagare, material,
+  uppskattad mängd, åkeri och önskad tid. Fasta öppettider hålls separat.
+- Samma arbetsorder följer kontor, åkeri, chaufför, planerare och dokument.
+  Åkeriet accepterar/avböjer/föreslår tid och väljer egna förare/fordon senare.
+- Ny transportförfrågan förbereder mejl till åkeriets transportledare.
+  Nytt uppdrag, ändring/återkallelse och påminnelse ska också kunna aviseras.
+  Länken öppnar rätt tillåten order efter inloggning; inget svar ges av att
+  öppna mejlet. Kundbokningsbekräftelse och åkerisvar är skilda flöden.
+- Förbered återanvändning av beständig utkorg/adapter med mottagare, kanal,
+  versionsskydd, återförsök, databasreservation och spårbar leveransstatus.
+  Inget återförsök får skapa ny arbetsorder, lageravdrag eller NVV-händelse.
+- Körning till lastning skiljs från bekräftad lastad avfärd. Reservation
+  ändrar fri mängd; fysisk mängd minskar först vid faktisk lastad avfärd.
+- Vanligt material behöver allmän lagerbok utan att blandas in i NVV-kortet.
+  Arbetsorder behöver artikel-/anläggnings-/mottagar-/åkerikoppling och
+  serverkontrollerad åtkomst; befintlig chaufförsportal utökas med åkeriroll.
+- Tre sammanhängande vyer samt mejlförhandsvisning och klickbar ZIP:
+  docs/mockups/externa-arbetsordrar/README.md.
