@@ -125,6 +125,38 @@ proberna identifierar inte vilken rapportörsorganisation NVV faktiskt läser.
 Nästa nödvändiga underlag är NVV:s uppslagning av TraceId och besked om
 certifikatets identitetsfält/profil samt kopplingen till API-anslutningen.
 
+## Ytterligare TEST-försök med VAT-format
+
+På användarens uttryckliga begäran genomfördes tre nya anrop via Render den
+2026-10-10. Samma laddade Testbolag 1-certifikat användes. Övriga uppgifter var
+syntetiska och varje anrop hade unik referens och idempotensnyckel. Svenska
+VAT-format var endast diagnostiska varianter; de infördes inte som ordinarie
+rapporteringsinställning. OpenAPI tillåter VAT-syntax för bland annat utländska
+företag, men beskriver inte svensk VAT som ersättning för svenskt organisationsnummer.
+
+| Svensk tid | Verksamhetsutövare | Ombud | Resultat |
+| --- | --- | --- | --- |
+| 21:14:25 | `SE556000016701` | Utelämnat | HTTP 400, 1023 samt saknade ombudsfält |
+| 21:14:38 | `SE5560000167` | Utelämnat | HTTP 400, 1023 samt saknade ombudsfält |
+| 21:14:57 | JEROC `5593593626` | `SE556000016701`, samtliga kontakter | HTTP 400, enbart 1023 |
+
+Ingen variant gav formatfel 1022, men ingen gav kvittens eller avfalls-id.
+VAT-spåret löste alltså inte identitetsmatchningen. Alla tre försök, deras
+frysta payload och råsvar finns i det fristående testformulärets sparade historik.
+
+Spårning för respektive rad:
+
+1. TraceId `4000de2b-0003-f500-b63f-84710c7967bb`, tracking-ID `7785a9ca-1e45-4543-ae9b-4d37d67f40e4`.
+2. TraceId `4000de2c-0003-f500-b63f-84710c7967bb`, tracking-ID `fbd5e59c-7e45-4234-bcd7-f49940ab5df3`.
+3. TraceId `4000de2d-0003-f500-b63f-84710c7967bb`, tracking-ID `7c2b19d1-81ba-4200-bd2f-204d2c39424f`.
+
+Det äldre Bolag A-servercertifikatet hämtades också från Expisofts officiella
+portal och granskades offline. Det har samma organisationsidentitet, multivärda
+RDN-layout, issuer, policy-OID och clientAuth som Testbolag 1. Det tidigare
+antagandet om en ändrad Subject-layout mellan dessa två certifikat stöds därför
+inte. Bolag A användes inte i dessa tre NVV-anrop och ersatte inte Render-certifikatet.
+Se [certifikatgranskningen](certifikatgranskning.md).
+
 ## Underlag
 
 - [Sparad OpenAPI för BTFA.Anteckning](openapi/BTFA.Anteckning.json):

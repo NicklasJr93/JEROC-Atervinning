@@ -28,6 +28,28 @@ fortsatt fel 1023 trots matchande verksamhetsutövare och certifikat.
 
 Den ursprungliga ZIP-granskningen nedan avser endast leveransbreven.
 
+### Uppföljande jämförelse med Bolag A
+
+Efter användarens begäran om ytterligare tester hämtades **Bolag A:s giltiga
+server/organisationscertifikat** från Expisofts officiella portal. Fil och
+lösenord hölls utanför Git. Certifikatets signatur verifierades mot det
+offentliga CA-certifikatet. Det jämfördes offline, inte genom ett nytt
+NVV-anrop, och Render-konfigurationen ändrades inte.
+
+Bolag A har samma offentliga identitetsstruktur som Testbolag 1:
+`serialNumber` (`2.5.4.5`) = `165560000167` i samma multivärda RDN som CN.
+`organizationIdentifier` (`2.5.4.97`) saknas hos båda. Även issuer ExpiTrust Test
+CA v8, policy `1.2.752.54.9.2.34.3`, RSA 2048, digitalSignature/keyEncipherment
+och EKU serverAuth/clientAuth är samma. Namn, giltighet, certifikatets eget
+serienummer och fingeravtryck skiljer. Jämförelsen visar ingen förändring av
+Subject-formatet mellan dessa två testcertifikat.
+
+- Bolag A:s giltighet: 2025-01-08 till 2027-01-08.
+- Bolag A:s SHA-256: `4B:C9:2F:9C:71:8B:AB:3D:22:C2:D5:CE:EC:86:17:24:B2:2C:7A:8A:FB:9F:11:EE:9D:A2:30:62:6F:7D:4C:4E`.
+
+De tre nya, riktiga NVV-försöken använde det redan konfigurerade Testbolag 1
+och VAT-varianter. Samtliga avvisades; se [försöksresultaten](felsokning-1023.md#ytterligare-test-försök-med-vat-format).
+
 Granskat 2026-10-09. Underlag: den uppladdade filen `Testcertifikat-server-och-stämpellegitimationer-2026.zip`, dess PDF-handlingar och Expisofts offentliga produkt- och CA-information. Inga certifikat har installerats och inga API-anrop eller hämtningar med leveranskoder har gjorts.
 
 ## Resultat

@@ -3,9 +3,10 @@
 Granskat 2026-10-10: alla 17 PDF:er i det uppladdade certifikatpaketet,
 den uppladdade OpenAPI-filen, NVV:s aktuella Swagger-nedladdning samt
 officiella anslutningssidor och ytterligare offentliga Expisoft-dokument.
-Inga nya rapporter skickades, inga Render-inställningar ändrades och inga
-ytterligare klientcertifikat hämtades. PIN, hämtningskoder, lösenord och
-privata certifikatfiler ingår inte här.
+Under själva dokumentgranskningen skickades inga rapporter och hämtades inga
+ytterligare klientcertifikat. Efterföljande tester och Bolag A-jämförelsen
+har lagts till som uppföljning nedan. Render-inställningarna ändrades inte.
+PIN, hämtningskoder, lösenord och privata certifikatfiler ingår inte här.
 
 ## Viktigaste resultatet
 
@@ -57,9 +58,11 @@ organisationsnummer att föra in i NVV:s JSON.
 Översiktens olika statusar är avsiktliga testfall för giltighet och spärrning.
 Stämpellegitimationerna är en separat kategori. NVV efterfrågar ett
 klientcertifikat med clientAuth; vårt hämtade Testbolag 1-certifikat har
-den användningen. Ett faktiskt äldre Bolag A-certifikat finns inte bland
-de lokala granskningsfilerna, så deras verkliga X.509-layout har inte kunnat
-jämföras.
+den användningen. Vid dokumentgranskningens början fanns inget faktiskt äldre
+Bolag A-certifikat att jämföra med. Det hämtades därefter under användarens
+uttryckliga begäran om fler tester: offlinejämförelsen visar **samma**
+organisationsidentitet, RDN-layout, CA, policy och clientAuth som Testbolag 1.
+Se [uppföljningen i certifikatgranskningen](certifikatgranskning.md).
 
 ## Vad API-dokumentationen kräver
 
@@ -121,13 +124,15 @@ verksamhetsutövare: det har redan provats och gav dessutom fel 1022 för
 felaktigt format. Fortsatta oförändrade kombinationer av JEROC/Testbolag 1
 ger inte mer information om det okända rapportörsvärdet.
 
+Även tre efterföljande anrop med VAT-format avvisades med fel 1023;
+de frysta uppgifterna och råsvaren finns i testformulärets historik.
 Be NVV slå upp ett sparat TraceId och återge det organisationsnummer de
 faktiskt jämförde med, identitetskällan, stödet för denna Subject-layout
 och accepterad testutfärdare. Frågorna och tidigare TEST-resultat finns i
 [felsökning-1023.md](felsokning-1023.md). Ett kontrollerat byte till det äldre
-Bolag A-certifikatet skulle kunna isolera en skillnad mellan de faktiska
-certifikatprofilerna, men PDF:erna bevisar varken en sådan skillnad eller
-att bytet löser felet.
+Bolag A-certifikatet skulle kunna isolera gatewayspecifik behandling av
+certifikaten, men offlinejämförelsen ger inget stöd för olika Subject-profiler
+och något äkta NVV-anrop med Bolag A har inte genomförts.
 
 ## Källor
 
