@@ -1,4 +1,4 @@
-# NVV:s första testetapp – kontorsdemo 0.12.0
+# NVV:s testetapp – kontorsdemo 0.12.2
 
 Denna etapp kopplar mottagningsunderlag till en serverklient för
 **BTFA.Anteckning TEST**. Mottagning, lager, kundgodkännande, intern attest
@@ -84,6 +84,21 @@ API-basen är låst till
 till `https://apimtest.naturvardsverket.se/oauth2/token`. Dessa används
 automatiskt. TLS-verifiering är aktiv; portalexempel med `-k` används inte.
 Klienthemligheter, token, PFX-innehåll och lösenord skickas aldrig till UI.
+
+### Verifierad anslutning och popup i 0.12.2
+
+Efter konfigurering på Render verifierades ett verkligt TEST-anslutningsprov
+med Testbolag 1-certifikatet: OAuth/TLS och läsning av 973 avfallskoder samt
+sex transportsätt fungerade. Testkontakten använder uttryckliga
+dummyuppgifter. Provet skickade ingen mottagningsrapport och verifierar
+inte rapporteringsroll, mottagningspayload eller rättelsekedja.
+
+Knappen **Kontrollera testanslutning** öppnar nu en animerad popup medan
+servern arbetar. Den visar antal, resultat och verkliga kodlisteanrop med
+HTTP-status och begränsade svarsutdrag. OAuth-fel visar tokenanropets status
+utan att röja credentials eller token. Tidigare kontroller utan denna logg
+går fortfarande att läsa. Simulering och saknad konfiguration genererar
+inga påhittade anropsrader. **Kör i bakgrunden** döljer bara popupen.
 
 Ett lyckat anslutningsprov gäller bara de serverinställningar och den
 rapporterande organisation som kontrollerades. Efter ändrade nycklar,

@@ -4,6 +4,7 @@ import { can, type OfficeUser } from './model';
 import { environmentApi } from './environment-client';
 import { environmentFailure } from './EnvironmentSession';
 import { environmentTime, type NvvIntegrationStatus, type NvvReporterInput } from './environment-types';
+import NvvConnectionCheckDialog, { type NvvCheckProgress } from './NvvConnectionCheckDialog';
 
 export const nvvModeLabel = (mode?: NvvIntegrationStatus['mode']) => mode === 'test' ? 'NVV · TEST' : mode === 'mock' ? 'NVV · simulering' : 'NVV · avstängd';
 const reporterInput = (status?: NvvIntegrationStatus): NvvReporterInput => ({
@@ -27,31 +28,55 @@ export default function NvvIntegrationPanel({ user, actualUser, status, onChange
   const [form, setForm] = useState(() => reporterInput(status));
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState<'save' | 'check'>();
+  const [checkProgress, setCheckProgress] = useState<NvvCheckProgress | null>(null);
+  const checkButton = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState('');
   const identity = `${actualUser.id}/${user.id}`;
   const currentIdentity = useRef(identity);
   currentIdentity.current = identity;
   const active = useRef(true);
+  const request = useRef(0);
+  const busy = useRef(false);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   const permitted = !!status && user.level === 'Systemadmin' && actualUser.level === 'Systemadmin' && !user.siteIds && !actualUser.siteIds && can(user, 'environmentIntegration');
+  const currentPermission = useRef(permitted);
+  currentPermission.current = permitted;
   useEffect(() => { if (!dirty) setForm(reporterInput(status)); }, [status?.reporterVersion, dirty]);
-  useEffect(() => { setOpen(initialOpen); setDirty(false); setError(''); setPending(undefined); }, [user.id, actualUser.id, initialOpen]);
+  useEffect(() => {
+    request.current++; busy.current = false;
+    setOpen(initialOpen); setDirty(false); setError(''); setPending(undefined); setCheckProgress(null);
+  }, [user.id, actualUser.id, initialOpen, permitted]);
 
   function update<K extends keyof NvvReporterInput>(key: K, value: NvvReporterInput[K]) {
     setForm(current => ({ ...current, [key]: value })); setDirty(true); setError('');
   }
   async function perform(action: 'save' | 'check') {
-    if (!permitted || pending) return;
+    if (!permitted || busy.current || (action === 'check' && (dirty || status?.mode === 'disabled'))) return;
+    busy.current = true;
+    const requestId = ++request.current;
+    const isCurrent = () => active.current && currentIdentity.current === identity && currentPermission.current && request.current === requestId;
     setPending(action); setError('');
+    if (action === 'check') setCheckProgress({ phase: 'running', mode: status!.mode });
     try {
       const next = action === 'save' ? await environmentApi.saveNvvReporter(form) : await environmentApi.checkNvvConnection();
-      if (!active.current || currentIdentity.current !== identity) return;
+      if (!isCurrent()) return;
       onChange(next);
       if (action === 'save') { setForm(reporterInput(next)); setDirty(false); onNotice('NVV:s rapporterande testorganisation är sparad.'); }
-      else if (next.lastCheck?.connected) onNotice(next.mode === 'mock' ? 'Simulerad anslutningskontroll klar. Inget anrop har gjorts till NVV.' : 'Anslutningen till NVV:s testmiljö fungerar.');
-      else setError(next.lastCheck?.error?.message || 'Anslutningen kunde inte bekräftas. Kontrollera serverinställningarna.');
-    } catch (failure) { if (active.current && currentIdentity.current === identity) setError(environmentFailure(failure)); }
-    finally { if (active.current && currentIdentity.current === identity) setPending(undefined); }
+      else if (next.lastCheck?.connected) {
+        setCheckProgress(current => current ? { phase: 'success', mode: next.mode, wasteCodes: next.lastCheck!.wasteCodes.length, transportModes: next.lastCheck!.transportModes.length, diagnostics: next.lastCheck!.diagnostics } : null);
+        onNotice(next.mode === 'mock' ? 'Simulerad anslutningskontroll klar. Inget anrop har gjorts till NVV.' : 'Anslutningen till NVV:s testmiljö fungerar.');
+      } else {
+        const message = next.lastCheck?.error?.message || 'Anslutningen kunde inte bekräftas. Kontrollera serverinställningarna.';
+        setError(message);
+        setCheckProgress(current => current ? { phase: 'error', mode: next.mode, message, diagnostics: next.lastCheck?.diagnostics } : null);
+      }
+    } catch (failure) {
+      if (isCurrent()) {
+        const message = environmentFailure(failure);
+        setError(message);
+        if (action === 'check') setCheckProgress(current => current ? { phase: 'error', mode: status!.mode, message } : null);
+      }
+    } finally { if (isCurrent()) { busy.current = false; setPending(undefined); } }
   }
 
   return <section className="office-panel nvv-integration-panel" aria-label="NVV-inställningar">
@@ -67,7 +92,7 @@ export default function NvvIntegrationPanel({ user, actualUser, status, onChange
           <p>{status?.mode === 'test' ? 'Endast Naturvårdsverkets testmiljö används.' : status?.mode === 'mock' ? 'Svar och avfalls-ID:n är simulerade och gäller inte hos Naturvårdsverket.' : 'Inga rapporter kan skickas i avstängt läge.'} Produktionsrapportering är avstängd.</p>
           {status?.lastCheck && <small>Senaste kontroll: {environmentTime(status.lastCheck.checkedAt)}{status.lastCheck.connected ? ` · ${status.lastCheck.wasteCodes.length} avfallskoder · ${status.lastCheck.transportModes.length} transportsätt` : ''}</small>}
         </div>
-        {permitted && <button type="button" className="office-btn outline" onClick={() => void perform('check')} disabled={!!pending || dirty || status?.mode === 'disabled'}><RefreshCw size={14} />{pending === 'check' ? 'Kontrollerar…' : status?.mode === 'mock' ? 'Prova simulerad anslutning' : 'Kontrollera testanslutning'}</button>}
+        {permitted && <button ref={checkButton} type="button" className="office-btn outline" onClick={() => void perform('check')} disabled={!!pending || dirty || status?.mode === 'disabled'}><RefreshCw size={14} />{pending === 'check' ? 'Kontrollerar…' : status?.mode === 'mock' ? 'Prova simulerad anslutning' : 'Kontrollera testanslutning'}</button>}
       </div>
       {!!status?.missing.length && <div className="environment-alert"><CircleAlert size={16} /><div><strong>Återstår före testet</strong><ul>{status.missing.map(item => <li key={item}>{missingLabel(item)}</li>)}</ul></div></div>}
       <form onSubmit={event => { event.preventDefault(); void perform('save'); }}>
@@ -86,5 +111,6 @@ export default function NvvIntegrationPanel({ user, actualUser, status, onChange
       {!permitted && <p className="nvv-readonly-notice">Inställningarna kan ändras av systemadmin med NVV-behörighet.</p>}
       {!!error && <div className="environment-error" role="alert"><CircleAlert size={16} />{error}</div>}
     </div>}
+    {checkProgress && <NvvConnectionCheckDialog progress={checkProgress} returnFocus={checkButton} onClose={() => setCheckProgress(null)} onRetry={() => void perform('check')} />}
   </section>;
 }

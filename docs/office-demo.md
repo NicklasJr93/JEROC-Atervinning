@@ -1,4 +1,33 @@
-# JEROC kontorsdemo 0.12.1
+# JEROC kontorsdemo 0.12.2
+
+## Nytt i 0.12.2 – animerad NVV-anslutningskontroll
+
+**Integrationer → Naturvårdsverket → Kontrollera testanslutning** öppnar
+en popup med pulserande anslutning, rörliga datapaket och status medan
+serverns riktiga kontroll pågår. Resultatet visar hämtade avfallskoder och
+transportsätt eller felet med möjlighet att försöka igen. Popupen kan döljas
+med **Kör i bakgrunden**; kontrollen fortsätter utan att popupen öppnas igen.
+
+En kompakt anslutningslogg visar verkliga kodlisteanrop, HTTP-status,
+spårnings-ID och ett markerat, begränsat svarsutdrag. Hemligheter skickas
+inte till webbläsaren. Simulering är tydligt märkt och visar inga påhittade
+HTTP-anrop. Animationerna följer inställningen för minskad rörelse.
+
+Render behöver inga nya miljövariabler för denna uppdatering. Den riktiga
+TEST-anslutningen har nu verifierats med konfigurerat klientcertifikat:
+åtkomst samt 973 avfallskoder och sex transportsätt fungerade. Detta är
+en anslutningskontroll; verklig mottagningsrapport, kvittens och rättelsekedja
+återstår att provas separat.
+
+Verifiering 0.12.2: produktionsbygget, 25 klienttester och 16
+rapporteringsregressioner passerade. Ett valfritt PostgreSQL-prov hoppades
+över eftersom separat testanslutning saknades. Tre riktade webbläsarflöden
+passerade: väntan/resultat, fel/återförsök och bakgrundskörning. Fokusretur,
+minskad rörelse och 1440/390-pixelvyer verifierades utan JavaScriptfel eller
+horisontell överströmning. Uppdateringens tester gör inga externa NVV-anrop.
+
+[Skärmbilder från den byggda versionen](office-demo/v0.12.2/README.md).
+
 
 ## Nytt i 0.12.1 – arbetsorderformulär och förberedda vägningar
 

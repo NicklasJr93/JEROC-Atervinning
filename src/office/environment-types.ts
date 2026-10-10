@@ -149,10 +149,16 @@ export interface NvvReporterInput {
 export interface NvvReporter extends Omit<NvvReporterInput, 'expectedVersion'> {
   version: number; updatedAt: string; updatedBy: string;
 }
+export interface NvvCheckDiagnostic {
+  method: 'GET' | 'POST'; path: string; httpStatus: number | null;
+  trackingId?: string; outcome: 'accepted' | 'rejected' | 'unknown';
+  response: Record<string, unknown> | string | null;
+}
 export interface NvvConnectionCheck {
   mode: NvvMode; connected: boolean; checkedAt: string;
   wasteCodes: { code: string; description: string; hazardous: boolean }[];
   transportModes: { code: string; description: string }[];
+  diagnostics?: NvvCheckDiagnostic[];
   error?: { code?: string; message: string };
 }
 export interface NvvIntegrationStatus {

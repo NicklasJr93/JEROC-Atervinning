@@ -1215,3 +1215,17 @@ Status: Implementerad i kontorsdemo 0.12.1 efter godkänd start 2026-10-10.
 - Kundgodkännande, miljömottagning och attest följer befintliga steg och regler.
 - Befintlig verksamhetsdatabas används; inga nya Renderfält för arbetsorder.
   NVV:s sex serverfält och certifikatfil beskrivs i render-snabbstart.md.
+
+060 – Animerad anslutningskontroll med verklig NVV-information
+Status: Implementerad i kontorsdemo 0.12.2 efter beställning 2026-10-10.
+- Kontrollera testanslutning öppnar en popup med pulserande anslutning,
+  rörliga datapaket och status medan det riktiga serveranropet pågår.
+- Verkligt resultat visar kodantal eller fel med Försök igen. Inga
+  påhittade färdigsteg, procenttal eller extra rapportutskick.
+- Liten anslutningslogg med kodlisteanrop, HTTP-status, spårnings-ID och
+  begränsade svarsutdrag. API-hemligheter/token/certifikat exponeras inte.
+- Simulerat flöde märks tydligt och får ingen påhittad HTTP-logg.
+- Kör i bakgrunden och Escape döljer popupen utan att avbryta kontrollen
+  eller öppna den igen när svaret kommer. Mobilvy och minskad rörelse.
+- Befintliga Renderinställningar används. TEST-åtkomst och kodlistor har
+  verifierats; riktiga rapportkvittenser och rättelsekedja provas separat.
