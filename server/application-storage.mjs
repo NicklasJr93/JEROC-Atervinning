@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { DatabaseSync } from 'node:sqlite';
 
+// New domains are stored in full alongside the old aggregate. Older deployments
+// gain an empty prepared-weighing registry without resetting any business data.
+function normalizeDomains(state) { state.workOrderWeighing ??= { version: 1, drafts: {} }; state.workOrderWeighing.drafts ??= {}; return state; }
+
 export async function createApplicationRepository({ env = process.env, filename, seed, initial } = {}) {
   seed ??= initial;
   if (env.RENDER && !env.DATABASE_URL) throw Object.assign(new Error('DATABASE_URL krävs för gemensam verksamhetsdata.'), { status: 503 });
@@ -25,7 +29,7 @@ export async function createApplicationRepository({ env = process.env, filename,
           await c.query('BEGIN');
           const meta = (await c.query('SELECT revision FROM jeroc_application_meta WHERE id=1 FOR UPDATE')).rows[0];
           const rows = (await c.query('SELECT domain, document FROM jeroc_application_documents')).rows;
-          const state = rows.length ? Object.fromEntries(rows.map(row => [row.domain, row.document])) : seed();
+          const state = normalizeDomains(rows.length ? Object.fromEntries(rows.map(row => [row.domain, row.document])) : seed());
           const previous = new Map(rows.map(row => [row.domain, JSON.stringify(row.document)]));
           const changes = [];
           const result = await operation(state, Number(meta.revision), changes);
@@ -55,7 +59,7 @@ export async function createApplicationRepository({ env = process.env, filename,
         db.exec('BEGIN IMMEDIATE');
         try {
           const row = db.prepare('SELECT document,revision FROM application WHERE id=1').get();
-          const state = row ? JSON.parse(row.document) : seed(); const previous = row?.document;
+          const state = normalizeDomains(row ? JSON.parse(row.document) : seed()); const previous = row?.document;
           const changes = []; const result = await operation(state, row?.revision ?? 0, changes);
           const document = JSON.stringify(state);
           db.prepare('INSERT INTO application VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET document=excluded.document,revision=excluded.revision').run(document, (row?.revision ?? 0) + Number(document !== previous));

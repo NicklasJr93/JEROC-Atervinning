@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { createPricingStore, PricingError } from './pricing.mjs';
 import { ensurePersonnel, refreshStaffingTasks } from './personnel.mjs';
 import { applyTransportChange, personnelPlanIssues, transportSchema } from '../dist-server/domain-models.mjs';
+import { ensureWorkOrderWeighing, syncWorkOrderWeighing, workOrderWeighing, startWorkOrderWeighing, saveWorkOrderWeighing, completeWorkOrderWeighing } from './work-order-weighing.mjs';
 
 const copy = value => structuredClone(value);
 const stamp = () => new Date().toISOString();
@@ -56,7 +57,7 @@ function articlesOf(state) {
   for (const article of state.pricing?.articleHistory ?? []) if (!latest.has(article.id) || Number(article.version ?? 0) >= Number(latest.get(article.id).version ?? 0)) latest.set(article.id, article);
   return [...latest.values()].filter(article => article.active !== false).map(article => {
     const classification = state.logistics.classifications.find(entry => entry.articleId === article.id);
-    return { id: article.id, name: article.name, hazardous: classification?.hazardous === true, wasteCode: classification?.wasteCode ?? '', handlingInstructions: classification?.handlingInstructions ?? '' };
+    return { id: article.id, name: article.name, hazardous: classification?.hazardous === true, wasteCode: classification?.wasteCode ?? '', handlingInstructions: classification?.handlingInstructions ?? '', classificationVersion: classification?.version };
   });
 }
 function articleOf(state, id) { const article = articlesOf(state).find(article => article.id === id); if (!article) fail('Välj en aktiv artikel ur artikelregistret.', 422); return article; }
@@ -110,9 +111,15 @@ export function ensureLogistics(state, context = {}) {
   state.logistics.deliveryOutbox ??= [];
   if (context.sites) state.logistics.sites = copy(context.sites);
   if (context.classifications) state.logistics.classifications = copy(context.classifications);
+  ensureWorkOrderWeighing(state);
   for (const order of state.transport.orders) if (!order.siteId) {
     const ownSite = state.logistics.sites.find(site => site.city && site.city.toLowerCase() === order.city.toLowerCase()) ?? state.logistics.sites.find(site => site.id === 'norrtalje');
     if (ownSite) order.siteId = ownSite.id;
+  }
+  const weighingArticles = articlesOf(state);
+  for (const order of state.transport.orders) {
+    const detail = state.logistics.details[order.id];
+    if (detail) syncWorkOrderWeighing(state, order, detail, weighingArticles);
   }
   synchronizeStock(state, context.inventory);
   return state.logistics;
@@ -209,16 +216,19 @@ function createOrder(state, input, actor, source = 'office', transactionAudit = 
     assignedDriverId: input.assignedDriverId, assignedVehicleId: input.assignedVehicleId, carrierRequest: { status: 'draft', version: 1 }, execution: { stage: 'pending', officeCleared: false },
     priority: input.priority ?? 'normal', handling: input.handling ?? '', updatedAt: at };
   state.transport.orders.push(order); state.logistics.details[id] = detail;
+  syncWorkOrderWeighing(state, order, detail, articlesOf(state));
   orderAudit(state, order, detail, actor, 'work_order.created', 'Arbetsorder skapad. Önskad tid är ännu inte bokad.', transactionAudit);
   return { orderId: id };
 }
 function publicOrder(state, order, external = false) {
   const detail = detailFor(state, order, false), value = { ...copy(order), detail: copy(detail) };
+  const weighing = workOrderWeighing(state, order.id);
+  if (!external && weighing) value.detail.weighing = copy(weighing);
   if (external) { value.audit = []; delete value.confirmation; delete value.detail.documentHistory; }
   return value;
 }
 function officeState(state, principal) {
-  const capabilities = rights.filter(right => can(principal, right)); const d = state.logistics;
+  const capabilities = [...rights, 'prepare'].filter(right => can(principal, right)); const d = state.logistics;
   const sites = d.sites.filter(site => visible(principal, site.id)), siteIds = new Set(sites.map(site => site.id));
   const work = can(principal, 'workOrdersRead'), vessels = can(principal, 'vesselsRead'), warehouse = can(principal, 'warehouseRead');
   const orders = work ? state.transport.orders.filter(order => siteIds.has(order.siteId ?? d.details[order.id]?.siteId)).map(order => publicOrder(state, order)) : [];
@@ -446,7 +456,24 @@ function officeCommand(state, principal, command, transactionAudit) {
   }
   demand(principal, 'workOrdersWrite');
   if (command.action === 'order.create') return idempotent(state, principal.actor.id, command.action, command.idempotencyKey, command.input, () => createOrder(state, normalizeInput(state, principal, command.input), actorOf(principal), command.input.action === 'outbound' ? 'warehouse' : 'office', transactionAudit));
-  const { order, detail } = orderAndDetail(state, command.orderId); demandSite(state, principal, detail.siteId); expected(detail, command.expectedVersion);
+  const { order, detail } = orderAndDetail(state, command.orderId); demandSite(state, principal, detail.siteId);
+  if (['order.weighing.start', 'order.weighing.save', 'order.weighing.complete'].includes(command.action)) {
+    demand(principal, 'prepare');
+    const weighing = workOrderWeighing(state, order.id);
+    if (weighing) demandSite(state, principal, weighing.siteId);
+    if (!['pickup', 'exchange'].includes(order.action)) fail('Utleveranser och utställningar skapar inte inkommande invägningskort.', 422);
+    if (command.action === 'order.weighing.complete' && weighing?.status === 'completed') return { orderId: order.id, cardId: weighing.cardId };
+    expected(detail, command.expectedVersion);
+    if (order.status === 'cancelled' && weighing?.status !== 'started') fail('Arbetsordern är avbruten.');
+    let result = { orderId: order.id };
+    if (command.action === 'order.weighing.start') startWorkOrderWeighing(state, order.id);
+    else if (command.action === 'order.weighing.save') saveWorkOrderWeighing(state, order.id, command.input, articlesOf(state));
+    else { result = completeWorkOrderWeighing(state, order, principal, articlesOf(state)); synchronizeStock(state); }
+    orderAudit(state, order, detail, actorOf(principal), command.action,
+      command.action === 'order.weighing.complete' ? `Faktisk vägning färdigställd: invägning #${result.cardId}.` : command.action === 'order.weighing.start' ? 'Förberett vägningsutkast öppnat. Inget invägningsnummer har tilldelats.' : 'Verkliga vägninguppgifter sparade som utkast.', transactionAudit);
+    return result;
+  }
+  expected(detail, command.expectedVersion);
   const actor = actorOf(principal);
   if (command.action === 'order.depart') { depart(state, order, detail, actor, transactionAudit); return { orderId: order.id }; }
   if (command.action === 'order.deliver') { deliver(state, order, detail, actor, transactionAudit); return { orderId: order.id }; }
@@ -465,6 +492,7 @@ function officeCommand(state, principal, command, transactionAudit) {
     for (const delivery of state.logistics.deliveryOutbox.filter(delivery => delivery.orderId === order.id && delivery.status === 'prepared')) delivery.status = 'superseded';
     const destination = input.action === 'outbound' || input.action === 'placement' ? input.to : input.from;
     Object.assign(order, { siteId: input.siteId, operator: input.operator, customerId: input.customerId, action: input.action, customerName: destination.name, address: destination.address, city: destination.city, contact: destination.contact ?? '', phone: destination.phone ?? '', vesselType: input.vesselType, vesselSize: input.vesselSize ?? '', material: input.materialRows.map(row => row.name).join(', '), pickupVessel: input.vesselId ?? '', replacementVessel: input.replacementVesselId ?? '', requestedDate: input.requestedWindow?.date, notes: input.notes, durationMinutes: input.durationMinutes });
+    syncWorkOrderWeighing(state, order, detail, articlesOf(state));
     orderAudit(state, order, detail, actor, 'work_order.updated', 'Arbetsorderns underlag ändrat. Tidigare dokument och svar bevaras i historiken.', transactionAudit);
   } else if (command.action === 'order.book') {
     demand(principal, 'transportPlan');
@@ -477,6 +505,7 @@ function officeCommand(state, principal, command, transactionAudit) {
     orderAudit(state, booked, detail, actor, 'work_order.booked', 'Egen förare och fordon bokade i den gemensamma planeraren.', transactionAudit); refreshStaffingTasks(state);
   } else if (command.action === 'order.cancel') {
     const reason = parse(z.string().trim().min(3).max(2000), command.reason); order.status = 'cancelled'; detail.carrierRequest.status = 'declined'; invalidateDocument(detail); delete state.transport.preliminary[order.id];
+    syncWorkOrderWeighing(state, order, detail, articlesOf(state));
     for (const delivery of state.logistics.deliveryOutbox.filter(delivery => delivery.orderId === order.id && delivery.status === 'prepared')) delivery.status = 'cancelled';
     orderAudit(state, order, detail, actor, 'work_order.cancelled', `Arbetsordern avbruten: ${reason}`, transactionAudit);
   } else if (command.action === 'order.send') {

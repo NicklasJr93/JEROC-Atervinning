@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.12.0';
+export const OFFICE_VERSION = '0.12.1';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -146,6 +146,7 @@ export function seedOfficeCustomers(): OfficeCustomer[] {
 const cardSchema = z.object({
   id: z.number(),
   sourceId: z.string().uuid().optional(),
+  workOrderId: z.string().max(100).optional(),
   customerId: z.string().optional(),
   customerSnapshot: customerSchema.optional(),
   status: z.enum(['new', 'complement', 'customer', 'attest', 'ready', 'paid', 'balance']),

@@ -7,6 +7,7 @@ import { createPricingApi } from './pricing-api.mjs';
 import { createTransportOutbox, createTransportIntegrationsApi } from './transport-integrations.mjs';
 import { ensurePersonnel, personnelCommand, personnelProjection, personnelCan, validatePersonnelTransportChange, refreshStaffingTasks, createDriverApi } from './personnel.mjs';
 import { createLogisticsApi, validateLogisticsTransportChange } from './logistics.mjs';
+import { allocateWeighingNumber } from './work-order-weighing.mjs';
 import { officeSchema, seedOffice, migrateOffice, storeSchema, isComplete, rowWeight, transportSchema, seedTransport, articles, recordPayment, validPaymentDetails } from '../dist-server/domain-models.mjs';
 
 const clone = value => structuredClone(value);
@@ -21,7 +22,7 @@ export const initialApplicationState = () => {
   const office = migrateOffice(seedOffice()); office.users = clone(pricing.users);
   return { metadata: { version: 1, nextCard: 3000, importedDomains: [], pricingSeed: clone(pricing), officeSeed: clone(office), transportSeed: seedTransport() }, pricing, office,
     mobile: { version: 1, drafts: [], customers: mobileCustomers(office.customers) },
-    transport: seedTransport(), outbox: [], imports: [] };
+    transport: seedTransport(), workOrderWeighing: { version: 1, drafts: {} }, outbox: [], imports: [] };
 };
 
 // Field-level optimistic merge. Independent fields and independent records can
@@ -167,6 +168,11 @@ function validateOffice(state, base, next, p, approvals) {
   const changes = changedRecords(current.cards, base.cards, next.cards);
   for (const { before, after } of changes) {
     if (!after) fail('Viktkort och deras historik får inte raderas.');
+    if (before && (!equal(after.workOrderId, before.workOrderId) || before.workOrderId && !equal(after.sourceId, before.sourceId))) fail('Arbetsorderkopplingen och dess källidentitet styrs av den färdigställda vägningen.');
+    if (!before && after.workOrderId) {
+      const linked = state.workOrderWeighing?.drafts?.[after.workOrderId];
+      if (!linked || linked.status !== 'completed' || linked.cardId !== after.id || linked.id !== after.sourceId) fail('Ett kopplat invägningskort skapas genom arbetsorderns färdigställda vägning.');
+    }
     if (!visible(p, after) || before && !visible(p, before)) fail('Du saknar åtkomst till anläggningen.', 403);
     if (!before) demand(p, after.kind === 'correction' ? 'attest' : 'prepare');
     else {
@@ -345,7 +351,7 @@ export function createApplicationService({ repository, env = process.env, projec
             const imported = schema.parse(domain === 'office' ? migrateOffice(payload.importData) : payload.importData);
             if (domain === 'mobile') {
               for (const draft of imported.drafts) if (!state.mobile.drafts.some(old => old.id === draft.id)) {
-                const copy = clone(draft); copy.number = state.metadata.nextCard++;
+                const copy = clone(draft); copy.number = allocateWeighingNumber(state);
                 state.mobile.drafts.push(copy); mobileToOffice(state, copy, p);
               }
             } else if (domain === 'office') {
@@ -356,6 +362,7 @@ export function createApplicationService({ repository, env = process.env, projec
                 const index = state.office.cards.findIndex(old => old.sourceId === card.sourceId || old.id === card.id);
                 const untouched = index >= 0 && equal(state.office.cards[index], state.metadata.officeSeed?.cards.find(old => old.id === card.id));
                 if (index >= 0 && !untouched) { if (!equal(state.office.cards[index], card)) importConflicts++; continue; }
+                if (card.workOrderId) { importConflicts++; continue; } // Preserve in the import archive; only canonical AO finalization creates this link.
                 if (['attest', 'ready', 'paid', 'balance'].includes(card.status)) { importConflicts++; continue; }
                 const copy = clone(card); copy.status = 'complement'; copy.idVerified = false; delete copy.customerApproval; delete copy.approvedBy; delete copy.paidAt;
                 if (index >= 0) state.office.cards[index] = copy; else state.office.cards.push(copy);
@@ -383,7 +390,7 @@ export function createApplicationService({ repository, env = process.env, projec
             const changes = changedRecords(state.mobile.drafts, base.drafts, next.drafts);
             for (const change of changes) {
               if (change.before?.status === 'ready' && !equal(change.before, change.after)) fail('Färdiga vägningar är låsta.');
-              if (change.after && !change.before) change.after.number = state.metadata.nextCard++;
+              if (change.after && !change.before) change.after.number = allocateWeighingNumber(state);
             }
             state.mobile.drafts = applyChanges(state.mobile.drafts, changes);
             const customers = changedRecords(mobileCustomers(state.office.customers), base.customers, next.customers);
