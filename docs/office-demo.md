@@ -1,4 +1,36 @@
-# JEROC kontorsdemo 0.11.0
+# JEROC kontorsdemo 0.12.0
+
+## Nytt i 0.12.0 – integrationer och NVV:s första testetapp
+
+**Integrationer** i vänstermenyn samlar Naturvårdsverket, Spiris/Visma eEkonomi,
+Fortnox, Microsoft 365/Outlook, BankID, SMS/e-post, Google Maps och LME i ett
+kortgrid. NVV har en fungerande testadapter; övriga kort är tydligt planerade.
+Se [integrationsmotorn och organisationsgränsen](integrationer/README.md).
+
+Miljörapportering visar beständiga rapportversioner, sändningsförsök och
+kvittenser. En lokal mottagning kan skickas uttryckligen till BTFA.Anteckning
+TEST och en rättad version kan ersätta den tidigare med PUT och nytt avfalls-ID.
+Okänt utfall spärrar omsändning och får en separat TEST-återläsning.
+Simulering har SIM-ID och märks alltid som simulering. Anslutningen är avstängd
+som standard; ingen installation, migration eller sidvisning skickar rapporter.
+
+[NVV: inställningar, provflöde och kvarvarande krav](integrationer/naturvardsverket/nvv-test-demo.md).
+Kontorets personalautentisering är fortsatt demo. Produktion, borttransportrapporter,
+makulering, Vismaöverföring, BankID, SMS/e-post och bankanrop är inte aktiverade.
+Certifikatets acceptans och rätt rapporterande testidentitet hos NVV återstår
+att verifiera med riktiga TEST-credentials. Befintlig testdata och tidigare
+mottagningar bevaras.
+
+Verifiering 0.12.0: produktionsbygget och Expo-typkontrollen passerade.
+274 servertester passerade utan fel; fem valfria PostgreSQL-prov hoppades över
+eftersom separat testanslutning saknades. Persistensproven kördes med isolerad
+SQLite. Två nya NVV-webbläsarflöden och tio befintliga regressionsfall passerade,
+inklusive terminalgodkännande, mottagning och prisbehörigheter. Integrationsgriden
+har granskats vid 1440 och 390 pixlar utan horisontell överströmning eller
+JavaScriptfel. Testbolag1-P12 har dessutom verifierats offline; inget verkligt
+NVV-API-anrop har gjorts.
+
+[Skärmbilder från den byggda versionen](office-demo/v0.12.0/README.md).
 
 ## Nytt i 0.11.0 – gemensamma arbetsorder, lager och kundportal
 

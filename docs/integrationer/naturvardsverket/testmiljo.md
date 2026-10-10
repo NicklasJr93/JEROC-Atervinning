@@ -1,5 +1,10 @@
 # Testmiljö – anslutning och verifiering
 
+Aktuella implementerade lägen, Render-variabler och provflödet för 0.12.0
+finns i [NVV:s första testetapp](nvv-test-demo.md). Det uppladdade Testbolag1-
+certifikatet har verifierats offline; myndighetens acceptans återstår.
+Nedanstående underlag beskriver den tidigare anslutningsplaneringen.
+
 Planeringsunderlag 2026-10-09. Inställningsnamnen nedan är **föreslagna för den
 kommande serveradaptern**; befintlig app läser dem inte ännu. Ingen riktig rapport
 eller autentiserat myndighetsanrop har gjorts i denna granskning.

@@ -4,11 +4,16 @@ Granskning **2026-10-09** inför byggplanering. Aktuell beställning är att
 kontrollera API, testcertifikat och mockupflöden samt samla dokumentationen.
 Den ursprungliga granskningen aktiverade ingen myndighetsanslutning.
 Etapp 1 har därefter godkänts: [artikelmiljö, mottagning och ny testdata](etapp-1.md).
+Aktuell leverans är kontorsdemo **0.12.0**, med en TEST-adapter och en gemensam
+integrationssida. Se [aktuell testetapp](nvv-test-demo.md) för konfiguration,
+gränser och faktiskt verifierade prov; den ursprungliga granskningen nedan
+beskriver underlaget från 2026-10-09.
 
 ## Läs underlaget
 
 | Dokument | Innehåll |
 | --- | --- |
+| [NVV:s första testetapp 0.12.0](nvv-test-demo.md) | TEST-klient, rapportjournal, kvittenser, rättelse, simulering och säkert osäkert utfall. |
 | [Etapp 1 – leverans och provflöde](etapp-1.md) | Beständig mottagning, artikelklassificering, miljöbehörigheter och engångsåterställning av demoinvägningar. |
 | [Byggplan i fyra etapper](byggplan.md) | Föreslagen leveransordning, ny extern åkeri-/chaufförsvy och separat startgodkännande för varje etapp. |
 | [API-kontrakt](api-kontrakt.md) | Exakta rapporttyper, fält, platser, svar, rättelser och begränsningar i API:t. |
@@ -30,8 +35,10 @@ Etapp 1 har därefter godkänts: [artikelmiljö, mottagning och ny testdata](eta
   inte JEROC till ombud för åkeriets eller kundens rapportering.
 - Vägning vid hämtning sker **hos kunden, före avfärd med last**.
 - Transportdokument, miljöanteckning/API-rapport och ekonomisk avräkning har
-  egna versioner och statusar. Miljörapportering väntar inte på kundgodkännande,
-  intern attest eller betalning.
+  egna versioner och statusar. Kontorets nuvarande mottagningsflöde kräver
+  kundgodkännande före mottagningsbekräftelse, med en särskild spårbar
+  undantagsbehörighet vid kundtvist. Den faktiska mottagningstiden behålls;
+  ekonomisk attest och betalning är separata från miljörapporten.
 - API:t hanterar avfallskod och fysisk mängd; priser, BankID-godkännande och
   utbetalning ingår inte i dessa rapportobjekt.
 
@@ -66,7 +73,7 @@ Etapp 1 har därefter godkänts: [artikelmiljö, mottagning och ny testdata](eta
 | API-nycklar | Utdelade av myndigheten enligt användaren; säker serverkonfiguration är inte verifierad. Värden sparas inte här. |
 | Certifikatacceptans | Inte verifierad mot Naturvårdsverkets testserver. |
 | API-anrop | Inget autentiserat kodlisteanrop eller rapportanrop har utförts i denna granskning. |
-| Applikation | Etapp 1 bygger beständig artikelklassificering och mottagning; myndighetsanslutningen är fortsatt avstängd. Se separat leveransdokument. |
+| Applikation | 0.12.0 har beständig rapportjournal och TEST-adapter. Den är avstängd som standard och inget autentiserat myndighetsanrop har verifierats här. Se separat leveransdokument. |
 
 ## Nästa planeringsbeslut
 

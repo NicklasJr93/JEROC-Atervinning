@@ -1168,13 +1168,33 @@ Levererat 0.11.0 för 055/056:
 Flöden och kvarvarande begränsningar: docs/logistics-demo.md.
 
 057 – NVV- och Spiris/Visma eEkonomi-testkopplingar
-Status: Planerad senare uppdatering. Ingår inte i 0.11.0 och kräver separat start.
+Status: NVV:s första TEST-etapp implementerad i 0.12.0 efter godkänd start.
+Spiris/Visma eEkonomi kvarstår som separat senare sandboxetapp.
 - NVV BTFA.Anteckning: verifiera rapporteringsroller och aktuellt API-schema,
   testmiljö/certifikat/credentials och hantera faktisk kvittens, avfalls-ID,
-  rapportstatus och återförsök utan dubletter. Inga utgående NVV-anrop är aktiva.
+  rapportstatus och försök utan dubletter. Beständig versions-/försöksjournal,
+  POST mottagning, PUT rättelse med nytt avfalls-ID och TEST-återläsning.
+  Osäkert utfall får inte skickas om automatiskt. Produktion, borttransport
+  och makulering ingår inte. Mockläge märks simulering och använder SIM-ID.
+  TEST-klienten är avstängd som standard; verkliga certifikat/credentials
+  och accepterad rapporterande testidentitet måste ordnas före myndighetsprov.
 - Spiris/Visma eEkonomi är bekräftat mål för sandboxetappen: OAuth,
   verifierat inköps-/självfaktureringsflöde,
   kontomappning och bekräftade faktura-/verifikationsreferenser efter intern
   attest. Exportstatus ska skilja utkast, registrering, bokföring och betalning.
 - Utbetalningar är manuella tills ekonomiintegrationen är separat verifierad.
   Hemligheter läggs på servern; testcredentials får inte sparas i GitHub.
+
+058 – Integrationer och återanvändbar adaptergrund
+Status: Implementerad i kontorsdemo 0.12.0 efter beställning 2026-10-10.
+- Egen vänstermeny Integrationer med kortgrid, anslutningsstatus och detaljvy.
+- NVV är första TEST-adaptern. Fortnox, Spiris/Visma eEkonomi,
+  Microsoft 365/Outlook, BankID, SMS/e-post, Google Maps och LME är planerade.
+- Gemensamt serverregister och adapterkontrakt med organisation i betrodd
+  serverkontext, läs-/administrationsbehörigheter och organisationsbundna adapters.
+  Kunden får inte välja organisationsidentitet med ett HTTP-fält/header.
+- Befintlig demo har en organisation. Full SaaS-inloggning, tenantmigrering,
+  leverantörernas OAuth, krypterad lagring av deras token och skarpa anslutningar
+  återstår. Det visas inget påhittat anslutet konto på planerade integrationer.
+- NVV-inställningar återanvänds från Integrationer; rapportarbete/kvittenser
+  ligger kvar i Miljörapportering. Inga betalnings- eller mejlkopplingar aktiveras.

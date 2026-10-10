@@ -1,5 +1,18 @@
 # Granskning av Expisofts testcertifikatpaket
 
+## Uppföljning 2026-10-10
+
+Användaren har nu lämnat ett faktiskt P12-certifikat för **Testbolag1**.
+Offlinegranskningen verifierade organisation `5560000167`, ExpiTrust Test CA v8,
+giltighet 2026-04-09 till 2028-04-09, RSA 2048, serverAuth och clientAuth,
+privat nyckel och medföljande CA-kedja. Certifikatets signatur och CA:s
+självsignatur verifierades. Node TLS kan öppna filen med hämtningsbrevets
+lösenord. Inga certifikatbyte eller lösenord finns i repot.
+NVV:s acceptans och kopplingen till JEROC:s OAuth-anslutning måste ännu provas.
+Se [aktuell TEST-etapp](nvv-test-demo.md).
+
+Den ursprungliga ZIP-granskningen nedan avser endast leveransbreven.
+
 Granskat 2026-10-09. Underlag: den uppladdade filen `Testcertifikat-server-och-stämpellegitimationer-2026.zip`, dess PDF-handlingar och Expisofts offentliga produkt- och CA-information. Inga certifikat har installerats och inga API-anrop eller hämtningar med leveranskoder har gjorts.
 
 ## Resultat
