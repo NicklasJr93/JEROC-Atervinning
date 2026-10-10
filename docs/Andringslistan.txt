@@ -1120,3 +1120,27 @@ granskning av flödet. Inga riktiga mejlutskick aktiveras.
   serverkontrollerad åtkomst; befintlig chaufförsportal utökas med åkeriroll.
 - Tre sammanhängande vyer samt mejlförhandsvisning och klickbar ZIP:
   docs/mockups/externa-arbetsordrar/README.md.
+
+056 – Gemensamma arbetsorder och kundportal för kärl/containrar – mockuper
+Status: Mockuper framtagna 2026-10-10. Designunderlag för granskning, inte appbygge.
+- Menyn Lager visar material/mängder. Boka utleverans öppnar Ny arbetsorder
+  med typ Utleverans, lastande anläggning och valt material förifyllt.
+- Egen meny Arbetsorder samlar Hämtning, Byte, Utställning och Utleverans.
+  Aktiva/Historik och filter på typ, status, anläggning samt egna/externa.
+- Skapa ny anpassar formuläret efter uppdragstyp. Egna chaufförer är förval;
+  förare/fordon kan tilldelas senare. Tidsönskemål skiljs från bokad tid.
+- Kundportal visar företagets egna konkreta kärl/container-ID:n, placering,
+  material, avtal och nästa åtgärd. Kundåtkomst måste kontrolleras server-side
+  när funktionen implementeras; inloggningen i mockupen är endast demo.
+- Avtalet styr beställningar: exempelvis byte av fullt 660-liters kabelkärl
+  mot tomt, eller önskemål om tidigare hämtning av hyrd skrotcontainer.
+- Kundönskemål skapar samma arbetsorder som kontoret planerar. Befintlig
+  hämtning ändras genom förfrågan på samma order, inte en ny dubblett.
+  Den bokade tiden står kvar tills ny tid bekräftats. Aktiv förfrågan visas
+  i kundportalen och hindrar dubbla beställningar på samma tillgång.
+- Önskemål ändrar inte automatiskt rullande avtalsschema eller kärlplacering.
+  Lager påverkas först av utförd, bekräftad rörelse.
+- Behåll godkända åkeri-/chaufförsvyer och separata dokument-/miljösteg.
+- Tre huvudvyer, kundinloggning, beställningspopup, mobilvy, förifylld
+  utleverans och kundbeställning på kontoret samt klickbar ZIP:
+  docs/mockups/arbetsorder-kundportal/README.md.
