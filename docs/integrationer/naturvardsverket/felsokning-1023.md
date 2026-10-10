@@ -4,6 +4,11 @@ Kontrollerat 2026-10-10 med kontorsdemo 0.13.2–0.13.3. Detta underlag innehål
 tekniska spårningsuppgifter och det offentliga testcertifikatets metadata.
 Inga åtkomstnycklar, token, lösenord, privata nycklar eller kunduppgifter ingår.
 
+**Senaste kontroll:** [24 dynamiska TEST-operationer](dynamiskt-test-2026-10-10.md)
+med tre certifikat och TLS 1.2/1.3, 21:41–21:42 svensk tid. Anslutning och läsning
+gav HTTP 200, men alla 12 provrapporter gav 1023. Det kompletterade underlaget
+innehåller TraceId för varje försök och kompletterar de tidigare identitetstesterna.
+
 ## Meddelande att skicka till Naturvårdsverkets API-support
 
 **Ämne: BTFA.Anteckning TEST – fel 1023 trots matchande verksamhetsutövare och klientcertifikat**
