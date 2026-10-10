@@ -9,6 +9,7 @@ export interface ArchivedDocument {
 export interface DocumentParty { name: string; number: string; address: string; postalCode: string; city: string }
 export interface TransportDocumentRow { articleId?: string; name: string; wasteCode: string; weight: number | null }
 export interface TransportDocumentDraft {
+  managed?: boolean;
   orderId: string; version: number; siteId: string; direction: 'pickup' | 'outbound';
   sender: DocumentParty; receiver: DocumentParty; carrier: DocumentParty;
   driver: string; registration: string; startAt: string; requestedAt: string;

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { CalendarDays, CheckCircle2, ChevronDown, Clock3, ClipboardList, LoaderCircle, LockKeyhole, LogOut, MapPin, Phone, RefreshCw, Truck, UserRound } from 'lucide-react';
 import { actionLabels, transportStatusLabels, vesselTypes, type TransportOrder } from '../office/transport/types';
+import type { LogisticsDriverCommand, LogisticsOrderDetail } from '../office/logistics/types';
+import DriverLogistics from './DriverLogistics';
 import './driver.css';
 
 interface DriverSession {
-  person: { id: string; name: string; driverId: string; companyId: string };
+  person: { id: string; name: string; kind: 'employee' | 'external'; driverId: string; companyId?: string };
   company: { id: string; name: string };
   demo: boolean;
 }
@@ -27,9 +29,12 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 const timeLabel = (minutes: number) => `${Math.floor(minutes / 60).toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}`;
 const dayLabel = (day?: string) => day ? new Intl.DateTimeFormat('sv-SE', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Europe/Stockholm' }).format(new Date(`${day}T12:00:00Z`)) : 'Datum saknas';
 
-function DriverOrder({ order, open, busy, disabled, onToggle, onStatus }: {
-  order: TransportOrder; open: boolean; busy: boolean; disabled: boolean; onToggle: () => void;
+type DriverTransportOrder = TransportOrder & { detail?: LogisticsOrderDetail };
+
+function DriverOrder({ order, open, busy, disabled, onToggle, onStatus, onLogistics }: {
+  order: DriverTransportOrder; open: boolean; busy: boolean; disabled: boolean; onToggle: () => void;
   onStatus: (status: 'on_way' | 'done') => void;
+  onLogistics: (command: LogisticsDriverCommand) => void;
 }) {
   const type = vesselTypes[order.vesselType];
   const time = order.startMinute === undefined ? '' : `${timeLabel(order.startMinute)}–${timeLabel(order.startMinute + order.durationMinutes)}`;
@@ -47,9 +52,10 @@ function DriverOrder({ order, open, busy, disabled, onToggle, onStatus }: {
       {order.contact && <div><span>Kontakt på plats</span><strong>{order.contact}</strong></div>}
       {order.phone && <a className="driver-contact" href={`tel:${order.phone.replace(/[^+\d]/g, '')}`}><Phone size={17} />{order.phone}</a>}
       {order.notes && <div className="driver-order-notes"><span>Instruktioner</span><p>{order.notes}</p></div>}
+      {order.detail && order.status !== 'cancelled' && <DriverLogistics key={`${order.id}:${order.detail.version}`} detail={order.detail} busy={busy} disabled={disabled} onAction={onLogistics} />}
     </div>}
-    {order.status === 'booked' && <button className="driver-button primary driver-order-action" disabled={disabled} onClick={() => onStatus('on_way')}>{busy ? <LoaderCircle className="driver-spinner" size={18} /> : <Truck size={18} />}{busy ? 'Sparar…' : 'Jag är på väg'}</button>}
-    {order.status === 'on_way' && <button className="driver-button green driver-order-action" disabled={disabled} onClick={() => onStatus('done')}>{busy ? <LoaderCircle className="driver-spinner" size={18} /> : <CheckCircle2 size={18} />}{busy ? 'Sparar…' : 'Markera uppdrag som klart'}</button>}
+    {!order.detail && order.status === 'booked' && <button className="driver-button primary driver-order-action" disabled={disabled} onClick={() => onStatus('on_way')}>{busy ? <LoaderCircle className="driver-spinner" size={18} /> : <Truck size={18} />}{busy ? 'Sparar…' : 'Jag är på väg'}</button>}
+    {!order.detail && order.status === 'on_way' && <button className="driver-button green driver-order-action" disabled={disabled} onClick={() => onStatus('done')}>{busy ? <LoaderCircle className="driver-spinner" size={18} /> : <CheckCircle2 size={18} />}{busy ? 'Sparar…' : 'Markera uppdrag som klart'}</button>}
   </article>;
 }
 
@@ -60,7 +66,7 @@ export default function DriverApp() {
   const [password, setPassword] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
-  const [orders, setOrders] = useState<TransportOrder[]>([]);
+  const [orders, setOrders] = useState<DriverTransportOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -79,7 +85,7 @@ export default function DriverApp() {
     const current = generation.current, sequence = ++orderSequence.current;
     if (showLoading) setOrdersLoading(true);
     try {
-      const result = await driverRequest<{ orders: TransportOrder[] }>('/orders');
+      const result = await driverRequest<{ orders: DriverTransportOrder[] }>('/orders');
       if (current !== generation.current || sequence !== orderSequence.current) return;
       setOrders(result.orders); setError('');
     } catch (caught) {
@@ -130,18 +136,35 @@ export default function DriverApp() {
     finally { setLogoutBusy(false); }
   };
 
-  const updateStatus = async (order: TransportOrder, status: 'on_way' | 'done') => {
+  const updateStatus = async (order: DriverTransportOrder, status: 'on_way' | 'done') => {
     if (busyOrder || logoutBusy) return;
     const current = generation.current;
     setBusyOrder(order.id); setOrdersLoading(false); setError(''); setNotice('');
     // Prevent an older order-list response from replacing the status mutation.
     orderSequence.current += 1;
     try {
-      const result = await driverRequest<{ order: TransportOrder }>(`/orders/${encodeURIComponent(order.id)}/status`, { status });
+      const result = await driverRequest<{ order: DriverTransportOrder }>(`/orders/${encodeURIComponent(order.id)}/status`, { status });
       if (current !== generation.current) return;
       orderSequence.current += 1;
       setOrders(list => list.map(entry => entry.id === result.order.id ? result.order : entry));
       setNotice(status === 'done' ? `${order.id} är markerat som klart.` : `${order.id}: du är på väg.`);
+    } catch (caught) {
+      if (current !== generation.current) return;
+      if (caught instanceof DriverError && caught.status === 401) { clearSession(); setError('Logga in igen för att uppdatera uppdraget.'); }
+      else { await refreshOrders(); setError(errorMessage(caught)); }
+    } finally { if (current === generation.current) setBusyOrder(null); }
+  };
+
+  const updateLogistics = async (order: DriverTransportOrder, command: LogisticsDriverCommand) => {
+    if (busyOrder || logoutBusy) return;
+    const current = generation.current;
+    setBusyOrder(order.id); setError(''); setNotice(''); orderSequence.current += 1;
+    try {
+      const result = await driverRequest<{ order: DriverTransportOrder }>(`/orders/${encodeURIComponent(order.id)}/logistics`, command);
+      if (current !== generation.current) return;
+      orderSequence.current += 1;
+      setOrders(list => list.map(entry => entry.id === result.order.id ? result.order : entry));
+      setNotice({ 'travel.empty': 'Du är på väg till lastningsplatsen.', arrive: 'Ankomst till lastningsplatsen registrerad.', load: 'Lastade vikter är sparade.', sign: 'Den aktuella dokumentversionen är godkänd i demo.', depart: 'Transport med last har påbörjats.', deliver: 'Leveransen är registrerad.' }[command.action]);
     } catch (caught) {
       if (current !== generation.current) return;
       if (caught instanceof DriverError && caught.status === 401) { clearSession(); setError('Logga in igen för att uppdatera uppdraget.'); }
@@ -164,13 +187,13 @@ export default function DriverApp() {
       <label htmlFor="driver-password">Lösenord</label><div className="driver-input"><LockKeyhole size={18} /><input id="driver-password" name="password" type="password" autoComplete="current-password" required disabled={loginBusy} value={password} onChange={event => setPassword(event.target.value)} /></div>
       {error && <p className="driver-error" role="alert">{error}</p>}
       <button className="driver-button primary" disabled={loginBusy}>{loginBusy ? <><LoaderCircle className="driver-spinner" size={18} />Loggar in…</> : 'Logga in'}</button>
-    </form><p className="driver-login-help">Ditt konto administreras av JEROC.</p></main> : <main className="driver-main">
+    </form><p className="driver-login-help">Ditt konto administreras av JEROC. <a href="/akeri">Logga in som åkeriets transportledare</a></p></main> : <main className="driver-main">
       <section className="driver-welcome"><div className="driver-avatar">{session.person.name.split(' ').filter(Boolean).map(part => part[0]).slice(0, 2).join('')}</div><div><span className="driver-eyebrow">{session.company.name}</span><h1>Hej, {session.person.name.split(' ')[0]}</h1><p>Här är dina tilldelade uppdrag.</p></div></section>
       <div className="driver-list-heading"><h2>Mina uppdrag</h2><button className="driver-refresh" disabled={ordersLoading || Boolean(busyOrder) || logoutBusy} onClick={() => void refreshOrders(true)} aria-label="Uppdatera uppdrag"><RefreshCw size={18} className={ordersLoading ? 'driver-spinner' : ''} /></button></div>
       <div className="driver-tabs" role="tablist" aria-label="Uppdrag"><button role="tab" id="driver-active-tab" aria-selected={tab === 'active'} aria-controls="driver-order-list" className={tab === 'active' ? 'active' : ''} onClick={() => setTab('active')}>Uppdrag{activeOrders.length > 0 && <span>{activeOrders.length}</span>}</button><button role="tab" id="driver-history-tab" aria-selected={tab === 'history'} aria-controls="driver-order-list" className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>Avslutade</button></div>
       {error && <p className="driver-error" role="alert">{error}</p>}{notice && <p className="driver-notice" role="status"><CheckCircle2 size={18} />{notice}</p>}
       <section id="driver-order-list" role="tabpanel" aria-labelledby={tab === 'active' ? 'driver-active-tab' : 'driver-history-tab'} className="driver-order-list" aria-busy={ordersLoading}>
-        {ordersLoading && !orders.length ? <div className="driver-empty" role="status"><LoaderCircle className="driver-spinner" size={26} /><p>Hämtar uppdrag…</p></div> : shownOrders.length ? shownOrders.map(order => <DriverOrder key={order.id} order={order} open={openId === order.id} busy={busyOrder === order.id} disabled={Boolean(busyOrder) || logoutBusy} onToggle={() => setOpenId(current => current === order.id ? null : order.id)} onStatus={status => void updateStatus(order, status)} />) : <div className="driver-empty">{tab === 'active' ? <ClipboardList size={34} /> : <Clock3 size={34} />}<h2>{tab === 'active' ? 'Inga tilldelade uppdrag' : 'Inga avslutade uppdrag'}</h2><p>{tab === 'active' ? 'Nya uppdrag visas här när JEROC har tilldelat dem till dig.' : 'Slutförda och avbrutna uppdrag visas här.'}</p></div>}
+        {ordersLoading && !orders.length ? <div className="driver-empty" role="status"><LoaderCircle className="driver-spinner" size={26} /><p>Hämtar uppdrag…</p></div> : shownOrders.length ? shownOrders.map(order => <DriverOrder key={order.id} order={order} open={openId === order.id} busy={busyOrder === order.id} disabled={Boolean(busyOrder) || logoutBusy} onToggle={() => setOpenId(current => current === order.id ? null : order.id)} onStatus={status => void updateStatus(order, status)} onLogistics={command => void updateLogistics(order, command)} />) : <div className="driver-empty">{tab === 'active' ? <ClipboardList size={34} /> : <Clock3 size={34} />}<h2>{tab === 'active' ? 'Inga tilldelade uppdrag' : 'Inga avslutade uppdrag'}</h2><p>{tab === 'active' ? 'Nya uppdrag visas här när JEROC har tilldelat dem till dig.' : 'Slutförda och avbrutna uppdrag visas här.'}</p></div>}
       </section>
     </main>}
     <footer className="driver-footer">JEROC · Chaufförsportal{session?.demo !== false && ' · Demo'}</footer>

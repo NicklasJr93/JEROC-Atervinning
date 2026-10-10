@@ -7,6 +7,8 @@ import { DemoProvider } from './store';
 import './styles.css';
 const TerminalApp = React.lazy(() => import('./terminal/TerminalApp'));
 const DriverApp = React.lazy(() => import('./driver/DriverApp'));
+const CustomerApp = React.lazy(() => import('./customer/CustomerApp'));
+const CarrierApp = React.lazy(() => import('./carrier/CarrierApp'));
 const pagePath = window.location.pathname.replace(/\/$/, '');
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -16,6 +18,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <React.Suspense fallback={<div role="status">Öppnar kundterminal…</div>}><TerminalApp /></React.Suspense>
       ) : pagePath === '/chauffor' ? (
         <React.Suspense fallback={<div role="status">Öppnar förarvyn…</div>}><DriverApp /></React.Suspense>
+      ) : pagePath === '/kund' ? (
+        <React.Suspense fallback={<div role="status">Öppnar kundportalen…</div>}><CustomerApp /></React.Suspense>
+      ) : pagePath === '/akeri' ? (
+        <React.Suspense fallback={<div role="status">Öppnar åkeriportalen…</div>}><CarrierApp /></React.Suspense>
       ) : pagePath === '/kontor' ? (
         <OfficeApp />
       ) : (

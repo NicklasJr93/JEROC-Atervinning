@@ -22,6 +22,7 @@ export default function TransportDocumentPanel({ orderId, identity, canEdit, onC
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
+  const editable = canEdit && !draft?.managed;
   const baseline = useRef('');
   const dialog = useRef<HTMLDivElement>(null);
   const close = useRef(onClose); close.current = onClose;
@@ -56,7 +57,7 @@ export default function TransportDocumentPanel({ orderId, identity, canEdit, onC
     patch({siteId, carrier, ...(nextSite?.party ? draft.direction === 'pickup' ? {receiver:nextSite.party} : {sender:nextSite.party} : {})});
   }
   async function save(generatePdf: boolean) {
-    if (!draft || busy || !canEdit) return;
+    if (!draft || busy || !editable) return;
     setBusy(true); setError(''); setNotice('');
     try {
       let saved = draft;
@@ -74,6 +75,18 @@ export default function TransportDocumentPanel({ orderId, identity, canEdit, onC
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Transportunderlaget kunde inte sparas.'); }
     finally { setBusy(false); }
   }
+  async function generateManagedPdf() {
+    if (!draft?.managed || !draft.version || busy) return;
+    setBusy(true); setError('');
+    try {
+      const response = await documentApi.generateTransport(orderId, identity);
+      setDraft(response.draft);
+      setDocuments(previous => [response.document, ...previous.filter(value => value.id !== response.document.id)]);
+      setPreferredId(response.document.id); setTab('pdf');
+      setNotice('Den aktuella dokumentversionen är arkiverad.');
+    } catch (error) { setError(error instanceof Error ? error.message : 'PDF-filen kunde inte skapas.'); }
+    finally { setBusy(false); }
+  }
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); void save(false); }
   return <div className="transport-document-dialog" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <div className="document-panel" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="transport-document-title">
@@ -82,29 +95,30 @@ export default function TransportDocumentPanel({ orderId, identity, canEdit, onC
       {error && <div className="document-error" role="alert"><span>{error}</span><button className="office-btn outline" onClick={() => setAttempt(value => value + 1)}>{draft ? 'Hämta senaste' : 'Försök igen'}</button></div>}
       {notice && <p role="status">{notice}</p>}
       {loading ? <div className="document-empty" role="status">Hämtar transportunderlag…</div> : tab === 'pdf' ? <ArchiveViewer documents={documents} identity={identity} preferredId={preferredId} /> : draft && <form className="transport-document-form" onSubmit={submit}>
-        <fieldset disabled={busy || !canEdit}><legend>Transport</legend><div className="transport-document-grid">
+        <fieldset disabled={busy || !editable}><legend>Transport</legend><div className="transport-document-grid">
           <label>Anläggning<select aria-label="Anläggning för transportdokument" value={draft.siteId} onChange={event => chooseSite(event.target.value)}>{sites.length ? sites.map(site => <option key={site.id} value={site.id}>{site.name}</option>) : <option value={draft.siteId}>Aktuell anläggning</option>}</select></label>
           <label>Riktning<select aria-label="Riktning" value={draft.direction} onChange={event => { const direction = event.target.value as TransportDocumentDraft['direction']; if (direction !== draft.direction) patch({direction, sender:draft.receiver, receiver:draft.sender}); }}><option value="pickup">Hämtning till JEROC</option><option value="outbound">Utleverans från JEROC</option></select></label>
           <label>Referens<input value={draft.reference} onChange={event => patch({reference:event.target.value})} maxLength={200} /></label>
           <label>Planerat transportdatum<input type="date" value={dateValue(draft.startAt)} onChange={event => patch({startAt:event.target.value})} /></label>
           <label>Önskat datum<input type="date" value={dateValue(draft.requestedAt)} onChange={event => patch({requestedAt:event.target.value})} /></label>
         </div></fieldset>
-        <PartyFields title="Avsändare" party={draft.sender} disabled={busy || !canEdit} onChange={sender => patch({sender})} />
-        <PartyFields title="Mottagare" party={draft.receiver} disabled={busy || !canEdit} onChange={receiver => patch({receiver})} />
-        <PartyFields title="Transportör" party={draft.carrier} disabled={busy || !canEdit} onChange={carrier => patch({carrier})} />
-        <fieldset disabled={busy || !canEdit}><legend>Förare & fordon</legend><div className="transport-document-grid">
+        <PartyFields title="Avsändare" party={draft.sender} disabled={busy || !editable} onChange={sender => patch({sender})} />
+        <PartyFields title="Mottagare" party={draft.receiver} disabled={busy || !editable} onChange={receiver => patch({receiver})} />
+        <PartyFields title="Transportör" party={draft.carrier} disabled={busy || !editable} onChange={carrier => patch({carrier})} />
+        <fieldset disabled={busy || !editable}><legend>Förare & fordon</legend><div className="transport-document-grid">
           <label>Förare<input value={draft.driver} onChange={event => patch({driver:event.target.value})} maxLength={200} /></label><label>Registreringsnummer<input value={draft.registration} onChange={event => patch({registration:event.target.value})} maxLength={50} /></label>
           <label className="full">Hantering & instruktioner<textarea value={draft.handling} onChange={event => patch({handling:event.target.value})} maxLength={2000} /></label>
         </div></fieldset>
-        <fieldset disabled={busy || !canEdit}><legend>Material & mängd</legend><div className="transport-document-rows">{draft.rows.map((row, index) => <div className="transport-document-row" key={index}>
+        <fieldset disabled={busy || !editable}><legend>Material & mängd</legend><div className="transport-document-rows">{draft.rows.map((row, index) => <div className="transport-document-row" key={index}>
           <label>Material<input aria-label={`Material ${index + 1}`} value={row.name} onChange={event => patch({rows:draft.rows.map((value, at) => at === index ? {...value,name:event.target.value} : value)})} maxLength={200} /></label>
           <label>Avfallskod<input aria-label={`Avfallskod ${index + 1}`} value={row.wasteCode} onChange={event => patch({rows:draft.rows.map((value, at) => at === index ? {...value,wasteCode:event.target.value} : value)})} placeholder="T.ex. 16 06 01*" maxLength={20} /></label>
           <label>Vikt (kg)<input aria-label={`Vikt (kg) ${index + 1}`} type="number" min="0.001" max="1000000000" step="0.001" value={row.weight ?? ''} onChange={event => patch({rows:draft.rows.map((value, at) => at === index ? {...value,weight:event.target.value === '' ? null : Number(event.target.value)} : value)})} placeholder="Ej fastställd" /></label>
           <button type="button" aria-label={`Ta bort material ${index + 1}`} disabled={draft.rows.length === 1} onClick={() => patch({rows:draft.rows.filter((_, at) => at !== index)})}><Trash2 size={17} /></button>
-        </div>)}</div>{canEdit && <button type="button" className="office-link" disabled={draft.rows.length >= 100} onClick={() => patch({rows:[...draft.rows,{name:'',wasteCode:'',weight:null}]})}><Plus size={15} /> Lägg till material</button>}</fieldset>
+        </div>)}</div>{editable && <button type="button" className="office-link" disabled={draft.rows.length >= 100} onClick={() => patch({rows:[...draft.rows,{name:'',wasteCode:'',weight:null}]})}><Plus size={15} /> Lägg till material</button>}</fieldset>
         {draft.missing?.length > 0 && <div className="transport-document-missing"><strong>Uppgifter saknas i det sparade underlaget</strong><ul>{draft.missing.map((value, index) => <li key={index}>{value}</li>)}</ul></div>}
-        <p className="document-caption">Utkastet registrerar ingen lagerförflyttning och skickas inte till Naturvårdsverket. Signaturer och transportbekräftelser tillkommer i transportflödet.</p>
-        {canEdit && <div className="transport-document-actions"><button className="office-btn outline" disabled={busy}><Save size={16} /> {busy ? 'Sparar…' : 'Spara utkast'}</button><button type="button" className="office-btn" disabled={busy} onClick={() => { const form = dialog.current?.querySelector<HTMLFormElement>('form'); if (form?.reportValidity()) void save(true); }}><FileText size={16} /> Skapa PDF-utkast</button></div>}
+        <p className="document-caption">{draft.managed ? 'Uppgifterna kommer från arbetsorderns aktuella version. Ändra material, transportuppgifter och testunderskrifter på arbetsordern.' : 'Utkastet registrerar ingen lagerförflyttning och skickas inte till Naturvårdsverket. Signaturer och transportbekräftelser tillkommer i transportflödet.'}</p>
+        {draft.managed && <div className="transport-document-actions"><button type="button" className="office-btn" disabled={busy || !draft.version} onClick={() => void generateManagedPdf()}><FileText size={16} />Skapa PDF från aktuell version</button>{!draft.version && <small>Färdigställ transportunderlaget på arbetsordern först.</small>}</div>}
+        {editable && <div className="transport-document-actions"><button className="office-btn outline" disabled={busy}><Save size={16} /> {busy ? 'Sparar…' : 'Spara utkast'}</button><button type="button" className="office-btn" disabled={busy} onClick={() => { const form = dialog.current?.querySelector<HTMLFormElement>('form'); if (form?.reportValidity()) void save(true); }}><FileText size={16} /> Skapa PDF-utkast</button></div>}
       </form>}
     </div>
   </div>;

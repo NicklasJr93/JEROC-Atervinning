@@ -27,6 +27,9 @@ import {
   Leaf,
   Battery,
   Building2,
+  ClipboardList,
+  Package,
+  Container,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
@@ -49,6 +52,12 @@ import type { TerminalApproval } from './terminal-demo-types';
 const TransportWorkspace = lazy(() => import('./transport/TransportWorkspace'));
 const FacilitiesWorkspace = lazy(() => import('./FacilitiesWorkspace'));
 const PersonalWorkspace = lazy(() => import('./personnel/PersonalWorkspace'));
+const WorkOrdersWorkspace = lazy(() => import('./logistics/WorkOrdersWorkspace'));
+const WarehouseWorkspace = lazy(() => import('./logistics/WarehouseWorkspace'));
+const VesselsWorkspace = lazy(() => import('./logistics/VesselsWorkspace'));
+import { logisticsRequest } from './logistics/client';
+import type { LogisticsOfficeState } from './logistics/types';
+import type { WorkOrderPrefill } from './logistics/WorkOrderForm';
 import {
   cardRoute,
   inQueue,
@@ -190,6 +199,27 @@ export function OfficeApp() {
 
   const terminalDemo = useTerminalDemo(actualUser, user);
   const [siteFilter, setSiteFilter] = useState('all');
+  const [logisticsSummary, setLogisticsSummary] = useState<LogisticsOfficeState>();
+  const [workOrderPrefill, setWorkOrderPrefill] = useState<WorkOrderPrefill>();
+  useEffect(() => {
+    setLogisticsSummary(undefined);
+    setWorkOrderPrefill(undefined);
+    if (!actualUser || !user || !can(user, 'workOrdersRead')) return;
+    const abort = new AbortController();
+    const refresh = () => {
+      if (document.hidden) return;
+      void logisticsRequest(actualUser.id, user.id, undefined, abort.signal)
+        .then(value => { if (!abort.signal.aborted) setLogisticsSummary(value); })
+        .catch(() => { /* The module's own view reports connection errors. */ });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => { abort.abort(); window.clearInterval(timer); };
+  }, [actualUser?.id, user?.id, JSON.stringify(user?.permissions)]);
+  const createLogisticsOrder = (prefill: WorkOrderPrefill) => {
+    setWorkOrderPrefill(prefill);
+    navigate('/work-orders/new');
+  };
   const [selectedTerminalId, setSelectedTerminalId] = useState('');
   useEffect(() => { setSelectedTerminalId(''); }, [user?.id, siteFilter]);
   useEffect(() => {
@@ -679,6 +709,9 @@ export function OfficeApp() {
     { id: 'attest', name: 'Attest', icon: BadgeCheck, right: 'attest' },
     { id: 'payments', name: 'Utbetalningar', icon: Wallet, right: 'pay' },
     { id: 'customers', name: 'Kunder', icon: Users, right: 'view' },
+    { id: 'work-orders', name: 'Arbetsorder', icon: ClipboardList, right: 'workOrdersRead' },
+    { id: 'warehouse', name: 'Lager', icon: Package, right: 'warehouseRead' },
+    { id: 'vessels', name: 'Kärl & containrar', icon: Container, right: 'vesselsRead' },
     { id: 'transport', name: 'Transportplanering', icon: Truck, right: 'transportRead' },
     { id: 'personnel', name: 'Personal', icon: Users, right: 'personnelRead' },
     {
@@ -718,6 +751,8 @@ export function OfficeApp() {
   const visibleCards = data.cards.filter(c => siteFilter === 'all' || cardSiteId(c) === siteFilter);
   const navigationCounts: Record<string, number> = Object.fromEntries(workflowSections.map(section => [section, visibleCards.filter(card => inQueue(card, section, false)).length]));
   navigationCounts.corrections = data.corrections.filter(correction => correction.status !== 'approved' && visibleCards.some(card => card.id === correction.cardId)).length;
+  navigationCounts['work-orders'] = logisticsSummary?.orders.filter(order =>
+    !['done', 'cancelled'].includes(order.status) && (siteFilter === 'all' || order.detail.siteId === siteFilter)).length ?? 0;
   const cards = visibleCards
     .filter((c) => inQueue(c, section, historyTab))
     .filter((c) => !filter || c.status === filter)
@@ -1135,6 +1170,8 @@ export function OfficeApp() {
       officeBlocked={blocked}
       onExit={() => navigate('/dashboard')}
       onOpenStaffing={() => navigate('/personnel/tasks')}
+      initialOrderId={new URLSearchParams(location.search).get('order') ?? undefined}
+      onOpenWorkOrder={id => navigate(`/work-orders/${encodeURIComponent(id)}`)}
       workAsControl={actualUser?.level === 'Systemadmin' ? (
         <label>Jobba som
           <select aria-label="Jobba som" value={acting ? user.id : ''} onChange={event => workAs(event.target.value)}>
@@ -2112,6 +2149,21 @@ export function OfficeApp() {
                 />
               )}
             </>
+          ) : section === 'work-orders' ? (
+            <Suspense fallback={<div role="status">Hämtar arbetsorder…</div>}><WorkOrdersWorkspace
+              key={`${actualUser!.id}:${user.id}`} actorId={actualUser!.id} userId={user.id} user={user}
+              selectedSite={siteFilter} prefill={workOrderPrefill} onPrefillConsumed={() => setWorkOrderPrefill(undefined)}
+              onNavigatePlanning={id => navigate(`/transport?order=${encodeURIComponent(id)}`)} onNotice={setMessage} /></Suspense>
+          ) : section === 'warehouse' ? (
+            <Suspense fallback={<div role="status">Hämtar lagret…</div>}><WarehouseWorkspace
+              key={`${actualUser!.id}:${user.id}`} actorId={actualUser!.id} userId={user.id} user={user}
+              selectedSite={siteFilter} onNotice={setMessage}
+              onBookOutbound={prefill => createLogisticsOrder({ ...prefill, action: 'outbound' })} /></Suspense>
+          ) : section === 'vessels' ? (
+            <Suspense fallback={<div role="status">Hämtar kärl och avtal…</div>}><VesselsWorkspace
+              key={`${actualUser!.id}:${user.id}`} actorId={actualUser!.id} userId={user.id} user={user}
+              customers={data.customers} selectedSite={siteFilter} onNotice={setMessage}
+              onBookOrder={prefill => createLogisticsOrder(prefill)} /></Suspense>
           ) : accountsView ? (
             <>
               <nav className="office-personnel-nav" aria-label="Personal">

@@ -195,14 +195,14 @@ test('transportutkast kan byta riktning och arkivera flera PDF-versioner utan la
   expect(draft).toMatchObject({ direction: 'outbound', version: 1, reference: `PDF-${orderId}` });
   expect(draft.rows[0]).toMatchObject({ name: 'Blybatterier', weight: 14.5 });
   await dialog.getByRole('button', { name: 'Skapa PDF-utkast', exact: true }).click();
-  await expect(dialog.getByRole('status')).toHaveText('PDF-utkastet är arkiverat.');
+  await expect(dialog.getByRole('status').filter({ hasText: 'PDF-utkastet är arkiverat.' })).toHaveText('PDF-utkastet är arkiverat.');
   const first = (await archive(request, 'transport', orderId))[0], firstBytes = await pdf(request, first);
   expect(first.stage).toBe('draft');
   await downloadMatches(page, dialog, firstBytes);
   await dialog.getByRole('button', { name: 'Uppgifter', exact: true }).click();
   await dialog.getByLabel('Vikt (kg) 1', { exact: true }).fill('17.2');
   await dialog.getByRole('button', { name: 'Skapa PDF-utkast', exact: true }).click();
-  await expect(dialog.getByRole('status')).toHaveText('PDF-utkastet är arkiverat.');
+  await expect(dialog.getByRole('status').filter({ hasText: 'PDF-utkastet är arkiverat.' })).toHaveText('PDF-utkastet är arkiverat.');
   const versions = await archive(request, 'transport', orderId);
   expect(versions.map(document => document.sourceVersion).sort()).toEqual([1, 2]);
   expect((await pdf(request, first)).equals(firstBytes)).toBe(true);

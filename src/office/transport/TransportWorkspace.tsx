@@ -22,6 +22,8 @@ type Props = {
   user: OfficeUser; actualUser: OfficeUser; customers: OfficeCustomer[];
   onExit(): void; workAsControl?: ReactNode; officeBlocked?: boolean;
   onOpenStaffing?(): void;
+  initialOrderId?: string;
+  onOpenWorkOrder?(id: string): void;
 };
 const readableDate = (date: string, compact = false) => new Intl.DateTimeFormat('sv-SE', {
   timeZone: 'Europe/Stockholm', weekday: 'short', day: 'numeric', month: compact ? 'short' : 'long', year: 'numeric',
@@ -31,7 +33,7 @@ const ActionIcon = ({ action }: { action: TransportOrder['action'] }) => {
   return <Icon size={16} />;
 };
 
-export default function TransportWorkspace({ user, actualUser, customers, onExit, workAsControl, officeBlocked, onOpenStaffing }: Props) {
+export default function TransportWorkspace({ user, actualUser, customers, onExit, workAsControl, officeBlocked, onOpenStaffing, initialOrderId, onOpenWorkOrder }: Props) {
   const [initial] = useState(() => {
     try {
       const raw = localStorage.getItem(transportKey);
@@ -103,7 +105,16 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   };
   const outbox = useTransportOutbox(data.events, actor);
   const selectedId = panel && 'id' in panel ? panel.id : null;
-  const projectedOrders = effectiveTransportOrders(data);
+  const projectedOrders = effectiveTransportOrders(data).filter(order => order.operator !== 'external');
+  const openedFromLink = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!shared.ready || !initialOrderId || openedFromLink.current === initialOrderId) return;
+    const order = data.orders.find(entry => entry.id === initialOrderId && entry.operator !== 'external');
+    if (!order) return;
+    openedFromLink.current = initialOrderId;
+    setPanel({ kind: 'details', id: order.id });
+    if (order.date || order.requestedDate) setDate(order.date ?? order.requestedDate!);
+  }, [shared.ready, initialOrderId, data.orders]);
   const preliminaryOrders = projectedOrders.filter(order => order.preliminary);
   const selected = projectedOrders.find(order => order.id === selectedId);
   const editor = panel && ['create', 'edit', 'book'].includes(panel.kind);
@@ -430,6 +441,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
                 {planning && <div><button onClick={() => book(selected, 'before')}>Boka före</button><button onClick={() => book(selected, 'after')}>Boka efter</button></div>}
               </div>}
               <div className="transport-detail-actions">
+                {onOpenWorkOrder && <button onClick={() => onOpenWorkOrder(selected.id)}><FileText size={16} />Öppna hela arbetsordern</button>}
                 {planning && selected.status === 'unbooked' && <button className="transport-primary" onClick={() => book(selected)}><CalendarCheck size={17} />Boka uppdrag</button>}
                 {planning && ['unbooked', 'booked'].includes(selected.status) && <button onClick={() => { setPanel({ kind: 'edit', id: selected.id }); setError(''); }}><Pencil size={16} />Redigera</button>}
                 {planning && selected.preliminary && <button onClick={() => updatePlanning(previous => removePreliminary(previous, selected.id, actor), selected.id + ' är åter obokad.')}>Ta bort preliminär bokning</button>}

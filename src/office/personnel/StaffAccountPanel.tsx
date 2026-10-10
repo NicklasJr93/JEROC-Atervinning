@@ -17,6 +17,11 @@ const permissionPrerequisites: Partial<Record<Permission, Permission[]>> = {
   competenciesWrite: ['personnelRead'],
   staffingWrite: ['personnelRead', 'transportRead', 'transportPlan'],
   externalAccounts: ['personnelRead'],
+  workOrdersWrite: ['workOrdersRead'],
+  vesselsWrite: ['vesselsRead'],
+  warehouseWrite: ['warehouseRead'],
+  customerAccounts: ['vesselsRead'],
+  carrierAccounts: ['workOrdersRead'],
 };
 function changedPermissions(current: Permission[], key: Permission, checked: boolean): Permission[] {
   if (checked) return [...new Set([...current, key, ...(permissionPrerequisites[key] ?? [])])];
