@@ -1337,3 +1337,9 @@ Status: Implementerad i kontorsdemo 0.13.1, felsökning beställd 2026-10-10.
   från den verkliga HTTPS-anslutningen i försökshistoriken. TLS-verifiering
   behålls. Syftet är att utesluta anslutningsberoende identitetsproblem,
   inte att hävda att återanvändning varit felorsaken.
+- Kontrollerat TEST-försök 2026-10-10 kl. 19:22 svensk tid: fortfarande
+  HTTP 400/fel 1023 trots verksamhetsutövare och faktiskt TLS-certifikat
+  med orgnummer 5560000167. Inget avfalls-ID eller accepterad registrering.
+  Tidigare försök bevarat. Supportunderlag finns i
+  docs/integrationer/naturvardsverket/felsokning-1023.md; NVV:s faktiskt
+  jämförda rapportörsidentitet återstår att klarlägga.
