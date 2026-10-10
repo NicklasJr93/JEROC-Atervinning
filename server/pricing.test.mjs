@@ -655,6 +655,22 @@ test('transport permissions can be saved and planning requires reading', () => {
   assert.deepEqual(readonly.users.find(user => user.id === 'anna').permissions, ['view', 'transportRead']);
 });
 
+test('NVV sending rights are explicit for VD and correction grants require reading and sending', () => {
+  const { store, admin, lars } = setup();
+  const rights = ['environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage'];
+  const vd = { ...lars.user, permissions: lars.user.permissions.filter(right => !rights.includes(right)) };
+  for (const right of rights) {
+    assert.equal(store.can(vd, right), false);
+    assert.equal(store.can(admin.user, right), true);
+  }
+  const users = store.read(admin).users;
+  const withPermissions = permissions => users.map(user => user.id === 'anna' ? { ...user, permissions } : user);
+  fails(() => store.saveUsers({ users: withPermissions(['view', 'environmentReport']) }, admin));
+  fails(() => store.saveUsers({ users: withPermissions(['view', 'environmentRead', 'environmentReportCorrect']) }, admin));
+  const saved = store.saveUsers({ users: withPermissions(['view', 'environmentRead', 'environmentReport', 'environmentReportCorrect']) }, admin);
+  assert.equal(store.can(saved.users.find(user => user.id === 'anna'), 'environmentReportCorrect'), true);
+});
+
 test('financial permissions expose authoritative totals while restricted row prices remain hidden', () => {
   const { store, admin, lars } = setup();
   const frozen = store.snapshot(

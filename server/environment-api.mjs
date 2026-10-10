@@ -3,6 +3,8 @@ import { createEnvironmentStore } from './environment-model.mjs';
 import { createPricingStore } from './pricing.mjs';
 import { z } from 'zod';
 import { createEnvironmentAddressResolver, ENVIRONMENT_MUNICIPALITIES } from './environment-address.mjs';
+import { createNvvClient } from './nvv-client.mjs';
+import { createIntegrationEngine, createNvvIntegrationAdapter } from './integrations.mjs';
 
 const COOKIE = 'jeroc_environment_staff';
 const MAX_BODY = 128 * 1024;
@@ -40,15 +42,15 @@ async function body(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new EnvironmentError('Ogiltig JSON.'); }
 }
 
-/** This module deliberately exports no NVV transport. It prepares durable
- * receipt/report records only. Staff sessions are explicit demo sessions;
- * legacy demo APIs keep their documented security boundaries. */
-export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, addressResolver = createEnvironmentAddressResolver() } = {}) {
+/** Cookie-authenticated façade over the durable environment/reporting service.
+ * Staff sessions remain explicit demo sessions. The integration registry uses
+ * a server-owned organisation scope, not browser-supplied tenant identifiers. */
+export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, nvvClient, addressResolver = createEnvironmentAddressResolver() } = {}) {
   let repositoryPromise, storePromise;
   const getStore = () => {
     if (!storePromise) {
       repositoryPromise = repository ? Promise.resolve(repository) : createEnvironmentRepository({ env });
-      storePromise = repositoryPromise.then((value) => createEnvironmentStore({ repository: value, principalStore, now, approvalGuard, outboundProvider, demoMode: env.JEROC_DEMO_AUTO_SESSION !== 'false' }));
+      storePromise = repositoryPromise.then((value) => createEnvironmentStore({ repository: value, principalStore, now, approvalGuard, outboundProvider, nvvClient: nvvClient ?? createNvvClient({ env, now }), demoMode: env.JEROC_DEMO_AUTO_SESSION !== 'false' }));
       const attempt = storePromise;
       attempt.catch(() => { if (storePromise === attempt) { storePromise = undefined; repositoryPromise = undefined; } });
     }
@@ -88,7 +90,29 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
         const correction = route.match(/^\/receipts\/([a-fA-F0-9-]{36})\/corrections$/);
         const site = route.match(/^\/sites\/([a-zA-Z0-9_-]{1,100})$/);
         const storage = route.match(/^\/storage(?:\/policies)?\/([a-zA-Z0-9_-]{1,100})$/);
-        if (read && classification) json(res, 200, await store.classification(classification[1], token), req.method === 'HEAD');
+        const nvvReport = route.match(/^\/nvv\/reports\/([^/]+)(?:\/(send|reconcile))?$/);
+        let nvvReportId;
+        if (nvvReport) { try { nvvReportId = decodeURIComponent(nvvReport[1]); if (nvvReportId.length > 200) throw new Error(); } catch { throw new EnvironmentError('Ogiltigt miljöunderlags-ID.', 400, 'report_invalid'); } }
+        if (read && route === '/integrations/catalog') {
+          const principal = await store.authorize(token, 'integrationsRead');
+          // There is one demo organisation today. A future SaaS authenticator
+          // must derive memberships here and migrate provider storage by tenant.
+          const context = { organisationId: 'jeroc-demo', allowedOrganisationIds: ['jeroc-demo'],
+            actorId: principal.actor.id, effectiveUserId: principal.user.id, canRead: true,
+            canManage: principal.actor.level === 'Systemadmin' && principal.user.level === 'Systemadmin'
+              && !principal.actor.siteIds && !principal.user.siteIds };
+          const integrations = createIntegrationEngine({ adapters: [createNvvIntegrationAdapter({
+            organisationId: 'jeroc-demo', status: () => store.nvvStatus(token), check: () => store.nvvCheck(token),
+          })] });
+          json(res, 200, await integrations.catalog(context), req.method === 'HEAD');
+        }
+        else if (read && route === '/nvv/status') json(res, 200, await store.nvvStatus(token), req.method === 'HEAD');
+        else if (req.method === 'PUT' && route === '/nvv/reporter') json(res, 200, await store.nvvSaveReporter(await body(req), token));
+        else if (req.method === 'POST' && route === '/nvv/check') { const input = await body(req); if (!z.object({}).strict().safeParse(input).success) throw new EnvironmentError('Anslutningsprovet tar inga klientuppgifter.', 422); json(res, 200, await store.nvvCheck(token)); }
+        else if (read && nvvReport && !nvvReport[2]) json(res, 200, await store.nvvDetail(nvvReportId, token), req.method === 'HEAD');
+        else if (req.method === 'POST' && nvvReport?.[2] === 'send') json(res, 200, await store.nvvSend(nvvReportId, await body(req), token));
+        else if (req.method === 'POST' && nvvReport?.[2] === 'reconcile') json(res, 200, await store.nvvReconcile(nvvReportId, await body(req), token));
+        else if (read && classification) json(res, 200, await store.classification(classification[1], token), req.method === 'HEAD');
         else if (req.method === 'PUT' && classification) json(res, 200, await store.classify(classification[1], await body(req), token));
         else if (req.method === 'PUT' && site) json(res, 200, await store.saveSite(site[1], await body(req), token));
         else if (req.method === 'PUT' && storage) json(res, 200, await store.saveStoragePolicy(storage[1], await body(req), token));

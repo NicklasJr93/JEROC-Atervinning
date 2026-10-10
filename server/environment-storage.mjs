@@ -13,15 +13,17 @@ export const initialEnvironmentState = () => ({
   schemaVersion: 1, revision: 0, demoGeneration: ENVIRONMENT_DEMO_GENERATION,
   credentials: [], sessions: [], classifications: [], storagePolicies: [], siteRecords: [], drafts: [], receipts: [], corrections: [], inventory: [],
   reports: [], requests: [], audit: [], loginAttempts: [],
+  nvvSettings: [], nvvChecks: [], nvvReports: [], nvvAttempts: [], nvvJobs: [],
 });
-const entities = ['credentials', 'sessions', 'classifications', 'storagePolicies', 'siteRecords', 'drafts', 'receipts', 'corrections', 'inventory', 'reports', 'requests', 'audit'];
+const nvvEntities = ['nvvSettings', 'nvvChecks', 'nvvReports', 'nvvAttempts', 'nvvJobs'];
+const entities = ['credentials', 'sessions', 'classifications', 'storagePolicies', 'siteRecords', 'drafts', 'receipts', 'corrections', 'inventory', 'reports', 'requests', 'audit', ...nvvEntities];
 const table = (name) => `jeroc_environment_${name}`;
 const metadata = (state) => Object.fromEntries(Object.entries(state).filter(([key]) => !entities.includes(key)));
 const entityKey = (name, value) => name === 'credentials' ? value.userId
   : name === 'sessions' ? value.tokenHash
     : name === 'classifications' ? `${value.articleId}:${value.version}`
       : name === 'siteRecords' ? `${value.id}:${value.version}` : value.id;
-const immutableEntities = ['classifications', 'storagePolicies', 'siteRecords', 'receipts', 'corrections', 'inventory', 'audit'];
+const immutableEntities = ['classifications', 'storagePolicies', 'siteRecords', 'receipts', 'corrections', 'inventory', 'audit', 'nvvSettings', 'nvvChecks', 'nvvReports', 'nvvAttempts'];
 function demandImmutable(state, previous, allowRewrite) {
   if (allowRewrite) return;
   for (const name of immutableEntities) {
@@ -51,6 +53,7 @@ function decodeBackup(value) {
   try { state = JSON.parse(value); } catch { throw new EnvironmentError('Säkerhetskopian är ogiltig.'); }
   // Older Etapp 1 backups legitimately have no drafts/corrections yet.
   if (state && state.schemaVersion === 1) { state.drafts ??= []; state.corrections ??= []; state.storagePolicies ??= []; state.siteRecords ??= []; }
+  if (state && state.schemaVersion === 1) for (const name of nvvEntities) state[name] ??= [];
   if (!state || state.schemaVersion !== 1 || entities.some((name) => !Array.isArray(state[name])))
     throw new EnvironmentError('Säkerhetskopians struktur eller version är ogiltig.');
   if (new Set(state.receipts.map((receipt) => receipt.sourceId)).size !== state.receipts.length)
@@ -60,6 +63,9 @@ function decodeBackup(value) {
     throw new EnvironmentError('Säkerhetskopian saknar en mottagning.');
   if (state.corrections.some((record) => !receipts.has(record.receiptId)) || new Set(state.corrections.map((record) => `${record.receiptId}:${record.version}`)).size !== state.corrections.length)
     throw new EnvironmentError('Säkerhetskopians miljörättelser är ogiltiga.');
+  const nvvVersions = new Set(state.nvvReports.map(record => record.id));
+  if (state.nvvReports.some(record => !receipts.has(record.receiptId)) || state.nvvAttempts.some(record => !nvvVersions.has(record.versionId)) || state.nvvJobs.some(record => !nvvVersions.has(record.versionId)))
+    throw new EnvironmentError('Säkerhetskopians NVV-versioner eller kvittenser saknar underlag.');
   if (new Set(state.storagePolicies.map((record) => record.id)).size !== state.storagePolicies.length
     || new Set(state.storagePolicies.map((record) => `${record.siteId}:${record.version}`)).size !== state.storagePolicies.length
     || new Set(state.siteRecords.map((record) => `${record.id}:${record.version}`)).size !== state.siteRecords.length)
@@ -76,6 +82,7 @@ export async function createEnvironmentRepository({ env = process.env, filename 
   const migration = await readFile(fileURLToPath(new URL('./migrations/environment-001.sql', import.meta.url)), 'utf8');
   const followupMigration = await readFile(fileURLToPath(new URL('./migrations/environment-002.sql', import.meta.url)), 'utf8');
   const storageMigration = await readFile(fileURLToPath(new URL('./migrations/environment-003.sql', import.meta.url)), 'utf8');
+  const nvvMigration = await readFile(fileURLToPath(new URL('./migrations/environment-004.sql', import.meta.url)), 'utf8');
   let repository;
   if (env.DATABASE_URL) {
     const { Pool } = await import('pg');
@@ -89,6 +96,7 @@ export async function createEnvironmentRepository({ env = process.env, filename 
       await migrationClient.query(migration);
       await migrationClient.query(followupMigration);
       await migrationClient.query(storageMigration);
+      await migrationClient.query(nvvMigration);
       await migrationClient.query('INSERT INTO jeroc_environment_meta (id, data) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING', [JSON.stringify(metadata(initialEnvironmentState()))]);
       await migrationClient.query('COMMIT');
     } catch (error) {
@@ -144,6 +152,7 @@ export async function createEnvironmentRepository({ env = process.env, filename 
     database.exec(migration.replaceAll('JSONB', 'TEXT'));
     database.exec(followupMigration.replaceAll('JSONB', 'TEXT'));
     database.exec(storageMigration.replaceAll('JSONB', 'TEXT'));
+    database.exec(nvvMigration.replaceAll('JSONB', 'TEXT'));
     database.prepare('INSERT OR IGNORE INTO jeroc_environment_meta (id, data) VALUES (1, ?)').run(JSON.stringify(metadata(initialEnvironmentState())));
     await chmod(file, 0o600);
     let tail = Promise.resolve();

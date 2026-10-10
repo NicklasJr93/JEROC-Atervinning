@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { EnvironmentError } from './environment-storage.mjs';
 import { ENVIRONMENT_MUNICIPALITIES, parseOriginAddress } from './environment-address.mjs';
 import { assessEnvironmentalStorage, currentEnvironmentSites, currentStoragePolicies } from './environment-storage-rules.mjs';
+import { createNvvClient } from './nvv-client.mjs';
+import { createNvvReporting } from './nvv-reporting.mjs';
 
 export const ENVIRONMENT_DEMO_PASSWORD = 'JerocDemo2026!';
 export const ENVIRONMENT_SITES = [
@@ -123,7 +125,9 @@ const passwordMatches = (value, record) => {
   const actual = scryptSync(value, record.salt, 64), expected = Buffer.from(record.digest, 'hex');
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 };
-export const environmentCan = (principal, right) => principal.user.level !== 'Medarbetare' || principal.user.permissions.includes(right);
+export const environmentCan = (principal, right) => ['environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage'].includes(right)
+  ? principal.user.level === 'Systemadmin' || principal.user.permissions.includes(right)
+  : principal.user.level !== 'Medarbetare' || principal.user.permissions.includes(right);
 const demand = (principal, right) => { if (!environmentCan(principal, right)) throw new EnvironmentError('Du saknar miljöbehörighet för detta moment.', 403, 'forbidden'); };
 const sitesFor = (state, principal) => currentEnvironmentSites(state).filter((site) => !Array.isArray(principal.user.siteIds) || principal.user.siteIds.includes(site.id));
 const demandSite = (state, principal, siteId) => { if (!sitesFor(state, principal).some((site) => site.id === siteId)) throw new EnvironmentError('Du saknar åtkomst till denna anläggning.', 403, 'site_forbidden'); };
@@ -204,6 +208,24 @@ const reportVersions = (state, receipt) => {
     });
   });
 };
+const nvvContexts = new WeakMap();
+const nvvReportContext = (state, reportId) => {
+  let contexts = nvvContexts.get(state);
+  if (!contexts) {
+    contexts = new Map();
+    for (const original of state.receipts) {
+      const receipt = effectiveReceipt(state, original), reports = reportVersions(state, original).at(-1);
+      for (const report of reports) {
+        const row = receipt.snapshot.rows.find(item => item.articleId === report.articleId);
+        const sourceReportIds = reports.filter(item => item.wasteCode === report.wasteCode).map(item => item.id).sort();
+        contexts.set(report.id, { reportId: report.id, receipt, row, sourceReportIds });
+      }
+    }
+    nvvContexts.set(state, contexts);
+  }
+  if (contexts.has(reportId)) return contexts.get(reportId);
+  throw new EnvironmentError('Miljöunderlaget finns inte i aktuell mottagningsversion.', 404, 'report_not_found');
+};
 
 /** Calendar days in Sweden, including public holidays. Dates are deliberately
  * date-only local deadlines, never midnight-UTC instants that move with DST. */
@@ -231,13 +253,15 @@ export function addSwedishWorkingDays(receivedAt, count) {
   return dateNumber(day);
 }
 
-export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true, approvalGuard, outboundProvider = async () => [] }) {
+export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true, approvalGuard, outboundProvider = async () => [], nvvClient = createNvvClient({ now }) }) {
   if (!repository || !principalStore) throw new Error('Environment requires durable repository and principal store.');
   const outboundSnapshots = new WeakMap();
+  let nvv;
   // Read the application ledger before taking the environmental aggregate lock.
   // Never persist copied movements or hold cross-module locks at the same time.
   const transaction = (operation) => { const run = async () => {
     const outbound = await outboundProvider();
+    await nvv?.prepare();
     return repository.transact((state) => {
     outboundSnapshots.set(state, outbound);
     const time = now();
@@ -289,8 +313,15 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     if (!assessment.canReceive) throw new EnvironmentError(assessment.checks.filter((check) => check.severity === 'blocked')
       .map((check) => check.message).join(' '), 409, 'storage_blocked');
   };
+  nvv = createNvvReporting({ transaction, principalFor, demandSite, resolveReport: nvvReportContext, client: nvvClient, now });
   return {
     repository,
+    nvvStatus: token => nvv.status(token),
+    nvvSaveReporter: (payload, token) => nvv.saveReporter(payload, token),
+    nvvCheck: token => nvv.check(token),
+    nvvDetail: (reportId, token) => nvv.detail(reportId, token),
+    nvvSend: (reportId, payload, token) => nvv.send(reportId, payload, token),
+    nvvReconcile: (reportId, payload, token) => nvv.reconcile(reportId, payload, token),
     // Internal server catalogue for terminal/pricing integration, never an
     // unauthenticated customer HTTP endpoint.
     catalog() { return transaction((state) => copy(currentEnvironmentSites(state))); },
@@ -323,6 +354,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     },
     authorize(token, right, siteId) { return transaction((state, time) => {
       const { principal } = principalFor(state, token, time); demand(principal, right); if (siteId) demandSite(state, principal, siteId);
+      return copy(principal);
     }); },
     assertIdentity(token, actualUserId, effectiveUserId) { return transaction((state, time) => {
       const { principal } = principalFor(state, token, time);
@@ -371,6 +403,10 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       const originals = state.receipts.filter((record) => visible.has(record.siteId));
       const reportHistory = [], reports = [];
       for (const receipt of originals) { const versions = reportVersions(state, receipt); reports.push(...versions.at(-1)); reportHistory.push(...versions.slice(0, -1).flat().map((record) => ({ ...record, status: 'superseded' }))); }
+      for (const report of reports) {
+        const projection = nvv.projection(state, nvvReportContext(state, report.id), time);
+        Object.assign(report, { status: projection.status, missingFields: projection.missingFields, mode: projection.mode === 'disabled' ? 'prepared-only' : projection.mode, nvv: projection });
+      }
       return { demo: true, mode: 'prepared-only', revision: state.revision, actualUserId: principal.actor.id, effectiveUserId: principal.user.id, sites: copy(sites),
         classifications: [...articleIds].map((articleId) => copy(currentClassification(state, articleId))),
         storagePolicies: copy(currentStoragePolicies(state).filter((record) => visible.has(record.siteId))),

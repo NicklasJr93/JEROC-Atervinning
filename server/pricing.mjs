@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 
-// This repository deliberately has no database yet. The store boundary below can
-// be replaced with a repository without moving calculations into the clients.
+// Calculations stay in the store; application.mjs persists this state through
+// the shared repository without moving calculations into the clients.
 export const metals = [
   { id: 'copper', name: 'Koppar' },
   { id: 'aluminium', name: 'Aluminium' },
@@ -47,6 +47,11 @@ export const permissions = [
   'customerApprovalRead',
   'environmentRead',
   'environmentWrite',
+  'environmentReport',
+  'environmentReportCorrect',
+  'environmentIntegration',
+  'integrationsRead',
+  'integrationsManage',
   'environmentClassify',
   'environmentStorage',
   'environmentReceiveException',
@@ -62,7 +67,7 @@ export const permissions = [
   'staffingWrite',
   'externalAccounts',
 ];
-const sensitivePersonnelPermissions = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite'];
+const sensitivePersonnelPermissions = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage'];
 const finite = z.number().finite();
 const nonnegative = finite.min(0).max(1e9);
 const id = z
@@ -352,7 +357,7 @@ function seedUsers() {
       id: 'lars',
       name: 'Lars Andersson',
       level: 'VD',
-      permissions: [...permissions],
+      permissions: permissions.filter(right => !['environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage'].includes(right)),
       maxAttest: 100000,
       ownAttest: true,
     },
@@ -1503,6 +1508,11 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     // In particular VD may have ordinary access while salary/absence rights
     // remain deliberately selected; a Write grant requires its matching Read.
     const personnelPrerequisites = {
+      environmentReport: ['environmentRead'],
+      environmentReportCorrect: ['environmentRead', 'environmentReport'],
+      environmentIntegration: ['environmentRead'],
+      integrationsRead: ['environmentRead'],
+      integrationsManage: ['environmentRead', 'integrationsRead'],
       personnelWrite: ['personnelRead'],
       employmentRead: ['personnelRead'],
       employmentWrite: ['personnelRead', 'employmentRead'],
