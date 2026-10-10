@@ -1002,7 +1002,8 @@ passerade, två valfria PostgreSQL-tester hoppades över i standardkörningen.
 befintliga kontors-/behörighets-/attest-/betalningsflöden.
 
 052 – Lager, utleverans och transportdokument – mockuper
-Status: Mockuper framtagna på beställning 2026-10-09. Appbygge inväntar granskning.
+Status: Mockuper framtagna på beställning 2026-10-09, A4-förslag uppdaterat
+2026-10-10. Appbygge inväntar granskning.
 - Lager per anläggning med artikelmängd, reserverad mängd, fritt lager,
   lagringsgränser, källpartier och händelser. Första exemplet är farligt avfall.
 - Utleverans använder samma arbetsorder och befintliga transportplanering.
@@ -1012,8 +1013,19 @@ Status: Mockuper framtagna på beställning 2026-10-09. Appbygge inväntar grans
 - Externa åkerier får önskad tid och kan utse förare/fordon senare.
 - Transportunderlag, underskrifter/ADR och borttransportanteckning visas
   tydligt som demo. Inga NVV-, bank-, Visma- eller meddelandeanrop aktiveras.
-- Sex skärmbilder, en A4-PDF och fristående klickbar prototyp:
+- Sju PNG-bilder, två ensidiga A4-PDF:er och fristående klickbar ZIP-prototyp:
   docs/mockups/lager-utleverans/README.md.
 - A4-transportdokumentet följer användarens bifogade avräkningsnotas stil.
-  Förhandsvisning skiljer planerad mängd/osignerat från verklig last/simulerade
-  underskrifter. Tidigare dokumentmockuper och verksamhetskod är oförändrade.
+  Separata bilder/PDF:er för utkast med planerad mängd 1 000 kg och fastställd
+  demoversion med verklig last 980 kg och simulerade underskrifter.
+- A4 visar fiktiva demo-organisationsnummer/adresser för lämnare, transportör
+  och mottagare. Dubbla Från/Till-adresser och Kopplade lagerpartier tas bort.
+  Två underskriftsrutor visar metod, dokumentversion och tid.
+- QR-koden Öppna mockup öppnar respektive dokumentbild i GitHub. PDF-filerna
+  är designunderlag; inget verksamhetsarkiv, riktiga underskrifter eller
+  produktionslänkar införs.
+- De första fem lagerbilderna behåller tidigare partiexempel. Inför appbygge
+  föreslås förenklat lager per artikel, avfallskod och anläggning med automatisk
+  rörelsehistorik, utan krav på att personal manuellt väljer inkommande
+  kundpartier. Förenklingen återstår i lager- och utleveransvyerna.
+- Tidigare dokumentmockuper och verksamhetskod är oförändrade.
