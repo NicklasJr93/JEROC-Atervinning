@@ -1415,3 +1415,21 @@ Status: Implementerad i kontorsdemo 0.15.0 efter byggstart 2026-10-11.
 - Verifierat: npm run build; 47 fokuserade servertester och åtta
   webbläsarfall. Isolerad PostgreSQL-kontroll av kryptering, flerinstans-
   OAuth/tokenförnyelse och idempotens utan affärslås. Inga externa testanrop.
+
+071 – Spiris sandbox: manuell vidarebefordran av localhostretur
+Status: Implementerad i kontorsdemo 0.15.1, 2026-10-11.
+- VISMA_OAUTH_LOCAL_RELAY=true tillåter enbart den redan registrerade
+  https://localhost:44300/callback och endast i sandboxläget.
+- Efter Spiris-godkännandet kan systemadmin kopiera localhostadressen till
+  testsidans nya fält. Webbläsaren vidarebefordrar bara state/code eller
+  state/error till JEROC:s fasta callback. Ingen lokal server behövs.
+- Befintlig HttpOnly-browserbindning, engångs-state, PKCE och samma aktiva
+  adminsession krävs även här. Tokenutbytet använder samma registrerade
+  localhostadress; ingen tokenimport eller automatisk växling tillkommer.
+- Den inklistrade adressen sparas inte i webbläsarlagring/testhistorik.
+  API-anrop och tokenförnyelse kör sedan helt på Render som tidigare.
+- Render-inställningar och steg för verklig användarinloggning finns i
+  docs/integrationer/spiris-visma/sandbox-setup.md.
+- Verifierat: produktionsbygget, 42 fokuserade Spiris-servertester och ett
+  nytt webbläsarfall för vidarebefordran, cookie och lokal URL-validering.
+  Providersvar är fejkade; verklig Spiris-inloggning återstår.

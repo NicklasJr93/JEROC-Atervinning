@@ -17,7 +17,7 @@ function state(): VismaSandboxStatus {
     mode: 'sandbox', configured: true, connected: true, companyVerified: true,
     expectedCompanyId: 'local-browser-company', company: { id: 'local-browser-company', name: 'Lokal browserfixtur AB', number: '5560000167' },
     missing: [], scopes: ['ea:api', 'offline_access', 'ea:purchase', 'ea:accounting_readonly', 'ea:sales_readonly'],
-    redirectUri: 'http://127.0.0.1:5173/api/integrations/visma/oauth/callback', runs: [],
+    redirectUri: 'http://127.0.0.1:5173/api/integrations/visma/oauth/callback', localCallbackRelay: false, runs: [],
     operations: [
       { id: 'company', label: 'Företagsinställningar', method: 'GET', path: '/companysettings', write: false },
       { id: 'fiscalYears', label: 'Räkenskapsår', method: 'GET', path: '/fiscalyears', write: false },
@@ -135,6 +135,45 @@ test('systemadmin öppnar Spiris från integrationer och Jobba som spärrar test
   await expect(page.getByRole('heading', { name: 'Behörighet saknas', exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Välj operation', exact: true })).toHaveCount(0);
   expect(local.reads).toHaveLength(before); expect(local.requests).toEqual([]); expect(local.externalRequests).toEqual([]);
+});
+
+test('localhostsvaret förs till samma servers callback med browsercookie och utan automatisk tokenväxling', async ({ page }) => {
+  const local = await fixture(page, async request => result(request, {}));
+  local.current.localCallbackRelay = true;
+  local.current.redirectUri = 'https://localhost:44300/callback';
+  const callbacks: { url: string; cookie: string }[] = [], oauthPosts: string[] = [];
+  page.on('request', request => { if (request.method() === 'POST' && request.url().includes('/visma/oauth/')) oauthPosts.push(request.url()); });
+  await page.context().addCookies([{ name: 'jeroc_visma_oauth', value: 'synthetic-original-browser-binding', domain: '127.0.0.1',
+    path: '/api/integrations/visma/oauth/callback', httpOnly: true, sameSite: 'Lax' }]);
+  await page.route('**/api/integrations/visma/oauth/callback?**', async route => {
+    callbacks.push({ url: route.request().url(), cookie: (await route.request().allHeaders()).cookie ?? '' });
+    await route.fulfill({ status: 303, headers: { Location: `${testPage}?vismaOAuth=ok#/integrations/visma-test`,
+      'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
+  });
+  await login(page); await open(page);
+  const form = page.getByRole('form', { name: 'Slutför via localhost', exact: true });
+  const input = form.getByLabel('Returadress från Spiris', { exact: true });
+  const submit = form.getByRole('button', { name: 'För över svaret till JEROC', exact: true });
+  for (const invalid of ['https://wrong.invalid/callback?code=test&state=test',
+    'https://localhost:44300/callback?code=test', 'https://localhost:44300/callback?code=test&code=other&state=test',
+    'https://localhost:44300/callback?code=test&state=test&error=access_denied']) {
+    await input.fill(invalid); await submit.click();
+    await expect(page.getByRole('alert')).toContainText('Klistra in hela returadressen från Spiris');
+    expect(callbacks).toHaveLength(0);
+  }
+  const response = new URL('https://localhost:44300/callback');
+  response.search = new URLSearchParams({ code: 'synthetic-code+with/slashes=', state: 'synthetic-oauth-state', session_state: 'provider-extra', scope: 'ea:api' }).toString();
+  await input.fill(response.href); await submit.click();
+  await expect(page.getByRole('button', { name: 'Slutför anslutning', exact: true })).toBeVisible();
+  expect(callbacks).toHaveLength(1);
+  const relayed = new URL(callbacks[0].url);
+  expect(relayed.origin).toBe(new URL(page.url()).origin);
+  expect(relayed.searchParams.get('code')).toBe('synthetic-code+with/slashes=');
+  expect(relayed.searchParams.get('state')).toBe('synthetic-oauth-state');
+  expect([...relayed.searchParams.keys()].sort()).toEqual(['code', 'state']);
+  expect(callbacks[0].cookie).toContain('jeroc_visma_oauth=synthetic-original-browser-binding');
+  expect(oauthPosts).toEqual([]); expect(local.requests).toEqual([]); expect(local.externalRequests).toEqual([]);
+  expect(await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage }))).not.toContain('synthetic-code+with/slashes=');
 });
 
 test('läsanropets animerade popup väntar på svaret och visar faktisk HTTP-status och råsvar', async ({ page }, info) => {

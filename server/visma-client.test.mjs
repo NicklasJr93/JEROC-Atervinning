@@ -149,6 +149,20 @@ test('Visma permits a local development callback, requires HTTPS in production, 
   assert.equal(readVismaConfiguration({ ...f.env, RENDER: 'true' }).configured, false);
 });
 
+test('localhost relay is explicit, sandbox-only and restricted to the already registered HTTPS URI', () => {
+  const f = fixture({ extra: { VISMA_REDIRECT_URI: 'https://localhost:44300/callback', NODE_ENV: 'production', RENDER: 'true' } });
+  assert.equal(readVismaConfiguration(f.env).configured, false);
+  const enabled = { ...f.env, VISMA_OAUTH_LOCAL_RELAY: 'true' };
+  assert.equal(readVismaConfiguration(enabled).configured, true);
+  assert.equal(readVismaConfiguration(enabled).localCallbackRelay, true);
+  for (const uri of ['http://localhost:44300/callback', 'https://127.0.0.1:44300/callback', 'https://localhost:44301/callback',
+    'https://localhost:44300/other', 'https://localhost:44300/callback?next=evil', 'https://localhost:44300/callback#fragment',
+    'https://user:password@localhost:44300/callback', 'https://elsewhere.invalid/callback']) {
+    assert.equal(readVismaConfiguration({ ...enabled, VISMA_REDIRECT_URI: uri }).configured, false);
+  }
+  assert.equal(readVismaConfiguration({ ...enabled, VISMA_ENVIRONMENT: 'production' }).configured, false);
+});
+
 test('Visma code exchange and refresh use the fixed token URL, Basic authentication and exact form grants', async () => {
   const f = fixture({ respond: () => new Response(JSON.stringify({
     access_token: accessToken, refresh_token: refreshToken, token_type: 'Bearer', expires_in: 3600,

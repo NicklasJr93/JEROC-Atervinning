@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowLeft, ArrowUpRight, CheckCircle2, CircleAlert, Code2, Copy, Database, FileText, FlaskConical, History, LoaderCircle, LogOut, Plus, RefreshCw, Send, ShieldCheck, Trash2 } from 'lucide-react';
 import { can, type OfficeUser } from './model';
 import { EnvironmentApiError } from './environment-client';
@@ -149,6 +149,7 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
   const [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [dialog, setDialog] = useState<TestDialog | null>(null);
   const [callback, setCallback] = useState(() => new URLSearchParams(window.location.search).get('vismaOAuth'));
+  const [localCallbackUrl, setLocalCallbackUrl] = useState('');
   dialogRef.current = dialog;
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; generation.current++; readFlight.current?.controller.abort(); writeController.current?.abort(); }; }, []);
@@ -161,6 +162,7 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
     busy.current = false; pendingRef.current = recovered; formRef.current = undefined; dialogRef.current = null;
     setSandbox(undefined); setForms(undefined); setOperation('company'); setParameters({}); setLookups(emptyLookups()); setRaw(''); setEditor('fields');
     setLoading(false); setSending(false); setConnectionBusy(false); setError(''); setNotice(''); setDialog(null);
+    setLocalCallbackUrl('');
   }, [identity]);
 
   const applyLookup = useCallback((run: VismaSandboxRun) => {
@@ -276,6 +278,27 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
     finally { if (current()) { busy.current = false; setConnectionBusy(false); } if (writeController.current === controller) writeController.current = undefined; }
   }
   const selected = sandbox?.operations.find(item => item.id === operation);
+  function relayLocalCallback(event: FormEvent) {
+    event.preventDefault();
+    if (!permitted || !sessionMatches || !sandbox?.configured || !sandbox.localCallbackRelay || busy.current || loading || !!inFlight) return;
+    try {
+      const supplied = localCallbackUrl.trim();
+      if (supplied.length > 8192) throw new Error();
+      const source = new URL(supplied);
+      if (`${source.origin}${source.pathname}` !== 'https://localhost:44300/callback' || source.username || source.password || source.hash) throw new Error();
+      const state = source.searchParams.get('state'), code = source.searchParams.get('code'), failure = source.searchParams.get('error');
+      if (!state || state.length > 200 || !!code === !!failure || code && code.length > 4096 || failure && failure.length > 200 ||
+        ['state', 'code', 'error'].some(key => source.searchParams.getAll(key).length > 1)) throw new Error();
+      // Navigate the browser so the original Render HttpOnly binding cookie is
+      // attached. Do not import tokens, persist the URL or allow a chosen host.
+      const destination = new URL('/api/integrations/visma/oauth/callback', window.location.origin);
+      destination.searchParams.set('state', state);
+      if (code) destination.searchParams.set('code', code);
+      else destination.searchParams.set('error', failure!);
+      setLocalCallbackUrl('');
+      window.location.assign(destination.href);
+    } catch { setError('Klistra in hela returadressen från Spiris. Den ska börja med https://localhost:44300/callback och innehålla state och code (eller error).'); }
+  }
   const unresolved = sandbox?.runs.find(run => run.status === 'in_flight' || run.status === 'unknown');
   const inFlight = sandbox?.runs.find(run => run.status === 'in_flight');
   const uncheckedWrite = sandbox?.runs.find(run => run.status === 'unknown' && run.method === 'POST' && !acknowledgments[run.id]);
@@ -376,6 +399,12 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
             <div className="visma-sandbox-company"><div><span className={`environment-pill ${sandbox?.companyVerified ? 'success' : 'warning'}`}><ShieldCheck size={13} />{sandbox?.companyVerified ? 'Företaget verifierat' : sandbox?.company ? 'Företaget behöver verifieras' : 'Inte ansluten'}</span>{sandbox?.company ? <><strong>{sandbox.company.name || 'Namn saknas'}{sandbox.company.number && ` · ${sandbox.company.number}`}</strong><small>Företags-ID: {sandbox.company.id}</small></> : <p>Företagsidentiteten visas när anslutningen har slutförts.</p>}{sandbox?.expectedCompanyId && <small>Förväntat sandbox-ID: {sandbox.expectedCompanyId}</small>}</div><div className="visma-sandbox-connect-actions">{callback === 'ok' ? <button className="office-btn" type="button" disabled={connectionBusy || sending || loading || !!inFlight} onClick={() => void connectionAction('complete')}><ShieldCheck size={15} />{connectionBusy ? 'Slutför…' : 'Slutför anslutning'}</button> : <button className="office-btn outline" type="button" disabled={connectionBusy || sending || loading || !!inFlight || sandbox?.mode !== 'sandbox'} onClick={() => void connectionAction('start')}><ArrowUpRight size={15} />{sandbox?.company ? 'Anslut på nytt' : 'Anslut Visma sandbox'}</button>}{(sandbox?.connected || sandbox?.company) && <button className="office-link" type="button" disabled={connectionBusy || sending || loading || !!inFlight} onClick={() => void connectionAction('disconnect')}><LogOut size={14} />Koppla från</button>}</div></div>
             {callback === 'ok' && <p className="visma-sandbox-help" role="status">Du är tillbaka från Visma. Tryck på Slutför anslutning för att hämta och kontrollera det valda företagets identitet.</p>}{callback === 'error' && <p className="environment-error" role="alert">Visma-inloggningen kunde inte slutföras. Starta en ny anslutning.</p>}
             {sandbox?.company && !sandbox.expectedCompanyId && <p className="visma-sandbox-help">Ange det visade företags-ID:t som VISMA_SANDBOX_COMPANY_ID i Render och ladda om tjänsten. Skrivtester öppnas när servern har verifierat samma företag.</p>}
+            {sandbox?.localCallbackRelay && callback !== 'ok' && <form className="visma-sandbox-local-relay" onSubmit={relayLocalCallback} aria-label="Slutför via localhost">
+              <strong>Tillfällig anslutning via localhost</strong>
+              <p>Tryck först på Anslut Visma sandbox och välj testföretaget. Efter godkännandet kan localhost visa ett anslutningsfel. Kopiera då hela adressen ur adressfältet och öppna den här testsidan igen i samma webbläsare. Klistra in adressen nedan inom fem minuter.</p>
+              <label>Returadress från Spiris<input type="text" value={localCallbackUrl} onChange={event => setLocalCallbackUrl(event.target.value)} maxLength={8192} autoComplete="off" spellCheck={false} placeholder="https://localhost:44300/callback?code=…&state=…" /></label>
+              <button className="office-btn outline" type="submit" disabled={!localCallbackUrl.trim() || !sandbox.configured || connectionBusy || sending || loading || !!inFlight}><ArrowUpRight size={14} />För över svaret till JEROC</button>
+            </form>}
           </section>
           {!!sandbox?.missing.length && <div className="environment-alert" role="status"><CircleAlert size={16} /><div><strong>Återstår före testet</strong><ul>{sandbox.missing.map(item => <li key={item}>{item}</li>)}</ul></div></div>}
           {error && <div className="environment-error" role="alert"><CircleAlert size={16} />{error}</div>}{notice && <p className="nvv-sandbox-notice" role="status">{notice}</p>}

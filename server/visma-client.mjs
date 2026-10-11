@@ -7,6 +7,7 @@ import { EnvironmentError } from './environment-storage.mjs';
 export const VISMA_API_BASE = 'https://eaccountingapi.vismaonline.com/v2';
 export const VISMA_AUTHORIZATION_URL = 'https://identity.vismaonline.com/connect/authorize';
 export const VISMA_TOKEN_URL = 'https://identity.vismaonline.com/connect/token';
+export const VISMA_LOCAL_CALLBACK_URI = 'https://localhost:44300/callback';
 // These are the scopes granted to the user's registered sandbox client. The
 // local operation allowlist still prevents posting invoices or payments.
 export const VISMA_SCOPES = Object.freeze(['ea:api', 'offline_access', 'ea:purchase', 'ea:accounting', 'ea:sales']);
@@ -86,19 +87,24 @@ export function readVismaConfiguration(env = process.env) {
   const missing = [];
   if (mode === 'disabled') missing.push('VISMA_ENVIRONMENT=sandbox');
   for (const name of ['VISMA_CLIENT_ID', 'VISMA_CLIENT_SECRET', 'VISMA_REDIRECT_URI', 'VISMA_TOKEN_ENCRYPTION_KEY']) if (!env[name]) missing.push(name);
-  let redirectUri = null;
+  let redirectUri = null, localCallbackRelay = false;
   if (env.VISMA_REDIRECT_URI) {
     try {
       const uri = new URL(env.VISMA_REDIRECT_URI);
       const local = ['localhost', '127.0.0.1', '[::1]'].includes(uri.hostname) && env.NODE_ENV !== 'production' && !env.RENDER;
-      if (uri.username || uri.password || uri.search || uri.hash || uri.pathname !== '/api/integrations/visma/oauth/callback' || !(uri.protocol === 'https:' || local && uri.protocol === 'http:')) throw new Error();
+      if (env.VISMA_OAUTH_LOCAL_RELAY === 'true') {
+        // Keep the provider-registered URI for both authorization and token
+        // exchange. Only its browser response is relayed to our normal callback.
+        if (mode !== 'sandbox' || uri.href !== VISMA_LOCAL_CALLBACK_URI) throw new Error();
+        localCallbackRelay = true;
+      } else if (uri.username || uri.password || uri.search || uri.hash || uri.pathname !== '/api/integrations/visma/oauth/callback' || !(uri.protocol === 'https:' || local && uri.protocol === 'http:')) throw new Error();
       redirectUri = uri.href;
     } catch { missing.push('VISMA_REDIRECT_URI måste vara en fast HTTPS callback-adress.'); }
   }
   if (env.VISMA_TOKEN_ENCRYPTION_KEY && (!/^[A-Za-z0-9+/]{43}=$/.test(env.VISMA_TOKEN_ENCRYPTION_KEY) || Buffer.from(env.VISMA_TOKEN_ENCRYPTION_KEY, 'base64').length !== 32))
     missing.push('VISMA_TOKEN_ENCRYPTION_KEY måste vara 32 byte i base64.');
   const expectedCompanyId = typeof env.VISMA_SANDBOX_COMPANY_ID === 'string' && env.VISMA_SANDBOX_COMPANY_ID.trim() ? env.VISMA_SANDBOX_COMPANY_ID.trim() : null;
-  return { mode, configured: mode === 'sandbox' && !missing.length, missing, redirectUri, expectedCompanyId };
+  return { mode, configured: mode === 'sandbox' && !missing.length, missing, redirectUri, expectedCompanyId, localCallbackRelay };
 }
 
 const sensitiveKey = /(?:access.?token|refresh.?token|id.?token|client.?secret|authorization|password|cookie|code.?verifier|pkce|authorization.?code|private.?key)/i;

@@ -26,9 +26,10 @@ Använd endast sandboxklientens credentials. Spiris använder samma API- och
 inloggningsadresser för test och produktion.
 
 Det mottagna onboardingmejlet anger fortfarande
-`https://localhost:44300/callback`. Be `api@spiris.se` registrera Render-
-adressen ovan för klient-ID:t från mejlet. Att enbart ändra Render-fältet
-ändrar inte Spiris registrering. För denna klient används dess beviljade
+`https://localhost:44300/callback`. Den kan användas med det tillfälliga
+localhostläget nedan. För automatisk retur till Render: be `api@spiris.se`
+registrera Render-adressen ovan för klient-ID:t från mejlet. Att enbart
+ändra Render-fältet ändrar inte Spiris registrering. För denna klient används dess beviljade
 scopes `ea:api offline_access ea:purchase ea:accounting ea:sales`.
 `vls:api` behövs inte för de aktuella testerna. API-verktygets fasta
 operationslista begränsar vad JEROC kan göra trots dessa bredare scopes.
@@ -43,6 +44,48 @@ läggas i GitHub eller skickas i chatten.
 Den befintliga `DATABASE_URL` används. Anslutningen och testhistoriken sparas
 i en separat integrationsdomän i PostgreSQL. Befintliga kunder, viktkort,
 miljömottagningar och attester ändras inte av testverktyget.
+
+## Tillfälligt test med befintlig localhostadress
+
+I kontorsdemo 0.15.1 kan den redan registrerade adressen användas utan lokal
+server. Ändra följande i **Render → webbtjänsten JEROC-Atervinning →
+Environment → Edit** och spara med deploy:
+
+| Fält | Värde |
+| --- | --- |
+| `VISMA_ENVIRONMENT` | `sandbox` |
+| `VISMA_REDIRECT_URI` | `https://localhost:44300/callback` |
+| `VISMA_OAUTH_LOCAL_RELAY` | `true` |
+
+Klient-ID, klienthemlighet och krypteringsnyckel använder de befintliga
+Render-fälten. Läget tillåter bara just denna HTTPS-adress, port och sökväg.
+
+1. Öppna `/kontor/integration/systemadminvismatest.html` som Systemadmin.
+2. Tryck **Anslut Visma sandbox**, logga in hos Spiris, välj **testföretaget**
+   och godkänn åtkomsten.
+3. Webbläsaren försöker öppna localhost. Ett anslutningsfel är väntat när
+   ingen lokal server körs. Kopiera **hela adressen ur adressfältet**,
+   inklusive `code` och `state`, och öppna JEROC-testsidan igen i samma
+   webbläsarprofil. Byt inte konto eller session under anslutningen.
+4. Klistra in den i **Returadress från Spiris** och tryck **För över svaret
+   till JEROC**, sedan **Slutför anslutning**. Gör detta inom fem minuter
+   efter Spiris-godkännandet; annars börja om med en ny anslutning.
+5. Ange och verifiera `VISMA_SANDBOX_COMPANY_ID` enligt nästa avsnitt.
+
+Svaret förs genom webbläsaren till JEROC:s fasta callback så att dess
+ursprungliga HttpOnly-cookie följer med. Servern kontrollerar engångs-state,
+browserbindning, PKCE och samma aktiva adminsession. Både auktorisering och
+tokenutbyte anger **den registrerade localhostadressen**. Render-adressen
+är en intern mottagare för vidarebefordran, inte en ny OAuth redirect URI.
+Formuläret sparar inte den inklistrade adressen i webbläsarlagring eller
+testhistorik. Adressen innehåller en kortlivad engångskod; dela den inte.
+
+Efter anslutningen sköts API-anrop och tokenförnyelse helt av Render.
+Manuell vidarebefordran behövs igen om en ny inloggning krävs. När Spiris
+har registrerat den normala Render-adressen: sätt `VISMA_REDIRECT_URI` till
+den och ta bort `VISMA_OAUTH_LOCAL_RELAY` (eller sätt `false`). Detta
+lokala provflöde är verifierat med fejkade providersvar; första verkliga
+Spiris-inloggningen behöver fortfarande göras av användaren.
 
 ## Anslut testföretaget
 

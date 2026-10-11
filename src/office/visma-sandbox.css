@@ -19,4 +19,10 @@
 .visma-sandbox-recovery { padding:12px; margin-top:12px; border:1px solid #f0dfca; border-radius:8px; background:#fffaf3; }
 .office .visma-sandbox-recovery p { margin:0; color:#957347; font-size:11px; line-height:1.6; }
 .visma-sandbox-recovery .office-btn { margin-top:10px; }
+.visma-sandbox-local-relay { margin-top:16px; padding:16px; border:1px solid #dbe8fb; border-radius:9px; background:#f5f9ff; }
+.visma-sandbox-local-relay > strong { color:#294766; font-size:13px; }
+.office .visma-sandbox-local-relay p { margin:8px 0 12px; color:#597794; font-size:11px; line-height:1.7; }
+.visma-sandbox-local-relay label { display:grid; gap:6px; color:#597794; font-size:11px; }
+.visma-sandbox-local-relay input { width:100%; min-width:0; padding:10px 12px; border:1px solid #dbe5f0; border-radius:7px; background:#fff; color:#294766; }
+.visma-sandbox-local-relay .office-btn { margin-top:12px; }
 @media(max-width:700px) { .visma-sandbox-company { align-items:flex-start; flex-wrap:wrap; } .visma-sandbox-connect-actions { flex-direction:row; align-items:center; flex-wrap:wrap; } }

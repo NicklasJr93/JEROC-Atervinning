@@ -131,6 +131,24 @@ test('OAuth uses state, PKCE and browser binding; invalid, expired and replayed 
   assert.equal(f.tokenCalls().length, 1);
 }));
 
+test('relayed localhost response preserves the registered URI, browser binding, PKCE and initiating admin session', async () => fixture(async f => {
+  assert.equal((await f.service.status(context)).localCallbackRelay, true);
+  const started = await f.service.begin(context), authorize = new URL(started.authorizationUrl);
+  assert.equal(authorize.searchParams.get('redirect_uri'), 'https://localhost:44300/callback');
+  const state = authorize.searchParams.get('state');
+  await assert.rejects(() => f.service.callback({ state, code: authorizationCode }), errorCode('visma_oauth_state_invalid'));
+  await f.service.callback({ state, code: authorizationCode, cookieBinding: started.cookieBinding });
+  await assert.rejects(() => f.service.complete({ ...context, sessionKey: 'different-session' }), errorCode('visma_oauth_pending_missing'));
+  assert.equal(f.tokenCalls().length, 0);
+  await f.service.complete(context);
+  const exchange = new URLSearchParams(f.tokenCalls()[0].body);
+  assert.equal(exchange.get('redirect_uri'), 'https://localhost:44300/callback');
+  assert.equal(exchange.get('code'), authorizationCode);
+  assert.ok(exchange.get('code_verifier'));
+  await assert.rejects(() => f.service.callback({ state, code: authorizationCode, cookieBinding: started.cookieBinding }), errorCode('visma_oauth_state_invalid'));
+  assert.equal(f.tokenCalls().length, 1);
+}, { VISMA_OAUTH_LOCAL_RELAY: 'true', VISMA_REDIRECT_URI: 'https://localhost:44300/callback', NODE_ENV: 'production', RENDER: 'true' }));
+
 test('OAuth completion belongs to its initiating session and encrypted credentials survive SQLite restart', async () => fixture(async f => {
   const started = await f.service.begin(context), state = new URL(started.authorizationUrl).searchParams.get('state');
   await f.service.callback({ state, code: authorizationCode, cookieBinding: started.cookieBinding });

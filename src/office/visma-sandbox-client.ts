@@ -36,6 +36,7 @@ export type VismaSandboxStatus = {
   missing: string[];
   scopes: string[];
   redirectUri: string | null;
+  localCallbackRelay: boolean;
   operations: { id: VismaOperation; label: string; method: 'GET' | 'POST'; path: string; write: boolean; parameters?: string[] }[];
   templates: { createSupplier: NvvJsonObject; createDraft: NvvJsonObject };
   runs: VismaSandboxRun[];

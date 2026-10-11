@@ -89,6 +89,7 @@ export function createVismaSandbox({ getRepository, env = process.env, fetchImpl
       ? 'Anslutet företag skiljer sig från VISMA_SANDBOX_COMPANY_ID.' : 'Sandboxföretaget måste verifieras.');
     return { mode: configuration.mode, configured: configuration.configured, connected: Boolean(configuration.configured && companyVerified), companyVerified,
       expectedCompanyId: configuration.expectedCompanyId, company: copy(tenant.company), missing, scopes: [...VISMA_SCOPES], redirectUri: configuration.redirectUri,
+      localCallbackRelay: configuration.localCallbackRelay,
       operations: VISMA_OPERATIONS.map(item => ({ ...item })), templates: {
         createSupplier: { Name: 'JEROC syntetisk testleverantör', TermsOfPaymentId: '00000000-0000-4000-8000-000000000000', CountryCode: 'SE', CurrencyCode: 'SEK', IsActive: true,
           UsesAutomaticSupplierInvoiceApproval: false, UsesAutomaticInvoicePostToLedger: false },

@@ -1,4 +1,16 @@
-# JEROC kontorsdemo 0.15.0
+# JEROC kontorsdemo 0.15.1
+
+## Nytt i 0.15.1 – anslut sandbox med befintlig localhostadress
+
+Ett uttryckligt sandboxläge kan använda den redan registrerade
+`https://localhost:44300/callback`. Efter Spiris-inloggningen kopieras hela
+returadressen till ett fält på testsidan i samma webbläsare. Svaret förs
+till serverns befintliga callback; tokenutbytet använder fortfarande den
+registrerade localhostadressen. Engångs-state, PKCE, browserbindning och
+kravet på samma aktiva systemadminsession behålls. Ingen lokal server behövs.
+Se [inställningar och provflöde](integrationer/spiris-visma/sandbox-setup.md#tillfälligt-test-med-befintlig-localhostadress).
+Produktionsbygget, 42 fokuserade Spiris-servertester och det nya
+webbläsarfallet för localhostvidarebefordran passerar med fejkade providersvar.
 
 ## Nytt i 0.15.0 – Spiris sandbox
 
@@ -22,8 +34,9 @@ Separata PostgreSQL-kontroller med fejkade providersvar verifierade
 krypterad lagring, engångs-OAuth mellan serverinstanser, samordnad
 tokenförnyelse och beständig idempotens utan låsning av verksamhetsdomänerna.
 Desktop-/mobilvyn och återhämtning vid omladdning ingår i webbläsarfallen.
-Ett autentiserat Spiris-prov återstår efter returadressregistrering och
-konfiguration i Render; dessa tester kontaktade inte Spiris.
+Ett autentiserat Spiris-prov återstår efter konfiguration i Render;
+localhostläget i 0.15.1 kan användas före ny returadressregistrering.
+Dessa lokala tester kontaktade inte Spiris.
 
 ## Nytt i 0.14.0 – materialrader och högerställd attest
 
