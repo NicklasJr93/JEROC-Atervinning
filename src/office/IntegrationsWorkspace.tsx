@@ -10,6 +10,7 @@ import { environmentApi, environmentRequest } from './environment-client';
 import { environmentFailure, useEnvironmentSession } from './EnvironmentSession';
 import type { NvvIntegrationStatus } from './environment-types';
 import NvvIntegrationPanel from './NvvIntegrationPanel';
+import SpirisAccountingPanel from './SpirisAccountingPanel';
 import './environment.css';
 import './integrations.css';
 
@@ -51,7 +52,7 @@ const providerPresentation: Record<string, { icon: LucideIcon; functions: string
   },
   visma: {
     icon: FileText,
-    functions: ['OAuth-anslutning till ert svenska testföretag', 'Redigerbara test av leverantör och fakturautkast', 'Skickat underlag, API-svar och försökshistorik'],
+    functions: ['Ekonomiinställningar och konton från ert svenska testföretag', 'Fakturautkast från kundgodkända och attesterade avräkningar', 'Skickat underlag, API-svar och överföringshistorik'],
     preparation: 'Systemadmin ansluter sandboxföretaget på testsidan. Klientuppgifter och krypteringsnyckel läggs i Render.',
   },
   fortnox: {
@@ -206,7 +207,7 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
 
   return <section className="integrations-workspace">
     <div className="office-title integration-page-title">
-      <div><span className="office-eyebrow">GEMENSAMMA ANSLUTNINGAR</span><h1>Integrationer</h1><p>Koppla JEROC till myndigheter, ekonomi och andra tjänster.</p></div>
+      <div><span className="office-eyebrow">GEMENSAMMA ANSLUTNINGAR</span><h1>{selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : 'Integrationer'}</h1><p>{selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : 'Koppla JEROC till myndigheter, ekonomi och andra tjänster.'}</p></div>
       <button type="button" className="office-btn outline" onClick={() => void update()} disabled={catalogLoading || sessionLoading || nvvLoading}><RefreshCw size={14} />Uppdatera</button>
     </div>
     {siteId !== 'all' && <p className="integration-scope"><Building2 size={14} />Anslutningarna är gemensamma för alla anläggningar.</p>}
@@ -221,7 +222,7 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
     {!!catalog && matchingSession && <>
       {selected ? <>
         <button type="button" className="office-link integration-back" onClick={() => setSearch({})}><ArrowLeft size={15} />Alla integrationer</button>
-        <article className="office-panel integration-detail">
+        {selected.id === 'visma' && selected.implemented ? <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} /> : <article className="office-panel integration-detail">
           <div className="integration-detail-heading"><span className={`integration-icon ${selected.id}`}><SelectedIcon size={25} /></span><div><small>{categoryLabel(selected.category)}</small><h2 ref={detailHeading} tabIndex={-1}>{selected.name}</h2><p>{selected.description}</p></div><IntegrationStatus provider={selected} /></div>
           <div className="integration-detail-columns">
             <div><h3>{selected.implemented ? 'Det här ingår' : 'Planerade funktioner'}</h3><ul className="integration-functions">{(selectedPresentation?.functions ?? [selected.description]).map(item => <li key={item}><ChevronRight size={14} /><span>{item}</span></li>)}</ul></div>
@@ -231,7 +232,7 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
           {selected.id === 'nvv' && <div className="integration-test-note"><ShieldCheck size={16} /><span>{selected.mode === 'mock' ? 'Simulerat provflöde. Inga uppgifter skickas till Naturvårdsverket.' : 'Endast testanslutning är tillgänglig. Produktionsrapportering är avstängd.'}</span></div>}
           {selected.id === 'visma' && selected.implemented && <div className="integration-test-note"><ShieldCheck size={16} /><span>Sandboxprov av leverantörer och fakturautkast. Anslutning och test hanteras av systemadmin.</span></div>}
           {selected.id === 'visma' && selected.implemented && catalog.capabilities.canManage && <Link className="office-btn" to="/integrations/visma-test"><PlugZap size={16} />Öppna Spiris-test</Link>}
-        </article>
+        </article>}
         {selected.id === 'nvv' && <div className="environment-workspace integration-nvv-region">
           {!nvvReadable ? <div className="office-panel integration-message"><ShieldCheck size={19} /><span>Du behöver behörighet att läsa miljöunderlag för att visa NVV-inställningarna.</span></div>
             : nvvError ? <div className="office-panel integration-message error" role="alert"><CircleAlert size={19} /><span>{nvvError}</span><button type="button" className="office-btn outline" onClick={() => void loadNvv()} disabled={nvvLoading}>Försök igen</button></div>

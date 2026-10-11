@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { afterDatabaseCommit, runDatabaseRead, runInDatabaseTransaction } from './database-runtime.mjs';
 import { getChangeEvents } from './change-events.mjs';
 
@@ -92,12 +93,18 @@ export async function createApplicationRepository({ env = process.env, filename,
   if (!db.prepare('SELECT id FROM application WHERE id=1').get()) db.prepare('INSERT OR IGNORE INTO application VALUES(1,?,0)').run(JSON.stringify(normalizeDomains(seed())));
   const changeEvents = getChangeEvents({ ...env, JEROC_APPLICATION_DB_PATH: path });
   let queue = Promise.resolve();
+  const localTransaction = new AsyncLocalStorage();
   return {
     kind: 'sqlite-development',
     // Separate local SQLite files cannot share a PostgreSQL commit boundary.
     runInTransaction: callback => callback(),
     read(operation, { domains } = {}) {
       domains = selectedDomains(domains);
+      const current = localTransaction.getStore();
+      // A read-only finance/customer lookup can join the current local command
+      // without waiting for that same command's queue slot to finish. Return a
+      // copy, so a read callback cannot mutate the authoritative transaction.
+      if (current) return Promise.resolve(operation(selectState(structuredClone(current.state), domains), current.revision));
       const run = queue.then(() => {
         const row = db.prepare('SELECT document,revision FROM application WHERE id=1').get();
         return operation(selectState(JSON.parse(row.document), domains), row.revision);
@@ -110,7 +117,7 @@ export async function createApplicationRepository({ env = process.env, filename,
         try {
           const row = db.prepare('SELECT document,revision FROM application WHERE id=1').get();
           const state = normalizeDomains(row ? JSON.parse(row.document) : seed()); const previous = row?.document;
-          const changes = []; const result = await operation(state, row?.revision ?? 0, changes);
+          const changes = []; const result = await localTransaction.run({ state, revision: row?.revision ?? 0 }, () => operation(state, row?.revision ?? 0, changes));
           const document = JSON.stringify(state);
           const modified = document !== previous, revision = (row?.revision ?? 0) + Number(modified);
           db.prepare('INSERT INTO application VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET document=excluded.document,revision=excluded.revision').run(document, revision);

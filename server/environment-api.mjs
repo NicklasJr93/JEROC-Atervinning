@@ -1,6 +1,7 @@
 import { createEnvironmentRepository, EnvironmentError } from './environment-storage.mjs';
 import { createEnvironmentStore } from './environment-model.mjs';
-import { createPricingStore } from './pricing.mjs';
+import { createPricingStore, PricingError } from './pricing.mjs';
+import { AccountingError } from './visma-accounting.mjs';
 import { z } from 'zod';
 import { createEnvironmentAddressResolver, ENVIRONMENT_MUNICIPALITIES } from './environment-address.mjs';
 import { createNvvClient } from './nvv-client.mjs';
@@ -115,10 +116,20 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
               Array.isArray(principal.actor.siteIds) || Array.isArray(principal.user.siteIds))
               throw new EnvironmentError('Testverktyget kräver att systemadmin arbetar som systemadmin med åtkomst till alla anläggningar.', 403, 'integration_admin_required');
             const context = { organisationId: 'jeroc-demo', actorId: principal.actor.id, effectiveUserId: principal.user.id,
-              actor: principal.actor, user: principal.user, sessionKey: createHash('sha256').update(token).digest('hex') };
+              actor: principal.actor, user: principal.user, sessionKey: createHash('sha256').update(token).digest('hex'),
+              reauthorize: () => store.authorize(token, 'integrationsRead') };
             const run = route.match(/^\/visma\/sandbox\/runs\/([a-fA-F0-9-]{36})$/);
             const prefill = route.match(/^\/visma\/attested-cards\/([1-9]\d{0,11})$/);
             if (read && route === '/visma/status') json(res, 200, await vismaService.status(context), req.method === 'HEAD');
+            else if (read && route === '/visma/accounting/settings') json(res, 200, await vismaService.settings(context), req.method === 'HEAD');
+            else if (req.method === 'POST' && route === '/visma/accounting/settings') json(res, 200, await vismaService.saveSettings(await body(req), context));
+            else if (req.method === 'POST' && route === '/visma/accounting/choices') {
+              if (!z.object({}).strict().safeParse(await body(req)).success) throw new EnvironmentError('Hämtningen tar inga klientuppgifter.', 422, 'visma_invalid');
+              json(res, 200, await vismaService.lookupChoices(context));
+            }
+            else if (req.method === 'POST' && route === '/visma/accounting/preview') json(res, 200, await vismaService.preview(await body(req), context));
+            else if (read && route === '/visma/accounting/exports') json(res, 200, await vismaService.exports(context), req.method === 'HEAD');
+            else if (req.method === 'POST' && route === '/visma/accounting/exports') json(res, 200, await vismaService.sendExport(await body(req), context));
             else if (read && route === '/visma/attested-cards') json(res, 200, await vismaService.attestedCards(context), req.method === 'HEAD');
             else if (read && prefill) json(res, 200, await vismaService.prefill(Number(prefill[1]), context), req.method === 'HEAD');
             else if (req.method === 'POST' && route === '/visma/oauth/start') {
@@ -173,7 +184,7 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
         }
       });
     } catch (error) {
-      const known = error instanceof EnvironmentError;
+      const known = error instanceof EnvironmentError || error instanceof AccountingError || error instanceof PricingError;
       json(res, known ? error.status : 503, { demo: true, mode: 'prepared-only', error: known ? error.message : 'Miljödatabasen kunde inte nås. Kontrollera serverns databasinställningar.',
         code: known ? error.code : 'storage_unavailable' });
     }

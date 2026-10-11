@@ -56,7 +56,7 @@ import {
 } from './pricing-client';
 import PaymentEditor from './PaymentEditor';
 import { safeAuditText } from './workflow';
-import { cleanCustomerDraft, createCustomerDraft, customerDraftError } from './customer-form';
+import { createCustomerDraft, customerDraftError, customerDraftForSave } from './customer-form';
 import './customer.css';
 
 type CorrectionInput = {
@@ -1324,9 +1324,13 @@ function CustomerDetails({
 }) {
   const [draft, setDraft] = useState(customer),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState('');
+    [error, setError] = useState(''),
+    [customPaymentTerm, setCustomPaymentTerm] = useState(
+      customer.paymentTermDays !== undefined && ![0, 1, 10, 30].includes(customer.paymentTermDays),
+    );
   useEffect(() => {
     setDraft(customer);
+    setCustomPaymentTerm(customer.paymentTermDays !== undefined && ![0, 1, 10, 30].includes(customer.paymentTermDays));
   }, [customer.id, customer.audit.length]);
   const edit = can(user, 'customers'),
     paymentEdit = can(user, 'paymentDetails');
@@ -1334,7 +1338,7 @@ function CustomerDetails({
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!edit || busy) return;
-    const customer = cleanCustomerDraft(draft);
+    const customer = customerDraftForSave(draft);
     const validationError = customerDraftError(customer, customers);
     if (validationError) {
       setError(validationError);
@@ -1420,6 +1424,72 @@ function CustomerDetails({
               {input('email', 'E-post')}
             </div>
           </Section>
+          <Section title="Ekonomi">
+            <div className="customer-form-grid customer-economy">
+              {draft.type !== 'Privatperson' && (
+                <fieldset className="customer-vat" disabled={!edit || busy}>
+                  <legend>Momsregistrerad</legend>
+                  <div className="customer-vat-options">
+                    {[true, false].map((registered) => (
+                      <button
+                        key={String(registered)}
+                        type="button"
+                        aria-pressed={draft.vatRegistered === registered}
+                        className={draft.vatRegistered === registered ? 'active' : ''}
+                        onClick={() => setDraft((d) => ({ ...d, vatRegistered: registered }))}
+                      >
+                        {draft.vatRegistered === registered && <ShieldCheck size={14} aria-hidden="true" />}
+                        {registered ? 'Ja' : 'Nej'}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="customer-note">
+                    {draft.vatRegistered === undefined ? 'Momsregistrering behöver anges. ' : ''}
+                    Kontrollera uppgiften enligt ordinarie rutin.
+                  </p>
+                </fieldset>
+              )}
+              <div className="customer-payment-term">
+                <label>
+                  Betalningsvillkor
+                  <select
+                    aria-label="Betalningsvillkor"
+                    disabled={!edit || busy}
+                    value={customPaymentTerm ? 'custom' : draft.paymentTermDays === undefined ? 'default' : String(draft.paymentTermDays)}
+                    onChange={(event) => {
+                      const selected = event.target.value;
+                      setCustomPaymentTerm(selected === 'custom');
+                      setDraft((d) => ({ ...d, paymentTermDays: selected === 'default' ? undefined : selected === 'custom' ? d.paymentTermDays ?? 30 : Number(selected) }));
+                    }}
+                  >
+                    <option value="default">Integrationens standard</option>
+                    <option value="0">Direkt (0 dagar)</option>
+                    <option value="1">1 dag</option>
+                    <option value="10">10 dagar</option>
+                    <option value="30">30 dagar</option>
+                    <option value="custom">Eget antal dagar</option>
+                  </select>
+                </label>
+                {customPaymentTerm && (
+                  <label className="customer-custom-term">
+                    Antal betalningsdagar
+                    <input
+                      aria-label="Antal betalningsdagar"
+                      type="number"
+                      min={0}
+                      max={3650}
+                      step={1}
+                      required
+                      disabled={!edit || busy}
+                      value={Number.isFinite(draft.paymentTermDays) ? draft.paymentTermDays : ''}
+                      onChange={(event) => setDraft((d) => ({ ...d, paymentTermDays: event.target.value === '' ? Number.NaN : Number(event.target.value) }))}
+                    />
+                  </label>
+                )}
+                <p className="customer-note">Standard följer integrationens betalningsvillkor. Ett eget val gäller för denna kund.</p>
+              </div>
+            </div>
+          </Section>
           {error && (
             <p role="alert" className="customer-error">
               {error}
@@ -1468,7 +1538,7 @@ function CustomerDetails({
                   setError('Spara kundens namn innan betalningsprofilen.');
                   return false;
                 }
-                const updated = cleanCustomerDraft({ ...draft, paymentProfile: details });
+                const updated = customerDraftForSave({ ...draft, paymentProfile: details });
                 const validationError = customerDraftError(updated, customers);
                 if (validationError) {
                   setError(validationError);

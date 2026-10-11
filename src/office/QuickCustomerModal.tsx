@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Building2, Check, ExternalLink, Info, UserRound, Users, X } from 'lucide-react';
 import { can, type OfficeCustomer, type OfficeData, type OfficeUser } from './model';
-import { cleanCustomerDraft, createCustomerDraft, customerDraftError } from './customer-form';
+import { cleanCustomerDraft, createCustomerDraft, customerDraftError, customerDraftForSave } from './customer-form';
 import './quick-customer.css';
 
 export type QuickCustomerModalProps = {
@@ -42,7 +42,7 @@ export default function QuickCustomerModal({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!allowed || busy) return;
-    const customer = cleanCustomerDraft(draft);
+    const customer = customerDraftForSave(draft);
     const validationError = customerDraftError(customer, data.customers);
     if (validationError) {
       setError(validationError);
@@ -121,6 +121,26 @@ export default function QuickCustomerModal({
             </button>
           ))}
         </div>
+        {draft.type !== 'Privatperson' && (
+          <fieldset className="quick-customer-vat" disabled={busy || !allowed}>
+            <legend>Momsregistrerad</legend>
+            <div className="quick-customer-vat-options">
+              {[true, false].map((registered) => (
+                <button
+                  key={String(registered)}
+                  type="button"
+                  aria-pressed={draft.vatRegistered === registered}
+                  className={draft.vatRegistered === registered ? 'active' : ''}
+                  onClick={() => setDraft((current) => ({ ...current, vatRegistered: registered }))}
+                >
+                  {draft.vatRegistered === registered && <Check size={16} aria-hidden="true" />}
+                  {registered ? 'Ja' : 'Nej'}
+                </button>
+              ))}
+            </div>
+            <p>{draft.vatRegistered === undefined ? 'Momsregistrering behöver anges. ' : ''}Kontrollera uppgiften enligt ordinarie rutin.</p>
+          </fieldset>
+        )}
         <div className="quick-customer-fields">
           {field('name', draft.type === 'Privatperson' ? 'Namn' : draft.type === 'BRF' ? 'Föreningsnamn' : 'Företagsnamn', draft.type === 'Privatperson' ? 'Ange för- och efternamn' : 'Ange namn', draft.type === 'Privatperson' ? 'name' : 'organization')}
           {field('number', draft.type === 'Privatperson' ? 'Personnummer' : 'Organisationsnummer', draft.type === 'Privatperson' ? 'ÅÅÅÅMMDD-XXXX' : 'XXXXXX-XXXX')}

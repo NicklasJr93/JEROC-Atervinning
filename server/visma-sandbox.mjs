@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, 
 import { setTimeout as pause } from 'node:timers/promises';
 import { EnvironmentError } from './environment-storage.mjs';
 import { createVismaClient, parseVismaSandboxInput, readVismaConfiguration, VISMA_OPERATIONS, VISMA_SCOPES, vismaOperationPath } from './visma-client.mjs';
+import { createVismaExports } from './visma-export.mjs';
 import { latestAttestedVismaCards, attestedVismaSummary, attestedVismaPrefill } from './visma-weightcard.mjs';
 
 const DOMAIN = 'vismaIntegration', OAUTH_LIFETIME = 10 * 60 * 1000, RUN_LIFETIME = 120000, REFRESH_LIFETIME = 45000;
@@ -36,7 +37,7 @@ const companyFrom = response => response && typeof response.CompanyIdentifier ==
 
 /** OAuth and test runs live in a separate ApplicationRepository domain. All
  * transactions are short; provider calls happen after the reservation commits. */
-export function createVismaSandbox({ getRepository, sourceProvider = async () => [], env = process.env, fetchImpl = globalThis.fetch, now = () => new Date() } = {}) {
+export function createVismaSandbox({ getRepository, sourceProvider = async () => [], sitesProvider = async () => [], authorizeContext = async () => {}, env = process.env, fetchImpl = globalThis.fetch, now = () => new Date() } = {}) {
   if (typeof getRepository !== 'function') throw new TypeError('getRepository krävs.');
   const client = createVismaClient({ env, fetchImpl });
   const clock = () => new Date(now());
@@ -49,7 +50,9 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
     return attestedVismaPrefill(approval);
   }
   async function assertCurrentSource(reference, context) {
-    const current = (await prefill(reference.cardId, context)).source;
+    const approval = latestAttestedVismaCards(await sourceProvider()).find(item => String(item.cardId) === String(reference.cardId));
+    if (!approval) fail('Kortets aktuella version måste vara kundgodkänd och internt attesterad.', 409, 'visma_source_unattested');
+    const current = { approvalId: approval.id, version: approval.version, hash: approval.snapshot.hash };
     if (current.approvalId !== reference.approvalId || current.version !== reference.version || current.hash !== reference.hash)
       fail('Viktkortets attestversion har ändrats. Hämta kortets uppgifter på nytt.', 409, 'visma_source_changed');
   }
@@ -170,8 +173,8 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
     });
     return { result, company };
   }
-  function existing(tenant, request, context) {
-    const keyHash = hash([context.organisationId, context.actorId, context.effectiveUserId, request.idempotencyKey]);
+  function existing(tenant, request, context, scopeKey) {
+    const keyHash = hash(scopeKey ? [context.organisationId, 'export', scopeKey, request.idempotencyKey] : [context.organisationId, context.actorId, context.effectiveUserId, request.idempotencyKey]);
     const requestHash = hash({ operation: request.operation, parameters: request.parameters ?? {}, payload: request.payload ?? null,
       ...(request.source ? { source: request.source } : {}) });
     const prior = tenant.runs.find(item => item.id === request.requestId || item.keyHash === keyHash);
@@ -179,7 +182,64 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
       fail('Samma testförsök innehåller andra uppgifter. Skapa ett nytt testförsök.', 409, 'idempotency_conflict');
     return { prior, keyHash, requestHash };
   }
-  return {
+  const workerCapability = Object.freeze({});
+  let finance;
+  async function dispatch(value, context, capability, scopeKey) {
+      const checkAuthorization = async () => {
+        if (capability === workerCapability) await finance.assertWorkerAuthorization(context);
+        else { scoped(context); await authorizeContext(context); }
+        if (scopeKey) await finance.assertExportAuthorization(context, capability === workerCapability, scopeKey);
+      };
+      await checkAuthorization(); const request = parseVismaSandboxInput(value);
+      const prior = await read(state => existing(tenantFor(state, context.organisationId), request, context, scopeKey).prior);
+      if (prior) return publicRun(prior, clock());
+      if (request.source) await assertCurrentSource(request.source, context);
+      const configuration = ready(), descriptor = VISMA_OPERATIONS.find(item => item.id === request.operation);
+      const reservation = await transact(document => {
+        const tenant = tenantFor(document, context.organisationId, true), match = existing(tenant, request, context, scopeKey);
+        if (match.prior) return { prior: publicRun(match.prior, clock()) };
+        if (request.operation !== 'company') requireCompany(tenant, configuration);
+        else if (!tenant.tokens) fail('Anslut Spiris sandbox först.', 409, 'visma_not_connected');
+        const run = { id: request.requestId, keyHash: match.keyHash, requestHash: match.requestHash, status: 'in_flight', operation: request.operation, method: descriptor.method,
+          path: vismaOperationPath(request.operation, request.parameters), ...(request.parameters === undefined ? {} : { parameters: copy(request.parameters) }),
+          ...(request.payload === undefined ? {} : { payload: copy(request.payload) }),
+          ...(request.source === undefined ? {} : { source: copy(request.source) }),
+          startedAt: clock().toISOString(), leaseUntil: new Date(clock().getTime() + RUN_LIFETIME).toISOString(), trackingId: randomUUID(), httpStatus: null, response: null,
+          actualUserId: context.actorId, effectiveUserId: context.effectiveUserId, generation: tenant.generation };
+        tenant.runs.push(run); audit(tenant, context, 'visma.sandbox_reserved', { runId: run.id, trackingId: run.trackingId }); return { run: copy(run) };
+      });
+      if (reservation.prior) return reservation.prior;
+      let result, dispatched = false;
+      try {
+        const accessToken = await access(context, reservation.run.generation);
+        if (request.operation === 'company') {
+          dispatched = true; result = (await checkCompany(context, reservation.run.generation, accessToken, reservation.run.trackingId)).result;
+        } else {
+          const check = await checkCompany(context, reservation.run.generation, accessToken, reservation.run.trackingId);
+          if (check.result.outcome !== 'accepted' || !check.company) fail('Sandboxföretaget kunde inte verifieras före operationen.', 409, 'visma_company_unverified');
+          if (check.company.id !== ready().expectedCompanyId) fail('Anslutningen tillhör ett annat företag. Inget underlag skickades.', 409, 'visma_company_mismatch');
+          // Recheck the durable generation after refresh/company validation so
+          // a completed disconnect prevents dispatch through stale credentials.
+          await read(state => { const tenant = tenantFor(state, context.organisationId); if (tenant.generation !== reservation.run.generation) fail('Anslutningen har ändrats.', 409, 'visma_not_connected'); requireCompany(tenant, ready()); });
+          if (request.source) await assertCurrentSource(request.source, context);
+          await checkAuthorization();
+          dispatched = true; result = await client.request({ operation: request.operation, parameters: request.parameters, payload: reservation.run.payload, accessToken, trackingId: reservation.run.trackingId });
+        }
+      } catch (error) { result = { outcome: dispatched ? 'unknown' : 'rejected', httpStatus: null, response: null,
+        error: { code: error instanceof EnvironmentError ? error.code : 'VISMA_UNKNOWN_OUTCOME', message: error instanceof EnvironmentError ? error.message : 'Svaret saknas. Försöket skickas inte automatiskt igen.' } }; }
+      return transact(document => {
+        const tenant = tenantFor(document, context.organisationId, true), run = tenant.runs.find(item => item.id === reservation.run.id);
+        if (!run || run.requestHash !== reservation.run.requestHash) fail('Testförsökets beständiga reservation saknas.', 409, 'reservation_missing');
+        if (run.status !== 'in_flight') return publicRun(run, clock());
+        const status = ['accepted', 'rejected', 'unknown'].includes(result?.outcome) ? result.outcome : 'unknown';
+        Object.assign(run, { status, finishedAt: clock().toISOString(), httpStatus: result?.httpStatus ?? null, response: client.redact(result?.response ?? null) });
+        if (result.error) run.error = client.redact(result.error);
+        if (result.resourceId) run.resourceId = result.resourceId;
+        audit(tenant, context, `visma.sandbox_${status}`, { runId: run.id, trackingId: run.trackingId }); return publicRun(run, clock());
+      });
+
+  }
+  const service = {
     async integrationStatus(context) {
       scoped(context, false); return read(state => { const tenant = tenantFor(state, context.organisationId), configuration = config();
         return { mode: configuration.mode === 'sandbox' ? 'test' : 'disabled', configured: configuration.configured, connected: Boolean(configuration.configured && verified(tenant, configuration)),
@@ -189,7 +249,7 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
     async attestedCards(context) { scoped(context); return { cards: latestAttestedVismaCards(await sourceProvider()).map(attestedVismaSummary) }; },
     prefill,
     async begin(context) {
-      scoped(context); ready(); const state = randomBytes(32).toString('base64url'), cookieBinding = randomBytes(32).toString('base64url'), verifier = randomBytes(48).toString('base64url');
+      scoped(context); await authorizeContext(context); ready(); const state = randomBytes(32).toString('base64url'), cookieBinding = randomBytes(32).toString('base64url'), verifier = randomBytes(48).toString('base64url');
       const expiresAt = new Date(clock().getTime() + OAUTH_LIFETIME).toISOString();
       await transact(document => { const tenant = tenantFor(document, context.organisationId, true), pending = {
         id: randomUUID(), stateHash: hash(state), cookieHash: hash(cookieBinding), contextHash: binding(context), expiresAt, used: false,
@@ -219,7 +279,7 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
       return result;
     },
     async complete(context) {
-      scoped(context); ready();
+      scoped(context); await authorizeContext(context); ready();
       const reservation = await transact(document => {
         const tenant = tenantFor(document, context.organisationId, true), pending = tenant.pending;
         if (!pending?.used || !pending.code || pending.contextHash !== binding(context) || clock().getTime() >= Date.parse(pending.expiresAt))
@@ -229,7 +289,7 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
         audit(tenant, context, 'visma.oauth_exchange_reserved'); return { code, verifier, generation: tenant.generation };
       });
       let tokens, companyResult;
-      try { tokens = await client.exchangeCode(reservation); companyResult = await client.request({ operation: 'company', accessToken: tokens.accessToken, trackingId: randomUUID() }); }
+      try { await authorizeContext(context); tokens = await client.exchangeCode(reservation); companyResult = await client.request({ operation: 'company', accessToken: tokens.accessToken, trackingId: randomUUID() }); }
       catch (error) {
         await transact(document => { const tenant = tenantFor(document, context.organisationId, true); if (tenant.generation === reservation.generation) tenant.lastError = 'visma_oauth_failed'; });
         if (error instanceof EnvironmentError) throw error;
@@ -247,7 +307,7 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
       });
     },
     async disconnect(context) {
-      scoped(context); return transact(document => { const tenant = tenantFor(document, context.organisationId, true);
+      scoped(context); await authorizeContext(context); return transact(document => { const tenant = tenantFor(document, context.organisationId, true);
         tenant.generation = randomUUID(); tenant.tokens = null; tenant.pending = null; tenant.refreshLease = null; tenant.company = null; tenant.companyVerified = false; tenant.lastError = null;
         audit(tenant, context, 'visma.disconnected'); return statusDTO(tenant); });
     },
@@ -255,53 +315,11 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
       scoped(context); return read(state => { const run = tenantFor(state, context.organisationId).runs.find(item => item.id === id);
         if (!run) fail('Testförsöket finns inte.', 404, 'not_found'); return publicRun(run, clock()); });
     },
-    async send(value, context) {
-      scoped(context); const request = parseVismaSandboxInput(value);
-      const prior = await read(state => existing(tenantFor(state, context.organisationId), request, context).prior);
-      if (prior) return publicRun(prior, clock());
-      if (request.source) await assertCurrentSource(request.source, context);
-      const configuration = ready(), descriptor = VISMA_OPERATIONS.find(item => item.id === request.operation);
-      const reservation = await transact(document => {
-        const tenant = tenantFor(document, context.organisationId, true), match = existing(tenant, request, context);
-        if (match.prior) return { prior: publicRun(match.prior, clock()) };
-        if (request.operation !== 'company') requireCompany(tenant, configuration);
-        else if (!tenant.tokens) fail('Anslut Spiris sandbox först.', 409, 'visma_not_connected');
-        const run = { id: request.requestId, keyHash: match.keyHash, requestHash: match.requestHash, status: 'in_flight', operation: request.operation, method: descriptor.method,
-          path: vismaOperationPath(request.operation, request.parameters), ...(request.parameters === undefined ? {} : { parameters: copy(request.parameters) }),
-          ...(request.payload === undefined ? {} : { payload: copy(request.payload) }),
-          ...(request.source === undefined ? {} : { source: copy(request.source) }),
-          startedAt: clock().toISOString(), leaseUntil: new Date(clock().getTime() + RUN_LIFETIME).toISOString(), trackingId: randomUUID(), httpStatus: null, response: null,
-          actualUserId: context.actorId, effectiveUserId: context.effectiveUserId, generation: tenant.generation };
-        tenant.runs.push(run); audit(tenant, context, 'visma.sandbox_reserved', { runId: run.id, trackingId: run.trackingId }); return { run: copy(run) };
-      });
-      if (reservation.prior) return reservation.prior;
-      let result, dispatched = false;
-      try {
-        const accessToken = await access(context, reservation.run.generation);
-        if (request.operation === 'company') {
-          dispatched = true; result = (await checkCompany(context, reservation.run.generation, accessToken, reservation.run.trackingId)).result;
-        } else {
-          const check = await checkCompany(context, reservation.run.generation, accessToken, reservation.run.trackingId);
-          if (check.result.outcome !== 'accepted' || !check.company) fail('Sandboxföretaget kunde inte verifieras före operationen.', 409, 'visma_company_unverified');
-          if (check.company.id !== ready().expectedCompanyId) fail('Anslutningen tillhör ett annat företag. Inget underlag skickades.', 409, 'visma_company_mismatch');
-          // Recheck the durable generation after refresh/company validation so
-          // a completed disconnect prevents dispatch through stale credentials.
-          await read(state => { const tenant = tenantFor(state, context.organisationId); if (tenant.generation !== reservation.run.generation) fail('Anslutningen har ändrats.', 409, 'visma_not_connected'); requireCompany(tenant, ready()); });
-          if (request.source) await assertCurrentSource(request.source, context);
-          dispatched = true; result = await client.request({ operation: request.operation, parameters: request.parameters, payload: reservation.run.payload, accessToken, trackingId: reservation.run.trackingId });
-        }
-      } catch (error) { result = { outcome: dispatched ? 'unknown' : 'rejected', httpStatus: null, response: null,
-        error: { code: error instanceof EnvironmentError ? error.code : 'VISMA_UNKNOWN_OUTCOME', message: error instanceof EnvironmentError ? error.message : 'Svaret saknas. Försöket skickas inte automatiskt igen.' } }; }
-      return transact(document => {
-        const tenant = tenantFor(document, context.organisationId, true), run = tenant.runs.find(item => item.id === reservation.run.id);
-        if (!run || run.requestHash !== reservation.run.requestHash) fail('Testförsökets beständiga reservation saknas.', 409, 'reservation_missing');
-        if (run.status !== 'in_flight') return publicRun(run, clock());
-        const status = ['accepted', 'rejected', 'unknown'].includes(result?.outcome) ? result.outcome : 'unknown';
-        Object.assign(run, { status, finishedAt: clock().toISOString(), httpStatus: result?.httpStatus ?? null, response: client.redact(result?.response ?? null) });
-        if (result.error) run.error = client.redact(result.error);
-        if (result.resourceId) run.resourceId = result.resourceId;
-        audit(tenant, context, `visma.sandbox_${status}`, { runId: run.id, trackingId: run.trackingId }); return publicRun(run, clock());
-      });
-    },
+    send: (value, context) => dispatch(value, context),
   };
+  finance = createVismaExports({ read, transact, tenantFor, scoped, audit, clock, config, sourceProvider, sitesProvider, authorizeContext,
+    send: (request, context, worker, scopeKey) => dispatch(request, context, worker ? workerCapability : undefined, scopeKey),
+    connection: () => read(state => { const tenant = tenantFor(state, 'jeroc-demo'); return { company: copy(tenant.company), companyVerified: verified(tenant, config()) }; }),
+  });
+  return Object.assign(service, finance.publicMethods);
 }

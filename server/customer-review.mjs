@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { PricingError, createPricingStore } from './pricing.mjs';
+import { PricingError, createPricingStore, money } from './pricing.mjs';
 import { officeSchema, validPaymentDetails, settlementPreview } from '../dist-server/domain-models.mjs';
+import { freezePurchaseAccounting } from './visma-accounting.mjs';
 
 const fail = (message, status = 409) => { throw new PricingError(message, status); };
 const copy = structuredClone;
@@ -18,7 +19,7 @@ const expectedVersion = card => canonical(Object.fromEntries([
 /** A server command called inside the application's transaction. The terminal
  * repository joins its PostgreSQL client: prices, reservation and review have
  * one commit and all roll back when the terminal is busy or validation fails. */
-export async function prepareCustomerReview({ state, input, principal, send, runWithPricing, reflectApprovals, officeView, revision, audit }) {
+export async function prepareCustomerReview({ state, input, principal, send, runWithPricing, reflectApprovals, officeView, revision, audit, accountingSettings, accountingSettingsProvider }) {
   if (!input || !Number.isSafeInteger(input.cardId) || input.cardId <= 0 ||
     !['terminalId', 'siteId', 'idempotencyKey'].every(key => typeof input[key] === 'string' && input[key].trim() && input[key].length <= 200))
     fail('Ange kort, terminal, anläggning och utskicks-ID.', 422);
@@ -42,6 +43,7 @@ export async function prepareCustomerReview({ state, input, principal, send, run
     const customer = state.office.customers.find(value => value.id === card.customerId);
     const payment = card.paymentDetails ?? customer?.paymentProfile;
     if (!customer || !card.origin?.trim() || !validPaymentDetails(payment)) fail('Komplettera kund, ursprungsadress och betalningsuppgifter före kundgodkännande.', 422);
+    if (accountingSettingsProvider) accountingSettings = await accountingSettingsProvider(customer);
     const older = pricing.snapshots(principal, String(card.id)).at(-1);
     const snapshot = pricing.snapshot({ cardId: String(card.id), customerId: card.customerId, deliveredAt: card.date,
       ...(older ? { supersedesSnapshotId: older.id } : {}),
@@ -58,10 +60,20 @@ export async function prepareCustomerReview({ state, input, principal, send, run
     const frozen = { ...card, rows, siteId, pricingSnapshotId: snapshot.id, pricedAt: card.date,
       pricingTotal: snapshot.total, financialPending: false, pricingRowsPending: false,
       preparedBy: principal.user.id, customerSnapshot: copy(customer), paymentDetails: copy(payment) };
+    // Rebuild from authoritative prices, customer and article metadata. Browser
+    // accounting fields and a cancelled version are never a new economic proof.
+    delete frozen.accounting;
+    const businessDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(card.date));
+    const catalog = pricing.read(principal, businessDate).articles;
+    const accountingRows = rows.map(row => ({ articleId: row.articleId, name: catalog.find(value => value.id === row.articleId)?.name ?? row.articleName ?? row.articleId,
+      weight: row.weight, price: row.price, amount: money(row.weight * row.price),
+      taxCategory: catalog.find(value => value.id === row.articleId)?.taxCategory ?? 'review' }));
+    if (accountingSettings?.enabled) frozen.accounting = freezePurchaseAccounting({ settings: accountingSettings, customer, rows: accountingRows, siteId });
     const settlement = settlementPreview({ ...state.office, cards: state.office.cards.map(value => value.id === card.id ? { ...frozen, status: 'ready' } : value) }, card.id);
+    if (frozen.accounting) frozen.accounting = freezePurchaseAccounting({ settings: accountingSettings, customer, rows: accountingRows, siteId, offset: settlement.offset });
     payload = { card: frozen, customer: copy(customer), terminalId: input.terminalId, siteId,
       rows: rows.map(row => ({ articleId: row.articleId, name: row.articleName ?? row.articleId, weight: row.weight,
-        price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })),
+        price: row.price, amount: money(row.weight * row.price) })),
       offset: settlement.offset, correctionIds: settlement.negativeCorrectionIds,
       idempotencyKey: `command-${createHash('sha256').update(JSON.stringify([principal.actor.id, principal.user.id, input.idempotencyKey])).digest('hex')}` };
   }

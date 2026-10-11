@@ -16,6 +16,9 @@ export const VISMA_OPERATIONS = Object.freeze([
   { id: 'fiscalYears', label: 'Räkenskapsår', method: 'GET', path: '/fiscalyears', write: false },
   { id: 'accounts', label: 'Kontoplan', method: 'GET', path: '/accounts/{fiscalYearId}', write: false },
   { id: 'paymentTerms', label: 'Betalningsvillkor', method: 'GET', path: '/termsofpayments', write: false },
+  { id: 'vatCodes', label: 'Momskoder', method: 'GET', path: '/vatcodes', write: false },
+  { id: 'costCenters', label: 'Resultatenheter', method: 'GET', path: '/costcenters', write: false },
+  { id: 'projects', label: 'Projekt', method: 'GET', path: '/projects', write: false },
   { id: 'suppliers', label: 'Leverantörer', method: 'GET', path: '/suppliers', write: false },
   { id: 'supplier', label: 'Hämta leverantör', method: 'GET', path: '/suppliers/{resourceId}', write: false },
   { id: 'draft', label: 'Hämta fakturautkast', method: 'GET', path: '/supplierinvoicedrafts/{resourceId}', write: false },
@@ -56,7 +59,8 @@ const draft = z.object({
   SkipSendToBank: z.literal(true).default(true),
 }).strict();
 const inputSchema = z.object({ requestId: uuid, idempotencyKey: z.string().trim().min(1).max(100), operation: z.enum(VISMA_OPERATIONS.map(item => item.id)),
-  parameters: z.object({ fiscalYearId: uuid.optional(), resourceId: uuid.optional() }).strict().optional(), payload: z.unknown().optional(),
+  parameters: z.object({ fiscalYearId: uuid.optional(), resourceId: uuid.optional(), page: z.number().int().min(1).max(100).optional(),
+    pageSize: z.number().int().min(1).max(100).optional(), useDefaultVatCodes: z.literal(false).optional(), calculateVatOnCostAccounts: z.literal(false).optional() }).strict().optional(), payload: z.unknown().optional(),
   source: z.object({ cardId: z.number().int().positive().safe(), approvalId: uuid, version: z.number().int().positive(), hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().optional() }).strict();
 
 export function parseVismaSandboxInput(value) {
@@ -67,7 +71,7 @@ export function parseVismaSandboxInput(value) {
   const request = input.data, operation = byOperation.get(request.operation), parameters = request.parameters ?? {};
   if (request.source && !operation.write) fail('Viktkortsreferens används endast för leverantörs- och fakturautkaststest.');
   const expected = request.operation === 'accounts' ? 'fiscalYearId' : ['supplier', 'draft'].includes(request.operation) ? 'resourceId' : null;
-  if (Object.keys(parameters).some(key => key !== expected) || expected && !parameters[expected]) fail('Ange endast operationens dokumenterade resursidentifierare.');
+  if (Object.keys(parameters).some(key => !allowedParameters(request.operation).includes(key)) || expected && !parameters[expected]) fail('Ange endast operationens dokumenterade resursidentifierare.');
   if (operation.write) {
     const payload = (request.operation === 'createSupplier' ? supplier : draft).safeParse(request.payload);
     if (!payload.success) fail('Underlaget innehåller okända, skrivskyddade eller felaktiga Spiris-fält.');
@@ -81,7 +85,23 @@ export function vismaOperationPath(operation, parameters = {}) {
   if (!descriptor) fail('Operationen är inte tillåten.');
   const parameter = operation === 'accounts' ? 'fiscalYearId' : ['supplier', 'draft'].includes(operation) ? 'resourceId' : null;
   if (parameter && !uuid.safeParse(parameters[parameter]).success) fail('Resursidentifieraren måste vara ett UUID.');
-  return parameter ? descriptor.path.replace(`{${parameter}}`, parameters[parameter]) : descriptor.path;
+  const path = parameter ? descriptor.path.replace(`{${parameter}}`, parameters[parameter]) : descriptor.path;
+  if (Object.keys(parameters).some(key => !allowedParameters(operation).includes(key))) fail('Operationen innehåller okända resursparametrar.');
+  const query = new URLSearchParams();
+  for (const key of ['page', 'pageSize', 'useDefaultVatCodes', 'calculateVatOnCostAccounts']) if (parameters[key] !== undefined) {
+    if (['page', 'pageSize'].includes(key) && (!Number.isInteger(parameters[key]) || parameters[key] < 1 || parameters[key] > 100) ||
+      !['page', 'pageSize'].includes(key) && parameters[key] !== false) fail('Operationens frågeparametrar är inte giltiga.');
+    query.set(key === 'page' ? '$page' : key === 'pageSize' ? '$pagesize' : key, String(parameters[key]));
+  }
+  return `${path}${query.size ? `?${query}` : ''}`;
+}
+
+function allowedParameters(operation) {
+  if (operation === 'createDraft') return ['useDefaultVatCodes', 'calculateVatOnCostAccounts'];
+  if (['supplier', 'draft'].includes(operation)) return ['resourceId'];
+  if (['fiscalYears', 'paymentTerms', 'vatCodes', 'costCenters', 'projects', 'suppliers', 'accounts'].includes(operation))
+    return [...(operation === 'accounts' ? ['fiscalYearId'] : []), 'page', 'pageSize'];
+  return [];
 }
 
 export function readVismaConfiguration(env = process.env) {
@@ -164,8 +184,7 @@ export function createVismaClient({ env = process.env, fetchImpl = globalThis.fe
       configured(); const descriptor = byOperation.get(operation);
       if (!descriptor) fail('Operationen är inte tillåten.');
       const path = vismaOperationPath(operation, parameters);
-      const parameter = operation === 'accounts' ? 'fiscalYearId' : ['supplier', 'draft'].includes(operation) ? 'resourceId' : null;
-      if (Object.keys(parameters ?? {}).some(key => key !== parameter)) fail('Operationen innehåller okända resursparametrar.');
+      if (Object.keys(parameters ?? {}).some(key => !allowedParameters(operation).includes(key))) fail('Operationen innehåller okända resursparametrar.');
       if (typeof accessToken !== 'string' || !accessToken || /[\s\x00-\x1f\x7f]/.test(accessToken)) fail('En giltig serverlagrad åtkomsttoken krävs.', 409, 'visma_invalid');
       // Validate again at the transport boundary; no service caller can add a
       // hidden body, even if it bypasses the browser input parser.

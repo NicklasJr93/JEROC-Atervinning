@@ -51,6 +51,7 @@ import { changeWeighingMaterial, type MaterialCommand } from './weighing-materia
 import StaffAccountPanel from './personnel/StaffAccountPanel';
 import { EnvironmentSessionProvider } from './EnvironmentSession';
 import EnvironmentReceiptPanel from './EnvironmentReceiptPanel';
+import CardSpirisStatusPanel from './CardSpirisStatusPanel';
 import EnvironmentWorkspace from './EnvironmentWorkspace';
 import { useTerminalDemo } from './useTerminalDemo';
 import { terminalDemoApi } from './terminal-demo-client';
@@ -1743,6 +1744,11 @@ export function OfficeApp() {
                         material
                       </p>
                     )}
+                    {cardMoneyVisible(user, selected) && selected.accounting && <div className="office-settlement">
+                      <span>Materialbelopp <strong>{money(selected.accounting.baseTotal)} kr</strong></span>
+                      <span>Moms på avräkningen <strong>{money(selected.accounting.sellerVat)} kr</strong></span>
+                      <span>{selected.accounting.lines.some(line => line.treatment === 'reverse25') ? 'Omvänd moms beräknas i konteringen.' : selected.accounting.sellerVat > 0 ? 'Beloppet inkluderar debiterad moms.' : 'Ingen moms debiteras.'}</span>
+                    </div>}
                     {['ready', 'balance'].includes(selected.status) &&
                       can(user, 'pay') &&
                       selectedSettlement && (
@@ -1870,6 +1876,7 @@ export function OfficeApp() {
                         }}
                       />
                     )}
+                  <CardSpirisStatusPanel card={selected} user={user} actualUser={actualUser!} />
                   <section className="office-panel office-card-audit">
                     <h2><History size={21} aria-hidden="true" /> Spårbarhet</h2>
                     <div className="office-process-trace">

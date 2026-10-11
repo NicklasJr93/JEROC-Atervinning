@@ -1,7 +1,7 @@
 import { environmentRequest } from './environment-client';
 import type { NvvJsonObject } from './environment-types';
 
-export type VismaOperation = 'company' | 'fiscalYears' | 'accounts' | 'paymentTerms' | 'suppliers' | 'supplier' | 'draft' | 'createSupplier' | 'createDraft';
+export type VismaOperation = 'company' | 'fiscalYears' | 'accounts' | 'paymentTerms' | 'vatCodes' | 'costCenters' | 'projects' | 'suppliers' | 'supplier' | 'draft' | 'createSupplier' | 'createDraft';
 export type VismaParameters = { fiscalYearId?: string; resourceId?: string };
 export type VismaCardReference = { cardId: number; approvalId: string; version: number; hash: string };
 export type VismaAttestedCard = VismaCardReference & { customerName: string; customerType: string; siteName: string; attestedAt: string; attestedBy: string; gross: number; offset: number; net: number };

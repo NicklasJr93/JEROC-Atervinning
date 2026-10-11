@@ -12,6 +12,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  ReceiptText,
   Search,
   ShieldCheck,
   TrendingUp,
@@ -22,6 +23,7 @@ import type { OfficeUser, Permission } from './model';
 import EnvironmentalArticlePanel from './EnvironmentalArticlePanel';
 import {
   pricingRequest,
+  type ArticleTaxCategory,
   type CustomerPrice,
   type LmeRate,
   type PriceArticle,
@@ -40,6 +42,13 @@ type Props = {
   onSectionChange?: (section: PricingSection) => void;
 };
 const tiers: PriceTier[] = ['A', 'B', 'C'];
+const taxCategories: { value: ArticleTaxCategory; label: string; description: string }[] = [
+  { value: 'scrap_reverse', label: 'Omvänd betalningsskyldighet – metallskrot', description: 'För metallskrot som omfattas av omvänd betalningsskyldighet. Kundens momsstatus avgör momshanteringen på viktkortet.' },
+  { value: 'standard_25', label: 'Vanlig moms, 25 %', description: 'Inköp med 25 % moms när inlämnaren är momsregistrerad.' },
+  { value: 'no_vat', label: 'Utan moms', description: 'Inköpet bokförs utan moms.' },
+  { value: 'review', label: 'Behöver bedömas av ekonomi', description: 'Ekonomi behöver bedöma och välja artikelns momshantering.' },
+];
+const taxCategoryLabel = (category: ArticleTaxCategory | undefined) => taxCategories.find((item) => item.value === (category ?? 'review'))!.label;
 const money = (value: number | null | undefined) =>
   value == null
     ? '—'
@@ -182,7 +191,7 @@ export default function PricingWorkspace({
           </h1>
           <p>
             {selected
-              ? 'Referensbilder, prisformler och volymgränser per artikel.'
+              ? 'Referensbilder, momshantering, prisformler och volymgränser per artikel.'
               : currentSection === 'lme'
                 ? 'Manuella Cash-priser som artikelns prisformler räknar mot.'
                 : currentSection === 'customer-prices'
@@ -650,6 +659,7 @@ function newArticle(state: PricingState): PriceArticle {
     excludes: [],
     photos: [0],
     active: true,
+    taxCategory: 'review',
     base: { type: 'lme', metal: state.metals[0]?.id || 'copper' },
     tiers: {
       A: { discountPercent: 18, adjustmentKr: 0 },
@@ -965,6 +975,7 @@ function ArticleEditor({
   const canReadPrices = editable || tiers.some((tier) => right(user, `price${tier}`));
   const [draft, setDraft] = useState<PriceArticle>(() => ({
     ...structuredClone(article),
+    taxCategory: article.taxCategory ?? 'review',
     // The pricing API deliberately removes formulas for readers. These empty
     // draft values are never displayed or submitted without editing rights.
     base: article.base || { type: 'manual', price: 0 },
@@ -1034,6 +1045,7 @@ function ArticleEditor({
       excludes: lines(excludeText),
       photos: draft.photos,
       active: draft.active,
+      taxCategory: draft.taxCategory ?? 'review',
       base: draft.base,
       tiers: draft.tiers,
       thresholds: draft.thresholds,
@@ -1179,6 +1191,27 @@ function ArticleEditor({
             Artikeln är aktiv för invägning
           </label>
           </fieldset>
+        </section>
+        <section className={`office-panel office-pricing-tax-panel ${draft.taxCategory === 'review' ? 'needs-review' : ''}`}>
+          <div className="office-pricing-tax-heading">
+            <span className="office-pricing-tax-icon"><ReceiptText size={19} /></span>
+            <div><h2>Momshantering vid inköp</h2><p>Artikelns ekonomiska klassificering</p></div>
+          </div>
+          <fieldset className="office-pricing-fields" disabled={!editable}>
+            <label>
+              Momskategori
+              <select
+                aria-label="Momshantering vid inköp"
+                value={draft.taxCategory ?? 'review'}
+                onChange={(event) => setDraft((old) => ({ ...old, taxCategory: event.target.value as ArticleTaxCategory }))}
+              >
+                {taxCategories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </label>
+          </fieldset>
+          <p className="office-pricing-tax-description">{taxCategories.find((item) => item.value === draft.taxCategory)?.description}</p>
+          <p className="office-pricing-tax-description">Priser anges exklusive eventuell moms som säljaren debiterar. Kundens momsstatus avgör hur artikelregeln används på avräkningen.</p>
+          <small>En privat inlämnare får ingen moms. Avfallskod och miljömottagning hanteras separat.</small>
         </section>
         <EnvironmentalArticlePanel
           articleId={article.id}
@@ -1432,6 +1465,7 @@ function ArticleEditor({
                 <tr>
                   <th>Gäller från</th>
                   <th>Prisbas</th>
+                  <th>Momshantering vid inköp</th>
                   <th>A / B / C avdrag</th>
                   <th>Volymgränser B / A</th>
                 </tr>
@@ -1449,6 +1483,7 @@ function ArticleEditor({
                           )?.name
                         : `${money(item.base.price)} kr/kg`}
                     </td>
+                    <td>{taxCategoryLabel(item.taxCategory)}</td>
                     <td>
                       {tiers
                         .map((tier) => `${item.tiers[tier].discountPercent}%`)

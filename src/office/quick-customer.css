@@ -20,6 +20,12 @@
 .quick-customer-types { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 21px 0; }
 .quick-customer-types button { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 43px; padding: 9px; border: 1px solid #dce7f7; border-radius: 7px; color: #2e486a; background: #fff; font-size: 12px; font-weight: 600; }
 .quick-customer-types button.active { color: #fff; border-color: #0969f3; background: #0969f3; }
+.quick-customer-vat { margin: 0 0 20px; padding: 12px 14px; border: 1px solid #dce7f5; border-radius: 8px; background: #f7faff; }
+.quick-customer-vat legend { padding: 0 5px; color: #324f76; font-size: 12px; font-weight: 600; }
+.quick-customer-vat-options { display: flex; gap: 8px; }
+.quick-customer-vat-options button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 85px; min-height: 35px; padding: 7px 15px; border: 1px solid #dce7f5; border-radius: 6px; color: #526d91; background: #fff; font-size: 12px; font-weight: 600; }
+.quick-customer-vat-options button.active { border-color: #0969f3; color: #0969f3; background: #eaf3ff; box-shadow: inset 0 0 0 1px #0969f3; }
+.quick-customer-vat p { margin: 9px 0 0; color: #7185a6; font-size: 11px; line-height: 1.5; }
 .quick-customer-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 14px; }
 .office .quick-customer-dialog .quick-customer-fields label { display: block; margin: 0; color: #5f7799; font-size: 11px; font-weight: 600; }
 .quick-customer-required { color: #e76f42; }

@@ -13,6 +13,7 @@ import './visma-sandbox.css';
 const runLabels: Record<VismaSandboxRun['status'], string> = { in_flight: 'Inväntar Visma', accepted: 'Svar från SANDBOX', rejected: 'Avvisat', unknown: 'Oklart resultat' };
 const operationLabels: Record<VismaOperation, string> = {
   company: 'Läs företagsidentitet', fiscalYears: 'Läs räkenskapsår', accounts: 'Läs kontoplan', paymentTerms: 'Läs betalningsvillkor',
+  vatCodes: 'Läs momskoder', costCenters: 'Läs kostnadsställen', projects: 'Läs projekt',
   suppliers: 'Läs leverantörer', supplier: 'Läs en leverantör', draft: 'Läs ett fakturautkast', createSupplier: 'Skapa testleverantör', createDraft: 'Skapa leverantörsfakturautkast',
 };
 const jsonText = (value: unknown) => JSON.stringify(value, null, 2);

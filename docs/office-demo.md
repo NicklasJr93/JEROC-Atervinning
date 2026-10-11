@@ -1,4 +1,42 @@
-# JEROC kontorsdemo 0.15.2
+# JEROC kontorsdemo 0.16.0
+
+## Nytt i 0.16.0 – ekonomiinställningar och Spiris-export
+
+**Integrationer → Spiris** har gemensamma ekonomiinställningar, verkliga
+betalvillkor/konton/momskoder och en rad per anläggning med kostnadsställe,
+valfritt projekt och egna kontoavvikelser. Standardförslaget är Direkt,
+0 dagar; rätt inköpsvillkor väljs från Spiris. Konteringen kan förhandsvisas
+innan inställningarna sparas. Företagskopplingen och inställningsrevisionen
+bevaras i varje ekonomiversion.
+
+Snabbkund på viktkortet och den fullständiga kundsidan har Momsregistrerad
+Ja/Nej för Företag/BRF, förvalt Ja vid nyregistrering enligt kontoristens
+kontrollrutin. Privatkund sparas utan momsregistrering. Betalvillkor kan
+ärvas från integrationen eller ändras på kunden. Befintliga kunder utan
+registrerad momsuppgift får ingen påhittad historisk bekräftelse.
+
+Artiklar & priser har separat **Momshantering vid inköp**. Det är en
+ekonomiregel och påverkas inte av farligt avfall/NVV. Befintliga kända
+skrotartiklar klassificeras; nya okända artiklar behöver bedömas.
+Momsstatus, artikelregel och kontering räknas före kundgodkännandet.
+Vanlig moms ingår i kundens godkända belopp; omvänd moms tillför ingen
+moms till säljarens utbetalning. Terminalen och avräknings-PDF:en visar
+den frysta momshanteringen. Senare registerändringar skriver inte om den.
+
+Manuell överföring och valbar **Efter attest** använder samma beständiga
+sandboxkö. Leverantören matchas entydigt eller skapas och dess svar-ID
+sparas per kund/företagskoppling. Fakturautkastet får rätt kontering och
+förfallodatum. Ett förlorat/oklart skrivsvar skickas inte automatiskt igen.
+Status, Spiris-ID och händelser visas på viktkortet; integrationshistoriken
+visar faktiska anrop och svar. Attestsvaret väntar inte på provideranropet.
+
+Detta gäller enbart den anslutna Spiris-sandboxen. Ingen bokföring eller
+bankbetalning utförs. Kvittning mot tidigare minussaldo spärrar den hanterade
+exporten tills en faktisk kreditkoppling i Spiris har byggts; avräkning och
+manuell utbetalningsregistrering fungerar fortsatt. Tidigare attesterade
+kort utan fryst ekonomiuppgift ändras inte retroaktivt. Inga nya Renderfält.
+
+Se [inställningar och provflöde](integrationer/spiris-visma/sandbox-setup.md).
 
 ## Nytt i 0.15.2 – Spiris-test från attesterade viktkort
 

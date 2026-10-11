@@ -10,7 +10,7 @@ import { createTerminalDemoApi } from './terminal-demo.mjs';
 import { createEnvironmentApi } from './environment-api.mjs';
 import { createDocumentsApi } from './documents/api.mjs';
 import { renderPdf } from './documents/render.mjs';
-import { PricingError } from './pricing.mjs';
+import { PricingError, createPricingStore } from './pricing.mjs';
 import { createVismaSandbox } from './visma-sandbox.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -162,9 +162,23 @@ const applicationApi = createApplicationService({ approvalProvider: () => termin
   guardMaterialChange: (input, operation) => environmentApi.guardMaterialChange(input, operation),
   siteProvider: () => environmentApi.getSites(),
   environmentProvider: () => environmentApi.getLogisticsSource(),
+  accountingSettingsProvider: customer => vismaService.financeSettingsForCompany(customer),
+  accountingCardStatusProvider: cardId => vismaService.cardExportProjection(cardId),
 });
 const principalStore = applicationApi.principalStore;
-const vismaService = createVismaSandbox({ getRepository: () => applicationApi.getRepository(), sourceProvider: () => terminalDemoApi.documentProjections() });
+const vismaService = createVismaSandbox({ getRepository: () => applicationApi.getRepository(),
+  sourceProvider: () => terminalDemoApi.documentProjections(), sitesProvider: () => environmentApi.getSites(),
+  authorizeContext: async context => {
+    if (typeof context.reauthorize !== 'function') throw new PricingError('Den aktiva integrationssessionen saknas.', 403);
+    const session = await context.reauthorize();
+    if (session.actor.id !== context.actorId || session.user.id !== context.effectiveUserId) throw new PricingError('Integrationssessionen har ändrats.', 403);
+    await (await applicationApi.getRepository()).read(state => {
+      const principal = createPricingStore({ initialState: state.pricing }).principal(context.actorId, context.effectiveUserId);
+      if (principal.actor.level !== 'Systemadmin' || principal.user.level !== 'Systemadmin' || principal.actor.siteIds || principal.user.siteIds)
+        throw new PricingError('Systemadmin med åtkomst till alla anläggningar krävs.', 403);
+    }, { domains: ['pricing'] });
+  },
+});
 const environmentApi = createEnvironmentApi({ principalStore,
   vismaService,
   approvalGuard: (input, operation) => terminalDemoApi.withApprovedCard(input, operation),
@@ -175,6 +189,13 @@ const environmentApi = createEnvironmentApi({ principalStore,
 });
 const terminalDemoApi = createTerminalDemoApi({ principalStore, siteProvider: () => environmentApi.getSites(),
   environmentApprovalCheck: approval => environmentApi.assertReceiptForAttest(approval),
+  accountingSourceProvider: async request => {
+    const customer = await (await applicationApi.getRepository()).read(state => structuredClone(state.office.customers.find(value => value.id === request.customer.id)), { domains: ['office'] });
+    const settings = await vismaService.financeSettingsForCompany(customer);
+    if (!settings) return null;
+    return { settings, customer };
+  },
+  onAttested: () => vismaService.processQueuedExports(),
   onApprovalChanged: (approval, job) => job
     ? documentsApi.archiveApprovalJob(approval, job)
     : documentsApi.ensureApproval(approval),
@@ -219,6 +240,11 @@ server.on('error', (error) => {
 await applicationApi.getRepository();
 await environmentApi.initialize();
 await terminalDemoApi.initialize?.();
+// Discover committed attests after a restart as well as through the immediate
+// hook. The queue is durable; no provider operation runs in the attest request.
+const accountingTimer = setInterval(() => { void vismaService.processQueuedExports().catch(() => console.warn('Spiris-kön väntar på nästa kontroll.')); }, 20000);
+accountingTimer.unref();
+void vismaService.processQueuedExports().catch(() => console.warn('Spiris-kön kunde inte kontrolleras vid start.'));
 server.listen(port, '0.0.0.0', () => {
   console.log(`JEROC demo lyssnar på port ${server.address().port}`);
 });
@@ -226,6 +252,7 @@ let stopping = false;
 async function stop(code = 0) {
   if (stopping) return;
   stopping = true;
+  clearInterval(accountingTimer);
   setTimeout(() => process.exit(1), 10000).unref();
   await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close()]);
   process.exit(code);

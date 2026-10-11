@@ -125,7 +125,7 @@ function reflectApprovals(office, approvals, seedCards = []) {
     if (newReview && draftMatches && (samePrices || pendingPrices) &&
       !['ready', 'paid', 'balance'].includes(previous.status) && ['waiting', 'id_requested', 'approved', 'attested'].includes(a.status)) {
       previous = { ...previous, rows: card.rows.map(row => ({ ...row, pricePending: false })),
-        pricingSnapshotId: card.pricingSnapshotId, pricingTotal: a.snapshot.gross,
+        pricingSnapshotId: card.pricingSnapshotId, pricingTotal: card.pricingTotal ?? a.snapshot.gross, accounting: card.accounting,
         financialPending: false, pricingRowsPending: false, preparedBy: card.preparedBy,
         customerSnapshot: card.customerSnapshot, paymentDetails: card.paymentDetails, payment: card.payment };
     }
@@ -174,7 +174,7 @@ function officeView(state, p) {
   for (const card of result.cards) {
     const moneyVisible = financial(p) || card.rows.every(row => can(p, 'prices') && can(p, 'customerPrices') &&
       (row.tier === 'Eget' || can(p, `price${row.tier}`)));
-    if (!moneyVisible) { card.financialPending = true; delete card.pricingTotal; card.rows = card.rows.map(row => ({ ...row, price: 0, pricePending: true })); }
+    if (!moneyVisible) { card.financialPending = true; delete card.pricingTotal; delete card.accounting; card.rows = card.rows.map(row => ({ ...row, price: 0, pricePending: true })); }
     if (!can(p, 'paymentDetails') && !financial(p)) { delete card.paymentDetails; card.payment = ''; if (card.customerSnapshot) delete card.customerSnapshot.paymentProfile; }
   }
   if (!can(p, 'paymentDetails') && !financial(p)) for (const customer of result.customers) delete customer.paymentProfile;
@@ -187,7 +187,7 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
   for (const old of base.cards) {
     const original = current.cards.find(card => card.id === old.id), view = readable.cards.find(card => card.id === old.id), target = next.cards.find(card => card.id === old.id);
     if (!original || !view) continue;
-    for (const field of ['financialPending', 'pricingTotal', 'paymentDetails', 'payment', 'customerSnapshot']) if (equal(old[field], view[field]) && !equal(old[field], original[field])) {
+    for (const field of ['financialPending', 'pricingTotal', 'accounting', 'paymentDetails', 'payment', 'customerSnapshot']) if (equal(old[field], view[field]) && !equal(old[field], original[field])) {
       if (target && equal(target[field], old[field])) { if (original[field] === undefined) delete target[field]; else target[field] = clone(original[field]); }
       if (original[field] === undefined) delete old[field]; else old[field] = clone(original[field]);
     }
@@ -210,9 +210,13 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
       if (!linked || linked.status !== 'completed' || linked.cardId !== after.id || linked.id !== after.sourceId) fail('Ett kopplat invägningskort skapas genom arbetsorderns färdigställda vägning.');
     }
     if (!visible(p, after) || before && !visible(p, before)) fail('Du saknar åtkomst till anläggningen.', 403);
-    if (!before) demand(p, after.kind === 'correction' ? 'attest' : 'prepare');
+    if (!before) {
+      demand(p, after.kind === 'correction' ? 'attest' : 'prepare');
+      if (after.accounting) fail('Ekonomiunderlaget beräknas och låses av servern.');
+    }
     else {
       const fields = new Set(Object.keys(after).filter(field => !equal(after[field], before[field])));
+      if (!equal(after.accounting, before.accounting)) fail('Den låsta ekonomiversionen får inte ändras från formuläret.');
       const activeApproval=approvals.find(approval=>approval.id===before.customerApproval?.id && approval.cardId===before.id && approval.version===before.customerApproval?.version);
       if(activeApproval && ['approved','attested'].includes(activeApproval.status) && ['customerId','customerSnapshot','origin','reference','rows','paymentDetails','payment','pricingTotal','pricingSnapshotId'].some(field=>fields.has(field))) fail('Kundens godkända version är låst. Avbryt godkännandet och skapa en ny version före ändring.');
       // Server-managed approval fields are accepted only if identical to the projection.
@@ -236,6 +240,7 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
         }
       }
       if (['ready', 'paid', 'balance'].includes(before.status) && ['customerId', 'origin', 'reference', 'rows', 'pricingTotal', 'pricingSnapshotId'].some(field => fields.has(field))) fail('Attesterade original ändras med en rättelse.');
+      if (['customerId', 'origin', 'reference', 'rows', 'paymentDetails', 'payment', 'pricingTotal', 'pricingSnapshotId'].some(field => fields.has(field))) delete after.accounting;
     }
     if (!before && after.kind === 'correction') {
       const correction = next.corrections.find(row => row.id === after.sourceCorrectionId);
@@ -250,10 +255,54 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
     if (after.status === 'balance' && before?.status !== 'balance') { demand(p, 'attest'); if (after.paymentDetails?.method !== 'balance') fail('Välj Spara på saldo före attest.'); }
     if (after.status === 'paid' && before?.status !== 'paid') demand(p, 'pay');
   }
+  const customerContact = customer => {
+    if (!customer) return undefined;
+    const { audit: _audit, paymentProfile: _profile, ...details } = customer;
+    return details;
+  };
+  const customerSaveText = (before, after) => {
+    const contactChanged = !before || !equal(customerContact(before), customerContact(after));
+    const paymentChanged = !equal(before?.paymentProfile, after.paymentProfile);
+    return contactChanged && paymentChanged ? 'Kunduppgifter och betalningsprofil uppdaterade.'
+      : paymentChanged ? 'Betalningsprofil uppdaterad.' : 'Kunduppgifter uppdaterade.';
+  };
+  for (const after of next.customers) {
+    const before = base.customers.find(customer => customer.id === after.id);
+    const history = before?.audit ?? [];
+    if (after.audit.length < history.length || !equal(after.audit.slice(0, history.length), history))
+      fail('Kundens ändringshistorik kan inte skrivas över.');
+    // Older office clients send one general save entry. Validate that limited
+    // compatibility input, then author every persisted event on the server.
+    const supplied = after.audit.slice(history.length);
+    if (supplied.length > 1 || supplied.some(event => event.text !== customerSaveText(before, after) ||
+        event.actualUserId !== p.actor.id || event.effectiveUserId !== p.user.id))
+      fail('Kundens ändringshistorik skapas av servern.');
+    // Exclude browser-created audit entries from field merges and retries. The
+    // canonical history remains the server's current history in mergeRecord.
+    after.audit = clone(before ? history : current.customers.find(customer => customer.id === after.id)?.audit ?? history);
+    if (!before && after.vatRegistered === undefined) after.vatRegistered = after.type !== 'Privatperson';
+    if (after.type === 'Privatperson' && (after.vatRegistered !== undefined || !before || before.type !== 'Privatperson'))
+      after.vatRegistered = false;
+  }
   const customerChanges = changedRecords(current.customers, base.customers, next.customers);
   if (customerChanges.length) demand(p, 'customers');
   if (customerChanges.some(change => !equal(change.before?.paymentProfile, change.after?.paymentProfile))) demand(p, 'paymentDetails');
   if (customerChanges.some(change => !change.after)) fail('Kunder med historik får inte raderas.');
+  for (const { before, after } of customerChanges) {
+    if (equal(before, after)) continue;
+    const history = before?.audit ?? [];
+    const at = new Date().toISOString();
+    const event = text => ({ at, actor: p.user.name, actualUserId: p.actor.id, effectiveUserId: p.user.id, text });
+    after.audit = [...clone(history), event(customerSaveText(before, after))];
+    if (!equal(before?.vatRegistered, after.vatRegistered)) {
+      const vat = value => value === undefined ? 'Ej angivet' : value ? 'Ja' : 'Nej';
+      after.audit.push(event(`Momsregistrering ändrad: ${vat(before?.vatRegistered)} → ${vat(after.vatRegistered)}.`));
+    }
+    if (!equal(before?.paymentTermDays, after.paymentTermDays)) {
+      const terms = value => value === undefined ? 'Integrationens standard' : value === 0 ? 'Direkt (0 dagar)' : `${value} ${value === 1 ? 'dag' : 'dagar'}`;
+      after.audit.push(event(`Betalningsvillkor ändrade: ${terms(before?.paymentTermDays)} → ${terms(after.paymentTermDays)}.`));
+    }
+  }
   const correctionChanges = changedRecords(current.corrections, base.corrections, next.corrections);
   if (correctionChanges.length) demand(p, correctionChanges.every(change => change.after?.status === 'approved') ? 'attest' : 'corrections');
   for (const change of correctionChanges) {
@@ -316,7 +365,8 @@ function requestPrincipal(store, req) {
 }
 
 export function createApplicationService({ repository, env = process.env, projections, approvalProvider = async () => [], sendCustomerReview,
-  withMaterialChangeApproval, guardMaterialChange, siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider } = {}) {
+  withMaterialChangeApproval, guardMaterialChange, siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider,
+  accountingSettingsProvider, accountingCardStatusProvider } = {}) {
   projections ??= approvalProvider;
   const context = new AsyncLocalStorage(); let fallback = createPricingStore(); let repoPromise;
   const getRepo = () => repoPromise ??= (repository ? Promise.resolve(repository) : createApplicationRepository({ env, seed: initialApplicationState }))
@@ -343,6 +393,18 @@ export function createApplicationService({ repository, env = process.env, projec
     try {
       if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) fail('Anropet måste komma från samma webbplats.', 403);
       const domain = url.pathname.slice('/api/application/'.length);
+      if (/^office\/accounting\/cards\/[1-9]\d{0,11}$/.test(domain)) {
+        if (req.method !== 'GET') fail('Metoden stöds inte.', 405);
+        const cardId = Number(domain.split('/').at(-1)), repository = await getRepo();
+        await repository.read(state => {
+          const principal = requestPrincipal(createPricingStore({ initialState: state.pricing }), req);
+          demand(principal, 'view');
+          if (!financial(principal)) fail('Ekonomibehörighet krävs för att läsa överföringsstatus.', 403);
+          const card = state.office.cards.find(value => value.id === cardId);
+          if (!card || !visible(principal, card)) fail('Invägningskortet kunde inte visas.', 404);
+        }, { domains: ['office', 'pricing'] });
+        json(res, 200, { export: accountingCardStatusProvider ? await accountingCardStatusProvider(cardId) : null }); return true;
+      }
       if (domain === 'office/material') {
         if (req.method !== 'POST') fail('Metoden stöds inte.', 405);
         const input = materialCommandSchema.parse(await body(req)), repository = await getRepo();
@@ -411,6 +473,7 @@ export function createApplicationService({ repository, env = process.env, projec
                 const cancelled = cancel?.();
                 card.rows = pricedRows; card.pricedAt = card.date;
                 if (pricingPending) delete card.pricingTotal; else card.pricingTotal = total;
+              delete card.accounting;
                 card.financialPending = pricingPending; card.pricingRowsPending = pricingPending; card.idVerified = false;
                 delete card.pricingSnapshotId; delete card.approvedBy;
                 card.status = card.status === 'new' && !card.customerApproval ? 'new' : 'complement';
@@ -456,7 +519,7 @@ export function createApplicationService({ repository, env = process.env, projec
             reflectApprovals(state.office, currentApprovals, state.metadata.officeSeed?.cards);
             return prepareCustomerReview({ state, input, principal, send: (payload, identity) => sendCustomerReview(payload, identity, req),
               runWithPricing: (pricing, callback) => context.run({ pricing }, callback),
-              reflectApprovals, officeView, revision, audit });
+              reflectApprovals, officeView, revision, audit, accountingSettingsProvider });
           });
         }, { committedRevision: true });
         const started = performance.now();
@@ -585,7 +648,9 @@ export function createApplicationService({ repository, env = process.env, projec
             for (const { after } of customers) {
               demand(p, 'customers'); if (!after) fail('Kunder får inte raderas.');
               const index = state.office.customers.findIndex(customer => customer.id === after.id), old = state.office.customers[index];
-              const customer = officeSchema.shape.customers.removeDefault().element.parse({ ...old, ...after, customerNumber: old?.customerNumber ?? after.id, audit: old?.audit ?? [] });
+              const customer = officeSchema.shape.customers.removeDefault().element.parse({ ...old, ...after,
+                ...(!old && { vatRegistered: after.type !== 'Privatperson' }),
+                customerNumber: old?.customerNumber ?? after.id, audit: old?.audit ?? [] });
               if (index < 0) state.office.customers.push(customer); else state.office.customers[index] = customer;
             }
             for (const { after } of changes) if (after) mobileToOffice(state, after, p);
@@ -614,7 +679,7 @@ export function createApplicationService({ repository, env = process.env, projec
         // day. Taking the UTC date prefix selects yesterday after local midnight.
         const mobileDeliveredAt = new Date().toISOString();
         const mobileBusinessDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(mobileDeliveredAt));
-        const catalog = domain === 'mobile' ? mobilePricing.read(catalogPrincipal, mobileBusinessDate).articles.map(article => ({ id: article.id, active: article.active, category: article.category, name: article.name, description: article.description, includes: article.includes.join('\n'), excludes: article.excludes.join('\n'), photos: article.photos, prices: ['A', 'B', 'C'].map(tier => article.prices[tier]) })) : undefined;
+        const catalog = domain === 'mobile' ? mobilePricing.read(catalogPrincipal, mobileBusinessDate).articles.map(article => ({ id: article.id, active: article.active, category: article.category, taxCategory: article.taxCategory, name: article.name, description: article.description, includes: article.includes.join('\n'), excludes: article.excludes.join('\n'), photos: article.photos, prices: ['A', 'B', 'C'].map(tier => article.prices[tier]) })) : undefined;
         const customerPrices = {};
         if (domain === 'mobile') for (const customer of state.office.customers) {
           customerPrices[customer.id] = {};

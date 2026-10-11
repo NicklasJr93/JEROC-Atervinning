@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { purchaseAccountingSnapshotSchema } from './accounting-types';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.15.2';
+export const OFFICE_VERSION = '0.16.0';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -120,6 +121,10 @@ const customerSchema = z.object({
   references: z.array(z.string()).default([]),
   origins: z.array(z.string()).default([]),
   registrations: z.array(z.string()).default([]),
+  // Missing values on older customers need staff input; they are not a VAT confirmation.
+  vatRegistered: z.boolean().optional(),
+  // Undefined inherits the accounting integration's standard payment terms.
+  paymentTermDays: z.number().int().min(0).max(3650).optional(),
   paymentProfile: paymentDetailsSchema.optional(),
   audit: z.array(auditSchema).default([]),
 });
@@ -151,6 +156,7 @@ const cardSchema = z.object({
   workOrderId: z.string().max(100).optional(),
   customerId: z.string().optional(),
   customerSnapshot: customerSchema.optional(),
+  accounting: purchaseAccountingSnapshotSchema.optional(),
   status: z.enum(['new', 'complement', 'customer', 'attest', 'ready', 'paid', 'balance']),
   siteId: z.string().optional(),
   customerApproval: z.object({
@@ -257,6 +263,7 @@ export const can = (user: OfficeUser, right: Permission) =>
     ? user.level !== 'Medarbetare'
     : user.level !== 'Medarbetare' || user.permissions.includes(right);
 export const amount = (card: OfficeCard) =>
+  card.accounting?.gross ??
   card.pricingTotal ??
   Math.round(
     card.rows.reduce(

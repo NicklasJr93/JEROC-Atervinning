@@ -1,3 +1,5 @@
+import type { ArticleTaxCategory } from './office/pricing-client';
+
 export type Category = {
   id: string;
   name: string;
@@ -7,6 +9,7 @@ export type Category = {
 export type Article = {
   id: string;
   active?: boolean;
+  taxCategory?: ArticleTaxCategory;
   category: string;
   name: string;
   description: string;
@@ -47,6 +50,7 @@ export const categories: Category[] = [
 ];
 export const articles: Article[] = [
   {
+    taxCategory: 'scrap_reverse',
     id: 'copper-1',
     category: 'koppar',
     name: 'Koppar klass 1',
@@ -57,6 +61,7 @@ export const articles: Article[] = [
     prices: [82, 73.8, 65.6],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'copper-2',
     category: 'koppar',
     name: 'Koppar klass 2',
@@ -67,6 +72,7 @@ export const articles: Article[] = [
     prices: [77, 69.3, 61.6],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'copper-tin',
     category: 'koppar',
     name: 'Förtent koppar',
@@ -77,6 +83,7 @@ export const articles: Article[] = [
     prices: [68, 61.2, 54.4],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'copper-mixed',
     category: 'koppar',
     name: 'Blandad koppar',
@@ -87,6 +94,7 @@ export const articles: Article[] = [
     prices: [70, 63, 56],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'iron',
     category: 'jarn',
     name: 'Järnskrot',
@@ -97,6 +105,7 @@ export const articles: Article[] = [
     prices: [2.4, 2.16, 1.92],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'steel',
     category: 'jarn',
     name: 'Balk / stål',
@@ -107,6 +116,7 @@ export const articles: Article[] = [
     prices: [2.8, 2.52, 2.24],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'aluminium',
     category: 'aluminium',
     name: 'Aluminium',
@@ -117,6 +127,7 @@ export const articles: Article[] = [
     prices: [18, 16.2, 14.4],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'aluminium-cast',
     category: 'aluminium',
     name: 'Aluminium gjutgods',
@@ -127,6 +138,7 @@ export const articles: Article[] = [
     prices: [15, 13.5, 12],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'lead',
     category: 'bly',
     name: 'Bly',
@@ -137,6 +149,7 @@ export const articles: Article[] = [
     prices: [12, 10.8, 9.6],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'lead-battery',
     category: 'batterier',
     name: 'Blybatterier',
@@ -147,6 +160,7 @@ export const articles: Article[] = [
     prices: [4, 3.6, 3.2],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'cable',
     category: 'kabel',
     name: 'Blandkabel',
@@ -157,6 +171,7 @@ export const articles: Article[] = [
     prices: [23, 20.7, 18.4],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'cable-thick',
     category: 'kabel',
     name: 'Kraftkabel',
@@ -167,6 +182,7 @@ export const articles: Article[] = [
     prices: [32, 28.8, 25.6],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'brass',
     category: 'massing',
     name: 'Mässing',
@@ -177,6 +193,7 @@ export const articles: Article[] = [
     prices: [42, 37.8, 33.6],
   },
   {
+    taxCategory: 'scrap_reverse',
     id: 'stainless',
     category: 'rostfritt',
     name: 'Rostfritt',

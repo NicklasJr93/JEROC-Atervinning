@@ -1,0 +1,453 @@
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import { EnvironmentError } from './environment-storage.mjs';
+import { latestAttestedVismaCards } from './visma-weightcard.mjs';
+import { normalizeAccountingSettings as normalize, accountingExportEligibility, buildAccountingDraft as buildDraft, previewAccountingExample as examplePreview,
+  AccountingError, moneyToCents, calculateMaterialBaseCents } from './visma-accounting.mjs';
+
+const ORGANISATION = 'jeroc-demo', LEASE = 120000;
+const clone = value => structuredClone(value);
+const fail = (message, status = 409, code = 'visma_export_invalid') => { throw new EnvironmentError(message, status, code); };
+const uuid = value => z.string().uuid().safeParse(value).success;
+const ref = approval => ({ cardId: approval.cardId, approvalId: approval.id, version: approval.version, hash: approval.snapshot.hash });
+const key = (companyId, source) => `${companyId}:${source.cardId}:${source.approvalId}:${source.version}:${source.hash}`;
+const mappingKey = (companyId, customerId) => JSON.stringify([companyId, String(customerId)]);
+const initial = () => ({ settings: {}, settingsHistory: {}, choices: {}, mappings: {}, outbox: [] });
+const defaultSettings = companyId => ({ revision: 0, enabled: false, exportMode: 'manual', companyId: companyId ?? '', sandbox: true,
+  paymentTermDays: 0, accounts: {}, vatCodes: {}, sites: [] });
+const cleanText = (value, max = 100) => typeof value === 'string' ? value.trim().slice(0, max) : '';
+function organisationNumber(value) {
+  if (typeof value !== 'string' || !/^(?:16)?\d{6}-?\d{4}$/.test(value)) return null;
+  const digits = value.replace('-', '').replace(/^16(?=\d{10}$)/, '');
+  return digits.length === 10 && Number(digits[2]) >= 2 ? digits : null;
+}
+function safeSupplierNumber(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string' || value.length > 16 || !/^[A-Za-z0-9._-]+$/.test(value)) fail('Kundnumret kan inte användas som ett exakt och säkert Spiris-leverantörsnummer.', 409, 'visma_supplier_number_invalid');
+  const digits = value.replace(/[-.]/g, '');
+  if (/^\d{10}$/.test(digits) && Number(digits[2]) <= 1 || /^(?:19|20)\d{10}$/.test(digits))
+    fail('Personnummer får inte användas som Spiris-leverantörsnummer.', 409, 'visma_supplier_number_invalid');
+  return value;
+}
+const exportInput = z.object({ cardId: z.number().int().positive().safe(), source: z.object({ cardId: z.number().int().positive().safe(),
+  approvalId: z.string().uuid(), version: z.number().int().positive(), hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().optional() }).strict();
+const publicExport = job => ({ ...Object.fromEntries(['id', 'source', 'companyId', 'customerId', 'status', 'stage', 'createdAt', 'updatedAt',
+  'finishedAt', 'supplierId', 'draftId', 'error', 'settingsRevision', 'trigger', 'events'].filter(name => job[name] !== undefined).map(name => [name, clone(job[name])])),
+  runs: { ...(job.supplierRequestReserved ? { supplierRequestId: job.runs.supplierRequestId } : {}),
+    ...(job.draftRequestReserved ? { draftRequestId: job.runs.draftRequestId } : {}) } });
+const accountingCall = (operation, ...args) => { try { return operation(...args); } catch (error) { if (error instanceof AccountingError) throw new EnvironmentError(error.message, error.status, error.code); throw error; } };
+const normalizeAccountingSettings = (...args) => accountingCall(normalize, ...args);
+const buildAccountingDraft = input => accountingCall(buildDraft, input);
+const previewAccountingExample = input => accountingCall(examplePreview, input);
+
+// This module gets a private transport capability from the OAuth service. A
+// worker never manufactures a Systemadmin principal or accepts one from HTTP.
+export function createVismaExports({ read, transact, tenantFor, scoped, audit, clock, config, connection,
+  sourceProvider, sitesProvider, authorizeContext, send }) {
+  const financeFor = (tenant, create = false) => create ? tenant.finance ??= initial() : tenant.finance ?? initial();
+  const readFinance = operation => read(state => operation(financeFor(tenantFor(state, ORGANISATION))));
+  const mutate = operation => transact(state => { const tenant = tenantFor(state, ORGANISATION, true); return operation(financeFor(tenant, true), tenant); });
+  const companyId = () => config().expectedCompanyId;
+  const currentSettings = () => readFinance(finance => clone(finance.settings[companyId()] ?? defaultSettings(companyId())));
+  const authorize = async context => { scoped(context); await authorizeContext(context); };
+  async function sites() {
+    const values = await sitesProvider();
+    return (Array.isArray(values) ? values : values?.sites ?? []).map(site => ({ id: String(site.id), name: cleanText(site.name ?? site.label ?? site.id) }));
+  }
+  async function dto() {
+    const [settings, connected, actualSites, choices] = await Promise.all([currentSettings(), connection(), sites(), readFinance(finance => clone(finance.choices[companyId()] ?? null))]);
+    const suggested = choices?.paymentTerms.filter(term => term.availableForPurchase && term.days === 0) ?? [];
+    return { settings, ...connected, sites: actualSites, choices, capabilities: { canConfigure: true,
+      canExport: Boolean(settings.enabled && connected.companyVerified), automationEnabled: Boolean(settings.enabled && settings.exportMode === 'after_attest') },
+      issues: [...(!companyId() ? ['Sandboxföretaget behöver låsas med VISMA_SANDBOX_COMPANY_ID.'] : []),
+        ...(!connected.companyVerified ? ['Anslut och verifiera sandboxföretaget innan överföring.'] : [])],
+      ...(suggested.length === 1 ? { suggestedPaymentTermsId: suggested[0].id } : {}) };
+  }
+  async function list(operation, parameters, context, worker = false, scopeKey) {
+    const result = [];
+    for (let page = 1; page <= 100; page++) {
+      const requestId = randomUUID(), run = await send({ operation, requestId, idempotencyKey: requestId,
+        parameters: { ...parameters, page, pageSize: 100 } }, context, worker, scopeKey);
+      if (run.status !== 'accepted') fail(run.error?.message ?? 'Spiris uppgifter kunde inte hämtas.', 409, run.error?.code ?? 'visma_lookup_failed');
+      const body = run.response, data = body?.Data;
+      if (!body || Array.isArray(body) || !Array.isArray(data) || data.some(item => !item || typeof item !== 'object' || Array.isArray(item)) ||
+        operation === 'suppliers' && data.some(item => !uuid(item.Id))) fail('Spiris gav inte en verifierbar resultatlista.', 502, 'visma_lookup_incomplete');
+      result.push(...data);
+      const pages = body.Meta?.TotalNumberOfPages;
+      if (!Number.isInteger(pages) || pages < 0 || pages > 100 || body.Meta.CurrentPage !== page ||
+        !Number.isInteger(body.Meta.TotalNumberOfResults) || body.Meta.TotalNumberOfResults < 0) fail('Spiris sidindelning kan inte verifieras.', 502, 'visma_lookup_incomplete');
+      if (pages <= page) {
+        if (body.Meta.TotalNumberOfResults !== result.length)
+          fail('Alla Spiris poster kunde inte hämtas.', 502, 'visma_lookup_incomplete');
+        return result;
+      }
+    }
+    fail('Spiris resultatlista överstiger testkopplingens gräns.', 502, 'visma_lookup_incomplete');
+  }
+  function verifySelections(settings, choices, actualSites) {
+    if (!settings.enabled) return;
+    if (!choices || choices.companyId !== settings.companyId) fail('Hämta företagets kontoplan och val från Spiris innan inställningarna aktiveras.', 409, 'visma_choices_required');
+    const term = choices.paymentTerms.find(item => item.id === settings.paymentTermsId);
+    if (!term?.availableForPurchase || term.days !== settings.paymentTermDays) fail('Betalningsvillkoret måste finnas för inköp och stämma med antalet dagar.', 422, 'visma_terms_invalid');
+    const numbers = new Set(choices.accounts.filter(account => account.active).map(account => account.number));
+    const codes = new Set(choices.vatCodes.map(code => code.id));
+    const projectIds = new Set(choices.projects.filter(item => item.status === 1).map(item => item.id));
+    const dimensionIds = new Set(choices.costCenters.filter(center => center.number === 1 && center.active).flatMap(center => center.items.filter(item => item.active).map(item => item.id)));
+    const siteIds = new Set(actualSites.map(site => site.id));
+    const selectedAccounts = [...Object.values(settings.accounts), ...settings.sites.flatMap(site => Object.values(site.accountOverrides ?? {})),
+      ...(settings.offsetReconciliation?.accountNumber ? [settings.offsetReconciliation.accountNumber] : [])];
+    if (selectedAccounts.some(number => !numbers.has(number))) fail('Alla valda konton måste finnas och vara aktiva i företagets kontoplan.', 422, 'visma_account_invalid');
+    if (Object.values(settings.vatCodes ?? {}).some(id => !codes.has(id))) fail('En vald momskod finns inte hos företaget.', 422, 'visma_vat_invalid');
+    for (const [treatment, id] of Object.entries(settings.vatCodes ?? {})) {
+      const rate = choices.vatCodes.find(code => code.id === id)?.rate, expected = ['reverse25', 'standard25'].includes(treatment) ? 25 : 0;
+      if (typeof rate !== 'number' || rate !== expected) fail('Momskodens verkliga procentsats stämmer inte med den valda momsregeln.', 422, 'visma_vat_invalid');
+    }
+    for (const site of settings.sites) {
+      if (!siteIds.has(site.siteId)) fail('Anläggningskopplingen finns inte i JEROC.', 422, 'site_forbidden');
+      if (site.costCenterId && !dimensionIds.has(site.costCenterId)) fail('Välj en aktiv post i Spiris första resultatenhet.', 422, 'visma_dimension_invalid');
+      if (site.projectId && !projectIds.has(site.projectId)) fail('Välj ett pågående Spiris-projekt.', 422, 'visma_project_invalid');
+    }
+  }
+  function verifyDraftAccounts(draft, accounts, normalized = false) {
+    for (const row of draft.Rows) {
+      const account = accounts.find(item => Number(normalized ? item.number : item.Number) === row.AccountNumber);
+      const active = normalized ? account?.active : account?.IsActive;
+      const blocked = normalized ? account?.blockedForManualBooking : account?.IsBlockedForManualBooking;
+      const mandatoryCenter = normalized ? account?.firstCostCenterMandatory : account?.IsFirstCostCenterMandatory;
+      const centerAllowed = normalized ? account?.costCenterAllowed : account?.IsCostCenterAllowed;
+      const projectAllowed = normalized ? account?.projectAllowed : account?.IsProjectAllowed;
+      if (!account || active === false || blocked) fail(`Kontot ${row.AccountNumber} kan inte användas i fakturans räkenskapsår.`, 422, 'visma_account_invalid');
+      if (mandatoryCenter && !row.CostCenterItemId1) fail(`Kontot ${row.AccountNumber} kräver en post i första resultatenheten.`, 422, 'visma_dimension_required');
+      if (row.CostCenterItemId1 && centerAllowed === false || row.ProjectId && projectAllowed === false)
+        fail(`Kontot ${row.AccountNumber} tillåter inte de valda dimensionerna.`, 422, 'visma_dimension_invalid');
+    }
+  }
+  async function findApproval(cardId) {
+    const approval = latestAttestedVismaCards(await sourceProvider()).find(item => String(item.cardId) === String(cardId));
+    if (!approval) fail('Kortets aktuella version måste vara kundgodkänd och internt attesterad.', 409, 'visma_source_unattested');
+    return approval;
+  }
+  function prepare(approval) {
+    const snapshot = approval.snapshot, customer = snapshot.customer;
+    const accounting = snapshot.accounting ?? snapshot.card?.accounting;
+    if (!accounting) fail('Kortet saknar låst och kontrollerad ekonomikonfiguration. Äldre kort kan endast användas i det manuella sandboxformuläret.', 409, 'visma_accounting_legacy');
+    if (snapshot.accounting && snapshot.card?.accounting && JSON.stringify(snapshot.accounting) !== JSON.stringify(snapshot.card.accounting))
+      fail('Kortets låsta ekonomiuppgifter motsäger varandra.', 409, 'visma_source_incomplete');
+    const eligibility = accountingExportEligibility(accounting);
+    if (!eligibility.eligible) fail(eligibility.issues.map(issue => typeof issue === 'string' ? issue : issue.message).join(' '), 409, 'visma_accounting_blocked');
+    if (accounting.companyId !== companyId()) fail('Kortets låsta ekonomi tillhör ett annat Spiris-företag.', 409, 'visma_company_mismatch');
+    if (!customer?.id || !customer.name || !snapshot.rows?.length || !uuid(accounting.paymentTermsId)) fail('Kortets låsta kund- eller betalningsuppgifter är ofullständiga.', 409, 'visma_source_incomplete');
+    if (String(snapshot.card?.id) !== String(approval.cardId) || customer.type !== accounting.customer?.type ||
+      customer.type !== 'Privatperson' && customer.vatRegistered !== accounting.customer?.vatRegistered ||
+      snapshot.rows.length !== accounting.lines?.length ||
+      ['gross', 'offset', 'net'].some(name => !Number.isFinite(snapshot[name]) || moneyToCents(snapshot[name]) !== moneyToCents(accounting[name])))
+      fail('Den kundgodkända avräkningen stämmer inte med sitt låsta bokföringsunderlag.', 409, 'visma_source_incomplete');
+    for (let index = 0; index < snapshot.rows.length; index++) {
+      const row = snapshot.rows[index], line = accounting.lines[index];
+      if (!Number.isFinite(row.weight) || row.weight <= 0 || !Number.isFinite(row.price) || row.price < 0 || !Number.isFinite(row.amount) || row.amount < 0 ||
+        !['scrap_reverse', 'standard_25', 'no_vat'].includes(line.taxCategory) || row.taxCategory !== undefined && row.taxCategory !== line.taxCategory ||
+        row.articleId !== line.articleId || calculateMaterialBaseCents(row) !== line.baseCents || moneyToCents(row.amount) !== line.baseCents ||
+        line.weight !== undefined && line.weight !== row.weight || line.price !== undefined && line.price !== row.price)
+        fail('Materialraderna stämmer inte med den låsta konteringen.', 409, 'visma_source_incomplete');
+    }
+    const supplier = { Name: cleanText(customer.name, 50), TermsOfPaymentId: accounting.paymentTermsId, CountryCode: 'SE', CurrencyCode: 'SEK', IsActive: true,
+      UsesAutomaticSupplierInvoiceApproval: false, UsesAutomaticInvoicePostToLedger: false };
+    const add = (name, value, max) => { const parsed = cleanText(value, max); if (parsed) supplier[name] = parsed; };
+    const supplierNumber = safeSupplierNumber(customer.customerNumber); if (supplierNumber) supplier.SupplierNumber = supplierNumber;
+    const privateSeller = customer.type === 'Privatperson';
+    if (!privateSeller && customer.number) {
+      const identifier = organisationNumber(customer.number);
+      if (!identifier) fail('Företagets organisationsnummer behöver granskas före Spiris-koppling.', 409, 'visma_supplier_identity_invalid');
+      supplier.CorporateIdentityNumber = identifier;
+    }
+    const address = cleanText(customer.address, 300), embedded = address.match(/^(.+?)[,\s]+(\d{3}\s?\d{2})\s+([^,]+)$/);
+    add('Address1', embedded ? embedded[1] : address, 50); add('PostalCode', customer.postalCode || embedded?.[2], 10); add('City', customer.city || embedded?.[3], 50);
+    add('EmailAddress', customer.email, 255); add('Telephone', customer.phone, 50); add('ContactPersonName', customer.contactPerson, 50);
+    const payment = snapshot.card.paymentDetails ?? customer.paymentProfile;
+    if (snapshot.paymentMethod === 'bank' && payment?.method === 'bank') {
+      add('Clearing', payment.clearing?.replace(/\D/g, ''), 5); add('BankAccountNumber', payment.account?.replace(/[\s-]/g, ''), 50); add('BankName', payment.bank, 50); supplier.BankCountryCode = 'SE';
+    }
+    const invoiceNumber = `AV-${approval.cardId}-V${approval.version}`;
+    const draft = buildAccountingDraft({ accounting, attestedAt: approval.attestedAt, invoiceNumber });
+    return { source: ref(approval), accounting: clone(accounting), customerId: String(customer.id), privateSeller, supplier, draft,
+      companyId: accounting.companyId, settingsRevision: accounting.settingsRevision ?? accounting.settingsVersion ?? accounting.revision };
+  }
+  async function assertFrozenAuthorization(prepared) {
+    const original = await readFinance(finance => finance.settingsHistory?.[prepared.companyId]?.[prepared.settingsRevision]);
+    if (!original?.enabled || !original.enabledBy?.actualUserId || original.companyId !== prepared.companyId || original.exportMode !== prepared.accounting.exportMode)
+      fail('Den låsta ekonomiversionen saknar en sparad aktivering av systemadmin för detta sandboxföretag.', 409, 'visma_accounting_config_unknown');
+  }
+  async function preview(input, context) {
+    await authorize(context);
+    if (input && Object.hasOwn(input, 'cardId')) {
+      const parsed = exportInput.safeParse(input); if (!parsed.success) fail('Välj ett giltigt viktkort.', 422);
+      const approval = await findApproval(parsed.data.cardId);
+      try {
+        const prepared = prepare(approval); await assertFrozenAuthorization(prepared);
+        const mapping = await readFinance(finance => clone(finance.mappings[mappingKey(prepared.companyId, prepared.customerId)] ?? null));
+        return { ...prepared, eligible: true, issues: [], mapping: mapping?.supplierId ? { supplierId: mapping.supplierId } : null,
+          export: await readFinance(finance => { const job = finance.outbox.find(item => item.key === key(prepared.companyId, prepared.source)); return job ? publicExport(job) : null; }) };
+      } catch (error) { if (!(error instanceof EnvironmentError)) throw error; return { source: ref(approval), eligible: false, issues: [error.message], code: error.code }; }
+    }
+    if (!input || typeof input !== 'object' || Object.keys(input).some(name => !['settings', 'siteId', 'example', 'amount', 'date'].includes(name))) fail('Förhandsvisningens uppgifter är inte giltiga.', 422);
+    const provided = input.settings ?? await currentSettings();
+    const settings = normalizeAccountingSettings({ ...provided, revision: Math.max(1, provided.revision ?? 1) }, { companyId: companyId(), sandbox: true });
+    const [choices, actualSites] = await Promise.all([readFinance(finance => clone(finance.choices[companyId()] ?? null)), sites()]);
+    verifySelections({ ...settings, enabled: true }, choices, actualSites);
+    const preview = previewAccountingExample({ ...input, settings }), date = preview.draft.InvoiceDate;
+    const years = choices.fiscalYears.filter(year => year.startDate.slice(0, 10) <= date && year.endDate.slice(0, 10) >= date);
+    if (years.length !== 1 || years[0].locked) fail('Exemplet behöver ett öppet räkenskapsår i de hämtade Spiris-valen.', 422, 'visma_fiscal_year_invalid');
+    verifyDraftAccounts(preview.draft, choices.accounts.filter(account => account.fiscalYearId === years[0].id), true);
+    return { ...preview, eligible: preview.issues.length === 0 };
+  }
+  async function enqueue(input, context, worker = false) {
+    if (!worker) await authorize(context); else await assertWorkerAuthorization(context);
+    const parsed = exportInput.safeParse(input); if (!parsed.success) fail('Välj ett giltigt viktkort.', 422);
+    const approval = await findApproval(parsed.data.cardId), prepared = prepare(approval);
+    await assertFrozenAuthorization(prepared);
+    if (parsed.data.source && Object.keys(prepared.source).some(name => parsed.data.source[name] !== prepared.source[name])) fail('Attestversionen har ändrats. Hämta uppgifterna igen.', 409, 'visma_source_changed');
+    const settings = await currentSettings();
+    if (!settings.enabled) fail('Spiris-överföring är inte aktiverad i ekonomiinställningarna.', 409, 'visma_export_disabled');
+    const connected = await connection(); if (!connected.companyVerified) fail('Anslut och verifiera sandboxföretaget först.', 409, 'visma_company_unverified');
+    return mutate((finance, tenant) => {
+      const prior = finance.outbox.find(job => job.key === key(prepared.companyId, prepared.source));
+      if (prior) return publicExport(prior);
+      const timestamp = clock().toISOString(), job = { ...prepared, id: randomUUID(), key: key(prepared.companyId, prepared.source), status: 'queued', stage: 'supplier',
+        trigger: worker ? 'after_attest' : 'manual', createdAt: timestamp, updatedAt: timestamp, actualUserId: context.actorId, effectiveUserId: context.effectiveUserId,
+        authorization: { kind: worker ? 'after_attest' : 'manual', actualUserId: context.actorId, effectiveUserId: context.effectiveUserId,
+          at: timestamp, configRevision: settings.revision, companyId: settings.companyId },
+        attestActorId: approval.attestedById ?? approval.attestedBy ?? null, runs: { supplierRequestId: randomUUID(), draftRequestId: randomUUID() },
+        events: [{ at: timestamp, text: 'Attesterad version köad för Spiris.', actor: worker ? 'Spiris-arbetare' : context.actorId }] };
+      finance.outbox.push(job); audit(tenant, context, 'visma.export_queued', { exportId: job.id, source: job.source, trigger: job.trigger, settingsRevision: job.settingsRevision, attestActorId: job.attestActorId });
+      return publicExport(job);
+    });
+  }
+  async function assertWorkerAuthorization(context) {
+    if (context?.organisationId !== ORGANISATION || context.actorId !== 'service:spiris-export') fail('Ogiltig arbetarbehörighet.', 403, 'forbidden');
+    const settings = await currentSettings();
+    if (!config().configured || !settings.enabled || !settings.enabledBy?.actualUserId || settings.companyId !== companyId())
+      fail('Automatisk överföring måste aktiveras av systemadmin för det låsta sandboxföretaget.', 409, 'visma_automation_disabled');
+    if (settings.exportMode !== 'after_attest') {
+      const job = context.exportId ? await readFinance(finance => finance.outbox.find(item => item.id === context.exportId)) : null;
+      if (job?.trigger !== 'manual' || job.authorization?.kind !== 'manual' || !job.authorization.actualUserId || !job.authorization.effectiveUserId || job.authorization.companyId !== companyId())
+        fail('Automatisk upptäckt av attestversioner är inte aktiverad.', 409, 'visma_automation_disabled');
+    }
+  }
+  async function assertExportAuthorization(context, worker, id) {
+    if (worker) await assertWorkerAuthorization(context); else await authorize(context);
+    const settings = await currentSettings();
+    if (!settings.enabled || settings.companyId !== companyId()) fail('Spiris-överföring har stängts av.', 409, 'visma_export_disabled');
+    if (id) {
+      const job = await readFinance(finance => finance.outbox.find(item => item.id === id));
+      if (!job || job.companyId !== companyId()) fail('Överföringen tillhör ett annat Spiris-företag.', 409, 'visma_company_mismatch');
+    }
+  }
+  async function updateJob(id, owner, operation) {
+    return mutate((finance, tenant) => { const job = finance.outbox.find(item => item.id === id);
+      if (!job || job.lease?.id !== owner) fail('Överföringen hanteras av en annan arbetare.', 409, 'visma_export_busy');
+      operation(job, finance, tenant); job.updatedAt = clock().toISOString(); return publicExport(job); });
+  }
+  async function process(id, context, worker = false) {
+    await assertExportAuthorization(context, worker, id);
+    const reservation = await mutate(finance => {
+      const job = finance.outbox.find(item => item.id === id); if (!job) fail('Överföringen finns inte.', 404, 'not_found');
+      if (['accepted', 'rejected', 'unknown', 'blocked'].includes(job.status)) return { prior: publicExport(job) };
+      if (job.lease && Date.parse(job.lease.until) > clock().getTime()) return { prior: publicExport(job) };
+      const map = finance.mappings[mappingKey(job.companyId, job.customerId)];
+      if (map?.lease && map.lease.jobId !== job.id && Date.parse(map.lease.until) > clock().getTime()) return { prior: publicExport(job) };
+      const owner = randomUUID(), until = new Date(clock().getTime() + LEASE).toISOString();
+      job.lease = { id: owner, until }; job.status = 'processing';
+      const mapping = finance.mappings[mappingKey(job.companyId, job.customerId)] ??= { companyId: job.companyId, customerId: job.customerId };
+      mapping.lease = { jobId: job.id, until }; return { job: clone(job), mapping: clone(mapping), owner };
+    });
+    if (reservation.prior) return reservation.prior;
+    let { job, mapping } = reservation; const owner = reservation.owner;
+    const event = (entry, text) => entry.events.push({ at: clock().toISOString(), text, actor: worker ? 'Spiris-arbetare' : context.actorId });
+    try {
+      const approval = await findApproval(job.source.cardId), prepared = prepare(approval);
+      await assertFrozenAuthorization(prepared);
+      if (key(job.companyId, prepared.source) !== job.key) fail('Kortets attestversion har ändrats.', 409, 'visma_source_changed');
+      const terms = await list('paymentTerms', {}, context, worker, job.id);
+      const term = terms.find(item => item.Id === job.accounting.paymentTermsId);
+      if (!term || term.AvailableForPurchase !== true || term.NumberOfDays !== job.accounting.customer.paymentTermDays)
+        fail('Det låsta betalningsvillkoret motsvarar inte längre kundens godkända antal dagar i Spiris.', 409, 'visma_terms_invalid');
+      if (!mapping.supplierId) {
+        if (mapping.status === 'unknown' || mapping.status === 'rejected') fail('Leverantörsförsöket behöver kontrolleras i Spiris innan fler underlag kan skapas.', 409, 'visma_supplier_review');
+        if (!mapping.createRequest) {
+          const suppliers = await list('suppliers', {}, context, worker, job.id);
+          const exact = job.supplier.SupplierNumber ? suppliers.filter(item => item.SupplierNumber === job.supplier.SupplierNumber) : [];
+          if (exact.length > 1) fail('Flera Spiris-leverantörer har samma kundnummer. Kopplingen behöver kontrolleras.', 409, 'visma_supplier_ambiguous');
+          let match = exact[0];
+          if (!match && !job.privateSeller && job.supplier.CorporateIdentityNumber) {
+            const organisation = job.supplier.CorporateIdentityNumber.replace(/\D/g, '');
+            const candidates = suppliers.filter(item => organisationNumber(item.CorporateIdentityNumber) === organisation);
+            if (candidates.length > 1) fail('Flera Spiris-leverantörer har samma organisationsnummer. Kopplingen behöver kontrolleras.', 409, 'visma_supplier_ambiguous');
+            match = candidates[0];
+          }
+          if (match) {
+            if (!uuid(match.Id) || match.IsActive === false) fail('Den matchade leverantören är inte aktiv eller saknar verifierbart ID.', 409, 'visma_supplier_invalid');
+            if (!job.privateSeller && job.supplier.CorporateIdentityNumber && match.CorporateIdentityNumber &&
+              organisationNumber(match.CorporateIdentityNumber) !== job.supplier.CorporateIdentityNumber)
+              fail('Spiris-leverantörens organisationsnummer motsäger kundens låsta identitet.', 409, 'visma_supplier_identity_conflict');
+            await updateJob(job.id, owner, (entry, finance, tenant) => {
+              const record = finance.mappings[mappingKey(job.companyId, job.customerId)]; record.supplierId = match.Id; record.status = 'accepted'; record.matchedBy = exact.length ? 'supplier_number' : 'organisation_number';
+              entry.supplierId = match.Id; entry.stage = 'draft'; event(entry, 'Befintlig Spiris-leverantör kopplad.');
+              audit(tenant, context, 'visma.supplier_mapped', { exportId: entry.id, customerId: entry.customerId, companyId: entry.companyId, supplierId: match.Id });
+            });
+            mapping.supplierId = match.Id;
+          } else {
+            await updateJob(job.id, owner, (entry, finance) => {
+              const record = finance.mappings[mappingKey(job.companyId, job.customerId)];
+              record.createRequest = { requestId: entry.runs.supplierRequestId, source: entry.source, payload: entry.supplier, scopeKey: entry.id }; record.status = 'reserved';
+            });
+            mapping.createRequest = { requestId: job.runs.supplierRequestId, source: job.source, payload: job.supplier, scopeKey: job.id };
+          }
+        }
+        if (!mapping.supplierId) {
+          const request = mapping.createRequest;
+          await updateJob(job.id, owner, entry => { entry.runs.supplierRequestId = request.requestId; entry.supplierRequestReserved = true; });
+          const run = await send({ operation: 'createSupplier', requestId: request.requestId, idempotencyKey: `supplier:${request.requestId}`, payload: request.payload, source: request.source }, context, worker, request.scopeKey);
+          await updateJob(job.id, owner, (entry, finance, tenant) => {
+            const record = finance.mappings[mappingKey(job.companyId, job.customerId)];
+            if (run.status === 'accepted') { record.supplierId = run.resourceId; record.status = 'accepted'; entry.supplierId = run.resourceId; entry.stage = 'draft'; event(entry, 'Spiris-leverantör skapad och kopplad.'); }
+            else if (run.status !== 'in_flight') { record.status = run.status; entry.status = run.status; entry.error = run.error; event(entry, 'Leverantörsförsöket behöver kontrolleras.'); }
+            audit(tenant, context, `visma.export_supplier_${run.status}`, { exportId: entry.id, runId: run.id, supplierId: run.resourceId ?? null });
+          });
+          if (run.status !== 'accepted') return await finish(job.id, owner);
+          mapping.supplierId = run.resourceId;
+        }
+      }
+      await updateJob(job.id, owner, entry => { entry.supplierId = mapping.supplierId; entry.stage = 'draft'; });
+      // Validate the mapped supplier and the exact fiscal year's real accounts.
+      const supplierRequestId = randomUUID();
+      await updateJob(job.id, owner, entry => { if (!entry.supplierRequestReserved) { entry.runs.supplierRequestId = supplierRequestId; entry.supplierRequestReserved = true; } });
+      const supplierRun = await send({ operation: 'supplier', requestId: supplierRequestId, idempotencyKey: supplierRequestId,
+        parameters: { resourceId: mapping.supplierId } }, context, worker, job.id);
+      if (supplierRun.status !== 'accepted' || supplierRun.response?.Id !== mapping.supplierId || supplierRun.response.IsActive === false)
+        fail('Den kopplade Spiris-leverantören kunde inte verifieras.', 409, 'visma_supplier_invalid');
+      if (job.supplier.SupplierNumber && supplierRun.response.SupplierNumber && supplierRun.response.SupplierNumber !== job.supplier.SupplierNumber)
+        fail('Den kopplade leverantörens nummer motsäger kundens låsta nummer.', 409, 'visma_supplier_identity_conflict');
+      if (!job.privateSeller && job.supplier.CorporateIdentityNumber && supplierRun.response.CorporateIdentityNumber &&
+        organisationNumber(supplierRun.response.CorporateIdentityNumber) !== job.supplier.CorporateIdentityNumber)
+        fail('Den kopplade leverantörens organisationsnummer har ändrats.', 409, 'visma_supplier_identity_conflict');
+      const years = await list('fiscalYears', {}, context, worker, job.id), date = job.draft.InvoiceDate.slice(0, 10);
+      const matchingYears = years.filter(year => cleanText(year.StartDate).slice(0, 10) <= date && cleanText(year.EndDate).slice(0, 10) >= date);
+      if (matchingYears.length !== 1) fail('Fakturadatumets räkenskapsår är inte entydigt i Spiris.', 409, 'visma_fiscal_year_invalid');
+      const fiscalYear = matchingYears[0];
+      if (!fiscalYear || fiscalYear.IsLockedForAccounting || !uuid(fiscalYear.Id)) fail('Fakturadatumet saknar ett öppet räkenskapsår i Spiris.', 409, 'visma_fiscal_year_invalid');
+      const accounts = await list('accounts', { fiscalYearId: fiscalYear.Id }, context, worker, job.id);
+      verifyDraftAccounts(job.draft, accounts);
+      await updateJob(job.id, owner, entry => { entry.draftRequestReserved = true; });
+      const draftRun = await send({ operation: 'createDraft', requestId: job.runs.draftRequestId, idempotencyKey: `draft:${job.runs.draftRequestId}`,
+        parameters: { useDefaultVatCodes: false, calculateVatOnCostAccounts: false }, payload: { ...job.draft, SupplierId: mapping.supplierId }, source: job.source }, context, worker, job.id);
+      await updateJob(job.id, owner, (entry, _finance, tenant) => {
+        if (draftRun.status !== 'in_flight') { entry.status = draftRun.status; entry.error = draftRun.error ?? null; entry.draftId = draftRun.resourceId ?? null;
+          entry.finishedAt = clock().toISOString(); event(entry, draftRun.status === 'accepted' ? 'Leverantörsfakturautkast skapat i Spiris.' : 'Fakturautkastets försök behöver kontrolleras.'); }
+        audit(tenant, context, `visma.export_draft_${draftRun.status}`, { exportId: entry.id, runId: draftRun.id, draftId: draftRun.resourceId ?? null });
+      });
+      return await finish(job.id, owner);
+    } catch (error) {
+      if (!(error instanceof EnvironmentError)) error = new EnvironmentError('Överföringen avbröts. Kontrollera det sparade försöket innan fortsatt arbete.', 409, 'visma_export_interrupted');
+      await updateJob(job.id, owner, (entry, _finance, tenant) => { entry.status = 'blocked'; entry.error = { code: error.code, message: error.message }; event(entry, error.message);
+        audit(tenant, context, 'visma.export_blocked', { exportId: entry.id, code: error.code }); });
+      return await finish(job.id, owner);
+    }
+  }
+  async function finish(id, owner) {
+    return updateJob(id, owner, (job, finance) => {
+      if (job.status === 'processing') job.status = 'queued';
+      const mapping = finance.mappings[mappingKey(job.companyId, job.customerId)]; if (mapping?.lease?.jobId === job.id) delete mapping.lease;
+      delete job.lease;
+    });
+  }
+  let workerRunning = false;
+  async function processQueuedExports() {
+    if (workerRunning) return { processed: 0 };
+    workerRunning = true;
+    try {
+      const settings = await currentSettings();
+      if (!settings.enabled || !settings.enabledBy?.actualUserId || !config().configured) return { processed: 0 };
+      const context = { organisationId: ORGANISATION, actorId: 'service:spiris-export', effectiveUserId: 'service:spiris-export' };
+      for (const approval of settings.exportMode === 'after_attest' ? latestAttestedVismaCards(await sourceProvider()) : []) {
+        try {
+          const prepared = prepare(approval);
+          const authorizedRevision = await readFinance(finance => finance.settingsHistory?.[prepared.companyId]?.[prepared.settingsRevision]);
+          if (prepared.accounting.exportMode === 'after_attest' && authorizedRevision?.enabled && authorizedRevision.exportMode === 'after_attest' && authorizedRevision.enabledBy?.actualUserId)
+            await enqueue({ cardId: approval.cardId }, context, true);
+        }
+        catch (error) { if (!(error instanceof EnvironmentError)) throw error; }
+      }
+      const jobs = await readFinance(finance => finance.outbox.filter(job => ['queued', 'processing'].includes(job.status) &&
+        (job.trigger === 'manual' || settings.exportMode === 'after_attest')).map(job => job.id));
+      let processed = 0;
+      for (const id of jobs.slice(0, 25)) { await process(id, { ...context, exportId: id }, true); processed++; }
+      return { processed };
+    } finally { workerRunning = false; }
+  }
+  return {
+    assertWorkerAuthorization,
+    assertExportAuthorization,
+    publicMethods: {
+      async settings(context) { await authorize(context); return dto(); },
+      async saveSettings(input, context) {
+        await authorize(context);
+        if (!companyId()) fail('VISMA_SANDBOX_COMPANY_ID behöver låsa sandboxföretaget före konfiguration.', 409, 'visma_company_unverified');
+        if (!input || Object.keys(input).some(name => !['expectedRevision', 'settings'].includes(name)) || !Number.isInteger(input.expectedRevision) || input.expectedRevision < 0)
+          fail('Inställningarna måste innehålla aktuellt revisionsnummer.', 422);
+        const normalized = normalizeAccountingSettings({ ...input.settings, revision: input.expectedRevision + 1 }, { companyId: companyId(), sandbox: true });
+        const [choices, actualSites] = await Promise.all([readFinance(finance => clone(finance.choices[companyId()] ?? null)), sites()]);
+        verifySelections(normalized, choices, actualSites);
+        await mutate((finance, tenant) => {
+          const current = finance.settings[companyId()] ?? defaultSettings(companyId());
+          if (current.revision !== input.expectedRevision) fail('Ekonomiinställningarna har ändrats. Hämta sidan på nytt.', 409, 'revision_conflict');
+          const saved = { ...normalized, revision: current.revision + 1 };
+          if (saved.enabled) saved.enabledBy = { actualUserId: context.actorId, effectiveUserId: context.effectiveUserId, at: clock().toISOString() };
+          finance.settings[companyId()] = saved;
+          finance.settingsHistory ??= {}; finance.settingsHistory[companyId()] ??= {}; finance.settingsHistory[companyId()][saved.revision] = clone(saved);
+          audit(tenant, context, 'visma.accounting_settings_saved', { companyId: companyId(), revision: saved.revision, enabled: saved.enabled, exportMode: saved.exportMode });
+        }); return dto();
+      },
+      async lookupChoices(context) {
+        await authorize(context);
+        const connected = await connection(); if (!connected.companyVerified) fail('Anslut och verifiera sandboxföretaget först.', 409, 'visma_company_unverified');
+        const terms = await list('paymentTerms', {}, context), years = await list('fiscalYears', {}, context);
+        const accountList = []; for (const year of years.filter(item => uuid(item.Id))) accountList.push(...await list('accounts', { fiscalYearId: year.Id }, context));
+        const vatCodes = await list('vatCodes', {}, context), costCenters = await list('costCenters', {}, context), projects = await list('projects', {}, context);
+        const choices = { companyId: companyId(), fetchedAt: clock().toISOString(),
+          fiscalYears: years.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, startDate: item.StartDate, endDate: item.EndDate, locked: Boolean(item.IsLockedForAccounting) })),
+          accounts: accountList.map(item => ({ number: Number(item.Number), name: cleanText(item.Name), fiscalYearId: item.FiscalYearId,
+            active: item.IsActive !== false, vatCodeId: item.VatCodeId ?? null, firstCostCenterMandatory: item.IsFirstCostCenterMandatory === true,
+            costCenterAllowed: item.IsCostCenterAllowed !== false, projectAllowed: item.IsProjectAllowed !== false,
+            blockedForManualBooking: item.IsBlockedForManualBooking === true, transactionTextAllowed: item.AllowTransactionText !== false })),
+          paymentTerms: terms.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name ?? item.NameEnglish), days: item.NumberOfDays, availableForPurchase: item.AvailableForPurchase === true })),
+          vatCodes: vatCodes.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, code: cleanText(item.Code), name: cleanText(item.Description), rate: item.VatRate })),
+          costCenters: costCenters.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name), number: item.Number, active: item.IsActive !== false,
+            items: (item.Items ?? []).filter(part => uuid(part.Id)).map(part => ({ id: part.Id, name: cleanText(part.Name), shortName: cleanText(part.ShortName), active: part.IsActive !== false })) })),
+          projects: projects.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name), number: cleanText(item.Number), status: item.Status })) };
+        await mutate(finance => { finance.choices[choices.companyId] = choices; }); return dto();
+      },
+      preview,
+      async exports(context, cardId) { await authorize(context); return readFinance(finance => ({ exports: finance.outbox.filter(job => cardId === undefined || String(job.source.cardId) === String(cardId)).slice().reverse().map(publicExport) })); },
+      enqueueExport: (input, context) => enqueue(input, context),
+      async sendExport(input, context) { const job = await enqueue(input, context); return process(job.id, context); },
+      processExport: (id, context) => process(id, context),
+      processQueuedExports,
+      async financeSettingsForCompany(customer) {
+        const settings = await currentSettings(); if (!settings.enabled || settings.companyId !== companyId()) return null;
+        const days = customer?.paymentTermDays ?? settings.paymentTermDays;
+        if (!Number.isInteger(days) || days < 0 || days > 3650) fail('Kundens betalningsvillkor behöver granskas före kundgodkännande.', 409, 'accounting_payment_terms_invalid');
+        if (days === settings.paymentTermDays) return settings;
+        const terms = await readFinance(finance => finance.choices[companyId()]?.paymentTerms.filter(term => term.days === days && term.availableForPurchase) ?? []);
+        if (terms.length !== 1) fail(`Kundens villkor ${days} dagar behöver ett entydigt verkligt inköpsvillkor i Spiris. Hämta och kontrollera betalningsvillkoren.`, 409, 'accounting_payment_terms_unmapped');
+        return { ...settings, paymentTermDays: days, paymentTermsId: terms[0].id };
+      },
+      async cardExportProjection(cardId) { return readFinance(finance => {
+        const job = finance.outbox.filter(item => String(item.source.cardId) === String(cardId)).sort((a, b) => b.source.version - a.source.version || b.createdAt.localeCompare(a.createdAt))[0];
+        if (!job) return null;
+        return { id: job.id, cardId: job.source.cardId, approvalId: job.source.approvalId, version: job.source.version, status: job.status,
+          startedAt: job.createdAt, finishedAt: job.finishedAt ?? null, supplierId: job.supplierId ?? null, draftId: job.draftId ?? null,
+          error: job.error ? { message: job.error.message } : null, events: clone(job.events), canExport: false };
+      }); },
+    },
+  };
+}

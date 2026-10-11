@@ -594,6 +594,47 @@
 .office-pricing-article-stack > .office-panel {
   margin-bottom: 0;
 }
+.office-pricing-tax-panel {
+  border: 1px solid #d8e7f9;
+  background: linear-gradient(135deg, #f5f9ff, #fff 72%);
+}
+.office-pricing-tax-heading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.office-pricing-tax-icon {
+  width: 37px;
+  height: 37px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 11px;
+  color: #2876d8;
+  background: #eaf3ff;
+}
+.office-pricing-tax-heading h2 {
+  margin: 0;
+}
+.office-pricing-tax-heading p,
+.office-pricing-tax-description {
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 4px 0 0;
+}
+.office-pricing-tax-description {
+  margin-bottom: 8px;
+  color: #486585;
+}
+.office-pricing-tax-panel.needs-review {
+  border-color: #eddfc8;
+  background: linear-gradient(135deg, #fffaf0, #fff 72%);
+}
+.office-pricing-tax-panel.needs-review .office-pricing-tax-icon {
+  color: #a87524;
+  background: #fff0d2;
+}
 .office-pricing-article-identity {
   display: grid;
   grid-template-columns: 97px minmax(0, 1fr);

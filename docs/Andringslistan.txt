@@ -1478,3 +1478,36 @@ Status: Klickbar mockup färdig 2026-10-12. Funktionerna återstår att bygga.
 - Mockup: public/mockups/spiris-integration/index.html.
   Bilder och beskrivning: docs/mockups/spiris-integration/README.md.
   Prototypen skickar inga API-anrop och sparar inga verksamhetsuppgifter.
+
+074 – Spiris ekonomi, moms och beständig överföring från attest
+Status: Implementerad i kontorsdemo 0.16.0, 2026-10-12.
+- Integrationskortet använder verkliga Spiris-ID:n för inköpsbetalvillkor,
+  konton och momskoder. Kostnadsställe, valfritt projekt och avvikande
+  inköpskonton kan väljas per anläggning. Direkt, 0 dagar, föreslås när
+  motsvarande verkligt betalvillkor finns; det utför ingen utbetalning.
+- Företag/BRF får Momsregistrerad Ja/Nej, förvalt Ja för nya kunder, i
+  snabbkund och full kundsida. Privatpersoner har ingen momsregistrering.
+  Äldre saknade uppgifter behöver kompletteras. Kundens eget betalvillkor
+  kan ersätta integrationsstandard och ekonomiförändringar loggas.
+- Artikelns ekonomiska momsregel hanteras separat från NVV-klassificering.
+  Kända skrotartiklar har omvänd moms; nya oklassificerade artiklar kräver
+  granskning. Företag utan momsregistrering kräver en uttrycklig inköpsregel.
+- Moms, belopp, konton, dimensioner, företags-ID och inställningsversion
+  fryses före kundgodkännande. Vanlig moms ingår i kundens belopp redan
+  på terminalen och avräkningen; senare registerändringar ändrar inte detta.
+- Manuellt sandboxprov och läget Efter attest använder samma beständiga
+  kö. Leverantörer matchas entydigt, svar-ID sparas och fakturautkast
+  skapas från den låsta attestversionen. Personnummer används inte som
+  organisationsnummer. Kontoplan och register läses över samtliga sidor.
+- Försöksreservation sparas före externa anrop. Omstart och samtidiga
+  serverinstanser återanvänder överföringen; oklara skrivsvar skickas inte
+  om automatiskt. Attest väntar inte på Spiris. Viktkortet visar status,
+  leverantörs-/utkast-ID och händelser; full API-journal finns i integrationen.
+- Positiv kvittning spärrar Spiris-export tills faktisk kreditkoppling har
+  byggts; lokal avräkning och manuell utbetalning kan fortsätta. PDF-bilaga,
+  bokföring, bankbetalning och produktionsaktivering ingår inte i denna etapp.
+- Verifierat med produktionsbygge, mobilens typkontroll, servertester och
+  webbläsarflöden för kund, artikel, inställningar och överföringsstatus.
+  42 tester passerade mot isolerad PostgreSQL 18, inklusive omstart och
+  samtidighet. Providersvar simulerades; första verkliga fakturautkastet
+  provas manuellt i sandbox. Befintliga Render-inställningar används.

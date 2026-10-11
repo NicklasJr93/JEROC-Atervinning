@@ -1,0 +1,12 @@
+.spiris-manual-export { padding:18px; margin-top:18px; border:1px solid #dce8f8; border-radius:9px; background:#f8fbff; }
+.spiris-manual-export > header { display:flex; justify-content:space-between; align-items:flex-start; gap:15px; }
+.spiris-manual-controls { display:flex; align-items:flex-end; gap:12px; margin:16px 0; }
+.spiris-manual-controls label { flex:1; }
+.spiris-manual-controls > button { flex-shrink:0; }
+.spiris-manual-preview { padding-top:8px; border-top:1px solid #dce8f8; }
+.spiris-manual-preview .spiris-journal { max-width:520px; margin-bottom:12px; }
+.spiris-manual-preview caption { text-align:left; font-size:11px; padding:8px 0; color:#587394; }
+.spiris-manual-preview > p { overflow-wrap:anywhere; }
+.spiris-manual-preview ul { color:#aa4b46; font-size:11px; line-height:1.6; }
+.office .spiris-manual-export .spiris-manual-error { display:flex; align-items:flex-start; gap:7px; color:#aa4b46; overflow-wrap:anywhere; }
+@media(max-width:700px) { .spiris-manual-export { padding:13px; } .spiris-manual-export > header,.spiris-manual-controls { flex-direction:column; align-items:stretch; } }

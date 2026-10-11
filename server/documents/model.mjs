@@ -42,6 +42,7 @@ export const documentMetadata = record => Object.fromEntries(Object.entries({ id
 
 function approvalSnapshot(approval, sources, stage) {
   const value = approval.snapshot, card = value.card, customer = value.customer;
+  const accounting = card.accounting;
   if (!value.hash || !card || !customer || !value.rows?.length) fail('Den låsta avräkningsversionen saknas.', 409, 'snapshot_missing');
   if (stage === 'reviewed' && !validApproved(approval) || stage === 'final' && !(approval.status === 'attested' && validApproved(approval) && approval.attestedAt)) fail(stage === 'final' ? 'Intern attest krävs före slutlig avräkningsnota.' : 'Kundgodkännande krävs för denna dokumentversion.', 409, 'approval_required');
   const site = siteFor(sources, { ...card, siteId: approval.siteId });
@@ -54,13 +55,17 @@ function approvalSnapshot(approval, sources, stage) {
     sourceId: String(card.id), sourceHash: value.hash, site: copy(site), company: companyFor(sources, site),
     customer: { ...party(customer), ...(privateSeller ? { number: '' } : {}), customerNumber: customer.customerNumber, type: customer.type },
     rows: value.rows.map(row => ({ articleId: row.articleId, name: row.name, weight: row.weight, price: row.price, amount: row.amount })),
-    totalWeight: value.rows.reduce((sum, row) => sum + row.weight, 0), materialTotal: value.gross, adjustment: 0, settlementTotal: value.gross,
+    totalWeight: value.rows.reduce((sum, row) => sum + row.weight, 0), materialTotal: accounting?.baseTotal ?? value.gross, adjustment: 0, settlementTotal: value.gross,
     gross: value.gross, offset: value.offset, net: value.net, reference: value.reference, origin: value.origin, deliveredAt: value.deliveredAt, receivedAt: value.deliveredAt,
     termsVersion: value.termsVersion,
     ...(stage !== 'preliminary' && validApproved(approval) ? { approval: { method: approval.approvedMethod ?? 'staff_checked_id_demo', person: approval.approvedBy, verifiedBy: approval.approvedBy, at: approval.approvedAt, version: approval.version } } : {}),
     ...(stage === 'final' ? { attest: { name: approval.attestedBy, at: approval.attestedAt } } : {}),
     payment: { method: payment?.method ?? value.paymentMethod, label: { bank: 'Bankkonto', swish: 'Swish', cash: 'Kontant', balance: 'Spara på saldo' }[value.paymentMethod], maskedAccount: payment?.account ? `•••• ${payment.account.replace(/\s/g, '').slice(-4)}` : '', recipient: payment?.holder ?? payment?.recipient ?? customer.name },
-    tax: { mode: privateSeller ? 'private' : 'unverified', label: privateSeller ? 'Privat försäljning · inköpsnota' : 'Momshantering behöver fastställas' },
+    tax: accounting ? {
+      mode: accounting.sellerVat > 0 ? 'standard' : accounting.lines.some(line => line.treatment === 'reverse25') ? 'reverse' : privateSeller ? 'private' : 'none',
+      label: accounting.sellerVat > 0 ? 'Moms debiteras enligt avräkningens materialrader' : accounting.lines.some(line => line.treatment === 'reverse25') ? 'Omvänd betalningsskyldighet' : 'Ingen moms debiteras',
+      amount: accounting.sellerVat,
+    } : { mode: privateSeller ? 'private' : 'unverified', label: privateSeller ? 'Privat försäljning · inköpsnota' : 'Momshantering behöver fastställas' },
     selfBilling: { agreed: false }, demo: true,
   };
 }

@@ -1,4 +1,6 @@
 import type { OfficeUser } from './model';
+import type { ArticleTaxCategory } from './accounting-types';
+export type { ArticleTaxCategory } from './accounting-types';
 
 export type PriceTier = 'A' | 'B' | 'C';
 export type PriceRule = { discountPercent: number; adjustmentKr: number };
@@ -11,6 +13,7 @@ export type PriceArticle = {
   excludes: string[];
   photos: number[];
   active: boolean;
+  taxCategory?: ArticleTaxCategory;
   base: { type: 'lme'; metal: string } | { type: 'manual'; price: number };
   tiers: Record<PriceTier, PriceRule>;
   thresholds: { A: number; B: number };
@@ -52,6 +55,9 @@ export type PricingAudit = {
   actingUser?: string;
   action?: string;
   text?: string;
+  revisionId?: string;
+  taxCategory?: ArticleTaxCategory;
+  previousTaxCategory?: ArticleTaxCategory;
 };
 export type PricingState = {
   version: string;

@@ -219,7 +219,7 @@ export async function renderPdf(snapshot) {
     const payment = snapshot.payment ?? {};
     const paymentLabel = payment.label ?? ({ bank: 'Bankkonto', swish: 'Swish', cash: 'Kontant', balance: 'Spara på saldo' }[payment.method]);
     const tax = snapshot.tax ?? {};
-    const taxLabel = tax.mode === 'reverse' ? 'Omvänd betalningsskyldighet' : ['none', 'private'].includes(tax.mode) ? 'Ingen moms debiteras' : 'Momsbehandling ej verifierad';
+    const taxLabel = tax.mode === 'reverse' ? 'Omvänd betalningsskyldighet' : tax.mode === 'standard' ? 'Moms enligt avräkningens materialrader' : ['none', 'private'].includes(tax.mode) ? 'Ingen moms debiteras' : 'Momsbehandling ej verifierad';
     const actualPaid = receipt && payment.paidAt;
     const paymentBody = [
       { text: `Betalningssätt: ${show(paymentLabel)}`, bold: true },
@@ -232,6 +232,7 @@ export async function renderPdf(snapshot) {
     ].filter(Boolean);
     const totals = [
       { text: `Materialbelopp: ${money(materialTotal)} kr`, bold: false },
+      tax.mode === 'standard' ? `Debiterad moms: ${money(tax.amount)} kr` : null,
       num(snapshot.adjustment) ? `Prisjustering: ${money(snapshot.adjustment)} kr` : null,
       { text: `Avräkningsbelopp: ${money(gross)} kr`, bold: true },
       { text: taxLabel, size: 8, color: tax.mode === 'unverified' ? C.amber : C.muted },
@@ -240,7 +241,7 @@ export async function renderPdf(snapshot) {
       { text: `${receipt ? 'Registrerad utbetalning' : payment.method === 'balance' ? 'Sparas på saldo' : final ? 'Att utbetala' : 'Beräknat att utbetala'}: ${money(snapshot.net ?? gross - num(snapshot.offset))} SEK`, bold: true, size: 11, color: C.green },
     ].filter(Boolean);
     cards([{ title: 'Utbetalningsuppgifter', body: paymentBody }, { title: 'Avräkning & kundsaldo', body: totals }]);
-    const note = tax.mode === 'reverse' ? 'Omvänd betalningsskyldighet. Köparen redovisar moms på inköpet enligt tillämpliga regler.' : ['none', 'private'].includes(tax.mode) ? show(tax.label, 'Privatinköp. Ingen moms debiteras av säljaren.') : 'Momsbehandling har inte verifierats. Detta underlag anger inte någon momssats eller något momsbelopp.';
+    const note = tax.mode === 'reverse' ? 'Omvänd betalningsskyldighet. Köparen redovisar moms på inköpet enligt tillämpliga regler.' : tax.mode === 'standard' ? 'Debiterad moms ingår i avräkningsbeloppet och redovisas ovan.' : ['none', 'private'].includes(tax.mode) ? show(tax.label, 'Privatinköp. Ingen moms debiteras av säljaren.') : 'Momsbehandling har inte verifierats. Detta underlag anger inte någon momssats eller något momsbelopp.';
     paragraph(`${note}${snapshot.selfBilling?.agreed ? ' Självfaktureringsavtal finns registrerat. Utfärdad självfaktura upprättas i säljarens namn och för säljarens räkning.' : ' Något självfaktureringsavtal har inte registrerats.'}`, { size: 8 });
   }
   function transportDetails() {

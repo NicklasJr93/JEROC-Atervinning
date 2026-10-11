@@ -10,6 +10,7 @@ export function createCustomerDraft(
     id: `customer-${crypto.randomUUID()}`,
     name: '',
     type: 'Företag',
+    vatRegistered: true,
     number: '',
     customerNumber: `K-${Math.max(1000, ...data.customers.map((customer) => Number(customer.customerNumber.replace(/\D/g, '')) || 0)) + 1}`,
     phone: '',
@@ -33,6 +34,13 @@ export function cleanCustomerDraft(customer: OfficeCustomer): OfficeCustomer {
   return draft;
 }
 
+/** Preserve the hidden business choice while editing; private customers save without VAT. */
+export function customerDraftForSave(customer: OfficeCustomer): OfficeCustomer {
+  const draft = cleanCustomerDraft(customer);
+  if (draft.type === 'Privatperson' && draft.vatRegistered !== undefined) draft.vatRegistered = false;
+  return draft;
+}
+
 function identityNumber(customer: OfficeCustomer): string {
   const number = customer.number.replace(/[\s-]/g, '').toLocaleLowerCase('sv');
   // Both customary lengths identify the same person. Keep the original value in
@@ -47,6 +55,9 @@ export function customerDraftError(
   customers: OfficeCustomer[],
 ): string {
   if (!draft.name.trim()) return 'Ange kundens namn.';
+  if (draft.paymentTermDays !== undefined && (
+    !Number.isInteger(draft.paymentTermDays) || draft.paymentTermDays < 0 || draft.paymentTermDays > 3650
+  )) return 'Ange ett helt antal betalningsdagar mellan 0 och 3650.';
   const number = identityNumber(draft);
   if (number && customers.some((customer) =>
     customer.id !== draft.id && identityNumber(customer) === number,

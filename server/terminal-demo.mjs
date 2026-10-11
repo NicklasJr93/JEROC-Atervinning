@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { createPricingStore, PricingError, money } from './pricing.mjs';
 import { createTerminalDemoRepository, TerminalDemoError } from './terminal-demo-storage.mjs';
 import { afterDatabaseCommit } from './database-runtime.mjs';
+import { isDeepStrictEqual } from 'node:util';
+import { freezePurchaseAccounting, AccountingError } from './visma-accounting.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 const expectedStaffIdentity = new AsyncLocalStorage();
@@ -174,6 +176,8 @@ function publicApproval(approval, revision) {
     snapshot: { cardId: approval.cardId, version: approval.version, customerName: snapshot.customer.name,
       customerNumber: snapshot.customer.customerNumber, siteName: snapshot.card.yard,
       rows: copy(snapshot.rows), gross: snapshot.gross, offset: snapshot.offset, net: snapshot.net,
+      ...(snapshot.card.accounting ? { tax: { baseTotal: snapshot.card.accounting.baseTotal, sellerVat: snapshot.card.accounting.sellerVat,
+        treatments: [...new Set(snapshot.card.accounting.lines.map(line => line.treatment))] } } : {}),
       paymentMethod: snapshot.paymentMethod, reference: snapshot.reference, origin: snapshot.origin,
       deliveredAt: snapshot.deliveredAt, termsVersion: snapshot.termsVersion, hash: snapshot.hash } };
 }
@@ -181,7 +185,7 @@ function publicApproval(approval, revision) {
 /** A shared DEMO service: office identities are deliberately selected demo users,
  * not production authentication. Terminal passwords and sessions are real, and
  * business state always commits to the configured durable database. */
-export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, environmentApprovalCheck, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
+export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, environmentApprovalCheck, accountingSourceProvider, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
   if (!repository) throw new Error('A durable terminal repository is required.');
   const presenceTimers = new Map();
   const schedulePresenceExpiry = terminalId => {
@@ -439,7 +443,7 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     },
     send(payload, staffToken, preparedIdentity, requireStaffSession = false) {
       const request = validate(sendSchema, payload);
-      return transaction((state, time, catalog) => {
+      return transaction(async (state, time, catalog) => {
         const principal = preparedIdentity && !requireStaffSession ? principalStore.principal(preparedIdentity.actorId,preparedIdentity.userId) : staff(state, staffToken, time);
         if (preparedIdentity && (principal.actor.id !== preparedIdentity.actorId || principal.user.id !== preparedIdentity.userId)) throw new TerminalDemoError('Kontorets aktiva användare har ändrats. Försök igen i den aktuella vyn.',409,'staff_identity_changed');
         demand(principal, 'prepare', 'customerApprovalRead'); demandMoney(principal); demandSite(principal, request.siteId, catalog);
@@ -465,7 +469,8 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         const pricing = principalStore.getSnapshotForApproval?.(request.card.pricingSnapshotId);
         if (!pricing || String(pricing.cardId) !== String(request.card.id) || pricing.customerId !== request.customer.id) throw new TerminalDemoError('Prisunderlaget saknas eller stämmer inte. Färdigställ kortets priser på nytt.', 409, 'pricing_snapshot_missing');
         if (pricing.rows.length !== request.card.rows.length || pricing.rows.length !== request.rows.length) throw new TerminalDemoError('Materialraderna stämmer inte med det låsta prisunderlaget.', 409, 'pricing_mismatch');
-        const articles = principalStore.read(principal).articles;
+        const businessDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(request.card.date));
+        const articles = principalStore.read(principal, businessDate).articles;
         const rows = pricing.rows.map((row, index) => {
           const input = request.card.rows[index], displayed = request.rows[index];
           if (row.price == null || [input, displayed].some((value) => value.articleId !== row.articleId || value.weight !== row.weight || value.price !== row.price)
@@ -473,8 +478,22 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
           return { articleId: row.articleId, name: articles.find((article) => article.id === row.articleId)?.name ?? displayed.name,
             weight: row.weight, price: row.price, amount: money(row.weight * row.price) };
         });
-        const gross = money(rows.reduce((sum, row) => sum + row.amount, 0));
-        if (gross !== pricing.total || request.offset > gross) throw new TerminalDemoError('Avräkningsbeloppet stämmer inte med prisunderlaget.', 409, 'pricing_mismatch');
+        const baseTotal = money(rows.reduce((sum, row) => sum + row.amount, 0));
+        if (baseTotal !== pricing.total) throw new TerminalDemoError('Avräkningsbeloppet stämmer inte med prisunderlaget.', 409, 'pricing_mismatch');
+        const accountingSource = accountingSourceProvider ? await accountingSourceProvider(request, principal) : null;
+        let accounting;
+        if (accountingSource?.settings?.enabled) {
+          const customer = accountingSource.customer;
+          if (!customer || customer.id !== request.customer.id || customer.type !== request.customer.type ||
+            customer.vatRegistered !== request.customer.vatRegistered || customer.paymentTermDays !== request.customer.paymentTermDays)
+            throw new TerminalDemoError('Kundens ekonomiuppgifter har ändrats. Läs in kunden och skapa en ny granskning.', 409, 'accounting_customer_changed');
+          accounting = freezePurchaseAccounting({ settings: accountingSource.settings, customer, siteId: request.siteId, offset: request.offset,
+            rows: rows.map(row => ({ ...row, taxCategory: articles.find(article => article.id === row.articleId)?.taxCategory ?? 'review' })) });
+          if (!isDeepStrictEqual(accounting, request.card.accounting))
+            throw new TerminalDemoError('Ekonomiunderlaget har ändrats. Beräkna avräkningen på nytt före kundgodkännande.', 409, 'accounting_snapshot_changed');
+        } else if (request.card.accounting) throw new TerminalDemoError('Ekonomiunderlaget måste beräknas av servern före kundgodkännande.', 409, 'accounting_snapshot_invalid');
+        const gross = accounting?.gross ?? baseTotal;
+        if (request.offset > gross) throw new TerminalDemoError('Kvittningen överstiger avräkningsbeloppet.', 409, 'pricing_mismatch');
         if (request.offset > 0 && !request.correctionIds.length) throw new TerminalDemoError('Kvittningen måste hänvisa till rättelseunderlag.');
         if (request.offset > 0 && state.approvals.some((approval) => ['waiting', 'id_requested', 'approved', 'attested'].includes(approval.status)
           && approval.cardId !== request.card.id && approval.correctionIds.some((value) => request.correctionIds.includes(value)))) {
@@ -490,7 +509,8 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         originalCard.customerSnapshot = copy(request.customer);
         originalCard.paymentDetails = copy(payment);
         originalCard.rows = originalCard.rows.map((row, index) => ({ ...row, price: rows[index].price, weight: rows[index].weight }));
-        originalCard.pricingTotal = gross;
+        originalCard.pricingTotal = baseTotal;
+        if (accounting) originalCard.accounting = copy(accounting); else delete originalCard.accounting;
         const snapshot = { card: originalCard, customer: copy(request.customer), rows, gross,
           offset: money(request.offset), net: money(gross - request.offset), paymentMethod: payment.method,
           reference: request.card.reference, origin: request.card.origin, deliveredAt: request.card.date, termsVersion: TERMS_VERSION };
@@ -617,13 +637,13 @@ async function body(req) {
   catch { throw new TerminalDemoError('Ogiltig JSON.'); }
 }
 
-export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, onApprovalChanged, env = process.env, now = () => new Date(), approvalAge } = {}) {
+export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, accountingSourceProvider, onAttested, onApprovalChanged, env = process.env, now = () => new Date(), approvalAge } = {}) {
   let repositoryPromise, storePromise, jobsRunning, jobTimer, maintenanceTimer, backgroundStarted = false, closed = false;
   const eventStreams = new Set();
   const getStore = () => {
     if (!storePromise) {
       repositoryPromise = repository ? Promise.resolve(repository) : createTerminalDemoRepository({ env });
-      storePromise = repositoryPromise.then(value => createTerminalDemoStore({ repository: value, principalStore, siteProvider, environmentApprovalCheck, now, approvalAge }));
+      storePromise = repositoryPromise.then(value => createTerminalDemoStore({ repository: value, principalStore, siteProvider, environmentApprovalCheck, accountingSourceProvider, now, approvalAge }));
       const attempt = storePromise;
       attempt.then(() => afterDatabaseCommit(startBackground), () => {
         if (storePromise === attempt) { storePromise = undefined; repositoryPromise = undefined; }
@@ -765,12 +785,14 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
             : action === 'displayed' ? await store.displayed(approval[1],value,deviceToken)
               : action === 'cancel' ? await store.cancel(approval[1], staffToken)
                 : action === 'confirm-id' ? await store.confirmId(approval[1], staffToken) : await store.attest(approval[1], staffToken);
-          scheduleJobs(); json(res, 200, result);
+          scheduleJobs();
+          if (action === 'attest' && onAttested) afterDatabaseCommit(() => setImmediate(() => { void Promise.resolve(onAttested(result)).catch(() => console.warn('Spiris-överföringen väntar i kön.')); }));
+          json(res, 200, result);
         } else throw new TerminalDemoError('API-vyn finns inte eller metoden stöds inte.', 404, 'not_found');
       }
     } catch (error) {
       if (res.headersSent) { res.end(); return true; }
-      const known = error instanceof TerminalDemoError || error instanceof PricingError;
+      const known = error instanceof TerminalDemoError || error instanceof PricingError || error instanceof AccountingError;
       const unavailable = !known && ['ECONNREFUSED', 'ENOTFOUND', '57P01', '28P01', '3D000'].includes(error.code);
       json(res, known ? error.status : 503, { configured: false,
         error: known ? error.message : 'Terminalernas databas kunde inte nås. Kontrollera serverns databasinställningar.',

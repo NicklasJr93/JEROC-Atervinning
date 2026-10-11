@@ -112,6 +112,8 @@ const articleSchema = z.object({
   excludes: z.array(z.string().trim().min(1).max(1000)).max(20).default([]),
   photos: z.array(z.number().int().min(0).max(39)).max(6).default([]),
   active: z.boolean().default(true),
+  // Financial classification is independent of hazardous waste and NVV.
+  taxCategory: z.enum(['scrap_reverse', 'standard_25', 'no_vat', 'review']).optional(),
   base: z.discriminatedUnion('type', [
     z.object({
       type: z.literal('lme'),
@@ -619,6 +621,7 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
       excludes: [excludes],
       photos,
       active: true,
+      taxCategory: 'scrap_reverse',
       base: metal
         ? { type: 'lme', metal }
         : { type: 'manual', price: basePrice },
@@ -651,6 +654,11 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
   // Fresh demo cards have no approval or financial booking yet. Historical
   // volumes arise from real demo workflow actions, never invented attestations.
   if (initialState) Object.assign(state, copy(initialState));
+  // Upgrade only previously unclassified article revisions. Explicit choices
+  // and frozen transaction snapshots remain untouched.
+  const demoScrapIds = new Set(articleSeeds.map(([articleId]) => articleId));
+  for (const article of state.articleHistory)
+    article.taxCategory ??= demoScrapIds.has(article.id) ? 'scrap_reverse' : 'review';
   const can = (user, permission) =>
     sensitivePersonnelPermissions.includes(permission)
       ? user.level === 'Systemadmin' || user.permissions.includes(permission)
@@ -999,6 +1007,9 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
           customerId: entry.customerId,
           metal: entry.metal,
           cardId: entry.cardId,
+          revisionId: entry.revisionId,
+          taxCategory: entry.taxCategory,
+          previousTaxCategory: entry.previousTaxCategory,
         })),
       ...(can(principalValue.user, 'customerPrices')
         ? { ledger: state.ledger }
@@ -1088,14 +1099,16 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     demand(principalValue, 'articlesEdit');
     const parsed = validate(articleSchema, input);
     const articleId = parsed.id ?? `article-${randomUUID()}`;
+    const previous = latest(state.articleHistory, (article) => article.id === articleId, parsed.effectiveFrom);
     const row = {
       ...parsed,
       id: articleId,
+      taxCategory: parsed.taxCategory ?? previous?.taxCategory ?? 'review',
       revisionId: randomUUID(),
       ...stamp(principalValue, 'Artikelinställningar ändrade'),
     };
     state.articleHistory.push(row);
-    state.audit.push({ ...copy(row), articleId });
+    state.audit.push({ ...copy(row), articleId, previousTaxCategory: previous?.taxCategory });
     return read(principalValue);
   }
   function saveSpecial(input, principalValue) {

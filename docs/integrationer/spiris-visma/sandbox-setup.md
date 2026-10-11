@@ -1,8 +1,8 @@
 # Spiris / Visma eEkonomi – sandbox i JEROC
 
-Kontorsversion 0.15.2, 2026-10-11. Anslutningen är ett uttryckligt
-testverktyg för systemadmin. Den exporterar inte viktkort eller riktiga
-betalningar automatiskt. [API-fält och källor](api-testfalt.md) beskriver
+Kontorsversion 0.16.0, 2026-10-12. Systemadmin kan konfigurera automatiska
+fakturautkast från attesterade viktkort i sandboxen eller överföra manuellt.
+Ingen bokföring eller bankbetalning utförs. [API-fält och källor](api-testfalt.md) beskriver
 leverantörer, konteringsrader och fakturautkast.
 
 ## Inställningar i Render
@@ -111,7 +111,55 @@ Returen byter inte automatiskt token eller skapar ett utkast genom ett GET.
 Access- och refresh-token lagras krypterade på servern och visas inte i
 formulär, diagnospopup eller anropshistorik.
 
-## Testa från ett attesterat viktkort
+## Konfigurera ekonomi och anläggningar
+
+Version 0.16.0 använder er befintliga sandboxanslutning och Render-fält.
+
+1. Öppna **Integrationer → Spiris / Visma eEkonomi → Inställningar** som
+   Systemadmin med åtkomst till alla anläggningar.
+2. Tryck **Hämta från Spiris**. Inköpsbetalvillkor, räkenskapsår, konton,
+   momskoder, resultatenheter/kostnadsställen och projekt hämtas från det
+   verifierade sandboxföretaget. Alla leverantörssidor läses före matchning.
+3. Välj ett verkligt inköpsbetalvillkor för **Direkt · 0 dagar**. Finns flera
+   villkor med samma antal dagar måste ett konkret villkor väljas. Kundens
+   eget antal dagar matchas mot ett entydigt verkligt inköpsvillkor före
+   kundgodkännandet; ett saknat/otydligt villkor ger en komplettering.
+4. Välj konton och momskoder för era inköpsregler. Kostnadsställe och projekt
+   väljs per anläggning. **Gemensamma** kan öppnas för lokala kontoavvikelser.
+   Aktiva konton, verkliga dimensioner och momssatser kontrolleras på servern.
+   Momsbefriade företagsinköp behöver en uttryckligen fastställd regel;
+   enbart saknad momsregistrering fastställer inte skattebefrielse.
+5. Förhandsvisa exempelkonteringen, aktivera ekonomiinställningarna och
+   spara. Börja med manuell överföring för granskning i sandboxen.
+6. För ett nytt företags-/BRF-kundkort kontrollera Momsregistrerad Ja/Nej
+   enligt er rutin. En historisk kund utan uppgift behöver kompletteras.
+   Kontrollera också artikelns **Momshantering vid inköp**. Nya okända
+   artiklar har kategorin Behöver bedömas.
+7. Skapa ett nytt kundgodkännande och attestera det. Kundvisningen och PDF
+   använder samma frysta belopp och momsbehandling. Exporten räknar inte om
+   ett redan godkänt underlag med senare ändrade inställningar.
+8. Prova överföringen i integrationskortet och granska fakturautkastet i
+   sandboxen. När dessa testfall är kontrollerade kan **Efter attest**
+   väljas och sparas. Nya versioner med detta frysta läge går genom samma
+   beständiga kö efter attest. Omstart återupptar verifierbara kösteg.
+
+0 dagar anger förfallodagen, inte en utförd betalning. Alla fakturautkast
+behåller `SkipSendToBank: true`. Varken attest, uppläsning av kortet eller
+skapad fakturautkast sätter utbetalningsstatus till Betald.
+
+Viktkortet visar status, Spiris-ID och tidsordnade händelser. Systemadmin
+kan öppna hela anrops-/svarshistoriken under Integrationer. Vid ett oklart
+skrivresultat behöver resursen kontrolleras i Spiris; posten återsänds
+inte automatiskt. Leverantörens svar-ID bevaras innan utkaststeget börjar.
+
+**Kvittning:** fakturan måste kopplas till verkligt kreditunderlag i Spiris
+innan automatisk kvittningshantering kan aktiveras. Sådana kort visas med
+en konkret exportspärr och skapar inga leverantörs-/utkastsskrivningar i
+det hanterade flödet. Den lokala avräkningen och betalningsregistreringen
+bevaras. PDF-bilaga till Spiris och konvertering till bokförd faktura är
+också separata kommande steg.
+
+## Fritt sandboxformulär och tidigare testförifyllning
 
 Version 0.15.2 använder befintlig Render-konfiguration. På testsidan:
 
@@ -137,7 +185,8 @@ Version 0.15.2 använder befintlig Render-konfiguration. På testsidan:
 Den lokala testhistoriken kopplar försöket till attest-ID, version och
 kontrollsumma. Servern kontrollerar att versionen fortfarande är attesterad
 före sändning. Dessa källreferenser följer inte med som extra Spiris-fält.
-PDF-bilaga och automatisk export efter attest byggs i en senare etapp.
+PDF-bilaga byggs i en senare etapp. Det fria formuläret är fortsatt ett
+separat debugverktyg; hanterad export används i integrationskortet ovan.
 Inget av detta bokför fakturan eller utför betalning.
 
 ## Prova fria API-fält
@@ -181,8 +230,7 @@ tillåter ett nytt uttryckligt test med ett nytt ID.
 
 ## Nästa etapp
 
-Efter verifierat sandboxbeteende kan vi bygga automatisk export av en
-attesterad avräkning med PDF, beständig leverantörsmappning, fastställd
-kontering och externa referenser.
+Efter verifierat sandboxbeteende återstår PDF-bilaga, faktisk kreditkoppling
+för kvittning och eventuell konvertering till bokförd faktura.
 Spiris bankkoppling är ett separat avtal och flöde. En lyckad sandboxkontroll
 eller ett sparat fakturautkast är inte bevis på att en betalning utförts.

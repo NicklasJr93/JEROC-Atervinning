@@ -32,7 +32,8 @@ async function fixture(run, env = {}) {
     return principal;
   } };
   const record = (method, context, input) => {
-    calls.push({ method, context: structuredClone(context), input: structuredClone(input) });
+    const { reauthorize, ...publicContext } = context;
+    calls.push({ method, context: structuredClone(publicContext), input: structuredClone(input) });
   };
   const status = { mode: 'sandbox', configured: true, connected: true, companyVerified: true, expectedCompanyId: 'sandbox-company',
     company: { id: 'sandbox-company', name: 'Local sandbox fixture', number: '5560000167' }, runs: [] };
@@ -40,6 +41,12 @@ async function fixture(run, env = {}) {
     async status(context) { record('status', context); return status; },
     async attestedCards(context) { record('attestedCards', context); return { cards: [] }; },
     async prefill(id, context) { record('prefill', context, id); return { source: { cardId: id } }; },
+    async settings(context) { record('settings', context); return { settings: { revision: 0 } }; },
+    async saveSettings(input, context) { record('saveSettings', context, input); return { settings: input.settings }; },
+    async lookupChoices(context) { record('lookupChoices', context); return { choices: { paymentTerms: [] } }; },
+    async preview(input, context) { record('preview', context, input); return { rows: [] }; },
+    async exports(context) { record('exports', context); return { exports: [] }; },
+    async sendExport(input, context) { record('sendExport', context, input); return { id: 'export-example', status: 'accepted' }; },
     async begin(context) { record('begin', context); return { authorizationUrl: 'https://oauth.fixture.invalid/authorize?state=public-fixture-state', cookieBinding: 'opaque-server-only-binding', expiresAt: '2026-10-11T10:10:00Z' }; },
     async complete(context) { record('complete', context); return status; },
     async disconnect(context) { record('disconnect', context); return { ...status, connected: false }; },
@@ -66,7 +73,9 @@ test('Visma bridge requires an actual and effective unrestricted Systemadmin on 
   const admin = await f.login(), lars = await f.login('lars'), impersonated = await f.login('admin', 'lars');
   const input = { requestId: randomUUID(), idempotencyKey: randomUUID(), operation: 'company' };
   const routes = [ ['GET', '/visma/status'], ['GET', '/visma/attested-cards'], ['GET', '/visma/attested-cards/3016'], ['GET', `/visma/sandbox/runs/${sampleRun.id}`],
-    ['POST', '/visma/oauth/start'], ['POST', '/visma/oauth/complete'], ['POST', '/visma/disconnect'], ['POST', '/visma/sandbox'] ];
+    ['POST', '/visma/oauth/start'], ['POST', '/visma/oauth/complete'], ['POST', '/visma/disconnect'], ['POST', '/visma/sandbox'],
+    ['GET', '/visma/accounting/settings'], ['POST', '/visma/accounting/settings'], ['POST', '/visma/accounting/choices'],
+    ['POST', '/visma/accounting/preview'], ['GET', '/visma/accounting/exports'], ['POST', '/visma/accounting/exports'] ];
   for (const [method, path] of routes) {
     const request = headers => fetch(`${f.base}${path}`, { method, headers, ...(method === 'POST' && { body: JSON.stringify(path === '/visma/sandbox' ? input : {}) }) });
     assert.equal((await request({ 'Content-Type': 'application/json' })).status, 401, path);

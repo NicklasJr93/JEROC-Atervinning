@@ -13,6 +13,7 @@ export interface PublicSettlement {
   siteName: string; rows: SettlementRow[]; gross: number; offset: number; net: number;
   paymentMethod: 'bank' | 'swish' | 'cash' | 'balance'; reference: string;
   origin?: string; deliveredAt: string; termsVersion: string; hash: string;
+  tax?: { baseTotal: number; sellerVat: number; treatments: string[] };
 }
 export interface TerminalApproval {
   id: string; cardId: number; siteId: string; terminalId: string; version: number;
@@ -79,6 +80,7 @@ export const publicApprovalSchema = z.object({
     siteName: z.string(), rows: z.array(settlementRowSchema), gross: finiteMoney, offset: finiteMoney, net: finiteMoney,
     paymentMethod: z.enum(['bank', 'swish', 'cash', 'balance']), reference: z.string(), origin: z.string().optional(),
     deliveredAt: z.string(), termsVersion: z.string(), hash: z.string().min(1),
+    tax: z.object({ baseTotal: finiteMoney, sellerVat: finiteMoney, treatments: z.array(z.string()) }).optional(),
   }),
 });
 export const terminalApprovalSchema = z.object({

@@ -97,6 +97,9 @@ kontrollerar både HTTP-metod och route.
 | `GET /suppliers` | `ea:purchase` | Hämta leverantörer och deras UUID |
 | `GET /suppliers/{id}` | `ea:purchase` | Återläs en viss leverantör |
 | `GET /supplierinvoicedrafts/{id}` | `ea:purchase` | Återläs ett visst fakturautkast |
+| `GET /vatcodes` | `ea:accounting` | Välj företagets verkliga momskoder |
+| `GET /costcenters` | `ea:accounting` | Hämta resultatenheter och deras faktiska poster |
+| `GET /projects` | `ea:accounting` | Välj pågående projekt |
 | `POST /suppliers` | `ea:purchase` | Skapa fiktiv testleverantör |
 | `POST /supplierinvoicedrafts` | `ea:purchase` | Skapa redigerbart testutkast |
 
@@ -108,7 +111,45 @@ Listor returnerar `{ "Meta": {...}, "Data": [...] }`. Sidparametrar är
 `$page` och `$pagesize`; standard är 50 objekt, maximalt 1000 per sida.
 Följ `Meta.TotalNumberOfPages` och visa när bara en sida hämtats.
 
-## Förifyllning från attestversionen i JEROC
+## Hanterad ekonomi och överföring i 0.16.0
+
+Integrationskortets ekonomiinställningar väljer verkliga provider-ID:n,
+konton och momskoder. Artikelns `taxCategory` är separat från dess
+avfallsklassificering. Kundens `vatRegistered` och eventuella
+`paymentTermDays` kombineras med artikelregeln **före** kundgodkännande.
+Privatinköp, omvänd moms, vanlig moms 25 procent och uttryckligt fastställda
+momsbefriade företagsinköp är olika regler. Okända historiska uppgifter
+upphöjs inte till verifierade genom en export.
+
+Materialpriser är exklusive eventuell debiterad moms. Materialbelopp och
+moms låses tillsammans med kundens avräkning. Fryst ekonomi sparar
+inställningsrevision, företag, konton, dimensioner, momskoder, belopp i
+hela ören, betalvillkor och artikelns dåvarande klassificering. Vanlig moms
+ökar invoicegross och kundens utbetalningsunderlag. Beräknad omvänd moms
+ökar inte säljarens utbetalning. Datum och förfallodag räknas i svensk tid.
+
+Hanterad export använder `useDefaultVatCodes=false` och
+`calculateVatOnCostAccounts=false` tillsammans med de uttryckligt byggda
+konteringsraderna, så att Spiris inte också beräknar samma moms automatiskt.
+Draftfält `Rows[].CostCenterItemId1` är en faktisk post i första
+resultatenheten; det är inte anläggningens JEROC-ID. `ProjectId` är
+valfritt när kontot tillåter det. Kontoplan och låsstatus verifieras för
+räkenskapsåret som täcker den frysta avräkningens fakturadatum.
+
+Leverantörs-ID sparas per företag och JEROC-kund. Exakt kundnummer matchas
+först; ett känt organisationsnummer får inte motsäga vald leverantör.
+Personnummer används inte för deduplicering eller organisationsnummerfält.
+Flera möjliga organisationsnummerträffar kräver ett entydigt val.
+
+Exportkön reserverar leverantörs- och utkaststeg beständigt före POST.
+Oklar nätverkseffekt återsänds inte. En mottagen resurs-ID kan återhämtas
+från den sparade anropsjournalen efter omstart. Provideranrop sker efter
+att den korta databasreservationen har committats och släppt låset.
+Poster är kopplade till en exakt attestversion och dess kontrollsumma.
+Kvittningskort spärras tills motsvarande kreditunderlag kan stämmas av
+i Spiris. Ett fakturautkast bokför eller betalar ingen faktura.
+
+## Fritt testformulär: förifyllning från attestversionen
 
 Version 0.15.2 hämtar förifyllningen från terminalens frysta snapshot med
 kundgodkännandets matchande kontrollsumma och intern attest. En äldre
