@@ -140,6 +140,8 @@ const server = createServer((req, res) => {
 const applicationApi = createApplicationService({ approvalProvider: () => terminalDemoApi.projections(),
   projections: cardId => terminalDemoApi.projections(cardId),
   sendCustomerReview: (payload, principal, req) => terminalDemoApi.sendPrepared(payload, principal, req),
+  withMaterialChangeApproval: (input, identity, operation) => terminalDemoApi.withMaterialChangeApproval(input, identity, operation),
+  guardMaterialChange: (input, operation) => environmentApi.guardMaterialChange(input, operation),
   siteProvider: () => environmentApi.getSites(),
   environmentProvider: () => environmentApi.getLogisticsSource(),
 });

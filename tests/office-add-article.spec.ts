@@ -94,9 +94,16 @@ test('återkallad artikelbehörighet och låst attestkort döljer artikelknappen
     await page.reload();
     await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');
     await expect(page.getByRole('button', { name: 'Lägg till artikel', exact: true })).toBeEnabled();
-    await approveCurrentOfficeCard(page, id);
+    const approval = await approveCurrentOfficeCard(page, id);
+    // A customer-approved version can now be amended atomically and reviewed
+    // again. Internal attest locks the original against material changes.
+    const staff = await page.request.post('/api/terminal-demo/staff-session', { data: { actualUserId: 'admin', effectiveUserId: 'admin' } });
+    expect(staff.ok(), await staff.text()).toBe(true);
+    const attested = await page.request.post(`/api/terminal-demo/approvals/${approval.id}/attest`, { data: {} });
+    expect(attested.ok(), await attested.text()).toBe(true);
+    await page.reload();
     await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');
-    await expect.poll(async () => (await card(page, id)).status).toBe('attest');
+    await expect.poll(async () => (await card(page, id)).status).toBe('ready');
     await expect(page.getByRole('button', { name: 'Lägg till artikel', exact: true })).toHaveCount(0);
   } finally { await articlePermission(page, true); }
 });

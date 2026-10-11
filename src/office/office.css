@@ -1416,6 +1416,35 @@
   margin: 10px 0 0;
   color: #7386a0;
 }
+.office .office-material-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px 12px;
+}
+.office .office-material-actions .office-link {
+  white-space: nowrap;
+  font-size: 11px;
+}
+.office .office-material-actions .office-material-remove {
+  color: #9a5160;
+}
+.office .office-row-edit-help,
+.office .office-material-empty {
+  font-size: 12px;
+  color: #6b809e;
+  line-height: 1.5;
+}
+.office .office-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .office .office-card-customer .office-customer-contact {
   padding: 10px;
   margin: 10px 0;
@@ -1589,6 +1618,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 12px;
 }
 .office .office-attest-action .office-btn {
@@ -1729,7 +1759,7 @@
   }
   .office .office-attest-action {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-end;
   }
   .office .office-card-correction > form {
     grid-template-columns: minmax(0, 1fr);

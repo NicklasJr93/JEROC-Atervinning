@@ -16,6 +16,8 @@ export const permissions = [
   'view',
   'prepare',
   'weighingAddArticle',
+  'weighingRemoveArticle',
+  'weighingEditWeight',
   'customers',
   'prices',
   'priceA',
@@ -1597,6 +1599,10 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     saveArticle,
     saveSpecial,
     quote,
+    // Internal calculation for quantity-only commands. These commands check
+    // their own material rights and never accept a browser price/override.
+    // officeView applies the caller's price visibility before returning data.
+    quoteForOfficeMaterial: input => fullQuote(input, { user: { level: 'Medarbetare', permissions: [] } }),
     snapshot,
     snapshots,
     // Internal server-only lookup for a validated customer review. Never exposed

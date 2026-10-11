@@ -2,8 +2,9 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
 import './quick-customer.css';
 
-export default function AddWeighingArticleModal({ articles, onSave, onClose }: {
+export default function AddWeighingArticleModal({ articles, requiresNewApproval = false, onSave, onClose }: {
   articles: { id: string; name: string }[];
+  requiresNewApproval?: boolean;
   onSave: (articleId: string, weight: number) => Promise<boolean>;
   onClose: () => void;
 }) {
@@ -26,7 +27,7 @@ export default function AddWeighingArticleModal({ articles, onSave, onClose }: {
     setBusy(true); setError('');
     try {
       if (!(await onSave(articleId, Number(value)))) setError('Artikeln kunde inte läggas till. Kontrollera att kortet fortfarande är öppet.');
-    } catch { setError('Artikeln kunde inte läggas till. Försök igen.'); }
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Artikeln kunde inte läggas till. Försök igen.'); }
     finally { setBusy(false); }
   }
   return <dialog ref={dialog} className="quick-customer-dialog office-add-article-dialog" aria-labelledby={heading} onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
@@ -36,6 +37,7 @@ export default function AddWeighingArticleModal({ articles, onSave, onClose }: {
         <label>Artikel<select aria-label="Artikel" value={articleId} disabled={busy} onChange={event => setArticleId(event.target.value)}><option value="">Välj artikel</option>{articles.map(article => <option key={article.id} value={article.id}>{article.name}</option>)}</select></label>
         <label>Vikt (kg)<input aria-label="Vikt (kg)" inputMode="decimal" value={weight} disabled={busy} onChange={event => setWeight(event.target.value)} placeholder="0,000"/></label>
       </div>
+      {requiresNewApproval && <div className="office-info">Ändringen återkallar kundgodkännandet. Kunden behöver godkänna en ny version.</div>}
       {error && <p role="alert" className="quick-customer-error">{error}</p>}
       <div className="office-actions"><button type="button" className="office-btn outline" disabled={busy} onClick={onClose}>Avbryt</button><button className="office-btn" disabled={busy}>{busy ? 'Sparar…' : 'Lägg till artikel'}</button></div>
     </form>

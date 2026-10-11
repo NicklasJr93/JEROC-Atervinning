@@ -31,6 +31,8 @@ import {
   Package,
   Container,
   PlugZap,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
@@ -44,6 +46,8 @@ import OfficeCardAttest from './OfficeCardAttest';
 import ElectricFocusBorder from './ElectricFocusBorder';
 import QuickCustomerModal from './QuickCustomerModal';
 import AddWeighingArticleModal from './AddWeighingArticleModal';
+import EditWeighingRowModal from './EditWeighingRowModal';
+import { changeWeighingMaterial, type MaterialCommand } from './weighing-material-client';
 import StaffAccountPanel from './personnel/StaffAccountPanel';
 import { EnvironmentSessionProvider } from './EnvironmentSession';
 import EnvironmentReceiptPanel from './EnvironmentReceiptPanel';
@@ -185,6 +189,7 @@ export function OfficeApp() {
   const [pricing, setPricing] = useState<PricingState>();
   const [priceBusy, setPriceBusy] = useState(false);
   const [addArticleCardId, setAddArticleCardId] = useState<number>();
+  const [editMaterial, setEditMaterial] = useState<{ cardId: number; rowIndex: number; mode: 'weight' | 'remove'; expectedRows: OfficeCard['rows'] }>();
   const [pricingError, setPricingError] = useState('');
   const [search, setSearch] = useState('');
   const [detailsDirty, setDetailsDirty] = useState(false);
@@ -277,6 +282,7 @@ export function OfficeApp() {
           : matchingEnvironmentalState.received ? 'confirmed' as const : 'required' as const
       : undefined;
   const approvalDisabledReason = !selected ? ''
+    : !selected.rows.length ? 'Lägg till material innan kundgodkännandet startas.'
     : !selected.customerId ? 'Välj eller skapa en kund innan kundgodkännandet startas.'
     : !selected.origin.trim() ? 'Fyll i och spara ursprungsadressen innan kundgodkännandet startas.'
     : detailsDirty ? 'Spara referens och ursprungsadress innan kundgodkännandet startas.'
@@ -309,11 +315,20 @@ export function OfficeApp() {
   const [customerCreation, setCustomerCreation] = useState<{ cardId: number; returnRoute: string; draft: OfficeCustomer; principal: string }>();
   const [approvalPreview, setApprovalPreview] = useState<TerminalApproval>();
   const reviewRequestRef = useRef<{ fingerprint: string; key: string } | undefined>(undefined);
+  const materialRequestRef = useRef(0);
+  useEffect(() => {
+    ++materialRequestRef.current;
+    setPriceBusy(false);
+    setAttestBusy(false);
+    setAddArticleCardId(undefined);
+    setEditMaterial(undefined);
+  }, [principalIdentity]);
   useEffect(() => {
     setPayBalance(false);
     setDocumentType(undefined);
     setQuickCustomerOpen(false);
     setAddArticleCardId(undefined);
+    setEditMaterial(undefined);
     setApprovalPreview(undefined);
     setDetailsDirty(false);
   }, [selectedId, userId, actingId]);
@@ -424,43 +439,37 @@ export function OfficeApp() {
       cards: live.cards.map((c) => (c.id === card.id ? saved : c)),
     });
   }
-  async function addWeighingArticle(articleId: string, kilograms: number) {
-    const current = dataRef.current.cards.find(card => card.id === addArticleCardId);
-    if (!user || !actualUser || blocked || priceBusy || !can(user, 'weighingAddArticle') || !current ||
-      !['new', 'complement'].includes(current.status) || current.kind === 'correction' ||
-      !pricing?.articles.some(article => article.id === articleId && article.active) || !Number.isFinite(kilograms) || kilograms <= 0 || kilograms > 1e9 ||
-      Math.abs(kilograms * 1000 - Math.round(kilograms * 1000)) > 0.0001) return false;
+  async function saveMaterialChange(command: MaterialCommand) {
+    if (!user || !actualUser || blocked || priceBusy) return false;
     const principal = principalRef.current;
-    const rows: OfficeCard['rows'] = [...current.rows, { articleId, articleName: pricing.articles.find(article => article.id === articleId)!.name, weight: kilograms, tier: 'C', price: 0, pricePending: true }];
+    const request = ++materialRequestRef.current;
     setPriceBusy(true);
     try {
-      // Hidden prices remain pending; adding weight never grants price visibility.
-      let quote: PricingQuote | undefined;
-      if (can(user, 'prepare') || can(user, 'prices')) {
-        try {
-          quote = await pricingRequest<PricingQuote>('quote', user, actualUser, {
-            customerId: current.customerId, deliveredAt: current.date, excludeCardId: String(current.id),
-            rows: rows.map(row => ({ articleId: row.articleId, weight: row.weight })),
-          });
-        } catch { /* Keep the row as unpriced until an authorized colleague recalculates. */ }
-      }
-      const live = dataRef.current.cards.find(card => card.id === current.id);
-      if (principalRef.current !== principal || !live || live.audit.length !== current.audit.length ||
-        !['new', 'complement'].includes(live.status)) return false;
-      const pricedRows = rows.map((row, index) => {
-        const result = quote?.rows[index];
-        if (!result) return row;
-        return { ...row, price: row.manualOverride ? row.price : result.price ?? row.price, pricePending: row.manualOverride ? false : result.price == null,
-          tier: row.manualOverride ? row.tier : result.tier === 'Special' ? 'Eget' as const : result.tier,
-          volumeBefore: result.volumeBefore ?? undefined, volumeWithDelivery: result.volumeWithDelivery ?? undefined, source: row.manualOverride ? row.source : result.source };
-      });
-      const pending = pricedRows.some(row => row.pricePending);
-      const saved = update({ ...live, rows: pricedRows, pricingSnapshotId: undefined, pricingTotal: pending ? undefined : Math.round(pricedRows.reduce((sum, row) => sum + row.weight * row.price, 0) * 100) / 100,
-        pricedAt: quote ? current.date : undefined, financialPending: pending, pricingRowsPending: pending },
-        `Artikel tillagd: ${pricing.articles.find(article => article.id === articleId)?.name}, ${kilos(kilograms)} kg.`, 'weighingAddArticle');
-      if (saved) { setAddArticleCardId(undefined); setMessage(pending ? 'Artikeln tillagd. Beräkna priser innan kundgodkännande.' : 'Artikeln tillagd och priserna uppdaterade.'); }
-      return saved;
-    } finally { setPriceBusy(false); }
+      // Quantity changes, repricing and review cancellation commit together.
+      // Wait for earlier form edits before sending the row version being edited.
+      await shared.flush();
+      if (principalRef.current !== principal) return false;
+      const result = await changeWeighingMaterial(command, actualUser.id, user.id);
+      if (principalRef.current !== principal) return false;
+      shared.applyConfirmed(live => ({ ...live, cards: live.cards.map(card => card.id === result.card.id ? result.card : card) }), result.revision);
+      const approval = result.card.customerApproval;
+      const known = approval && terminalDemo.state?.approvals.find(item => item.id === approval.id && item.version === approval.version);
+      if (known && approval) terminalDemo.applyApproval({ ...known, ...approval });
+      setAddArticleCardId(undefined);
+      setEditMaterial(undefined);
+      setMessage(command.operation === 'add' && result.card.pricingRowsPending
+        ? 'Artikeln tillagd. Komplettera prisunderlaget före kundgodkännande.'
+        : command.operation === 'add' ? 'Artikeln tillagd och totalsumman uppdaterad.'
+        : command.operation === 'remove' || command.weight === 0 ? 'Artikeln borttagen och totalsumman uppdaterad.'
+          : 'Vikten sparad och totalsumman uppdaterad.');
+      void terminalDemo.refresh();
+      return true;
+    } finally { if (principalRef.current === principal && materialRequestRef.current === request) setPriceBusy(false); }
+  }
+  async function addWeighingArticle(articleId: string, kilograms: number) {
+    const current = dataRef.current.cards.find(card => card.id === addArticleCardId);
+    if (!user || !can(user, 'weighingAddArticle') || !current) return false;
+    return saveMaterialChange({ cardId: current.id, expectedRows: structuredClone(current.rows), operation: 'add', articleId, weight: kilograms });
   }
   async function calculatePrices(
     card: OfficeCard,
@@ -557,7 +566,7 @@ export function OfficeApp() {
   }
   async function prepareCard(card: OfficeCard, terminal: { id: string; siteId: string }) {
     if (!user || !actualUser || !can(user, 'prepare') || !can(user, 'customerApprovalRead') ||
-        priceBusy || blocked || !['new', 'complement'].includes(card.status) || !card.customerId ||
+        priceBusy || blocked || !['new', 'complement'].includes(card.status) || !card.customerId || !card.rows.length ||
         !(validPaymentDetails(card.paymentDetails) || Boolean(card.payment.trim()))) return false;
     if (!card.origin.trim() || detailsDirty || !dataRef.current.cards.find(item => item.id === card.id)?.origin.trim()) {
       setMessage('Fyll i och spara ursprungsadressen innan kundgodkännandet startas.');
@@ -654,6 +663,11 @@ export function OfficeApp() {
   const editable =
     selected &&
     !['customer', 'attest', 'ready', 'paid', 'balance'].includes(selected.status);
+  const materialEditable = Boolean(selected && selected.kind !== 'correction' &&
+    ['new', 'complement', 'customer', 'attest'].includes(selected.status) && !matchingEnvironmentalState?.received);
+  const showMaterialActions = materialEditable && user && (can(user, 'weighingEditWeight') || can(user, 'weighingRemoveArticle'));
+  const materialRequiresNewApproval = Boolean(selected?.customerApproval &&
+    ['waiting', 'id_requested', 'approved'].includes(selected.customerApproval.status));
   type FocusPanel = 'customer' | 'payment' | 'approval' | 'environment' | 'attest';
   const nextPanel = (): FocusPanel | undefined => {
     if (!selected || !user || !actualUser || blocked || ['ready', 'paid', 'balance'].includes(selected.status)) return;
@@ -1290,8 +1304,17 @@ export function OfficeApp() {
             </button>
           </div>
         )}
-        {addArticleCardId === selected?.id && selected && editable && can(user, 'weighingAddArticle') && <AddWeighingArticleModal
-          articles={pricing?.articles.filter(article => article.active) ?? []} onSave={addWeighingArticle} onClose={() => setAddArticleCardId(undefined)} />}
+        {addArticleCardId === selected?.id && selected && materialEditable && can(user, 'weighingAddArticle') && <AddWeighingArticleModal
+          articles={pricing?.articles.filter(article => article.active) ?? []} requiresNewApproval={materialRequiresNewApproval} onSave={addWeighingArticle} onClose={() => setAddArticleCardId(undefined)} />}
+        {editMaterial && editMaterial.cardId === selected?.id && selected && materialEditable &&
+          can(user, editMaterial.mode === 'weight' ? 'weighingEditWeight' : 'weighingRemoveArticle') && <EditWeighingRowModal
+            key={`${editMaterial.cardId}/${editMaterial.rowIndex}/${editMaterial.mode}`}
+            mode={editMaterial.mode} row={{ ...editMaterial.expectedRows[editMaterial.rowIndex],
+              articleName: editMaterial.expectedRows[editMaterial.rowIndex].articleName ?? articleById(editMaterial.expectedRows[editMaterial.rowIndex].articleId)?.name ?? editMaterial.expectedRows[editMaterial.rowIndex].articleId }}
+            canRemove={can(user, 'weighingRemoveArticle')} requiresNewApproval={materialRequiresNewApproval}
+            onSave={kilograms => saveMaterialChange({ cardId: editMaterial.cardId, expectedRows: editMaterial.expectedRows,
+              operation: editMaterial.mode, rowIndex: editMaterial.rowIndex, ...(kilograms === undefined ? {} : { weight: kilograms }) })}
+            onClose={() => setEditMaterial(undefined)} />}
         {quickCustomerOpen && selected && can(user, 'customers') && <QuickCustomerModal data={data} user={user}
           onSave={customer => selectCreatedCustomer(customer, selected.id, principalRef.current)}
           onOpenFull={draft => {
@@ -1368,7 +1391,7 @@ export function OfficeApp() {
                     <div className="office-panel-heading">
                       <h2>Material & prissättning</h2>
                       <strong>{kilos(weight(selected))} kg</strong>
-                      {editable && selected.kind !== 'correction' && can(user, 'weighingAddArticle') && <button className="office-link office-add-article" disabled={blocked || priceBusy || !pricing} onClick={() => setAddArticleCardId(selected.id)}>Lägg till artikel</button>}
+                      {materialEditable && can(user, 'weighingAddArticle') && <button className="office-link office-add-article" disabled={blocked || priceBusy || !pricing} onClick={() => setAddArticleCardId(selected.id)}>Lägg till artikel</button>}
                       {editable && can(user, 'changePrice') && (
                         <button
                           className="office-link"
@@ -1399,6 +1422,7 @@ export function OfficeApp() {
                                 <th>Belopp</th>
                               </>
                             )}
+                            {(showMaterialActions || editable && can(user, 'changePrice')) && <th><span className="office-visually-hidden">Åtgärder</span></th>}
                           </tr>
                         </thead>
                         <tbody>
@@ -1452,10 +1476,15 @@ export function OfficeApp() {
                                   </td>
                                 </>
                               )}
+                              {(showMaterialActions || (editable || selected.status === 'attest' && !selected.customerApproval) && can(user, 'changePrice') && rowVisible(user, r)) && <td>
+                                <div className="office-material-actions">
+                                  {showMaterialActions && can(user, 'weighingEditWeight') && <button type="button" className="office-link" disabled={priceBusy || blocked}
+                                    onClick={() => setEditMaterial({ cardId: selected.id, rowIndex: i, mode: 'weight', expectedRows: structuredClone(selected.rows) })}><Pencil size={14} aria-hidden="true"/>Ändra vikt</button>}
+                                  {showMaterialActions && can(user, 'weighingRemoveArticle') && <button type="button" className="office-link office-material-remove" aria-label={`Ta bort artikel ${r.articleName ?? articleById(r.articleId)?.name ?? r.articleId}`} disabled={priceBusy || blocked}
+                                    onClick={() => setEditMaterial({ cardId: selected.id, rowIndex: i, mode: 'remove', expectedRows: structuredClone(selected.rows) })}><Trash2 size={14} aria-hidden="true"/>Ta bort</button>}
                               {(editable || (selected.status === 'attest' && !selected.customerApproval)) &&
                                 can(user, 'changePrice') &&
                                 rowVisible(user, r) && (
-                                  <td>
                                     <PriceEditor
                                       row={r}
                                       disabled={priceBusy}
@@ -1495,10 +1524,12 @@ export function OfficeApp() {
                                         )
                                       }
                                     />
-                                  </td>
                                 )}
+                                </div>
+                              </td>}
                             </tr>
                           ))}
+                          {!selected.rows.length && <tr><td colSpan={can(user, 'prices') ? 7 : 3} className="office-material-empty">Inga materialrader. Lägg till material innan kundgodkännandet startas.</td></tr>}
                         </tbody>
                       </table>
                     </div>

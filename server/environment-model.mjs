@@ -408,6 +408,19 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     // Internal server catalogue for terminal/pricing integration, never an
     // unauthenticated customer HTTP endpoint.
     catalog() { return read((state) => copy(currentEnvironmentSites(state)), { entities: ['siteRecords'], principal: false }); },
+    // Server-only office guard. A historical receipt remains an immutable
+    // physical original even when the proposed rows remove all hazardous waste.
+    // Its aggregate lock is held until the surrounding PostgreSQL command
+    // commits, in the same terminal -> environment order as receipt creation.
+    async guardMaterialChange(input, operation) {
+      await initialize();
+      return repository.transact(state => {
+        const receipt = state.receipts.find(record => input.sourceId && record.sourceId
+          ? record.sourceId === input.sourceId : record.cardId === input.cardId);
+        if (receipt) throw new EnvironmentError('Mottagningen är redan registrerad. Material och vikt behöver ändras genom en spårbar rättelse.', 409, 'environment_receipt_locked');
+        return operation();
+      });
+    },
     logisticsSource() { return read(state => {
       const articleIds = [...new Set(state.classifications.map(record => record.articleId))];
       return { classifications: articleIds.map(articleId => copy(currentClassification(state, articleId))),

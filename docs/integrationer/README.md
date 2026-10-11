@@ -8,6 +8,8 @@ LME visas som planerade; ingen OAuth-session eller anslutning fabriceras.
 NVV-inställningar ligger under **Integrationer → Naturvårdsverket**. Rapportkö,
 rättelser och kvittenser ligger kvar under **Miljörapportering**.
 Se [NVV:s provflöde och Renderinställningar](naturvardsverket/nvv-test-demo.md).
+Spiris sandbox, inköpsflöde och möjlig betalfil för Roslagens/Swedbank finns i
+[förstudien av API och betalfil](spiris-visma/forstudie.md). Kopplingen är fortsatt planerad.
 API-granskning, myndighetens oförändrade OpenAPI-definition och tidigare
 mockupmatchning finns i [NVV:s anslutningsunderlag](naturvardsverket/README.md).
 API-nycklar, lösenord, privata nycklar och leveransbrev förvaras separat

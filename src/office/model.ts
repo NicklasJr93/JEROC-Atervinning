@@ -1,12 +1,14 @@
 import { z } from 'zod';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.13.3';
+export const OFFICE_VERSION = '0.14.0';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
   view: 'Se vägningar och kunder',
   prepare: 'Granska och komplettera',
-  weighingAddArticle: 'Lägga till artiklar på öppna invägningar',
+  weighingAddArticle: 'Får lägga till material',
+  weighingRemoveArticle: 'Får ta bort material',
+  weighingEditWeight: 'Får ändra vikt',
   customers: 'Ändra kunduppgifter',
   prices: 'Öppna prisöversikt',
   priceA: 'Se A-priser',

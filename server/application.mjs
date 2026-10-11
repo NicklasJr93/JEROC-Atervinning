@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import { createApplicationRepository } from './application-storage.mjs';
 import { createPricingStore, PricingError } from './pricing.mjs';
 import { createPricingApi } from './pricing-api.mjs';
@@ -19,6 +20,38 @@ const can = (p, right) => p.user.level !== 'Medarbetare' || p.user.permissions.i
 const demand = (p, right) => { if (!can(p, right)) fail('Du saknar behörighet för detta moment.', 403); };
 const visible = (p, card) => !p.user.siteIds || p.user.siteIds.includes(card.siteId ?? (card.yard === 'Rimbo' ? 'rimbo' : 'norrtalje'));
 const mobileCustomers = customers => customers.map(({ id, name, type, number, phone, email, address, references, origins, registrations }) => ({ id, name, type, number, phone, email, address, references, origins, registrations }));
+const officeRowSchema = officeSchema.shape.cards.element.shape.rows.element;
+const materialCommandSchema = z.object({
+  cardId: z.number().int().positive(), expectedRows: z.array(officeRowSchema).max(100),
+  operation: z.enum(['add', 'remove', 'weight']), rowIndex: z.number().int().nonnegative().optional(),
+  articleId: z.string().trim().min(1).max(100).optional(), weight: z.number().finite().min(0).max(1e9).optional(),
+}).strict();
+
+// Match row identities independently of their array position. Removing the
+// first row or replacing one article must not conceal another weight/price edit.
+function materialRowChanges(before, after) {
+  const remaining = after.map((row, index) => ({ row, index })), pairs = [], removed = [];
+  const unmatched = [];
+  for (const row of before) {
+    const index = remaining.findIndex(candidate => equal(candidate.row, row));
+    if (index >= 0) pairs.push({ before: row, after: remaining.splice(index, 1)[0].row });
+    else unmatched.push(row);
+  }
+  for (const row of unmatched) {
+    let index = remaining.findIndex(candidate => candidate.row.articleId === row.articleId && candidate.row.weight === row.weight);
+    if (index < 0) index = remaining.findIndex(candidate => candidate.row.articleId === row.articleId);
+    if (index >= 0) pairs.push({ before: row, after: remaining.splice(index, 1)[0].row });
+    else removed.push(row);
+  }
+  return { pairs, removed, added: remaining.map(candidate => candidate.row) };
+}
+function demandMaterialChanges(principal, before, after) {
+  const changes = materialRowChanges(before, after);
+  if (changes.added.length) demand(principal, 'weighingAddArticle');
+  if (changes.removed.length) demand(principal, 'weighingRemoveArticle');
+  if (changes.pairs.some(pair => pair.before.weight !== pair.after.weight)) demand(principal, 'weighingEditWeight');
+  return changes;
+}
 export const initialApplicationState = () => {
   const pricing = createPricingStore().exportState();
   const office = migrateOffice(seedOffice()); office.users = clone(pricing.users);
@@ -147,7 +180,7 @@ function officeView(state, p) {
   if (!can(p, 'paymentDetails') && !financial(p)) for (const customer of result.customers) delete customer.paymentProfile;
   return result;
 }
-function validateOffice(state, base, next, p, approvals) {
+async function validateOffice(state, base, next, p, approvals, guardMaterialChange) {
   demand(p, 'view');
   const current = state.office;
   const readable = officeView(state, p);
@@ -161,7 +194,8 @@ function validateOffice(state, base, next, p, approvals) {
     old.rows.forEach((row, i) => {
       if (!original.rows[i] || !view.rows[i]) return;
       for (const field of ['price', 'pricePending']) if (equal(row[field], view.rows[i][field]) && !equal(row[field], original.rows[i][field])) {
-        const changedRow = target?.rows[i];
+        const changedRow = target?.rows.find(candidate => candidate.articleId === row.articleId && candidate.weight === row.weight)
+          ?? (target?.rows[i]?.articleId === row.articleId ? target.rows[i] : undefined);
         if (changedRow?.articleId === row.articleId && equal(changedRow[field], row[field])) { if (original.rows[i][field] === undefined) delete changedRow[field]; else changedRow[field] = original.rows[i][field]; }
         if (original.rows[i][field] === undefined) delete row[field]; else row[field] = original.rows[i][field];
       }
@@ -187,9 +221,19 @@ function validateOffice(state, base, next, p, approvals) {
       for (const field of ['customerId', 'customerSnapshot', 'origin', 'reference', 'registration', 'gross', 'tare', 'deduction', 'preparedBy']) if (fields.has(field)) demand(p, 'prepare');
       for (const field of ['paymentDetails', 'payment']) if (fields.has(field)) demand(p, 'paymentDetails');
       if (fields.has('rows')) {
-        if (after.rows.length > before.rows.length) demand(p, 'weighingAddArticle');
-        else demand(p, 'prepare');
-        if (after.rows.some((row, i) => before.rows[i] && (row.price !== before.rows[i].price || row.tier !== before.rows[i].tier))) demand(p, 'changePrice');
+        const material = demandMaterialChanges(p, before.rows, after.rows);
+        if (material.pairs.some(({ before: old, after: row }) => row.price !== old.price || row.tier !== old.tier ||
+            row.manualOverride !== old.manualOverride || row.source !== old.source || row.pricePending !== old.pricePending) ||
+          material.added.some(row => row.price !== 0 || !row.pricePending || row.manualOverride || row.source)) demand(p, 'changePrice');
+        if (material.added.length || material.removed.length || material.pairs.some(pair => pair.before.weight !== pair.after.weight)) {
+          if (before.customerApproval && !['cancelled', 'expired', 'change_requested'].includes(before.customerApproval.status))
+            fail('Ändra material och vikt med materialkommandot så att kundgodkännandet återkallas samtidigt.');
+          if (guardMaterialChange) await guardMaterialChange({ cardId: before.id, ...(before.sourceId ? { sourceId: before.sourceId } : {}) }, () => undefined);
+          after.idVerified = false; delete after.pricingSnapshotId; delete after.approvedBy;
+          after.pricingRowsPending = true;
+          after.audit.push({ at: new Date().toISOString(), actor: p.user.name, actualUserId: p.actor.id, effectiveUserId: p.user.id,
+            text: `Material och vikt ändrade: ${before.rows.map(row => `${row.articleId} ${row.weight} kg`).join(', ') || 'tomt'} → ${after.rows.map(row => `${row.articleId} ${row.weight} kg`).join(', ') || 'tomt'}.` });
+        }
       }
       if (['ready', 'paid', 'balance'].includes(before.status) && ['customerId', 'origin', 'reference', 'rows', 'pricingTotal', 'pricingSnapshotId'].some(field => fields.has(field))) fail('Attesterade original ändras med en rättelse.');
     }
@@ -271,7 +315,8 @@ function requestPrincipal(store, req) {
   return store.principal(actor, user);
 }
 
-export function createApplicationService({ repository, env = process.env, projections, approvalProvider = async () => [], sendCustomerReview, siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider } = {}) {
+export function createApplicationService({ repository, env = process.env, projections, approvalProvider = async () => [], sendCustomerReview,
+  withMaterialChangeApproval, guardMaterialChange, siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider } = {}) {
   projections ??= approvalProvider;
   const context = new AsyncLocalStorage(); let fallback = createPricingStore(); let repoPromise;
   const getRepo = () => repoPromise ??= (repository ? Promise.resolve(repository) : createApplicationRepository({ env, seed: initialApplicationState }))
@@ -298,6 +343,107 @@ export function createApplicationService({ repository, env = process.env, projec
     try {
       if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) fail('Anropet måste komma från samma webbplats.', 403);
       const domain = url.pathname.slice('/api/application/'.length);
+      if (domain === 'office/material') {
+        if (req.method !== 'POST') fail('Metoden stöds inte.', 405);
+        const input = materialCommandSchema.parse(await body(req)), repository = await getRepo();
+        const run = () => repository.transact(async (state, revision, audit) => {
+          const pricing = createPricingStore({ initialState: state.pricing }), principal = requestPrincipal(pricing, req);
+          if (principal.actor.id === 'mobile-demo') fail('Mobilkontot får bara använda mobilflödet.', 403);
+          demand(principal, 'view');
+          return context.run({ pricing }, async () => {
+            const approvals = await projections(input.cardId);
+            reflectApprovals(state.office, approvals, state.metadata.officeSeed?.cards);
+            const card = state.office.cards.find(value => value.id === input.cardId);
+            if (!card) fail('Invägningskortet finns inte.', 404);
+            if (!visible(principal, card)) fail('Du saknar åtkomst till anläggningen.', 403);
+            if (card.kind === 'correction' || ['ready', 'paid', 'balance'].includes(card.status) || card.customerApproval?.status === 'attested')
+              fail('Attesterade original ändras med en rättelse.');
+            const readable = officeView(state, principal).cards.find(value => value.id === card.id);
+            if (!equal(input.expectedRows, readable.rows)) fail('Material eller vikt ändrades i en annan session. Läs in kortet igen.');
+            const before = clone(card.rows), rows = clone(before);
+            if (input.operation === 'add') {
+              demand(principal, 'weighingAddArticle');
+              if (!input.articleId || input.rowIndex !== undefined || !(input.weight > 0) || rows.length >= 100)
+                fail('Välj artikel och ange en vikt större än 0 kg.', 422);
+              const article = pricing.getArticleForEnvironment(input.articleId);
+              if (!article || !article.active) fail('Välj en aktiv artikel ur artikelregistret.', 422);
+              rows.push({ articleId: input.articleId, articleName: article.name,
+                weight: input.weight, tier: 'C', price: 0, pricePending: true });
+            } else {
+              if (input.articleId !== undefined || input.rowIndex === undefined || !rows[input.rowIndex]) fail('Välj en befintlig materialrad.', 422);
+              if (input.operation === 'remove') {
+                demand(principal, 'weighingRemoveArticle');
+                if (input.weight !== undefined) fail('Borttagning tar inte emot en ny vikt.', 422);
+                rows.splice(input.rowIndex, 1);
+              } else {
+                demand(principal, 'weighingEditWeight');
+                if (input.weight === undefined) fail('Ange en ny vikt.', 422);
+                if (input.weight === 0) { demand(principal, 'weighingRemoveArticle'); rows.splice(input.rowIndex, 1); }
+                else rows[input.rowIndex].weight = input.weight;
+              }
+            }
+            if (equal(before, rows)) return { data: officeView(state, principal), cardProjection: readable, revision, approval: readable.customerApproval ?? null };
+            let quote, pricingPending = false;
+            try { quote = rows.length ? pricing.quoteForOfficeMaterial({ customerId: card.customerId, deliveredAt: card.date,
+              excludeCardId: String(card.id), rows: rows.map(({ articleId, weight }) => ({ articleId, weight })) }) : { rows: [] }; }
+            catch (error) {
+              // A missing historical LME quote must not erase the measured
+              // article. Retain prior prices, explicitly leave the new row
+              // unpriced, and require a complete price calculation for review.
+              if (input.operation !== 'add' || !(error instanceof PricingError) || error.status !== 422 ||
+                !error.message.startsWith('LME-pris saknas för ')) throw error;
+              pricingPending = true;
+            }
+            const pricedRows = pricingPending ? rows : quote.rows.map((value, index) => {
+              const row = rows[index], preservePrice = !row.pricePending && (row.manualOverride || !row.source);
+              return { ...row, price: preservePrice ? row.price : value.price, pricePending: false,
+                tier: preservePrice ? row.tier : value.tier === 'Special' ? 'Eget' : value.tier,
+                source: preservePrice ? row.source : value.source,
+                volumeBefore: value.volumeBefore, volumeWithDelivery: value.volumeWithDelivery };
+            });
+            const total = Math.round(pricedRows.reduce((sum, row) => sum + Math.round(row.weight * row.price * 100) / 100, 0) * 100) / 100;
+            const guardInput = { cardId: card.id, ...(card.sourceId ? { sourceId: card.sourceId } : {}),
+              siteId: card.siteId ?? (card.yard === 'Rimbo' ? 'rimbo' : 'norrtalje'), expectedRows: before,
+              operation: input.operation, ...(input.weight === undefined ? {} : { weight: input.weight }),
+              ...(card.customerApproval ? { approvalId: card.customerApproval.id } : {}) };
+            const apply = ({ cancel } = {}) => {
+              const write = () => {
+                const cancelled = cancel?.();
+                card.rows = pricedRows; card.pricedAt = card.date;
+                if (pricingPending) delete card.pricingTotal; else card.pricingTotal = total;
+                card.financialPending = pricingPending; card.pricingRowsPending = pricingPending; card.idVerified = false;
+                delete card.pricingSnapshotId; delete card.approvedBy;
+                card.status = card.status === 'new' && !card.customerApproval ? 'new' : 'complement';
+                if (cancelled) reflectApprovals(state.office, [cancelled]);
+                const updated = state.office.cards.find(value => value.id === card.id);
+                updated.idVerified = false;
+                const time = new Date().toISOString(), from = input.rowIndex === undefined ? undefined : before[input.rowIndex];
+                const articleId = input.articleId ?? from.articleId;
+                const articleName = pricing.getArticleForEnvironment(articleId)?.name ?? articleId;
+                const text = input.operation === 'add' ? `Artikel tillagd: ${articleName}, ${input.weight} kg.`
+                  : input.operation === 'remove' || input.weight === 0 ? `${articleName} borttagen: ${from.weight} kg → 0 kg.`
+                    : `${articleName}: vikt ändrad från ${from.weight} kg till ${input.weight} kg.`;
+                updated.audit.push({ at: time, actor: principal.user.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
+                  text: `${text}${cancelled ? ' Tidigare kundgodkännande återkallat; ny kundgranskning krävs.' : ''}` });
+                state.office = officeSchema.parse(state.office);
+                audit.push({ action: 'weighing.material.changed', cardId: card.id, operation: input.operation,
+                  before, after: clone(pricedRows), actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
+                  ...(cancelled ? { cancelledApprovalId: cancelled.id } : {}) });
+                const data = officeView(state, principal), projection = data.cards.find(value => value.id === card.id);
+                return { data, cardProjection: projection, revision, approval: projection.customerApproval ?? null };
+              };
+              return guardMaterialChange ? guardMaterialChange(guardInput, write) : write();
+            };
+            if (withMaterialChangeApproval) return withMaterialChangeApproval(guardInput,
+              { actorId: principal.actor.id, userId: principal.user.id }, apply);
+            if (card.customerApproval && !['cancelled', 'expired', 'change_requested'].includes(card.customerApproval.status))
+              fail('Kundterminalens serverkoppling för materialändringar saknas.', 503);
+            return apply();
+          });
+        }, { committedRevision: true });
+        const result = await (repository.runInTransaction ? repository.runInTransaction(run) : run());
+        json(res, 200, result); return true;
+      }
       if (domain === 'customer-review') {
         if (req.method !== 'POST') fail('Metoden stöds inte.', 405);
         if (!sendCustomerReview) fail('Kundterminalens serverkoppling saknas.', 503);
@@ -305,11 +451,13 @@ export function createApplicationService({ repository, env = process.env, projec
         const run = () => repository.transact(async (state, revision, audit) => {
           const pricing = createPricingStore({ initialState: state.pricing });
           const principal = requestPrincipal(pricing, req);
-          const currentApprovals = await projections(input.cardId);
-          reflectApprovals(state.office, currentApprovals, state.metadata.officeSeed?.cards);
-          return prepareCustomerReview({ state, input, principal, send: (payload, identity) => sendCustomerReview(payload, identity, req),
-            runWithPricing: (pricing, callback) => context.run({ pricing }, callback),
-            reflectApprovals, officeView, revision, audit });
+          return context.run({ pricing }, async () => {
+            const currentApprovals = await projections(input.cardId);
+            reflectApprovals(state.office, currentApprovals, state.metadata.officeSeed?.cards);
+            return prepareCustomerReview({ state, input, principal, send: (payload, identity) => sendCustomerReview(payload, identity, req),
+              runWithPricing: (pricing, callback) => context.run({ pricing }, callback),
+              reflectApprovals, officeView, revision, audit });
+          });
         }, { committedRevision: true });
         const started = performance.now();
         const { result, metrics } = await measureDatabaseWork(() => repository.runInTransaction ? repository.runInTransaction(run) : run());
@@ -421,7 +569,7 @@ export function createApplicationService({ repository, env = process.env, projec
           }
         }
         if (payload?.base && payload?.next) {
-          if (domain === 'office') validateOffice(state, officeSchema.parse(payload.base), officeSchema.parse(payload.next), p, approvals);
+          if (domain === 'office') await validateOffice(state, officeSchema.parse(payload.base), officeSchema.parse(payload.next), p, approvals, guardMaterialChange);
           else if (domain === 'mobile') {
             const base = storeSchema.parse(payload.base), next = storeSchema.parse(payload.next);
             for (const draft of next.drafts) if (!base.drafts.some(old => old.id === draft.id)) {

@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.13.3.
+Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.14.0.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
@@ -1271,13 +1271,18 @@ Status: Implementerad i kontorsdemo 0.12.4 efter godkänd start 2026-10-10.
   Appens fokusmarkering följer samma godkända utformning.
 
 064 – Lägg till/ta bort material och ändra vikt på viktkortet
-Status: Planerad, beställd för ÄL 2026-10-10. Ingen implementation påbörjad.
+Status: Implementerad i kontorsdemo 0.14.0 efter byggstart 2026-10-11.
 - På viktkortet i kontoret ska det gå att lägga till materialrader, ta bort
   materialrader och ändra vikten på en befintlig rad.
 - Tre separata behörigheter på användaren i Personal/Användare:
   Får lägga till material, Får ta bort material och Får ändra vikt.
   Varje åtgärd kontrolleras både i gränssnittet och på servern.
   Dessa rättigheter ger inte i sig behörighet att ändra priser.
+- Ändra vikt öppnar en liten dialog; 0 kg tar bort materialraden och kräver
+  både viktändrings- och borttagningsbehörighet. Ta bort öppnar en bekräftelse.
+  Artikelregistret påverkas inte. Nya rättigheter tilldelas befintliga
+  medarbetare uttryckligen i Personal → användarkonto; inga gamla rättigheter
+  byts automatiskt till vikt-/borttagningsrättighet.
 - Ändringar räknar om vikt, priser och totalsumma enligt befintliga prisregler.
   Spara vem som ändrade, tidpunkt och tidigare/nya uppgifter i spårbarheten.
 - Ändrat material eller ändrad vikt kräver kundgodkännande av den nya
@@ -1290,6 +1295,12 @@ Status: Planerad, beställd för ÄL 2026-10-10. Ingen implementation påbörjad
   Ändrade farliga rader kräver miljörättelse om mottagningen registrerats.
   Ändringen får inte automatiskt skicka en ny rapport till NVV.
 - Kort utan materialrader får inte färdigställas.
+- Ett serverkommando kontrollerar rättigheter och radversion, räknar om
+  artikelpriser/volym och totalsumma samt återkallar kundversionen med gemensam
+  PostgreSQL-commit. Manuella prisval bevaras. Vid historiskt saknat LME-pris
+  kan ny artikel sparas som oprissatt; kundgranskning kräver komplett prissättning.
+- Ändringsjournalen sparar gamla/nya rader och användaridentiteter. Frysta
+  kundversioner/PDF-original och registrerade miljömottagningar bevaras.
 
 065 – Snabbare terminalvisning och miljömottagning
 Status: Implementerad i kontorsdemo 0.13.0 efter godkänd start 2026-10-10.
@@ -1313,7 +1324,7 @@ Status: Implementerad i kontorsdemo 0.13.0 efter godkänd start 2026-10-10.
   separat av användaren. Verklig Renderlatens följs upp efter publicering.
 
 066 – Attestera som högerställd huvudåtgärd
-Status: Planerad, beställd för ÄL 2026-10-10. Ingen implementation påbörjad.
+Status: Implementerad i kontorsdemo 0.14.0 efter byggstart 2026-10-11.
 - Placera den gröna Attestera-knappen längst till höger i attestkortets
   åtgärdsrad. Returnera för komplettering ligger som textåtgärd direkt till vänster.
 - Attestgräns och status ligger före åtgärderna. Behåll samma ordning när
@@ -1358,3 +1369,16 @@ Status: Implementerad i kontorsdemo 0.13.3, 2026-10-10.
   inte om automatiskt; historikens uppgifter kan återfyllas utan sändning.
 - Testsidan påverkar inga riktiga viktkort, lager, mottagningar eller
   ekonomiflöden. Befintliga Render-hemligheter används enbart server-side.
+
+069 – Spiris/Visma eEkonomi och bankbetalfil – förstudie
+Status: Dokumenterad 2026-10-11; ingen ekonomi-/bankintegration aktiverad.
+- Officiell API-granskning, svensk sandbox/OAuth och möjliga inköps-/PDF-flöden:
+  docs/integrationer/spiris-visma/forstudie.md.
+- API-betalningsregistrering bokför men skickar inte pengar. Betalfil och
+  banköverföring behöver en separat bankväg och verifierad återrapportering.
+- Preliminär bank enligt användaren: Roslagens Sparbank/Swedbank. Utgå från
+  ISO 20022 och bankens aktuella MIG; tjänst/avtal och mottagartyper behöver
+  bekräftas. Filgenerering får aldrig ensam sätta status Betald.
+- Nästa möjliga etapp: svensk sandbox, OAuth och läskontroll, därefter
+  attesterat företags- och privatinköp som leverantörsfakturautkast med PDF.
+  Produktion och betalfilexport beställs separat.

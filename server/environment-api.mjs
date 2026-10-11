@@ -156,6 +156,7 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
   api.initialize = async () => (await getStore()).initialize();
   api.getSites = async () => (await getStore()).catalog();
   api.getLogisticsSource = async () => (await getStore()).logisticsSource();
+  api.guardMaterialChange = async (input, operation) => (await getStore()).guardMaterialChange(input, operation);
   api.assertReceiptForAttest = async (approval) => (await getStore()).assertReceiptForAttest(approval);
   api.close = async () => { await changes.close(); if (repositoryPromise) await repositoryPromise.then((value) => value.close()).catch(() => {}); };
   return api;

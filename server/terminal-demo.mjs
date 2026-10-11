@@ -57,6 +57,12 @@ const sendSchema = z.object({
   rows: z.array(settlementRow).min(1).max(100), offset: z.number().finite().nonnegative().max(1e15),
   correctionIds: z.array(z.number().int().nonnegative()).max(100), idempotencyKey: id,
 }).strict();
+const materialChangeSchema = z.object({
+  cardId: z.number().int().nonnegative(), sourceId: z.string().uuid().optional(), siteId,
+  expectedRows: z.array(z.object({ articleId: id, weight: z.number().finite().positive().max(1e9) }).passthrough()).max(100),
+  operation: z.enum(['add', 'remove', 'weight']), approvalId: id.optional(),
+  weight: z.number().finite().nonnegative().max(1e9).optional(),
+}).strict();
 const validate = (schema, payload) => {
   const parsed = schema.safeParse(payload);
   if (!parsed.success) throw new TerminalDemoError('Kontrollera de ifyllda uppgifterna.');
@@ -268,6 +274,40 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         if (!input.approvalExceptionReason && (input.originAddress ?? input.lastPlace.address).trim() !== approval.snapshot.origin.trim())
           throw new TerminalDemoError('Ursprunget har ändrats efter kundens avräkning. Skicka en ny version för kundgodkännande.', 409, 'customer_approval_mismatch');
         return operation(copy(approval));
+      });
+    },
+    // Internal material command only: share the reservation lock with terminal
+    // approval, receipt registration and attest. The caller first checks the
+    // environmental original, then cancels inside the same database commit.
+    withMaterialChangeApproval(input, identity, operation) {
+      const request = validate(materialChangeSchema, input);
+      return transaction(async (state, time, catalog) => {
+        const principal = principalStore.principal(identity.actorId, identity.userId);
+        demandSite(principal, request.siteId, catalog);
+        demand(principal, request.operation === 'add' ? 'weighingAddArticle'
+          : request.operation === 'remove' ? 'weighingRemoveArticle' : 'weighingEditWeight');
+        if (request.operation === 'weight' && request.weight === 0) demand(principal, 'weighingRemoveArticle');
+        const versions = state.approvals.filter(approval => approval.cardId === request.cardId);
+        const approval = versions.reduce((latest, item) => !latest || item.version > latest.version ? item : latest, undefined);
+        if (versions.some(item => item.status === 'attested'))
+          throw new TerminalDemoError('Kortet är redan attesterat. Använd rättelseflödet.', 409, 'card_locked');
+        if (approval && (approval.snapshot.card.sourceId !== request.sourceId || approval.siteId !== request.siteId))
+          throw new TerminalDemoError('Kundvisningen gäller ett annat kort eller en annan anläggning. Läs in kortet igen.', 409, 'stale_approval');
+        if (request.approvalId ? approval?.id !== request.approvalId : approval && approval.status !== 'cancelled')
+          throw new TerminalDemoError('Kundvisningen har ändrats. Läs in kortet igen före materialändringen.', 409, 'stale_approval');
+        let open = true, cancelled;
+        const cancel = () => {
+          if (!open) throw new TerminalDemoError('Materialändringen är redan avslutad.', 409, 'stale_approval');
+          if (cancelled !== undefined) return cancelled;
+          if (!approval) return cancelled = null;
+          for (const item of versions.filter(item => item.id === approval.id || ACTIVE.includes(item.status))) {
+            if (item.status !== 'cancelled') releaseApproval(state, item, 'cancelled', time, principal,
+              'Material eller vikt ändrades på kontoret. Den uppdaterade avräkningen kräver ett nytt kundgodkännande.');
+          }
+          return cancelled = approvalDTO(approval, principal, state.revision);
+        };
+        try { return await operation({ cancel }); }
+        finally { open = false; }
       });
     },
     async staffSession(payload, previousToken) {
@@ -749,6 +789,7 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
     scheduleJobs();return result;
   };
   api.withApprovedCard = async (input, operation) => (await getStore()).withApprovedCard(input, operation);
+  api.withMaterialChangeApproval = async (input, identity, operation) => (await getStore()).withMaterialChangeApproval(input, identity, operation);
   api.projections = async cardId => (await getStore()).projections(cardId);
   api.documentProjections = async () => (await getStore()).documentProjections();
   api.drainDocumentJobs = async () => { await getStore(); return drainJobs(); };

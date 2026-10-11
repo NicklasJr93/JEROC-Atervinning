@@ -44,8 +44,9 @@ export default function OfficeCardAttest({ card, user, actualUser, users, approv
     <div className="office-attest-info"><ShieldCheck size={28} aria-hidden="true" /><div><h2 id="office-card-attest-title">Attest</h2><p>{reason}</p></div></div>
     {permitted && !finished && <div className="office-attest-limit"><BadgeCheck size={20} aria-hidden="true" /><div><small>Din attestgräns</small><strong>{money(user.maxAttest)} kr</strong></div></div>}
     <span className={`office-attest-status${ready && permitted && !overLimit && !ownBlocked ? ' ready' : ''}`}><ClipboardCheck size={16} aria-hidden="true" />{finished ? 'JEROC-attesterad' : !approved ? 'Inväntar kundgodkännande' : receiptPending ? 'Inväntar mottagning' : ready && (overLimit || ownBlocked) ? 'Attest spärrad' : ready ? 'Redo för attest' : 'Inväntar prisunderlag'}</span>
-    {permitted && !finished && <div className="office-attest-action"><button className="office-btn" disabled={busy || blocked || !ready || overLimit || ownBlocked} onClick={() => void onAttest()}><Check size={18} />{busy ? 'Attesterar…' : 'Attestera'}</button>
+    {permitted && !finished && <div className="office-attest-action">
       {card.status === 'attest' && (!card.customerApproval || can(user, 'prepare')) && <button className="office-link" disabled={busy || blocked} onClick={() => void onReturn()}>Returnera för komplettering</button>}
+      <button className="office-btn" disabled={busy || blocked || !ready || overLimit || ownBlocked} onClick={() => void onAttest()}><Check size={18} />{busy ? 'Attesterar…' : 'Attestera'}</button>
     </div>}
   </section>;
 }

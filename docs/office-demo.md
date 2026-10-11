@@ -1,4 +1,33 @@
-# JEROC kontorsdemo 0.13.3
+# JEROC kontorsdemo 0.14.0
+
+## Nytt i 0.14.0 – materialrader och högerställd attest
+
+Viktkortets materialtabell har **Ändra vikt** och **Ta bort**, med separata
+användarrättigheter i Personal → användarkonto: Får lägga till material,
+Får ta bort material och Får ändra vikt. Befintliga medarbetares nya
+rättigheter måste tilldelas; VD/Systemadmin följer befintlig kontonivåmodell.
+
+Vikt 0 tar bort raden och kräver både viktändring och borttagning. En vanlig
+borttagning kräver bara borttagningsrättigheten och bekräftas i en dialog.
+Servern kontrollerar aktuell radversion, räknar om totalsumma och artikelns
+volympris samt sparar gamla/nya uppgifter i ändringsjournalen. Engångspriser
+bevaras; mängdrättigheter ger inga rättigheter att ändra eller läsa priser.
+
+Om kunden redan granskar eller har godkänt kortet återkallas den versionen,
+terminalen frigörs och en ny kundgranskning krävs. Frysta versioner och
+PDF-original bevaras. Registrerad miljömottagning eller intern attest låser
+originalet: använd befintliga rättelser. Kort utan rader kan inte kundgranskas.
+Ingen materialändring skickar något till NVV.
+
+Den gröna **Attestera**-knappen ligger längst till höger, med **Returnera för
+komplettering** före den. Samma ordning gäller på mindre skärmar.
+
+[Förstudie av Spiris API och Roslagens/Swedbank-betalfil](integrationer/spiris-visma/forstudie.md)
+är dokumenterad. Ingen ekonomi- eller bankkoppling aktiveras av denna release.
+
+Verifierat med produktionsbygge, tio riktade webbläsartester och sjutton
+server-/flödestester mot en isolerad PostgreSQL 18, inklusive rollback och
+samtidig terminalbekräftelse. Befintlig Render-konfiguration används.
 
 ## Nytt i 0.13.3 – separat NVV-testformulär
 
