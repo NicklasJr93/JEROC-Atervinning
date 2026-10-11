@@ -1458,3 +1458,23 @@ Status: Implementerad i kontorsdemo 0.15.2, 2026-10-11.
 - Verifierat: produktionsbygge, 48 fokuserade servertester och sju
   Spiris-webbläsarfall med simulerade providersvar. Användaren har bekräftat
   fungerande verklig OAuth-inloggning; nytt utkast provas sedan i sandboxen.
+
+073 – Spiris ekonomiinställningar och kostnadsställen per anläggning
+Status: Klickbar mockup färdig 2026-10-12. Funktionerna återstår att bygga.
+- Integrationskort med gemensamma betalvillkor, konton och momsregler samt
+  tydliga anläggningsrader för kostnadsställe och valfritt projekt.
+  Gemensamma konton är standard; avvikelse kan väljas per anläggning.
+- Föreslaget standardbetalvillkor Direkt, 0 dagar: motsvarande verkligt
+  inköpsvillkors-ID väljs från Spiris. Förfallodatum samma dag utför inte
+  utbetalning. Kundens eget betalvillkor ska kunna ersätta standarden.
+- Förhandsvisning av anläggning, kostnadsställe, kontering och förfallodatum.
+  Privatinköp och omvänd moms visas som separata regler. Övriga inköp
+  behöver egna fastställda regler innan de överförs automatiskt.
+- Företag/BRF får Momsregistrerad Ja/Nej, förvalt Ja, i både snabbkund-
+  popupen och fullständig kundsida. Kontoristens kontrollrutin gäller;
+  inget separat verifieringsflöde. Uppgiften och ändringar ska loggas.
+- Kundkoppling till leverantörs-ID, låsta ekonomiversioner och överföring
+  efter attest är planerade delar. Sandboxen kräver fortfarande testklick.
+- Mockup: public/mockups/spiris-integration/index.html.
+  Bilder och beskrivning: docs/mockups/spiris-integration/README.md.
+  Prototypen skickar inga API-anrop och sparar inga verksamhetsuppgifter.

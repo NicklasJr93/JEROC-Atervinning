@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JEROC · Spiris ekonomiintegration · designförslag</title>
+  <link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <img class="logo" src="assets/jeroc-logo.png" alt="JEROC Återvinning">
+    <div class="nav-heading">KONTORSÖVERSIKT</div><nav id="navigation" aria-label="Huvudmeny"></nav>
+    <div class="profile"><span class="avatar">S</span><div><strong>Systemadmin</strong><small>Alla anläggningar</small></div><span class="profile-chevron">⌄</span></div>
+    <div class="sidebar-footer"><strong><span class="dot"></span>Designförslag</strong><small>Exempeluppgifter · 12 oktober 2026</small></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><div class="breadcrumbs">Kontoret <span>›</span> Integrationer <span>›</span><strong>Spiris</strong></div><label class="search"><span data-icon="Search"></span><input placeholder="Sök vägning, kund eller referens…" aria-label="Sök i kontoret"></label><div class="topbar-site"><span data-icon="Building2"></span><div><small>Anläggning</small><strong>Alla anläggningar <span>⌄</span></strong></div></div></header>
+    <main>
+      <div class="page-title"><div><a class="back" href="#integrationer"><span data-icon="ArrowLeft"></span>Alla integrationer</a><h1>Spiris / Visma eEkonomi</h1><p>Ekonomiinställningar för avräkningar och era anläggningar.</p></div><span class="pill demo">Designmockup</span></div>
+      <section class="integration-card" aria-label="Spiris integrationskort">
+        <header class="integration-header"><div class="brand-icon">S</div><div class="brand-text"><h2>Spiris <span>/ Visma eEkonomi</span></h2><p>JEROC · svenskt testföretag</p></div><span class="pill success"><span data-icon="CheckCircle2"></span>Ansluten · Sandbox</span><button class="button outline" type="button" id="check-connection"><span data-icon="PlugZap"></span>Testa anslutning</button></header>
+        <nav class="tabs" aria-label="Integrationsflikar"><button class="selected" type="button" aria-current="page"><span data-icon="Settings2"></span>Inställningar</button><button type="button" id="history-tab"><span data-icon="History"></span>Överföringar <span class="tab-count">12</span></button><div><span class="dot"></span>Alla anläggningar använder samma anslutning</div></nav>
+        <div class="integration-content">
+          <div class="settings-column">
+            <section class="section defaults">
+              <div class="section-heading"><span class="section-icon" data-icon="SlidersHorizontal"></span><div><h3>Gemensamma inställningar</h3><p>Nya kunder ärver betalvillkoret. Kundens eget val gäller om det ändrats.</p></div><span class="mini-tag">STANDARD</span></div>
+              <div class="form-grid three">
+                <label>Betalvillkor<select id="payment-term"><option value="0">Direkt · 0 dagar</option><option value="1">1 dag</option><option value="10">10 dagar</option><option value="30">30 dagar</option></select><small id="due-caption">Förfallodatum = avräkningsdatum</small></label>
+                <label>Valuta<select aria-label="Valuta"><option>SEK · Svenska kronor</option></select><small>Belopp från den godkända avräkningen</small></label>
+                <label>Överföring<select aria-label="Överföringsläge"><option>Efter attest · fakturautkast</option><option>Manuell överföring</option></select><small>Utkast granskas i Spiris</small></label>
+              </div>
+            </section>
+            <section class="section accounting">
+              <div class="section-heading"><span class="section-icon" data-icon="Calculator"></span><div><h3>Konton & momshantering</h3><p>Gemensamma konton från Spiris kontoplan. Kund och artikel styr vilken regel som används.</p></div><button class="text-button" type="button" id="fetch-choices"><span data-icon="RefreshCw"></span>Hämta från Spiris</button></div>
+              <div class="account-header"><span>Typ av inköp</span><span>Inköpskonto</span><span>Momshantering</span></div>
+              <div class="account-row"><div class="account-kind"><span class="kind-icon" data-icon="UserRound"></span><div><strong>Privatinköp</strong><small>Privatperson säljer privat</small></div></div><label><span class="sr-only">Inköpskonto privatinköp</span><select id="private-account"><option value="4000">4000 · Inköp av varor</option><option value="4010">4010 · Inköp material</option></select></label><span class="rule neutral">Ingen moms</span></div>
+              <div class="account-row"><div class="account-kind"><span class="kind-icon green" data-icon="Building2"></span><div><strong>Skrot · momsregistrerat företag</strong><small>Artikeln omfattas av omvänd moms</small></div></div><label><span class="sr-only">Inköpskonto omvänd moms</span><select id="reverse-account"><option value="4415">4415 · Inköp, omvänd moms</option></select></label><span class="rule green">Omvänd moms · 25 %</span></div>
+              <div class="form-grid three secondary-accounts"><label>Leverantörsskuld<select aria-label="Konto leverantörsskuld"><option>2440 · Leverantörsskulder</option></select></label><label>Ingående omvänd moms<select aria-label="Konto ingående omvänd moms"><option>2647 · Ingående omvänd moms</option></select></label><label>Utgående omvänd moms<select aria-label="Konto utgående omvänd moms"><option>2614 · Utgående omvänd moms</option></select></label></div>
+              <details class="other-rules"><summary>Övriga inköp och momsregler <span data-icon="ChevronDown"></span></summary><div class="other-rules-content"><p>Momsbefriade företagsinköp och inköp med vanlig moms får egna fastställda regler.</p><div class="form-grid two"><label>Momsbefriat företagsinköp<select><option>4000 · Inköp av varor · utan moms</option></select></label><label>Inköp med vanlig moms<select><option>Behöver konfigureras</option></select></label></div></div></details>
+            </section>
+            <section class="section locations">
+              <div class="section-heading"><span class="section-icon" data-icon="MapPin"></span><div><h3>Anläggningar & kostnadsställen</h3><p>Varje viktkort får fördelningen från anläggningen där materialet tas emot.</p></div><span class="pill success" id="locations-status">2 av 2 kopplade</span></div>
+              <div class="location-heading"><span>Anläggning</span><span>Kostnadsställe</span><span>Projekt <small>valfritt</small></span><span>Konton</span></div>
+              <div class="location-row" data-location="Norrtälje"><div class="location-name"><span class="location-icon" data-icon="Building2"></span><div><strong>Norrtälje</strong><small>Alla inköp på anläggningen</small></div></div><label><span class="sr-only">Kostnadsställe Norrtälje</span><select class="cost-center" data-site="Norrtälje"><option value="01">01 · Norrtälje</option><option value="02">02 · Rimbo</option><option value="">Ingen fördelning</option></select></label><label><span class="sr-only">Projekt Norrtälje</span><select><option>Inget standardprojekt</option><option>Projekt Solbacken</option></select></label><button class="inherit-button" type="button" aria-expanded="false" data-site="Norrtälje"><span data-icon="Link"></span>Gemensamma<span data-icon="ChevronDown"></span></button></div>
+              <div class="site-override" id="override-Norrtälje" hidden><div><strong>Konton för Norrtälje</strong><label class="checkbox"><input type="checkbox" class="inherit-check" data-site="Norrtälje" checked>Använd gemensamma konton</label></div><div class="form-grid two"><label>Inköpskonto privatinköp<select disabled><option>4000 · Inköp av varor</option><option>4010 · Inköp material</option></select></label><label>Inköpskonto omvänd moms<select disabled><option>4415 · Inköp, omvänd moms</option></select></label></div></div>
+              <div class="location-row" data-location="Rimbo"><div class="location-name"><span class="location-icon" data-icon="Building2"></span><div><strong>Rimbo</strong><small>Alla inköp på anläggningen</small></div></div><label><span class="sr-only">Kostnadsställe Rimbo</span><select class="cost-center" data-site="Rimbo"><option value="02">02 · Rimbo</option><option value="01">01 · Norrtälje</option><option value="">Ingen fördelning</option></select></label><label><span class="sr-only">Projekt Rimbo</span><select><option>Inget standardprojekt</option><option>Projekt Solbacken</option></select></label><button class="inherit-button" type="button" aria-expanded="false" data-site="Rimbo"><span data-icon="Link"></span>Gemensamma<span data-icon="ChevronDown"></span></button></div>
+              <div class="site-override" id="override-Rimbo" hidden><div><strong>Konton för Rimbo</strong><label class="checkbox"><input type="checkbox" class="inherit-check" data-site="Rimbo" checked>Använd gemensamma konton</label></div><div class="form-grid two"><label>Inköpskonto privatinköp<select disabled><option>4000 · Inköp av varor</option><option>4010 · Inköp material</option></select></label><label>Inköpskonto omvänd moms<select disabled><option>4415 · Inköp, omvänd moms</option></select></label></div></div>
+              <div class="locations-foot"><span data-icon="Info"></span><span>Kostnadsställe väljs från Spiris. Nya anläggningar visas automatiskt här.</span></div>
+            </section>
+          </div>
+          <aside class="preview-column">
+            <section class="preview-panel"><div class="preview-heading"><span data-icon="FileCheck2"></span><h3>Förhandsvisa kontering</h3></div><p>Så används dina inställningar.</p><label>Anläggning<select id="preview-site"><option>Norrtälje</option><option>Rimbo</option></select></label><label>Exempelinköp<select id="preview-kind"><option value="reverse">Skrot · momsregistrerat företag</option><option value="private">Privatinköp</option></select></label><div class="example-total"><small>Materialvärde</small><strong>1 000,00 kr</strong><span id="preview-tax">Omvänd moms · 25 %</span></div><div class="example-data"><div><span>Kostnadsställe</span><strong id="preview-center">01 · Norrtälje</strong></div><div><span>Betalvillkor</span><strong id="preview-term">Direkt · 0 dagar</strong></div><div><span>Förfallodatum</span><strong id="preview-date">12 okt. 2026</strong></div></div><div class="journal-header"><span>Konto</span><span>Debet</span><span>Kredit</span></div><div id="journal-rows"></div><div class="balanced"><span data-icon="CheckCircle2"></span>Konteringen balanserar</div><div class="payout"><span>Att betala till säljaren</span><strong>1 000,00 kr</strong></div><p class="payout-note">0 dagar gör beloppet förfallet direkt. Utbetalningen hanteras i betalflödet.</p></section>
+            <section class="flow-panel"><h3>Från attest till Spiris</h3><ol><li><span>1</span><div><strong>Attesterad avräkning</strong><small>Låsta uppgifter används</small></div></li><li><span>2</span><div><strong>Leverantören kopplas</strong><small>Befintlig eller skapas automatiskt</small></div></li><li><span>3</span><div><strong>Fakturautkast skapas</strong><small>Svar och ID sparas på viktkortet</small></div></li></ol></section>
+          </aside>
+        </div>
+        <footer class="save-bar"><div><span data-icon="ShieldCheck"></span><span><strong>Ekonomiinställningar för alla anläggningar</strong><small>Ändringar gäller nya exportunderlag.</small></span></div><button class="button outline" id="reset" type="button">Återställ</button><button class="button primary" id="save" type="button"><span data-icon="Check"></span>Spara inställningar</button></footer>
+      </section>
+      <p class="mockup-note">JEROC · Klickbart designförslag · Alla Spiris-val, statusar och belopp är exempel</p>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script src="assets/icons.js"></script><script src="mockup.js"></script>
+</body>
+</html>
