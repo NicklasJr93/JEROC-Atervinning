@@ -1,8 +1,14 @@
 # Spiris / Visma eEkonomi – API och betalfil
 
-Granskad 2026-10-11. Detta är en förstudie av aktuell offentlig dokumentation och
-JEROC:s befintliga kod. Ingen Spiris-anslutning, fakturaöverföring, bankfil eller
-betalning har skapats. Sandboxens faktiska beteende är ännu inte provat.
+Granskad 2026-10-11 inför version 0.14.0. Detta är en historisk förstudie av
+offentlig dokumentation och JEROC:s dåvarande kod. Vid granskningen fanns ingen
+Spiris-anslutning, fakturaöverföring, bankfil eller betalning. Ett autentiserat
+prov mot Spiris-sandboxen återstår även efter bygget av testverktyget.
+
+Uppföljning: version 0.15.0 inför ett separat sandboxverktyg med OAuth och
+redigerbara API-test. [Inställningar och provflöde](sandbox-setup.md)
+beskriver bygget. Denna förstudies källgranskning ersätter inte ett
+autentiserat prov mot JEROC:s testföretag.
 
 ## Slutsats
 
@@ -23,7 +29,7 @@ banken. Ett alternativ är betalningsflödet i Spiris med dess bankkoppling.
 Banksteget kan inte verifieras fullt ut i den vanliga Spiris-sandboxen, där
 AutoPay och interna banktjänster saknas eller är mockade.
 
-## Det som finns i JEROC idag
+## Det som fanns i JEROC vid förstudien
 
 - Integrationer har ett serverägt adapterregister och Spiris visas som planerad
   koppling. Organisationsbunden kontext och händelsenycklar finns förberedda;

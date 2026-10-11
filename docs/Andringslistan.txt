@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.14.0.
+Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.15.0.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
@@ -1382,3 +1382,36 @@ Status: Dokumenterad 2026-10-11; ingen ekonomi-/bankintegration aktiverad.
 - Nästa möjliga etapp: svensk sandbox, OAuth och läskontroll, därefter
   attesterat företags- och privatinköp som leverantörsfakturautkast med PDF.
   Produktion och betalfilexport beställs separat.
+
+070 – Spiris / Visma eEkonomi: OAuth och systemadminstest i sandbox
+Status: Implementerad i kontorsdemo 0.15.0 efter byggstart 2026-10-11.
+- Testsida /kontor/integration/systemadminvismatest.html med länk från
+  Integrationer → Spiris / Visma eEkonomi. Befintlig animerad integrations-
+  dialog återanvänds med Spiris-namn, fryst begäran, HTTP-status och råsvar.
+- OAuth authorization-code med engångs-state, PKCE S256 och tillfällig
+  browserbindning. Slutförande kräver samma aktuella systemadminsession.
+  Klienthemlighet och krypteringsnyckel konfigureras i Render; access- och
+  refresh-token krypteras i PostgreSQL och visas inte i UI eller journal.
+- Klientens officiella sandboxbehörigheter används: ea:api, offline_access,
+  ea:purchase, ea:accounting och ea:sales. vls:api behövs inte här.
+  Fast operationslista begränsar testerna även med dessa bredare scopes.
+- Testföretagets CompanyIdentifier kontrolleras före andra operationer.
+  Saknat eller fel företags-ID blockerar testet; produktion är avstängd.
+- Läs företag, räkenskapsår, kontoplan, betalvillkor, leverantörer och utkast.
+  Skapa endast fiktiv testleverantör eller leverantörsfakturautkast med
+  redigerbara fält/JSON. Leverantörs-ID från svaret kan användas i nästa test.
+  Inga viktkort, NVV-rapporter, bokförda fakturor eller betalningar skickas.
+- Beständig försökshistorik/idempotens: timeout eller saknat skrivsvar visas
+  som oklart och skickas aldrig om automatiskt. Försök kan granskas och
+  återfyllas utan ett nytt anrop. Tokenförnyelse samordnas med beständig lease.
+- Pågående test-ID återhämtas vid omladdning. Oklara skrivförsök tillåter
+  läsning för kontroll; en uttrycklig kontrollmarkering per användare och
+  webbläsarsession lämnar resultatet oförändrat och skickar inget nytt test.
+- Renderfält, returadressregistrering hos api@spiris.se och provflöde:
+  docs/integrationer/spiris-visma/sandbox-setup.md. Verifierade fält:
+  docs/integrationer/spiris-visma/api-testfalt.md. Registrerad returadress
+  är ännu localhost i onboardingmejlet; verkligt OAuth-prov inväntar rätt
+  HTTPS-adress hos Spiris och konfigurationen i Render.
+- Verifierat: npm run build; 47 fokuserade servertester och åtta
+  webbläsarfall. Isolerad PostgreSQL-kontroll av kryptering, flerinstans-
+  OAuth/tokenförnyelse och idempotens utan affärslås. Inga externa testanrop.

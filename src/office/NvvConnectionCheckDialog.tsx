@@ -20,21 +20,40 @@ const simulationMessages = [
 ];
 const submissionMessages = ['Skickar testets uppgifter till servern…', 'Inväntar NVV:s testmiljö…', 'Inväntar serverns slutresultat…'];
 
+export type ExternalConnectionTest = {
+  provider: string;
+  environmentLabel: string;
+  method: 'GET' | 'POST';
+  path: string;
+  payload?: NvvJsonObject;
+  parameters?: NvvJsonObject;
+  run?: {
+    status: 'in_flight' | 'accepted' | 'rejected' | 'unknown';
+    httpStatus?: number | null;
+    response?: unknown;
+    trackingId?: string;
+    resourceId?: string;
+    finishedAt?: string | null;
+  };
+  uncertain?: boolean;
+};
+
 /** Native modal focus containment; closing only delegates visibility to the caller. */
-export default function NvvConnectionCheckDialog({ progress, onClose, onRetry, returnFocus, submission }: {
+export default function NvvConnectionCheckDialog({ progress, onClose, onRetry, returnFocus, submission, externalTest }: {
   progress: NvvCheckProgress; onClose: () => void; onRetry: () => void;
   returnFocus?: RefObject<HTMLButtonElement | null>;
   submission?: { payload: NvvJsonObject; run?: NvvSandboxRun; uncertain?: boolean };
+  externalTest?: ExternalConnectionTest;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const headingId = useId(), descriptionId = useId();
   const [messageIndex, setMessageIndex] = useState(0);
-  const simulated = progress.mode === 'mock';
+  const simulated = !externalTest && progress.mode === 'mock';
   const running = progress.phase === 'running';
   const successful = progress.phase === 'success';
-  const unknownSubmission = submission?.uncertain || submission?.run?.status === 'unknown';
-  const messages = submission ? submissionMessages : simulated ? simulationMessages : testMessages;
-  const heading = submission ? running ? 'Skickar test till NVV' : successful ? 'NVV tog emot testet' : unknownSubmission ? 'Testets resultat är oklart' : submission.run?.httpStatus != null ? 'NVV avvisade testet' : 'Testet kunde inte skickas' : running
+  const unknownSubmission = externalTest?.uncertain || externalTest?.run?.status === 'unknown' || submission?.uncertain || submission?.run?.status === 'unknown';
+  const messages = externalTest ? [`Kontaktar ${externalTest.provider}:s sandbox…`, 'Inväntar serverns svar…', 'Inväntar testets slutresultat…'] : submission ? submissionMessages : simulated ? simulationMessages : testMessages;
+  const heading = externalTest ? running ? `Provar anrop till ${externalTest.provider}` : successful ? `${externalTest.provider} har svarat` : unknownSubmission ? 'Testets resultat är oklart' : externalTest.run?.httpStatus != null ? `${externalTest.provider} avvisade testet` : 'Testet kunde inte slutföras' : submission ? running ? 'Skickar test till NVV' : successful ? 'NVV tog emot testet' : unknownSubmission ? 'Testets resultat är oklart' : submission.run?.httpStatus != null ? 'NVV avvisade testet' : 'Testet kunde inte skickas' : running
     ? (simulated ? 'Provar simulerad anslutning' : 'Kontrollerar NVV-anslutningen')
     : successful ? (simulated ? 'Simuleringen fungerar' : 'Testanslutningen fungerar')
       : (simulated ? 'Simuleringen kunde inte slutföras' : 'Anslutningen kunde inte bekräftas');
@@ -49,7 +68,7 @@ export default function NvvConnectionCheckDialog({ progress, onClose, onRetry, r
       if (opener?.isConnected) {
         if (!opener.matches(':disabled,[aria-disabled="true"]')) opener.focus({ preventScroll: true });
         else {
-          const panel = opener.closest('.nvv-integration-panel,.nvv-sandbox-workspace');
+          const panel = opener.closest('.nvv-integration-panel,.nvv-sandbox-workspace,.visma-sandbox-workspace');
           const next = [...(panel?.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input:not(:disabled),summary') ?? [])]
             .find(candidate => !element?.contains(candidate) && candidate.getClientRects().length > 0);
           next?.focus({ preventScroll: true });
@@ -67,9 +86,9 @@ export default function NvvConnectionCheckDialog({ progress, onClose, onRetry, r
   return <dialog ref={dialog} className={`nvv-check-dialog is-${progress.phase}${simulated ? ' is-simulated' : ''}`}
     aria-labelledby={headingId} aria-describedby={descriptionId}
     onCancel={event => { event.preventDefault(); onClose(); }}>
-    <button type="button" className="nvv-check-close" aria-label={submission ? running ? 'Dölj NVV-testet' : 'Stäng NVV-testet' : running ? 'Dölj anslutningskontrollen' : 'Stäng anslutningskontrollen'} onClick={onClose}><X size={19} /></button>
+    <button type="button" className="nvv-check-close" aria-label={externalTest ? running ? `Dölj ${externalTest.provider}-testet` : `Stäng ${externalTest.provider}-testet` : submission ? running ? 'Dölj NVV-testet' : 'Stäng NVV-testet' : running ? 'Dölj anslutningskontrollen' : 'Stäng anslutningskontrollen'} onClick={onClose}><X size={19} /></button>
     <div className="nvv-check-visual" aria-hidden="true">
-      <span className="nvv-check-mode"><ShieldCheck size={12} />{simulated ? 'SIMULERING' : 'NVV · TESTMILJÖ'}</span>
+      <span className="nvv-check-mode"><ShieldCheck size={12} />{externalTest ? externalTest.environmentLabel : simulated ? 'SIMULERING' : 'NVV · TESTMILJÖ'}</span>
       <div className="nvv-check-connection">
         <div className="nvv-check-endpoint"><span><Database size={23} /></span><strong>JEROC</strong><small>Din server</small></div>
         <div className="nvv-check-flow">
@@ -78,31 +97,39 @@ export default function NvvConnectionCheckDialog({ progress, onClose, onRetry, r
           <span className="nvv-check-halo halo-one" /><span className="nvv-check-halo halo-two" />
           <span className="nvv-check-outcome">{running ? <LoaderCircle size={26} /> : successful ? <Check size={28} strokeWidth={3} /> : <CircleAlert size={27} />}</span>
         </div>
-        <div className="nvv-check-endpoint"><span><Leaf size={25} /></span><strong>NVV</strong><small>{simulated ? 'Simulerat svar' : 'Testmiljö'}</small></div>
+        <div className="nvv-check-endpoint"><span>{externalTest ? <Database size={25} /> : <Leaf size={25} />}</span><strong>{externalTest?.provider ?? 'NVV'}</strong><small>{externalTest ? 'Sandbox' : simulated ? 'Simulerat svar' : 'Testmiljö'}</small></div>
       </div>
-      <span className="nvv-check-visual-caption">{submission ? running ? 'Ett uttryckligt testanrop' : successful ? 'Svar från testmiljön mottaget' : 'Se testets faktiska resultat nedan' : running ? (simulated ? 'Lokalt prov av anslutningsflödet' : 'Säker serveranslutning') : successful ? (simulated ? 'Provflödet har svarat' : 'Svar från testmiljön mottaget') : 'Kontrollen behöver åtgärdas'}</span>
+      <span className="nvv-check-visual-caption">{externalTest || submission ? running ? 'Ett uttryckligt testanrop' : successful ? 'Svar från testmiljön mottaget' : 'Se testets faktiska resultat nedan' : running ? (simulated ? 'Lokalt prov av anslutningsflödet' : 'Säker serveranslutning') : successful ? (simulated ? 'Provflödet har svarat' : 'Svar från testmiljön mottaget') : 'Kontrollen behöver åtgärdas'}</span>
     </div>
     <div className="nvv-check-content">
       <span className={`nvv-check-result-label ${successful ? 'is-success' : progress.phase === 'error' ? 'is-error' : ''}`}>
         {running ? <LoaderCircle size={13} /> : successful ? <Check size={13} /> : <CircleAlert size={13} />}
-        {submission ? running ? 'Testanrop pågår' : successful ? 'Mottaget i TEST' : unknownSubmission ? 'Oklart resultat' : 'Testets svar' : running ? 'Kontroll pågår' : successful ? (simulated ? 'Simulerat resultat' : 'Verifierad testanslutning') : 'Kontrollen misslyckades'}
+        {externalTest ? running ? 'Testanrop pågår' : successful ? 'Svar från SANDBOX' : unknownSubmission ? 'Oklart resultat' : 'Testets svar' : submission ? running ? 'Testanrop pågår' : successful ? 'Mottaget i TEST' : unknownSubmission ? 'Oklart resultat' : 'Testets svar' : running ? 'Kontroll pågår' : successful ? (simulated ? 'Simulerat resultat' : 'Verifierad testanslutning') : 'Kontrollen misslyckades'}
       </span>
       <h2 id={headingId}>{heading}</h2>
-      <p id={descriptionId}>{submission ? running ? 'Servern skickar den frysta payloaden nedan till Naturvårdsverkets testmiljö. Formulärets fortsatta ändringar påverkar inte detta anrop.' : successful ? 'Testmiljön har bekräftat detta anrop. Resultatet gäller bara testet och ändrar inga viktkort eller lager.' : 'Payload och mottaget svar bevaras för detta test. Kontroll av historiken skickar inget nytt anrop till NVV.' : running
+      <p id={descriptionId}>{externalTest ? running ? `Servern utför det valda anropet i ${externalTest.provider}:s sandbox. Uppgifterna nedan är frysta för detta test.` : successful ? 'Sandboxens faktiska svar visas nedan. Formulärets fortsatta ändringar påverkar inte detta test.' : 'Anrop och mottaget svar bevaras för testet. Kontroll av historiken hämtar endast det sparade resultatet.' : submission ? running ? 'Servern skickar den frysta payloaden nedan till Naturvårdsverkets testmiljö. Formulärets fortsatta ändringar påverkar inte detta anrop.' : successful ? 'Testmiljön har bekräftat detta anrop. Resultatet gäller bara testet och ändrar inga viktkort eller lager.' : 'Payload och mottaget svar bevaras för detta test. Kontroll av historiken skickar inget nytt anrop till NVV.' : running
         ? (simulated ? 'Servern provar anslutningsflödet med simulerade svar.' : 'Servern kontrollerar åtkomst och hämtar avfallskoder och transportsätt från Naturvårdsverkets testmiljö.')
         : successful ? (simulated ? 'Provets kodlistor har hämtats. Resultatet är simulerat och verifierar ingen myndighetsanslutning.' : 'Servern har fått svar från Naturvårdsverket och läst in testmiljöns kodlistor.')
           : 'Se svaret nedan. När uppgifterna är rättade kan du prova anslutningen igen.'}</p>
       {running && <div className="nvv-check-activity" role="status">
-        <span className="nvv-check-sr-only">{submission ? 'NVV-test pågår. Serverns svar inväntas.' : simulated ? 'Simulerad anslutningskontroll pågår. Serverns svar inväntas.' : 'Anslutningskontroll pågår. Serverns svar inväntas.'}</span>
+        <span className="nvv-check-sr-only">{externalTest ? `${externalTest.provider}-test pågår. Serverns svar inväntas.` : submission ? 'NVV-test pågår. Serverns svar inväntas.' : simulated ? 'Simulerad anslutningskontroll pågår. Serverns svar inväntas.' : 'Anslutningskontroll pågår. Serverns svar inväntas.'}</span>
         <span key={messageIndex} className="nvv-check-pending-message" aria-hidden="true">{messages[messageIndex]}</span>
         <span className="nvv-check-progress-track" aria-hidden="true"><i /></span>
       </div>}
-      {progress.phase === 'success' && !submission && <div className="nvv-check-results" role="status">
+      {progress.phase === 'success' && !submission && !externalTest && <div className="nvv-check-results" role="status">
         <div><span><Database size={18} /></span><strong>{progress.wasteCodes.toLocaleString('sv-SE')}</strong><small>Avfallskoder</small></div>
         <div><span><ArrowRight size={18} /></span><strong>{progress.transportModes.toLocaleString('sv-SE')}</strong><small>Transportsätt</small></div>
       </div>}
       {progress.phase === 'error' && <div className="nvv-check-error" role="alert"><CircleAlert size={18} /><span>{progress.message}</span></div>}
-      {submission ? <>
+      {externalTest ? <>
+        <section className="nvv-check-diagnostics" aria-label="Anrop för detta test"><h3><FileText size={14} />Anrop för detta test</h3><div className="nvv-check-request-line"><strong><b>{externalTest.method}</b>{externalTest.path}</strong>{externalTest.run && <span className={`nvv-check-http is-${externalTest.run.status}`}>{externalTest.run.httpStatus == null ? 'Inget HTTP-svar' : `HTTP ${externalTest.run.httpStatus}`}</span>}</div>{externalTest.parameters && Object.keys(externalTest.parameters).length > 0 && <pre>{JSON.stringify(externalTest.parameters, null, 2)}</pre>}{externalTest.payload ? <pre>{JSON.stringify(externalTest.payload, null, 2)}</pre> : <p>Ingen payload · läsanrop.</p>}</section>
+        <section className="nvv-check-diagnostics" aria-label={`${externalTest.provider}:s råsvar`}><h3><Database size={14} />{externalTest.provider}:s råsvar</h3>{externalTest.run ? <>
+          {externalTest.run.trackingId && <p>Spårnings-ID: {externalTest.run.trackingId}</p>}
+          {externalTest.run.resourceId && <p>Resurs-ID: {externalTest.run.resourceId}</p>}
+          {externalTest.run.finishedAt && <p>Svar mottaget: {new Date(externalTest.run.finishedAt).toLocaleString('sv-SE')}</p>}
+          <pre>{externalTest.run.response == null ? running ? 'Inget slutresultat ännu.' : 'Inget råsvar mottaget.' : typeof externalTest.run.response === 'string' ? externalTest.run.response : JSON.stringify(externalTest.run.response, null, 2)}</pre>
+        </> : <p>{running ? 'Serverns svar inväntas.' : 'Inga anropsuppgifter mottagna från servern. Kontrollera testhistoriken.'}</p>}</section>
+      </> : submission ? <>
         <section className="nvv-check-diagnostics" aria-label="Payload för detta test"><h3><FileText size={14} />Payload för detta test</h3><div className="nvv-check-request-line"><strong><b>POST</b>/insamlingar</strong>{submission.run && <span className={`nvv-check-http is-${submission.run.status}`}>{submission.run.httpStatus == null ? 'Inget HTTP-svar' : `HTTP ${submission.run.httpStatus}`}</span>}</div><pre>{JSON.stringify(submission.payload, null, 2)}</pre></section>
         <section className="nvv-check-diagnostics" aria-label="NVV:s råsvar"><h3><Database size={14} />NVV:s råsvar</h3>{submission.run ? <>
           <p><span>Spårnings-ID: {submission.run.trackingId}</span></p>
@@ -128,10 +155,10 @@ export default function NvvConnectionCheckDialog({ progress, onClose, onRetry, r
       </section>}
       {simulated && <div className="nvv-check-simulation-note"><ShieldCheck size={14} /><span>Simulering · ingen kontakt med Naturvårdsverket.</span></div>}
       <div className="nvv-check-actions">
-        {progress.phase === 'error' ? <><button type="button" className="office-btn outline" onClick={onClose}>Stäng</button><button type="button" className="office-btn" onClick={onRetry}><RefreshCw size={14} />{submission ? 'Kontrollera testhistorik' : 'Försök igen'}</button></>
+        {progress.phase === 'error' ? <><button type="button" className="office-btn outline" onClick={onClose}>Stäng</button><button type="button" className="office-btn" onClick={onRetry}><RefreshCw size={14} />{externalTest ? 'Kontrollera historik' : submission ? 'Kontrollera testhistorik' : 'Försök igen'}</button></>
           : <button type="button" className={`office-btn ${running ? 'outline' : ''}`} onClick={onClose}>{running ? 'Kör i bakgrunden' : 'Klart'}{successful && <Check size={14} />}</button>}
       </div>
-      {running && <small className="nvv-check-background-note">{submission ? 'Testet fortsätter när du döljer popupen.' : 'Du kan fortsätta arbeta medan servern slutför kontrollen.'}</small>}
+      {running && <small className="nvv-check-background-note">{externalTest || submission ? 'Testet fortsätter när du döljer popupen.' : 'Du kan fortsätta arbeta medan servern slutför kontrollen.'}</small>}
     </div>
   </dialog>;
 }

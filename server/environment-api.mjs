@@ -6,6 +6,7 @@ import { createEnvironmentAddressResolver, ENVIRONMENT_MUNICIPALITIES } from './
 import { createNvvClient } from './nvv-client.mjs';
 import { createIntegrationEngine, createNvvIntegrationAdapter } from './integrations.mjs';
 import { getChangeEvents } from './change-events.mjs';
+import { createHash } from 'node:crypto';
 
 const COOKIE = 'jeroc_environment_staff';
 const MAX_BODY = 128 * 1024;
@@ -46,7 +47,7 @@ async function body(req) {
 /** Cookie-authenticated façade over the durable environment/reporting service.
  * Staff sessions remain explicit demo sessions. The integration registry uses
  * a server-owned organisation scope, not browser-supplied tenant identifiers. */
-export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, nvvClient, addressResolver = createEnvironmentAddressResolver() } = {}) {
+export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, nvvClient, vismaService, addressResolver = createEnvironmentAddressResolver() } = {}) {
   let repositoryPromise, storePromise;
   const changes = getChangeEvents(env);
   const getStore = () => {
@@ -103,8 +104,32 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
                 && !principal.actor.siteIds && !principal.user.siteIds };
             const integrations = createIntegrationEngine({ adapters: [createNvvIntegrationAdapter({
               organisationId: 'jeroc-demo', status: () => store.nvvStatus(token), check: () => store.nvvCheck(token),
-            })] });
+            }), ...(vismaService ? [{ providerId: 'visma', allowedOrganisationIds: ['jeroc-demo'],
+              status: scope => vismaService.integrationStatus(scope) }] : [])] });
             json(res, 200, await integrations.catalog(context), req.method === 'HEAD');
+          }
+          else if (route.startsWith('/visma/')) {
+            if (!vismaService) throw new EnvironmentError('Spiris-testkopplingen är inte tillgänglig.', 503, 'visma_unavailable');
+            const principal = await store.authorize(token, 'integrationsRead');
+            if (principal.actor.level !== 'Systemadmin' || principal.user.level !== 'Systemadmin' ||
+              Array.isArray(principal.actor.siteIds) || Array.isArray(principal.user.siteIds))
+              throw new EnvironmentError('Testverktyget kräver att systemadmin arbetar som systemadmin med åtkomst till alla anläggningar.', 403, 'integration_admin_required');
+            const context = { organisationId: 'jeroc-demo', actorId: principal.actor.id, effectiveUserId: principal.user.id,
+              actor: principal.actor, user: principal.user, sessionKey: createHash('sha256').update(token).digest('hex') };
+            const run = route.match(/^\/visma\/sandbox\/runs\/([a-fA-F0-9-]{36})$/);
+            if (read && route === '/visma/status') json(res, 200, await vismaService.status(context), req.method === 'HEAD');
+            else if (req.method === 'POST' && route === '/visma/oauth/start') {
+              if (!z.object({}).strict().safeParse(await body(req)).success) throw new EnvironmentError('Anslutningen tar inga klientuppgifter.', 422, 'visma_invalid');
+              const result = await vismaService.begin(context);
+              const secure = Boolean(env.RENDER) || req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https';
+              res.setHeader('Set-Cookie', `jeroc_visma_oauth=${encodeURIComponent(result.cookieBinding)}; Path=/api/integrations/visma/oauth/callback; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=600`);
+              json(res, 200, { authorizationUrl: result.authorizationUrl, expiresAt: result.expiresAt });
+            } else if (req.method === 'POST' && ['/visma/oauth/complete', '/visma/disconnect'].includes(route)) {
+              if (!z.object({}).strict().safeParse(await body(req)).success) throw new EnvironmentError('Åtgärden tar inga klientuppgifter.', 422, 'visma_invalid');
+              json(res, 200, await (route === '/visma/oauth/complete' ? vismaService.complete(context) : vismaService.disconnect(context)));
+            } else if (req.method === 'POST' && route === '/visma/sandbox') json(res, 200, await vismaService.send(await body(req), context));
+            else if (read && run) json(res, 200, await vismaService.run(run[1], context), req.method === 'HEAD');
+            else throw new EnvironmentError('Spiris-testvyn finns inte eller metoden stöds inte.', 404, 'not_found');
           }
           else if (read && route === '/nvv/status') json(res, 200, await store.nvvStatus(token), req.method === 'HEAD');
           else if (read && route === '/nvv/sandbox') json(res, 200, await store.nvvSandbox(token), req.method === 'HEAD');

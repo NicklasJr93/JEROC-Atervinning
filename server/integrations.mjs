@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
  */
 const definitions = [
   { id: 'nvv', name: 'Naturvårdsverket', category: 'environment', description: 'Rapportering av farligt avfall till Avfallsregistret. Testanslutningen hanteras här.', requiredSetup: ['API-anslutning och klientcertifikat', 'Rapporterande organisation'], settings: '/integrations?service=nvv' },
-  { id: 'visma', name: 'Spiris / Visma eEkonomi', category: 'accounting', description: 'Planerad överföring av inköpsunderlag och återläsning av bekräftade bokföringsreferenser.', requiredSetup: ['Verifierat inköpsflöde och kontomappning', 'API-avtal och OAuth-anslutning'] },
+  { id: 'visma', name: 'Spiris / Visma eEkonomi', category: 'accounting', description: 'Sandboxanslutning och test av leverantörer och inköpsutkast med spårbara API-svar.', requiredSetup: ['Svensk sandboxklient och testföretag', 'OAuth-anslutning och verifierad företagsidentitet'], settings: '/integrations/visma-test' },
   { id: 'fortnox', name: 'Fortnox', category: 'accounting', description: 'Planerad koppling för inköpsunderlag, bokföringsreferenser och avstämning.', requiredSetup: ['Verifierat inköpsflöde och kontomappning', 'API-avtal och OAuth-anslutning'] },
   { id: 'microsoft365', name: 'Microsoft 365 / Outlook', category: 'productivity', description: 'Planerad koppling till organisationens e-post och kalender med valda rättigheter.', requiredSetup: ['Microsoft Entra-app', 'Administratörens godkännande av valda rättigheter'] },
   { id: 'bankid', name: 'BankID', category: 'identity', description: 'Planerad identitetsverifiering och signering av kundens aktuella avräkning.', requiredSetup: ['BankID-avtal eller förmedlaravtal', 'Testanslutning och verifierat signeringsflöde'] },

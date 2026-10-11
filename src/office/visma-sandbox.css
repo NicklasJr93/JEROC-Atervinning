@@ -1,0 +1,22 @@
+.visma-sandbox-connection { margin-bottom:16px; }
+.visma-sandbox-connection .nvv-sandbox-context { margin-bottom:0; }
+.visma-sandbox-company { display:flex; align-items:center; justify-content:space-between; gap:18px; padding-top:16px; margin-top:15px; border-top:1px solid #e7eef5; }
+.visma-sandbox-company > div:first-child { min-width:0; flex:1; }
+.visma-sandbox-company strong { display:block; margin-top:10px; color:#294766; font-size:13px; }
+.visma-sandbox-company small { display:block; margin-top:5px; color:#7890a8; font-size:10px; line-height:1.6; overflow-wrap:anywhere; }
+.office .visma-sandbox-company p { color:#7890a8; font-size:11px; line-height:1.6; margin:10px 0 0; }
+.visma-sandbox-connect-actions { display:flex; flex-direction:column; align-items:flex-end; gap:12px; flex-shrink:0; }
+.visma-sandbox-operation { margin-top:18px; }
+.office .visma-sandbox-help { color:#7890a8; font-size:11px; line-height:1.6; margin:14px 0 0; clear:both; }
+.visma-sandbox-checkbox { margin-top:14px; }
+.visma-sandbox-rows { display:grid; gap:12px; margin:14px 0; }
+.visma-sandbox-row { padding:13px; border:1px solid #e2ebf5; border-radius:9px; background:#f9fbfe; }
+.visma-sandbox-row-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+.visma-sandbox-row-heading > strong { font-size:11px; color:#486787; }
+.visma-sandbox-details { margin-top:16px; padding-top:13px; border-top:1px solid #e7eef5; color:#7890a8; font-size:10px; line-height:1.6; overflow-wrap:anywhere; }
+.visma-sandbox-details summary { color:#4e7ca6; cursor:pointer; }
+.office .visma-sandbox-details p { color:#7890a8; font-size:10px; line-height:1.6; margin:8px 0 0; }
+.visma-sandbox-recovery { padding:12px; margin-top:12px; border:1px solid #f0dfca; border-radius:8px; background:#fffaf3; }
+.office .visma-sandbox-recovery p { margin:0; color:#957347; font-size:11px; line-height:1.6; }
+.visma-sandbox-recovery .office-btn { margin-top:10px; }
+@media(max-width:700px) { .visma-sandbox-company { align-items:flex-start; flex-wrap:wrap; } .visma-sandbox-connect-actions { flex-direction:row; align-items:center; flex-wrap:wrap; } }

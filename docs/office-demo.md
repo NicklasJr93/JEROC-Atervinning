@@ -1,4 +1,29 @@
-# JEROC kontorsdemo 0.14.0
+# JEROC kontorsdemo 0.15.0
+
+## Nytt i 0.15.0 – Spiris sandbox
+
+Systemadmin öppnar **Integrationer → Spiris / Visma eEkonomi → Öppna
+Spiris-test** eller `/kontor/integration/systemadminvismatest.html`.
+Sandboxklienten ansluts med OAuth; servern krypterar sparade token och
+kontrollerar testföretagets identitet före andra API-test.
+
+Testformuläret läser företag, betalvillkor, räkenskapsår och kontoplan samt
+skapar fiktiva leverantörer och fakturautkast med redigerbara fält/JSON.
+Den befintliga animerade integrationsdialogen visar fryst begäran,
+HTTP-status och faktiskt svar. Försökshistorik sparas; ett avbrutet POST
+skickas inte automatiskt igen. Inga viktkort eller bankbetalningar exporteras.
+
+[Render-inställningar och provflöde](integrationer/spiris-visma/sandbox-setup.md)
+och [verifierade API-fält](integrationer/spiris-visma/api-testfalt.md).
+
+Verifierat lokalt: produktionsbygget, 47 fokuserade servertester och åtta
+webbläsarfall (fem Spiris samt tre befintliga NVV-dialogfall) passerar.
+Separata PostgreSQL-kontroller med fejkade providersvar verifierade
+krypterad lagring, engångs-OAuth mellan serverinstanser, samordnad
+tokenförnyelse och beständig idempotens utan låsning av verksamhetsdomänerna.
+Desktop-/mobilvyn och återhämtning vid omladdning ingår i webbläsarfallen.
+Ett autentiserat Spiris-prov återstår efter returadressregistrering och
+konfiguration i Render; dessa tester kontaktade inte Spiris.
 
 ## Nytt i 0.14.0 – materialrader och högerställd attest
 

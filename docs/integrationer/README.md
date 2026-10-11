@@ -1,15 +1,18 @@
-# Integrationer – kontorsdemo 0.12.0
+# Integrationer – kontorsdemo 0.15.0
 
 **Integrationer** finns i kontorets vänstermeny. Kortgrid och detaljvy återanvänder
-kontorets design. Naturvårdsverket har den första TEST-adaptern. Spiris/Visma
-eEkonomi, Fortnox, Microsoft 365/Outlook, BankID, SMS/e-post, Google Maps och
-LME visas som planerade; ingen OAuth-session eller anslutning fabriceras.
+kontorets design. Naturvårdsverket har en TEST-adapter. Spiris/Visma eEkonomi
+har ett separat sandboxverktyg med OAuth och redigerbara API-test.
+Fortnox, Microsoft 365/Outlook, BankID, SMS/e-post, Google Maps och LME
+visas som planerade.
 
 NVV-inställningar ligger under **Integrationer → Naturvårdsverket**. Rapportkö,
 rättelser och kvittenser ligger kvar under **Miljörapportering**.
 Se [NVV:s provflöde och Renderinställningar](naturvardsverket/nvv-test-demo.md).
 Spiris sandbox, inköpsflöde och möjlig betalfil för Roslagens/Swedbank finns i
-[förstudien av API och betalfil](spiris-visma/forstudie.md). Kopplingen är fortsatt planerad.
+[förstudien av API och betalfil](spiris-visma/forstudie.md).
+Se [Spiris sandbox och Render-inställningar](spiris-visma/sandbox-setup.md)
+och [testformulärets API-fält](spiris-visma/api-testfalt.md).
 API-granskning, myndighetens oförändrade OpenAPI-definition och tidigare
 mockupmatchning finns i [NVV:s anslutningsunderlag](naturvardsverket/README.md).
 API-nycklar, lösenord, privata nycklar och leveransbrev förvaras separat
@@ -55,8 +58,11 @@ organisationsnycklar på berörda databasobjekt, isolerade dokument och
 integrationers inställningar, krypterad tokenlagring samt leverantörernas
 verifierade OAuth- och avtalsspecifika flöden. Varje sådan adapter ska använda
 en beständig utkorg och journal, inte endast denna händelseförberedelse.
+Spiris sandbox har organisationsbunden krypterad tokenlagring och en journal
+för uttryckliga testförsök; automatisk ekonomiexport är en senare etapp.
 NVV:s nuvarande inställningar och Render-hemligheter är en organisations
 anslutning och måste få tenantlagring innan flera kunder kan aktivera NVV.
 
-Utbetalningar är fortfarande manuella. Denna leverans ansluter inte Visma,
-Fortnox, Outlook, BankID, SMS/e-post, Google eller någon LME-leverantör.
+Utbetalningar är fortfarande manuella. Spiris sandbox skapar endast
+uttryckliga testleverantörer och fakturautkast. Fortnox, Outlook, BankID,
+SMS/e-post, Google och någon LME-leverantör är inte anslutna.

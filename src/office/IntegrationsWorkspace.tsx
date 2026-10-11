@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, ArrowUpRight, Building2, CheckCircle2, ChevronRight, CircleAlert,
   Clock3, FileText, Fingerprint, Leaf, Mail, MapPin, PlugZap, RefreshCw,
@@ -51,8 +51,8 @@ const providerPresentation: Record<string, { icon: LucideIcon; functions: string
   },
   visma: {
     icon: FileText,
-    functions: ['Inköps- och leverantörsunderlag efter intern attest', 'Bekräftade faktura- och bokföringsreferenser', 'Avstämning av ekonomiexport'],
-    preparation: 'Välj ekonomisystem och kom överens om konton och bokföringsflöde innan anslutningen aktiveras.',
+    functions: ['OAuth-anslutning till ert svenska testföretag', 'Redigerbara test av leverantör och fakturautkast', 'Skickat underlag, API-svar och försökshistorik'],
+    preparation: 'Systemadmin ansluter sandboxföretaget på testsidan. Klientuppgifter och krypteringsnyckel läggs i Render.',
   },
   fortnox: {
     icon: Wallet,
@@ -229,6 +229,8 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
           </div>
           {!selected.implemented && <div className="integration-planned"><Clock3 size={18} /><div><strong>Planerad integration</strong><p>Kopplingen kan inte anslutas ännu. Inga uppgifter skickas till {selected.name}.</p></div></div>}
           {selected.id === 'nvv' && <div className="integration-test-note"><ShieldCheck size={16} /><span>{selected.mode === 'mock' ? 'Simulerat provflöde. Inga uppgifter skickas till Naturvårdsverket.' : 'Endast testanslutning är tillgänglig. Produktionsrapportering är avstängd.'}</span></div>}
+          {selected.id === 'visma' && selected.implemented && <div className="integration-test-note"><ShieldCheck size={16} /><span>Sandboxprov av leverantörer och fakturautkast. Anslutning och test hanteras av systemadmin.</span></div>}
+          {selected.id === 'visma' && selected.implemented && catalog.capabilities.canManage && <Link className="office-btn" to="/integrations/visma-test"><PlugZap size={16} />Öppna Spiris-test</Link>}
         </article>
         {selected.id === 'nvv' && <div className="environment-workspace integration-nvv-region">
           {!nvvReadable ? <div className="office-panel integration-message"><ShieldCheck size={19} /><span>Du behöver behörighet att läsa miljöunderlag för att visa NVV-inställningarna.</span></div>

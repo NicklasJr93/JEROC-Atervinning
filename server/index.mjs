@@ -11,6 +11,7 @@ import { createEnvironmentApi } from './environment-api.mjs';
 import { createDocumentsApi } from './documents/api.mjs';
 import { renderPdf } from './documents/render.mjs';
 import { PricingError } from './pricing.mjs';
+import { createVismaSandbox } from './visma-sandbox.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -58,6 +59,23 @@ async function handle(req, res) {
     reply(res, 400, 'Invalid URL');
     return;
   }
+  if (pathname === '/api/integrations/visma/oauth/callback') {
+    if (req.method !== 'GET') { reply(res, 405, 'Method not allowed'); return; }
+    const bindingCookie = (req.headers.cookie ?? '').split(';').find(item => item.trim().startsWith('jeroc_visma_oauth='));
+    let binding;
+    try { binding = bindingCookie && decodeURIComponent(bindingCookie.trim().slice('jeroc_visma_oauth='.length)); } catch { binding = undefined; }
+    let outcome = 'error';
+    try {
+      await vismaService.callback({ state: url.searchParams.get('state'), code: url.searchParams.get('code'),
+        error: url.searchParams.get('error'), cookieBinding: binding });
+      outcome = 'ok';
+    } catch { /* The fixed redirect never exposes OAuth codes or provider secrets. */ }
+    const secure = Boolean(process.env.RENDER) || req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https';
+    res.writeHead(303, { Location: `/kontor/integration/systemadminvismatest.html?vismaOAuth=${outcome}#/integrations/visma-test`,
+      'Set-Cookie': `jeroc_visma_oauth=; Path=/api/integrations/visma/oauth/callback; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=0`,
+      'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' });
+    res.end(); return;
+  }
   if (await applicationApi(req, res, url)) return;
   if (await documentsApi(req, res, url)) return;
   if (pathname.startsWith("/api/terminal-demo") || pathname.startsWith("/api/environment")) {
@@ -97,7 +115,7 @@ async function handle(req, res) {
     reply(res, 404, 'Not found');
     return;
   }
-  const staticPath = ['/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
+  const staticPath = ['/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
   const file = resolve(dist, `.${staticPath}`);
   const within = relative(dist, file);
   if (within.startsWith('..') || isAbsolute(within)) {
@@ -146,7 +164,9 @@ const applicationApi = createApplicationService({ approvalProvider: () => termin
   environmentProvider: () => environmentApi.getLogisticsSource(),
 });
 const principalStore = applicationApi.principalStore;
+const vismaService = createVismaSandbox({ getRepository: () => applicationApi.getRepository() });
 const environmentApi = createEnvironmentApi({ principalStore,
+  vismaService,
   approvalGuard: (input, operation) => terminalDemoApi.withApprovedCard(input, operation),
   outboundProvider: async () => (await applicationApi.getRepository()).read(state =>
     (state.logistics?.inventoryMovements ?? []).filter(row => row.kind === 'outbound' && row.hazardous)
