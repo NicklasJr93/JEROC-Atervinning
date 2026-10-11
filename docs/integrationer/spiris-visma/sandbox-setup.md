@@ -1,6 +1,6 @@
 # Spiris / Visma eEkonomi – sandbox i JEROC
 
-Kontorsversion 0.15.0, 2026-10-11. Den första anslutningen är ett uttryckligt
+Kontorsversion 0.15.2, 2026-10-11. Anslutningen är ett uttryckligt
 testverktyg för systemadmin. Den exporterar inte viktkort eller riktiga
 betalningar automatiskt. [API-fält och källor](api-testfalt.md) beskriver
 leverantörer, konteringsrader och fakturautkast.
@@ -84,8 +84,8 @@ Efter anslutningen sköts API-anrop och tokenförnyelse helt av Render.
 Manuell vidarebefordran behövs igen om en ny inloggning krävs. När Spiris
 har registrerat den normala Render-adressen: sätt `VISMA_REDIRECT_URI` till
 den och ta bort `VISMA_OAUTH_LOCAL_RELAY` (eller sätt `false`). Detta
-lokala provflöde är verifierat med fejkade providersvar; första verkliga
-Spiris-inloggningen behöver fortfarande göras av användaren.
+lokala provflöde är verifierat med fejkade providersvar. Användaren har
+också bekräftat att den verkliga sandboxinloggningen fungerar.
 
 ## Anslut testföretaget
 
@@ -111,7 +111,36 @@ Returen byter inte automatiskt token eller skapar ett utkast genom ett GET.
 Access- och refresh-token lagras krypterade på servern och visas inte i
 formulär, diagnospopup eller anropshistorik.
 
-## Prova API:t
+## Testa från ett attesterat viktkort
+
+Version 0.15.2 använder befintlig Render-konfiguration. På testsidan:
+
+1. Välj **Attesterat viktkort**. Endast senaste kundgodkända och internt
+   attesterade versionen är valbar. Förifyllningen läser dess frysta uppgifter,
+   inte dagens kund- eller artikelregister. Kortvalet skickar inget till Spiris.
+2. Tryck **Hämta Spiris-val** för att läsa inköpsbetalvillkor, leverantörer,
+   räkenskapsår och kontoplan. Egna ifyllda fält bevaras. Om inget öppet år
+   täcker fakturadatumet behöver rätt år väljas med det vanliga kontoplanstestet.
+3. Granska leverantörsfälten. Ett entydigt leverantörsnummer eller
+   organisationsnummer kan koppla en redan hämtad leverantör. Om en ny
+   behövs, välj **Skapa testleverantör** och skicka uttryckligen. Dess faktiska
+   svar-ID förs in i utkastet; utkastet skickas inte av detta klick.
+4. Granska **Leverantörsfakturautkast**: avräkningsnummer, datum, hela
+   inköpsbeloppet, moms och debet/kredit. Aktiva 4000/2440 kan föreslås från
+   kontoplanen, men är inte en fastställd momskontering. Företagsinköp
+   behöver ett uttryckligt momsbelopp. Privatpersonens personnummer överförs
+   inte som organisationsnummer. Kvittning mot tidigare saldo visas separat
+   och behöver senare egen bokföring; fakturabeloppet minskas inte av den.
+5. Skicka utkastet med testknappen och granska faktisk begäran och svar i
+   integrationspopupen. Läs tillbaka resursen med dess returnerade ID.
+
+Den lokala testhistoriken kopplar försöket till attest-ID, version och
+kontrollsumma. Servern kontrollerar att versionen fortfarande är attesterad
+före sändning. Dessa källreferenser följer inte med som extra Spiris-fält.
+PDF-bilaga och automatisk export efter attest byggs i en senare etapp.
+Inget av detta bokför fakturan eller utför betalning.
+
+## Prova fria API-fält
 
 1. Läs **företagsuppgifter**, **betalvillkor** och **räkenskapsår**. Välj ett
    riktigt räkenskapsårs-ID för att läsa dess kontoplan. Dessa är läsanrop.
@@ -152,7 +181,8 @@ tillåter ett nytt uttryckligt test med ett nytt ID.
 
 ## Nästa etapp
 
-Efter verifierat sandboxbeteende kan vi bygga export av en attesterad
-avräkning med PDF, leverantörsmappning, kontering och externa referenser.
+Efter verifierat sandboxbeteende kan vi bygga automatisk export av en
+attesterad avräkning med PDF, beständig leverantörsmappning, fastställd
+kontering och externa referenser.
 Spiris bankkoppling är ett separat avtal och flöde. En lyckad sandboxkontroll
 eller ett sparat fakturautkast är inte bevis på att en betalning utförts.

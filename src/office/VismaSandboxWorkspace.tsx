@@ -5,7 +5,7 @@ import { EnvironmentApiError } from './environment-client';
 import { environmentFailure, useEnvironmentSession } from './EnvironmentSession';
 import { environmentTime, type NvvJsonObject, type NvvJsonValue } from './environment-types';
 import NvvConnectionCheckDialog, { type NvvCheckProgress } from './NvvConnectionCheckDialog';
-import { vismaSandboxApi, type VismaOperation, type VismaParameters, type VismaSandboxRequest, type VismaSandboxRun, type VismaSandboxStatus } from './visma-sandbox-client';
+import { vismaSandboxApi, type VismaOperation, type VismaParameters, type VismaSandboxRequest, type VismaSandboxRun, type VismaSandboxStatus, type VismaAttestedCard, type VismaCardPrefill } from './visma-sandbox-client';
 import './environment.css';
 import './nvv-sandbox.css';
 import './visma-sandbox.css';
@@ -52,6 +52,34 @@ type TestDialog = { request: VismaSandboxRequest; run: VismaSandboxRun; progress
 type LookupState = { fiscalYears: NvvJsonObject[]; accounts: NvvJsonObject[]; paymentTerms: NvvJsonObject[]; suppliers: NvvJsonObject[] };
 type Acknowledgments = Record<string, { acknowledgedAt: string; run?: VismaSandboxRun }>;
 const emptyLookups = (): LookupState => ({ fiscalYears: [], accounts: [], paymentTerms: [], suppliers: [] });
+const moneyText = (value: number) => `${value.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr`;
+const sourceReference = (source: VismaCardPrefill['source']) => ({ cardId: source.cardId, approvalId: source.approvalId, version: source.version, hash: source.hash });
+function prefilledForms(prefill: VismaCardPrefill, lookups: LookupState, runs: VismaSandboxRun[]) {
+  const supplier = structuredClone(prefill.supplier), draft = structuredClone(prefill.draft);
+  const numbered = lookups.suppliers.filter(item => item.IsActive !== false && supplier.SupplierNumber && item.SupplierNumber === supplier.SupplierNumber);
+  const identified = numbered.length ? numbered : lookups.suppliers.filter(item => item.IsActive !== false && supplier.CorporateIdentityNumber &&
+    fieldValue(item, 'CorporateIdentityNumber').replace(/\D/g, '') === supplier.CorporateIdentityNumber);
+  const match = identified.length === 1 ? identified[0] : undefined;
+  const created = runs.find(run => run.operation === 'createSupplier' && run.status === 'accepted' && usableUuid(run.resourceId ?? '') &&
+    run.source?.cardId === prefill.source.cardId && run.source.hash === prefill.source.hash);
+  const purchaseTerms = lookups.paymentTerms.filter(term => term.AvailableForPurchase === true && usableUuid(fieldValue(term, 'Id')));
+  const term = purchaseTerms.find(item => item.Id === supplier.TermsOfPaymentId) ?? purchaseTerms.find(item => item.Id === match?.TermsOfPaymentId)
+    ?? purchaseTerms.find(item => item.NumberOfDays === 0) ?? purchaseTerms[0];
+  if (term) supplier.TermsOfPaymentId = term.Id;
+  if (match && usableUuid(fieldValue(match, 'Id'))) draft.SupplierId = match.Id;
+  else if (created) draft.SupplierId = created.resourceId!;
+  const days = Number(term?.NumberOfDays);
+  if (term && Number.isInteger(days) && days >= 0 && days <= 10000) {
+    const due = new Date(`${String(draft.InvoiceDate)}T00:00:00Z`); due.setUTCDate(due.getUTCDate() + days); draft.DueDate = due.toISOString().slice(0, 10);
+  }
+  draft.Rows = (draft.Rows as NvvJsonObject[]).map(row => {
+    const proposed = Number(row.CreditAmount) > 0 ? 2440 : 4000;
+    return lookups.accounts.some(account => Number(account.Number) === proposed && account.IsActive === true &&
+      !account.IsFirstCostCenterMandatory && !account.IsSecondCostCenterMandatory && !account.IsThirdCostCenterMandatory && !account.IsProjectMandatory)
+      ? { ...row, AccountNumber: proposed } : row;
+  });
+  return { createSupplier: supplier, createDraft: draft };
+}
 
 // Keep the frozen request across a tab reload. This journal never replays it;
 // only the request UUID is used to retrieve the server's saved result.
@@ -68,9 +96,11 @@ function restorePending(key: string, actualUserId: string, effectiveUserId: stri
     if (request.parameters !== undefined && (!request.parameters || typeof request.parameters !== 'object' || Array.isArray(request.parameters) ||
       Object.entries(request.parameters).some(([name, id]) => !['fiscalYearId', 'resourceId'].includes(name) || typeof id !== 'string' || !usableUuid(id)))) return;
     if (request.payload !== undefined && (!request.payload || typeof request.payload !== 'object' || Array.isArray(request.payload))) return;
+    if (request.source !== undefined && (!Number.isSafeInteger(request.source?.cardId) || request.source.cardId <= 0 || !usableUuid(request.source.approvalId) ||
+      !Number.isInteger(request.source.version) || request.source.version <= 0 || !/^[a-f0-9]{64}$/.test(request.source.hash))) return;
     const frozen = structuredClone(request) as VismaSandboxRequest;
     const run: VismaSandboxRun = { id: frozen.requestId, status: 'unknown', operation: frozen.operation, method: saved.method, path: saved.path,
-      parameters: frozen.parameters, payload: frozen.payload, startedAt: saved.startedAt, httpStatus: null, response: null, trackingId: '',
+      parameters: frozen.parameters, payload: frozen.payload, source: frozen.source, startedAt: saved.startedAt, httpStatus: null, response: null, trackingId: '',
       error: { code: 'response_unknown', message: 'Ett tidigare test saknar säkert slutresultat. Kontrollera historiken innan ett nytt test.' } };
     return { request: frozen, run, progress: progressFor(run) };
   } catch { return; }
@@ -138,6 +168,8 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
   const dialogRef = useRef<TestDialog | null>(null);
   const submitButton = useRef<HTMLButtonElement>(null);
   const [sandbox, setSandbox] = useState<VismaSandboxStatus>();
+  const [attestedCards, setAttestedCards] = useState<VismaAttestedCard[]>([]);
+  const [cardPrefill, setCardPrefill] = useState<VismaCardPrefill>();
   const [operation, setOperation] = useState<VismaOperation>('company');
   const [parameters, setParameters] = useState<VismaParameters>({});
   const [forms, setForms] = useState<{ createSupplier: NvvJsonObject; createDraft: NvvJsonObject }>();
@@ -163,6 +195,7 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
     setSandbox(undefined); setForms(undefined); setOperation('company'); setParameters({}); setLookups(emptyLookups()); setRaw(''); setEditor('fields');
     setLoading(false); setSending(false); setConnectionBusy(false); setError(''); setNotice(''); setDialog(null);
     setLocalCallbackUrl('');
+    setAttestedCards([]); setCardPrefill(undefined);
   }, [identity]);
 
   const applyLookup = useCallback((run: VismaSandboxRun) => {
@@ -189,8 +222,9 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
     setLoading(true);
     flight.promise = (async () => {
       try {
-        const next = await vismaSandboxApi.status(controller.signal);
+        const [next, available] = await Promise.all([vismaSandboxApi.status(controller.signal), vismaSandboxApi.attestedCards(controller.signal)]);
         if (!current()) return;
+        setAttestedCards(available.cards);
         const pending = pendingRef.current;
         setSandbox({ ...next, runs: retainUnknownRuns(next.runs, pending, acknowledgmentsRef.current) });
         if (!formRef.current) {
@@ -230,6 +264,70 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
   function adoptForm(target: 'createSupplier' | 'createDraft', payload: NvvJsonObject) {
     const copy = structuredClone(payload), next = { createSupplier: formRef.current?.createSupplier ?? starterPayload('createSupplier'), createDraft: formRef.current?.createDraft ?? starterPayload('createDraft'), [target]: copy };
     formRef.current = next; setForms(next); if (operation === target) setRaw(jsonText(copy)); setError('');
+  }
+  async function selectAttestedCard(value: string) {
+    if (busy.current || readFlight.current || !permitted || !sessionMatches) return;
+    if (!value) {
+      setCardPrefill(undefined);
+      const next = { createSupplier: starterPayload('createSupplier', sandbox?.templates), createDraft: starterPayload('createDraft', sandbox?.templates) };
+      formRef.current = next; setForms(next); setEditor('fields'); setRaw(''); return;
+    }
+    const epoch = generation.current, controller = new AbortController(); writeController.current = controller;
+    const current = () => mounted.current && !controller.signal.aborted && generation.current === epoch && identityRef.current === identity;
+    busy.current = true; setConnectionBusy(true); setError(''); setNotice('');
+    try {
+      const prefill = await vismaSandboxApi.prefill(Number(value), controller.signal);
+      if (!current()) return;
+      const next = prefilledForms(prefill, lookups, sandbox?.runs ?? []);
+      setCardPrefill(prefill); formRef.current = next; setForms(next); setOperation(usableUuid(fieldValue(next.createDraft, 'SupplierId')) ? 'createDraft' : 'createSupplier');
+      setEditor('fields'); setRaw('');
+      setNotice(`Uppgifterna är hämtade från ${prefill.source.number}, attesterad av ${prefill.source.attestedBy}. Granska testunderlaget före sändning.`);
+    } catch (failure) { if (current()) setError(environmentFailure(failure)); }
+    finally { if (current()) { busy.current = false; setConnectionBusy(false); } if (writeController.current === controller) writeController.current = undefined; }
+  }
+  async function prepareSpirisChoices() {
+    if (!permitted || !sessionMatches || busy.current || readFlight.current || !sandbox?.companyVerified || inFlight) return;
+    const epoch = generation.current, controller = new AbortController(); writeController.current = controller;
+    const current = () => mounted.current && !controller.signal.aborted && generation.current === epoch && identityRef.current === identity;
+    busy.current = true; setConnectionBusy(true); setError(''); setNotice('');
+    const collected = { ...lookups };
+    const readChoice = async (target: 'paymentTerms' | 'fiscalYears' | 'suppliers' | 'accounts', parameters: VismaParameters = {}) => {
+      const descriptor = sandbox.operations.find(item => item.id === target)!;
+      const requestId = crypto.randomUUID(), request: VismaSandboxRequest = { requestId, idempotencyKey: `visma-choices-${requestId}`, operation: target, parameters };
+      const run: VismaSandboxRun = { id: requestId, operation: target, method: 'GET', path: descriptor.path.replace('{fiscalYearId}', parameters.fiscalYearId ?? ''),
+        parameters, status: 'in_flight', startedAt: new Date().toISOString(), trackingId: '' };
+      const pending = { request, run, progress: progressFor(run) }; dialogRef.current = pending; setDialog(pending);
+      let result: VismaSandboxRun;
+      try { result = await vismaSandboxApi.run(request, controller.signal); }
+      catch (failure) { result = { ...run, status: 'unknown', error: { code: 'response_unknown', message: environmentFailure(failure) } }; }
+      if (!current()) return false;
+      publishRun(result);
+      const completed = { request, run: result, progress: progressFor(result) }; dialogRef.current = completed; setDialog(completed);
+      if (result.status !== 'accepted') throw new Error(result.error?.message || 'Spiris-valen kunde inte hämtas. Se svaret i historiken.');
+      collected[target] = results(result.response); return true;
+    };
+    try {
+      for (const target of ['paymentTerms', 'fiscalYears', 'suppliers'] as const) if (!await readChoice(target)) return;
+      const date = fieldValue(formRef.current?.createDraft, 'InvoiceDate') || new Date().toISOString().slice(0, 10);
+      const year = collected.fiscalYears.find(item => usableUuid(fieldValue(item, 'Id')) && item.IsLockedForAccounting !== true &&
+        fieldValue(item, 'StartDate').slice(0, 10) <= date && fieldValue(item, 'EndDate').slice(0, 10) >= date);
+      collected.accounts = [];
+      if (year) { if (!await readChoice('accounts', { fiscalYearId: String(year.Id) })) return; setParameters(state => ({ ...state, fiscalYearId: String(year.Id) })); }
+      if (!current()) return;
+      setLookups(collected);
+      if (cardPrefill && formRef.current) {
+        const previous = formRef.current, proposals = prefilledForms({ ...cardPrefill, supplier: previous.createSupplier, draft: previous.createDraft }, collected, sandbox.runs);
+        const supplier = { ...previous.createSupplier }, draft = { ...previous.createDraft };
+        for (const key of ['TermsOfPaymentId']) if (!fieldValue(supplier, key) && proposals.createSupplier[key] !== undefined) supplier[key] = proposals.createSupplier[key];
+        for (const key of ['SupplierId', 'DueDate']) if (!fieldValue(draft, key) && proposals.createDraft[key] !== undefined) draft[key] = proposals.createDraft[key];
+        draft.Rows = (draft.Rows as NvvJsonObject[]).map((row, index) => row.AccountNumber ? row : (proposals.createDraft.Rows as NvvJsonObject[])[index]);
+        const next = { createSupplier: supplier, createDraft: draft }; formRef.current = next; setForms(next);
+        if (editor === 'fields') setRaw(jsonText(next[operation === 'createDraft' ? 'createDraft' : 'createSupplier']));
+      }
+      setNotice(year ? 'Spiris betalvillkor, leverantörer och kontoplan har hämtats. Saknade val är förifyllda där ett matchande förslag finns.'
+        : 'Betalvillkor och leverantörer har hämtats. Inget öppet räkenskapsår matchade fakturadatumet; välj räkenskapsår och läs kontoplanen.');
+    } catch (failure) { if (current()) setError(environmentFailure(failure)); }
+    finally { if (current()) { busy.current = false; setConnectionBusy(false); } if (writeController.current === controller) writeController.current = undefined; }
   }
   function updateField(target: 'createSupplier' | 'createDraft', key: string, value: NvvJsonValue | undefined) {
     const copy = structuredClone(formRef.current?.[target] ?? {});
@@ -318,15 +416,18 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
       if (operation === 'createSupplier' && (!fieldValue(frozen, 'Name').trim() || !usableUuid(fieldValue(frozen, 'TermsOfPaymentId')))) throw new Error('Ange leverantörens namn och ett faktiskt betalningsvillkors-ID.');
       if (operation === 'createDraft') {
         if (!usableUuid(fieldValue(frozen, 'SupplierId'))) throw new Error('Ange leverantörens faktiska UUID från Visma.');
+        if (cardPrefill?.source.customerType !== 'Privatperson' && cardPrefill && typeof frozen?.Vat !== 'number')
+          throw new Error('Ange momsbelopp för företagets testunderlag och kontrollera momskonteringen. Viktkortet innehåller inget fastställt momsbeslut.');
         const rows = frozen?.Rows;
         if (!Array.isArray(rows) || !rows.length || rows.some(row => !Number.isInteger(objectValue(row).AccountNumber) || Number(objectValue(row).AccountNumber) < 1)) throw new Error('Välj verkliga konton för utkastets konteringsrader.');
       }
     } catch (failure) { setError(environmentFailure(failure)); return; }
-    const requestId = crypto.randomUUID(), request: VismaSandboxRequest = { requestId, idempotencyKey: `visma-sandbox-${requestId}`, operation, ...(Object.keys(frozenParameters).length ? { parameters: frozenParameters } : {}), ...(frozen ? { payload: frozen } : {}) };
+    const requestId = crypto.randomUUID(), request: VismaSandboxRequest = { requestId, idempotencyKey: `visma-sandbox-${requestId}`, operation, ...(Object.keys(frozenParameters).length ? { parameters: frozenParameters } : {}), ...(frozen ? { payload: frozen } : {}),
+      ...(write && cardPrefill ? { source: sourceReference(cardPrefill.source) } : {}) };
     let path = selected.path;
     if (frozenParameters.fiscalYearId) path = path.replace('{fiscalYearId}', frozenParameters.fiscalYearId);
     if (frozenParameters.resourceId) path = path.replace('{resourceId}', frozenParameters.resourceId).replace('{id}', frozenParameters.resourceId);
-    const pendingRun: VismaSandboxRun = { id: requestId, status: 'in_flight', operation, method: selected.method, path, parameters: frozenParameters, ...(frozen ? { payload: frozen } : {}), startedAt: new Date().toISOString(), httpStatus: null, response: null, trackingId: '' };
+    const pendingRun: VismaSandboxRun = { id: requestId, status: 'in_flight', operation, method: selected.method, path, parameters: frozenParameters, source: request.source, ...(frozen ? { payload: frozen } : {}), startedAt: new Date().toISOString(), httpStatus: null, response: null, trackingId: '' };
     const pending: TestDialog = { request, run: pendingRun, progress: progressFor(pendingRun) };
     if (write && !savePending(pendingStorageKey, actualUser.id, user.id, pending)) { setError('Webbläsaren kunde inte bevara testets ID inför omladdning. Testet har inte skickats.'); return; }
     if (write) pendingRef.current = pending;
@@ -338,6 +439,10 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
       const run = await vismaSandboxApi.run(request, controller.signal);
       if (!current()) return;
       publishRun(run);
+      if (run.status === 'accepted' && operation === 'createSupplier' && request.source && usableUuid(run.resourceId ?? '') && cardPrefill &&
+        request.source.cardId === cardPrefill.source.cardId && request.source.hash === cardPrefill.source.hash) {
+        updateField('createDraft', 'SupplierId', run.resourceId!); setOperation('createDraft'); setEditor('fields');
+      }
       const nextDialog = { request, run: structuredClone(run), progress: progressFor(run) };
       if (write) {
         pendingRef.current = run.status === 'in_flight' || run.status === 'unknown' ? nextDialog : undefined;
@@ -374,10 +479,11 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
     setNotice('Leverantörs-ID har lagts i utkastformuläret. Skapa utkast är ett separat knapptryck.');
   }
   function viewRun(run: VismaSandboxRun) {
-    const request: VismaSandboxRequest = { requestId: run.id, idempotencyKey: '', operation: run.operation, parameters: run.parameters, payload: structuredClone(run.payload) };
+    const request: VismaSandboxRequest = { requestId: run.id, idempotencyKey: '', operation: run.operation, parameters: run.parameters, source: run.source, payload: structuredClone(run.payload) };
     const next = { request, run: structuredClone(run), progress: progressFor(run) }; dialogRef.current = next; setDialog(next);
   }
   function useRun(run: VismaSandboxRun) {
+    if (!run.source || run.source.cardId !== cardPrefill?.source.cardId || run.source.hash !== cardPrefill?.source.hash) setCardPrefill(undefined);
     if (writeOperation(run.operation) && run.payload) adoptForm(run.operation as 'createSupplier' | 'createDraft', run.payload);
     setOperation(run.operation); setParameters(run.parameters ?? {}); setEditor('fields'); setRaw(jsonText(run.payload ?? {})); applyLookup(run);
     setNotice('Testets uppgifter har lagts i formuläret. Inget nytt anrop har skickats.');
@@ -408,6 +514,21 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
           </section>
           {!!sandbox?.missing.length && <div className="environment-alert" role="status"><CircleAlert size={16} /><div><strong>Återstår före testet</strong><ul>{sandbox.missing.map(item => <li key={item}>{item}</li>)}</ul></div></div>}
           {error && <div className="environment-error" role="alert"><CircleAlert size={16} />{error}</div>}{notice && <p className="nvv-sandbox-notice" role="status">{notice}</p>}
+          {sandbox && <section className="office-panel visma-sandbox-source" aria-label="Underlag från attesterat viktkort">
+            <header><div><h2><FileText size={18} />Testa ett attesterat viktkort</h2><p>Attesten gör underlaget exportklart. Den låsta avräkningen förifyller testet; sändningen görs med testknappen.</p></div>
+              <button className="office-btn outline" type="button" disabled={!sandbox.companyVerified || loading || sending || connectionBusy || !!inFlight} onClick={() => void prepareSpirisChoices()}><RefreshCw size={14} />Hämta Spiris-val</button></header>
+            <label>Attesterat viktkort<select value={cardPrefill?.source.cardId ?? ''} disabled={loading || sending || connectionBusy || !!inFlight} onChange={event => void selectAttestedCard(event.target.value)}>
+              <option value="">Välj kort eller använd fritt testformulär</option>{attestedCards.map(card => <option key={card.approvalId} value={card.cardId}>INV-{card.cardId} · {card.customerName} · {moneyText(card.gross)}</option>)}
+            </select></label>
+            {!attestedCards.length && <p className="visma-sandbox-help">Inga aktuella kundgodkända och internt attesterade kort finns ännu. Attestera ett kort och tryck på Kontrollera historik för att hämta listan igen.</p>}
+            {cardPrefill && <><div className="visma-sandbox-source-summary"><div><small>Avräkning</small><strong>{cardPrefill.source.number}</strong></div><div><small>Hela inköpet</small><strong>{moneyText(cardPrefill.source.gross)}</strong></div><div><small>Att betala efter kvittning</small><strong>{moneyText(cardPrefill.source.net)}</strong></div><div><small>Attesterad av</small><strong>{cardPrefill.source.attestedBy}</strong><small>{environmentTime(cardPrefill.source.attestedAt)}</small></div></div>
+              <details><summary>Material, referens och betalning</summary><table><thead><tr><th>Material</th><th>Vikt</th><th>Pris/kg</th><th>Belopp</th></tr></thead><tbody>{cardPrefill.source.rows.map((row, index) => <tr key={index}><td>{row.name}</td><td>{row.weight.toLocaleString('sv-SE')} kg</td><td>{moneyText(row.price)}</td><td>{moneyText(row.amount)}</td></tr>)}</tbody></table>
+                <p>Referens: {cardPrefill.source.reference || '—'} · Ursprung: {cardPrefill.source.origin}</p><p>Betalning: {({ bank: 'Bankkonto', cash: 'Kontant', swish: 'Swish', balance: 'Spara på saldo' } as Record<string, string>)[cardPrefill.source.paymentMethod]} · {cardPrefill.source.paymentRecipient}</p>
+              </details>{cardPrefill.notes.map(note => <p className="visma-sandbox-help" key={note}>{note}</p>)}
+              <div className="visma-sandbox-source-actions"><button className="office-link" type="button" disabled={loading || sending || connectionBusy || !!inFlight} onClick={() => void selectAttestedCard(String(cardPrefill.source.cardId))}><RefreshCw size={14} />Förifyll igen från attesten</button><button className="office-link" type="button" disabled={loading || sending || connectionBusy || !!inFlight} onClick={() => selectOperation('createDraft')}><ArrowUpRight size={14} />Till fakturautkast</button></div>
+              <p className="visma-sandbox-help">Spiris använder kunden som leverantör. Konton 4000 och 2440 föreslås endast när de finns aktiva i den hämtade kontoplanen; granska konton och moms före testet.</p>
+            </>}
+          </section>}
           {sandbox && forms ? <div className="nvv-sandbox-layout">
             <form className="office-panel nvv-sandbox-form" onSubmit={event => { event.preventDefault(); void send(); }} aria-label="Visma sandboxtest"><div className="nvv-sandbox-form-header"><div><h2>Testanrop</h2><p>Varje test skickas först när du trycker på knappen.</p></div>{write && <button className="office-link" type="button" onClick={() => { adoptForm(operation as 'createSupplier' | 'createDraft', starterPayload(operation as 'createSupplier' | 'createDraft', sandbox.templates)); setNotice('Testmallen har återställts. Välj faktiska ID:n och konton före testet.'); }}>Återställ testmall</button>}</div>
               <div className="nvv-sandbox-fields visma-sandbox-operation"><label className="is-wide">Välj operation<select value={operation} onChange={event => selectOperation(event.target.value as VismaOperation)}>{sandbox.operations.map(item => <option key={item.id} value={item.id}>{item.method} · {operationLabels[item.id]}</option>)}</select></label></div>
@@ -416,7 +537,8 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
               {write && <><div className="nvv-sandbox-tabs" role="tablist" aria-label="Redigera testpayload"><button type="button" role="tab" aria-selected={editor === 'fields'} aria-controls="visma-sandbox-fields" onClick={() => switchEditor('fields')}><FileText size={15} />Formulär</button><button type="button" role="tab" aria-selected={editor === 'json'} aria-controls="visma-sandbox-json" onClick={() => switchEditor('json')}><Code2 size={15} />Avancerad JSON</button></div>
                 {editor === 'json' ? <div id="visma-sandbox-json" role="tabpanel" className="nvv-sandbox-json"><label>JSON-payload<textarea value={raw} onChange={event => { setRaw(event.target.value); setError(''); }} rows={22} spellCheck={false} /></label><small>Servern validerar dokumenterade fält. Adress, företag och autentisering bestäms av servern.</small></div> : <div id="visma-sandbox-fields" role="tabpanel">
                   {operation === 'createSupplier' ? <fieldset><legend>Testleverantör</legend><div className="nvv-sandbox-fields">{field('createSupplier', 'Namn', 'Name', { required: true, wide: true })}{field('createSupplier', 'Organisationsnummer · utelämna för privatperson', 'CorporateIdentityNumber')}{field('createSupplier', 'Leverantörsnummer · valfritt', 'SupplierNumber')}{field('createSupplier', 'E-post', 'EmailAddress', { type: 'email' })}{field('createSupplier', 'Kontaktperson', 'ContactPersonName')}
-                    <label className="is-wide">Betalningsvillkor<select value={fieldValue(forms.createSupplier, 'TermsOfPaymentId')} onChange={event => updateField('createSupplier', 'TermsOfPaymentId', event.target.value)}><option value="">Välj ett hämtat inköpsvillkor</option>{lookups.paymentTerms.filter(term => term.AvailableForPurchase === true).map(term => <option key={fieldValue(term, 'Id')} value={fieldValue(term, 'Id')}>{fieldValue(term, 'Name')} · {fieldValue(term, 'NumberOfDays')} dagar</option>)}{usableUuid(fieldValue(forms.createSupplier, 'TermsOfPaymentId')) && !lookups.paymentTerms.some(term => term.Id === forms.createSupplier.TermsOfPaymentId) && <option value={fieldValue(forms.createSupplier, 'TermsOfPaymentId')}>{fieldValue(forms.createSupplier, 'TermsOfPaymentId')}</option>}</select></label>{field('createSupplier', 'Betalningsvillkors-ID', 'TermsOfPaymentId', { required: true, wide: true })}{field('createSupplier', 'Landkod', 'CountryCode')}{field('createSupplier', 'Valutakod', 'CurrencyCode')}</div><p className="visma-sandbox-help">Läs betalningsvillkor och välj ett faktiskt villkor som är tillgängligt för inköp. För en privatperson fyller du i ett fiktivt namn och lämnar organisationsnummer tomt.</p></fieldset>
+                    <label className="is-wide">Betalningsvillkor<select value={fieldValue(forms.createSupplier, 'TermsOfPaymentId')} onChange={event => updateField('createSupplier', 'TermsOfPaymentId', event.target.value)}><option value="">Välj ett hämtat inköpsvillkor</option>{lookups.paymentTerms.filter(term => term.AvailableForPurchase === true).map(term => <option key={fieldValue(term, 'Id')} value={fieldValue(term, 'Id')}>{fieldValue(term, 'Name')} · {fieldValue(term, 'NumberOfDays')} dagar</option>)}{usableUuid(fieldValue(forms.createSupplier, 'TermsOfPaymentId')) && !lookups.paymentTerms.some(term => term.Id === forms.createSupplier.TermsOfPaymentId) && <option value={fieldValue(forms.createSupplier, 'TermsOfPaymentId')}>{fieldValue(forms.createSupplier, 'TermsOfPaymentId')}</option>}</select></label>{field('createSupplier', 'Betalningsvillkors-ID', 'TermsOfPaymentId', { required: true, wide: true })}{field('createSupplier', 'Landkod', 'CountryCode')}{field('createSupplier', 'Valutakod', 'CurrencyCode')}
+                    {field('createSupplier', 'Adress', 'Address1', { wide: true })}{field('createSupplier', 'Postnummer', 'PostalCode')}{field('createSupplier', 'Ort', 'City')}{field('createSupplier', 'Telefon', 'Telephone')}{field('createSupplier', 'Bank', 'BankName')}{field('createSupplier', 'Clearingnummer', 'Clearing')}{field('createSupplier', 'Bankkontonummer', 'BankAccountNumber')}{field('createSupplier', 'Anteckning och JEROC-referens', 'Note', { wide: true })}</div><p className="visma-sandbox-help">Hämta Spiris-val för betalvillkor. Ett valt viktkort använder kunduppgifterna från dess attestversion. Privatpersonens personnummer förs inte till fältet för organisationsnummer.</p></fieldset>
                     : <><fieldset><legend>Leverantörsfakturautkast</legend><div className="nvv-sandbox-fields"><label className="is-wide">Hämtad leverantör<select value={fieldValue(forms.createDraft, 'SupplierId')} onChange={event => updateField('createDraft', 'SupplierId', event.target.value)}><option value="">Välj en hämtad testleverantör</option>{lookups.suppliers.map(supplier => <option key={fieldValue(supplier, 'Id')} value={fieldValue(supplier, 'Id')}>{fieldValue(supplier, 'Name')} · {fieldValue(supplier, 'SupplierNumber')}</option>)}{usableUuid(fieldValue(forms.createDraft, 'SupplierId')) && !lookups.suppliers.some(supplier => supplier.Id === forms.createDraft.SupplierId) && <option value={fieldValue(forms.createDraft, 'SupplierId')}>{fieldValue(forms.createDraft, 'SupplierId')}</option>}</select></label>{field('createDraft', 'Leverantörs-ID', 'SupplierId', { required: true, wide: true })}{field('createDraft', 'Fakturanummer', 'InvoiceNumber')}{field('createDraft', 'Valutakod', 'CurrencyCode')}{field('createDraft', 'Fakturadatum', 'InvoiceDate', { type: 'date' })}{field('createDraft', 'Förfallodatum', 'DueDate', { type: 'date' })}{field('createDraft', 'Totalbelopp', 'TotalAmount', { type: 'number' })}{field('createDraft', 'Momsbelopp', 'Vat', { type: 'number' })}</div><label className="nvv-sandbox-agent-toggle visma-sandbox-checkbox"><input type="checkbox" checked={forms.createDraft.IsCreditInvoice === true} onChange={event => updateField('createDraft', 'IsCreditInvoice', event.target.checked)} />Kreditfaktura</label></fieldset>
                       <fieldset><legend>Konteringsrader</legend><p className="visma-sandbox-help">Läs räkenskapsår och kontoplan. Välj verkliga konton från sandboxen och kontrollera debet och kredit.</p><div className="visma-sandbox-rows">{rows.map((row, index) => <div className="visma-sandbox-row" key={index}><div className="visma-sandbox-row-heading"><strong>Rad {index + 1}</strong><button className="office-link" type="button" aria-label={`Ta bort rad ${index + 1}`} onClick={() => updateField('createDraft', 'Rows', rows.filter((_, at) => at !== index))}><Trash2 size={13} />Ta bort</button></div><div className="nvv-sandbox-fields"><label className="is-wide">Konto · rad {index + 1}<select value={fieldValue(row, 'AccountNumber')} onChange={event => updateRow(index, 'AccountNumber', event.target.value ? Number(event.target.value) : undefined)}><option value="">Välj ett faktiskt konto</option>{lookups.accounts.filter(account => account.IsActive === true && /^\d+$/.test(fieldValue(account, 'Number'))).map(account => <option key={fieldValue(account, 'Number')} value={fieldValue(account, 'Number')}>{fieldValue(account, 'Number')} · {fieldValue(account, 'Name')}{account.IsFirstCostCenterMandatory ? ' · kostnadsställe krävs' : ''}</option>)}{fieldValue(row, 'AccountNumber') && !lookups.accounts.some(account => Number(account.Number) === row.AccountNumber) && <option value={fieldValue(row, 'AccountNumber')}>{fieldValue(row, 'AccountNumber')} · från payload</option>}</select></label>{(['DebitAmount', 'CreditAmount'] as const).map(key => <label key={key}>{key === 'DebitAmount' ? 'Debet' : 'Kredit'} · rad {index + 1}<input type="number" step="0.01" value={fieldValue(row, key)} onChange={event => updateRow(index, key, event.target.value === '' ? undefined : Number(event.target.value))} /></label>)}<label className="is-wide">Text · rad {index + 1}<input value={fieldValue(row, 'TransactionText')} onChange={event => updateRow(index, 'TransactionText', event.target.value || undefined)} /></label></div></div>)}</div><button className="office-link" type="button" onClick={() => updateField('createDraft', 'Rows', [...rows, { DebitAmount: 0, CreditAmount: 0, LineNumber: rows.length + 1 }])}><Plus size={14} />Lägg till rad</button></fieldset></>}
                 </div>}</>}

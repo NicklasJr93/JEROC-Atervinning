@@ -117,7 +117,10 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
             const context = { organisationId: 'jeroc-demo', actorId: principal.actor.id, effectiveUserId: principal.user.id,
               actor: principal.actor, user: principal.user, sessionKey: createHash('sha256').update(token).digest('hex') };
             const run = route.match(/^\/visma\/sandbox\/runs\/([a-fA-F0-9-]{36})$/);
+            const prefill = route.match(/^\/visma\/attested-cards\/([1-9]\d{0,11})$/);
             if (read && route === '/visma/status') json(res, 200, await vismaService.status(context), req.method === 'HEAD');
+            else if (read && route === '/visma/attested-cards') json(res, 200, await vismaService.attestedCards(context), req.method === 'HEAD');
+            else if (read && prefill) json(res, 200, await vismaService.prefill(Number(prefill[1]), context), req.method === 'HEAD');
             else if (req.method === 'POST' && route === '/visma/oauth/start') {
               if (!z.object({}).strict().safeParse(await body(req)).success) throw new EnvironmentError('Anslutningen tar inga klientuppgifter.', 422, 'visma_invalid');
               const result = await vismaService.begin(context);

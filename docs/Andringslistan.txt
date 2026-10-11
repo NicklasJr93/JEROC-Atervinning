@@ -1433,3 +1433,28 @@ Status: Implementerad i kontorsdemo 0.15.1, 2026-10-11.
 - Verifierat: produktionsbygget, 42 fokuserade Spiris-servertester och ett
   nytt webbläsarfall för vidarebefordran, cookie och lokal URL-validering.
   Providersvar är fejkade; verklig Spiris-inloggning återstår.
+
+072 – Spiris-test från attesterat viktkort
+Status: Implementerad i kontorsdemo 0.15.2, 2026-10-11.
+- Testsidan kan välja senaste kundgodkända och internt attesterade viktkort.
+  Förifyllning använder dess frysta attestversion, inte dagens register:
+  kund, kundadress, kontakt, bankuppgifter, material, vikt, pris och belopp.
+  Privatpersonens personnummer skickas inte som organisationsnummer.
+- Utkastet använder dokumentets AV-kortnummer-V-version och svensk
+  kalenderdag för attesten. TotalAmount är hela inköpet före kvittning;
+  att betala visas separat. Kvittningsbokföring ingår ännu inte.
+- Hämta Spiris-val läser inköpsbetalvillkor, leverantörer, öppet år som
+  täcker fakturadatumet och kontoplan. Egna fält bevaras. 4000/2440 föreslås
+  endast när verkliga aktiva konton utan obligatoriska dimensioner finns.
+  Moms och kontering måste granskas; företagsinköp kräver angivet momsbelopp.
+- Entydig leverantörsmatchning på nummer, annars organisationsnummer.
+  Skapad testleverantörs svar-ID förs direkt in i utkastet, utan extra POST.
+- Testjournalen sparar kort-/attest-ID, version och kontrollsumma.
+  Servern kontrollerar aktuell attest före provideranrop; källmetadata
+  skickas inte som extra Spiris-fält. Kortval utför inga externa skrivningar.
+- Attest gör exportklart. Sandboxsändning kräver separat testklick; ingen
+  automatisk export, PDF-bilaga, bokföring eller betalning tillkommer.
+  Befintlig Render-konfiguration används.
+- Verifierat: produktionsbygge, 48 fokuserade servertester och sju
+  Spiris-webbläsarfall med simulerade providersvar. Användaren har bekräftat
+  fungerande verklig OAuth-inloggning; nytt utkast provas sedan i sandboxen.

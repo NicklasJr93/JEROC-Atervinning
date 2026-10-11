@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import type { VismaSandboxRequest, VismaSandboxRun, VismaSandboxStatus } from '../src/office/visma-sandbox-client';
+import type { VismaSandboxRequest, VismaSandboxRun, VismaSandboxStatus, VismaCardPrefill } from '../src/office/visma-sandbox-client';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 test.setTimeout(45_000);
@@ -44,6 +44,7 @@ function result(request: VismaSandboxRequest, response: unknown, resourceId?: st
   const path = operation.path.replace('{fiscalYearId}', request.parameters?.fiscalYearId ?? '').replace('{resourceId}', request.parameters?.resourceId ?? '');
   return { id: request.requestId, status: 'accepted', operation: request.operation, method: operation.method, path,
     ...(request.parameters && { parameters: structuredClone(request.parameters) }), ...(request.payload && { payload: structuredClone(request.payload) }),
+    ...(request.source && { source: structuredClone(request.source) }),
     startedAt: '2026-10-11T10:00:00Z', finishedAt: '2026-10-11T10:00:01Z', httpStatus: operation.write ? 201 : 200,
     response, trackingId: `local-browser-${request.operation}`, ...(resourceId && { resourceId }) };
 }
@@ -54,7 +55,7 @@ function gate() {
   return { promise, release };
 }
 
-async function fixture(page: Page, onSend: (request: VismaSandboxRequest) => Promise<VismaSandboxRun>, options?: { loseResponse?: boolean; accounts?: boolean; historyOnly?: boolean }) {
+async function fixture(page: Page, onSend: (request: VismaSandboxRequest) => Promise<VismaSandboxRun>, options?: { loseResponse?: boolean; accounts?: boolean; historyOnly?: boolean; prefill?: VismaCardPrefill }) {
   const current = state(), requests: VismaSandboxRequest[] = [], reads: string[] = [], externalRequests: string[] = [];
   if (options?.accounts) current.runs = [result({ requestId: accountsRunId, idempotencyKey: 'local-account-lookup', operation: 'accounts', parameters: { fiscalYearId } }, {
     Meta: { TotalNumberOfResults: 2, TotalNumberOfPages: 1 }, Data: [
@@ -82,6 +83,10 @@ async function fixture(page: Page, onSend: (request: VismaSandboxRequest) => Pro
       // Recovery may require the dedicated run endpoint if the status snapshot
       // has not yet included the completed request.
       await route.fulfill({ json: options?.historyOnly ? { ...current, runs: current.runs.filter(run => !requests.some(request => request.requestId === run.id)) } : current });
+    } else if (method === 'GET' && path === `${api}/attested-cards`) {
+      reads.push(path); await route.fulfill({ json: { cards: options?.prefill ? [options.prefill.source] : [] } });
+    } else if (method === 'GET' && path === `${api}/attested-cards/${options?.prefill?.source.cardId}`) {
+      reads.push(path); await route.fulfill({ json: options?.prefill });
     } else if (method === 'POST' && path === `${api}/sandbox`) {
       const request = route.request().postDataJSON() as VismaSandboxRequest;
       requests.push(structuredClone(request));
@@ -174,6 +179,60 @@ test('localhostsvaret förs till samma servers callback med browsercookie och ut
   expect(callbacks[0].cookie).toContain('jeroc_visma_oauth=synthetic-original-browser-binding');
   expect(oauthPosts).toEqual([]); expect(local.requests).toEqual([]); expect(local.externalRequests).toEqual([]);
   expect(await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage }))).not.toContain('synthetic-code+with/slashes=');
+});
+
+test('attesterat viktkort förifyller frysta uppgifter, hämtar verkliga Spiris-val och skapar leverantör följt av redigerbart utkast', async ({ page }) => {
+  const prefill: VismaCardPrefill = { source: { cardId: 3016, approvalId: 'cfa4041b-a9ce-4dc5-b6a4-498adca70384', version: 2, hash: 'a'.repeat(64),
+    number: 'AV-3016-V2', customerName: 'Frysta kunden AB', customerType: 'Företag', siteName: 'Norrtälje', attestedAt: '2026-10-11T10:00:00Z', attestedBy: 'Anna',
+    gross: 140, offset: 40, net: 100, reference: 'Fryst referens', origin: 'Ursprungsgatan 9', deliveredAt: '2026-10-10T09:00:00Z', paymentMethod: 'bank', paymentRecipient: 'Frysta kunden AB',
+    rows: [{ articleId: 'copper-1', name: 'Koppar klass 1', weight: 2, price: 50, amount: 100 }, { articleId: 'lead-battery', name: 'Blybatterier', weight: 10, price: 4, amount: 40 }] },
+    supplier: { Name: 'Frysta kunden AB', CorporateIdentityNumber: '5590000000', SupplierNumber: 'K-1001', CountryCode: 'SE', CurrencyCode: 'SEK', IsActive: true,
+      Address1: 'Kundgatan 1', PostalCode: '76141', City: 'Norrtälje', EmailAddress: 'test@example.invalid', Telephone: '0700000000',
+      Clearing: '1234', BankAccountNumber: '111222333', BankName: 'Testbank', Note: 'JEROC K-1001 · AV-3016-V2' },
+    draft: { InvoiceNumber: 'AV-3016-V2', InvoiceDate: '2026-10-11', TotalAmount: 140, CurrencyCode: 'SEK', IsCreditInvoice: false, SkipSendToBank: true,
+      Rows: [{ DebitAmount: 100, CreditAmount: 0, LineNumber: 1, TransactionText: 'Koppar klass 1 · 2 kg × 50 kr' },
+        { DebitAmount: 40, CreditAmount: 0, LineNumber: 2, TransactionText: 'Blybatterier · 10 kg × 4 kr' },
+        { DebitAmount: 0, CreditAmount: 140, LineNumber: 3, TransactionText: 'Leverantörsskuld AV-3016-V2' }] },
+    notes: ['Kvittning hanteras separat. Moms behöver fastställas.'] };
+  const local = await fixture(page, async request => {
+    if (request.operation === 'paymentTerms') return result(request, { Data: [{ Id: paymentTermsId, Name: 'Direkt', NumberOfDays: 0, AvailableForPurchase: true }] });
+    if (request.operation === 'fiscalYears') return result(request, { Data: [{ Id: fiscalYearId, StartDate: '2026-01-01', EndDate: '2026-12-31', IsLockedForAccounting: false }] });
+    if (request.operation === 'suppliers') return result(request, { Data: [] });
+    if (request.operation === 'accounts') return result(request, { Data: [{ Number: '4000', Name: 'Inköp', IsActive: true }, { Number: '2440', Name: 'Leverantörsskuld', IsActive: true }] });
+    return request.operation === 'createSupplier' ? result(request, { ...request.payload, Id: supplierId }, supplierId) : result(request, { ...request.payload, Id: draftId }, draftId);
+  }, { prefill });
+  await login(page); await open(page);
+  await page.getByRole('combobox', { name: 'Attesterat viktkort', exact: true }).selectOption('3016');
+  await expect(page.getByLabel('Namn', { exact: true })).toHaveValue('Frysta kunden AB');
+  await expect(page.getByLabel('Adress', { exact: true })).toHaveValue('Kundgatan 1');
+  await expect(page.getByLabel('Bankkontonummer', { exact: true })).toHaveValue('111222333');
+  expect(local.requests).toEqual([]);
+  await page.getByLabel('Namn', { exact: true }).fill('Redigerad fryst kund AB');
+  await page.getByRole('button', { name: 'Hämta Spiris-val', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Visma har svarat', exact: true })).toContainText('2440');
+  await page.getByRole('button', { name: 'Klart', exact: true }).click();
+  await expect(page.getByLabel('Namn', { exact: true })).toHaveValue('Redigerad fryst kund AB');
+  await expect(page.getByLabel('Betalningsvillkors-ID', { exact: true })).toHaveValue(paymentTermsId);
+  expect(local.requests.map(request => request.operation)).toEqual(['paymentTerms', 'fiscalYears', 'suppliers', 'accounts']);
+  await page.getByRole('button', { name: 'Skicka till Visma · SANDBOX', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Visma har svarat', exact: true })).toContainText(supplierId);
+  await page.getByRole('button', { name: 'Klart', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Välj operation', exact: true })).toHaveValue('createDraft');
+  await expect(page.getByLabel('Leverantörs-ID', { exact: true })).toHaveValue(supplierId);
+  await expect(page.getByLabel('Totalbelopp', { exact: true })).toHaveValue('140');
+  await expect(page.getByLabel('Fakturanummer', { exact: true })).toHaveValue('AV-3016-V2');
+  await expect(page.getByLabel('Förfallodatum', { exact: true })).toHaveValue('2026-10-11');
+  await expect(page.getByRole('combobox', { name: 'Konto · rad 1', exact: true })).toHaveValue('4000');
+  await expect(page.getByRole('combobox', { name: 'Konto · rad 3', exact: true })).toHaveValue('2440');
+  await page.getByRole('button', { name: 'Skicka till Visma · SANDBOX', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Ange momsbelopp'); expect(local.requests).toHaveLength(5);
+  await page.getByLabel('Momsbelopp', { exact: true }).fill('0');
+  await page.getByRole('button', { name: 'Skicka till Visma · SANDBOX', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Visma har svarat', exact: true })).toContainText(draftId);
+  expect(local.requests).toHaveLength(6);
+  expect(local.requests[4].source).toEqual({ cardId: 3016, approvalId: prefill.source.approvalId, version: 2, hash: prefill.source.hash });
+  expect(local.requests[5].payload?.TotalAmount).toBe(140); expect(local.requests[5].payload?.SkipSendToBank).toBe(true);
+  expect(local.requests[5].source).toEqual(local.requests[4].source); expect(local.externalRequests).toEqual([]);
 });
 
 test('läsanropets animerade popup väntar på svaret och visar faktisk HTTP-status och råsvar', async ({ page }, info) => {

@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, 
 import { setTimeout as pause } from 'node:timers/promises';
 import { EnvironmentError } from './environment-storage.mjs';
 import { createVismaClient, parseVismaSandboxInput, readVismaConfiguration, VISMA_OPERATIONS, VISMA_SCOPES, vismaOperationPath } from './visma-client.mjs';
+import { latestAttestedVismaCards, attestedVismaSummary, attestedVismaPrefill } from './visma-weightcard.mjs';
 
 const DOMAIN = 'vismaIntegration', OAUTH_LIFETIME = 10 * 60 * 1000, RUN_LIFETIME = 120000, REFRESH_LIFETIME = 45000;
 const copy = value => structuredClone(value);
@@ -23,7 +24,7 @@ function scoped(context, requireAdmin = true) {
   if (Array.isArray(context.actor.siteIds) || Array.isArray(context.user.siteIds)) fail('Testverktyget kräver åtkomst till alla anläggningar.', 403, 'site_forbidden');
 }
 function publicRun(run, time) {
-  const result = Object.fromEntries(['id', 'status', 'operation', 'method', 'path', 'parameters', 'payload', 'startedAt', 'finishedAt', 'httpStatus', 'response', 'error', 'trackingId', 'resourceId']
+  const result = Object.fromEntries(['id', 'status', 'operation', 'method', 'path', 'parameters', 'payload', 'source', 'startedAt', 'finishedAt', 'httpStatus', 'response', 'error', 'trackingId', 'resourceId']
     .filter(key => run[key] !== undefined).map(key => [key, copy(run[key])]));
   if (run.status === 'in_flight' && time.getTime() >= Date.parse(run.leaseUntil)) Object.assign(result, { status: 'unknown', error: { code: 'VISMA_UNKNOWN_OUTCOME',
     message: 'Svaret saknas efter avbrott eller timeout. Försöket kan ha nått Spiris och skickas inte automatiskt igen.' } });
@@ -35,12 +36,23 @@ const companyFrom = response => response && typeof response.CompanyIdentifier ==
 
 /** OAuth and test runs live in a separate ApplicationRepository domain. All
  * transactions are short; provider calls happen after the reservation commits. */
-export function createVismaSandbox({ getRepository, env = process.env, fetchImpl = globalThis.fetch, now = () => new Date() } = {}) {
+export function createVismaSandbox({ getRepository, sourceProvider = async () => [], env = process.env, fetchImpl = globalThis.fetch, now = () => new Date() } = {}) {
   if (typeof getRepository !== 'function') throw new TypeError('getRepository krävs.');
   const client = createVismaClient({ env, fetchImpl });
   const clock = () => new Date(now());
   const config = () => readVismaConfiguration(env);
   const ready = () => { const result = config(); if (!result.configured) fail('Spiris sandbox är inte färdigkonfigurerad.', 409, 'visma_not_configured'); return result; };
+  async function prefill(cardId, context) {
+    scoped(context);
+    const approval = latestAttestedVismaCards(await sourceProvider()).find(item => String(item.cardId) === String(cardId));
+    if (!approval) fail('Kortets aktuella version måste vara kundgodkänd och internt attesterad.', 409, 'visma_source_unattested');
+    return attestedVismaPrefill(approval);
+  }
+  async function assertCurrentSource(reference, context) {
+    const current = (await prefill(reference.cardId, context)).source;
+    if (current.approvalId !== reference.approvalId || current.version !== reference.version || current.hash !== reference.hash)
+      fail('Viktkortets attestversion har ändrats. Hämta kortets uppgifter på nytt.', 409, 'visma_source_changed');
+  }
   function encrypt(value, aad) {
     ready(); const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', Buffer.from(env.VISMA_TOKEN_ENCRYPTION_KEY, 'base64'), iv);
     cipher.setAAD(Buffer.from(aad)); const ciphertext = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()]);
@@ -160,7 +172,8 @@ export function createVismaSandbox({ getRepository, env = process.env, fetchImpl
   }
   function existing(tenant, request, context) {
     const keyHash = hash([context.organisationId, context.actorId, context.effectiveUserId, request.idempotencyKey]);
-    const requestHash = hash({ operation: request.operation, parameters: request.parameters ?? {}, payload: request.payload ?? null });
+    const requestHash = hash({ operation: request.operation, parameters: request.parameters ?? {}, payload: request.payload ?? null,
+      ...(request.source ? { source: request.source } : {}) });
     const prior = tenant.runs.find(item => item.id === request.requestId || item.keyHash === keyHash);
     if (prior && (prior.id !== request.requestId || prior.keyHash !== keyHash || prior.requestHash !== requestHash))
       fail('Samma testförsök innehåller andra uppgifter. Skapa ett nytt testförsök.', 409, 'idempotency_conflict');
@@ -173,6 +186,8 @@ export function createVismaSandbox({ getRepository, env = process.env, fetchImpl
           failed: Boolean(tenant.lastError), lastCheckedAt: tenant.lastCheckedAt ?? null }; });
     },
     async status(context) { scoped(context); return read(state => statusDTO(tenantFor(state, context.organisationId))); },
+    async attestedCards(context) { scoped(context); return { cards: latestAttestedVismaCards(await sourceProvider()).map(attestedVismaSummary) }; },
+    prefill,
     async begin(context) {
       scoped(context); ready(); const state = randomBytes(32).toString('base64url'), cookieBinding = randomBytes(32).toString('base64url'), verifier = randomBytes(48).toString('base64url');
       const expiresAt = new Date(clock().getTime() + OAUTH_LIFETIME).toISOString();
@@ -244,6 +259,7 @@ export function createVismaSandbox({ getRepository, env = process.env, fetchImpl
       scoped(context); const request = parseVismaSandboxInput(value);
       const prior = await read(state => existing(tenantFor(state, context.organisationId), request, context).prior);
       if (prior) return publicRun(prior, clock());
+      if (request.source) await assertCurrentSource(request.source, context);
       const configuration = ready(), descriptor = VISMA_OPERATIONS.find(item => item.id === request.operation);
       const reservation = await transact(document => {
         const tenant = tenantFor(document, context.organisationId, true), match = existing(tenant, request, context);
@@ -253,6 +269,7 @@ export function createVismaSandbox({ getRepository, env = process.env, fetchImpl
         const run = { id: request.requestId, keyHash: match.keyHash, requestHash: match.requestHash, status: 'in_flight', operation: request.operation, method: descriptor.method,
           path: vismaOperationPath(request.operation, request.parameters), ...(request.parameters === undefined ? {} : { parameters: copy(request.parameters) }),
           ...(request.payload === undefined ? {} : { payload: copy(request.payload) }),
+          ...(request.source === undefined ? {} : { source: copy(request.source) }),
           startedAt: clock().toISOString(), leaseUntil: new Date(clock().getTime() + RUN_LIFETIME).toISOString(), trackingId: randomUUID(), httpStatus: null, response: null,
           actualUserId: context.actorId, effectiveUserId: context.effectiveUserId, generation: tenant.generation };
         tenant.runs.push(run); audit(tenant, context, 'visma.sandbox_reserved', { runId: run.id, trackingId: run.trackingId }); return { run: copy(run) };
@@ -270,6 +287,7 @@ export function createVismaSandbox({ getRepository, env = process.env, fetchImpl
           // Recheck the durable generation after refresh/company validation so
           // a completed disconnect prevents dispatch through stale credentials.
           await read(state => { const tenant = tenantFor(state, context.organisationId); if (tenant.generation !== reservation.run.generation) fail('Anslutningen har ändrats.', 409, 'visma_not_connected'); requireCompany(tenant, ready()); });
+          if (request.source) await assertCurrentSource(request.source, context);
           dispatched = true; result = await client.request({ operation: request.operation, parameters: request.parameters, payload: reservation.run.payload, accessToken, trackingId: reservation.run.trackingId });
         }
       } catch (error) { result = { outcome: dispatched ? 'unknown' : 'rejected', httpStatus: null, response: null,

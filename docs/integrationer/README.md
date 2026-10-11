@@ -1,4 +1,4 @@
-# Integrationer – kontorsdemo 0.15.1
+# Integrationer – kontorsdemo 0.15.2
 
 **Integrationer** finns i kontorets vänstermeny. Kortgrid och detaljvy återanvänder
 kontorets design. Naturvårdsverket har en TEST-adapter. Spiris/Visma eEkonomi

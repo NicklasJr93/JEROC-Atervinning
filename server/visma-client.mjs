@@ -56,7 +56,8 @@ const draft = z.object({
   SkipSendToBank: z.literal(true).default(true),
 }).strict();
 const inputSchema = z.object({ requestId: uuid, idempotencyKey: z.string().trim().min(1).max(100), operation: z.enum(VISMA_OPERATIONS.map(item => item.id)),
-  parameters: z.object({ fiscalYearId: uuid.optional(), resourceId: uuid.optional() }).strict().optional(), payload: z.unknown().optional() }).strict();
+  parameters: z.object({ fiscalYearId: uuid.optional(), resourceId: uuid.optional() }).strict().optional(), payload: z.unknown().optional(),
+  source: z.object({ cardId: z.number().int().positive().safe(), approvalId: uuid, version: z.number().int().positive(), hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().optional() }).strict();
 
 export function parseVismaSandboxInput(value) {
   let size; try { size = Buffer.byteLength(JSON.stringify(value)); } catch { fail('Testunderlaget måste vara JSON.'); }
@@ -64,6 +65,7 @@ export function parseVismaSandboxInput(value) {
   const input = inputSchema.safeParse(value);
   if (!input.success) fail('Testunderlaget innehåller okända fält eller fel datatyp.');
   const request = input.data, operation = byOperation.get(request.operation), parameters = request.parameters ?? {};
+  if (request.source && !operation.write) fail('Viktkortsreferens används endast för leverantörs- och fakturautkaststest.');
   const expected = request.operation === 'accounts' ? 'fiscalYearId' : ['supplier', 'draft'].includes(request.operation) ? 'resourceId' : null;
   if (Object.keys(parameters).some(key => key !== expected) || expected && !parameters[expected]) fail('Ange endast operationens dokumenterade resursidentifierare.');
   if (operation.write) {

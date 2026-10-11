@@ -1,4 +1,27 @@
-# JEROC kontorsdemo 0.15.1
+# JEROC kontorsdemo 0.15.2
+
+## Nytt i 0.15.2 – Spiris-test från attesterade viktkort
+
+Spiris-testsidan har ett val av attesterade viktkort. Förifyllningen läser
+den låsta, kundgodkända attestversionen: kund, adress, betaluppgifter,
+material, vikter, priser och avräkningsreferens. Den använder samma
+avräkningsnummer som dokumentet, `AV-{kortnummer}-V{version}`.
+
+**Hämta Spiris-val** läser inköpsbetalvillkor, leverantörer och årets
+kontoplan. Befintlig leverantör matchas på leverantörsnummer eller ett
+entydigt organisationsnummer; en skapad testleverantörs svar-ID förs direkt
+in i fakturautkastet. Konton 4000/2440 föreslås endast om de finns som
+aktiva, möjliga konton i det lästa räkenskapsåret. Granska moms och kontering.
+
+Utkastets belopp är hela inköpet före eventuell kvittning. Att betala visas
+separat; kvittningsbokföring ingår ännu inte. Attesten gör underlaget
+exportklart, men varje sändning i sandboxen kräver testknappen. PDF-bilaga,
+automatisk överföring, bokföring och bankbetalning ingår inte i denna etapp.
+Inga nya Render-fält behövs. Produktionsbygget, 48 riktade servertester och
+sju Spiris-webbläsarfall passerar med simulerade providersvar. Det nya
+flödet verifierar kortval, egna fältändringar, läsval, leverantörens svar-ID,
+momsval och uttrycklig sändning av utkast. Verklig utkastssändning återstår
+att prova med användarens anslutna sandboxföretag.
 
 ## Nytt i 0.15.1 – anslut sandbox med befintlig localhostadress
 

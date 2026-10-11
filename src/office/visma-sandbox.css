@@ -25,4 +25,20 @@
 .visma-sandbox-local-relay label { display:grid; gap:6px; color:#597794; font-size:11px; }
 .visma-sandbox-local-relay input { width:100%; min-width:0; padding:10px 12px; border:1px solid #dbe5f0; border-radius:7px; background:#fff; color:#294766; }
 .visma-sandbox-local-relay .office-btn { margin-top:12px; }
+.visma-sandbox-source { margin-bottom:16px; }
+.visma-sandbox-source header { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; margin-bottom:14px; }
+.visma-sandbox-source h2 { display:flex; gap:8px; align-items:center; margin:0; font-size:15px; }
+.office .visma-sandbox-source header p, .office .visma-sandbox-source details p { color:#7890a8; font-size:11px; line-height:1.6; margin:7px 0; }
+.visma-sandbox-source > label { display:grid; gap:7px; font-size:11px; color:#597794; }
+.visma-sandbox-source select { width:100%; min-width:0; padding:10px 12px; border:1px solid #dbe5f0; border-radius:7px; color:#294766; background:#fff; }
+.visma-sandbox-source-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:14px; padding:14px; border-radius:8px; background:#f5f9ff; }
+.visma-sandbox-source-summary small { display:block; font-size:10px; color:#7890a8; }
+.visma-sandbox-source-summary strong { display:block; margin:5px 0; color:#294766; font-size:13px; }
+.visma-sandbox-source details { margin-top:13px; font-size:11px; color:#597794; }
+.visma-sandbox-source summary { cursor:pointer; }
+.visma-sandbox-source table { width:100%; margin-top:10px; border-collapse:collapse; }
+.visma-sandbox-source th, .visma-sandbox-source td { padding:8px; border-bottom:1px solid #e7eef5; text-align:right; }
+.visma-sandbox-source th:first-child, .visma-sandbox-source td:first-child { text-align:left; }
+.visma-sandbox-source-actions { display:flex; flex-wrap:wrap; gap:16px; margin-top:12px; }
+@media(max-width:700px) { .visma-sandbox-source header { flex-wrap:wrap; } .visma-sandbox-source-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:700px) { .visma-sandbox-company { align-items:flex-start; flex-wrap:wrap; } .visma-sandbox-connect-actions { flex-direction:row; align-items:center; flex-wrap:wrap; } }

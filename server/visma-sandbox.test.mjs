@@ -41,6 +41,7 @@ async function fixture(run, extraEnv = {}) {
     VISMA_TOKEN_ENCRYPTION_KEY: randomBytes(32).toString('base64'), VISMA_SANDBOX_COMPANY_ID: companyId, ...extraEnv,
   };
   const calls = [];
+  const approvals = [];
   let tokenHandler = async () => response({ access_token: accessToken, refresh_token: refreshToken, expires_in: 3600, token_type: 'Bearer', scope: grantedScopes });
   let apiHandler = async call => {
     if (call.url.pathname === '/v2/companysettings') return verifiedCompany();
@@ -54,10 +55,10 @@ async function fixture(run, extraEnv = {}) {
     assert.equal(call.url.origin, 'https://eaccountingapi.vismaonline.com', 'Only the documented Visma API may receive requests');
     return apiHandler(call);
   };
-  const makeService = () => createVismaSandbox({ getRepository: async () => repository, env, fetchImpl, now });
+  const makeService = () => createVismaSandbox({ getRepository: async () => repository, sourceProvider: async () => structuredClone(approvals), env, fetchImpl, now });
   let service = makeService();
   const f = {
-    env, calls, now, makeService,
+    env, calls, now, makeService, approvals,
     get service() { return service; }, get repository() { return repository; },
     advance: milliseconds => { time = new Date(time.getTime() + milliseconds); },
     setTime: value => { time = new Date(value); },
@@ -107,6 +108,32 @@ test('Visma status is local and admin-only without mutating application data', a
   }
   assert.equal(f.calls.length, 0);
   assert.deepEqual(await f.snapshot(), before);
+}));
+
+test('attested source is read-only and its reference is rechecked before provider dispatch and retained in idempotent history', async () => fixture(async f => {
+  f.approvals.push({ id: randomUUID(), cardId: 3016, version: 1, status: 'attested', approvedAt: f.now().toISOString(),
+    approvedMethod: 'staff_checked_id_demo', approvedHash: 'a'.repeat(64), attestedAt: f.now().toISOString(), attestedBy: 'Anna',
+    snapshot: { hash: 'a'.repeat(64), card: { id: 3016 }, customer: { name: 'Frozen fixture', type: 'Privatperson' },
+      rows: [{ articleId: 'copper-1', name: 'Koppar', weight: 10, price: 1, amount: 10 }], gross: 10, offset: 0, net: 10, paymentMethod: 'cash' } });
+  const before = await f.snapshot(), list = await f.service.attestedCards(context), prefill = await f.service.prefill(3016, context);
+  assert.equal(list.cards.length, 1); assert.equal(prefill.supplier.Name, 'Frozen fixture'); assert.equal(f.calls.length, 0);
+  assert.deepEqual(await f.snapshot(), before);
+  await assert.rejects(() => f.service.attestedCards({ ...context, user: { ...context.user, level: 'Medarbetare' } }), errorCode('forbidden'));
+  const source = { cardId: 3016, approvalId: list.cards[0].approvalId, version: 1, hash: list.cards[0].hash };
+  await f.connect();
+  const bad = request('createSupplier', { source: { ...source, hash: 'b'.repeat(64) } }), calls = f.calls.length;
+  await assert.rejects(() => f.service.send(bad, context), errorCode('visma_source_changed')); assert.equal(f.calls.length, calls);
+  const input = request('createSupplier', { source }), sent = await f.service.send(input, context);
+  assert.equal(sent.status, 'accepted'); assert.deepEqual(sent.source, source);
+  assert.equal(JSON.parse(f.apiCalls().find(call => call.method === 'POST').body).source, undefined, 'Source metadata is local and never a Spiris payload field');
+  const after = f.calls.length;
+  assert.deepEqual(await f.service.send(input, context), sent); assert.equal(f.calls.length, after);
+  await assert.rejects(() => f.service.send({ ...input, source: { ...source, version: 2 } }, context), errorCode('idempotency_conflict'));
+  f.setApi(call => { assert.equal(call.method, 'GET'); f.approvals[0].status = 'cancelled'; return verifiedCompany(); });
+  const prevented = await f.service.send(request('createSupplier', { source }), context);
+  assert.equal(prevented.status, 'rejected'); assert.equal(prevented.error.code, 'visma_source_unattested');
+  assert.equal(f.apiCalls().filter(call => call.method === 'POST').length, 1);
+  assert.deepEqual((await f.snapshot()).state.office, before.state.office);
 }));
 
 test('OAuth uses state, PKCE and browser binding; invalid, expired and replayed states cannot redeem a code', async () => fixture(async f => {

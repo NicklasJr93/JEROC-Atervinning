@@ -38,6 +38,8 @@ async function fixture(run, env = {}) {
     company: { id: 'sandbox-company', name: 'Local sandbox fixture', number: '5560000167' }, runs: [] };
   const vismaService = {
     async status(context) { record('status', context); return status; },
+    async attestedCards(context) { record('attestedCards', context); return { cards: [] }; },
+    async prefill(id, context) { record('prefill', context, id); return { source: { cardId: id } }; },
     async begin(context) { record('begin', context); return { authorizationUrl: 'https://oauth.fixture.invalid/authorize?state=public-fixture-state', cookieBinding: 'opaque-server-only-binding', expiresAt: '2026-10-11T10:10:00Z' }; },
     async complete(context) { record('complete', context); return status; },
     async disconnect(context) { record('disconnect', context); return { ...status, connected: false }; },
@@ -63,7 +65,7 @@ async function fixture(run, env = {}) {
 test('Visma bridge requires an actual and effective unrestricted Systemadmin on every provider route', async () => fixture(async f => {
   const admin = await f.login(), lars = await f.login('lars'), impersonated = await f.login('admin', 'lars');
   const input = { requestId: randomUUID(), idempotencyKey: randomUUID(), operation: 'company' };
-  const routes = [ ['GET', '/visma/status'], ['GET', `/visma/sandbox/runs/${sampleRun.id}`],
+  const routes = [ ['GET', '/visma/status'], ['GET', '/visma/attested-cards'], ['GET', '/visma/attested-cards/3016'], ['GET', `/visma/sandbox/runs/${sampleRun.id}`],
     ['POST', '/visma/oauth/start'], ['POST', '/visma/oauth/complete'], ['POST', '/visma/disconnect'], ['POST', '/visma/sandbox'] ];
   for (const [method, path] of routes) {
     const request = headers => fetch(`${f.base}${path}`, { method, headers, ...(method === 'POST' && { body: JSON.stringify(path === '/visma/sandbox' ? input : {}) }) });
@@ -74,6 +76,18 @@ test('Visma bridge requires an actual and effective unrestricted Systemadmin on 
     f.scopes.delete('admin');
   }
   assert.deepEqual(f.calls, []);
+}));
+
+test('attested card listing and prefill are authenticated read-only routes', async () => fixture(async f => {
+  const admin = await f.login();
+  const list = await fetch(`${f.base}/visma/attested-cards`, { headers: admin.headers });
+  assert.equal(list.status, 200); assert.deepEqual(await list.json(), { cards: [] });
+  const filled = await fetch(`${f.base}/visma/attested-cards/3016`, { headers: admin.headers });
+  assert.equal(filled.status, 200); assert.deepEqual(await filled.json(), { source: { cardId: 3016 } });
+  assert.deepEqual(f.calls.map(call => call.method), ['attestedCards', 'prefill']); assert.equal(f.calls[1].input, 3016);
+  for (const id of ['-1', '0', '3016abc', '123456789012345']) assert.equal((await fetch(`${f.base}/visma/attested-cards/${id}`, { headers: admin.headers })).status, 404);
+  assert.equal((await fetch(`${f.base}/visma/attested-cards/3016`, { method: 'POST', headers: admin.headers, body: '{}' })).status, 404);
+  assert.equal(f.calls.length, 2);
 }));
 
 test('Visma writes check live CSRF, expected identities and origin before invoking the service', async () => fixture(async f => {

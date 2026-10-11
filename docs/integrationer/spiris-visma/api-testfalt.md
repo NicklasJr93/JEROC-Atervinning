@@ -55,7 +55,8 @@ Onboardingmejlets registrerade callback är platshållaren
 `https://localhost:44300/callback`. Den behöver ersättas av Spiris med
 `https://jeroc-atervinning.onrender.com/api/integrations/visma/oauth/callback`
 för denna Render-anslutning. Användaren kontaktar `api@spiris.se` för ändringen;
-Render-adressen måste vara registrerad innan OAuth-inloggning där kan fungera.
+Render-adressen måste vara registrerad för automatisk retur. Det tillfälliga
+localhostläget och manuell vidarebefordran beskrivs i [sandbox-setup.md](sandbox-setup.md#tillfälligt-test-med-befintlig-localhostadress).
 Ingen klienthemlighet behöver stå i dokumentationen eller i den frågan.
 
 Tokenanrop är `POST` med `Content-Type:
@@ -107,6 +108,44 @@ Listor returnerar `{ "Meta": {...}, "Data": [...] }`. Sidparametrar är
 `$page` och `$pagesize`; standard är 50 objekt, maximalt 1000 per sida.
 Följ `Meta.TotalNumberOfPages` och visa när bara en sida hämtats.
 
+## Förifyllning från attestversionen i JEROC
+
+Version 0.15.2 hämtar förifyllningen från terminalens frysta snapshot med
+kundgodkännandets matchande kontrollsumma och intern attest. En äldre
+attesterad version väljs inte om en nyare granskning finns. Rättelsekort
+ingår inte i urvalet. Uppgifterna är redigerbara testförslag.
+
+| Uppgift på viktkortet | Spiris-fält / beteende |
+| --- | --- |
+| Fryst kundnamn och kundnummer | `Name`, `SupplierNumber` |
+| Företagets organisationsnummer | `CorporateIdentityNumber`, siffror utan bindestreck |
+| Privatpersonens personnummer | Överförs inte till organisationsnummerfältet |
+| Kundadress, kontaktperson, telefon, e-post | Leverantörens motsvarande adress- och kontaktfält |
+| Ursprung och kundreferens | Sammanställning och `Note`; ursprung ersätter inte kundens adress |
+| Frysta bankuppgifter, om bankkonto är betalningssätt | `Clearing`, `BankAccountNumber`, `BankName` |
+| Avräkningsnummer | `InvoiceNumber`: samma `AV-{kortnummer}-V{version}` som dokumentet |
+| Attesttidpunkt | `InvoiceDate`: kalenderdatum i Europe/Stockholm |
+| Materialbelopp före kvittning | `TotalAmount`; materialrader i debet och skuld i kredit |
+| Material, vikt, pris | Konteringsradens `TransactionText`, även fullständig källsammanställning |
+| Kvittning och att betala | Visas separat; kvittning bokförs inte av detta test |
+
+Konton väljs från verklig läst kontoplan. 4000 och 2440 är redigerbara
+testförslag endast när kontona är aktiva och inte kräver extra dimensioner.
+Ett entydigt leverantörsnummer matchas först, annars organisationsnummer.
+Betalvillkor hämtas från Spiris och ger föreslaget förfallodatum. När en
+testleverantör skapas används dess svar-ID direkt i fakturautkastet.
+
+Viktkortet fastställer ännu inte företagsinköpets moms. Företagstestet
+behöver därför ett uttryckligt `Vat` och granskad kontering. Privatinköp
+förifylls med `Vat: 0`. Vanlig moms kräver även att konteringsraderna ändras;
+ett ändrat momsbelopp skapar inte automatiskt en momsrad.
+
+Varje källkopplat skrivtest lagrar `source` (kortnummer, attest-ID, version,
+kontrollsumma) i JEROC-journalen. Servern kontrollerar aktuellt attestbevis
+före Spiris-POST. Källmetadata ingår inte i provider-payloaden och
+kortval/förifyllning utför inga externa skrivningar. Utkastet behåller
+`SkipSendToBank: true`. PDF-bilaga ingår inte ännu.
+
 ## `POST /suppliers`
 
 Testservern tillåter en begränsad del av Spiris datamodell och avvisar okända
@@ -137,7 +176,8 @@ måste fortfarande verifieras med ekonomiansvarig och i sandbox.
 
 Inhemska betaluppgifter är frivilliga: `BankAccountNumber` (högst 50),
 `Clearing` (5), `BankgiroNumber` (10) och `PlusgiroNumber` (10). Utkaststestet
-behöver inga verkliga bank- eller personuppgifter. Lämna betaluppgifter tomma.
+behöver inga verkliga bank- eller personuppgifter. I fritt test kan
+betaluppgifter lämnas tomma; kortval förifyller de frysta bankuppgifterna.
 
 Ett redigerbart startvärde, där UUID:t måste ersättas:
 

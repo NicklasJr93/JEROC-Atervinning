@@ -164,7 +164,7 @@ const applicationApi = createApplicationService({ approvalProvider: () => termin
   environmentProvider: () => environmentApi.getLogisticsSource(),
 });
 const principalStore = applicationApi.principalStore;
-const vismaService = createVismaSandbox({ getRepository: () => applicationApi.getRepository() });
+const vismaService = createVismaSandbox({ getRepository: () => applicationApi.getRepository(), sourceProvider: () => terminalDemoApi.documentProjections() });
 const environmentApi = createEnvironmentApi({ principalStore,
   vismaService,
   approvalGuard: (input, operation) => terminalDemoApi.withApprovedCard(input, operation),
