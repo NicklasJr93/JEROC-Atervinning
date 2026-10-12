@@ -1905,3 +1905,21 @@ Status: Planerad 2026-10-12. Inte implementerat.
 - Integrationer och dokument får formatet som respektive mottagare kräver
   från gemensamma normaliserade uppgifter. Äldre registeruppgifter granskas
   vid införandet; låsta kort, avräkningar och dokument skrivs inte om i efterhand.
+
+090 – Tydligt redigeringsläge på kundkortet i webben
+Status: Planerad 2026-10-12. Inte implementerat.
+- Kundkortet öppnas i läsläge. Kunduppgifterna är skrivskyddade och kan inte
+  ändras genom att råka klicka eller skriva i ett fält. Användaren måste först
+  trycka på Redigera kund i kortets övre högra hörn.
+- I läsläget syns bara Redigera kund. När redigering aktiveras ersätts knappen
+  på samma plats med Spara kunduppgifter och Avbryt. Flytta knapparna från
+  nuvarande placering; visa inte dubbla uppsättningar på kundkortet.
+- Redigera en separat arbetskopia av kunduppgifterna. Avbryt återställer alla
+  osparade ändringar och återgår till läsläget med Redigera kund. Ingen ändring
+  ska sparas automatiskt när ett fält ändras eller när användaren avbryter.
+- Spara kunduppgifter validerar och sparar via befintligt API. Vid lyckat svar
+  visas de sparade uppgifterna och läsläget återställs. Vid fel behålls utkastet
+  i redigeringsläge och orsaken visas tydligt; förhindra dubbla sparningar.
+- Befintliga kundbehörigheter och serverkontroller gäller fortsatt. Den som
+  saknar redigeringsbehörighet kan inte aktivera redigering. Ändrade uppgifter
+  påverkar inte redan låsta kundgodkännanden, attester eller dokument.
