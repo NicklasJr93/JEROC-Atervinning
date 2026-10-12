@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.5.0. Aktuell kontorsversion: 0.17.1.
+Aktuell mobilwebbversion: 0.5.0. Aktuell kontorsversion: 0.17.2.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
@@ -1664,3 +1664,21 @@ Status: Implementerad i kontor 0.17.1, 2026-10-12.
   frigör knappar och fält; osparade inställningar finns kvar.
 - Visa vad som hämtas och erbjud Försök hämta igen utan sidomladdning.
   Inga nya Render-variabler behövs. Stämpelklockan i 079 är fortsatt planerad.
+
+081 – Marginal och tidigare start för Spiris kontoplanshämtning
+Status: Implementerad i kontor 0.17.2, 2026-10-12.
+- Provat i driften: komplett hämtning tog 26 sekunder och sparade 4 239
+  konton från tre år, 26 betalningsvillkor, 48 momskoder samt två resultatenheter
+  och två projekt. Den tidigare totalgränsen på 30 sekunder gav för liten
+  marginal för varierande nätverks-/databastider.
+- Kontoplaner börjar hämtas direkt när räkenskapsåren kommit tillbaka,
+  parallellt med övriga listor. De väntar inte på långsamma projekt-/villkorssvar.
+- Serverns läsbatch får 60 sekunder; varje Spiris-anrop har fortsatt 15 sekunder.
+  Formulärets reservgräns är 75 sekunder. Timeout/fel behåller befintliga val
+  och osparade inställningar. Behörighet, anslutning och fullständighet kontrolleras.
+- Inga nya Render-variabler behövs. Sparade val visas efter omladdning och
+  behöver inte hämtas från Spiris inför varje inställningsändring.
+- Verifiering av de verkliga valen visade att Spiris anger momssats som
+  decimalandel (0,25), medan inställningarna använder procent (25).
+  Normalisera import och tidigare sparade val så att 25-procentskoder visas
+  och godkänns korrekt. Frysta bokföringsunderlag och inställningar ändras inte.

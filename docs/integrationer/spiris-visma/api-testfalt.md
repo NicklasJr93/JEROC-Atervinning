@@ -120,6 +120,14 @@ En avbruten hämtning lämnar tidigare val och formulärändringar kvar.
 Sidan visar vad den hämtar, har en egen tidsgräns och erbjuder
 **Försök hämta igen** utan omladdning.
 
+Från 0.17.2 börjar kontoplanerna direkt när räkenskapsåren är hämtade,
+även om övriga listor fortfarande väntar. Den totala servergränsen är
+60 sekunder och formulärets reservgräns 75 sekunder; enskilda API-anrop
+har fortsatt 15 sekunder. Sparade val används vid vanlig sidvisning.
+Spiris momssats är en decimalandel (`0.25`), som omvandlas till procent
+(`25`) i våra val. Äldre cachade val normaliseras även vid läsning och
+validering, utan att ändra låsta avräkningar eller bokföringsinställningar.
+
 ## Hanterad ekonomi och överföring i 0.16.0
 
 Integrationskortets ekonomiinställningar väljer verkliga provider-ID:n,

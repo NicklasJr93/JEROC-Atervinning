@@ -71,7 +71,7 @@ async function lookupChoices(signal?: AbortSignal): Promise<SpirisAccountingStat
   if (signal?.aborted) abort();
   else signal?.addEventListener('abort', abort, { once: true });
   let timedOut = false;
-  const timer = window.setTimeout(() => { timedOut = true; controller.abort(); }, 45_000);
+  const timer = window.setTimeout(() => { timedOut = true; controller.abort(); }, 75_000);
   try {
     const result = await environmentRequest<SpirisAccountingState>('/visma/accounting/choices', 'POST', {}, controller.signal);
     if (controller.signal.aborted) throw new DOMException('Hämtningen avbröts.', 'AbortError');

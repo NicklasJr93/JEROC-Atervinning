@@ -190,7 +190,7 @@ test('fastnad hämtning släpper formuläret, behåller ändringar och kan göra
   await panel.getByRole('button', { name: 'Hämta från Spiris', exact: true }).click();
   await expect(panel.getByLabel('Inköpskonto privatinköp', { exact: true })).toBeDisabled();
   await expect.poll(() => local.requests.filter(request => request === `POST ${endpoint}/choices`).length).toBe(1);
-  await page.clock.fastForward(45_001);
+  await page.clock.fastForward(75_001);
   await expect(panel.getByRole('alert')).toContainText('Hämtningen från Spiris tog för lång tid');
   await expect(panel.getByLabel('Inköpskonto privatinköp', { exact: true })).toBeEnabled();
   await expect(panel.getByLabel('Inköpskonto privatinköp', { exact: true })).toHaveValue('4010');

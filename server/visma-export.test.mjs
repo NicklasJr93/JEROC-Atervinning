@@ -127,6 +127,23 @@ test('settings lookup fetches three complete 1,413-account plans in six large pa
   assert.equal(stored.audit.at(-1).accounts, 4239);
 }));
 
+test('settings lookup starts account plans as soon as fiscal years arrive while projects are still pending', { timeout: 5000 }, async () => fixture(async f => {
+  await f.connect(); let releaseProjects, sawAccount, projectCompleted = false, timer;
+  const projectsHeld = new Promise(resolve => { releaseProjects = resolve; });
+  const accountStarted = new Promise(resolve => { sawAccount = resolve; });
+  f.setProvider(async call => {
+    if (call.url.pathname === '/v2/projects') { await projectsHeld; projectCompleted = true; }
+    if (call.url.pathname.startsWith('/v2/accounts/')) { assert.equal(projectCompleted, false); sawAccount(); }
+    return f.normalProvider(call);
+  });
+  const lookup = f.service.lookupChoices(context);
+  try {
+    await Promise.race([accountStarted, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Account plans incorrectly waited for the project response')), 1000); })]);
+  } finally { clearTimeout(timer); releaseProjects(); }
+  const result = await lookup;
+  assert.equal(projectCompleted, true); assert.equal(result.choices.accounts.length, 5);
+}));
+
 for (const change of ['revoke', 'disconnect']) test(`settings pages recheck ${change === 'revoke' ? 'live permissions' : 'connection generation'} before the next GET and never replace the previous cache`, { timeout: 5000 }, async () => fixture(async f => {
   await f.connect(); const previous = (await f.service.lookupChoices(context)).choices;
   let release, entered, accountCalls = 0;
@@ -252,6 +269,32 @@ test('actual VAT codes with contradictory rates cannot be assigned to a 25 perce
   f.setProvider(call => call.url.pathname === '/v2/vatcodes' ? page([{ Id: vatId, Code: '6', Description: 'Moms 6 %', VatRate: 6 }]) : f.normalProvider(call));
   await f.service.lookupChoices(context);
   await assert.rejects(() => f.service.saveSettings({ expectedRevision: 0, settings: configuration() }, context), error => error.code === 'visma_vat_invalid');
+}));
+
+test('Spiris fractional VAT rates and old raw caches normalize to percent for settings, validation and preview without refetching', async () => fixture(async f => {
+  await f.connect();
+  const values = [0, 0.06, 0.12, 0.25];
+  f.setProvider(call => call.url.pathname === '/v2/vatcodes' ? page(values.map(rate => ({ Id: rate === 0.25 ? vatId : randomUUID(), Code: String(rate), Description: 'Spiris moms', VatRate: rate }))) : f.normalProvider(call));
+  const fetched = await f.service.lookupChoices(context);
+  assert.deepEqual(fetched.choices.vatCodes.map(code => code.rate), [0, 6, 12, 25]); assert.equal(fetched.choices.vatRateUnit, 'percent');
+  await f.repository.transact(state => {
+    const cached = state.vismaIntegration.tenants['jeroc-demo'].finance.choices[companyId];
+    delete cached.vatRateUnit; cached.vatCodes.forEach(code => { code.rate /= 100; });
+  });
+  const calls = f.calls.length;
+  assert.deepEqual((await f.service.settings(context)).choices.vatCodes.map(code => code.rate), [0, 6, 12, 25]);
+  const saved = await f.service.saveSettings({ expectedRevision: 0, settings: configuration() }, context);
+  assert.equal(saved.settings.vatCodes.standard25, vatId);
+  const preview = await f.service.preview({ example: 'standard_25', siteId: 'yard', amount: 1000, date: '2026-10-11' }, context);
+  assert.equal(preview.eligible, true); assert.equal(preview.draft.Vat, 250);
+  assert.equal(f.calls.length, calls, 'Old choices are repaired on read without another Spiris request');
+  const cached = await f.repository.read(state => state.vismaIntegration.tenants['jeroc-demo'].finance.choices[companyId]);
+  assert.equal(cached.vatCodes.at(-1).rate, 0.25, 'Read normalization does not rewrite accounting history or old cache');
+  await f.repository.transact(state => {
+    const choices = state.vismaIntegration.tenants['jeroc-demo'].finance.choices[companyId];
+    choices.vatRateUnit = 'percent'; choices.vatCodes = [{ id: randomUUID(), code: '1', name: 'One percent', rate: 1 }];
+  });
+  assert.equal((await f.service.settings(context)).choices.vatCodes[0].rate, 1, 'An explicit percent unit prevents double normalization');
 }));
 
 test('company standard VAT exports the approved gross while leaving source economics untouched', async () => fixture(async f => {

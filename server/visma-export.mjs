@@ -13,6 +13,17 @@ const ref = approval => ({ cardId: approval.cardId, approvalId: approval.id, ver
 const key = (companyId, source) => `${companyId}:${source.cardId}:${source.approvalId}:${source.version}:${source.hash}`;
 const mappingKey = (companyId, customerId) => JSON.stringify([companyId, String(customerId)]);
 const initial = () => ({ settings: {}, settingsHistory: {}, choices: {}, mappings: {}, outbox: [] });
+function normalizedChoices(value) {
+  if (!value) return null;
+  const choices = clone(value);
+  // Spiris expresses VatRate as a fraction (0.25), while accounting/UI use
+  // percent (25). Older caches stored the provider value without a unit. The
+  // explicit marker keeps an already normalized 1 percent from becoming 100.
+  if (choices.vatRateUnit !== 'percent') choices.vatCodes = choices.vatCodes.map(code => ({ ...code,
+    rate: typeof code.rate === 'number' && Number.isFinite(code.rate) && code.rate >= 0 && code.rate <= 1
+      ? Math.round(code.rate * 100 * 1e8) / 1e8 : code.rate }));
+  choices.vatRateUnit = 'percent'; return choices;
+}
 const defaultSettings = companyId => ({ revision: 0, enabled: false, exportMode: 'manual', companyId: companyId ?? '', sandbox: true,
   paymentTermDays: 0, accounts: {}, vatCodes: {}, sites: [] });
 const cleanText = (value, max = 100) => typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -49,13 +60,14 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
   const mutate = operation => transact(state => { const tenant = tenantFor(state, ORGANISATION, true); return operation(financeFor(tenant, true), tenant); });
   const companyId = () => config().expectedCompanyId;
   const currentSettings = () => readFinance(finance => clone(finance.settings[companyId()] ?? defaultSettings(companyId())));
+  const currentChoices = () => readFinance(finance => normalizedChoices(finance.choices[companyId()] ?? null));
   const authorize = async context => { scoped(context); await authorizeContext(context); };
   async function sites() {
     const values = await sitesProvider();
     return (Array.isArray(values) ? values : values?.sites ?? []).map(site => ({ id: String(site.id), name: cleanText(site.name ?? site.label ?? site.id) }));
   }
   async function dto() {
-    const [settings, connected, actualSites, choices] = await Promise.all([currentSettings(), connection(), sites(), readFinance(finance => clone(finance.choices[companyId()] ?? null))]);
+    const [settings, connected, actualSites, choices] = await Promise.all([currentSettings(), connection(), sites(), currentChoices()]);
     const suggested = choices?.paymentTerms.filter(term => term.availableForPurchase && term.days === 0) ?? [];
     return { settings, ...connected, sites: actualSites, choices, capabilities: { canConfigure: true,
       canExport: Boolean(settings.enabled && connected.companyVerified), automationEnabled: Boolean(settings.enabled && settings.exportMode === 'after_attest') },
@@ -193,7 +205,7 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
     if (!input || typeof input !== 'object' || Object.keys(input).some(name => !['settings', 'siteId', 'example', 'amount', 'date'].includes(name))) fail('Förhandsvisningens uppgifter är inte giltiga.', 422);
     const provided = input.settings ?? await currentSettings();
     const settings = normalizeAccountingSettings({ ...provided, revision: Math.max(1, provided.revision ?? 1) }, { companyId: companyId(), sandbox: true });
-    const [choices, actualSites] = await Promise.all([readFinance(finance => clone(finance.choices[companyId()] ?? null)), sites()]);
+    const [choices, actualSites] = await Promise.all([currentChoices(), sites()]);
     verifySelections({ ...settings, enabled: true }, choices, actualSites);
     const preview = previewAccountingExample({ ...input, settings }), date = preview.draft.InvoiceDate;
     const years = choices.fiscalYears.filter(year => year.startDate.slice(0, 10) <= date && year.endDate.slice(0, 10) >= date);
@@ -396,7 +408,7 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
         if (!input || Object.keys(input).some(name => !['expectedRevision', 'settings'].includes(name)) || !Number.isInteger(input.expectedRevision) || input.expectedRevision < 0)
           fail('Inställningarna måste innehålla aktuellt revisionsnummer.', 422);
         const normalized = normalizeAccountingSettings({ ...input.settings, revision: input.expectedRevision + 1 }, { companyId: companyId(), sandbox: true });
-        const [choices, actualSites] = await Promise.all([readFinance(finance => clone(finance.choices[companyId()] ?? null)), sites()]);
+        const [choices, actualSites] = await Promise.all([currentChoices(), sites()]);
         verifySelections(normalized, choices, actualSites);
         await mutate((finance, tenant) => {
           const current = finance.settings[companyId()] ?? defaultSettings(companyId());
@@ -415,18 +427,23 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
           const fetchList = (operation, parameters = {}) => list(operation, parameters, context, false, undefined, sendLookup);
           // The lists are independent. Historical account plans remain complete,
           // but four year-read workers avoid multiplying latency by every year.
-          const [terms, years, vatCodes, costCenters, projects] = await Promise.all([
-            fetchList('paymentTerms'), fetchList('fiscalYears'), fetchList('vatCodes'), fetchList('costCenters'), fetchList('projects'),
+          const fetchAccountPlans = async () => {
+            const years = await fetchList('fiscalYears');
+            const validYears = years.filter(item => uuid(item.Id)), accountPages = new Array(validYears.length); let nextYear = 0;
+            await Promise.all(Array.from({ length: Math.min(4, validYears.length) }, async () => {
+              while (nextYear < validYears.length) {
+                signal.throwIfAborted(); const index = nextYear++;
+                accountPages[index] = await fetchList('accounts', { fiscalYearId: validYears[index].Id });
+              }
+            }));
+            return { years, accountList: accountPages.flat() };
+          };
+          // Account plans depend only on fiscal years. A slow project or VAT
+          // response must not delay the first account page unnecessarily.
+          const [terms, { years, accountList }, vatCodes, costCenters, projects] = await Promise.all([
+            fetchList('paymentTerms'), fetchAccountPlans(), fetchList('vatCodes'), fetchList('costCenters'), fetchList('projects'),
           ]);
-          const validYears = years.filter(item => uuid(item.Id)), accountPages = new Array(validYears.length); let nextYear = 0;
-          await Promise.all(Array.from({ length: Math.min(4, validYears.length) }, async () => {
-            while (nextYear < validYears.length) {
-              signal.throwIfAborted(); const index = nextYear++;
-              accountPages[index] = await fetchList('accounts', { fiscalYearId: validYears[index].Id });
-            }
-          }));
-          const accountList = accountPages.flat();
-          const choices = { companyId: companyId(), fetchedAt: clock().toISOString(),
+          const choices = normalizedChoices({ companyId: companyId(), fetchedAt: clock().toISOString(),
             fiscalYears: years.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, startDate: item.StartDate, endDate: item.EndDate, locked: Boolean(item.IsLockedForAccounting) })),
             accounts: accountList.map(item => ({ number: Number(item.Number), name: cleanText(item.Name), fiscalYearId: item.FiscalYearId,
               active: item.IsActive !== false, vatCodeId: item.VatCodeId ?? null, firstCostCenterMandatory: item.IsFirstCostCenterMandatory === true,
@@ -436,7 +453,7 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
             vatCodes: vatCodes.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, code: cleanText(item.Code), name: cleanText(item.Description), rate: item.VatRate })),
             costCenters: costCenters.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name), number: item.Number, active: item.IsActive !== false,
               items: (item.Items ?? []).filter(part => uuid(part.Id)).map(part => ({ id: part.Id, name: cleanText(part.Name), shortName: cleanText(part.ShortName), active: part.IsActive !== false })) })),
-            projects: projects.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name), number: cleanText(item.Number), status: item.Status })) };
+            projects: projects.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name), number: cleanText(item.Number), status: item.Status })) });
           await authorize(context); signal.throwIfAborted();
           await mutate((finance, tenant) => {
             signal.throwIfAborted();

@@ -37,7 +37,7 @@ const companyFrom = response => response && typeof response.CompanyIdentifier ==
 
 /** OAuth and test runs live in a separate ApplicationRepository domain. All
  * transactions are short; provider calls happen after the reservation commits. */
-export function createVismaSandbox({ getRepository, sourceProvider = async () => [], sitesProvider = async () => [], authorizeContext = async () => {}, env = process.env, fetchImpl = globalThis.fetch, now = () => new Date(), lookupTimeoutMs = 30000 } = {}) {
+export function createVismaSandbox({ getRepository, sourceProvider = async () => [], sitesProvider = async () => [], authorizeContext = async () => {}, env = process.env, fetchImpl = globalThis.fetch, now = () => new Date(), lookupTimeoutMs = 60000 } = {}) {
   if (typeof getRepository !== 'function') throw new TypeError('getRepository krävs.');
   const client = createVismaClient({ env, fetchImpl });
   const clock = () => new Date(now());
