@@ -2025,3 +2025,38 @@ Status: Planerad 2026-10-12. Inte implementerat.
   Användaren kan även skriva andra inloggningsuppgifter manuellt.
 - Snabbvalen visas bara i demot och gäller dess avsedda demokonton.
   Riktiga användares lösenord ska inte lagras eller förifyllas av funktionen.
+
+095 – Begränsad Spiris-uppföljning och aktivt återskapande av saknat utkast
+Status: Planerad 2026-10-12. Inte implementerat. Kompletterar 093.
+- Följ bara våra kopplade underlag som väntar på bokföringsbekräftelse.
+  Behåll överföringsresultat och statuskontroll som separata uppgifter:
+  en pausad uppföljning får inte radera senast bekräftat resultat eller historik.
+- Varje ärende knyts till organisation, Spiris-företag, miljö och exakt låst
+  avräkningsversion. Avstängd integration pausar kontrollerna. Återanslutning
+  till samma verifierade företag kan återuppta väntande läsningar; byte till
+  annat företag eller annan miljö flyttar inte gamla ärenden till ny koppling.
+- Föreslagen takt: var femte minut första dygnet, varje timme därefter och
+  dagligen efter sju dagar. Efter exempelvis 30 dagar pausas uppföljningen
+  med Bokföringsbekräftelse saknas – kontrollera. Tidsgränsen är en inställning.
+  Bokföringsbekräftelse avslutar kontrollen; anslutningsfel använder begränsade
+  försök med väntetid och tydlig felstatus. Betalningsuppföljning är separat.
+- På kortet visas exempelvis Utkast skapat i Spiris, automatisk kontrolltakt,
+  Senast kontrollerad och Uppdatera nu. Ändrad kontrolltakt, paus och fel ska
+  återges korrekt. Varje vanlig kontroll ska inte skapa en ny spårbarhetsrad.
+- Om ett utkast saknas ska servern först söka efter den kopplade slutliga
+  fakturan, exempelvis via Spiris CreatedFromDraftId. Utkast-ID och slutligt
+  faktura-ID behöver inte vara samma. HTTP 404 ensamt bevisar inte radering.
+  Vid fortsatt saknat underlag efter förnyad verifierad kontroll visas
+  Underlag saknas i Spiris och automatisk uppföljning stoppas.
+- Visa Återskapa utkast i Spiris på viktkortets Spiris-kort för behörig användare
+  när tidigare utkast och motsvarande bokförd faktura verifierats saknas.
+  Knappen är inte tillgänglig vid oklart svar, fel företag eller saknad åtkomst.
+  Kontrollera tillstånd och rättigheter igen på servern när knappen används.
+- Återskapande är en aktiv åtgärd som skickar samma frysta attestunderlag i ett
+  nytt spårbart försök med egen identitet. Bevara tidigare ID:n, svar och
+  historik; upprepade klick ska inte skapa flera nya utkast. Bekräftat resultat
+  ger Fakturautkast återskapat i Spiris i spårbarheten och startar uppföljningen
+  av det nya utkastet. Saknade underlag återskapas aldrig automatiskt.
+- Ändrad vikt, pris eller kunduppgift kräver befintligt rättelse-/versionsflöde.
+  Ett redan bokfört underlag går genom ekonomins rättelseflöde. Återskapandet
+  ska inte registrera en betalning, skicka pengar eller ändra låsta original.
