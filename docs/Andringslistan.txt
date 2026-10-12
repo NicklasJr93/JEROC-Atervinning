@@ -1946,3 +1946,34 @@ Status: Planerad 2026-10-12. Inte implementerat.
 - Befintliga behörigheter och kundhistorik används. Senare ändring eller
   borttagning av ett sparat kundval ändrar inte redan låsta viktkort,
   kundgodkännanden, miljömottagningar eller dokument.
+
+092 – Automatiska kontorspriser för färdiga mobilvägningar
+Status: Planerad 2026-10-12. Orsak verifierad; inte implementerat.
+- Nuläge: mobileToOffice skapar kontorskortet med pricePending och
+  financialPending även när kund redan valts i mobilen. På kort 3024 följde
+  kund, ursprung och referens med, men 250 kg aluminium stod som Dolt pris.
+  Kontorsvyn visar dessutom Behörighet saknas för ännu oberäknade priser.
+- När en färdig mobilvägning med kund blir ett kontorskort ska servern använda
+  samma prismotor som kontorets prisberäkning. Återanvänd artikelregler,
+  kundundantag, kundens volym senaste tolv månader och inlämningsdatum.
+  Exkludera det aktuella kortet ur tidigare volym så det inte räknas dubbelt.
+- Beräkna från serverns aktuella kund- och artikelregister, inte från mobilens
+  visade pris eller ett klientangivet belopp. Spara beräknade rader, prisregel,
+  volymunderlag, totalsumma och väntestatus tillsammans med det nya kortet.
+  Kund, ursprung, referens och uppmätt vikt ska bevaras.
+- Saknas kund eller ett giltigt prisunderlag, exempelvis historiskt LME-pris,
+  bevara vägningen och markera varför pris inte kan beräknas. Ett tillfälligt
+  nollvärde får inte presenteras som fastställt pris; ett verkligt beräknat
+  nollpris måste däremot kunna skiljas från väntande beräkning.
+- Visa Pris ej beräknat eller den konkreta kompletteringen för prisväntan.
+  Dolt pris och Behörighet saknas används bara för verkligt saknad behörighet.
+  Behörighetsfiltrering gäller fortsatt i mobil och kontor; serverberäkning
+  ger inte mobilanvändaren nya rättigheter att se eller ändra kundpriser.
+- Synkroniseringsförsök med samma käll-ID ska fortsatt skapa högst ett kort.
+  Prisberäkningen får inte trigga kundgodkännande, attest, betalning eller
+  integrationssändning. Låsta ekonomiska versioner och manuella kontorspriser
+  får inte skrivas över; äldre ofrysta kort kan använda Beräkna priser.
+- Verifiera riktat: befintlig och ny kund från mobilen, rätt kundpris/volym,
+  upprepad synk utan dubbelräkning, saknat prisunderlag samt konto med och
+  utan prisbehörighet. Ett färdigt prissatt mobilkort ska direkt visa rätt pris
+  för behörig kontorist utan att kunden behöver väljas om.
