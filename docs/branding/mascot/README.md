@@ -1,7 +1,25 @@
-# ScrapPilot – maskotförslag
+# ScrapPilot – Skrotis och maskotförslag
+
+## Skrotis
+
+Vald riktning 2026-10-13: en bulldogg som nosar upp nya affärer.
+[Skrotis som separat PNG med transparent bakgrund](skrotis.png) är ett
+karaktärsunderlag för Nano Banana och vidare videoproduktion.
+
+Skrotis har marinblå päls, ljus nos, ett litet underbett och arbetskläder i
+den ljusare återvinningsgröna färgriktningen. Han är trygg, lite envis och
+nyfiken, med torr humor. ScrapPilot-symbolen sitter på kepsen och bröstfickan.
+
+Videoidé: han stannar mitt i steget, nosar, får upp ett spår och hittar nästa
+affär. Därefter visas: **Skrotis nosar upp affärerna. ScrapPilot håller koll
+på resten.** [Ett färdigt animationsförslag](skrotis-video-prompt.txt).
+
+Maskoten är en grafikresurs; den är inte installerad i appens gränssnitt.
+
+## Tidigare förslag
 
 Fem alternativ skapade 2026-10-13 för val av maskot inför en animerad video.
-Inget alternativ är ännu valt eller infört i appen.
+Skrotis (nummer 4) är den valda riktningen från denna första omgång.
 
 ![Fem maskotförslag](scrappilot-mascot-concepts-2026-10-13.png)
 
@@ -12,5 +30,7 @@ Inget alternativ är ännu valt eller infört i appen.
 5. **Skatan** – en nyfiken skrotsamlare med en bricka.
 
 Färgerna följer ScrapPilots marinblå och dova gröna med neutrala detaljer.
-När ett alternativ är valt kan en separat karaktärsbild och en referens med
-flera vinklar tas fram för Nano Banana och videoproduktionen.
+Den separata Skrotis-bilden använder den nya ljusare gröna färgriktningen.
+
+En andra omgång med fyra geometriska spår finns sparad som
+[Pilen, Flik, S & P och Bunt](scrappilot-mascot-rethink-2026-10-13.png).
