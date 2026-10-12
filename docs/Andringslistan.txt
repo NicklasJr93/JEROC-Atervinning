@@ -2160,6 +2160,11 @@ bank-/Swish-sändning och Spiris-betalningsregistrering är inte implementerade.
   Callback stäms av och följs av GET på samma instruktion. Personnummer
   måste vara 12 siffror; databasens E.164-telefon behålls och anpassas endast
   i API-payloaden. Simulatorguide MSS v1 finns för framtida test.
+- För SaaS används Swishs tekniska leverantörsupplägg som målbild: eget
+  987-nummer och kundbankens koppling av respektive kunds 123-nummer.
+  Varje kund behåller eget avtal/konto. Payout-omfattning och delegering av
+  signering måste bekräftas av Swish/bank. Flerföretagsdrift kräver riktig
+  bolagsisolering och kundspecifika behörigheter/integrationsinställningar.
 - Callback och statusåterläsning ska verifiera rätt betalnings-ID, mottagare,
   belopp och organisation. Samma eller försenad callback får inte skapa ny
   utbetalning eller ny bokföring. Fel ska ge en tydlig separat status.

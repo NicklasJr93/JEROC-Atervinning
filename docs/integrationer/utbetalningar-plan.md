@@ -62,13 +62,34 @@ Obligatoriska fält är `CompanyBankAccountId`, `PaymentDate`, `PaymentAmount`, 
 
 Svaret kan innehålla `BankTransactionId`. Fakturans betalningsstatus/restbelopp återläses och transaktionen kan hämtas med `GET /v2/banktransactions/{bankAccountId}/{bankTransactionId}`. Transaktionsrader har betalningsverifikationsreferenser som måste knytas till rätt faktura. Fakturans ursprungliga verifikation, exempelvis A28, behålls separat från betalningens verifikation.
 
+## SaaS och anslutning av kundföretag
+
+Swish har ett formaliserat upplägg för tekniska leverantörer. En godkänd leverantör tecknar avtal med Swish, får ett 987-nummer och ett särskilt certifikat. Kundföretagets bank kopplar kundens eget 123-nummer till leverantörens 987-nummer. Swish kontrollerar att relationen är tillåten. Varje kund har sitt eget Swish-avtal och betalningar belastar kundens eget bankkonto.
+
+Ansökan görs enligt partnerguiden via `technicalsupplier@getswish.se`. Leverantören behöver en Certificate Point Of Contact (CPOC) med svenskt BankID. Swish återkommer med offert och avtal; ett 987-nummer utfärdas efter godkänt avtal. Partnerguiden beskriver främst Swish Handel. Payout-guiden kräver TLS-certifikat och ett separat signeringscertifikat och nämner ett undantag för technical-supplier-upplägget. Att leverantörens avtal omfattar Payouts och hur signeringen för varje kund får ske måste därför uttryckligen bekräftas av Swish och banken innan vi lovar kundanslutning utan egen certifikathantering.
+
+Utveckling kan börja med offentliga testcertifikat i MSS före ett produktionsavtal. MSS är en simulator och ska inte blandas ihop med den separata mobila sandboxen, som har egna registreringskrav. Att en simulering fungerar bevisar inte att produktionens kund-/leverantörsrelation eller signeringsbehörighet är aktiverad.
+
+Planerat kundflöde under Integrationer -> Swish:
+
+1. Kundföretaget beställer Swish Utbetalning från sin bank och ansluts till vår tekniska leverantör enligt det bekräftade avtalsupplägget.
+2. Företagsadmin anger/verifierar organisation och sitt eget utbetalningsnummer. Vi får inte behandla ett inmatat nummer som bevis på tillåten bankanslutning.
+3. Certifikat/signering kopplas enligt den godkända modellen. Eventuellt kundspecifikt nyckelmaterial lagras skyddat på servern; inga privata nycklar i webbläsarens beständiga lagring eller publika projektioner.
+4. Admin väljer det egna Spiris-bankkonto där utbetalningarna ska bokföras och vilka användare som får betala ut.
+5. Systemet verifierar konfiguration och anslutning, visar giltighet/utgångsdatum och låter admin uttryckligen aktivera rätt miljö. Ett anslutningstest initierar inte automatiskt en riktig utbetalning.
+
+Flerföretagsdrift kräver riktig bolagsisolering och personliga serversessioner i hela systemet. Dagens demo har en organisation. Kundens betalningar, nummer, signeringsbehörighet, Spiris-företag, konto, journal och roller måste bindas till organisationen på servern. En central teknisk TLS-identitet ersätter inte den isoleringen eller kundens egna utbetalningsbehörigheter. Avstängning eller certifikatsbyte ska stoppa nya sändningar och bevara journal/status för redan skickade instruktioner.
+
 ## Förutsättningar och källor
 
 - Swish officiella API-kontrakt: <https://developer.swish.nu/api/payouts/v1>.
 - Swish officiella simulatorguide: <https://developer.swish.nu/api/mss/v1>.
+- Swish partnerguide: <https://developer.swish.nu/documentation/technical-supplier>.
+- Swish anslutning och signering för Payouts: <https://developer.swish.nu/documentation/getting-started/swish-payout-api>.
+- Swish miljöer och testcertifikat: <https://developer.swish.nu/documentation/environments>.
 - Swish utvecklarportal: <https://developer.swish.nu/>. Certifikat-, signerings- och anslutningskonfiguration ska verifieras i ett faktiskt simulatorprov innan adaptern aktiveras.
 - Swedbanks tjänstebeskrivning: <https://www.swedbank.se/foretag/betala-och-ta-betalt/swish/swish-utbetalning.html>.
 - Spiris aktuell OpenAPI: <https://eaccountingapi.vismaonline.com/openapi/v2.json>.
 - Spiris betalningsguide: <https://developer.vismaonline.com/docs/invoice-payments>.
 
-Skarp drift kräver rätt bank-/Swish-avtal, leverantörens produktionsanslutning och riktiga personliga serversessioner. Sandbox och produktion måste vara separata, uttryckligt aktiverade kopplingar. API-kontrakten för Spiris och Swish Payouts v1, simulatorguiden MSS v1 samt Swedbanks offentliga tjänstebeskrivning har granskats; inga betalningsanrop eller pengaöverföringar har provats.
+Skarp drift kräver rätt bank-/Swish-avtal, leverantörens produktionsanslutning och riktiga personliga serversessioner. Sandbox och produktion måste vara separata, uttryckligt aktiverade kopplingar. API-kontrakten för Spiris och Swish Payouts v1, simulatorguiden MSS v1, guiderna för teknisk leverantör/anslutning/miljöer samt Swedbanks offentliga tjänstebeskrivning har granskats; inga betalningsanrop eller pengaöverföringar har provats.
