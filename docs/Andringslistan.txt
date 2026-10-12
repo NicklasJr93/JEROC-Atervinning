@@ -2099,8 +2099,8 @@ Status: Planerad 2026-10-12. Förtydligar tidigare önskemål i 076; inte implem
   scrollar med sidan. Denna punkt avser det saknade beteendet.
 
 097 – Öppna viktkort från hela raden och kompakt förhandsvisning
-Status: Planerad 2026-10-12. Radklick beställt; förhandsvisningens utformning är
-ett förslag för granskning före implementation. Ingen appkod ändrad.
+Status: Planerad 2026-10-12. Radklick och den rekommenderade kompakta hoverrutan
+är godkänd utformning efter användarens återkoppling. Ingen appkod ändrad.
 - I viktkortslistorna ska klick på valfri vanlig yta i raden öppna det fulla
   viktkortet direkt. Samma beteende gäller de olika leden och deras flikar:
   Invägningar, Attest, Utbetalningar och övriga listor som visar viktkort.
@@ -2113,7 +2113,7 @@ ett förslag för granskning före implementation. Ingen appkod ändrad.
 - Förhandsvisningen under tabellen ska tas bort. Med många kort hamnar den
   långt från den valda raden och kräver onödig scrollning. Gemensamma
   komponenter ska ge samma beteende även i översiktens viktkortslista.
-- Rekommenderad förhandsvisning: en liten ruta när muspekaren hålls stilla
+- Vald förhandsvisning: en liten ruta när muspekaren hålls stilla
   över raden, med cirka 350–500 ms fördröjning. Visa främst uppgifter som
   inte redan står i tabellen: några materialrader, ursprung, referens och
   nästa steg eller vad som saknas. Begränsa höjd/bredd och antal material;
@@ -2124,7 +2124,7 @@ ett förslag för granskning före implementation. Ingen appkod ändrad.
   uppgifter kan visas vid tangentbordsfokus; på touch öppnar tryck kortet direkt.
 - Alternativ diskuterat: förhandsvisning till höger som utdragbar gardin,
   delvis synlig och expanderbar, med innehåll som följer hovrad rad. Detta är
-  inte valt. Rekommendationen är hoverrutan för att behålla tabellens bredd.
+  inte valt. Hoverrutan är vald för att behålla tabellens bredd.
 - Behåll vald kö/flik, sökning, filter och scrollposition när användaren
   återvänder från kortet. Förhandsvisningen använder samma behörighetsfiltrerade
   uppgifter som listan och ska inte hämta ett helt kort vid varje musrörelse.
