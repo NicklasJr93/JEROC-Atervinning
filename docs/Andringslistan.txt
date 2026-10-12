@@ -2264,3 +2264,18 @@ Status: Implementerad 2026-10-13 i mobilwebb 0.8.0 och kontor 0.21.0.
 - Bakgrund: mobilappen saknar i dag väljare för invägning. Niklas demokonto
   tillåter Norrtälje och nya utkast får kontots första tillåtna anläggning.
   Att ge kontot flera anläggningar skapar ännu inget aktivt val i appen.
+
+ÄL 101 – Uppdatera ScrapPilot-loggan till ljusare återvinningsgrön
+Status: Planerad. Den nya färgvarianten är godkänd och sparad på GitHub;
+byte av appens installerade logga återstår till nästa beställda koduppdatering.
+- Ersätt den nuvarande ScrapPilot-loggan och symbolen med de nya
+  vektorvarianterna i docs/branding/scrappilot-logo-recycling-green.svg och
+  docs/branding/scrappilot-symbol-recycling-green.svg.
+- Använd ljusare återvinningsgrön #38A65B tillsammans med marinblå #0B2037.
+  Behåll befintliga former, proportioner och rundade hörn; två solida färger.
+- Uppdatera de gemensamma produktresurserna och alla befintliga ställen
+  som visar ScrapPilot-loggan eller symbolen, inklusive inloggning och
+  plattformsadministration. Samma original ska användas för export/tryck.
+- Kundbolagens egna loggor och företagsuppgifter, exempelvis JEROC:s,
+  hanteras fortsatt separat från ScrapPilots produktlogga.
+- Färgreferens och original: docs/branding/recycling-green-preview.md.
