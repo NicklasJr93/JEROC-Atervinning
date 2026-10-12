@@ -1511,3 +1511,22 @@ Status: Implementerad i kontorsdemo 0.16.0, 2026-10-12.
   42 tester passerade mot isolerad PostgreSQL 18, inklusive omstart och
   samtidighet. Providersvar simulerades; första verkliga fakturautkastet
   provas manuellt i sandbox. Befintliga Render-inställningar används.
+
+075 – Rollanpassade dashboards och mejlinkorg med AI-förslag
+Status: Klickbara mockuper framtagna 2026-10-12. Funktionerna är inte byggda.
+- Åtta arbetsprofiler: kontorist, ekonomi/attest, transportledare,
+  gruppledare, VD, systemadmin, gårdsmedarbetare och chaufför.
+- Mitt arbete prioriterar konkreta ärenden och nästa åtgärd. Verksamheten
+  visar volym, inköpsvärde exklusive moms, materialfördelning, kunder,
+  anläggningar och viktiga avvikelser. Faktisk försäljning/vinst kräver
+  ytterligare data. Behörigheter och anläggningsåtkomst ska styra innehållet.
+- AI kan förklara ärenden och sammanfatta verksamheten från godkända
+  källuppgifter. Regelmotorn avgör behörighet, belopp och tillåtna åtgärder.
+- Gemensam mejlinkorg för exempelvis transport: inkommande mejl, ansvarig,
+  status och kopplingar till kund, kärl, avtal och befintlig arbetsorder.
+- AI-förslag visar källan till förifyllda uppgifter. Arbetsorderförslag
+  granskas och kan redigeras; önskad tid bokar inget uppdrag. Befintlig
+  order öppnas för granskning. Svarsförslag redigeras före separat sändning.
+- Klickbar prototyp och 15 bilder: public/mockups/roll-dashboard/index.html
+  samt docs/mockups/roll-dashboard/README.md. Lokala exempel och inget API.
+  Outlook-anslutning, AI-provider och liveleveranser återstår att bygga.

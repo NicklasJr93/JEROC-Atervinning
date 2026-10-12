@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JEROC · Rollanpassad översikt och mejlinkorg</title>
+  <link rel="stylesheet" href="mockup.css"><link rel="stylesheet" href="inbox.css">
+</head>
+<body>
+  <aside class="sidebar" aria-label="Kontorsmeny">
+    <a href="#kontor" class="logo-link"><img class="logo" src="assets/jeroc-logo.png" alt="JEROC Återvinning"></a>
+    <div class="nav-heading">KONTORSÖVERSIKT</div>
+    <nav id="navigation" aria-label="Huvudmeny"></nav>
+    <button class="profile" type="button" id="profile-shortcut" aria-label="Byt arbetsprofil i mockupen"><span class="avatar" id="profile-avatar">KN</span><span><strong id="profile-name">Kajsa Nilsson</strong><small id="profile-title">Kontorist · Norrtälje</small></span><span class="profile-chevron">⌄</span></button>
+    <div class="sidebar-footer"><strong><span class="dot"></span>Designförslag</strong><small>Exempeluppgifter · 12 oktober 2026</small></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div class="breadcrumbs">Kontoret <span>›</span><strong id="breadcrumb">Översikt</strong></div>
+      <label class="global-search"><span data-icon="Search"></span><input id="global-search" placeholder="Sök ärende, kund eller arbetsorder…" aria-label="Sök i mockupen"></label>
+      <label class="site-select"><span data-icon="Building2"></span><span><small>Anläggning</small><select id="site-select" aria-label="Anläggning"><option value="all">Alla anläggningar</option><option value="norrtalje">Norrtälje</option><option value="rimbo">Rimbo</option></select></span></label>
+    </header>
+    <div class="preview-bar"><span><span data-icon="Eye"></span>Klickbart designförslag</span><label>Förhandsvisa som <select id="profile-select" aria-label="Förhandsvisa arbetsprofil"></select></label><button type="button" class="text-button" id="open-inbox">Öppna mejlinkorgen <span data-icon="ArrowRight"></span></button></div>
+    <main id="content" tabindex="-1"></main>
+    <footer class="mockup-note">JEROC · Rollanpassad översikt och mejlinkorg · Siffror, mejl och AI-förslag är exempel</footer>
+  </div>
+  <div id="case-overlay" class="modal-overlay" hidden><section class="case-dialog" role="dialog" aria-modal="true" aria-labelledby="case-title" tabindex="-1"><button type="button" class="icon-button modal-close" id="close-case" aria-label="Stäng ärende"><span data-icon="X"></span></button><div id="case-content"></div></section></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="assets/icons.js"></script><script src="ui.js"></script><script src="dashboard.js"></script><script src="inbox.js"></script><script src="mockup.js"></script>
+</body>
+</html>
