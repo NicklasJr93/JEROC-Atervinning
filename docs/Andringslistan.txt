@@ -1862,3 +1862,40 @@ Status: Planerad 2026-10-12. Inte implementerat.
 - Äldre kunduppgifter ska granskas med samma regler vid införandet. Låsta
   kundgodkännanden, attester och dokument ändras inte retroaktivt; fel där
   hanteras genom befintligt flöde för ny version eller rättelse.
+
+089 – Gemensamt format för adresser, telefonnummer och Swish
+Status: Planerad 2026-10-12. Inte implementerat.
+- Återanvänd samma normalisering och validering i mobil, kontor och serverns
+  API. Adressfält omfattar ursprungsadress, kundregister och snabbregistrering,
+  arbetsorder, transportplanering, anläggningar, kärlplacering och personal.
+  Inventeringen i docs/adressfalt-och-google-2026-10-12.md styr införandet.
+- Spara adresser strukturerat som gata/husnummer, postnummer, ort och land när
+  uppgifterna är tillgängliga. Visa svenska adresser enhetligt, exempelvis
+  Storgatan 12, 761 41 Norrtälje. Postnummer lagras som fem siffror och visas
+  med mellanslag. Ta bort överflödiga blanksteg och undvik dubblerad ort/postnr.
+  Bevara legitima gatunamn, åäö, husnummerstillägg och utländska adressformat.
+- Befintlig sammanhängande ursprungsadress delas upp i backend och återges
+  fortsatt som en rad. Vid osäker tolkning begärs komplettering av just det
+  som saknas; systemet gissar inte adress, postnummer, ort eller kommunkod.
+  Formatkontroll bevisar inte att adressen finns. Google-förslag och säker
+  kommunmatchning följer 087, med samma format även vid manuell inmatning.
+- Återanvändning av kundadressen enligt 084 är fortsatt ett aktivt val med
+  avmarkerad kryssruta från början. Formatändringen kopierar inte automatiskt
+  en kundadress till ursprungsadress eller ersätter materialets verkliga ursprung.
+- Telefonnummer och personliga Swish-nummer sparas i E.164-format. För Sverige
+  blir exempelvis 0722002220 till +46722002220. Godta lokalt svenskt nummer,
+  +46 och 0046 samt vanliga mellanslag/bindestreck, och normalisera till samma
+  lagrade värde. För internationella nummer bevaras rätt landskod; oklara
+  landskoder och felaktiga nummer ska inte korrigeras genom en gissning.
+- Kontrollera nummer enligt land och användningsområde. Ett kontaktnummer
+  får vara ett fast nummer; ett personligt Swish-nummer behöver giltigt
+  svenskt mobilnummerformat. Formatkontroll bevisar inte Swish-anslutning
+  eller vem som äger numret. Visa tydligt vilket normaliserat nummer sparas.
+  Företags-Swish med 123-nummer hanteras med en separat regel och ska inte
+  konverteras till +46 som om det vore ett personligt telefonnummer.
+- Swish-kopiering enligt 086 är ett aktivt val och skriver inte över redan
+  ifyllda betalningsuppgifter. Nummerkontroll och fel visas vid fältet innan
+  sparande och innan betalningsuppgifter låses vid kundgodkännande.
+- Integrationer och dokument får formatet som respektive mottagare kräver
+  från gemensamma normaliserade uppgifter. Äldre registeruppgifter granskas
+  vid införandet; låsta kort, avräkningar och dokument skrivs inte om i efterhand.
