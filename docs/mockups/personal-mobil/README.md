@@ -1,5 +1,22 @@
 # Min personal – mobil självservice och chefens granskning
 
+## Nytt designförslag: gemensam startsida
+
+[Öppna bilden på den gemensamma startsidan](14_Gemensam_Startsida.png).
+
+![Gemensam startsida efter inloggning](14_Gemensam_Startsida.png)
+
+Startsidan samlar dagens arbetspass och nästa uppdrag samt tre ingångar:
+**Gårdsarbete**, **Mina uppdrag** och **Min personal**. Samma upplägg föreslås
+för alla, med funktioner utifrån behörighet. Pågående vägningar kan återupptas
+längst ner. Huvudmenyn har **Start**, **Arbete**, **Min personal** och **Profil**.
+
+Detta är en ny statisk bild. Den klickbara prototypen och ZIP-filen nedan
+visar fortfarande det tidigare navigationsförslaget; den riktiga appen är
+inte ändrad av denna mockup.
+
+## Klickbar prototyp
+
 Klickbart designförslag 2026-10-12 i befintlig JEROC-design.
 [Öppna mobilmockupen](https://jeroc-atervinning.onrender.com/mockups/personal-mobil/index.html#profil)
 efter Render-deploy. [Öppna chefsvyn](https://jeroc-atervinning.onrender.com/mockups/personal-mobil/index.html#chef).
