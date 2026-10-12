@@ -1541,6 +1541,7 @@ Status: Implementerad i kontorsdemo 0.17.0 och gårdsapp 0.4.0, 2026-10-12.
   kvar när listan scrollas. LME Cash nås via fliken under Artiklar & priser;
   separat huvudmenyval tas bort. Artikeldetaljen har breadcrumbs och
   tillbaka-knapp i stället för översiktens flikar.
+  Sticky rubrikparti även på artikeldetaljen återstår; förtydligat i 096.
 - Fliken Artikelgrupper hanterar huvudgrupper och undergrupper med namn,
   bild, beskrivning, sorteringsordning och aktivstatus. Huvudgrupper kan
   innehålla artiklar direkt. Gruppdetaljen visar sina tillhörande artiklar.
@@ -2069,3 +2070,20 @@ Status: Genomförd 2026-10-12 i kontor 0.19.0. Kompletterar 093.
 - Kod och databasflöde är verifierade med mockade Spiris-svar och isolerad
   PostgreSQL. Verklig bokföring/radering av ett utkast i sandbox ska provas
   efter deploy. Läs mer i docs/integrationer/spiris-visma/bokforingsuppfoljning.md.
+
+096 – Sticky rubrikparti på artikeldetaljen
+Status: Planerad 2026-10-12. Förtydligar tidigare önskemål i 076; inte implementerat.
+- När en artikel öppnas ska hela övre partiet med artikelns titel,
+  breadcrumbs och Till artikelöversikten-knappen ligga kvar när man scrollar.
+  Samma beteende gäller Ny artikel och tillbaka till Artikelgrupper när
+  artikeln öppnats därifrån.
+- Samla rubrikpartiet i en sammanhängande sticky yta under kontorets
+  befintliga toppfält. Bara innehållet nedanför ska röra sig; rubrikpartiet
+  får inte överlappa toppfältet eller täcka artikelns formulär.
+- Översiktens flikar ska fortsatt vara dolda på artikeldetaljen. Återför inte
+  flikmenyn för att få sticky-funktionen. Titel, sökväg och tillbaka-knapp
+  ska fungera även vid smalare skärm och när rubriken bryts till flera rader.
+- Bakgrund: tidigare önskemål omfattade att överdelen skulle ligga kvar
+  även inne i en artikel. 076 dokumenterade och byggde sticky översikt,
+  men beskrev bara breadcrumbs/tillbaka på detaljsidan, som fortfarande
+  scrollar med sidan. Denna punkt avser det saknade beteendet.
