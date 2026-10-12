@@ -675,3 +675,19 @@ test('a valid sole-trader identifier is normalized to a business CIN while priva
   const supplier = f.posts().find(call => call.url.pathname === '/v2/suppliers'); assert.equal(supplier.payload.CorporateIdentityNumber, '9306236374');
   assert.equal(JSON.stringify(supplier.payload).includes('19930623'), false);
 }));
+
+test('converted draft HTTP 400 ResourceNotFound resolves bookkeeping; unrelated 400 diagnostics never expose provider body', async () => fixture(async f => {
+  await f.enable(); await f.source(); const job = await f.service.sendExport({ cardId: 3016 }, context);
+  const booked = trackingProvider(f, 'booked');
+  f.setProvider(call => call.url.pathname === `/v2/supplierinvoicedrafts/${draftId}`
+    ? body({ ErrorCode: 2000, DeveloperErrorMessage: 'PRIVATE_PROVIDER_MESSAGE', secret: 'PRIVATE_PROVIDER_SECRET' }, 400) : booked(call));
+  const failed = await f.service.refreshExport(job.id, context); assert.equal(failed.tracking.state, 'pending');
+  assert.equal(failed.tracking.error.httpStatus, 400); assert.equal(failed.tracking.error.providerErrorCode, 2000);
+  assert.equal(JSON.stringify(await f.service.cardExportProjection(3016)).includes('PRIVATE_PROVIDER'), false);
+  assert.equal(f.calls.filter(call => call.url.pathname === '/v2/supplierinvoices').length, 0);
+  f.setProvider(call => call.url.pathname === `/v2/supplierinvoicedrafts/${draftId}`
+    ? body({ ErrorCode: 3000, DeveloperErrorMessage: 'SupplierInvoiceNotFound' }, 400) : booked(call));
+  const result = await f.service.refreshExport(job.id, context); assert.equal(result.tracking.state, 'booked');
+  assert.equal(result.tracking.voucherNumber, 'A123'); assert.equal(result.tracking.error, undefined);
+  assert.equal(f.posts().length, 2, 'Bookkeeping tracking makes no provider writes');
+}));

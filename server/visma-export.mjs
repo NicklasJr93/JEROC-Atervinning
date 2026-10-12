@@ -504,7 +504,9 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
       const code = error instanceof EnvironmentError ? error.code : 'visma_tracking_unavailable';
       return mutateTracking(id, owner, entry => {
         const tracking = entry.tracking; tracking.failureCount = (tracking.failureCount ?? 0) + 1;
-        tracking.error = { code, message: error instanceof EnvironmentError ? error.message : 'Bokföringskontrollen avbröts. Senaste bekräftade status behålls.' };
+        tracking.error = { code, message: error instanceof EnvironmentError ? error.message : 'Bokföringskontrollen avbröts. Senaste bekräftade status behålls.',
+          ...(error instanceof EnvironmentError && Object.hasOwn(error, 'providerHttpStatus') ? { httpStatus: Number.isInteger(error.providerHttpStatus) ? error.providerHttpStatus : null } : {}),
+          ...(error instanceof EnvironmentError && Number.isSafeInteger(error.providerErrorCode) ? { providerErrorCode: error.providerErrorCode } : {}) };
         tracking.reason = tracking.error.message; tracking.lastAttemptAt = clock().toISOString(); tracking.checkedGeneration = connected.generation;
         if (['visma_tracking_access', 'visma_tracking_paused', 'visma_not_connected', 'visma_credentials_unavailable', 'visma_refresh_failed', 'visma_refresh_unknown'].includes(code)) {
           tracking.state = 'paused'; tracking.nextCheckAt = null;

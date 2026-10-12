@@ -54,7 +54,7 @@ export interface SpirisExport {
   canRecreate?: boolean;
   tracking?: {
     state: 'pending' | 'booked' | 'paused' | 'missing' | 'expired' | 'attention' | 'replaced';
-    lastCheckedAt?: string | null; nextCheckAt?: string | null; reason?: string;
+    lastCheckedAt?: string | null; lastAttemptAt?: string | null; nextCheckAt?: string | null; reason?: string;
     invoiceId?: string; invoiceNumber?: string; voucherId?: string; voucherNumber?: string | number;
     deadlineAt?: string; intervalMinutes?: number;
   };

@@ -9,7 +9,14 @@ export const TRACKING_LABELS = Object.freeze({
   response_unknown: 'Svar från Spiris behöver kontrolleras', booked: 'Bokförd i Spiris',
   draft_missing: 'Underlag saknas i Spiris', tracking_expired: 'Bokföringsbekräftelse saknas – kontrollera',
 });
-const fail = (message, code = 'visma_tracking_unverified') => { throw new EnvironmentError(message, 409, code); };
+const fail = (message, code = 'visma_tracking_unverified', providerRun) => {
+  const error = new EnvironmentError(message, 409, code);
+  if (providerRun) {
+    error.providerHttpStatus = Number.isInteger(providerRun.httpStatus) ? providerRun.httpStatus : null;
+    if (Number.isSafeInteger(providerRun.response?.ErrorCode)) error.providerErrorCode = providerRun.response.ErrorCode;
+  }
+  throw error;
+};
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) && value !== '00000000-0000-0000-0000-000000000000';
 export function addSpirisEvent(job, type, at, actor, detail) {
   job.events ??= [];
@@ -49,8 +56,12 @@ export async function observeSpirisDraft(job, send) {
     if (draft.response?.Id !== job.draftId) fail('Spiris svarade med ett annat fakturautkast.');
     checkIdentity(draft.response, job); return { kind: 'draft_exists' };
   }
-  if (draft.httpStatus !== 404) fail('Fakturautkastet kunde inte kontrolleras. Senaste bekräftade status behålls.',
-    draft.httpStatus === 401 || draft.httpStatus === 403 ? 'visma_tracking_access' : 'visma_tracking_unavailable');
+  // Spiris also reports a converted/deleted draft as HTTP 400 with the
+  // documented ResourceNotFound code 3000. That exact combination permits a
+  // final-invoice lookup; unrelated 400s and transport/access failures do not.
+  const missingDraft = draft.httpStatus === 404 || draft.httpStatus === 400 && draft.response?.ErrorCode === 3000;
+  if (!missingDraft) fail('Fakturautkastet kunde inte kontrolleras. Senaste bekräftade status behålls.',
+    draft.httpStatus === 401 || draft.httpStatus === 403 ? 'visma_tracking_access' : 'visma_tracking_unavailable', draft);
   const invoices = [];
   for (let page = 1; page <= 100; page++) {
     const run = await read(send, 'invoices', { page, pageSize: 1000 }), body = run.response;

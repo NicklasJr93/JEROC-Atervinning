@@ -173,3 +173,36 @@ test('saknat utkast ger aktivt återskapande och status byts efter svar, utan au
   await expect(panel).toContainText('Bokföringsstatus kontrolleras automatiskt');
   expect(sends).toBe(1);
 });
+
+test('Uppdatera som systemadmin gör ny Spiris-kontroll direkt och visar senaste försök efter fel', async ({ page, request }) => {
+  const { cardId } = await createOfficeCard(request);
+  const jobId = 'da2f6a56-a78a-4d49-8eb3-5ed2ac13f8fd';
+  let checks = 0;
+  await page.route('**/api/application/office/accounting/cards/' + cardId, async route => {
+    const body = projection(cardId, 'accepted');
+    await route.fulfill({ json: { export: { ...body.export, id: jobId, canRefresh: true,
+      tracking: checks ? { state: 'booked', lastCheckedAt: '2026-10-12T17:59:00Z',
+        lastAttemptAt: '2026-10-12T17:56:00Z', nextCheckAt: null, voucherNumber: 'A28' }
+        : { state: 'pending', lastCheckedAt: '2026-10-12T17:54:00Z',
+          lastAttemptAt: '2026-10-12T17:56:00Z', nextCheckAt: '2026-10-12T18:06:00Z',
+          reason: 'Fakturautkastet kunde inte kontrolleras. Senaste bekräftade status behålls.' },
+    } } });
+  });
+  await page.route('**/api/environment/visma/accounting/exports/' + jobId + '/refresh', async route => {
+    expect(route.request().method()).toBe('POST');
+    expect(route.request().postDataJSON()).toEqual({});
+    checks += 1;
+    await route.fulfill({ json: { id: jobId, status: 'accepted' } });
+  });
+  await login(page, 'Systemadmin');
+  await page.goto('/kontor#/weighings/' + cardId);
+  const panel = page.getByRole('region', { name: 'Spiris-överföring', exact: true });
+  await expect(panel).toContainText('Senaste kontrollförsök: 12 okt. 2026 19:56');
+  expect(checks).toBe(0);
+  await panel.getByRole('button', { name: 'Uppdatera', exact: true }).click();
+  await expect.poll(() => checks).toBe(1);
+  await expect(panel).toContainText('Bokförd i Spiris');
+  await expect(panel).toContainText('Verifikation A28');
+  await expect(panel).toContainText('Senast kontrollerad: 12 okt. 2026 19:59');
+  await expect(panel).not.toContainText('Senaste kontrollförsök');
+});

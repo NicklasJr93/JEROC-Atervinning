@@ -18,7 +18,7 @@ Tillåtna läsoperationer är:
 - `GET /v2/supplierinvoices` med dokumenterad sidindelning
 - `GET /v2/supplierinvoices/{id}`
 
-Finns utkastet kvar fortsätter uppföljningen. Ett 404 är inte bokföringsbekräftelse. Efter 404 kontrolleras hela den verifierbara fakturalistan, begränsad till 100 sidor och med 45 sekunders total tidsgräns. Motsvarande faktura måste ha samma `CreatedFromDraftId`, leverantör, referens och belopp. Ett separat anrop måste därefter bekräfta `Status=1` (Normal), giltigt `VoucherId` och icke-tomt `VoucherNumber`. Resultatet sparas som bokförd med faktura- och verifikationsreferenser. Betalningsstatus ändras inte.
+Finns utkastet kvar fortsätter uppföljningen. Ett 404 eller HTTP 400 med den dokumenterade numeriska `ErrorCode=3000` (ResourceNotFound) är inte bokföringsbekräftelse. Dessa svar startar en kontroll av hela den verifierbara fakturalistan, begränsad till 100 sidor och med 45 sekunders total tidsgräns. Andra utkastfel får inte tolkas som att resursen saknas. Motsvarande faktura måste ha samma `CreatedFromDraftId`, leverantör, referens och belopp. Ett separat anrop måste därefter bekräfta `Status=1` (Normal), giltigt `VoucherId` och icke-tomt `VoucherNumber`. Resultatet sparas som bokförd med faktura- och verifikationsreferenser. Betalningsstatus ändras inte.
 
 Om listan är ofullständig, åtkomst nekas, identiteter/belopp motsäger varandra eller en annan faktura har samma leverantör/referens får underlaget inte återskapas. En borttagen slutlig faktura utan säker bokföringsstatus kräver också manuell granskning.
 
@@ -50,3 +50,9 @@ Databaslease och försöks-ID skyddar dubbelklick och konkurrerande serverinstan
 - Viktkortets vanliga serverprojektion visar begränsad status, händelser, nästa/senaste kontroll och tillåtna åtgärder. Den exponerar inte fakturans konteringsrader, bankuppgifter eller OAuth-token.
 
 Mockade provideranrop testas mot både SQLite och isolerad lokal PostgreSQL: bokföring, ofullständiga listor, fel företag, frånkoppling/återanslutning, ändrad attestkälla, tidsgränser, konkurrerande återskapande och osäkra POST-svar. Dessa tester skriver inte till Spiris eller Render. Det verkliga sandboxflödet återstår att prova efter deploy med ett JEROC-utkast som ekonomiansvarig bokför/raderar i sandbox.
+
+### Rättning 0.19.1: försvunnet utkast svarar 400/3000
+
+Live-läsning 2026-10-12 för AV-3024-V1 bekräftade HTTP 400/3000 från det gamla utkastet. Fakturalistan och ett separat fakturaanrop hittade en bokförd faktura med rätt `CreatedFromDraftId`, leverantör, referens, belopp och verifikation A28. Kopplingen till ett äldre utkast fungerar alltså; 0.19.0 avbröt för tidigt eftersom den bara godtog 404 som start för fakturasökningen. 0.19.1 accepterar även denna dokumenterade ResourceNotFound-kombination och bevarar alla verifieringskrav.
+
+Diagnosen använde bara Spiris GET-operationer via testsidan. Ingen faktura skapades, bokfördes, raderades eller betalades. Servern sparade läsförsöken i den befintliga testjournalen. Efter misslyckad uppföljning visar kortet senaste kontrollförsökets tid; tiden för den senaste lyckade kontrollen ersätts först när en verifierad kontroll lyckas.

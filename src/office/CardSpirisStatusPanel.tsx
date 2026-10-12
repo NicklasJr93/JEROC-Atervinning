@@ -15,7 +15,7 @@ const exportSchema = z.object({
   canRefresh: z.boolean().optional(), canRecreate: z.boolean().optional(),
   tracking: z.object({
     state: z.enum(['pending', 'booked', 'paused', 'missing', 'expired', 'attention', 'replaced']),
-    lastCheckedAt: z.string().nullish(), nextCheckAt: z.string().nullish(),
+    lastCheckedAt: z.string().nullish(), lastAttemptAt: z.string().nullish(), nextCheckAt: z.string().nullish(),
     deadlineAt: z.string().nullish(), intervalMinutes: z.number().optional(), reason: z.string().nullish(),
     invoiceId: z.string().nullish(), invoiceNumber: z.string().nullish(), voucherId: z.string().nullish(),
     voucherNumber: z.union([z.string(), z.number()]).nullish(),
@@ -164,6 +164,9 @@ export default function CardSpirisStatusPanel(_props: { card: OfficeCard; user: 
   if (!allowed || !attested && !current.job) return null;
   const job = current.job;
   const tracking = job?.tracking;
+  const laterAttempt = Boolean(tracking?.lastAttemptAt && (!tracking.lastCheckedAt ||
+    Date.parse(tracking.lastAttemptAt) > Date.parse(tracking.lastCheckedAt)));
+  const latestCheck = laterAttempt ? tracking?.lastAttemptAt : tracking?.lastCheckedAt;
   const booked = tracking?.state === 'booked';
   const headline = booked ? trackingLabels.booked : job ? labels[job.status] ?? 'Status behöver kontrolleras' : '';
   const events = job?.events.map((event, index) => ({ ...event, index })).sort((first, second) =>
@@ -196,7 +199,7 @@ export default function CardSpirisStatusPanel(_props: { card: OfficeCard; user: 
             {tracking.reason || (tracking.state === 'pending' && tracking.intervalMinutes
               ? 'Bokföringsstatus kontrolleras automatiskt ' + (tracking.intervalMinutes < 60 ? 'var ' + tracking.intervalMinutes + ':e minut.' : tracking.intervalMinutes < 1440 ? 'varje timme.' : 'en gång per dygn.')
               : booked ? 'Bokföringen är bekräftad. Betalningsstatus hanteras separat.' : trackingLabels[tracking.state])}
-            {tracking.lastCheckedAt && <span>Senast kontrollerad: {time(tracking.lastCheckedAt)}</span>}
+            {latestCheck && <span>{laterAttempt ? 'Senaste kontrollförsök' : 'Senast kontrollerad'}: {time(latestCheck)}</span>}
             {tracking.nextCheckAt && tracking.state === 'pending' && <span>Nästa kontroll: {time(tracking.nextCheckAt)}</span>}
           </p>}
           {job.error?.message && <p className="card-spiris-error">{job.error.message}</p>}

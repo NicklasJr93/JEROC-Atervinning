@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.6.0. Aktuell kontorsversion: 0.19.0.
+Aktuell mobilwebbversion: 0.6.0. Aktuell kontorsversion: 0.19.1.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 084–086 och 088–095 är genomförda i bygge 2026-10-12 enligt beställningen
@@ -2032,6 +2032,13 @@ Status: Genomförd 2026-10-12 i mobilwebb 0.6.0.
 
 095 – Begränsad Spiris-uppföljning och aktivt återskapande av saknat utkast
 Status: Genomförd 2026-10-12 i kontor 0.19.0. Kompletterar 093.
+- Rättad i 0.19.1: Spiris HTTP 400 med ErrorCode 3000 (ResourceNotFound)
+  startar samma verifierade fakturasökning som HTTP 404. Andra fel behåller
+  felstatusen och får inte tas som bevis på radering eller bokföring.
+  Misslyckade kontroller visar tiden för senaste försök, inte en äldre lyckad
+  kontroll. Uppdatera gör ett aktivt Spiris-anrop för systemadmin.
+  Bakgrund: live-läsning hittade 3024 som bokförd faktura med CreatedFromDraftId
+  kopplat till originalutkastet och verifikation A28; utkastet svarade 400/3000.
 - Följ bara våra kopplade underlag som väntar på bokföringsbekräftelse.
   Behåll överföringsresultat och statuskontroll som separata uppgifter:
   en pausad uppföljning får inte radera senast bekräftat resultat eller historik.
