@@ -2012,3 +2012,16 @@ Status: Planerad 2026-10-12. Inte implementerat.
 - Bokföringsstatus sparas separat från betalning och visas som en ny händelse
   först efter bekräftelse. Statusläsning ska inte bokföra eller betala något.
   Behörighetsfiltrering och länkar till full integrationsjournal bevaras.
+
+094 – Snabbval för demoinloggning
+Status: Planerad 2026-10-12. Inte implementerat.
+- Lägg två små knappar eller rutor under inloggningsfälten i demot:
+  Logga in som Niklas och Logga in som chef/admin.
+- Ett tryck fyller i användarnamn och lösenord för respektive befintligt
+  demokonto, så användaren slipper skriva uppgifterna vid varje inloggning.
+  Chef/admin är en tydlig knappetikett för det befintliga admin-demokontot,
+  inte ett nytt användarnamn eller en ny behörighetsroll.
+- Vanliga inloggningsflödet och serverns kontobehörigheter används fortsatt.
+  Användaren kan även skriva andra inloggningsuppgifter manuellt.
+- Snabbvalen visas bara i demot och gäller dess avsedda demokonton.
+  Riktiga användares lösenord ska inte lagras eller förifyllas av funktionen.
