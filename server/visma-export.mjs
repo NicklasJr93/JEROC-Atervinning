@@ -43,7 +43,7 @@ const previewAccountingExample = input => accountingCall(examplePreview, input);
 // This module gets a private transport capability from the OAuth service. A
 // worker never manufactures a Systemadmin principal or accepts one from HTTP.
 export function createVismaExports({ read, transact, tenantFor, scoped, audit, clock, config, connection,
-  sourceProvider, sitesProvider, authorizeContext, send }) {
+  sourceProvider, sitesProvider, authorizeContext, send, lookupBatch }) {
   const financeFor = (tenant, create = false) => create ? tenant.finance ??= initial() : tenant.finance ?? initial();
   const readFinance = operation => read(state => operation(financeFor(tenantFor(state, ORGANISATION))));
   const mutate = operation => transact(state => { const tenant = tenantFor(state, ORGANISATION, true); return operation(financeFor(tenant, true), tenant); });
@@ -63,11 +63,12 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
         ...(!connected.companyVerified ? ['Anslut och verifiera sandboxföretaget innan överföring.'] : [])],
       ...(suggested.length === 1 ? { suggestedPaymentTermsId: suggested[0].id } : {}) };
   }
-  async function list(operation, parameters, context, worker = false, scopeKey) {
+  async function list(operation, parameters, context, worker = false, scopeKey, sendLookup) {
     const result = [];
     for (let page = 1; page <= 100; page++) {
-      const requestId = randomUUID(), run = await send({ operation, requestId, idempotencyKey: requestId,
-        parameters: { ...parameters, page, pageSize: 100 } }, context, worker, scopeKey);
+      const requestId = randomUUID(), request = { operation, requestId, idempotencyKey: requestId,
+        parameters: { ...parameters, page, pageSize: sendLookup ? 1000 : 100 } };
+      const run = await (sendLookup ? sendLookup(request) : send(request, context, worker, scopeKey));
       if (run.status !== 'accepted') fail(run.error?.message ?? 'Spiris uppgifter kunde inte hämtas.', 409, run.error?.code ?? 'visma_lookup_failed');
       const body = run.response, data = body?.Data;
       if (!body || Array.isArray(body) || !Array.isArray(data) || data.some(item => !item || typeof item !== 'object' || Array.isArray(item)) ||
@@ -410,21 +411,40 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
       async lookupChoices(context) {
         await authorize(context);
         const connected = await connection(); if (!connected.companyVerified) fail('Anslut och verifiera sandboxföretaget först.', 409, 'visma_company_unverified');
-        const terms = await list('paymentTerms', {}, context), years = await list('fiscalYears', {}, context);
-        const accountList = []; for (const year of years.filter(item => uuid(item.Id))) accountList.push(...await list('accounts', { fiscalYearId: year.Id }, context));
-        const vatCodes = await list('vatCodes', {}, context), costCenters = await list('costCenters', {}, context), projects = await list('projects', {}, context);
-        const choices = { companyId: companyId(), fetchedAt: clock().toISOString(),
-          fiscalYears: years.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, startDate: item.StartDate, endDate: item.EndDate, locked: Boolean(item.IsLockedForAccounting) })),
-          accounts: accountList.map(item => ({ number: Number(item.Number), name: cleanText(item.Name), fiscalYearId: item.FiscalYearId,
-            active: item.IsActive !== false, vatCodeId: item.VatCodeId ?? null, firstCostCenterMandatory: item.IsFirstCostCenterMandatory === true,
-            costCenterAllowed: item.IsCostCenterAllowed !== false, projectAllowed: item.IsProjectAllowed !== false,
-            blockedForManualBooking: item.IsBlockedForManualBooking === true, transactionTextAllowed: item.AllowTransactionText !== false })),
-          paymentTerms: terms.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name ?? item.NameEnglish), days: item.NumberOfDays, availableForPurchase: item.AvailableForPurchase === true })),
-          vatCodes: vatCodes.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, code: cleanText(item.Code), name: cleanText(item.Description), rate: item.VatRate })),
-          costCenters: costCenters.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name), number: item.Number, active: item.IsActive !== false,
-            items: (item.Items ?? []).filter(part => uuid(part.Id)).map(part => ({ id: part.Id, name: cleanText(part.Name), shortName: cleanText(part.ShortName), active: part.IsActive !== false })) })),
-          projects: projects.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name), number: cleanText(item.Number), status: item.Status })) };
-        await mutate(finance => { finance.choices[choices.companyId] = choices; }); return dto();
+        return lookupBatch(context, async (sendLookup, signal, generation) => {
+          const fetchList = (operation, parameters = {}) => list(operation, parameters, context, false, undefined, sendLookup);
+          // The lists are independent. Historical account plans remain complete,
+          // but four year-read workers avoid multiplying latency by every year.
+          const [terms, years, vatCodes, costCenters, projects] = await Promise.all([
+            fetchList('paymentTerms'), fetchList('fiscalYears'), fetchList('vatCodes'), fetchList('costCenters'), fetchList('projects'),
+          ]);
+          const validYears = years.filter(item => uuid(item.Id)), accountPages = new Array(validYears.length); let nextYear = 0;
+          await Promise.all(Array.from({ length: Math.min(4, validYears.length) }, async () => {
+            while (nextYear < validYears.length) {
+              signal.throwIfAborted(); const index = nextYear++;
+              accountPages[index] = await fetchList('accounts', { fiscalYearId: validYears[index].Id });
+            }
+          }));
+          const accountList = accountPages.flat();
+          const choices = { companyId: companyId(), fetchedAt: clock().toISOString(),
+            fiscalYears: years.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, startDate: item.StartDate, endDate: item.EndDate, locked: Boolean(item.IsLockedForAccounting) })),
+            accounts: accountList.map(item => ({ number: Number(item.Number), name: cleanText(item.Name), fiscalYearId: item.FiscalYearId,
+              active: item.IsActive !== false, vatCodeId: item.VatCodeId ?? null, firstCostCenterMandatory: item.IsFirstCostCenterMandatory === true,
+              costCenterAllowed: item.IsCostCenterAllowed !== false, projectAllowed: item.IsProjectAllowed !== false,
+              blockedForManualBooking: item.IsBlockedForManualBooking === true, transactionTextAllowed: item.AllowTransactionText !== false })),
+            paymentTerms: terms.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name ?? item.NameEnglish), days: item.NumberOfDays, availableForPurchase: item.AvailableForPurchase === true })),
+            vatCodes: vatCodes.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, code: cleanText(item.Code), name: cleanText(item.Description), rate: item.VatRate })),
+            costCenters: costCenters.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name), number: item.Number, active: item.IsActive !== false,
+              items: (item.Items ?? []).filter(part => uuid(part.Id)).map(part => ({ id: part.Id, name: cleanText(part.Name), shortName: cleanText(part.ShortName), active: part.IsActive !== false })) })),
+            projects: projects.filter(item => uuid(item.Id)).map(item => ({ id: item.Id, name: cleanText(item.Name), number: cleanText(item.Number), status: item.Status })) };
+          await authorize(context); signal.throwIfAborted();
+          await mutate((finance, tenant) => {
+            signal.throwIfAborted();
+            if (tenant.generation !== generation) fail('Anslutningen har ändrats under hämtningen.', 409, 'visma_not_connected');
+            finance.choices[choices.companyId] = choices;
+            audit(tenant, context, 'visma.accounting_choices_fetched', { companyId: choices.companyId, accounts: choices.accounts.length, fiscalYears: choices.fiscalYears.length });
+          }); return dto();
+        });
       },
       preview,
       async exports(context, cardId) { await authorize(context); return readFinance(finance => ({ exports: finance.outbox.filter(job => cardId === undefined || String(job.source.cardId) === String(cardId)).slice().reverse().map(publicExport) })); },

@@ -61,6 +61,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
   const [dirty, setDirty] = useState(false), [conflict, setConflict] = useState(false);
   const [pending, setPending] = useState<'load' | 'save' | 'choices'>();
   const [error, setError] = useState('');
+  const [lookupFailed, setLookupFailed] = useState(false);
   const [tab, setTab] = useState<'settings' | 'history'>('settings');
   const [expandedSites, setExpandedSites] = useState<string[]>([]);
   const [siteId, setSiteId] = useState(''), [example, setExample] = useState<SpirisExample>('reverse_scrap');
@@ -80,7 +81,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
     for (const controller of controllers.current) controller.abort(); controllers.current.clear();
     busy.current = false; dirtyRef.current = false;
     baseSettings.current = undefined; paymentTermEdited.current = false;
-    setState(undefined); setForm(undefined); setDirty(false); setConflict(false); setPending(undefined); setError('');
+    setState(undefined); setForm(undefined); setDirty(false); setConflict(false); setPending(undefined); setError(''); setLookupFailed(false);
     setTab('settings'); setExpandedSites([]); setSiteId(''); setExample('reverse_scrap');
     setPreview(undefined); setPreviewLoading(false); setPreviewError('');
     setExports([]); setHistoryLoading(false); setHistoryError(''); setJournal({}); setJournalLoading(undefined);
@@ -116,7 +117,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
     const controller = new AbortController(); controllers.current.add(controller);
     const request = ++generation.current;
     const current = () => mounted.current && !controller.signal.aborted && identityRef.current === identity && permittedRef.current && generation.current === request;
-    busy.current = true; setPending('load'); setError('');
+    busy.current = true; setPending('load'); setError(''); setLookupFailed(false);
     try { const next = await spirisAccountingApi.settings(controller.signal); if (current()) applyState(next, !dirtyRef.current); }
     catch (failure) { if (current()) setError(environmentFailure(failure)); }
     finally { controllers.current.delete(controller); if (current()) { busy.current = false; setPending(undefined); } }
@@ -148,7 +149,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
     const current = () => mounted.current && !controller.signal.aborted && identityRef.current === identity && permittedRef.current && generation.current === request;
     const frozen = structuredClone(form);
     const expectedRevision = baseSettings.current?.revision ?? form.revision;
-    setPending(action); setError('');
+    setPending(action); setError(''); setLookupFailed(false);
     try {
       const next = action === 'save' ? await spirisAccountingApi.saveSettings({ ...frozen, revision: expectedRevision }, expectedRevision, controller.signal)
         : await spirisAccountingApi.lookupChoices(controller.signal);
@@ -159,6 +160,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
     } catch (failure) {
       if (!current()) return;
       setError(environmentFailure(failure));
+      setLookupFailed(action === 'choices');
       if (action === 'save' && failure instanceof EnvironmentApiError && ['revision_conflict', 'accounting_settings_conflict'].includes(failure.code)) {
         setConflict(true);
         try { const next = await spirisAccountingApi.settings(controller.signal); if (current()) applyState(next, false); }
@@ -293,7 +295,8 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
       : !matchingSession ? <div className="spiris-message" role={sessionError ? 'alert' : 'status'}><RefreshCw size={18} /><p>{sessionError || (sessionLoading ? 'Hämtar din session…' : 'Sessionen behöver uppdateras.')}</p>{!sessionLoading && <button type="button" className="office-btn outline" onClick={() => void refreshSession().catch(() => undefined)}>Försök igen</button>}</div>
         : <>
           <nav className="spiris-tabs" aria-label="Spiris integrationsflikar"><button type="button" aria-current={tab === 'settings' ? 'page' : undefined} className={tab === 'settings' ? 'selected' : ''} onClick={() => setTab('settings')}><Settings2 size={15} />Inställningar</button><button type="button" aria-current={tab === 'history' ? 'page' : undefined} className={tab === 'history' ? 'selected' : ''} onClick={() => setTab('history')}><History size={15} />Överföringar{exports.length > 0 && <span className="spiris-tab-count">{exports.length}</span>}</button><div>Alla anläggningar använder samma anslutning</div></nav>
-          {error && <div className="spiris-message error" role="alert"><CircleAlert size={18} /><div><p>{error}</p>{conflict && <p>Dina ändringar finns kvar. Granska den senaste sparade versionen innan du sparar igen.</p>}</div><button type="button" className="office-btn outline" onClick={() => void load()} disabled={!!pending}>Hämta senaste version</button></div>}
+          {error && <div className="spiris-message error" role="alert"><CircleAlert size={18} /><div><p>{error}</p>{conflict && <p>Dina ändringar finns kvar. Granska den senaste sparade versionen innan du sparar igen.</p>}</div><button type="button" className="office-btn outline" onClick={() => void (lookupFailed ? perform('choices') : load())} disabled={!!pending}>{lookupFailed ? 'Försök hämta igen' : 'Hämta senaste version'}</button></div>}
+          {pending === 'choices' && <div className="spiris-message" role="status"><RefreshCw size={18} /><p>Hämtar kontoplan, betalningsvillkor, momskoder, kostnadsställen och projekt från Spiris…</p></div>}
           {conflict && state && form && <section className="spiris-conflict-review" aria-label="Granska ändrade Spiris-inställningar"><h3>Senast sparad version {state.settings.revision}</h3><p>Dina ändringar finns kvar. Skillnaderna visas nedan. När du uppdaterar versionen behålls andras ändringar i de fält som du inte har ändrat.</p><div><table><thead><tr><th>Inställning</th><th>Senast sparat</th><th>Ditt formulär</th></tr></thead><tbody>{differences.map(row => <tr key={row.label}><th scope="row">{row.label}</th><td>{row.saved}</td><td>{row.edited}</td></tr>)}</tbody></table></div><button type="button" className="office-btn outline" onClick={reconcile} disabled={fieldsDisabled || !!pending}>Behåll mina ändringar och uppdatera version</button></section>}
           {!state && !error && <div className="spiris-message" role="status"><RefreshCw size={18} /><p>Hämtar Spiris-inställningar…</p></div>}
           {state && form && tab === 'settings' && <>

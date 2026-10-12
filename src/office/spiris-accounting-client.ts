@@ -1,5 +1,5 @@
 import type { AccountingSettings, AccountingDraftRow, AccountingDraft, AccountingSnapshot } from './accounting-types';
-import { environmentRequest } from './environment-client';
+import { EnvironmentApiError, environmentRequest } from './environment-client';
 import type { VismaCardReference } from './visma-sandbox-client';
 
 export interface SpirisChoices {
@@ -63,11 +63,35 @@ export interface SpirisCardPreview {
   export?: SpirisExport | null;
 }
 
+async function lookupChoices(signal?: AbortSignal): Promise<SpirisAccountingState> {
+  // A separate deadline signal lets the panel report the timeout and clear its
+  // busy state; its own controller still identifies navigation/account changes.
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+  let timedOut = false;
+  const timer = window.setTimeout(() => { timedOut = true; controller.abort(); }, 45_000);
+  try {
+    const result = await environmentRequest<SpirisAccountingState>('/visma/accounting/choices', 'POST', {}, controller.signal);
+    if (controller.signal.aborted) throw new DOMException('Hämtningen avbröts.', 'AbortError');
+    return result;
+  } catch (failure) {
+    if (timedOut && !signal?.aborted) throw new EnvironmentApiError(
+      'Hämtningen från Spiris tog för lång tid. Försök igen. Dina inställningar finns kvar.', 'visma_lookup_timeout', 504,
+    );
+    throw failure;
+  } finally {
+    window.clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+  }
+}
+
 export const spirisAccountingApi = {
   settings: (signal?: AbortSignal) => environmentRequest<SpirisAccountingState>('/visma/accounting/settings', 'GET', undefined, signal),
   saveSettings: (settings: AccountingSettings, expectedRevision: number, signal?: AbortSignal) =>
     environmentRequest<SpirisAccountingState>('/visma/accounting/settings', 'POST', { expectedRevision, settings }, signal),
-  lookupChoices: (signal?: AbortSignal) => environmentRequest<SpirisAccountingState>('/visma/accounting/choices', 'POST', {}, signal),
+  lookupChoices,
   samplePreview: (request: { settings: AccountingSettings; siteId: string; example: SpirisExample; amount: number; date: string }, signal?: AbortSignal) =>
     environmentRequest<SpirisSamplePreview>('/visma/accounting/preview', 'POST', request, signal),
   preview: (cardId: number, signal?: AbortSignal) => environmentRequest<SpirisCardPreview>('/visma/accounting/preview', 'POST', { cardId }, signal),

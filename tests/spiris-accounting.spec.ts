@@ -48,7 +48,7 @@ function configuredState(): SpirisAccountingState {
   return result;
 }
 
-async function fixture(page: Page, options: { configured?: boolean; conflict?: boolean; delayed?: Promise<void>; remoteOnChoices?: boolean; mandatoryCenter?: boolean; sendGate?: Promise<void> } = {}) {
+async function fixture(page: Page, options: { configured?: boolean; conflict?: boolean; delayed?: Promise<void>; choicesGate?: Promise<void>; remoteOnChoices?: boolean; mandatoryCenter?: boolean; sendGate?: Promise<void> } = {}) {
   let current = options.configured ? configuredState() : initialState();
   if (options.mandatoryCenter && current.choices) { current.choices.accounts.find(account => account.number === 4000)!.firstCostCenterMandatory = true; delete current.settings.sites[0].costCenterId; }
   const saves: { expectedRevision: number; settings: AccountingSettings }[] = [];
@@ -75,9 +75,10 @@ async function fixture(page: Page, options: { configured?: boolean; conflict?: b
       return safeFulfill(route, { json: current });
     }
     if (path.endsWith('/choices') && method === 'POST') {
+      if (options.choicesGate && requests.filter(request => request === `POST ${endpoint}/choices`).length === 1) await options.choicesGate;
       current = { ...current, choices: structuredClone(choices), suggestedPaymentTermsId: ids.immediate };
       if (options.remoteOnChoices) current.settings = { ...current.settings, revision: 2, enabled: false, paymentTermDays: 30, paymentTermsId: ids.thirty };
-      return route.fulfill({ json: current });
+      return safeFulfill(route, { json: current });
     }
     if (path.endsWith('/settings') && method === 'POST') {
       const request = route.request().postDataJSON() as { expectedRevision: number; settings: AccountingSettings }; saves.push(structuredClone(request));
@@ -177,6 +178,30 @@ test('verkliga Spiris-val styr standardvillkor och anläggningskonton utan påhi
   ]) } });
   expect(local.external).toEqual([]);
   await expect(panel.locator('input:not([type="checkbox"])')).toHaveCount(0);
+});
+
+test('fastnad hämtning släpper formuläret, behåller ändringar och kan göras om utan omladdning', async ({ page }) => {
+  let release!: () => void;
+  const choicesGate = new Promise<void>(resolve => { release = resolve; });
+  const local = await fixture(page, { configured: true, choicesGate }), panel = await open(page);
+  await expect(panel.getByLabel('Inköpskonto privatinköp', { exact: true })).toBeEnabled();
+  await panel.getByLabel('Inköpskonto privatinköp', { exact: true }).selectOption('4010');
+  await page.clock.install();
+  await panel.getByRole('button', { name: 'Hämta från Spiris', exact: true }).click();
+  await expect(panel.getByLabel('Inköpskonto privatinköp', { exact: true })).toBeDisabled();
+  await expect.poll(() => local.requests.filter(request => request === `POST ${endpoint}/choices`).length).toBe(1);
+  await page.clock.fastForward(45_001);
+  await expect(panel.getByRole('alert')).toContainText('Hämtningen från Spiris tog för lång tid');
+  await expect(panel.getByLabel('Inköpskonto privatinköp', { exact: true })).toBeEnabled();
+  await expect(panel.getByLabel('Inköpskonto privatinköp', { exact: true })).toHaveValue('4010');
+  release();
+  await panel.getByRole('button', { name: 'Försök hämta igen', exact: true }).click();
+  await expect.poll(() => local.requests.filter(request => request === `POST ${endpoint}/choices`).length).toBe(2);
+  await expect(panel.getByRole('button', { name: 'Hämta från Spiris', exact: true })).toBeEnabled();
+  await expect(panel.getByRole('alert')).toHaveCount(0);
+  await expect(panel.getByLabel('Inköpskonto privatinköp', { exact: true })).toHaveValue('4010');
+  expect(local.saves).toHaveLength(0);
+  expect(local.external).toEqual([]);
 });
 
 test('förhandsvisning visar balanserad omvänd moms och kräver uttrycklig rutin för momsbefriat företag', async ({ page }) => {

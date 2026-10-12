@@ -44,17 +44,18 @@ async function fixture(run) {
   };
   provider = normalProvider;
   const fetchImpl = async (url, options) => {
-    const call = { url: new URL(url), method: options.method, payload: options.body ? JSON.parse(options.body.startsWith('{') ? options.body : '{}') : null };
+    const call = { url: new URL(url), method: options.method, signal: options.signal, payload: options.body ? JSON.parse(options.body.startsWith('{') ? options.body : '{}') : null };
     calls.push(call);
     if (call.url.hostname === 'identity.vismaonline.com') return body({ access_token: 'fixture-access', refresh_token: 'fixture-refresh', expires_in: 3600 });
     return provider(call);
   };
   const otherRepositories = [];
-  const makeService = selectedRepository => createVismaSandbox({ getRepository: async () => selectedRepository ?? repository, env, fetchImpl, now: () => time,
+  const makeService = (selectedRepository, options = {}) => createVismaSandbox({ getRepository: async () => selectedRepository ?? repository, env, fetchImpl, now: () => time, ...options,
     sourceProvider: async () => structuredClone(approvals), sitesProvider: async () => [{ id: 'yard', name: 'Testanläggning' }],
     authorizeContext: async () => { if (revoked) { const error = new Error('Session revoked'); error.status = 403; error.code = 'session_revoked'; throw error; } } });
   let service = makeService();
   const f = { calls, approvals, suppliers, env, normalProvider, postgres: Boolean(pool),
+    withLookupTimeout: milliseconds => makeService(undefined, { lookupTimeoutMs: milliseconds }),
     get service() { return service; }, get repository() { return repository; },
     setProvider: handler => { provider = handler; }, revoke: () => { revoked = true; }, advance: () => { time = new Date(time.getTime() + 120001); },
     posts: () => calls.filter(call => call.method === 'POST' && call.url.hostname === 'eaccountingapi.vismaonline.com'),
@@ -91,6 +92,77 @@ test('finance settings are company-scoped, revision guarded and select only actu
   await assert.rejects(() => f.service.saveSettings({ expectedRevision: 1, settings: configuration({ companyId: 'other' }) }, context), error => error.code === 'accounting_company_mismatch');
   const before = f.calls.length; const preview = await f.service.preview({ example: 'private', siteId: 'yard', amount: 1000, date: '2026-10-11' }, context);
   assert.equal(preview.draft.TotalAmount, 1000); assert.equal(preview.draft.DueDate, '2026-10-11'); assert.equal(f.calls.length, before);
+}));
+
+test('settings lookup fetches three complete 1,413-account plans in six large pages with one company check', { timeout: 5000 }, async () => fixture(async f => {
+  await f.connect();
+  const years = [2025, 2026, 2027].map(year => ({ Id: randomUUID(), StartDate: `${year}-01-01T00:00:00Z`, EndDate: `${year}-12-31T00:00:00Z`, IsLockedForAccounting: false }));
+  const start = f.calls.length; let inFlight = 0, maxInFlight = 0;
+  const runsBefore = await f.repository.read(state => state.vismaIntegration.tenants['jeroc-demo'].runs.length);
+  f.setProvider(async call => {
+    if (call.url.pathname === '/v2/fiscalyears') return page(years);
+    if (!call.url.pathname.startsWith('/v2/accounts/')) return f.normalProvider(call);
+    const yearId = call.url.pathname.split('/').at(-1), currentPage = Number(call.url.searchParams.get('$page'));
+    assert.equal(call.url.searchParams.get('$pagesize'), '1000'); assert.ok(years.some(year => year.Id === yearId));
+    inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 10));
+      const offset = (currentPage - 1) * 1000, length = Math.min(1000, 1413 - offset);
+      // Normal detailed Spiris records exceed the previous 256 KiB response
+      // limit for a documented full page, but fit the bounded read budget.
+      const data = Array.from({ length }, (_, index) => ({ Number: String(1000 + offset + index), Name: `Account ${offset + index}`, FiscalYearId: yearId, IsActive: true, Detail: 'x'.repeat(600) }));
+      return body({ Data: data, Meta: { CurrentPage: currentPage, PageSize: 1000, TotalNumberOfPages: 2, TotalNumberOfResults: 1413 } });
+    } finally { inFlight--; }
+  });
+  const result = await f.service.lookupChoices(context), calls = f.calls.slice(start);
+  assert.equal(result.choices.accounts.length, 4239);
+  for (const year of years) assert.equal(result.choices.accounts.filter(account => account.fiscalYearId === year.Id).length, 1413);
+  assert.equal(calls.filter(call => call.url.pathname.startsWith('/v2/accounts/')).length, 6);
+  assert.equal(calls.filter(call => call.url.pathname === '/v2/companysettings').length, 1);
+  assert.ok(maxInFlight > 1, 'Independent fiscal-year reads must overlap'); assert.ok(maxInFlight <= 4);
+  assert.ok(calls.every(call => call.method === 'GET')); assert.equal(f.posts().length, 0);
+  const stored = await f.repository.read(state => state.vismaIntegration.tenants['jeroc-demo']);
+  assert.equal(stored.runs.length, runsBefore, 'Settings reads do not repeatedly journal full raw account pages');
+  assert.equal(stored.audit.at(-1).action, 'visma.accounting_choices_fetched');
+  assert.equal(stored.audit.at(-1).accounts, 4239);
+}));
+
+for (const change of ['revoke', 'disconnect']) test(`settings pages recheck ${change === 'revoke' ? 'live permissions' : 'connection generation'} before the next GET and never replace the previous cache`, { timeout: 5000 }, async () => fixture(async f => {
+  await f.connect(); const previous = (await f.service.lookupChoices(context)).choices;
+  let release, entered, accountCalls = 0;
+  const wait = new Promise(resolve => { release = resolve; }), ready = new Promise(resolve => { entered = resolve; });
+  f.setProvider(async call => {
+    if (!call.url.pathname.startsWith('/v2/accounts/')) return f.normalProvider(call);
+    accountCalls++; entered(); await wait;
+    return body({ Data: [{ Number: '4000', Name: 'Inköp', FiscalYearId: fiscalYearId }],
+      Meta: { CurrentPage: 1, PageSize: 1000, TotalNumberOfPages: 2, TotalNumberOfResults: 2 } });
+  });
+  const lookup = f.service.lookupChoices(context); await ready;
+  if (change === 'revoke') f.revoke(); else await f.service.disconnect(context);
+  release(); await assert.rejects(() => lookup, error => ['session_revoked', 'visma_not_connected'].includes(error.code));
+  assert.equal(accountCalls, 1, 'The next page cannot dispatch after permission/connection changes');
+  const stored = await f.repository.read(state => state.vismaIntegration.tenants['jeroc-demo'].finance.choices[companyId]);
+  assert.deepEqual(stored, previous); assert.equal(f.posts().length, 0);
+}));
+
+test('whole settings lookup timeout aborts outstanding reads and retains the complete cached choices', { timeout: 5000 }, async () => fixture(async f => {
+  await f.connect(); const previous = (await f.service.lookupChoices(context)).choices;
+  let active = 0, aborted = 0;
+  f.setProvider(call => {
+    if (!call.url.pathname.startsWith('/v2/accounts/')) return f.normalProvider(call);
+    active++;
+    return new Promise((resolve, reject) => {
+      const abort = () => { active--; aborted++; reject(call.signal.reason); };
+      if (call.signal.aborted) abort(); else call.signal.addEventListener('abort', abort, { once: true });
+    });
+  });
+  const started = performance.now();
+  await assert.rejects(() => f.withLookupTimeout(50).lookupChoices(context), error => error.status === 504 && error.code === 'visma_lookup_timeout');
+  assert.ok(performance.now() - started < 1000); assert.equal(active, 0); assert.equal(aborted, 1);
+  const callsAfterFailure = f.calls.length;
+  assert.deepEqual((await f.service.settings(context)).choices, previous);
+  await new Promise(resolve => setImmediate(resolve)); assert.equal(f.calls.length, callsAfterFailure, 'A timed-out batch cannot continue fetching or publish a partial cache');
+  assert.equal(f.posts().length, 0);
 }));
 
 test('manual export matches exact supplier number, stores mapping and returned draft ID durably', async () => fixture(async f => {

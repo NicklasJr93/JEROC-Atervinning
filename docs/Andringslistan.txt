@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.5.0. Aktuell kontorsversion: 0.17.0.
+Aktuell mobilwebbversion: 0.5.0. Aktuell kontorsversion: 0.17.1.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
@@ -1626,3 +1626,41 @@ på kontoret och saldo-/ersättningsregler byggs senare. Kontor fortsatt 0.17.0.
 - Tidigare klickbar chefsvy är fortfarande designreferens för kommande
   kontorsgranskning. Saldo-/semester-/ersättningsregler behöver beslutas inför
   den etappen. Personaldokument, utrustning, lönekörning och integrationer ingår inte.
+
+079 – Stämpelklocka parallellt med arbetsordertid
+Status: Planerad 2026-10-12. Flödet godkänt; ingen implementation aktiverad.
+- Admin väljer under personens tidrapporteringsinställningar på kontoret
+  Stämpelklocka eller Arbetsorder + manuell tid som källa till arbetade timmar.
+  Stämpelkort och statusrad visas bara för personer med stämpelklockan påslagen.
+- Hem har ett litet kort med Stämpla in, Ta rast, Återuppta arbete och
+  Stämpla ut. Rast pausar den summerade arbetstiden och räknas separat;
+  flera raster sparas var för sig. Utstämpling visar arbetstid och rasttid.
+- En smal statusrad ligger kvar mellan appens sidor och öppnar stämpeluret
+  under Tid vid tryck. Grönt visar Instämplad med arbetstid hh:mm:ss, orange
+  Rast med rasttid och rött Ej instämplad; lediga dagar använder grått.
+- Tid visar aktiv klocka, dagens in-/utstämplingar, raster och tidigare pass.
+  Klockan fortsätter även när appen stängs. Missad stämpling kan rättas med
+  verkliga tider och anledning; rättelser sparas i historiken.
+- Arbetsorder och manuella aktiviteter fördelar tiden parallellt. De läggs
+  aldrig ovanpå stämpeltiden: åtta arbetade timmar med sex timmar på uppdrag
+  och två timmar gårdsarbete ger åtta timmar totalt. Ofördelad tid visas
+  under Tid utan ytterligare spärr.
+- Befintligt timkrav och spärr för tidigare ofullständig arbetsdag använder
+  vald tidskälla. En rättelse häver spärren först när giltig tid sparats på servern.
+
+080 – Spiris-inställningarnas hämtning fastnar
+Status: Implementerad i kontor 0.17.1, 2026-10-12.
+- Felbilden verifierad i svarshistoriken: 1 413 konton per räkenskapsår och
+  tre år gav 45 sekventiella kontosidor om 100 poster. Företagskontroll och
+  databasoperationer upprepades per sida. Ingen total tidsgräns i formuläret.
+- Inställningshämtningen använder Spiris dokumenterade 1 000 poster per sida,
+  parallella oberoende listor och begränsat parallella årsvisa kontoplaner.
+  Alla år och poster verifieras före sparande; inga konton väljs automatiskt.
+- Företag och token verifieras en gång för den privata läsbatchen. Aktuell
+  behörighet och anslutningsgeneration kontrolleras fortsatt före varje sida
+  och innan kompletta val sparas. Leverantörs-/fakturautkastsexport ändras inte.
+- Hela läsbatchen får en tidsgräns. Timeout avbryter läsningarna och bevarar
+  tidigare kompletta val. Formuläret har även en egen tidsgräns så att fel
+  frigör knappar och fält; osparade inställningar finns kvar.
+- Visa vad som hämtas och erbjud Försök hämta igen utan sidomladdning.
+  Inga nya Render-variabler behövs. Stämpelklockan i 079 är fortsatt planerad.

@@ -1,6 +1,6 @@
 # JEROC · Mobilappen
 
-**Mobilwebb 0.5.0, Expo-skal 0.3.0 och kontor 0.17.0** delar verksamhetsdata i PostgreSQL. Utkast, kunder, färdiga mobilvägningar, kontorskort, prisregister, artikelgrupper, egna artikelbilder, planering och integrationsutkorg sparas beständigt. Kontoret styr mobilens materialmeny, bilder och instruktioner. Färdiga mobilvägningar visas på kontoret. Kontoret har även personal, schema, kompetenser och bemanning samt extern chaufförsvy på `/chauffor`. Personal och konton hanteras tillsammans; en ny person kan få ett kopplat konto vid samma sparning.
+**Mobilwebb 0.5.0, Expo-skal 0.3.0 och kontor 0.17.1** delar verksamhetsdata i PostgreSQL. Utkast, kunder, färdiga mobilvägningar, kontorskort, prisregister, artikelgrupper, egna artikelbilder, planering och integrationsutkorg sparas beständigt. Kontoret styr mobilens materialmeny, bilder och instruktioner. Färdiga mobilvägningar visas på kontoret. Kontoret har även personal, schema, kompetenser och bemanning samt extern chaufförsvy på `/chauffor`. Personal och konton hanteras tillsammans; en ny person kan få ett kopplat konto vid samma sparning.
 
 Detta är fortfarande en demo. Mobilappen använder personlig serverinloggning; kontoret har valbara exempelkonton. Använd testuppgifter. NVV:s testmiljö och Spiris sandbox kan anslutas med serverns integrationsinställningar. Utbetalningar registreras manuellt; bankbetalning, SMS, e-post och BankID är ännu inte aktiverade.
 

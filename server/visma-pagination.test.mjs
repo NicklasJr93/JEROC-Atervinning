@@ -50,3 +50,13 @@ test('wire query names cannot bypass the browser DTO allowlist', () => {
     parameters: { $page: 2, $pagesize: 100 } }), error => error.code === 'visma_invalid');
   assert.throws(() => vismaOperationPath('supplier', { resourceId: randomUUID(), page: 2 }), error => error.code === 'visma_invalid');
 });
+
+test('documented 1,000-record pages are allowed without expanding the page-count bound', () => {
+  const request = { requestId: randomUUID(), idempotencyKey: randomUUID(), operation: 'accounts', parameters: { fiscalYearId: randomUUID(), page: 100, pageSize: 1000 } };
+  assert.equal(parseVismaSandboxInput(request).parameters.pageSize, 1000);
+  assert.equal(new URL(vismaOperationPath('accounts', request.parameters), 'https://example.invalid').searchParams.get('$pagesize'), '1000');
+  for (const parameters of [{ ...request.parameters, pageSize: 1001 }, { ...request.parameters, page: 101 }]) {
+    assert.throws(() => parseVismaSandboxInput({ ...request, parameters }), error => error.code === 'visma_invalid');
+    assert.throws(() => vismaOperationPath('accounts', parameters), error => error.code === 'visma_invalid');
+  }
+});

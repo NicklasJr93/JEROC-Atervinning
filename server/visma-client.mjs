@@ -60,7 +60,7 @@ const draft = z.object({
 }).strict();
 const inputSchema = z.object({ requestId: uuid, idempotencyKey: z.string().trim().min(1).max(100), operation: z.enum(VISMA_OPERATIONS.map(item => item.id)),
   parameters: z.object({ fiscalYearId: uuid.optional(), resourceId: uuid.optional(), page: z.number().int().min(1).max(100).optional(),
-    pageSize: z.number().int().min(1).max(100).optional(), useDefaultVatCodes: z.literal(false).optional(), calculateVatOnCostAccounts: z.literal(false).optional() }).strict().optional(), payload: z.unknown().optional(),
+    pageSize: z.number().int().min(1).max(1000).optional(), useDefaultVatCodes: z.literal(false).optional(), calculateVatOnCostAccounts: z.literal(false).optional() }).strict().optional(), payload: z.unknown().optional(),
   source: z.object({ cardId: z.number().int().positive().safe(), approvalId: uuid, version: z.number().int().positive(), hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().optional() }).strict();
 
 export function parseVismaSandboxInput(value) {
@@ -89,7 +89,7 @@ export function vismaOperationPath(operation, parameters = {}) {
   if (Object.keys(parameters).some(key => !allowedParameters(operation).includes(key))) fail('Operationen innehåller okända resursparametrar.');
   const query = new URLSearchParams();
   for (const key of ['page', 'pageSize', 'useDefaultVatCodes', 'calculateVatOnCostAccounts']) if (parameters[key] !== undefined) {
-    if (['page', 'pageSize'].includes(key) && (!Number.isInteger(parameters[key]) || parameters[key] < 1 || parameters[key] > 100) ||
+    if (['page', 'pageSize'].includes(key) && (!Number.isInteger(parameters[key]) || parameters[key] < 1 || parameters[key] > (key === 'pageSize' ? 1000 : 100)) ||
       !['page', 'pageSize'].includes(key) && parameters[key] !== false) fail('Operationens frågeparametrar är inte giltiga.');
     query.set(key === 'page' ? '$page' : key === 'pageSize' ? '$pagesize' : key, String(parameters[key]));
   }
@@ -148,18 +148,21 @@ export function createVismaClient({ env = process.env, fetchImpl = globalThis.fe
   const remember = (...values) => values.forEach(value => { if (typeof value === 'string') secrets.add(value); });
   const redact = value => redactVisma(value, [...secrets]);
   const configured = () => { const config = readVismaConfiguration(env); if (!config.configured) fail('Spiris sandbox är inte färdigkonfigurerad.', 409, 'visma_not_configured'); return config; };
-  async function transport(url, options) {
-    const response = await fetchImpl(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(15000) });
+  async function transport(url, options, responseLimit = 256 * 1024) {
+    const timeout = AbortSignal.timeout(15000);
+    const response = await fetchImpl(url, { ...options, redirect: 'error', signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout });
     const content = await response.text();
-    if (Buffer.byteLength(content) > 256 * 1024) throw new Error('provider_response_too_large');
+    // A documented page may contain 1,000 detailed account records. Keep a
+    // finite budget without rejecting a normal full account-plan page.
+    if (Buffer.byteLength(content) > responseLimit) throw new Error('provider_response_too_large');
     let body; try { body = content ? JSON.parse(content) : null; } catch { body = { message: content.slice(0, 16000) }; }
     return { httpStatus: response.status, body };
   }
-  async function token(fields, previousRefreshToken) {
+  async function token(fields, previousRefreshToken, signal) {
     configured(); remember(fields.code, fields.code_verifier, fields.refresh_token);
     let result; try {
       result = await transport(VISMA_TOKEN_URL, { method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`${env.VISMA_CLIENT_ID}:${env.VISMA_CLIENT_SECRET}`).toString('base64')}`,
-        'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams(fields).toString() });
+        'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams(fields).toString(), signal });
     } catch { fail('OAuth-svaret saknas. Starta en ny anslutning innan du försöker igen.', 502, 'visma_oauth_failed'); }
     const body = result.body;
     if (result.httpStatus < 200 || result.httpStatus >= 300 || !body || typeof body.access_token !== 'string' || !body.access_token ||
@@ -179,8 +182,8 @@ export function createVismaClient({ env = process.env, fetchImpl = globalThis.fe
       return url.href;
     },
     exchangeCode({ code, verifier }) { return token({ grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: configured().redirectUri }); },
-    refreshToken(refreshToken) { return token({ grant_type: 'refresh_token', refresh_token: refreshToken }, refreshToken); },
-    async request({ operation, parameters, payload, accessToken, trackingId }) {
+    refreshToken(refreshToken, signal) { return token({ grant_type: 'refresh_token', refresh_token: refreshToken }, refreshToken, signal); },
+    async request({ operation, parameters, payload, accessToken, trackingId, signal }) {
       configured(); const descriptor = byOperation.get(operation);
       if (!descriptor) fail('Operationen är inte tillåten.');
       const path = vismaOperationPath(operation, parameters);
@@ -193,7 +196,7 @@ export function createVismaClient({ env = process.env, fetchImpl = globalThis.fe
       remember(accessToken);
       let result; try {
         result = await transport(`${VISMA_API_BASE}${path}`, { method: descriptor.method, headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json',
-          ...(descriptor.write ? { 'Content-Type': 'application/json' } : {}) }, ...(descriptor.write ? { body: JSON.stringify(payload) } : {}) });
+          ...(descriptor.write ? { 'Content-Type': 'application/json' } : {}) }, ...(descriptor.write ? { body: JSON.stringify(payload) } : {}), signal }, descriptor.write ? 256 * 1024 : 2 * 1024 * 1024);
       } catch { return { outcome: 'unknown', httpStatus: null, response: null, error: { code: 'VISMA_UNKNOWN_OUTCOME', message: 'Svar saknas efter avbrott eller timeout. Försöket skickas inte automatiskt igen.' } }; }
       const response = redact(result.body), accepted = result.httpStatus >= 200 && result.httpStatus < 300;
       if (descriptor.write && (result.httpStatus === 408 || result.httpStatus >= 500)) return { outcome: 'unknown', httpStatus: result.httpStatus, response,

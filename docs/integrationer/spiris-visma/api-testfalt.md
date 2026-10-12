@@ -111,6 +111,15 @@ Listor returnerar `{ "Meta": {...}, "Data": [...] }`. Sidparametrar är
 `$page` och `$pagesize`; standard är 50 objekt, maximalt 1000 per sida.
 Följ `Meta.TotalNumberOfPages` och visa när bara en sida hämtats.
 
+Integrationskortets **Hämta från Spiris** använder från kontor 0.17.1
+1 000 poster per sida och hämtar oberoende listor parallellt. Alla
+räkenskapsårs kontoplaner behålls. Företaget verifieras en gång för den
+korta läsbatchen; behörighet och aktuell anslutning kontrolleras fortsatt
+före varje anrop. Kompletta val sparas först när alla listor är verifierade.
+En avbruten hämtning lämnar tidigare val och formulärändringar kvar.
+Sidan visar vad den hämtar, har en egen tidsgräns och erbjuder
+**Försök hämta igen** utan omladdning.
+
 ## Hanterad ekonomi och överföring i 0.16.0
 
 Integrationskortets ekonomiinställningar väljer verkliga provider-ID:n,

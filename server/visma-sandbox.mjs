@@ -37,7 +37,7 @@ const companyFrom = response => response && typeof response.CompanyIdentifier ==
 
 /** OAuth and test runs live in a separate ApplicationRepository domain. All
  * transactions are short; provider calls happen after the reservation commits. */
-export function createVismaSandbox({ getRepository, sourceProvider = async () => [], sitesProvider = async () => [], authorizeContext = async () => {}, env = process.env, fetchImpl = globalThis.fetch, now = () => new Date() } = {}) {
+export function createVismaSandbox({ getRepository, sourceProvider = async () => [], sitesProvider = async () => [], authorizeContext = async () => {}, env = process.env, fetchImpl = globalThis.fetch, now = () => new Date(), lookupTimeoutMs = 30000 } = {}) {
   if (typeof getRepository !== 'function') throw new TypeError('getRepository krävs.');
   const client = createVismaClient({ env, fetchImpl });
   const clock = () => new Date(now());
@@ -113,9 +113,10 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
           Rows: [{ AccountNumber: 4000, DebitAmount: 10, CreditAmount: 0, TransactionText: 'Syntetiskt sandboxutkast' }] },
       }, runs: tenant.runs.slice().sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 50).map(run => publicRun(run, clock())) };
   }
-  async function access(context, generation) {
+  async function access(context, generation, signal) {
     const deadline = Date.now() + REFRESH_LIFETIME;
     while (true) {
+      signal?.throwIfAborted();
       const decision = await transact(state => {
         const tenant = tenantFor(state, context.organisationId, true);
         if (tenant.generation !== generation || !tenant.tokens) fail('Anslutningen har ändrats. Anslut på nytt.', 409, 'visma_not_connected');
@@ -137,11 +138,11 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
       if (decision.lost) fail('Tokenförnyelsens svar saknas. Anslut på nytt.', 409, 'visma_refresh_unknown');
       if (decision.wait) {
         if (Date.now() >= deadline) fail('Tokenförnyelse pågår. Försöket skickades inte.', 409, 'visma_refresh_busy');
-        await pause(30); continue;
+        await pause(30, undefined, { signal }); continue;
       }
       if (!decision.lease) return decision.tokens.accessToken;
       let refreshed;
-      try { refreshed = await client.refreshToken(decision.tokens.refreshToken); }
+      try { refreshed = await client.refreshToken(decision.tokens.refreshToken, signal); }
       catch {
         await transact(state => { const tenant = tenantFor(state, context.organisationId, true);
           if (tenant.generation === generation && tenant.refreshLease?.id === decision.lease.id) {
@@ -159,8 +160,8 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
       });
     }
   }
-  async function checkCompany(context, generation, accessToken, trackingId) {
-    const result = await client.request({ operation: 'company', accessToken, trackingId });
+  async function checkCompany(context, generation, accessToken, trackingId, signal) {
+    const result = await client.request({ operation: 'company', accessToken, trackingId, signal });
     const company = result.outcome === 'accepted' ? companyFrom(result.response) : null;
     const configuration = ready();
     await transact(state => {
@@ -238,6 +239,48 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
         audit(tenant, context, `visma.sandbox_${status}`, { runId: run.id, trackingId: run.trackingId }); return publicRun(run, clock());
       });
 
+  }
+  async function lookupBatch(context, operation) {
+    const controller = new AbortController(), pending = new Set();
+    const timer = setTimeout(() => controller.abort(), lookupTimeoutMs);
+    try {
+      scoped(context); await authorizeContext(context); controller.signal.throwIfAborted();
+      const configuration = ready();
+      const generation = await read(state => { const tenant = tenantFor(state, context.organisationId); requireCompany(tenant, configuration); return tenant.generation; });
+      const accessToken = await access(context, generation, controller.signal);
+      const check = await checkCompany(context, generation, accessToken, randomUUID(), controller.signal);
+      controller.signal.throwIfAborted();
+      if (check.result.outcome !== 'accepted' || !check.company) fail('Sandboxföretaget kunde inte verifieras före hämtningen.', 409, 'visma_company_unverified');
+      if (check.company.id !== configuration.expectedCompanyId) fail('Anslutningen tillhör ett annat företag.', 409, 'visma_company_mismatch');
+      // This private settings path makes GET calls only. Keeping every large
+      // account page in the sandbox journal would repeatedly rewrite a growing
+      // integration document. The complete normalized result and one audit
+      // event are saved atomically by lookupChoices instead.
+      const sendLookup = value => {
+        const result = (async () => {
+          controller.signal.throwIfAborted(); scoped(context); await authorizeContext(context);
+          const request = parseVismaSandboxInput(value);
+          if (!['fiscalYears', 'accounts', 'paymentTerms', 'vatCodes', 'costCenters', 'projects'].includes(request.operation))
+            fail('Inställningshämtningen får endast läsa företagets val.', 403, 'forbidden');
+          await read(state => {
+            const tenant = tenantFor(state, context.organisationId);
+            if (tenant.generation !== generation) fail('Anslutningen har ändrats.', 409, 'visma_not_connected');
+            requireCompany(tenant, ready());
+          });
+          controller.signal.throwIfAborted();
+          const response = await client.request({ operation: request.operation, parameters: request.parameters, accessToken,
+            trackingId: request.requestId, signal: controller.signal });
+          return { status: response.outcome, response: response.response, httpStatus: response.httpStatus, error: response.error };
+        })(); pending.add(result);
+        result.then(() => pending.delete(result), () => pending.delete(result)); return result;
+      };
+      const result = await operation(sendLookup, controller.signal, generation); controller.signal.throwIfAborted(); return result;
+    } catch (error) {
+      const timedOut = controller.signal.aborted; controller.abort();
+      await Promise.allSettled([...pending]);
+      if (timedOut) fail('Hämtningen från Spiris tog för lång tid och avbröts. Tidigare hämtade val har behållits. Försök igen.', 504, 'visma_lookup_timeout');
+      throw error;
+    } finally { clearTimeout(timer); controller.abort(); }
   }
   const service = {
     async integrationStatus(context) {
@@ -317,7 +360,7 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
     },
     send: (value, context) => dispatch(value, context),
   };
-  finance = createVismaExports({ read, transact, tenantFor, scoped, audit, clock, config, sourceProvider, sitesProvider, authorizeContext,
+  finance = createVismaExports({ read, transact, tenantFor, scoped, audit, clock, config, sourceProvider, sitesProvider, authorizeContext, lookupBatch,
     send: (request, context, worker, scopeKey) => dispatch(request, context, worker ? workerCapability : undefined, scopeKey),
     connection: () => read(state => { const tenant = tenantFor(state, 'jeroc-demo'); return { company: copy(tenant.company), companyVerified: verified(tenant, config()) }; }),
   });
