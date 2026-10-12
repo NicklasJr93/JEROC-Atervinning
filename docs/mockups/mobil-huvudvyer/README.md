@@ -1,6 +1,7 @@
 # Mobilappens huvudvyer
 
-Fyra statiska designbilder, 2026-10-12. En gemensam app med bottenmenyn
+Fyra huvudvyer och en gårdssida som statiska designbilder, 2026-10-12.
+En gemensam app med bottenmenyn
 **Hem · Schema · Tid · Profil**. Fiktiva exempeluppgifter för Kalle Nilsson.
 Detta är designförslag; den verkliga appen är inte ändrad.
 
@@ -40,5 +41,19 @@ Egna kontouppgifter och inställningar.
 [Öppna Profil](04_Profil.png)
 
 ![Profil](04_Profil.png)
+
+## Gårdsarbete
+
+Detaljsidan öppnas från **Hem → Gårdsarbete**. Den använder samma bottenmeny
+med Hem markerad; Gårdsarbete är ingen egen flik i bottenmenyn.
+
+**Starta invägning** öppnar det befintliga valet mellan Materialvåg och
+Fordonsvåg. Pågående utkast och vägningar som väntar på utvägning visas
+direkt under knappen, så att arbetet enkelt kan återupptas. Vägningshistorik
+och Prislista är sekundära ingångar.
+
+[Öppna Gårdsarbete](05_Gardsarbete.png)
+
+![Gårdsarbete](05_Gardsarbete.png)
 
 [Tidigare förslag och chefens granskningsflöden](../personal-mobil/README.md).
