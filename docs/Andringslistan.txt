@@ -2075,8 +2075,11 @@ Status: Genomförd 2026-10-12 i kontor 0.19.0. Kompletterar 093.
   Ett redan bokfört underlag går genom ekonomins rättelseflöde. Återskapandet
   ska inte registrera en betalning, skicka pengar eller ändra låsta original.
 - Kod och databasflöde är verifierade med mockade Spiris-svar och isolerad
-  PostgreSQL. Verklig bokföring/radering av ett utkast i sandbox ska provas
-  efter deploy. Läs mer i docs/integrationer/spiris-visma/bokforingsuppfoljning.md.
+  PostgreSQL. Efter deploy av 0.19.1 verifierades ett aktivt Uppdatera-anrop
+  på 3024 i Render: bokförd faktura, verifikation A28, en spårbarhetshändelse
+  och ingen nästa automatisk kontroll. Raderings-/återskapandeflödet återstår
+  att prova i verklig sandbox. Läs mer i
+  docs/integrationer/spiris-visma/bokforingsuppfoljning.md.
 
 096 – Sticky rubrikparti på artikeldetaljen
 Status: Planerad 2026-10-12. Förtydligar tidigare önskemål i 076; inte implementerat.
