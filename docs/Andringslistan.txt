@@ -1831,3 +1831,34 @@ Status: Planerad och inventerad 2026-10-12. Google-kopplingen är inte aktiverad
 - Befintliga manuella Nominatim-uppslag är inte autocomplete och ska inte
   anropas för varje tangenttryck. Testformulär kan fortsatt använda manuella
   adressfält. Låsta dokument och adressuppgifter blir inte redigerbara av detta.
+
+088 – Enhetliga organisationsnummer och kontroll före kundgodkännande
+Status: Planerad 2026-10-12. Inte implementerat.
+- Samma normalisering och validering används i kontorets kundregister,
+  snabbformuläret Ny kund på viktkortet, mobilens Ny kund och serverns API.
+  Godta exempelvis 5593593626 och 559359-3626 samt omgivande blanksteg.
+  Lagra vanliga svenska organisationsnummer som tio siffror och visa dem
+  enhetligt som XXXXXX-XXXX. Integrationerna får sitt dokumenterade format.
+- Kontrollera längd, tillåtna tecken och kontrollsiffra med Luhn på servern.
+  Fel visas direkt vid kundens sparande och före kundgodkännandet, med begriplig
+  instruktion vid fältet. Normalisering får inte gissa nummer, ta bort extra
+  siffror eller göra ett ogiltigt nummer giltigt utan användarens rättelse.
+- Kundtyp styr identifierarens validering. Privatpersoners personnummer och
+  enskilda firmors identifierare behöver egna regler och får inte behandlas
+  som ett vanligt aktiebolags organisationsnummer eller läcka till fel API-fält.
+- Giltigt format och kontrollsiffra bevisar inte att bolaget finns eller är
+  momsregistrerat. Momsstatus följer fortsatt den separata kontrollrutinen;
+  ett framtida registeruppslag ska redovisa vad som faktiskt verifierats.
+- Uppmärksamma befintlig kund med samma normaliserade organisationsnummer
+  innan en ny kund skapas. Inga kunder eller leverantörskopplingar slås ihop
+  automatiskt; olika kundposter kan tillhöra samma juridiska person.
+- Kontrollera kundidentifieraren före det ekonomiska underlaget låses så att
+  ogiltiga uppgifter inte först upptäcks efter attest i Spiris-exporten.
+  Om en export ändå stoppas ska orsaken visas på viktkortet och i journalen,
+  även när inget externt anrop har gjorts eller exportjobb ännu har skapats.
+- Bakgrund: kort 3023 stoppades före Spiris-anrop eftersom kundens nummer
+  innehöll elva siffror. Inställningarna var aktiverade och konteringen komplett,
+  men stoppet syntes bara i förhandsvisningen och inte på viktkortet.
+- Äldre kunduppgifter ska granskas med samma regler vid införandet. Låsta
+  kundgodkännanden, attester och dokument ändras inte retroaktivt; fel där
+  hanteras genom befintligt flöde för ny version eller rättelse.
