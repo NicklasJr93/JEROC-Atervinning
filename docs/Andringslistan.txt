@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.3.1. Aktuell kontorsversion: 0.15.0.
+Aktuell mobilwebbversion: 0.4.0. Aktuell kontorsversion: 0.17.0.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
@@ -1578,3 +1578,23 @@ Status: Planering sparad 2026-10-12. Alla tre områden avvaktar implementation.
 - Mejlinkorg: flera Outlook-konton/gemensamma brevlådor, åtkomst per brevlåda,
   ärendekopplingar och svar. AI-stöd kan läggas till efter fungerande mejlflöde.
 - Dokumentationsändring; inga nya funktioner eller externa leveranser aktiveras.
+
+078 – Min personal i mobilen och chefens granskning
+Status: Klickbar mockup framtagen 2026-10-12. Implementation återstår.
+- Mobilappens Profil får ingången Min personal med eget schema, veckans
+  rapporterade arbetstid, ledighetsansökningar och separata semester-/komp-/flexsaldon.
+- Faktiskt arbetad tid och obetald rast registreras manuellt. Planerat schema
+  räknas inte automatiskt som utfört. Rapport skickas, låses och kan godkännas
+  eller återföras med kommentar av chef. Övertidsersättning och flex kräver egna regler.
+- Ledighetsansökan visar omfattning, tillgängligt saldo och väntande ansökningar.
+  Godkännande reserverar semester och skapar frånvaro/bemanningsuppgifter för
+  berörda jobb; bokade uppdrag ligger kvar. Avslag och återföring kräver kommentar.
+- Chefens vy under Personal har sökning, ärende-/statusfilter och granskning
+  av tid/ledighet, även på mobil. Medarbetaren ser sina egna uppgifter.
+- Prototypen återanvänder JEROC:s visuella språk och samma exempelperson genom
+  hela kedjan. Fullsidiga mobilformulär och separat chefsvy; inga produktionsdata ändras.
+- 13 bilder och provflöde: docs/mockups/personal-mobil/README.md.
+  Klickbar prototyp: public/mockups/personal-mobil/index.html.
+- Före implementation behövs verklig gemensam inloggning, serverstyrd egen- och
+  chefsåtkomst samt beslutade saldo-/semester-/tidsregler. Personaldokument,
+  utrustning, lönekörning och integrationer ingår inte i mockupen.
