@@ -1837,8 +1837,9 @@ Status: Planerad 2026-10-12. Inte implementerat.
 - Samma normalisering och validering används i kontorets kundregister,
   snabbformuläret Ny kund på viktkortet, mobilens Ny kund och serverns API.
   Godta exempelvis 5593593626 och 559359-3626 samt omgivande blanksteg.
-  Lagra vanliga svenska organisationsnummer som tio siffror och visa dem
-  enhetligt som XXXXXX-XXXX. Integrationerna får sitt dokumenterade format.
+  Lagra vanliga svenska organisationsnummer som tio siffror. Visningen får
+  använda exempelvis XXXXXX-XXXX; det är databasens gemensamma lagringsformat
+  som är kravet. Integrationerna får sitt dokumenterade format.
 - Kontrollera längd, tillåtna tecken och kontrollsiffra med Luhn på servern.
   Fel visas direkt vid kundens sparande och före kundgodkännandet, med begriplig
   instruktion vid fältet. Normalisering får inte gissa nummer, ta bort extra
@@ -1865,14 +1866,19 @@ Status: Planerad 2026-10-12. Inte implementerat.
 
 089 – Gemensamt format för adresser, telefonnummer och Swish
 Status: Planerad 2026-10-12. Inte implementerat.
+- Kravet gäller gemensam normaliserad lagring i databasen, inte ett visst
+  utseende i formulären. Samma uppgift från app, webb eller API ska få samma
+  lagrade värde och återanvändas av alla moduler. Servern ansvarar för detta;
+  enbart formatering i frontend räcker inte. Presentationen får variera.
 - Återanvänd samma normalisering och validering i mobil, kontor och serverns
   API. Adressfält omfattar ursprungsadress, kundregister och snabbregistrering,
   arbetsorder, transportplanering, anläggningar, kärlplacering och personal.
   Inventeringen i docs/adressfalt-och-google-2026-10-12.md styr införandet.
 - Spara adresser strukturerat som gata/husnummer, postnummer, ort och land när
-  uppgifterna är tillgängliga. Visa svenska adresser enhetligt, exempelvis
-  Storgatan 12, 761 41 Norrtälje. Postnummer lagras som fem siffror och visas
-  med mellanslag. Ta bort överflödiga blanksteg och undvik dubblerad ort/postnr.
+  uppgifterna är tillgängliga. Postnummer lagras som fem siffror. En möjlig
+  visning är Storgatan 12, 761 41 Norrtälje; separata fält och sammanhängande
+  rader ska bygga på samma sparade uppgifter. Ta bort överflödiga blanksteg
+  och undvik dubblerad ort/postnr.
   Bevara legitima gatunamn, åäö, husnummerstillägg och utländska adressformat.
 - Befintlig sammanhängande ursprungsadress delas upp i backend och återges
   fortsatt som en rad. Vid osäker tolkning begärs komplettering av just det
