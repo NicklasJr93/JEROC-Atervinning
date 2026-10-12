@@ -9,10 +9,11 @@ samma PostgreSQL-anslutning som resten av verksamhetsdemon.
 - [Chaufförsinloggning, egna och externa](https://jeroc-atervinning.onrender.com/chauffor)
 - [Åkeriets transportledning](https://jeroc-atervinning.onrender.com/akeri)
 
-Nästa designförslag är [Min personal i mobilappen](mockups/personal-mobil/README.md):
-eget schema, faktiskt arbetad tid, ledighetsansökan, saldon och chefens granskning.
-Den klickbara prototypen är separat; dessa självservicefunktioner är ännu inte
-implementerade i verksamhetsappen.
+[Mobilappen 0.5.0](employee-mobile.md) har nu personlig inloggning, eget schema,
+faktiskt registrerad arbetstid, ledighetsansökningar och timkrav med kontroll av
+saknad tid. Chefens nya granskningsvy och semester-/flex-/kompsaldon återstår.
+Den [tidigare klickbara prototypen](mockups/personal-mobil/README.md) är separat
+och visar även förslag för den senare kontorsetappen.
 
 I 0.11.0 kan också egna anställda förare få ett personligt chaufförskonto på
 personkortet. Hantering kräver kontoadministrationsrättigheten `users`;

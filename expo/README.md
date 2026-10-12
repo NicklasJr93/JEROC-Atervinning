@@ -1,6 +1,6 @@
 # JEROC · Expo Go
 
-Expo-projektet öppnar den befintliga mobilappen i en React Native WebView på iPhone eller Android. Samma vyer och vägningslogik används som i webbdemon. Expo-delen hanterar telefonens skärmytor, laddning, anslutningsfel och Androids bakåtknapp.
+Expo-projektet öppnar mobilappen **0.5.0** i en React Native WebView på iPhone eller Android. Samma vyer och vägningslogik används som i mobilwebben. De fyra gemensamma flikarna är **Hem, Schema, Tid och Profil**; Gårdsarbete och Mina uppdrag öppnas från Hem efter behörighet. Expo-delen hanterar telefonens skärmytor, laddning, anslutningsfel och Androids bakåtknapp. [Personlig inloggning, timkrav och provflöde](../docs/employee-mobile.md).
 
 ## Prova på mobilen
 
@@ -14,7 +14,7 @@ Webbdemon finns på Render. Expo-servern kan aktiveras i samma tjänst med en pe
 2. Använd hela, uppackade GitHub-projektet på datorn. **Node.js 24 LTS, minst 24.3**, rekommenderas. Node.js 22.13 eller senare i 22-serien fungerar också.
 3. Dubbelklicka på `Windows_Starta_JEROC_Expo.cmd` eller `Mac_Starta_JEROC_Expo.command` i projektets huvudmapp. De installerar beroenden och startar både mobilappens server och Expo.
 4. Ha datorn och mobilen på samma wifi. På iPhone skannar du terminalens QR-kod med Kamera; på Android använder du Expo Go.
-5. I appen klickar du **Öppna demokontot**, eller använder **niklas / Demo123!**.
+5. Logga in i appen. I det förvalda fiktiva demot används **niklas / Demo123!**; för kontohantering och timkrav finns **admin / JerocDemo2026!**. Egna personalkonton kopplas till personalregistret och får egna lösenord.
 
 Låt startfönstret vara öppet medan du testar. QR-koden skapas på din dator; en LAN-kod från molnmiljön går inte att använda från ditt eget wifi. På fysisk iPhone kräver aktuell Expo Go att Expo CLI och Expo Go är inloggade på samma konto: kör `npx expo login` i `expo`-mappen och logga in med samma konto i mobilen. Expo Go ska stödja SDK 57, som projektet använder.
 
@@ -22,7 +22,7 @@ Om Mac inte kör filen när du dubbelklickar: öppna Terminal i projektmappen oc
 
 Om datorns brandvägg frågar, tillåt anslutning på det privata nätverket. Appdelen använder port 4173, Expo port 8081. Startfilen kan använda en redan startad JEROC-demo på 4173 och stänger då inte den när du avslutar Expo.
 
-**Mobil och kontor delar serverdata.** Expo visar samma mobilwebb som webbläsaren: utkast sparas på servern och färdiga vägningar visas på kontoret. Artikelgrupper, bilder och instruktioner hämtas från kontorets register. WebView har dessutom en lokal återhämtningscache för arbete som väntar på sparning. Använd samma JEROC-serveradress på mobilen och kontoret. Vid lokal testning behöver datorns appserver vara igång även när Expo Go är öppet.
+**Mobil och kontor delar serverdata.** Expo visar samma mobilwebb som webbläsaren: utkast sparas på servern och färdiga vägningar visas på kontoret. Artikelgrupper, bilder och instruktioner hämtas från kontorets register. Eget schema, faktisk arbetstid, timkrav och ledighetsansökningar använder samma PostgreSQL-databas. WebView har dessutom en lokal återhämtningscache för vägningsarbete som väntar på sparning; den häver inte serverns spärr vid saknad tidrapport. Använd samma JEROC-serveradress på mobilen och kontoret. Vid lokal testning behöver datorns appserver vara igång även när Expo Go är öppet.
 
 ## Utveckling
 

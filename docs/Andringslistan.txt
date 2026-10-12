@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.4.0. Aktuell kontorsversion: 0.17.0.
+Aktuell mobilwebbversion: 0.5.0. Aktuell kontorsversion: 0.17.0.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
@@ -1580,8 +1580,9 @@ Status: Planering sparad 2026-10-12. Alla tre områden avvaktar implementation.
 - Dokumentationsändring; inga nya funktioner eller externa leveranser aktiveras.
 
 078 – Schema & tid i mobilen och chefens granskning
-Status: Statiska huvudvyer och tidigare klickbar mockup framtagna 2026-10-12.
-Implementation återstår.
+Status: Mobilappens gemensamma huvudvyer, personliga inloggning, faktisk tid
+och timkrav implementerade i mobilwebb 0.5.0, 2026-10-12. Chefens granskning
+på kontoret och saldo-/ersättningsregler byggs senare. Kontor fortsatt 0.17.0.
 - Uppdaterad riktning 2026-10-12: en gemensam mobilapp och startsida med
   Gårdsarbete, Mina uppdrag och Schema & tid. Den egna delen heter Schema & tid;
   Personal används fortsatt för chefens administration. Bottenmenyn har Hem,
@@ -1589,23 +1590,39 @@ Implementation återstår.
 - Kompakt sidhuvud på samtliga fem statiska mobilvyer: ta bort JEROC-loggan,
   aviseringsklockan och profilgenvägen högst upp. Behåll sidrubrik, nödvändiga
   tillbaka-knappar och bottenmenyn. Egna personuppgifter finns kvar på Profil.
-  Detta är mockupens designriktning; den verkliga appen är inte ändrad.
-- Schema visar dag/vecka/månad och vald dags jobb direkt under kalendern.
-  Tid visar månadens registrerade timmar och vald dags tider per jobb/aktivitet;
-  ledighetsansökningar och separata semester-/komp-/flexsaldon finns här.
-- Faktiskt arbetad tid och obetald rast registreras manuellt. Planerat schema
-  räknas inte automatiskt som utfört. Rapport skickas, låses och kan godkännas
-  eller återföras med kommentar av chef. Övertidsersättning och flex kräver egna regler.
-- Ledighetsansökan visar omfattning, tillgängligt saldo och väntande ansökningar.
-  Godkännande reserverar semester och skapar frånvaro/bemanningsuppgifter för
-  berörda jobb; bokade uppdrag ligger kvar. Avslag och återföring kräver kommentar.
-- Chefens vy under Personal har sökning, ärende-/statusfilter och granskning
-  av tid/ledighet, även på mobil. Medarbetaren ser sina egna uppgifter.
-- Prototypen återanvänder JEROC:s visuella språk och samma exempelperson genom
-  hela kedjan. Fullsidiga mobilformulär och separat chefsvy; inga produktionsdata ändras.
+  Implementerat i appen; inloggningssidan behåller loggan.
+- Schema visar verkliga arbetspass, frånvaro och egna tilldelade jobb i
+  dag/vecka/månad med vald dags jobb direkt under kalendern. Tid visar månadens
+  registrerade timmar och vald dags tider per arbetsorder eller aktivitet.
+  Gårdsarbete behåller befintliga material-, kund-, fordonsvåg- och vägningsflöden.
+- Personlig serverinloggning kopplas till aktiv anställd och befintligt
+  användarkonto/förarprofil/anläggningar. Systemadmin och VD hanterar mobilkonton
+  under Profil; VD kan inte ändra Systemadmin. Kontorets demoinloggning ändras inte.
+- Faktisk uppdragstid kommer från verklig start/stopp och utföraren sparas
+  separat från senare förarbyten. Dötid och andra luckor registreras manuellt
+  med aktivitet och obetald rast. Planerade jobb skapar inga arbetade timmar.
+  Servern avvisar framtida/överlappande tid och ändringar av någon annans poster.
+- Timkrav anges per person enligt schema eller fast antal timmar per arbetsdag.
+  Systemadmin eller ansvarig med employmentWrite kan hantera krav inom sin
+  personal-/anläggningsåtkomst; eget krav får inte ändras av vanlig ansvarig.
+  Standardkravet börjar vid första inloggningen; tidigare aktivering av ansvarig
+  gäller från sparandet. Historiska schema-/anställningsversioner behålls för
+  gamla dagar. Deltid och registrerad frånvaro räknas av utan påhittade arbetstimmar.
+- Nästa dag visas popup vid saknade timmar på äldsta ofullständiga arbetsdagen.
+  Tid och Profil samt stopp av pågående uppdragstid går att använda; fortsatt
+  gårdsarbete/nya uppdrag blockeras även av servern med HTTP 423 tills rätt tid
+  sparats. Lokal cache/offline eller omladdning häver inte spärren. Svensk tid används.
+- Ledighetsansökan sparas väntande och kan återtas. Den skapar ingen frånvaro,
+  saldoändring eller befrielse från timkrav. Semester-/flex-/kompsaldon visas
+  som ännu inte tillgängliga. Chefens kontorsgranskning, tidrapportattest,
+  semesterreservering, flex/övertidsersättning och lön är fortsatt planerade.
+- Ny domän employeeTime med kravhistorik, faktiska tider, ansökningar och
+  händelser sparas beständigt i befintligt PostgreSQL-aggregat. Hela domänen
+  följer med databasdump utan separat attributlista; backupmotorn är inte byggd.
+  Inga nya Render-variabler behövs. Provflöde: docs/employee-mobile.md.
 - Fyra statiska huvudvyer och Gårdsarbete: docs/mockups/mobil-huvudvyer/README.md.
   Tidigare 13 bilder och provflöde: docs/mockups/personal-mobil/README.md.
   Tidigare klickbar prototyp: public/mockups/personal-mobil/index.html.
-- Före implementation behövs verklig gemensam inloggning, serverstyrd egen- och
-  chefsåtkomst samt beslutade saldo-/semester-/tidsregler. Personaldokument,
-  utrustning, lönekörning och integrationer ingår inte i mockupen.
+- Tidigare klickbar chefsvy är fortfarande designreferens för kommande
+  kontorsgranskning. Saldo-/semester-/ersättningsregler behöver beslutas inför
+  den etappen. Personaldokument, utrustning, lönekörning och integrationer ingår inte.

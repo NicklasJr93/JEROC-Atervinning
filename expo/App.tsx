@@ -97,7 +97,7 @@ export default function App() {
               resizeMode="contain"
               accessibilityLabel="JEROC Återvinning"
             />
-            <Text style={styles.subtitle}>Gårdsappen · Expo-demo</Text>
+            <Text style={styles.subtitle}>JEROC-appen · Expo-demo</Text>
             <Text style={styles.title}>
               {editing ? 'Anslut till din demo' : 'Kan inte ansluta'}
             </Text>

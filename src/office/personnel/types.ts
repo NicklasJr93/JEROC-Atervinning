@@ -23,7 +23,7 @@ export interface ReplacementCandidate { personId: string; name: string; availabl
 export interface PersonnelPreview { affectedOrders?: TransportOrder[]; candidates?: ReplacementCandidate[] }
 export interface PersonnelResponse { data: PersonnelData; revision: number; storage: 'database'; demo: true; capabilities: (PersonnelPermission | 'users')[]; sites: {id: string; name: string}[]; transport: TransportData; users?: OfficeUser[]; preview?: PersonnelPreview }
 export type PersonAccountCreation =
-  | { kind: 'staff'; level?: OfficeUser['level']; permissions?: Permission[]; maxAttest?: number; ownAttest?: boolean }
+  | { kind: 'staff'; level?: OfficeUser['level']; permissions?: Permission[]; maxAttest?: number; ownAttest?: boolean; username?: string; password?: string }
   | { kind: 'external'; username: string; password: string };
 export type PersonnelCommand =
   | { action: 'person.save'; person: Partial<Person> & Pick<Person, 'name' | 'kind'>; clearFields?: ('managerId' | 'companyId' | 'userId' | 'vehicleId')[]; createAccount?: PersonAccountCreation }
@@ -37,4 +37,5 @@ export type PersonnelCommand =
   | { action: 'replacement.preview'; taskIds: string[] }
   | { action: 'staffing.assign'; taskIds: string[]; replacementPersonId: string }
   | { action: 'externalAccount.save'; personId: string; username: string; active: boolean; password?: string }
-  | { action: 'driverAccount.save'; personId: string; username: string; active: boolean; password?: string };
+  | { action: 'driverAccount.save'; personId: string; username: string; active: boolean; password?: string }
+  | { action: 'employeeAccount.save'; personId: string; username: string; active: boolean; password?: string };

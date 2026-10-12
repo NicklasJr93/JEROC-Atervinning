@@ -1,12 +1,16 @@
-import {test,expect} from '@playwright/test';
+import {test,expect,type Page} from '@playwright/test';
+
+const mobileCache='jeroc.mobile.demo.v1.employee.person-mobile-demo';
+async function login(page:Page){
+ const authenticated=await page.request.post('/api/employee/login',{data:{username:'niklas',password:'Demo123!'}});
+ expect(authenticated.ok(),await authenticated.text()).toBe(true);
+ await page.goto('/mobil#/yard');
+ await expect(page.getByRole('heading',{name:'Gårdsarbete',exact:true})).toBeVisible();
+}
 
 test('mobilens färdiga vägning visas på kontoret och återläses från servern',async({page,request,browser})=>{
- await page.goto('/mobil');
- await page.getByRole('button',{name:'Öppna demokontot'}).click();
- await page.getByLabel('Nytt lösenord',{exact:true}).fill('DemoTest123!');
- await page.getByLabel('Bekräfta nytt lösenord').fill('DemoTest123!');
- await page.getByRole('button',{name:'Spara och fortsätt'}).click();
- await expect.poll(()=>page.evaluate(()=>localStorage.getItem('jeroc.mobile.demo.v1.postgres-imported'))).toBe('yes');
+ await login(page);
+ await expect.poll(()=>page.evaluate(()=>localStorage.getItem('jeroc.mobile.demo.v1.employee.person-mobile-demo.postgres-imported'))).toBe('yes');
  await page.getByRole('button',{name:/Starta invägning/}).click();
  await page.getByRole('button',{name:/Materialvåg/}).click();
  await page.locator('.material-choice').filter({hasText:'Koppar'}).click();
@@ -35,10 +39,9 @@ test('mobilens färdiga vägning visas på kontoret och återläses från server
 });
 
 test('oläsbar lokal cache bevaras och serveruppgifterna kan ändå öppnas',async({page})=>{
- await page.addInitScript(()=>localStorage.setItem('jeroc.mobile.demo.v1','{invalid legacy cache'));
- await page.goto('/mobil');await page.getByRole('button',{name:'Öppna demokontot'}).click();
- await page.getByLabel('Nytt lösenord',{exact:true}).fill('DemoTest123!');await page.getByLabel('Bekräfta nytt lösenord').fill('DemoTest123!');await page.getByRole('button',{name:'Spara och fortsätt'}).click();
- await expect.poll(()=>page.evaluate(()=>localStorage.getItem('jeroc.mobile.demo.v1.postgres-imported'))).toBe('yes');
- expect(await page.evaluate(()=>localStorage.getItem('jeroc.mobile.demo.v1.legacy-before-postgres'))).toBe('{invalid legacy cache');
+ await page.addInitScript(key=>localStorage.setItem(key,'{invalid legacy cache'),mobileCache);
+ await login(page);
+ await expect.poll(()=>page.evaluate(()=>localStorage.getItem('jeroc.mobile.demo.v1.employee.person-mobile-demo.postgres-imported'))).toBe('yes');
+ expect(await page.evaluate(key=>localStorage.getItem(`${key}.legacy-before-postgres`),mobileCache)).toBe('{invalid legacy cache');
  await expect(page.getByRole('button',{name:/Starta invägning/})).toBeVisible();
 });

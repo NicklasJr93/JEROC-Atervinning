@@ -4,6 +4,7 @@ import { HashRouter } from 'react-router-dom';
 import { OfficeApp } from './office/OfficeApp';
 import { App } from './App';
 import { DemoProvider } from './store';
+import { EmployeeProvider } from './employee/EmployeeProvider';
 import './styles.css';
 const TerminalApp = React.lazy(() => import('./terminal/TerminalApp'));
 const DriverApp = React.lazy(() => import('./driver/DriverApp'));
@@ -30,9 +31,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       ) : pagePath === '/kontor' || nvvTestPage || vismaTestPage ? (
         <OfficeApp />
       ) : (
-        <DemoProvider>
-          <App />
-        </DemoProvider>
+        <EmployeeProvider>
+          <DemoProvider>
+            <App />
+          </DemoProvider>
+        </EmployeeProvider>
       )}
     </HashRouter>
   </React.StrictMode>,

@@ -2,7 +2,9 @@ import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Check,
+  ArrowLeft,
   ChevronRight,
+  FileText,
   Eye,
   EyeOff,
   LockKeyhole,
@@ -27,6 +29,7 @@ import {
   Search,
 } from '../components';
 import { useDemo } from '../store';
+import { useEmployee } from '../employee/EmployeeProvider';
 import { articleById } from '../data';
 import {
   APP_VERSION,
@@ -46,18 +49,18 @@ export function Login() {
   const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [help, setHelp] = useState(false);
-  function enter(user: string, pw: string) {
-    if (login(user, pw)) {
-      navigate('/password');
+  async function enter(user: string, pw: string) {
+    if (await login(user, pw)) {
+      navigate('/');
       setError('');
     } else
       setError(
         'Kontrollera användarnamn och lösenord. Demokontot är niklas / Demo123!',
       );
   }
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
-    enter(name, password);
+    await enter(name, password);
   }
   return (
     <main className="login-page">
@@ -124,6 +127,7 @@ export function Login() {
   );
 }
 export function HomePage() {
+  const employee = useEmployee();
   const location = useLocation();
   const navigateHome = useNavigate();
   const [entrySaved, setEntrySaved] = useState<string | undefined>(
@@ -131,7 +135,7 @@ export function HomePage() {
   );
   useEffect(() => {
     if (!entrySaved) return;
-    navigateHome('/', { replace: true, state: null });
+    navigateHome('/yard', { replace: true, state: null });
     const timer = window.setTimeout(() => setEntrySaved(undefined), 6000);
     return () => window.clearTimeout(timer);
   }, [entrySaved, navigateHome]);
@@ -143,20 +147,14 @@ export function HomePage() {
   return (
     <>
       <main className="home-page compact-home">
-        <header className="home-header">
+        <header className="yard-header">
           <div>
-            <h1>Gårdsappen</h1>
+            <button type="button" className="text-button yard-back" onClick={() => navigate('/')}><ArrowLeft size={18} />Hem</button>
+            <h1>Gårdsarbete</h1>
             <p>
-              <MapPin size={14} /> Gårdsplan · Norrtälje
+              <MapPin size={14} /> {employee.session?.sites[0]?.name ?? 'Anläggning saknas'}
             </p>
           </div>
-          <button
-            className="avatar-button"
-            aria-label="Öppna profil"
-            onClick={() => navigate('/profile')}
-          >
-            NN
-          </button>
         </header>
         <button className="hero-action" onClick={() => navigate('/new')}>
           <span className="hero-action-icon">
@@ -164,7 +162,7 @@ export function HomePage() {
           </span>
           <span>
             <strong>Starta invägning</strong>
-            <small>Ny vägning av material eller fordon</small>
+            <small>Materialvåg eller fordonsvåg</small>
           </span>
           <ChevronRight />
         </button>
@@ -175,7 +173,7 @@ export function HomePage() {
         )}
         <div className="section-title">
           <h2>
-            Pågående vägningar <span>{ongoing.length}</span>
+            Pågående vägningar {ongoing.length > 0 && <span>{ongoing.length}</span>}
           </h2>
         </div>
         <div className="ongoing-list" aria-label="Pågående vägningar">
@@ -190,6 +188,11 @@ export function HomePage() {
           )}
         </div>
         <p className="field-help">Tryck på en vägning för att fortsätta.</p>
+        <section className="yard-secondary">
+          <h2>Övrigt</h2>
+          <MenuRow title="Vägningshistorik" description="Sök bland färdiga vägningar" icon={RotateCcw} onClick={() => navigate('/drafts')} />
+          <MenuRow title="Prislista" description="Artiklar och aktuella priser" icon={FileText} onClick={() => navigate('/prices')} />
+        </section>
       </main>
       <Nav />
     </>
@@ -594,12 +597,12 @@ export function PasswordPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const rules = [
-    next.length >= 8,
+    next.length >= 10,
     /[a-zåäö]/.test(next),
     /[A-ZÅÄÖ]/.test(next),
     /\d/.test(next),
   ];
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     if (!rules.every(Boolean)) {
       setError('Det nya lösenordet uppfyller inte alla krav.');
@@ -609,7 +612,7 @@ export function PasswordPage() {
       setError('De nya lösenorden är inte lika.');
       return;
     }
-    if (!changePassword(current, next)) {
+    if (!await changePassword(current, next)) {
       setError('Nuvarande lösenord stämmer inte.');
       return;
     }

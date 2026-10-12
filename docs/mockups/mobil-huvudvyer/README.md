@@ -3,7 +3,8 @@
 Fyra huvudvyer och en gårdssida som statiska designbilder, 2026-10-12.
 En gemensam app med bottenmenyn
 **Hem · Schema · Tid · Profil**. Fiktiva exempeluppgifter för Kalle Nilsson.
-Detta är designförslag; den verkliga appen är inte ändrad.
+Bilderna är designreferens för [mobilappen 0.5.0](../../employee-mobile.md).
+Appens gemensamma vyer, inloggning och tidsregistrering är nu implementerade.
 
 Alla fem vyer har ett kompakt sidhuvud: JEROC-loggan, aviseringsklockan
 och profilgenvägen högst upp tas bort för att ge innehållet mer plats.

@@ -98,6 +98,12 @@ small {
   background: #20a66b;
   border-radius: 50%;
 }
+.yard-header h1 { font-size: 29px; letter-spacing: -0.035em; margin: 6px 0; }
+.yard-header p { display: flex; align-items: center; gap: 5px; color: #71829a; font-size: 13px; margin: 7px 0 0; }
+.yard-back { display: inline-flex; align-items: center; gap: 5px; padding-left: 0; }
+.yard-secondary { display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; }
+.yard-secondary h2 { font-size: 19px; margin-bottom: 0; }
+.yard-secondary .menu-row { background: #fff; border: 1px solid #dce9f7; border-radius: 14px; }
 .storage-error {
   padding: 12px;
 }

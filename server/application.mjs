@@ -8,6 +8,8 @@ import { createPricingApi } from './pricing-api.mjs';
 import { createTransportOutbox, createTransportIntegrationsApi } from './transport-integrations.mjs';
 import { ensurePersonnel, personnelCommand, personnelProjection, personnelCan, validatePersonnelTransportChange, refreshStaffingTasks, createDriverApi } from './personnel.mjs';
 import { createLogisticsApi, validateLogisticsTransportChange } from './logistics.mjs';
+import { createMobileEmployeeApi, ensureMobileEmployeeAccounts, hasEmployeeSession, employeeRequestPrincipal } from './mobile-employee-api.mjs';
+import { ensureEmployeeTime, refreshEmployeeTimeNorms } from './employee-time.mjs';
 import { allocateWeighingNumber } from './work-order-weighing.mjs';
 import { prepareCustomerReview } from './customer-review.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
@@ -20,6 +22,10 @@ const can = (p, right) => p.user.level !== 'Medarbetare' || p.user.permissions.i
 const demand = (p, right) => { if (!can(p, right)) fail('Du saknar behörighet för detta moment.', 403); };
 const visible = (p, card) => !p.user.siteIds || p.user.siteIds.includes(card.siteId ?? (card.yard === 'Rimbo' ? 'rimbo' : 'norrtalje'));
 const mobileCustomers = customers => customers.map(({ id, name, type, number, phone, email, address, references, origins, registrations }) => ({ id, name, type, number, phone, email, address, references, origins, registrations }));
+const mobileDraftSite = (state, draft) => state.metadata.mobileDraftSites?.[draft.id]
+  ?? state.office.cards.find(card => card.sourceId === draft.id)?.siteId ?? 'norrtalje';
+const mobileDraftVisible = (state, principal, draft) => !principal.user.siteIds || principal.user.siteIds.includes(mobileDraftSite(state, draft));
+const mobileView = (state, principal) => ({ ...state.mobile, drafts: state.mobile.drafts.filter(draft => mobileDraftVisible(state, principal, draft)) });
 const officeRowSchema = officeSchema.shape.cards.element.shape.rows.element;
 const materialCommandSchema = z.object({
   cardId: z.number().int().positive(), expectedRows: z.array(officeRowSchema).max(100),
@@ -342,7 +348,7 @@ function mobileToOffice(state, draft, p) {
   if (existing) return; // Stable source ID is the submission idempotency key.
   const vehicle = draft.rows.find(row => row.method === 'vehicle');
   state.office.cards.push(officeSchema.shape.cards.element.parse({
-    id: draft.number, sourceId: draft.id, siteId: p.user.siteIds?.[0] ?? 'norrtalje', status: 'new', yard: 'Norrtälje', weigher: p.user.name, date: draft.updatedAt,
+    id: draft.number, sourceId: draft.id, siteId: mobileDraftSite(state, draft), status: 'new', yard: mobileDraftSite(state, draft) === 'rimbo' ? 'Rimbo' : 'Norrtälje', weigher: p.user.name, date: draft.updatedAt,
     customerId: draft.customerId, customerSnapshot: state.office.customers.find(customer => customer.id === draft.customerId),
     reference: draft.reference, origin: draft.origin, registration: vehicle?.registration, gross: vehicle?.gross, tare: vehicle?.tare, deduction: vehicle?.deduction,
     rows: draft.rows.map(row => ({ articleId: row.articleId, articleName: articles.find(a => a.id === row.articleId)?.name ?? row.articleId, weight: rowWeight(row), tier: 'C', price: 0, pricePending: true })),
@@ -375,6 +381,7 @@ export function createApplicationService({ repository, env = process.env, projec
       // once at startup; never generate a different plan in each read-copy.
       await value.transact(state => {
         ensurePersonnel(state); refreshStaffingTasks(state);
+        ensureEmployeeTime(state); ensureMobileEmployeeAccounts(state);
         // Persist catalog upgrades once. Existing article revisions, financial
         // snapshots and category IDs are retained by the pricing migration.
         state.pricing = createPricingStore({ initialState: state.pricing }).exportState();
@@ -547,6 +554,7 @@ export function createApplicationService({ repository, env = process.env, projec
           if(!personnelCan(p,planning?'transportRead':'personnelRead'))fail('Du saknar behörighet att läsa personal.',403);
           ensurePersonnel(state);refreshStaffingTasks(state);
           const preview=command?personnelCommand(state,p,command,audit,sites):undefined;
+          if(command) refreshEmployeeTimeNorms(state);
           return {...personnelProjection(state,p,planning,sites),...(preview?{preview}:{})};
         });
         json(res,200,result);return true;
@@ -559,8 +567,14 @@ export function createApplicationService({ repository, env = process.env, projec
           if (p.user.level !== 'Systemadmin') fail('Endast Systemadmin kan importera prisregistret.', 403);
           const hash = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
           if (state.metadata.pricingImportHash === hash) return { imported: true, duplicate: true };
-          if (state.metadata.pricingImportHash || !equal(state.pricing, state.metadata.pricingSeed)) fail('Prisregistret har redan ändrats. Importen behöver granskas manuellt.');
+          // An infrastructure upgrade must not look like a human price edit.
+          // Ignore only an exact unchanged server-created bootstrap identity.
+          const bootstrapUsers = state.metadata.mobileEmployeeBootstrapUsers ?? [];
+          const comparable = clone(state.pricing);
+          comparable.users = comparable.users.filter(user => !bootstrapUsers.some(original => original.id === user.id && equal(original, user)));
+          if (state.metadata.pricingImportHash || !equal(comparable, state.metadata.pricingSeed)) fail('Prisregistret har redan ändrats. Importen behöver granskas manuellt.');
           state.pricing = pricing.validateMigration(payload.pricing, p);
+          state.pricing.users = state.pricing.users.filter(user => !bootstrapUsers.some(original => original.id === user.id)).concat(clone(bootstrapUsers));
           // Validate migration records without running any delivery adapter.
           const box = createTransportOutbox();
           for (const entry of payload.outbox ?? []) {
@@ -583,7 +597,14 @@ export function createApplicationService({ repository, env = process.env, projec
       const operate = async (state, revision, audit = []) => {
         const pricing = createPricingStore({ initialState: state.pricing });
         let importConflicts = 0;
-        const p = requestPrincipal(pricing, req);
+        let p;
+        if (domain === 'mobile' && hasEmployeeSession(req)) {
+          p = employeeRequestPrincipal(state, req, { enforceGate: req.method !== 'GET' });
+          if (!p.user.permissions.includes('prepare') && p.user.level === 'Medarbetare') fail('Du saknar behörighet för gårdsarbete.', 403);
+        } else {
+          if (domain === 'mobile' && env.RENDER) fail('Logga in i appen med ditt personalkonto.', 401);
+          p = requestPrincipal(pricing, req);
+        }
         if (p.actor.id === 'mobile-demo' && domain !== 'mobile') fail('Mobilkontot får bara använda mobilflödet.', 403);
         demand(p, domain === 'transport' ? 'transportRead' : 'view');
         if(domain==='transport')ensurePersonnel(state);
@@ -607,7 +628,9 @@ export function createApplicationService({ repository, env = process.env, projec
             const imported = schema.parse(domain === 'office' ? migrateOffice(payload.importData) : payload.importData);
             if (domain === 'mobile') {
               for (const draft of imported.drafts) if (!state.mobile.drafts.some(old => old.id === draft.id)) {
+                demand(p, 'prepare');
                 const copy = clone(draft); copy.number = allocateWeighingNumber(state);
+                state.metadata.mobileDraftSites ??= {}; state.metadata.mobileDraftSites[copy.id] = p.user.siteIds?.[0] ?? 'norrtalje';
                 state.mobile.drafts.push(copy); mobileToOffice(state, copy, p);
               }
             } else if (domain === 'office') {
@@ -639,14 +662,19 @@ export function createApplicationService({ repository, env = process.env, projec
         if (payload?.base && payload?.next) {
           if (domain === 'office') await validateOffice(state, officeSchema.parse(payload.base), officeSchema.parse(payload.next), p, approvals, guardMaterialChange);
           else if (domain === 'mobile') {
+            demand(p, 'prepare');
             const base = storeSchema.parse(payload.base), next = storeSchema.parse(payload.next);
             for (const draft of next.drafts) if (!base.drafts.some(old => old.id === draft.id)) {
               const existing = state.mobile.drafts.find(old => old.id === draft.id); if (existing) draft.number = existing.number;
             }
             const changes = changedRecords(state.mobile.drafts, base.drafts, next.drafts);
             for (const change of changes) {
+              if (change.before && !mobileDraftVisible(state, p, change.before)) fail('Vägningen tillhör en annan anläggning.', 403);
               if (change.before?.status === 'ready' && !equal(change.before, change.after)) fail('Färdiga vägningar är låsta.');
-              if (change.after && !change.before) change.after.number = allocateWeighingNumber(state);
+              if (change.after && !change.before) {
+                change.after.number = allocateWeighingNumber(state);
+                state.metadata.mobileDraftSites ??= {}; state.metadata.mobileDraftSites[change.after.id] = p.user.siteIds?.[0] ?? 'norrtalje';
+              }
             }
             state.mobile.drafts = applyChanges(state.mobile.drafts, changes);
             const customers = changedRecords(mobileCustomers(state.office.customers), base.customers, next.customers);
@@ -704,17 +732,17 @@ export function createApplicationService({ repository, env = process.env, projec
             customerPrices[customer.id][article.id] = { price: quote.rows[0].price, source: quote.rows[0].tier };
           }
         }
-        return { data: clone(domain === 'office' ? officeView(state, p) : state[domain]), catalog, groups: mobileCatalog?.groups, customerPrices: domain === 'mobile' ? customerPrices : undefined, revision, storage: 'database', storageKind: (await getRepo()).kind, demo: true, deliveryEnabled: false,
+        return { data: clone(domain === 'office' ? officeView(state, p) : domain === 'mobile' ? mobileView(state, p) : state[domain]), catalog, groups: mobileCatalog?.groups, customerPrices: domain === 'mobile' ? customerPrices : undefined, revision, storage: 'database', storageKind: (await getRepo()).kind, demo: true, deliveryEnabled: false,
           importConflicts, importArchived: Boolean(payload?.importData), importNotice: payload?.importData ? 'Tidigare testdata har arkiverats på servern. Befintliga serverkort och ekonomiska original har inte skrivits över.' : undefined };
       };
       const result = await (req.method === 'GET' && repository.read
-        ? repository.read(operate, { domains: ['metadata', 'pricing', 'office', 'mobile', ...(domain === 'transport' ? ['transport', 'personnel'] : [])] })
+        ? repository.read(operate, { domains: ['metadata', 'pricing', 'office', 'mobile', ...(domain === 'mobile' && hasEmployeeSession(req) ? ['personnel', 'personnelAuth', 'employeeTime', 'transport'] : []), ...(domain === 'transport' ? ['transport', 'personnel'] : [])] })
         : repository.transact(operate, { committedRevision: true }));
       json(res, 200, result);
     } catch (error) {
       const known = error instanceof PricingError || Number.isInteger(error.status) && error.status >= 400 && error.status < 500;
       if (!known && error.name !== 'ZodError') console.error('Business API failure:', error.stack);
-      json(res, known ? error.status : error.name === 'ZodError' ? 422 : 503, { error: known ? error.message : error.name === 'ZodError' ? 'Kontrollera de ändrade uppgifterna.' : 'Gemensam databas kunde inte nås. Ändringen har inte bekräftats sparad.' });
+      json(res, known ? error.status : error.name === 'ZodError' ? 422 : 503, { error: known ? error.message : error.name === 'ZodError' ? 'Kontrollera de ändrade uppgifterna.' : 'Gemensam databas kunde inte nås. Ändringen har inte bekräftats sparad.', ...(error.code ? { code: error.code } : {}), ...(error.gate ? { gate: error.gate } : {}) });
     }
     return true;
   }
@@ -748,8 +776,9 @@ export function createApplicationService({ repository, env = process.env, projec
     return true;
   }
   const driverApi = createDriverApi({getRepository:getRepo,readBody:body,json});
+  const employeeApi = createMobileEmployeeApi({getRepository:getRepo,readBody:body,json,siteProvider});
   const logisticsApi = createLogisticsApi({getRepository:getRepo,readBody:body,json,siteProvider,environmentProvider});
-  const api = async (req, res, url) => await logisticsApi(req,res,url) || await driverApi(req,res,url) || await durableApi(req, res, url) || await businessApi(req, res, url);
+  const api = async (req, res, url) => await employeeApi(req,res,url) || await logisticsApi(req,res,url) || await driverApi(req,res,url) || await durableApi(req, res, url) || await businessApi(req, res, url);
   Object.assign(api, { principalStore, withPrincipal, businessApi, durableApi, getRepository: getRepo, close: async () => { if (repoPromise) await (await repoPromise).close(); } });
   return api;
 }

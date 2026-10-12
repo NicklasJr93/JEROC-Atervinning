@@ -3,6 +3,7 @@ import {
   useContext,
   useRef,
   useState,
+  useEffect,
   type ReactNode,
 } from 'react';
 import {
@@ -16,6 +17,7 @@ import {
 } from './model';
 import type { Customer } from './data';
 import { useSharedData } from './shared-data';
+import { useEmployee } from './employee/EmployeeProvider';
 
 function load(): { data: DemoData; error: string } {
   try {
@@ -35,39 +37,45 @@ type Context = {
   storageError: string;
   loggedIn: boolean;
   passwordRequired: boolean;
-  login: (name: string, password: string) => boolean;
+  sharedReady: boolean;
+  login: (name: string, password: string) => Promise<boolean>;
   logout: () => void;
   saveDraft: (draft: Draft) => boolean;
   markDraftActive: (draftId: string) => boolean;
   removeDraft: (draftId: string) => boolean;
   addCustomer: (customer: Customer, draft?: Draft) => boolean;
   reset: () => boolean;
-  changePassword: (current: string, next: string) => boolean;
+  changePassword: (current: string, next: string) => Promise<boolean>;
   linkRegistration: (customerId: string, registration: string) => boolean;
 };
 const DemoContext = createContext<Context | null>(null);
 export function DemoProvider({ children }: { children: ReactNode }) {
+  const employee = useEmployee();
   const [initial] = useState(load);
   const [data, setData] = useState(initial.data);
   const dataRef = useRef(data);
   const [storageError, setError] = useState(initial.error);
   const [blocked, setBlocked] = useState(Boolean(initial.error));
-  const [loggedIn, setLoggedIn] = useState(() => {
+  const loggedIn = Boolean(employee.session), passwordRequired = false;
+  const personId = employee.session?.person.id;
+  const storageKey = personId ? `${STORE_KEY}.employee.${personId}` : `${STORE_KEY}.employee.signed-out`;
+  useEffect(() => {
+    // A person's recovery cache never becomes another employee's current view.
+    // Only the existing Niklas demo can offer its earlier local cache to the
+    // server's conservative import/archive flow.
+    let next: DemoData = { version: 1, drafts: [], customers: [] };
+    let error = '';
     try {
-      return sessionStorage.getItem('jeroc.demo.login') === 'yes';
-    } catch {
-      return false;
-    }
-  });
-  const [password, setPassword] = useState('Demo123!');
-  const [passwordRequired, setPasswordRequired] = useState(() => {
-    try {
-      return sessionStorage.getItem('jeroc.demo.password-required') === 'yes';
-    } catch {
-      return false;
-    }
-  });
-  const shared = useSharedData<DemoData>({domain:'mobile',key:STORE_KEY,identity:loggedIn?{mobile:true}:undefined,current:dataRef,accept:next=>{setData(next);setBlocked(false);},error:setError,parse:value=>storeSchema.parse(value)});
+      const saved = personId && localStorage.getItem(storageKey);
+      if (saved) next = storeSchema.parse(JSON.parse(saved));
+      else if (employee.session?.person.username === 'niklas') {
+        const legacy = localStorage.getItem(STORE_KEY);
+        if (legacy) next = storeSchema.parse(JSON.parse(legacy));
+      }
+    } catch { error = 'Återhämtningscachen kunde inte läsas. Serverns uppgifter hämtas igen.'; }
+    dataRef.current = next; setData(next); setError(error); setBlocked(false);
+  }, [personId, storageKey]);
+  const shared = useSharedData<DemoData>({domain:'mobile',key:storageKey,identity:personId && employee.session?.capabilities.yardWork?{employee:personId}:undefined,current:dataRef,accept:next=>{setData(next);setBlocked(false);},error:setError,parse:value=>storeSchema.parse(value)});
 
   function persist(next: DemoData, force = false) {
     if (blocked && !force) return false;
@@ -78,32 +86,13 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     storageError,
     loggedIn,
     passwordRequired,
-    login(name, provided) {
-      if (
-        name.trim().toLowerCase() !== 'niklas' ||
-        (provided !== password && provided !== 'Demo123!')
-      )
-        return false;
-      setPassword(provided);
-      setLoggedIn(true);
-      setPasswordRequired(true);
-      try {
-        sessionStorage.setItem('jeroc.demo.login', 'yes');
-        sessionStorage.setItem('jeroc.demo.password-required', 'yes');
-      } catch {
-        /* Login still works for this open tab. */
-      }
-      return true;
+    sharedReady: shared.ready,
+    async login(name, provided) {
+      try { await employee.login(name, provided); return true; }
+      catch { return false; }
     },
     logout() {
-      setLoggedIn(false);
-      setPasswordRequired(false);
-      try {
-        sessionStorage.removeItem('jeroc.demo.login');
-        sessionStorage.removeItem('jeroc.demo.password-required');
-      } catch {
-        /* State is already cleared. */
-      }
+      void employee.logout().catch(error => setError(error instanceof Error ? error.message : 'Utloggningen kunde inte slutföras.'));
     },
     saveDraft(draft) {
       const data = dataRef.current;
@@ -186,16 +175,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       window.location.reload();
       return true;
     },
-    changePassword(current, next) {
-      if (current !== password) return false;
-      setPassword(next);
-      setPasswordRequired(false);
-      try {
-        sessionStorage.removeItem('jeroc.demo.password-required');
-      } catch {
-        /* Demo can continue in this tab. */
-      }
-      return true;
+    async changePassword(current, next) {
+      try { await employee.changePassword(current, next); return true; }
+      catch { return false; }
     },
     linkRegistration(customerId, registration) {
       const data = dataRef.current;

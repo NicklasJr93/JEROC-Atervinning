@@ -28,11 +28,11 @@ async function catalogFixture(page: Page) {
     { ...article('missing-price', 'koppar', 'Artikel utan LME-pris'), prices: [null, null, null] },
   ];
   let reads = 0;
+  const authenticated = await page.request.post('/api/employee/login', { data: { username: 'niklas', password: 'Demo123!' } });
+  expect(authenticated.ok(), await authenticated.text()).toBe(true);
   await page.addInitScript(initial => {
-    sessionStorage.setItem('jeroc.demo.login', 'yes');
-    sessionStorage.removeItem('jeroc.demo.password-required');
-    localStorage.setItem('jeroc.mobile.demo.v1', JSON.stringify(initial));
-    localStorage.setItem('jeroc.mobile.demo.v1.postgres-imported', 'yes');
+    localStorage.setItem('jeroc.mobile.demo.v1.employee.person-mobile-demo', JSON.stringify(initial));
+    localStorage.setItem('jeroc.mobile.demo.v1.employee.person-mobile-demo.postgres-imported', 'yes');
   }, data);
   await page.route(`**${api}`, async route => {
     if (route.request().method() === 'POST') {
@@ -42,8 +42,8 @@ async function catalogFixture(page: Page) {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data, revision: reads, catalog, groups, customerPrices: {} }) });
   });
   await page.route(`**/api/article-media/${mediaId}?*`, route => route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jh8kAAAAASUVORK5CYII=', 'base64') }));
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Gårdsappen' })).toBeVisible();
+  await page.goto('/#/yard');
+  await expect(page.getByRole('heading', { name: 'Gårdsarbete', exact: true })).toBeVisible();
   await expect.poll(() => reads).toBeGreaterThan(0);
   return { groups, catalog, reads: () => reads };
 }

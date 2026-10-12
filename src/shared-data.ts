@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { articleGroups, updateArticleCatalog, updateCustomerPriceCatalog } from './data';
 
-type Identity = { actor: string; user: string } | { mobile: true };
+type Identity = { actor: string; user: string } | { mobile: true } | { employee: string };
+const identityScope = (identity: Identity | undefined) => identity && ('employee' in identity ? `employee:${identity.employee}` : 'mobile' in identity ? 'mobile' : `${identity.actor}:${identity.user}`);
 type Pending<T> = { base: T; next: T };
 type Options<T> = {
  domain: 'office' | 'mobile' | 'transport'; key: string; identity?: Identity;
@@ -68,7 +69,7 @@ export function rebaseConfirmedChanges<T>(base: T, next: T, confirmed: T): Pendi
  * authoritative; failed writes are reported and survive lost connections. */
 export function useSharedData<T>(options: Options<T>) {
  const latest = useRef(options); latest.current = options;
- const identityKey = options.identity && ('mobile' in options.identity ? 'mobile' : `${options.identity.actor}:${options.identity.user}`);
+ const identityKey = identityScope(options.identity);
  const [ready, setReady] = useState(false);
  const [, refreshCatalog] = useState(0), catalogSignature = useRef('');
  const state = useRef<SyncState<T>>({ scope: '', ready: false, queue: [], observedRevision: 0, confirmedRevision: 0, confirmedEpoch: 0, targetRevision: 0, pendingChange: false });
@@ -126,8 +127,9 @@ export function useSharedData<T>(options: Options<T>) {
   let active = true, followUp: ReturnType<typeof setTimeout> | undefined;
   const s: SyncState<T> = { scope: identityKey, ready: false, queue: [], observedRevision: 0, confirmedRevision: 0, confirmedEpoch: 0, targetRevision: 0, pendingChange: false };
   state.current = s; setReady(false);
-  const streamIdentity = 'mobile' in o.identity! ? 'mobile' : `${o.identity!.actor}/${o.identity!.user}`;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...('mobile' in o.identity! ? { 'X-Demo-Mobile': 'niklas' } : { 'X-Demo-Actor': o.identity!.actor, 'X-Demo-User': o.identity!.user }) };
+  const principal = o.identity!;
+  const streamIdentity = 'employee' in principal ? `employee:${principal.employee}` : 'mobile' in principal ? 'mobile' : `${principal.actor}/${principal.user}`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...('employee' in principal ? {} : 'mobile' in principal ? { 'X-Demo-Mobile': 'niklas' } : { 'X-Demo-Actor': principal.actor, 'X-Demo-User': principal.user }) };
   const url = `/api/application/${o.domain}`;
   if (o.domain === 'mobile') {
    try {
@@ -137,15 +139,18 @@ export function useSharedData<T>(options: Options<T>) {
   }
   const currentScope = () => {
    const current = latest.current, principal = current.identity;
-   const currentIdentity = principal && ('mobile' in principal ? 'mobile' : `${principal.actor}:${principal.user}`);
+   const currentIdentity = identityScope(principal);
    return active && state.current === s && currentIdentity === identityKey && current.domain === o.domain && current.key === o.key;
   };
   async function request(payload?: unknown) {
    const confirmedEpoch = s.confirmedEpoch;
-   const response = await fetch(url, { method: payload ? 'POST' : 'GET', headers, body: payload ? JSON.stringify(payload) : undefined });
+   const response = await fetch(url, { method: payload ? 'POST' : 'GET', credentials: 'same-origin', headers, body: payload ? JSON.stringify(payload) : undefined });
    const result = await response.json();
    if (!currentScope()) throw new DOMException('Användaren har ändrats.', 'AbortError');
-   if (!response.ok) throw Object.assign(new Error(result.error ?? 'Databasen kunde inte nås.'), { status: response.status });
+   if (!response.ok) {
+    if ('employee' in principal && (response.status === 401 || result.code === 'EMPLOYEE_TIME_REQUIRED')) window.dispatchEvent(new Event('jeroc:employee-session-check'));
+    throw Object.assign(new Error(result.error ?? 'Databasen kunde inte nås.'), { status: response.status, code: result.code, gate: result.gate });
+   }
    if (o.domain === 'mobile' && Array.isArray(result.catalog)) {
     const signature = JSON.stringify([result.catalog, result.groups, result.customerPrices]);
     if (signature !== catalogSignature.current && updateArticleCatalog(result.catalog, result.groups)) {

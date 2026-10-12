@@ -3,7 +3,8 @@ import {
   ArrowRight,
   Check,
   ChevronRight,
-  FileText,
+  CalendarDays,
+  Clock3,
   Home,
   Info,
   Image as ImageIcon,
@@ -170,8 +171,8 @@ export function Nav() {
   const navigate = useNavigate();
   const items: { path: string; label: string; icon: LucideIcon }[] = [
     { path: '/', label: 'Hem', icon: Home },
-    { path: '/drafts', label: 'Vägningar', icon: List },
-    { path: '/prices', label: 'Prislista', icon: FileText },
+    { path: '/schedule', label: 'Schema', icon: CalendarDays },
+    { path: '/time', label: 'Tid', icon: Clock3 },
     { path: '/profile', label: 'Profil', icon: UserRound },
   ];
   return (
@@ -181,18 +182,13 @@ export function Nav() {
           key={path}
           className={
             location.pathname === path ||
-            (path === '/drafts' && location.pathname.endsWith('/summary')) ||
-            (path === '/prices' && location.pathname.startsWith('/prices/'))
+            (path === '/' && ['/yard', '/drafts', '/prices', '/new', '/weigh', '/assignments'].some(prefix => location.pathname.startsWith(prefix))) ||
+            (path === '/profile' && location.pathname.startsWith('/profile/'))
               ? 'active'
               : ''
           }
-          onClick={() =>
-            navigate(
-              path === '/prices' && location.pathname.startsWith('/prices')
-                ? `${path}${location.search}`
-                : path,
-            )
-          }
+          aria-current={location.pathname === path || path === '/' && ['/yard', '/drafts', '/prices', '/new', '/weigh', '/assignments'].some(prefix => location.pathname.startsWith(prefix)) || path === '/profile' && location.pathname.startsWith('/profile/') ? 'page' : undefined}
+          onClick={() => navigate(path)}
         >
           <Icon size={22} />
           <span>{label}</span>

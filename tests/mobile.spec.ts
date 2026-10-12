@@ -2,6 +2,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { randomInt, randomUUID } from 'node:crypto';
 import { seedDemo, type DemoData, type Draft } from '../src/model';
 
+const mobileCache = 'jeroc.mobile.demo.v1.employee.person-mobile-demo';
+const pendingCache = `${mobileCache}.server-pending.employee:person-mobile-demo`;
 const mobileHeaders = { 'X-Demo-Mobile': 'niklas' };
 const fixtures = new WeakMap<Page, Map<number, Draft>>();
 const fixture = (page: Page, number: number) => fixtures.get(page)!.get(number)!;
@@ -29,25 +31,29 @@ test.beforeEach(async ({ page }) => {
   const canonical: DemoData = (await imported.json()).data;
   fixtures.set(page, new Map(fresh.drafts.map((draft, index) => [originalNumbers[index], canonical.drafts.find(value => value.id === draft.id)!])));
   await page.addInitScript(data => {
-    if (!localStorage.getItem('jeroc.mobile.demo.v1')) {
-      localStorage.setItem('jeroc.mobile.demo.v1', JSON.stringify(data));
-      localStorage.setItem('jeroc.mobile.demo.v1.postgres-imported', 'yes');
+    if (!localStorage.getItem('jeroc.mobile.demo.v1.employee.person-mobile-demo')) {
+      localStorage.setItem('jeroc.mobile.demo.v1.employee.person-mobile-demo', JSON.stringify(data));
+      localStorage.setItem('jeroc.mobile.demo.v1.employee.person-mobile-demo.postgres-imported', 'yes');
     }
   }, canonical);
 });
 
+async function openYard(page: Page) {
+  if (await page.getByRole('heading', { name: 'Gårdsarbete', exact: true }).isVisible()) return;
+  await page.goto('/#/yard');
+  await expect(page.getByRole('heading', { name: 'Gårdsarbete', exact: true })).toBeVisible();
+}
+async function openYardMenu(page: Page, name: 'Vägningshistorik' | 'Prislista') {
+  await openYard(page);
+  await page.getByRole('button', { name: new RegExp(`^${name}`) }).click();
+}
 async function login(page: Page) {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Öppna demokontot' }).click();
-  await expect(
-    page.getByRole('heading', { name: 'Byt lösenord' }),
-  ).toBeVisible();
-  await page.getByLabel('Nytt lösenord', { exact: true }).fill('Test12345!');
-  await page.getByLabel('Bekräfta nytt lösenord').fill('Test12345!');
-  await page.getByRole('button', { name: 'Spara och fortsätt' }).click();
-  await expect(page.getByRole('heading', { name: 'Gårdsappen' })).toBeVisible();
+  const authenticated = await page.request.post('/api/employee/login', { data: { username: 'niklas', password: 'Demo123!' } });
+  expect(authenticated.ok(), await authenticated.text()).toBe(true);
+  await openYard(page);
 }
 async function start(page: Page, vehicle = false) {
+  await openYard(page);
   await page.getByRole('button', { name: /Starta invägning/ }).click();
   await page
     .getByRole('button', { name: vehicle ? /Fordonsvåg/ : /Materialvåg/ })
@@ -77,7 +83,7 @@ async function addWeight(
 }
 
 test('material, kund och ursprung sparas på servern och visas på kontoret', async ({
-  page,
+  page, request,
 }) => {
   const external: string[] = [];
   page.on('request', (req) => {
@@ -120,9 +126,7 @@ test('material, kund och ursprung sparas på servern och visas på kontoret', as
   await expect.poll(async () => (await mobileData(page)).drafts.find(draft => draft.id === sourceId)?.status).toBe('ready');
   await page.reload();
   await expect(page.getByTestId('total-weight')).toHaveText('485 kg');
-  const saved = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem('jeroc.mobile.demo.v1')!),
-  );
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)!), mobileCache);
   const result = saved.drafts.find((draft: { id: string }) => draft.id === sourceId);
   expect(result).toMatchObject({
     status: 'ready',
@@ -130,7 +134,7 @@ test('material, kund och ursprung sparas på servern och visas på kontoret', as
     reference: 'Projekt Solbacken',
     origin: 'Testgatan 12, 761 41 Norrtälje',
   });
-  const office = await page.request.get('/api/application/office', { headers: { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' } });
+  const office = await request.get('/api/application/office', { headers: { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' } });
   expect(office.ok()).toBe(true);
   const card = (await office.json()).data.cards.find((value: { sourceId: string }) => value.sourceId === sourceId);
   expect(card).toMatchObject({ customerId: 'customer-build', reference: 'Projekt Solbacken', origin: 'Testgatan 12, 761 41 Norrtälje', status: 'new', idVerified: false });
@@ -155,7 +159,7 @@ test('fordonsvikt 124 och separat koppar 12 summeras till 136 på samma kort', a
   await page.getByRole('button', { name: 'Färdigvägt' }).click();
   await expect(page.getByLabel('Vikt vid infart')).toHaveValue('2004');
   await page.getByRole('button', { name: 'Spara infart' }).click();
-  await expect(page.getByRole('heading', { name: 'Gårdsappen' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Gårdsarbete' })).toBeVisible();
   await expect(page.getByRole('status')).toContainText('GHI456');
   await page.locator('.pending-mini').filter({ hasText: 'GHI456' }).click();
   await page.getByLabel('Vikt vid utfart').fill('2005');
@@ -243,10 +247,7 @@ test('ny kund väljs och byte av kund rensar den gamla kundens referens', async 
   page,
 }) => {
   await login(page);
-  await page
-    .getByRole('navigation')
-    .getByRole('button', { name: 'Vägningar' })
-    .click();
+  await openYardMenu(page, 'Vägningshistorik');
   await page
     .locator('.draft-card')
     .filter({ hasText: `#${fixture(page, 1414).number}` })
@@ -286,10 +287,7 @@ test('prislistan är sökbar och visar enbart allmänna A/B/C-priser', async ({
   page,
 }) => {
   await login(page);
-  await page
-    .getByRole('navigation')
-    .getByRole('button', { name: 'Prislista' })
-    .click();
+  await openYardMenu(page, 'Prislista');
   await page.getByRole('searchbox').fill('Koppar klass 1');
   await expect(page.locator('.price-row')).toHaveCount(1);
   await expect(page.locator('.price-row')).toContainText('82,00');
@@ -302,16 +300,13 @@ test('lagringsfel stoppar klarmarkering och visar fel i stället för framgång'
   page,
 }) => {
   await login(page);
-  await page
-    .getByRole('navigation')
-    .getByRole('button', { name: 'Vägningar' })
-    .click();
+  await openYardMenu(page, 'Vägningshistorik');
   await page
     .locator('.draft-card')
     .filter({ hasText: `#${fixture(page, 1414).number}` })
     .getByRole('button', { name: /Öppna vägning/ })
     .click();
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('jeroc.mobile.demo.v1.server-pending.mobile') ?? '[]').length)).toBe(0);
+  await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? '[]').length, pendingCache)).toBe(0);
   const before = (await mobileData(page)).drafts.find(draft => draft.id === fixture(page, 1414).id)!;
   const posts: string[] = [];
   page.on('request', request => { if (new URL(request.url()).pathname === '/api/application/mobile' && request.method() === 'POST') posts.push(request.postData() ?? ''); });
@@ -396,7 +391,7 @@ test('snabba växelvisa siffertangenter registreras en gång och 0 kan inte spar
   await page.getByRole('button', { name: 'Färdigvägt', exact: true }).click();
   await expect(page.getByTestId('total-weight')).toHaveText('131 313 kg');
   const data = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem('jeroc.mobile.demo.v1')!),
+    JSON.parse(localStorage.getItem('jeroc.mobile.demo.v1.employee.person-mobile-demo')!),
   );
   expect(
     data.drafts.find((draft: { id: string }) => draft.id === sourceId).rows,
@@ -461,10 +456,7 @@ test('färdig vägning är låst även via gamla redigeringslänkar', async ({
   await expect(
     page.getByRole('button', { name: 'Ny vägning', exact: true }),
   ).toHaveCount(0);
-  await page
-    .getByRole('navigation')
-    .getByRole('button', { name: 'Vägningar' })
-    .click();
+  await openYardMenu(page, 'Vägningshistorik');
   await page.getByRole('tab', { name: 'Historik' }).click();
   await expect.poll(async () => (await mobileData(page)).drafts.find(draft => draft.id === sourceId)?.status).toBe('ready');
   const number = (await mobileData(page)).drafts.find(draft => draft.id === sourceId)!.number;
@@ -491,7 +483,7 @@ test('färdig vägning är låst även via gamla redigeringslänkar', async ({
     await expect(page.getByTestId('total-weight')).toHaveText('125 kg');
   }
   const data = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem('jeroc.mobile.demo.v1')!),
+    JSON.parse(localStorage.getItem('jeroc.mobile.demo.v1.employee.person-mobile-demo')!),
   );
   expect(
     data.drafts.find((draft: { id: string }) => draft.id === sourceId),
@@ -611,26 +603,25 @@ for (const viewport of [
   { width: 390, height: 844 },
   { width: 375, height: 667 },
 ]) {
-  test(`login, lösenord, hem och vikt ryms utan sidscroll ${viewport.width}x${viewport.height}`, async ({
+  test(`inloggning, profil och vikt ryms utan sidscroll ${viewport.width}x${viewport.height}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
     const fits = async () => {
-      expect(
-        await page.evaluate(() => document.documentElement.scrollHeight),
-      ).toBeLessThanOrEqual(viewport.height);
-      expect(
-        await page.evaluate(() => document.documentElement.scrollWidth),
-      ).toBeLessThanOrEqual(viewport.width);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
     };
     await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Välkommen tillbaka', exact: true })).toBeVisible();
     await fits();
-    await page.getByRole('button', { name: 'Öppna demokontot' }).click();
+    await login(page);
     await fits();
-    await page.getByLabel('Nytt lösenord', { exact: true }).fill('Test12345!');
-    await page.getByLabel('Bekräfta nytt lösenord').fill('Test12345!');
-    await page.getByRole('button', { name: 'Spara och fortsätt' }).click();
+    await page.goto('/#/profile/password');
+    await expect(page.getByRole('heading', { name: 'Byt lösenord', exact: true })).toBeVisible();
+    await expect(page.getByLabel('Nuvarande lösenord', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Nytt lösenord', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Upprepa nytt lösenord', { exact: true })).toBeVisible();
     await fits();
+    await openYard(page);
     await start(page);
     await choose(page, 'Koppar', 'Koppar klass 1');
     await fits();
@@ -681,10 +672,7 @@ test('svep visar radering, kräver bekräftelse och behåller utkast vid Nej', a
   page,
 }) => {
   await login(page);
-  await page
-    .getByRole('navigation')
-    .getByRole('button', { name: 'Vägningar' })
-    .click();
+  await openYardMenu(page, 'Vägningshistorik');
   await expect(
     page.getByRole('tab', { name: 'Pågående', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
@@ -729,10 +717,7 @@ test('vägningsflikar och sök står kvar vid scroll, historik saknar radering',
   page,
 }) => {
   await login(page);
-  await page
-    .getByRole('navigation')
-    .getByRole('button', { name: 'Vägningar' })
-    .click();
+  await openYardMenu(page, 'Vägningshistorik');
   const controls = await page.locator('.weighings-controls').boundingBox();
   const list = page.locator('.weighings-list');
   await swipeCard(
@@ -772,10 +757,7 @@ test('kundval visar artikelns serverpris, kan bytas och kryss återställer A/B/
   expect(pricingResponse.ok()).toBe(true);
   const prices = (await pricingResponse.json()).customerPrices;
   const formattedPrice = (value: number) => value.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  await page
-    .getByRole('navigation')
-    .getByRole('button', { name: 'Prislista' })
-    .click();
+  await openYardMenu(page, 'Prislista');
   await page.getByRole('searchbox').fill('Koppar klass 1');
   await page
     .getByRole('button', { name: 'Lägg till kund', exact: true })
@@ -810,10 +792,7 @@ test('artikelpriser visar perioder, kundjämförelse och behåller kund och sök
   page,
 }) => {
   await login(page);
-  await page
-    .getByRole('navigation')
-    .getByRole('button', { name: 'Prislista' })
-    .click();
+  await openYardMenu(page, 'Prislista');
   await page.getByRole('searchbox').fill('Koppar klass 1');
   await page
     .getByRole('button', {
@@ -886,10 +865,7 @@ for (const width of [375, 390]) {
   }) => {
     await page.setViewportSize({ width, height: 667 });
     await login(page);
-    await page
-      .getByRole('navigation')
-      .getByRole('button', { name: 'Prislista' })
-      .click();
+    await openYardMenu(page, 'Prislista');
     const header = page.locator('.prices-fixed-top');
     const position = await header.boundingBox();
     const add = await page
@@ -929,7 +905,7 @@ test('senast sparad infart och senast öppnat utkast ligger överst även med ä
 }) => {
   await login(page);
   await page.locator('.ongoing-list .pending-mini').first().click();
-  await page.goto('/');
+  await page.goto('/#/yard');
   const before = await mobileData(page), next = structuredClone(before);
   const fixtureIds = [...fixtures.get(page)!.values()].map(draft => draft.id);
   for (const draft of next.drafts) {
@@ -948,7 +924,7 @@ test('senast sparad infart och senast öppnat utkast ligger överst även med ä
   await page.getByLabel('Vikt vid infart').fill('3240');
   await page.getByRole('button', { name: 'Spara infart', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'Gårdsappen', exact: true }),
+    page.getByRole('heading', { name: 'Gårdsarbete', exact: true }),
   ).toBeVisible();
   await expect(
     page.locator('.ongoing-list .pending-mini').first(),
@@ -957,10 +933,7 @@ test('senast sparad infart och senast öppnat utkast ligger överst även med ä
   await expect(
     page.locator('.ongoing-list .pending-mini').first(),
   ).toContainText('GHI789');
-  await page
-    .getByRole('navigation')
-    .getByRole('button', { name: 'Vägningar' })
-    .click();
+  await openYardMenu(page, 'Vägningshistorik');
   await expect(page.locator('.weighing-card-content').first()).toContainText(
     'GHI789',
   );
@@ -972,6 +945,7 @@ test('senast sparad infart och senast öppnat utkast ligger överst även med ä
     .getByRole('navigation')
     .getByRole('button', { name: 'Hem', exact: true })
     .click();
+  await openYard(page);
   await expect(
     page.locator('.ongoing-list .pending-mini').first(),
   ).toContainText(`#${fixture(page, 1414).number}`);

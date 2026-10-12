@@ -1,10 +1,10 @@
 # JEROC · Mobilappen
 
-**Mobilwebb 0.4.0, Expo-skal 0.3.0 och kontor 0.17.0** delar verksamhetsdata i PostgreSQL. Utkast, kunder, färdiga mobilvägningar, kontorskort, prisregister, artikelgrupper, egna artikelbilder, planering och integrationsutkorg sparas beständigt. Kontoret styr mobilens materialmeny, bilder och instruktioner. Färdiga mobilvägningar visas på kontoret. Kontoret har även personal, schema, kompetenser och bemanning samt extern chaufförsvy på `/chauffor`. Personal och konton hanteras tillsammans; en ny person kan få ett kopplat konto vid samma sparning.
+**Mobilwebb 0.5.0, Expo-skal 0.3.0 och kontor 0.17.0** delar verksamhetsdata i PostgreSQL. Utkast, kunder, färdiga mobilvägningar, kontorskort, prisregister, artikelgrupper, egna artikelbilder, planering och integrationsutkorg sparas beständigt. Kontoret styr mobilens materialmeny, bilder och instruktioner. Färdiga mobilvägningar visas på kontoret. Kontoret har även personal, schema, kompetenser och bemanning samt extern chaufförsvy på `/chauffor`. Personal och konton hanteras tillsammans; en ny person kan få ett kopplat konto vid samma sparning.
 
-Detta är fortfarande en demo med valbara exempelkonton. Använd testuppgifter. NVV:s testmiljö och Spiris sandbox kan anslutas med serverns integrationsinställningar. Utbetalningar registreras manuellt; bankbetalning, SMS, e-post och BankID är ännu inte aktiverade.
+Detta är fortfarande en demo. Mobilappen använder personlig serverinloggning; kontoret har valbara exempelkonton. Använd testuppgifter. NVV:s testmiljö och Spiris sandbox kan anslutas med serverns integrationsinställningar. Utbetalningar registreras manuellt; bankbetalning, SMS, e-post och BankID är ännu inte aktiverade.
 
-[Gemensam databas och säker import](docs/shared-postgres.md) · [Kontorsversionen](docs/office-demo.md) · [Artikelgrupper och bilder](docs/article-catalog.md) · [Personal](docs/personnel-demo.md) · [Terminaler](docs/terminal-demo.md) · [Planerade framtida uppdateringar](docs/planerade-uppdateringar.md). Backup och återställning är planerade enligt ÄL 045, inte byggda här.
+[Gemensam databas och säker import](docs/shared-postgres.md) · [Kontorsversionen](docs/office-demo.md) · [Artikelgrupper och bilder](docs/article-catalog.md) · [Personal](docs/personnel-demo.md) · [Appens schema och tid](docs/employee-mobile.md) · [Terminaler](docs/terminal-demo.md) · [Planerade framtida uppdateringar](docs/planerade-uppdateringar.md). Backup och återställning är planerade enligt ÄL 045, inte byggda här.
 
 ## Starta på Windows eller Mac
 
@@ -12,7 +12,7 @@ Detta är fortfarande en demo med valbara exempelkonton. Använd testuppgifter. 
 2. [Ladda ner hela projektet som ZIP](https://github.com/NicklasJr93/JEROC-Atervinning/archive/refs/heads/main.zip) och packa upp det. Startfilerna behöver ligga kvar med övriga projektfiler.
 3. Dubbelklicka på **Windows_Starta_JEROC.cmd** på Windows eller **Mac_Starta_JEROC.command** på Mac.
 4. Startfilen installerar de låsta beroendena, bygger appen, startar den och öppnar webbläsaren. Internet behövs vid installationen. Låt terminalfönstret vara öppet medan du testar; Ctrl+C stoppar servern.
-5. Klicka **Öppna demokontot**, eller logga in med **niklas / Demo123!**.
+5. Logga in med **niklas / Demo123!** i det fiktiva mobildemot. För personalkonton och timkrav används det fiktiva **admin / JerocDemo2026!**; befintliga personliga lösenord skrivs inte över.
 
 Om Mac inte tillåter att `.command`-filen körs: öppna Terminal i den uppackade projektmappen och kör `bash Mac_Starta_JEROC.command`. Startfilerna installerar inte eller ändrar Node.js.
 
@@ -29,6 +29,8 @@ Datorn och mobilen ska vara på samma wifi vid lokal testning. Startfönstret sk
 Utkast sparas på den gemensamma servern. Webbläsaren har dessutom en återhämtningscache för arbete som ännu inte skickats. Använd samma serveradress i mobil och kontor för att dela uppgifter.
 
 ## Flöden att prova
+
+- **Schema och tid:** Hem → Schema visar egna arbetspass och uppdrag; Tid visar registrerade timmar och manuella kompletteringar. Behörig chef/admin anger krav under Profil → Timkrav. Saknas tid för en tidigare arbetsdag kräver appen komplettering innan arbete kan fortsätta. [Detaljer och provflöde](docs/employee-mobile.md).
 
 - **Materialvägning:** starta invägning → välj artikelgrupp/undergrupp/artikel → jämför artikelns referensbilder → ange vikt → lägg till fler material → sammanställning → spara färdig vägning. Kortet låses och visas under Vägningar → Historik / inskickade.
 - **Artikelregister:** kontoret → Artiklar & priser → Artikelgrupper. Skapa en grupp eller undergrupp. Öppna en artikel, välj grupp och lägg till bilder under Visning i gårdsappen. Mobilförhandsvisningen visar ändringarna; spara för att uppdatera appen. Ingen grupp placerar artikeln under Övrigt.

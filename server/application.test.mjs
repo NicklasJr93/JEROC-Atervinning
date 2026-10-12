@@ -66,6 +66,7 @@ test('Render refuses a missing PostgreSQL configuration',async()=>{
 test('one-time migration preserves LME and mobile price catalog without dispatch',async()=>fixture(async({a,instance})=>{
  const legacy=createPricingStore(),admin=legacy.principal('admin');legacy.saveLme({metal:'copper',cashUsdPerTonne:12000,usdSek:10,effectiveFrom:'2026-10-01'},admin);const payload={pricing:legacy.exportState(),outbox:[]};
  assert.equal((await a('/api/application/import-pricing',payload)).status,200);assert.equal((await a('/api/application/import-pricing',payload)).status,200);
+ assert.equal((await a('/api/employee/login',{username:'niklas',password:'Demo123!'})).status,200,'legacy register migration preserves the server mobile account');
  const b=await instance();assert.ok((await b('/api/pricing/state')).lme.some(rate=>rate.cashUsdPerTonne===12000));assert.equal((await b(mobile)).catalog.find(article=>article.id==='copper-1').prices[0],98.4);
  const other=structuredClone(payload);other.pricing.revision++;assert.equal((await b('/api/application/import-pricing',other)).status,409);
 }));

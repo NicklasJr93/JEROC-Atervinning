@@ -146,7 +146,7 @@ export function VehiclePage() {
         rows: draft!.rows.map((r) => (r.id === row.id ? savedRow : r)),
       })
     )
-      navigate(exit ? `/weigh/${draft!.id}/summary` : '/', {
+      navigate(exit ? `/weigh/${draft!.id}/summary` : '/yard', {
         state: exit ? undefined : { entrySaved: registration },
       });
   }
