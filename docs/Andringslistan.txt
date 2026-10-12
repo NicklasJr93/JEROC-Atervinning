@@ -2081,8 +2081,23 @@ Status: Genomförd 2026-10-12 i kontor 0.19.0. Kompletterar 093.
   att prova i verklig sandbox. Läs mer i
   docs/integrationer/spiris-visma/bokforingsuppfoljning.md.
 
-096 – Sticky rubrikparti på artikeldetaljen
+096 – Gemensamt sticky rubrikparti i kontorsvyerna
 Status: Planerad 2026-10-12. Förtydligar tidigare önskemål i 076; inte implementerat.
+- Utökad omfattning 2026-10-12: samma beteende ska gälla kontorets list- och
+  detaljvyer som följer grundlayouten, inte bara artikeldetaljen. Exempel är
+  kunder, viktkort, personal, arbetsordrar, lager, anläggningar och integrationer.
+- Samla detta i en gemensam rubrik-/layoutkomponent som också används av nya
+  vyer. Dagens vyer har liknande utseende men flera separata rubrikstrukturer;
+  en generell sticky-regel på en enda CSS-klass täcker inte alla delarna.
+- Titel, breadcrumbs, tillbaka-knapp och sidans huvudåtgärder ska ligga kvar.
+  På listvyer ingår relevanta flikar och sök/filter i den fasta överdelen.
+  Nyckeltalskort, formulär och övrigt innehåll scrollar under rubrikpartiet.
+- Använd gemensamma höjder/offset för kontorets toppfält och eventuell
+  Jobba som-rad. Befintliga fasta listkontroller och tabellrubriker ska passa
+  ihop med rubrikpartiet utan dubbla fästen eller överlappande ytor.
+- Anpassa överdelen för smala/låga skärmar så att den inte tar större delen
+  av innehållsytan. Kalenderns egna fasta axlar och popupers innehåll behåller
+  sina respektive scrollbeteenden; ändringen gäller sidans gemensamma överdel.
 - När en artikel öppnas ska hela övre partiet med artikelns titel,
   breadcrumbs och Till artikelöversikten-knappen ligga kvar när man scrollar.
   Samma beteende gäller Ny artikel och tillbaka till Artikelgrupper när
