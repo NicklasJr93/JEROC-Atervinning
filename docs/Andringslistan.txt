@@ -1977,3 +1977,38 @@ Status: Planerad 2026-10-12. Orsak verifierad; inte implementerat.
   upprepad synk utan dubbelräkning, saknat prisunderlag samt konto med och
   utan prisbehörighet. Ett färdigt prissatt mobilkort ska direkt visa rätt pris
   för behörig kontorist utan att kunden behöver väljas om.
+
+093 – Spiris-händelser i viktkortets spårbarhet och kompakt statuskort
+Status: Planerad 2026-10-12. Inte implementerat.
+- Visa viktiga överföringshändelser i viktkortets befintliga lodräta spårbarhet,
+  i samma tidsordning som kundgodkännande och attest. Händelsernas titlar:
+  Överföring till Spiris köad; Överföring till Spiris påbörjad;
+  Fakturautkast skapat i Spiris; Överföring till Spiris stoppad;
+  Spiris avvisade överföringen; Svar från Spiris behöver kontrolleras.
+- Titeln ska motsvara verifierat tillstånd: våra egna valideringsfel ger
+  stoppad, uttryckliga negativa API-svar ger avvisad och osäkert resultat ger
+  behöver kontrolleras. Visa konkret orsak även när inget exportjobb eller
+  externt anrop har skapats, enligt 088. Ett okänt svar får inte leda till
+  automatisk omsändning som riskerar att skapa ett dubbelt underlag.
+- Under händelsen visas avräkningsreferens, version, datum/tid och automatisk
+  eller manuell överföring, samt Visa överföring för relaterade detaljer.
+  Använd samma sparade integrationsjournal som källa; upprepade läsningar får
+  inte skapa dubbla händelser eller ändra frysta kundgodkända underlag.
+- Spiris-överföringskortet blir kompakt med aktuell status, referens och Visa
+  detaljer. Långa UUID:n och full skickhistorik är dolda tills detaljer öppnas.
+  Visa läsbart Spiris-dokumentnummer om det finns; annars avräkningsreferensen.
+  Leverantör skapad i Spiris och Befintlig leverantör kopplad hör till detaljerna.
+- Nuläge: kopplingen skapar leverantörsfakturautkast. Den har inte automatisk
+  återläsning av slutlig bokföring; Utkast skapat är därför korrekt slutstatus nu.
+- Framtida Bokförd i Spiris kräver läsning av den kopplade slutliga fakturan
+  via GET /supplierinvoices/{id} och verifierade bokförings-/verifikationsuppgifter,
+  exempelvis VoucherId och VoucherNumber. Källunderlag:
+  docs/integrationer/spiris-visma/forstudie.md. Sambandet mellan utkast-ID och
+  slutligt faktura-ID måste verifieras i sandbox; anta inte att ID:n är samma.
+- Föreslaget återläsningsflöde: servern kontrollerar väntande kopplade underlag
+  i bakgrunden, exempelvis var femte minut, och vid aktiv Uppdatera. Rätt företag,
+  leverantör och avräkningsversion måste matcha före bokföringsbekräftelse.
+  Ett borttaget utkast eller HTTP 404 är inte bevis på att fakturan bokförts.
+- Bokföringsstatus sparas separat från betalning och visas som en ny händelse
+  först efter bekräftelse. Statusläsning ska inte bokföra eller betala något.
+  Behörighetsfiltrering och länkar till full integrationsjournal bevaras.
