@@ -1754,6 +1754,9 @@ Status: Planerad 2026-10-12. Förslag antecknat; inte implementerat.
 - Kryssrutan är inte förvald. Vid val fylls kundens gata, postnummer och ort in
   som en sammanhängande ursprungsadress. Kundens registrerade adress kan vara
   en annan plats än byggarbetsplatsen eller platsen där materialet kommer ifrån.
+- Kopiera hela adressen, exempelvis Storgatan 12, 761 41 Norrtälje. Separata
+  postnummer-/ortfält ska följa med; äldre kompletta fritextadresser ska inte
+  få postnummer eller ort tillagda en andra gång. Uppgifter som saknas gissas inte.
 - Kontoristen kan ange en annan ursprungsadress; manuell redigering avmarkerar
   kryssrutan. En redan ifylld ursprungsadress ersätts bara genom ett aktivt val.
 - Saknas kundadress kan den inte kopieras. Vid kundbyte följer det befintliga
@@ -1787,3 +1790,44 @@ Status: Planerad 2026-10-12. Befintligt flöde granskat; inte implementerat.
   De ska inte behöva fyllas i manuellt i mobilens Ny kund.
 - Momsberäkningen använder kundens momsstatus och artikelns momsregel vid
   avräkning. Frysta kundgodkända/attesterade ekonomiska versioner ändras inte.
+
+086 – Återanvänd kundens telefonnummer vid Swish
+Status: Planerad 2026-10-12. Inte implementerat.
+- När Swish väljs och betalningsnumret saknas, visa kryssrutan Använd kundens
+  telefonnummer, även för en kund som nyss skapats från viktkortet.
+- Kryssrutan börjar avmarkerad. Kontoristen väljer aktivt att kopiera numret;
+  kundens kontaktnummer behöver inte vara mottagarens Swish-nummer.
+- Visa vilket nummer som kopieras. Saknas giltigt nummer kan det anges manuellt.
+  Använd befintlig svensk nummernormalisering och Swish-validering vid sparande.
+- Befintligt betalningsnummer skrivs inte över automatiskt. Manuell redigering
+  avmarkerar kryssrutan; kundbyte kräver nytt aktivt val.
+- Sparade betalningsuppgifter följer befintlig behörighet, historik och låsning.
+  Senare ändring av kundens kontaktnummer ändrar inte ett godkänt underlag.
+
+087 – Gemensamma adressförslag och strukturerade adresser
+Status: Planerad och inventerad 2026-10-12. Google-kopplingen är inte aktiverad.
+- Gemensam adresskomponent för ny/redigerad kund, ursprung, arbetsorder,
+  anläggning, kärlplacering och personal; mobil och kontor använder samma format.
+  Full lista, kodreferenser, Google-förutsättningar och källor:
+  docs/adressfalt-och-google-2026-10-12.md.
+- Ett valt förslag fyller gata/husnummer, postnummer och ort i rätt fält eller
+  i en sammanhängande adressrad. Manuell inmatning förblir möjlig. Befintliga
+  kundadresser kopieras enligt 084 först efter ett aktivt val.
+- Google Places API (New) kräver Cloud-projekt, aktiverad fakturering och
+  begränsad API-nyckel. Ordinarie Autocomplete Requests och Place Details
+  Essentials har enligt kontrollerad prislista 10 000 fria händelser vardera
+  per månad. Flera anrop kan ske under inmatningen av en adress.
+- Kort skrivfördröjning, sessionstoken, små svarsfält och användningsgränser
+  behövs. Budgetlarm ensamt stoppar inte debitering. Ingen karta behöver laddas
+  för ett vanligt adressfält; Googles JavaScript/UI-bibliotek laddas vid behov.
+- Välj Google-komponent och lagringsupplägg enligt aktuella EES-villkor.
+  Places-innehåll har begränsningar kring beständig lagring och användning med
+  kartor. Transportplaneraren använder Leaflet/OpenStreetMap idag; Places UI Kit
+  har särskilda undantag för kartan och egna pris-SKU:er. Detta ska lösas före
+  integrationen byggs, inte kringgås med en annan etikett på sparade API-svar.
+- Google ger inte automatiskt NVV:s fyrsiffriga kommunkod. Adressen behöver
+  fortsatt en säker kommunmatchning mot kommunregistret; osäkra träffar kräver
+  komplettering. Härledda miljöadresser återanvänder ursprung/anläggning.
+- Befintliga manuella Nominatim-uppslag är inte autocomplete och ska inte
+  anropas för varje tangenttryck. Testformulär kan fortsatt använda manuella
+  adressfält. Låsta dokument och adressuppgifter blir inte redigerbara av detta.
