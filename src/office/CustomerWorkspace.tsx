@@ -9,6 +9,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import CatalogImage from './CatalogImage';
 import { OfficePageHeader } from './OfficePageHeader';
+import { createWeightCardPreview, WeightCardLink, WeightCardRow, WeightCardRows } from './WeightCardRows';
 import { articleGroupPath, sortArticleGroups } from '../catalog-types';
 import {
   ArrowLeft,
@@ -60,7 +61,7 @@ import {
   type QuoteRow,
 } from './pricing-client';
 import PaymentEditor, { PaymentReadOnly } from './PaymentEditor';
-import { safeAuditText } from './workflow';
+import { cardRoute, safeAuditText } from './workflow';
 import { createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
 import { customerIdentifierError, normalizeOriginAddress, phoneNumberError } from '../data-format';
 import './customer.css';
@@ -721,6 +722,7 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
           user={user}
           onOpen={onOpenCard}
           state={pricing}
+          customerName={customer.name}
         />
       ) : tab === 'prices' ? (
         hasPrices(user) ? (
@@ -897,6 +899,7 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
                 user={user}
                 onOpen={onOpenCard}
                 state={pricing}
+                customerName={customer.name}
               />
             </Section>
           </div>
@@ -1059,15 +1062,17 @@ function WeighingTable({
   onOpen,
   state,
   users = [],
+  customerName,
 }: {
   cards: OfficeCard[];
   user: OfficeUser;
   onOpen: (id: number) => void;
   state?: PricingState;
   users?: OfficeUser[];
+  customerName?: string;
 }) {
   return (
-    <div className="customer-table-wrap">
+    <WeightCardRows scope={`${user.id}:${user.permissions.join(',')}:${user.siteIds?.join(',') ?? ''}`}><div className="customer-table-wrap">
       <table className="office-table customer-table">
         <thead>
           <tr>
@@ -1076,27 +1081,16 @@ function WeighingTable({
             <th>Material / vikt</th>
             <th>Belopp</th>
             <th>Status</th>
-            <th />
           </tr>
         </thead>
         <tbody>
-          {cards.map((card) => (
-            <tr
-              key={card.id}
-              className="customer-clickrow"
-              onClick={() => onOpen(card.id)}
-            >
+          {cards.map((card) => {
+            const to = cardRoute(card, user);
+            const preview = createWeightCardPreview(card, card.customerSnapshot?.name ?? customerName ?? 'Kundens vägning');
+            preview.materials = card.rows.map(row => ({ name: row.articleName ?? articleName(row.articleId, state), weight: row.weight }));
+            return <WeightCardRow key={card.id} cardId={card.id} to={to} onOpen={onOpen} preview={preview} className="customer-clickrow">
               <td>
-                <button
-                  className="office-link"
-                  aria-label={`Öppna viktkort ${card.id}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpen(card.id);
-                  }}
-                >
-                  #{card.id}
-                </button>
+                <WeightCardLink cardId={card.id} to={to} onOpen={onOpen} />
                 {card.kind === 'correction' && <small>Plusrättelse</small>}
               </td>
               <td>
@@ -1125,17 +1119,14 @@ function WeighingTable({
                       : card.yard}
                 </small>
               </td>
-              <td>
-                <ChevronRight size={15} />
-              </td>
-            </tr>
-          ))}
+            </WeightCardRow>;
+          })}
         </tbody>
       </table>
       {!cards.length && (
         <p className="customer-empty">Inga vägningar matchar listan.</p>
       )}
-    </div>
+    </div></WeightCardRows>
   );
 }
 function CustomerWeighings({
@@ -1144,15 +1135,23 @@ function CustomerWeighings({
   onOpen,
   state,
   users,
+  customerName,
 }: {
   cards: OfficeCard[];
   user: OfficeUser;
   onOpen: (id: number) => void;
   state?: PricingState;
   users?: OfficeUser[];
+  customerName?: string;
 }) {
-  const [search, setSearch] = useState(''),
-    [status, setStatus] = useState('');
+  const location = useLocation(), navigate = useNavigate();
+  const params = new URLSearchParams(location.search);
+  const search = params.get('weighingQ') ?? '', status = params.get('weighingStatus') ?? '';
+  const setFilter = (key: 'weighingQ' | 'weighingStatus', value: string) => {
+    const next = new URLSearchParams(location.search);
+    if (value) next.set(key, value); else next.delete(key);
+    navigate(`${location.pathname}?${next}`, { replace: true });
+  };
   const shown = cards.filter(
     (c) =>
       (!status || c.status === status) &&
@@ -1193,13 +1192,13 @@ function CustomerWeighings({
             aria-label="Sök kundens vägningar"
             placeholder="Sök kort, material, referens eller registrering…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => setFilter('weighingQ', e.target.value)}
           />
         </label>
         <select
           aria-label="Filtrera kundens vägningar"
           value={status}
-          onChange={(e) => setStatus(e.target.value)}
+          onChange={(e) => setFilter('weighingStatus', e.target.value)}
         >
           <option value="">Alla statusar</option>
           {Object.entries(statusNames).map(([v, label]) => (
@@ -1215,6 +1214,7 @@ function CustomerWeighings({
         user={user}
         onOpen={onOpen}
         state={state}
+        customerName={customerName}
       />
     </Section>
   );

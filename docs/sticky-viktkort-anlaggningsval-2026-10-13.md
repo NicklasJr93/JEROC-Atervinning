@@ -17,7 +17,7 @@ layout behålls. Utskrifter och dialoger använder sina egna scrollregler.
 ## Viktkortslistor
 
 Klick på raden öppnar kortet direkt i Invägningar, Attest, Utbetalningar,
-kundgodkännanden och översiktens viktkortslista. Kortnumret är en vanlig länk
+kundgodkännanden, kundkortets vägningar och översiktens viktkortslista. Kortnumret är en vanlig länk
 som också kan öppnas i ny flik. Tangentbord stöds och separata radåtgärder,
 exempelvis granskning av en äldre kundgodkännandeversion, behåller sitt beteende.
 
@@ -72,7 +72,7 @@ kontroller skickar inga NVV-rapporter, Spiris-underlag eller utbetalningar.
 ## Genomförd verifiering
 
 - Produktionsbygge med TypeScript/Vite samt Expo-typkontroll passerade.
-- Sju fokuserade webbläsarfall för sticky rubriker och sju för radklick,
+- Sju fokuserade webbläsarfall för sticky rubriker och åtta för radklick,
   hover, touch, tangentbord, behörigheter och återställning av kö passerade.
   Layoutproven använder mockade tjänstesvar.
 - Två mobilprov mot riktig lokal API-server med egna SQLite-register och

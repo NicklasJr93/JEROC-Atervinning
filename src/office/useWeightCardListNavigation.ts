@@ -9,10 +9,11 @@ type ListPosition = {
   scrollY: number;
 };
 type NavigationState = { weightCardReturn?: ListPosition; restoreWeightCardList?: ListPosition };
-const listRoute = /^\/(dashboard|weighings|customer-approvals|attest|payments)(?:\?.*)?$/;
+const listRoute = /^\/(?:(?:dashboard|weighings|customer-approvals|attest|payments)|customers\/[^/?#]+)(?:\?.*)?$/;
 const labels: Record<string, string> = {
   dashboard: 'Till översikten', weighings: 'Till invägningar',
   'customer-approvals': 'Till kundgodkännanden', attest: 'Till attest', payments: 'Till utbetalningar',
+  customers: 'Till kunden',
 };
 
 /** Keep the originating queue, filters and scroll together, scoped to the

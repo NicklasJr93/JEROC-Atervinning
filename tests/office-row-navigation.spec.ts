@@ -46,7 +46,7 @@ async function mockOffice(page: Page, restricted = false) {
     else { status = 503; body = { error: 'Optional service unavailable in this focused UI fixture' }; }
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
-  return { requests };
+  return { requests, customerId: customer.id, customerName: customer.name };
 }
 
 const rowFor = (page: Page, id: number) => page.locator('.office-weight-card-row').filter({ has: page.getByRole('link', { name: `Öppna viktkort ${id}`, exact: true }) });
@@ -185,6 +185,27 @@ test('en läsare får bara de synliga underlagsfälten i förhandsvisningen', as
   await expect(page.getByRole('tooltip')).not.toContainText(/999|kr|SEK|Pris|Belopp/);
   await expect(page.getByRole('columnheader', { name: 'Belopp', exact: true })).toHaveCount(0);
   await expect(row.getByRole('button', { name: /Granska avräkningsversion/ })).toHaveCount(0);
+});
+
+test('kundens viktkort har riktiga länkar och kompakt förhandsvisning samt återgår med kundens filter', async ({ page }) => {
+  const { customerId, customerName } = await mockOffice(page);
+  await page.goto(`/kontor#/customers/${encodeURIComponent(customerId)}?tab=weighings`);
+  await page.getByLabel('Sök kundens vägningar', { exact: true }).fill('Row fixture');
+  await page.getByLabel('Filtrera kundens vägningar', { exact: true }).selectOption('new');
+  const row = rowFor(page, 61131);
+  await expect(row.getByRole('link', { name: 'Öppna viktkort 61131', exact: true })).toHaveAttribute('href', '#/weighings/61131');
+  await expect(row.locator('td')).toHaveCount(5);
+  await row.hover();
+  await expect(page.getByRole('tooltip')).toContainText('Provvägen 7');
+  await expect(page.getByRole('tooltip')).toContainText('Koppar');
+  await row.locator('td').nth(1).click();
+  await expect(page.getByRole('heading', { name: 'Invägning #61131', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Till kunden', exact: true }).click();
+  await expect(page.getByRole('heading', { name: customerName, exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Vägningar', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('Sök kundens vägningar', { exact: true })).toHaveValue('Row fixture');
+  await expect(page.getByLabel('Filtrera kundens vägningar', { exact: true })).toHaveValue('new');
+  await expect(row).toBeVisible();
 });
 
 test.describe('pekstyrning', () => {
