@@ -521,7 +521,7 @@ export function exportOfficeCsv(
   );
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `JEROC-viktkort-${deliveryDay(new Date().toISOString())}.csv`;
+  anchor.download = `ScrapPilot-viktkort-${deliveryDay(new Date().toISOString())}.csv`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

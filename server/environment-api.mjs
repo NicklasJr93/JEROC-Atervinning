@@ -2,6 +2,7 @@ import { createEnvironmentRepository, EnvironmentError } from './environment-sto
 import { createEnvironmentStore } from './environment-model.mjs';
 import { createPricingStore, PricingError } from './pricing.mjs';
 import { AccountingError } from './visma-accounting.mjs';
+import { readVismaOrganisationId, canManageVisma } from './visma-client.mjs';
 import { z } from 'zod';
 import { createEnvironmentAddressResolver, ENVIRONMENT_MUNICIPALITIES } from './environment-address.mjs';
 import { createNvvClient } from './nvv-client.mjs';
@@ -48,13 +49,14 @@ async function body(req) {
 /** Cookie-authenticated façade over the durable environment/reporting service.
  * Staff sessions remain explicit demo sessions. The integration registry uses
  * a server-owned organisation scope, not browser-supplied tenant identifiers. */
-export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, nvvClient, vismaService, addressResolver = createEnvironmentAddressResolver() } = {}) {
+export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, nvvClient, vismaService, initialSites, trustedPrincipalProvider, addressResolver = createEnvironmentAddressResolver() } = {}) {
+  const organisationId = readVismaOrganisationId(env);
   let repositoryPromise, storePromise;
   const changes = getChangeEvents(env);
   const getStore = () => {
     if (!storePromise) {
       repositoryPromise = repository ? Promise.resolve(repository) : createEnvironmentRepository({ env });
-      storePromise = repositoryPromise.then((value) => createEnvironmentStore({ repository: value, principalStore, now, approvalGuard, outboundProvider, nvvClient: nvvClient ?? createNvvClient({ env, now }), onChanged: revision => changes.publish({ domain: 'environment', revision }), demoMode: env.JEROC_DEMO_AUTO_SESSION !== 'false' }));
+      storePromise = repositoryPromise.then((value) => createEnvironmentStore({ repository: value, principalStore, now, approvalGuard, outboundProvider, nvvClient: nvvClient ?? createNvvClient({ env, now }), onChanged: revision => changes.publish({ domain: 'environment', revision }), demoMode: env.JEROC_DEMO_AUTO_SESSION !== 'false', ...(initialSites === undefined ? {} : { initialSites }) }));
       const attempt = storePromise;
       attempt.catch(() => { if (storePromise === attempt) { storePromise = undefined; repositoryPromise = undefined; } });
     }
@@ -65,11 +67,14 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
     try {
       checkOrigin(req);
       const store = await getStore(), token = cookies(req);
+      const trustedPrincipal = typeof trustedPrincipalProvider === 'function' ? await trustedPrincipalProvider(req) : undefined;
+      if (typeof trustedPrincipalProvider === 'function' && !trustedPrincipal)
+        throw new EnvironmentError('En aktiv företagssession krävs.', 401, 'session_required');
       const route = url.pathname.slice('/api/environment'.length), read = req.method === 'GET' || req.method === 'HEAD';
       // Expected identities and CSRF are verified with the cookie and live
       // permissions inside the same operation/snapshot, never as a warm chain.
       const loginRoute = ['/login', '/demo-session'].includes(route);
-      await store.withRequest({ token, includePatch: true,
+      await store.withRequest({ token, includePatch: true, ...(trustedPrincipal ? { trustedPrincipal } : {}),
         ...(!loginRoute && { actualUserId: req.headers['x-environment-actual-user'], effectiveUserId: req.headers['x-environment-effective-user'] }),
         csrfToken: req.headers['x-environment-csrf'], requireCsrf: !read && !loginRoute,
       }, async () => {
@@ -79,10 +84,18 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
           const result = await store.login(await body(req), token, req.socket.remoteAddress ?? '');
           setCookie(req, res, result.token, result.result.expiresAt, env); json(res, 200, result.result);
         } else if (req.method === 'POST' && route === '/demo-session') {
-          // Explicitly DEMO: selecting a known demo staff account is sufficient.
-          // Real staff authentication is not claimed or enabled by this endpoint.
-          const result = await store.demoSession(await body(req), token);
-          setCookie(req, res, result.token, result.result.expiresAt, env); json(res, 200, result.result);
+          // Platform sessions retain their verified identity. Only the legacy
+          // demo may select a known demo account without platform authentication.
+          const input = await body(req);
+          if (trustedPrincipal) {
+            const parsed = z.object({ userId: z.string(), effectiveUserId: z.string().optional() }).strict().safeParse(input);
+            if (!parsed.success || parsed.data.userId !== trustedPrincipal.actorId || (parsed.data.effectiveUserId ?? parsed.data.userId) !== trustedPrincipal.userId)
+              throw new EnvironmentError('Den aktiva företagssessionen tillåter inte ett annat användarkonto.', 403, 'forbidden');
+            json(res, 200, await store.session(token));
+          } else {
+            const result = await store.demoSession(input, token);
+            setCookie(req, res, result.token, result.result.expiresAt, env); json(res, 200, result.result);
+          }
         } else {
           const classification = route.match(/^\/classifications\/([a-zA-Z0-9_-]{1,100})$/);
           const source = route.match(/^\/sources\/([a-fA-F0-9-]{36})$/);
@@ -97,27 +110,35 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
           if (nvvReport) { try { nvvReportId = decodeURIComponent(nvvReport[1]); if (nvvReportId.length > 200) throw new Error(); } catch { throw new EnvironmentError('Ogiltigt miljöunderlags-ID.', 400, 'report_invalid'); } }
           if (read && route === '/integrations/catalog') {
             const principal = await store.authorize(token, 'integrationsRead');
-            // There is one demo organisation today. A future SaaS authenticator
-            // must derive memberships here and migrate provider storage by tenant.
-            const context = { organisationId: 'jeroc-demo', allowedOrganisationIds: ['jeroc-demo'],
+            // Organisation membership comes from the immutable server bundle;
+            // client headers and query parameters cannot select another tenant.
+            const context = { organisationId, allowedOrganisationIds: [organisationId],
               actorId: principal.actor.id, effectiveUserId: principal.user.id, canRead: true,
-              canManage: principal.actor.level === 'Systemadmin' && principal.user.level === 'Systemadmin'
+              canManage: canManageVisma(principal.actor) && canManageVisma(principal.user)
                 && !principal.actor.siteIds && !principal.user.siteIds };
             const integrations = createIntegrationEngine({ adapters: [createNvvIntegrationAdapter({
-              organisationId: 'jeroc-demo', status: () => store.nvvStatus(token), check: () => store.nvvCheck(token),
-            }), ...(vismaService ? [{ providerId: 'visma', allowedOrganisationIds: ['jeroc-demo'],
+              organisationId, status: () => store.nvvStatus(token), check: () => store.nvvCheck(token),
+            }), ...(vismaService ? [{ providerId: 'visma', allowedOrganisationIds: [organisationId],
               status: scope => vismaService.integrationStatus(scope) }] : [])] });
             json(res, 200, await integrations.catalog(context), req.method === 'HEAD');
           }
           else if (route.startsWith('/visma/')) {
             if (!vismaService) throw new EnvironmentError('Spiris-testkopplingen är inte tillgänglig.', 503, 'visma_unavailable');
             const principal = await store.authorize(token, 'integrationsRead');
-            if (principal.actor.level !== 'Systemadmin' || principal.user.level !== 'Systemadmin' ||
+            if (!canManageVisma(principal.actor) || !canManageVisma(principal.user) ||
               Array.isArray(principal.actor.siteIds) || Array.isArray(principal.user.siteIds))
-              throw new EnvironmentError('Testverktyget kräver att systemadmin arbetar som systemadmin med åtkomst till alla anläggningar.', 403, 'integration_admin_required');
-            const context = { organisationId: 'jeroc-demo', actorId: principal.actor.id, effectiveUserId: principal.user.id,
-              actor: principal.actor, user: principal.user, sessionKey: createHash('sha256').update(token).digest('hex'),
-              reauthorize: () => store.authorize(token, 'integrationsRead') };
+              throw new EnvironmentError('Spiris kräver behörighet att hantera integrationer med åtkomst till alla företagets anläggningar.', 403, 'integration_admin_required');
+            const context = { organisationId, actorId: principal.actor.id, effectiveUserId: principal.user.id,
+              actor: principal.actor, user: principal.user, sessionKey: createHash('sha256').update(trustedPrincipal
+                ? JSON.stringify([organisationId, trustedPrincipal.actorId, trustedPrincipal.userId, trustedPrincipal.sessionKey ?? trustedPrincipal.csrfToken]) : token).digest('hex'),
+              reauthorize: async () => {
+                if (trustedPrincipal) {
+                  const current = await trustedPrincipalProvider(req);
+                  if (!current || current.actorId !== trustedPrincipal.actorId || current.userId !== trustedPrincipal.userId || current.csrfToken !== trustedPrincipal.csrfToken)
+                    throw new EnvironmentError('Integrationssessionen har ändrats.', 403, 'forbidden');
+                }
+                return store.authorize(token, 'integrationsManage');
+              } };
             const exportAction = route.match(/^\/visma\/accounting\/exports\/([a-fA-F0-9-]{36})\/(refresh|recreate)$/);
             const run = route.match(/^\/visma\/sandbox\/runs\/([a-fA-F0-9-]{36})$/);
             const prefill = route.match(/^\/visma\/attested-cards\/([1-9]\d{0,11})$/);

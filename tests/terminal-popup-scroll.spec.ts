@@ -10,6 +10,7 @@ function customerApproval(id = 'approval-scroll', status: PublicApproval['status
 }
 
 async function fixture(page: Page) {
+  await page.route('**/api/platform/tenant-context', route => route.fulfill({ json: { companyId: 'jeroc-demo', companyName: 'JEROC Återvinning AB' } }));
   await page.addInitScript(() => {
     const host = window as typeof window & { terminalStreams: EventTarget[] };
     host.terminalStreams = [];

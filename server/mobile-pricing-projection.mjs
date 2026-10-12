@@ -20,7 +20,12 @@ export function createMobilePricingProjection({ createStore = createPricingStore
     const store = createStore({ initialState: { ...pricing, audit: [], snapshots: [],
       ledger: prices ? pricing.ledger.filter(entry => chosen.has(entry.customerId)) : [],
     } });
-    const admin = pricing.users.find(user => user.level === 'Systemadmin' && user.active !== false);
+    // A separately scoped SaaS company starts with its VD rather than a copy
+    // of the platform's systemadmin. Both are legitimate server-owned catalog
+    // principals inside THIS repository; a missing principal must fail closed.
+    const admin = pricing.users.find(user => user.level === 'Systemadmin' && user.active !== false)
+      ?? pricing.users.find(user => user.level === 'VD' && user.active !== false);
+    if (!admin) throw new PricingError('Artikelregistrets bolag saknar ett aktivt administratörskonto.', 503);
     const principal = store.principal(admin.id);
     const register = store.read(principal, day);
     const articles = register.articles.map(article => ({ id: article.id, active: article.active, category: article.category,

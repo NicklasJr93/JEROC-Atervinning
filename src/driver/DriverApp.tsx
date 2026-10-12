@@ -3,6 +3,8 @@ import { CalendarDays, CheckCircle2, ChevronDown, Clock3, ClipboardList, LoaderC
 import { actionLabels, transportStatusLabels, vesselTypes, type TransportOrder } from '../office/transport/types';
 import type { LogisticsDriverCommand, LogisticsOrderDetail } from '../office/logistics/types';
 import DriverLogistics from './DriverLogistics';
+import { tenantPublicHeaders } from '../tenant-public-context';
+import { useTenantCompanyName } from '../use-tenant-company';
 import './driver.css';
 
 interface DriverSession {
@@ -12,16 +14,17 @@ interface DriverSession {
 }
 
 class DriverError extends Error {
-  constructor(message: string, public status: number) { super(message); }
+  constructor(message: string, public status: number, public code?: string) { super(message); }
 }
 
 async function driverRequest<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`/api/driver${path}`, {
     credentials: 'same-origin', cache: 'no-store',
-    ...(body !== undefined ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
+    headers: { ...await tenantPublicHeaders(), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    ...(body !== undefined ? { method: 'POST', body: JSON.stringify(body) } : {}),
   });
   const result = await response.json().catch(() => null);
-  if (!response.ok) throw new DriverError(result?.error || 'Kunde inte kontakta JEROC. Försök igen.', response.status);
+  if (!response.ok) throw new DriverError(result?.error || 'Kunde inte kontakta chaufförsportalen. Försök igen.', response.status, result?.code);
   return result as T;
 }
 
@@ -60,6 +63,7 @@ function DriverOrder({ order, open, busy, disabled, onToggle, onStatus, onLogist
 }
 
 export default function DriverApp() {
+  const companyName = useTenantCompanyName();
   const [session, setSession] = useState<DriverSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState('');
@@ -90,7 +94,7 @@ export default function DriverApp() {
       setOrders(result.orders); setError('');
     } catch (caught) {
       if (current !== generation.current || sequence !== orderSequence.current) return;
-      if (caught instanceof DriverError && caught.status === 401) { clearSession(); setError('Logga in igen för att se dina uppdrag.'); }
+      if (caught instanceof DriverError && (caught.status === 401 || caught.code === 'company_selection_changed')) { clearSession(); setError('Logga in igen för att se dina uppdrag.'); }
       else setError(errorMessage(caught));
     } finally { if (current === generation.current && sequence === orderSequence.current) setOrdersLoading(false); }
   }, [clearSession]);
@@ -102,7 +106,7 @@ export default function DriverApp() {
       setSession(result);
     }).catch(caught => {
       if (current !== generation.current) return;
-      if (!(caught instanceof DriverError && caught.status === 401)) setError(errorMessage(caught));
+      if (!(caught instanceof DriverError && (caught.status === 401 || caught.code === 'company_selection_changed'))) setError(errorMessage(caught));
     }).finally(() => { if (current === generation.current) setLoading(false); });
     return () => { generation.current += 1; orderSequence.current += 1; };
   }, []);
@@ -150,7 +154,7 @@ export default function DriverApp() {
       setNotice(status === 'done' ? `${order.id} är markerat som klart.` : `${order.id}: du är på väg.`);
     } catch (caught) {
       if (current !== generation.current) return;
-      if (caught instanceof DriverError && caught.status === 401) { clearSession(); setError('Logga in igen för att uppdatera uppdraget.'); }
+      if (caught instanceof DriverError && (caught.status === 401 || caught.code === 'company_selection_changed')) { clearSession(); setError('Logga in igen för att uppdatera uppdraget.'); }
       else { await refreshOrders(); setError(errorMessage(caught)); }
     } finally { if (current === generation.current) setBusyOrder(null); }
   };
@@ -167,7 +171,7 @@ export default function DriverApp() {
       setNotice({ 'travel.empty': 'Du är på väg till lastningsplatsen.', arrive: 'Ankomst till lastningsplatsen registrerad.', load: 'Lastade vikter är sparade.', sign: 'Den aktuella dokumentversionen är godkänd i demo.', depart: 'Transport med last har påbörjats.', deliver: 'Leveransen är registrerad.' }[command.action]);
     } catch (caught) {
       if (current !== generation.current) return;
-      if (caught instanceof DriverError && caught.status === 401) { clearSession(); setError('Logga in igen för att uppdatera uppdraget.'); }
+      if (caught instanceof DriverError && (caught.status === 401 || caught.code === 'company_selection_changed')) { clearSession(); setError('Logga in igen för att uppdatera uppdraget.'); }
       else { await refreshOrders(); setError(errorMessage(caught)); }
     } finally { if (current === generation.current) setBusyOrder(null); }
   };
@@ -181,21 +185,21 @@ export default function DriverApp() {
   });
 
   return <div className="driver-app">
-    <header className="driver-header"><img src="/images/jeroc-logo-ui.webp" alt="JEROC Återvinning" /><span><Truck size={18} />Chaufför</span>{session && <button className="driver-logout" disabled={logoutBusy || Boolean(busyOrder)} onClick={() => void logout()} aria-label="Logga ut chaufför">{logoutBusy ? <LoaderCircle size={18} className="driver-spinner" /> : <LogOut size={18} />}</button>}</header>
-    {loading ? <main className="driver-loading" role="status"><LoaderCircle className="driver-spinner" size={28} /><p>Öppnar chaufförsportalen…</p></main> : !session ? <main className="driver-login"><div className="driver-login-icon"><Truck size={30} /></div><span className="driver-eyebrow">CHAUFFÖRSPORTAL</span><h1>Dina uppdrag hos JEROC</h1><p>Logga in med ditt chaufförskonto.</p><form onSubmit={login}>
+    <header className="driver-header"><img src="/images/scrappilot-logo.svg" alt="ScrapPilot" /><span><Truck size={18} />Chaufför</span>{session && <button className="driver-logout" disabled={logoutBusy || Boolean(busyOrder)} onClick={() => void logout()} aria-label="Logga ut chaufför">{logoutBusy ? <LoaderCircle size={18} className="driver-spinner" /> : <LogOut size={18} />}</button>}</header>
+    {loading ? <main className="driver-loading" role="status"><LoaderCircle className="driver-spinner" size={28} /><p>Öppnar chaufförsportalen…</p></main> : !session ? <main className="driver-login"><div className="driver-login-icon"><Truck size={30} /></div><span className="driver-eyebrow">CHAUFFÖRSPORTAL</span><h1>Dina uppdrag hos {companyName}</h1><p>Logga in med ditt chaufförskonto.</p><form onSubmit={login}>
       <label htmlFor="driver-username">Inloggningsnamn</label><div className="driver-input"><UserRound size={18} /><input id="driver-username" name="username" autoComplete="username" autoCapitalize="none" autoCorrect="off" required disabled={loginBusy} value={username} onChange={event => setUsername(event.target.value)} /></div>
       <label htmlFor="driver-password">Lösenord</label><div className="driver-input"><LockKeyhole size={18} /><input id="driver-password" name="password" type="password" autoComplete="current-password" required disabled={loginBusy} value={password} onChange={event => setPassword(event.target.value)} /></div>
       {error && <p className="driver-error" role="alert">{error}</p>}
       <button className="driver-button primary" disabled={loginBusy}>{loginBusy ? <><LoaderCircle className="driver-spinner" size={18} />Loggar in…</> : 'Logga in'}</button>
-    </form><p className="driver-login-help">Ditt konto administreras av JEROC. <a href="/akeri">Logga in som åkeriets transportledare</a></p></main> : <main className="driver-main">
+    </form><p className="driver-login-help">Ditt konto administreras av {companyName}. <a href="/akeri">Logga in som åkeriets transportledare</a></p></main> : <main className="driver-main">
       <section className="driver-welcome"><div className="driver-avatar">{session.person.name.split(' ').filter(Boolean).map(part => part[0]).slice(0, 2).join('')}</div><div><span className="driver-eyebrow">{session.company.name}</span><h1>Hej, {session.person.name.split(' ')[0]}</h1><p>Här är dina tilldelade uppdrag.</p></div></section>
       <div className="driver-list-heading"><h2>Mina uppdrag</h2><button className="driver-refresh" disabled={ordersLoading || Boolean(busyOrder) || logoutBusy} onClick={() => void refreshOrders(true)} aria-label="Uppdatera uppdrag"><RefreshCw size={18} className={ordersLoading ? 'driver-spinner' : ''} /></button></div>
       <div className="driver-tabs" role="tablist" aria-label="Uppdrag"><button role="tab" id="driver-active-tab" aria-selected={tab === 'active'} aria-controls="driver-order-list" className={tab === 'active' ? 'active' : ''} onClick={() => setTab('active')}>Uppdrag{activeOrders.length > 0 && <span>{activeOrders.length}</span>}</button><button role="tab" id="driver-history-tab" aria-selected={tab === 'history'} aria-controls="driver-order-list" className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>Avslutade</button></div>
       {error && <p className="driver-error" role="alert">{error}</p>}{notice && <p className="driver-notice" role="status"><CheckCircle2 size={18} />{notice}</p>}
       <section id="driver-order-list" role="tabpanel" aria-labelledby={tab === 'active' ? 'driver-active-tab' : 'driver-history-tab'} className="driver-order-list" aria-busy={ordersLoading}>
-        {ordersLoading && !orders.length ? <div className="driver-empty" role="status"><LoaderCircle className="driver-spinner" size={26} /><p>Hämtar uppdrag…</p></div> : shownOrders.length ? shownOrders.map(order => <DriverOrder key={order.id} order={order} open={openId === order.id} busy={busyOrder === order.id} disabled={Boolean(busyOrder) || logoutBusy} onToggle={() => setOpenId(current => current === order.id ? null : order.id)} onStatus={status => void updateStatus(order, status)} onLogistics={command => void updateLogistics(order, command)} />) : <div className="driver-empty">{tab === 'active' ? <ClipboardList size={34} /> : <Clock3 size={34} />}<h2>{tab === 'active' ? 'Inga tilldelade uppdrag' : 'Inga avslutade uppdrag'}</h2><p>{tab === 'active' ? 'Nya uppdrag visas här när JEROC har tilldelat dem till dig.' : 'Slutförda och avbrutna uppdrag visas här.'}</p></div>}
+        {ordersLoading && !orders.length ? <div className="driver-empty" role="status"><LoaderCircle className="driver-spinner" size={26} /><p>Hämtar uppdrag…</p></div> : shownOrders.length ? shownOrders.map(order => <DriverOrder key={order.id} order={order} open={openId === order.id} busy={busyOrder === order.id} disabled={Boolean(busyOrder) || logoutBusy} onToggle={() => setOpenId(current => current === order.id ? null : order.id)} onStatus={status => void updateStatus(order, status)} onLogistics={command => void updateLogistics(order, command)} />) : <div className="driver-empty">{tab === 'active' ? <ClipboardList size={34} /> : <Clock3 size={34} />}<h2>{tab === 'active' ? 'Inga tilldelade uppdrag' : 'Inga avslutade uppdrag'}</h2><p>{tab === 'active' ? `Nya uppdrag visas här när ${companyName} har tilldelat dem till dig.` : 'Slutförda och avbrutna uppdrag visas här.'}</p></div>}
       </section>
     </main>}
-    <footer className="driver-footer">JEROC · Chaufförsportal{session?.demo !== false && ' · Demo'}</footer>
+    <footer className="driver-footer">ScrapPilot · Chaufförsportal{session?.demo !== false && ' · Demo'}</footer>
   </div>;
 }

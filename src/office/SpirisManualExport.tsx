@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CircleAlert, FileCheck2, RefreshCw, Send } from 'lucide-react';
-import { can, type OfficeUser } from './model';
+import type { OfficeUser } from './model';
+import { mayManageSpiris } from './integration-permissions';
 import { environmentFailure, useEnvironmentSession } from './EnvironmentSession';
 import { EnvironmentApiError } from './environment-client';
 import NvvConnectionCheckDialog, { type ExternalConnectionTest, type NvvCheckProgress } from './NvvConnectionCheckDialog';
@@ -22,7 +23,7 @@ export default function SpirisManualExport({ user, actualUser, canExport, onExpo
 }) {
   const { session } = useEnvironmentSession();
   const identity = `${actualUser.id}/${actualUser.level}/${actualUser.permissions.join(',')}/${actualUser.siteIds?.join(',') ?? 'all'}/${user.id}/${user.level}/${user.permissions.join(',')}/${user.siteIds?.join(',') ?? 'all'}`;
-  const permitted = actualUser.level === 'Systemadmin' && user.level === 'Systemadmin' && !actualUser.siteIds && !user.siteIds && can(user, 'integrationsRead') && session?.actualUserId === actualUser.id && session?.effectiveUserId === user.id;
+  const permitted = mayManageSpiris(user, actualUser) && session?.actualUserId === actualUser.id && session?.effectiveUserId === user.id;
   const identityRef = useRef(identity); identityRef.current = identity;
   const permittedRef = useRef(permitted); permittedRef.current = permitted;
   const mounted = useRef(true), generation = useRef(0), busyRef = useRef(false);

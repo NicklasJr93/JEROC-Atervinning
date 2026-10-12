@@ -13,6 +13,7 @@ import { paymentSummary } from './customer-model';
 import ArchiveViewer from './documents/ArchiveViewer';
 import { documentApi, documentStageNames, documentsNewestFirst, type ArchivedDocument, type DocumentStage } from './documents/client';
 import './documents/documents.css';
+import { usePlatformContext } from '../platform/PlatformGate';
 
 export default function OfficeDocument({
   card,
@@ -34,6 +35,9 @@ export default function OfficeDocument({
   showPaymentDetails: boolean;
   showRowPrice: (row: OfficeCard['rows'][number]) => boolean;
 }) {
+  const company = usePlatformContext()?.session.company;
+  const legacyCompany = !company || company.id === 'jeroc-demo';
+  const companyName = company?.name ?? 'JEROC Återvinning AB';
   const receipt = type === 'receipt';
   const sourceId = receipt ? payment?.id : card.id;
   const identity = {actualUserId:actualUser.id,userId:user.id};
@@ -107,7 +111,7 @@ export default function OfficeDocument({
       </section>
       {view === 'preview' && <article className="office-document">
         <header>
-          <img src="/images/jeroc-logo-print.webp" alt="JEROC Återvinning" />
+          {legacyCompany ? <img src="/images/jeroc-logo-print.webp" alt="JEROC Återvinning" /> : <strong>{companyName}</strong>}
           <div>
             <span>DEMO · FIKTIVT UNDERLAG</span>
             <h1>{receipt ? 'Utbetalningskvitto' : 'Avräkningsnota'}</h1>
@@ -122,13 +126,13 @@ export default function OfficeDocument({
         <div className="office-document-parties">
           <section>
             <h2>Köpare</h2>
-            <strong>JEROC Återvinning AB · Demo</strong>
+            <strong>{companyName} · Demo</strong>
             <p>
-              Fiktiv företagsadress, Norrtälje
+              {legacyCompany ? 'Fiktiv företagsadress, Norrtälje' : 'Bolagets adress behöver kompletteras.'}
               <br />
-              Organisationsnummer: 559000-0000
+              Organisationsnummer: {company?.organisationNumber || (legacyCompany ? '559000-0000' : 'Saknas')}
               <br />
-              Uppgifterna är testdata.
+              {legacyCompany ? 'Uppgifterna är testdata.' : 'Det arkiverade originalet finns under PDF & historik.'}
             </p>
           </section>
           <section>
@@ -174,10 +178,10 @@ export default function OfficeDocument({
           )}
         </dl>
         {validApprovalStatus && card.customerApproval?.approvedAt && <section className="office-document-approval">
-          <h2>Kundgodkänd{card.customerApproval.status === 'attested' && card.customerApproval.attestedAt && ' · JEROC-attesterad'}</h2>
+          <h2>Kundgodkänd{card.customerApproval.status === 'attested' && card.customerApproval.attestedAt && (legacyCompany ? ' · JEROC-attesterad' : ' · Internt attesterad')}</h2>
           <p>Kundgodkännande med fysisk legitimation · version {card.customerApproval.version}<br />
             Bekräftat av {card.customerApproval.approvedBy} · {new Date(card.customerApproval.approvedAt).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' })}<br />
-            {card.customerApproval.status === 'attested' && card.customerApproval.attestedAt && <>JEROC-attest: {card.customerApproval.attestedBy} · {new Date(card.customerApproval.attestedAt).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' })}</>}
+            {card.customerApproval.status === 'attested' && card.customerApproval.attestedAt && <>{legacyCompany ? 'JEROC-attest' : 'Intern attest'}: {card.customerApproval.attestedBy} · {new Date(card.customerApproval.attestedAt).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' })}</>}
           </p>
         </section>}
         <table>

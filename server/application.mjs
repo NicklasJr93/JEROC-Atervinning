@@ -456,13 +456,14 @@ function requestPrincipal(store, req) {
   return store.principal(actor, user);
 }
 
-export function createApplicationService({ repository, env = process.env, projections, approvalProvider = async () => [], sendCustomerReview,
+export function createApplicationService({ repository, env = process.env, seed = initialApplicationState, projections, approvalProvider = async () => [], sendCustomerReview,
   withMaterialChangeApproval, guardMaterialChange, siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider,
   accountingSettingsProvider, accountingCardStatusProvider, validateArticleMedia } = {}) {
   projections ??= approvalProvider;
   const mobilePricingProjection = createMobilePricingProjection();
   const context = new AsyncLocalStorage(); let fallback = createPricingStore(); let repoPromise;
-  const getRepo = () => repoPromise ??= (repository ? Promise.resolve(repository) : createApplicationRepository({ env, seed: initialApplicationState }))
+  if (typeof seed !== 'function') throw new TypeError('Verksamhetsdatans startvärden behöver en servervald fabrik.');
+  const getRepo = () => repoPromise ??= (repository ? Promise.resolve(repository) : createApplicationRepository({ env, seed }))
     .then(async value => {
       // Legacy personnel seeding changes planning IDs/timestamps. Persist it
       // once at startup; never generate a different plan in each read-copy.

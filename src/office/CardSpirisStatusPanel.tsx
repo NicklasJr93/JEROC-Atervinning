@@ -3,6 +3,7 @@ import { ChevronDown, ExternalLink, PlugZap, RefreshCw, RotateCcw } from 'lucide
 import { Link } from 'react-router-dom';
 import { z } from 'zod';
 import { can, type OfficeCard, type OfficeUser } from './model';
+import { mayManageSpiris } from './integration-permissions';
 import { useEnvironmentSession } from './EnvironmentSession';
 import { spirisAccountingApi } from './spiris-accounting-client';
 import './card-spiris-status.css';
@@ -64,8 +65,7 @@ export function CardSpirisTrackingProvider({ card, user, actualUser, children }:
   const environment = useEnvironmentSession();
   const allowed = can(user, 'attest') || can(user, 'pay') || can(user, 'reports');
   const attested = ['ready', 'paid', 'balance'].includes(card.status) || card.customerApproval?.status === 'attested';
-  const fullJournal = user.level === 'Systemadmin' && actualUser.level === 'Systemadmin' &&
-    !user.siteIds && !actualUser.siteIds && can(user, 'integrationsRead');
+  const fullJournal = mayManageSpiris(user, actualUser);
   const scope = JSON.stringify([card.id, actualUser.id, user.id, user.level, user.permissions, user.siteIds, actualUser.level, actualUser.siteIds]);
   const currentScope = useRef(scope); currentScope.current = scope;
   const [refresh, setRefresh] = useState(0);

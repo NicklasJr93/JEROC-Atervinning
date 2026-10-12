@@ -106,6 +106,21 @@ function allowedParameters(operation) {
   return [];
 }
 
+/** Scope comes from the server-owned company runtime, never request JSON. */
+export function readVismaOrganisationId(env = process.env) {
+  if (env.SCRAPPILOT_ORGANISATION_ID === undefined) return 'jeroc-demo';
+  const id = env.SCRAPPILOT_ORGANISATION_ID;
+  if (typeof id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/.test(id))
+    fail('Spiris-kopplingen saknar en giltig serverägd företagstillhörighet.', 409, 'visma_organisation_invalid');
+  return id;
+}
+
+/** Both actual and effective principals must be authorised in this company. */
+export function canManageVisma(principal) {
+  return principal?.level === 'Systemadmin' || principal?.level === 'VD' &&
+    Array.isArray(principal.permissions) && ['integrationsRead', 'integrationsManage'].every(right => principal.permissions.includes(right));
+}
+
 export function readVismaConfiguration(env = process.env) {
   const mode = env.VISMA_ENVIRONMENT === 'sandbox' ? 'sandbox' : 'disabled';
   const missing = [];
@@ -127,8 +142,12 @@ export function readVismaConfiguration(env = process.env) {
   }
   if (env.VISMA_TOKEN_ENCRYPTION_KEY && (!/^[A-Za-z0-9+/]{43}=$/.test(env.VISMA_TOKEN_ENCRYPTION_KEY) || Buffer.from(env.VISMA_TOKEN_ENCRYPTION_KEY, 'base64').length !== 32))
     missing.push('VISMA_TOKEN_ENCRYPTION_KEY måste vara 32 byte i base64.');
-  const expectedCompanyId = typeof env.VISMA_SANDBOX_COMPANY_ID === 'string' && env.VISMA_SANDBOX_COMPANY_ID.trim() ? env.VISMA_SANDBOX_COMPANY_ID.trim() : null;
-  return { mode, configured: mode === 'sandbox' && !missing.length, missing, redirectUri, expectedCompanyId, localCallbackRelay };
+  const organisationId = readVismaOrganisationId(env);
+  // A new SaaS company must never inherit the JEROC environment's provider pin.
+  // Its explicit binding is supplied by its own trusted runtime configuration.
+  const pinnedCompany = organisationId === 'jeroc-demo' ? env.VISMA_SANDBOX_COMPANY_ID : env.VISMA_TENANT_COMPANY_ID;
+  const expectedCompanyId = typeof pinnedCompany === 'string' && pinnedCompany.trim() ? pinnedCompany.trim() : null;
+  return { mode, organisationId, configured: mode === 'sandbox' && !missing.length, missing, redirectUri, expectedCompanyId, localCallbackRelay };
 }
 
 const sensitiveKey = /(?:access.?token|refresh.?token|id.?token|client.?secret|authorization|password|cookie|code.?verifier|pkce|authorization.?code|private.?key)/i;

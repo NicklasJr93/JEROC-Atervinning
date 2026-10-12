@@ -5,16 +5,9 @@ import { extname, isAbsolute, relative, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { proxyExpo, startExpoGo } from './expo-go.mjs';
-import { createApplicationService } from './application.mjs';
-import { createTerminalDemoApi } from './terminal-demo.mjs';
-import { createEnvironmentApi } from './environment-api.mjs';
-import { createDocumentsApi } from './documents/api.mjs';
-import { renderPdf, closePdfRenderer } from './documents/render-pool.mjs';
-import { PricingError, getArticleMediaReferences } from './pricing.mjs';
+import { closePdfRenderer } from './documents/render-pool.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
-import { createVismaSandbox } from './visma-sandbox.mjs';
-import { createArticleMediaApi } from './article-media.mjs';
-import { ensureLogistics } from './logistics.mjs';
+import { createTenantGateway } from './tenant-gateway.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -62,30 +55,8 @@ async function handle(req, res) {
     reply(res, 400, 'Invalid URL');
     return;
   }
-  if (pathname === '/api/integrations/visma/oauth/callback') {
-    if (req.method !== 'GET') { reply(res, 405, 'Method not allowed'); return; }
-    const bindingCookie = (req.headers.cookie ?? '').split(';').find(item => item.trim().startsWith('jeroc_visma_oauth='));
-    let binding;
-    try { binding = bindingCookie && decodeURIComponent(bindingCookie.trim().slice('jeroc_visma_oauth='.length)); } catch { binding = undefined; }
-    let outcome = 'error';
-    try {
-      await vismaService.callback({ state: url.searchParams.get('state'), code: url.searchParams.get('code'),
-        error: url.searchParams.get('error'), cookieBinding: binding });
-      outcome = 'ok';
-    } catch { /* The fixed redirect never exposes OAuth codes or provider secrets. */ }
-    const secure = Boolean(process.env.RENDER) || req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https';
-    res.writeHead(303, { Location: `/kontor/integration/systemadminvismatest.html?vismaOAuth=${outcome}#/integrations/visma-test`,
-      'Set-Cookie': `jeroc_visma_oauth=; Path=/api/integrations/visma/oauth/callback; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=0`,
-      'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' });
-    res.end(); return;
-  }
-  if (await articleMediaApi(req, res, url)) return;
-  if (await applicationApi(req, res, url)) return;
-  if (await documentsApi(req, res, url)) return;
-  if (pathname.startsWith("/api/terminal-demo") || pathname.startsWith("/api/environment")) {
-    const handled = (await terminalDemoApi(req, res, url)) || (await environmentApi(req, res, url));
-    if (handled) return;
-  }
+  if (await tenantGateway.selectPage(req, res, url)) return;
+  if (await tenantGateway(req, res, url)) return;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.setHeader('Allow', 'GET, HEAD');
     reply(res, 405, 'Method not allowed');
@@ -175,116 +146,7 @@ const server = createServer((req, res) => {
     else reply(res, 500, 'Server error');
   });
 });
-const applicationApi = createApplicationService({ approvalProvider: () => terminalDemoApi.projections(),
-  projections: cardId => terminalDemoApi.projections(cardId),
-  sendCustomerReview: (payload, principal, req) => terminalDemoApi.sendPrepared(payload, principal, req),
-  withMaterialChangeApproval: (input, identity, operation) => terminalDemoApi.withMaterialChangeApproval(input, identity, operation),
-  guardMaterialChange: (input, operation) => environmentApi.guardMaterialChange(input, operation),
-  siteProvider: () => environmentApi.getSites(),
-  environmentProvider: () => environmentApi.getLogisticsSource(),
-  accountingSettingsProvider: customer => vismaService.financeSettingsForCompany(customer),
-  accountingCardStatusProvider: cardId => vismaService.cardExportProjection(cardId),
-  validateArticleMedia: async (route, input) => {
-    const references = getArticleMediaReferences(route, input);
-    if (references.length && !await articleMediaApi.hasImages(references))
-      throw new PricingError('En uppladdad bild saknas. Ladda upp bilden igen innan du sparar.', 422);
-  },
-});
-const principalStore = applicationApi.principalStore;
-const articleMediaApi = createArticleMediaApi({ authorize: req => applicationApi.withPrincipal(() => {
-  const actor = req.headers['x-demo-actor'];
-  const user = req.headers['x-demo-user'] ?? actor;
-  if (typeof actor !== 'string' || typeof user !== 'string')
-    throw new PricingError('Välj ett giltigt konto innan du laddar upp en bild.', 401);
-  return principalStore.principal(actor, user);
-}) });
-const vismaService = createVismaSandbox({ getRepository: () => applicationApi.getRepository(),
-  sourceProvider: request => terminalDemoApi.documentProjections(request), sitesProvider: () => environmentApi.getSites(),
-  authorizeContext: async context => {
-    if (typeof context.reauthorize !== 'function') throw new PricingError('Den aktiva integrationssessionen saknas.', 403);
-    const session = await context.reauthorize();
-    if (session.actor.id !== context.actorId || session.user.id !== context.effectiveUserId) throw new PricingError('Integrationssessionen har ändrats.', 403);
-    if (session.actor.level !== 'Systemadmin' || session.user.level !== 'Systemadmin' || session.actor.siteIds || session.user.siteIds)
-      throw new PricingError('Systemadmin med åtkomst till alla anläggningar krävs.', 403);
-  },
-});
-const environmentApi = createEnvironmentApi({ principalStore,
-  vismaService,
-  approvalGuard: (input, operation) => terminalDemoApi.withApprovedCard(input, operation),
-  outboundProvider: async () => (await applicationApi.getRepository()).read(state =>
-    (state.logistics?.inventoryMovements ?? []).filter(row => row.kind === 'outbound' && row.hazardous)
-      .map(row => ({ id: row.id, siteId: row.siteId, articleId: row.articleId, wasteCode: row.wasteCode,
-        weight: row.kg, receivedAt: row.at, kind: 'outbound', sourceId: row.sourceId })), { domains: ['logistics'] }),
-});
-const terminalDemoApi = createTerminalDemoApi({ principalStore, siteProvider: () => environmentApi.getSites(),
-  environmentApprovalCheck: approval => environmentApi.assertReceiptForAttest(approval),
-  accountingSourceProvider: async request => {
-    const customer = await (await applicationApi.getRepository()).read(state => structuredClone(state.office.customers.find(value => value.id === request.customer.id)), { domains: ['office'] });
-    const settings = await vismaService.financeSettingsForCompany(customer);
-    if (!settings) return null;
-    return { settings, customer };
-  },
-  onAttested: approval => vismaService.processQueuedExports({ cardId: approval.cardId, reconcile: false }),
-  onApprovalChanged: (approval, job) => job
-    ? documentsApi.archiveApprovalJob(approval, job)
-    : documentsApi.ensureApproval(approval),
-});
-const documentsApi = createDocumentsApi({
-  renderPdf,
-  resolvePrincipal: req => principalStore.runFreshPrincipal(() => {
-    const actor = req.headers['x-demo-actor'];
-    const user = req.headers['x-demo-user'] ?? actor;
-    if (typeof actor !== 'string' || typeof user !== 'string')
-      throw new PricingError('Välj ett giltigt demokonto.', 401);
-    return principalStore.principal(actor, user);
-  }),
-  sourceProvider: async (request = {}) => {
-    if (request.kind === 'article-names') {
-      const repository = await applicationApi.getRepository();
-      return { pricing: { articles: await repository.readArticleNames(request.articleIds) } };
-    }
-    // A durable PDF job already supplies its frozen business/approval source.
-    // Older jobs need only the facility, never all current application history.
-    if (request.kind === 'approval-job') return { sites: await environmentApi.getSites() };
-    if (request.kind === 'approval') {
-      const [approvals, sites] = await Promise.all([
-        terminalDemoApi.documentProjections({ cardId: Number(request.sourceId), approvalId: request.approvalId }),
-        environmentApi.getSites(),
-      ]);
-      return { approvals, sites };
-    }
-    const repository = await applicationApi.getRepository();
-    // Release the application aggregate before reading the terminal/environment
-    // aggregates. No nested cross-module locks while rendering or archiving PDF.
-    const transport = request.kind === 'transport';
-    const readSource = async () => {
-      const logistics = transport && repository.readProjection
-        ? await repository.readProjection(state => state.logistics ?? { details: {} }, { domain: 'logistics', paths: [['details', String(request.sourceId)]] }) : undefined;
-      return repository.read(state => {
-        if (logistics) state.logistics = logistics;
-        const payments = request.kind === 'receipt' ? state.office.payments.filter(value => String(value.id) === String(request.sourceId)) : [];
-        const cardId = request.kind === 'receipt' ? payments[0]?.cardId : request.sourceId;
-        const cards = transport ? [] : state.office.cards.filter(value => String(value.id) === String(cardId));
-        const orders = transport ? state.transport.orders.filter(order => order.id === request.sourceId) : [];
-        const customers = state.office.customers.filter(customer => cards.some(card => card.customerId === customer.id) || orders.some(order => order.customerId === customer.id));
-        const drivers = transport ? state.transport.drivers.filter(driver => orders.some(order => order.driverId === driver.id || state.logistics?.details?.[order.id]?.assignedDriverId === driver.id)) : [];
-        return structuredClone({ office: { cards, customers, payments },
-          ...(transport ? {
-            transport: { orders, drivers, vehicles: state.transport.vehicles.filter(vehicle => orders.some(order => order.vehicleId === vehicle.id || state.logistics?.details?.[order.id]?.assignedVehicleId === vehicle.id)) },
-            personnel: { companies: state.personnel.companies.filter(company => drivers.some(driver => driver.companyId === company.id) || state.logistics?.details?.[request.sourceId]?.carrierId === company.id) },
-            logistics: { details: state.logistics?.details?.[request.sourceId] ? { [request.sourceId]: state.logistics.details[request.sourceId] } : {} },
-          } : {}),
-        });
-      }, { domains: transport ? ['office', 'transport', 'personnel', ...(logistics ? [] : ['logistics'])] : ['office'] });
-    };
-    const source = await (repository.runInReadTransaction ? repository.runInReadTransaction(readSource) : readSource());
-    const [approvals, sites] = await Promise.all([
-      transport ? [] : terminalDemoApi.documentProjections({ cardId: Number(source.office.cards[0]?.id ?? source.office.payments[0]?.cardId ?? request.sourceId) }),
-      environmentApi.getSites(),
-    ]);
-    return { ...source, approvals, sites };
-  },
-});
+const tenantGateway = await createTenantGateway();
 const expoGo = startExpoGo({ onFailure: () => {
   console.error('Expo-servern har stannat. Startar om tjänsten.');
   stop(1);
@@ -293,33 +155,16 @@ server.on('error', (error) => {
   console.error('Servern kunde inte starta:', error.code);
   process.exit(1);
 });
-// Complete migrations/seeding before accepting a request. Read-only snapshots
-// and SSE reconnects never need to initialize another repository while open.
-await applicationApi.getRepository();
-await vismaService.initialize();
-await articleMediaApi.ready();
-await environmentApi.initialize();
-// Persist initial stock/catalog maintenance once, so a fresh installation also
-// records physical mobile/office changes without relying on a later GET.
-const [logisticsSites, logisticsEnvironment] = await Promise.all([
-  environmentApi.getSites(), environmentApi.getLogisticsSource(),
-]);
-await (await applicationApi.getRepository()).transact(state => ensureLogistics(state, {
-  sites: logisticsSites, ...logisticsEnvironment,
-}));
-await terminalDemoApi.initialize?.();
-// Discover committed attests after a restart as well as through the immediate
-// hook. The queue is durable; no provider operation runs in the attest request.
-const accountingTimer = setInterval(() => { void vismaService.processQueuedExports({ reconcile: false }).catch(() => console.warn('Spiris-kön väntar på nästa kontroll.')); }, 20000);
+// Every worker obtains its immutable company service bundle; no active browser
+// selection or current support account can redirect a queued integration job.
+const accountingTimer = setInterval(() => { void tenantGateway.runWorkers('processQueuedExports').catch(() => console.warn('Spiris-kön väntar på nästa kontroll.')); }, 20000);
 accountingTimer.unref();
-void vismaService.processQueuedExports().catch(() => console.warn('Spiris-kön kunde inte kontrolleras vid start.'));
-// Status reads are scheduled from each persisted job's next-check time. This
-// heartbeat never books an invoice, pays a supplier or recreates a draft.
-const accountingTrackingTimer = setInterval(() => { void vismaService.processAccountingTracking().catch(() => console.warn('Spiris-uppföljningen väntar på nästa kontroll.')); }, 60000);
+const accountingTrackingTimer = setInterval(() => { void tenantGateway.runWorkers('processAccountingTracking').catch(() => console.warn('Spiris-uppföljningen väntar på nästa kontroll.')); }, 60000);
 accountingTrackingTimer.unref();
-void vismaService.processAccountingTracking().catch(() => console.warn('Spiris-uppföljningen kunde inte kontrolleras vid start.'));
+void tenantGateway.runWorkers('processQueuedExports');
+void tenantGateway.runWorkers('processAccountingTracking');
 server.listen(port, '0.0.0.0', () => {
-  console.log(`JEROC demo lyssnar på port ${server.address().port}`);
+  console.log(`ScrapPilot lyssnar på port ${server.address().port}`);
 });
 let stopping = false;
 async function stop(code = 0) {
@@ -328,7 +173,7 @@ async function stop(code = 0) {
   clearInterval(accountingTimer);
   clearInterval(accountingTrackingTimer);
   setTimeout(() => process.exit(1), 10000).unref();
-  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close()]);
+  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), tenantGateway.close()]);
   await closePdfRenderer();
   process.exit(code);
 }

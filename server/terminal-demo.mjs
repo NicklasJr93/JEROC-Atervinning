@@ -229,6 +229,11 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     },options);
   };
   const staff = (state, value, time) => {
+    const verified = expectedStaffIdentity.getStore()?.trustedPrincipal;
+    if (verified) {
+      if (Date.parse(verified.expiresAt) <= time.getTime()) throw new TerminalDemoError('Logga in igen.', 401, 'staff_session_required');
+      return principalStore.principal(verified.actorId, verified.userId);
+    }
     if (!value) throw new TerminalDemoError('Välj ett demokonto på kontoret.', 401, 'staff_session_required');
     const session = state.staffSessions.find((item) => item.tokenHash === hash(value) && Date.parse(item.expiresAt) > time.getTime());
     if (!session) throw new TerminalDemoError('Kontorets demosession har gått ut. Logga in igen.', 401, 'staff_session_required');
@@ -649,7 +654,7 @@ async function body(req) {
   catch { throw new TerminalDemoError('Ogiltig JSON.'); }
 }
 
-export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, accountingSourceProvider, onAttested, onApprovalChanged, env = process.env, now = () => new Date(), approvalAge } = {}) {
+export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, accountingSourceProvider, onAttested, onApprovalChanged, trustedPrincipalProvider, env = process.env, now = () => new Date(), approvalAge } = {}) {
   let repositoryPromise, storePromise, jobsRunning, jobTimer, maintenanceTimer, backgroundStarted = false, closed = false;
   const eventStreams = new Set();
   const getStore = () => {
@@ -774,7 +779,12 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
       else if (req.method === 'GET' && route === '/terminal-events') await stream(req,res,store,staffToken,deviceToken,undefined,true);
       else if (req.method === 'POST' && route === '/heartbeat') { await body(req); json(res,200,await store.heartbeat(deviceToken)); }
       else if (req.method === 'POST' && route === '/staff-session') {
-        const result = await store.staffSession(await body(req), staffToken);
+        const input = await body(req), trusted = trustedPrincipalProvider?.(req);
+        if (trusted) {
+          if (input.actualUserId !== trusted.actorId || input.effectiveUserId !== trusted.userId) throw new TerminalDemoError('Det aktiva kontot har ändrats.', 409, 'staff_identity_changed');
+          json(res, 200, { demo: false, actualUserId: trusted.actorId, effectiveUserId: trusted.userId }); return true;
+        }
+        const result = await store.staffSession(input, staffToken);
         setCookie(req, res, STAFF_COOKIE, result.token, STAFF_AGE, env); json(res, 200, result.result);
       } else if (req.method === 'POST' && route === '/login') {
         const result = await store.login(await body(req), deviceToken, req.socket.remoteAddress ?? '');
@@ -814,11 +824,12 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
   };
   const api = (req,res,url) => {
     const actualUserId=req.headers['x-terminal-actual-user'],effectiveUserId=req.headers['x-terminal-effective-user'];
-    return expectedStaffIdentity.run(actualUserId||effectiveUserId?{actualUserId,effectiveUserId}:undefined,()=>handle(req,res,url));
+    const trustedPrincipal = trustedPrincipalProvider?.(req);
+    return expectedStaffIdentity.run(trustedPrincipal||actualUserId||effectiveUserId?{actualUserId,effectiveUserId,trustedPrincipal}:undefined,()=>handle(req,res,url));
   };
   api.initialize = async () => { await getStore(); };
   api.sendPrepared = async (payload,identity,req) => {
-    const expected=req?{actualUserId:req.headers['x-terminal-actual-user']??identity.actorId,effectiveUserId:req.headers['x-terminal-effective-user']??identity.userId}:undefined;
+    const expected=req?{actualUserId:req.headers['x-terminal-actual-user']??identity.actorId,effectiveUserId:req.headers['x-terminal-effective-user']??identity.userId,trustedPrincipal:trustedPrincipalProvider?.(req)}:undefined;
     const result=await expectedStaffIdentity.run(expected,async()=>(await getStore()).send(payload,req?cookie(req,STAFF_COOKIE):undefined,identity,Boolean(req)));
     scheduleJobs();return result;
   };

@@ -54,7 +54,7 @@ const providerPresentation: Record<string, { icon: LucideIcon; functions: string
   visma: {
     icon: FileText,
     functions: ['Ekonomiinställningar och konton från ert svenska testföretag', 'Fakturautkast från kundgodkända och attesterade avräkningar', 'Skickat underlag, API-svar och överföringshistorik'],
-    preparation: 'Systemadmin ansluter sandboxföretaget på testsidan. Klientuppgifter och krypteringsnyckel läggs i Render.',
+    preparation: 'Behörig VD eller systemadmin ansluter bolagets sandboxföretag på testsidan. Anslutningen sparas separat för bolaget.',
   },
   fortnox: {
     icon: Wallet,
@@ -214,7 +214,7 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
 
   return <section className="integrations-workspace">
     <div className="office-title integration-page-title">
-      <div><span className="office-eyebrow">GEMENSAMMA ANSLUTNINGAR</span><h1>{selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : 'Integrationer'}</h1><p>{selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : 'Koppla JEROC till myndigheter, ekonomi och andra tjänster.'}</p></div>
+      <div><span className="office-eyebrow">BOLAGETS ANSLUTNINGAR</span><h1>{selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : 'Integrationer'}</h1><p>{selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : 'Koppla bolaget till myndigheter, ekonomi och andra tjänster.'}</p></div>
       <button type="button" className="office-btn outline" onClick={() => void update()} disabled={catalogLoading || sessionLoading || nvvLoading}><RefreshCw size={14} />Uppdatera</button>
     </div>
     {siteId !== 'all' && <p className="integration-scope"><Building2 size={14} />Anslutningarna är gemensamma för alla anläggningar.</p>}
@@ -241,7 +241,7 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
           </div>
           {!selected.implemented && <div className="integration-planned"><Clock3 size={18} /><div><strong>Planerad integration</strong><p>Kopplingen kan inte anslutas ännu. Inga uppgifter skickas till {selected.name}.</p></div></div>}
           {selected.id === 'nvv' && <div className="integration-test-note"><ShieldCheck size={16} /><span>{selected.mode === 'mock' ? 'Simulerat provflöde. Inga uppgifter skickas till Naturvårdsverket.' : 'Endast testanslutning är tillgänglig. Produktionsrapportering är avstängd.'}</span></div>}
-          {selected.id === 'visma' && selected.implemented && <div className="integration-test-note"><ShieldCheck size={16} /><span>Sandboxprov av leverantörer och fakturautkast. Anslutning och test hanteras av systemadmin.</span></div>}
+          {selected.id === 'visma' && selected.implemented && <div className="integration-test-note"><ShieldCheck size={16} /><span>Sandboxprov av leverantörer och fakturautkast. Anslutning och test kräver bolagets integrationsbehörighet.</span></div>}
           {selected.id === 'visma' && selected.implemented && catalog.capabilities.canManage && <Link className="office-btn" to="/integrations/visma-test"><PlugZap size={16} />Öppna Spiris-test</Link>}
         </article>}
         {selected.id === 'nvv' && <div className="environment-workspace integration-nvv-region">

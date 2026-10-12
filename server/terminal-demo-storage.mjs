@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { runInDatabaseTransaction, runDatabaseRead, afterDatabaseCommit } from './database-runtime.mjs';
-import { getChangeEvents, makeChangeEvent, CHANGE_EVENT_CHANNEL } from './change-events.mjs';
+import { getChangeEvents, makeChangeEvent, changeEventChannel } from './change-events.mjs';
 
 export class TerminalDemoError extends Error {
   constructor(message, status = 400, code = 'invalid_request') {
@@ -128,13 +128,13 @@ export async function createTerminalDemoRepository({ env = process.env, filename
         const result=await callback(state);
         if (!isDeepStrictEqual(state,aggregateBefore)) {
           const notification=makeChangeEvent({domain:'terminal',revision:state.revision});
-          await client.query('UPDATE jeroc_terminal_demo SET state=$1,updated_at=NOW() WHERE id=1 RETURNING pg_notify($2,$3)',[JSON.stringify(state),CHANGE_EVENT_CHANNEL,JSON.stringify(notification)]);
+          await client.query('UPDATE jeroc_terminal_demo SET state=$1,updated_at=NOW() WHERE id=1 RETURNING pg_notify($2,$3)',[JSON.stringify(state),changeEventChannel(env),JSON.stringify(notification)]);
           await insertJobs(client,state,before);
           afterDatabaseCommit(()=>events.publishLocal(notification));
         }
         return result;
       }),
-      async touchPresence(terminalId,at) { const changed=await runInDatabaseTransaction(pool,async client=>{const previous=(await client.query('SELECT seen_at FROM jeroc_terminal_presence WHERE terminal_id=$1',[terminalId])).rows[0];const old=previous?new Date(previous.seen_at).getTime():0; if (Date.parse(at)-old<10000)return false; const notification=Date.parse(at)-old>=35000?makeChangeEvent({domain:'terminal-presence',revision:Date.parse(at)}):undefined; await client.query('INSERT INTO jeroc_terminal_presence(terminal_id,seen_at) VALUES($1,$2) ON CONFLICT(terminal_id) DO UPDATE SET seen_at=GREATEST(jeroc_terminal_presence.seen_at,EXCLUDED.seen_at) RETURNING CASE WHEN $3::text IS NOT NULL THEN pg_notify($4,$3) END',[terminalId,at,notification?JSON.stringify(notification):null,CHANGE_EVENT_CHANNEL]);if(notification)afterDatabaseCommit(()=>events.publishLocal(notification));return true;});return changed; },
+      async touchPresence(terminalId,at) { const changed=await runInDatabaseTransaction(pool,async client=>{const previous=(await client.query('SELECT seen_at FROM jeroc_terminal_presence WHERE terminal_id=$1',[terminalId])).rows[0];const old=previous?new Date(previous.seen_at).getTime():0; if (Date.parse(at)-old<10000)return false; const notification=Date.parse(at)-old>=35000?makeChangeEvent({domain:'terminal-presence',revision:Date.parse(at)}):undefined; await client.query('INSERT INTO jeroc_terminal_presence(terminal_id,seen_at) VALUES($1,$2) ON CONFLICT(terminal_id) DO UPDATE SET seen_at=GREATEST(jeroc_terminal_presence.seen_at,EXCLUDED.seen_at) RETURNING CASE WHEN $3::text IS NOT NULL THEN pg_notify($4,$3) END',[terminalId,at,notification?JSON.stringify(notification):null,changeEventChannel(env)]);if(notification)afterDatabaseCommit(()=>events.publishLocal(notification));return true;});return changed; },
       async claimDocumentJob(at=new Date().toISOString(),leaseMs=60000) { return runInDatabaseTransaction(pool,async client=>{const claim=randomUUID(),until=new Date(Date.parse(at)+leaseMs).toISOString();const {rows}=await client.query("UPDATE jeroc_terminal_pdf_jobs SET status='running',claim_token=$1,lease_until=$2,attempts=attempts+1 WHERE id=(SELECT id FROM jeroc_terminal_pdf_jobs WHERE (status='pending' AND available_at<=$3) OR (status='running' AND lease_until<=$3) ORDER BY created_at,approval_id,CASE stage WHEN 'preliminary' THEN 0 WHEN 'reviewed' THEN 1 ELSE 2 END,id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *",[claim,until,at]);const row=rows[0];return row?{id:row.id,stage:row.stage,sourceHash:row.source_hash,approval:row.approval_snapshot,siteSnapshot:row.approval_snapshot.siteSnapshot,claimToken:claim,attempts:row.attempts}:undefined;}); },
       async finishDocumentJob(job,error,at=new Date().toISOString()) { return runInDatabaseTransaction(pool,client=>client.query("UPDATE jeroc_terminal_pdf_jobs SET status=$1,available_at=$2,lease_until=NULL,claim_token=NULL,last_error=$3,completed_at=$4 WHERE id=$5 AND status='running' AND claim_token=$6",[error?'pending':'completed',new Date(Date.parse(at)+(error?Math.min(60000,1000*2**Math.min(job.attempts,6)):0)).toISOString(),error?'pdf_archival_retry':null,error?null:at,job.id,job.claimToken])); },
       async documentJobs() { return runDatabaseRead(pool,async client=>(await client.query('SELECT id,status,stage,attempts,approval_id FROM jeroc_terminal_pdf_jobs ORDER BY created_at,id')).rows); },

@@ -26,8 +26,8 @@ export function Logo() {
   return (
     <img
       className="company-logo"
-      src="/images/jeroc-logo-ui.webp"
-      alt="JEROC Återvinning"
+      src="/images/scrappilot-logo.svg"
+      alt="ScrapPilot"
     />
   );
 }

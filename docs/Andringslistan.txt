@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.6.0. Aktuell kontorsversion: 0.19.1.
+Aktuell mobilwebbversion: 0.7.0. Aktuell kontorsversion: 0.20.0.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 084–086 och 088–095 är genomförda i bygge 2026-10-12 enligt beställningen
@@ -2187,3 +2187,40 @@ bank-/Swish-sändning och Spiris-betalningsregistrering är inte implementerade.
   externa sändningar tills kopplingar och betalningsjournal stämts av.
   Historiska demoutbetalningar ska inte automatiskt återspelas mot bank/Spiris.
 - Detaljer och källor: docs/integrationer/utbetalningar-plan.md.
+
+
+ÄL 099 – ScrapPilot: produktidentitet och bolagsgrund
+Status: Genomförd 2026-10-12 i kontor 0.20.0 och mobilwebb 0.7.0.
+- ScrapPilot är produktnamnet; JEROC Återvinning är första kundbolaget.
+- Godkänd logga med rundade hörn, marinblå och dov grön finns som riktig
+  SVG, tryck-PDF och transparent PNG. Kontor och inloggning använder SVG.
+- Systemadmin kvarstår som övergripande plattformsadministratör. Separat
+  bolagsvy skapar bolag och första VD-kontot från namn/orgnr och VD:s e-post.
+- Första VD-lösenordet visas en gång. VD måste byta det innan åtkomst till
+  verksamhetsdata. Tillfälliga uppgifter sparas endast som hash. Systemadmin
+  kan återutfärda första lösenordet så länge VD inte har aktiverat kontot.
+- Automatisk e-postleverans är inte aktiverad; systemadmin kopierar och
+  lämnar vidare uppgifterna tills en mejlleverantör är ansluten.
+- Jobba som bolag/användare avgörs av verifierad serversession och loggas
+  med faktisk administratör, effektiv användare och bolag. Bolagsbyte roterar
+  sessionsnycklar och rensar tidigare modulcookies. Gamla flikar avvisas.
+- PostgreSQL använder separata, servervalda scheman per nytt bolag utan
+  public-fallback. Lokal utveckling använder egna SQLite-filer per bolag.
+  JEROC:s nuvarande verksamhetsregister, historik och filarkiv återanvänds.
+- Nya bolag startar tomma: inga kunder, viktkort, demopersonal, transporter,
+  gamla integrationer eller JEROC-certifikat följer med. Första anläggningen
+  behöver kompletteras med verkliga adress- och tillståndsuppgifter.
+- Bolagsscope omfattar kunder/viktkort, personal/tid, terminalgodkännanden,
+  miljö/lager, PDF/bilder, Spiris/OAuth/journaler, köer och ändringsnotiser.
+  Nya bolags PDF-underlag använder deras egna företagsuppgifter.
+- Mobilens och portalernas cachar och väntande ändringar är bolagsbundna.
+  Samma person-/kund-/fil-ID i två bolag får inte återanvända data över gränsen.
+- Spiris använder bolagets egen verifierade providerbindning; egna VD-konton
+  behöver uttryckliga integrationsrättigheter och full anläggningsåtkomst.
+- Privat första systemadminlösenord krävs i Render när det befintliga
+  kontot fortfarande har offentligt demolösenord. Variabel:
+  SCRAPPILOT_PLATFORM_ADMIN_PASSWORD, minst 16 tecken. Ingen återställning
+  eller radering av befintliga verksamhetsdata görs. Första inloggning kräver
+  lösenordsbyte; därefter används valt lösenord, inte initialvariabeln.
+- Bygge, verifiering och kvarvarande avgränsningar:
+  docs/scrappilot-bolagsgrund-2026-10-12.md.

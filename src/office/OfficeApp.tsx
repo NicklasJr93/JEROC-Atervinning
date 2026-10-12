@@ -117,6 +117,9 @@ import {
 } from './OfficeOverview';
 import './office.css';
 import { useSharedData, type BusinessChange } from '../shared-data';
+import { usePlatformContext } from '../platform/PlatformGate';
+import { currentPlatformSession } from '../platform/session';
+import { mayManageSpiris } from './integration-permissions';
 const fmt = (s: string) =>
   new Intl.DateTimeFormat('sv-SE', {
     dateStyle: 'short',
@@ -141,17 +144,23 @@ const approvalMoneyVisible = (u: OfficeUser) =>
   ['prices', 'priceA', 'priceB', 'priceC', 'customerPrices'].every(right => can(u, right as Permission));
 const customerName = (c: OfficeCard) =>
   c.customerSnapshot?.name ??
-  initialCustomers.find((x) => x.id === c.customerId)?.name ??
+  (currentPlatformSession()?.authenticated ? undefined : initialCustomers.find((x) => x.id === c.customerId)?.name) ??
   'Kund saknas';
 export function OfficeApp() {
+  const platform = usePlatformContext();
+  const companyName = platform?.session.company?.name ?? 'JEROC Återvinning';
   useEffect(() => {
     const previous = document.title;
-    document.title = 'JEROC · Kontoret';
+    document.title = `ScrapPilot · ${companyName}`;
     return () => {
       document.title = previous;
     };
-  }, []);
+  }, [companyName]);
   const [initial] = useState(() => {
+    if (platform) {
+      const users = [platform.session.actualUser, platform.session.user].filter((user, index, all) => all.findIndex(candidate => candidate.id === user.id) === index);
+      return { data: officeSchema.parse({ users, cards: [], customers: [], payments: [], corrections: [] }), error: '' };
+    }
     try {
       const raw = localStorage.getItem(officeKey);
       return {
@@ -174,6 +183,7 @@ export function OfficeApp() {
   const [error, setError] = useState(initial.error);
   const [blocked, setBlocked] = useState(Boolean(initial.error));
   const [userId, setUserId] = useState<string | undefined>(() => {
+    if (platform) return platform.session.actualUser.id;
     try {
       return sessionStorage.getItem('jeroc.office.user') ?? undefined;
     } catch {
@@ -181,6 +191,7 @@ export function OfficeApp() {
     }
   });
   const [actingId, setActingId] = useState<string>(() => {
+    if (platform) return platform.session.user.id === platform.session.actualUser.id ? '' : platform.session.user.id;
     try {
       return sessionStorage.getItem('jeroc.office.acting') ?? '';
     } catch {
@@ -199,15 +210,16 @@ export function OfficeApp() {
   const [message, setMessage] = useState('');
   const location = useLocation(),
     navigate = useNavigate();
-  const actualUser = data.users.find((u) => u.id === userId && u.active !== false);
+  const actualUser = platform?.session.actualUser ?? data.users.find((u) => u.id === userId && u.active !== false);
   const user =
-    actualUser?.level === 'Systemadmin' && actingId
+    platform?.session.user ?? (actualUser?.level === 'Systemadmin' && actingId
       ? (data.users.find((u) => u.id === actingId && u.active !== false) ?? actualUser)
-      : actualUser;
+      : actualUser);
   const principalRef = useRef('');
-  const principalIdentity = `${actualUser?.id ?? ''}/${actualUser?.level ?? ''}/${actualUser?.permissions.join(',') ?? ''}/${actualUser?.siteIds?.join(',') ?? 'all'}:${user?.id ?? ''}/${user?.level ?? ''}/${user?.permissions.join(',') ?? ''}/${user?.siteIds?.join(',') ?? 'all'}`;
+  const principalIdentity = `${platform?.session.organisationId ?? 'legacy'}:${platform?.session.generation ?? ''}:${actualUser?.id ?? ''}/${actualUser?.level ?? ''}/${actualUser?.permissions.join(',') ?? ''}/${actualUser?.siteIds?.join(',') ?? 'all'}:${user?.id ?? ''}/${user?.level ?? ''}/${user?.permissions.join(',') ?? ''}/${user?.siteIds?.join(',') ?? 'all'}`;
   principalRef.current = principalIdentity;
   const acting = Boolean(actualUser && user && actualUser.id !== user.id);
+  const mayWorkAs = platform ? platform.session.actor.platformAdmin : actualUser?.level === 'Systemadmin';
 
   const terminalDemo = useTerminalDemo(actualUser, user);
   const [siteFilter, setSiteFilter] = useState('all');
@@ -267,9 +279,15 @@ export function OfficeApp() {
     void shared.refresh();
   }, [approvalWorkflowKey, user?.id, actualUser?.id]);
   const auditActor = user
-    ? `${acting ? `${actualUser!.name} som ` : ''}${user.name} · Kontor Norrtälje`
+    ? `${acting ? `${actualUser!.name} som ` : ''}${user.name} · ${platform ? companyName : 'Kontor Norrtälje'}`
     : '';
-  function workAs(id: string) {
+  async function workAs(id: string) {
+    if (platform) {
+      if (!platform.session.actor.platformAdmin || !platform.session.organisationId) return;
+      try { await platform.switchCompany(platform.session.organisationId, id || platform.session.actualUser.id); }
+      catch (failure) { setError(failure instanceof Error ? failure.message : 'Arbetskontot kunde inte bytas.'); }
+      return;
+    }
     if (actualUser?.level !== 'Systemadmin') return;
     try {
       sessionStorage.setItem('jeroc.office.acting', id);
@@ -336,7 +354,7 @@ export function OfficeApp() {
     }
   }
   const actorContext = user
-    ? { user, actualUser, office: 'Kontor Norrtälje', actor: auditActor }
+    ? { user, actualUser, office: platform ? companyName : 'Kontor Norrtälje', actor: auditActor }
     : undefined;
   const [documentType, setDocumentType] = useState<'settlement' | 'receipt'>();
   const [payBalance, setPayBalance] = useState(false);
@@ -671,7 +689,7 @@ export function OfficeApp() {
         applyConfirmedApproval(approval);
       } else if (!update({ ...current, status: current.paymentDetails?.method === 'balance' ? 'balance' : 'ready', approvedBy: user.id },
         current.paymentDetails?.method === 'balance' ? 'Kortet attesterat. Beloppet sparat på kundens saldo.' : 'Kortet attesterat och klart för utbetalning.', 'attest')) return;
-      setMessage(current.paymentDetails?.method === 'balance' ? 'JEROC-attesterat. Beloppet ligger på kundens saldo.' : 'Kortet är JEROC-attesterat och klart för manuell utbetalning.');
+      setMessage(current.paymentDetails?.method === 'balance' ? 'Attesterat. Beloppet ligger på kundens saldo.' : 'Kortet är attesterat och klart för manuell utbetalning.');
       // Keep the current card and its menu context; the shared queues update independently.
     } catch (failure) {
       if (principalRef.current === principal) setMessage(failure instanceof Error ? failure.message : 'Kortet kunde inte attesteras.');
@@ -1028,7 +1046,7 @@ export function OfficeApp() {
         at: approvedSnapshot.at,
         actualUserId: approvedSnapshot.actor,
         effectiveUserId: approvedSnapshot.actingUser,
-        actor: `${approvedSnapshot.actor !== approvedSnapshot.actingUser ? `${live.users.find((u) => u.id === approvedSnapshot.actor)?.name ?? approvedSnapshot.actor} som ` : ''}${live.users.find((u) => u.id === approvedSnapshot.actingUser)?.name ?? approvedSnapshot.actingUser} · Kontor Norrtälje`,
+        actor: `${approvedSnapshot.actor !== approvedSnapshot.actingUser ? `${live.users.find((u) => u.id === approvedSnapshot.actor)?.name ?? approvedSnapshot.actor} som ` : ''}${live.users.find((u) => u.id === approvedSnapshot.actingUser)?.name ?? approvedSnapshot.actingUser} · ${platform ? companyName : 'Kontor Norrtälje'}`,
       });
       const canonical = {
         ...next,
@@ -1071,7 +1089,7 @@ export function OfficeApp() {
       const preview = settlementPreview(dataRef.current, card.id);
       if (card.customerApproval) {
         const review = terminalDemo.state?.approvals.find(item => item.id === card.customerApproval?.id);
-        if (!review || review.status !== 'attested') throw new Error('Läs in JEROC:s attest från terminaltjänsten innan demoutbetalningen registreras.');
+        if (!review || review.status !== 'attested') throw new Error('Läs in attesten från terminaltjänsten innan demoutbetalningen registreras.');
         if (preview.gross !== review.snapshot.gross || preview.offset !== review.snapshot.offset || preview.net !== review.snapshot.net)
           throw new Error('Saldot har ändrats sedan kundgodkännandet. Ingen demoutbetalning registrerades. Skillnaden behöver hanteras genom rättelse.');
       }
@@ -1111,7 +1129,7 @@ export function OfficeApp() {
       can(user, 'customerPriceEdit'));
   const terminalAdminDenied = section === 'terminals' && user?.level !== 'Systemadmin';
   const nvvSandboxDenied = nvvSandboxView && (user?.level !== 'Systemadmin' || actualUser?.level !== 'Systemadmin' || !!user?.siteIds || !!actualUser?.siteIds || !can(user, 'environmentIntegration'));
-  const vismaSandboxDenied = vismaSandboxView && (user?.level !== 'Systemadmin' || actualUser?.level !== 'Systemadmin' || !!user?.siteIds || !!actualUser?.siteIds || !can(user, 'integrationsRead'));
+  const vismaSandboxDenied = vismaSandboxView && !mayManageSpiris(user, actualUser);
   const accountsView = section === 'users' ||
     (section === 'personnel' && location.pathname.split('/')[2] === 'accounts') ||
     (section === 'personnel' && user && !can(user, 'personnelRead') && can(user, 'users'));
@@ -1140,7 +1158,7 @@ export function OfficeApp() {
     return (
       <div className="office office-login">
         <div className="office-login-card">
-          <img src="/images/jeroc-logo-ui.webp" alt="JEROC Återvinning" />
+          <img src="/images/scrappilot-logo.svg" alt="ScrapPilot" />
           <span className="office-eyebrow">
             KONTORET · DEMO {OFFICE_VERSION}
           </span>
@@ -1191,11 +1209,11 @@ export function OfficeApp() {
       onOpenStaffing={() => navigate('/personnel/tasks')}
       initialOrderId={new URLSearchParams(location.search).get('order') ?? undefined}
       onOpenWorkOrder={id => navigate(`/work-orders/${encodeURIComponent(id)}`)}
-      workAsControl={actualUser?.level === 'Systemadmin' ? (
+      workAsControl={mayWorkAs ? (
         <label>Jobba som
           <select aria-label="Jobba som" value={acting ? user.id : ''} onChange={event => workAs(event.target.value)}>
             <option value="">Systemadmin · egen behörighet</option>
-            {data.users.filter(candidate => candidate.id !== actualUser.id && candidate.active !== false).map(candidate =>
+            {data.users.filter(candidate => candidate.id !== actualUser!.id && candidate.active !== false).map(candidate =>
               <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
             )}
           </select>
@@ -1209,9 +1227,10 @@ export function OfficeApp() {
       <aside className="office-sidebar">
         <img
           className="office-logo"
-          src="/images/jeroc-logo-ui.webp"
-          alt="JEROC Återvinning"
+          src="/images/scrappilot-logo.svg"
+          alt="ScrapPilot"
         />
+        <span className="office-eyebrow">{companyName}</span>
         <span className="office-eyebrow">KONTORSÖVERSIKT</span>
         <nav>
           {nav
@@ -1252,27 +1271,38 @@ export function OfficeApp() {
           <details className="office-profile-menu office-sidebar-profile">
             <summary className="office-profile-toggle" aria-label="Öppna profilmeny">
               <span className="office-avatar">{user.name.split(' ').map(name => name[0]).join('').slice(0, 2)}</span>
-              <span><strong>{user.name}</strong><small>{user.level} · Norrtälje</small></span><ChevronDown size={15} aria-hidden="true" />
+              <span><strong>{user.name}</strong><small>{user.level} · {platform ? companyName : 'Norrtälje'}</small></span><ChevronDown size={15} aria-hidden="true" />
             </summary>
             <div className="office-profile-dropdown">
-              <strong>{user.name}</strong><p>{user.level} · Kontor Norrtälje</p>
-              {actualUser?.level === 'Systemadmin' && <label className="office-work-as">Jobba som
+              <strong>{user.name}</strong><p>{user.level} · {platform ? companyName : 'Kontor Norrtälje'}</p>
+              {platform?.session.actor.platformAdmin && <>
+                <label className="office-work-as">Jobba som bolag
+                  <select aria-label="Jobba som bolag" value={platform.session.organisationId ?? ''} onChange={event => {
+                    void platform.switchCompany(event.target.value).catch(failure => setError(failure instanceof Error ? failure.message : 'Bolaget kunde inte öppnas.'));
+                  }}>
+                    {platform.session.companies.filter(company => company.status === 'active').map(company => <option key={company.id} value={company.id}>{company.name}</option>)}
+                  </select>
+                </label>
+                <button onClick={platform.openAdministration}><Building2 size={16} />Bolagsadministration</button>
+              </>}
+              {mayWorkAs && <label className="office-work-as">Jobba som
                 <select aria-label="Jobba som" value={acting ? user.id : ''} onChange={event => {
                   const menu = event.currentTarget.closest('details');
                   if (menu) menu.open = false;
                   workAs(event.target.value);
                 }}>
                   <option value="">Systemadmin · egen behörighet</option>
-                  {data.users.filter(person => person.id !== actualUser.id && person.active !== false).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
+                  {data.users.filter(person => person.id !== actualUser!.id && person.active !== false).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
                 </select>
               </label>}
               {acting && <small>Inloggad som {actualUser!.name}. Åtgärder sparar båda namnen i historiken.</small>}
             </div>
           </details>
-          <span className="office-online">● Kontorsdemo {OFFICE_VERSION}</span>
-          <p>Norrtälje · Alla uppgifter är fiktiva</p>
+          <span className="office-online">● ScrapPilot {OFFICE_VERSION}</span>
+          <p>{platform ? companyName : 'Norrtälje · Alla uppgifter är fiktiva'}</p>
           <button
             onClick={() => {
+              if (platform) { void platform.logout().catch(failure => setError(failure instanceof Error ? failure.message : 'Utloggningen kunde inte slutföras.')); return; }
               sessionStorage.removeItem('jeroc.office.user');
               sessionStorage.removeItem('jeroc.office.acting');
               setActingId('');
@@ -1281,7 +1311,7 @@ export function OfficeApp() {
             }}
           >
             <LogOut size={17} />
-            Byt demokonto
+            {platform ? 'Logga ut' : 'Byt demokonto'}
           </button>
         </div>
       </aside>
@@ -1312,10 +1342,10 @@ export function OfficeApp() {
             onRefresh={terminalDemo.refresh} onNotice={setMessage} />
 
         </header>
-        <div className="office-demo-notice">
+        {(!platform || platform.session.organisationId === 'jeroc-demo') && <div className="office-demo-notice">
           Demo · Kundgodkännanden och miljömottagningar delas via servern ·
           Utbetalningar hanteras manuellt · Mobilens färdiga vägningar delas med kontoret
-        </div>
+        </div>}
         {acting && (
           <div className="office-acting-banner" role="status">
             <ShieldCheck size={17} />
@@ -1962,7 +1992,7 @@ export function OfficeApp() {
                     ut.
                   </p>
                 </div>
-                <span className="office-date">Norrtälje · Kontorsdemo</span>
+                <span className="office-date">{platform ? companyName : 'Norrtälje · Kontorsdemo'}</span>
               </div>
               <div className="office-metrics">
                 {(['new', 'complement', 'attest', 'ready'] as const).map(
@@ -2326,7 +2356,7 @@ export function OfficeApp() {
             />
           )}
           <footer className="office-footer">
-            JEROC Kontorsdemo {OFFICE_VERSION} · Testdata ·{' '}
+            ScrapPilot {OFFICE_VERSION} · {platform ? companyName : 'Testdata'} ·{' '}
             <button
               className="office-link"
               onClick={() => window.location.reload()}

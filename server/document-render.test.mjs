@@ -39,6 +39,20 @@ test('renders a native A4 PDF with ten material rows on one page', async () => {
   assert.equal(pages(pdf), 1); assert.ok(pdf.length > 10000);
   assert.match(pdf.toString('latin1'), /\/MediaBox \[0 0 595\.28 841\.89\]/);
 });
+test('new company PDFs show their own name and omit the JEROC logo while legacy branding stays intact', { skip: !canExtract }, async () => {
+  for (const company of [{ id: 'company-a', name: 'Återbruk A AB' }, { id: 'company-b', name: 'Metall B AB' }]) {
+    const s = sample();
+    s.company = { ...s.company, ...company };
+    const pdf = await renderPdf(s), text = await extracted(pdf);
+    assert.ok(text.includes(company.name));
+    assert.match(text, /Intern attest/);
+    assert.doesNotMatch(text, /JEROC/);
+    assert.doesNotMatch(pdf.toString('latin1'), /\/Subtype \/Image/);
+  }
+  const legacy = await renderPdf(sample());
+  assert.match(await extracted(legacy), /JEROC:s interna attest/);
+  assert.match(legacy.toString('latin1'), /\/Subtype \/Image/);
+});
 test('rejects unsupported document types', async () => {
   await assert.rejects(renderPdf({ type: 'unknown' }), /Dokumenttypen/);
 });

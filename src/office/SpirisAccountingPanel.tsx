@@ -5,7 +5,8 @@ import {
   History, Info, Link2, MapPin, PlugZap, RefreshCw, Settings2, ShieldCheck,
   SlidersHorizontal, UserRound,
 } from 'lucide-react';
-import { can, type OfficeUser } from './model';
+import type { OfficeUser } from './model';
+import { mayManageSpiris } from './integration-permissions';
 import type { AccountRole, AccountingSettings } from './accounting-types';
 import { EnvironmentApiError } from './environment-client';
 import { environmentFailure, useEnvironmentSession } from './EnvironmentSession';
@@ -62,7 +63,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
   user: OfficeUser; actualUser: OfficeUser; onNotice: (message: string) => void;
 }) {
   const { session, loading: sessionLoading, error: sessionError, refreshSession } = useEnvironmentSession();
-  const administrator = user.level === 'Systemadmin' && actualUser.level === 'Systemadmin' && !user.siteIds && !actualUser.siteIds && can(user, 'integrationsRead');
+  const administrator = mayManageSpiris(user, actualUser);
   const matchingSession = session?.actualUserId === actualUser.id && session?.effectiveUserId === user.id;
   const identity = `${actualUser.id}/${actualUser.level}/${actualUser.permissions.join(',')}/${actualUser.siteIds?.join(',') ?? 'all'}/${user.id}/${user.level}/${user.permissions.join(',')}/${user.siteIds?.join(',') ?? 'all'}`;
   const identityRef = useRef(identity); identityRef.current = identity;
@@ -329,7 +330,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
       <span className={`environment-pill ${state?.companyVerified ? 'success' : 'warning'}`}><ShieldCheck size={13} />{state?.companyVerified ? 'Ansluten · Sandbox' : 'Sandbox · inte verifierad'}</span>
       {administrator && <Link className="office-btn outline" to="/integrations/visma-test"><PlugZap size={15} />Öppna Spiris-test</Link>}
     </header>
-    {!administrator ? <div className="spiris-message"><ShieldCheck size={18} /><p>Spiris ekonomiinställningar kräver att systemadmin arbetar som systemadmin med åtkomst till alla anläggningar.</p></div>
+    {!administrator ? <div className="spiris-message"><ShieldCheck size={18} /><p>Spiris ekonomiinställningar kräver systemadmin eller VD med uttrycklig läs- och hanteringsbehörighet för integrationer och åtkomst till alla anläggningar.</p></div>
       : !matchingSession ? <div className="spiris-message" role={sessionError ? 'alert' : 'status'}><RefreshCw size={18} /><p>{sessionError || (sessionLoading ? 'Hämtar din session…' : 'Sessionen behöver uppdateras.')}</p>{!sessionLoading && <button type="button" className="office-btn outline" onClick={() => void refreshSession().catch(() => undefined)}>Försök igen</button>}</div>
         : <>
           <nav className="spiris-tabs" aria-label="Spiris integrationsflikar"><button type="button" aria-current={tab === 'settings' ? 'page' : undefined} className={tab === 'settings' ? 'selected' : ''} onClick={() => setTab('settings')}><Settings2 size={15} />Inställningar</button><button type="button" aria-current={tab === 'history' ? 'page' : undefined} className={tab === 'history' ? 'selected' : ''} onClick={() => setTab('history')}><History size={15} />Överföringar{exports.length > 0 && <span className="spiris-tab-count">{exports.length}</span>}</button><div>Alla anläggningar använder samma anslutning</div></nav>

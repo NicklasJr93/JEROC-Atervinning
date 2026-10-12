@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { afterDatabaseCommit } from './database-runtime.mjs';
 
-const DOMAIN = 'vismaIntegration', LOCK = 1860399453, ORGANISATION = 'jeroc-demo';
+const DOMAIN = 'vismaIntegration', LOCK = 1860399453;
 const collections = ['runs', 'audit', 'outbox', 'choices', 'settingsHistory', 'mappings'];
 const migration = readFile(new URL('./migrations/visma-001.sql', import.meta.url), 'utf8');
 const clone = value => structuredClone(value);
@@ -127,7 +127,7 @@ function projectedPaths(paths) {
 
 /** Indexed PostgreSQL integration records, with the existing SQLite adapter for
  * development. Provider dispatch still happens outside these short units. */
-export function createVismaStorage({ getRepository } = {}) {
+export function createVismaStorage({ getRepository, organisationId: defaultOrganisationId = 'jeroc-demo' } = {}) {
   if (typeof getRepository !== 'function') throw new TypeError('getRepository krävs.');
   const readyRepositories = new WeakSet();
   async function ready() {
@@ -176,7 +176,7 @@ export function createVismaStorage({ getRepository } = {}) {
       return result;
     });
   }
-  async function readTenantProjection(operation, paths, organisationId = ORGANISATION) {
+  async function readTenantProjection(operation, paths, organisationId = defaultOrganisationId) {
     projectedPaths(paths);
     const repo = await ready();
     if (repo.kind !== 'postgresql') {
@@ -214,13 +214,13 @@ export function createVismaStorage({ getRepository } = {}) {
       return operation(projected);
     });
   }
-  async function findRun(id, keyHash, organisationId = ORGANISATION) {
+  async function findRun(id, keyHash, organisationId = defaultOrganisationId) {
     const repo = await ready();
     if (repo.kind !== 'postgresql') return read(document => document.tenants?.[organisationId]?.runs?.find(run => run.id === id || keyHash && run.keyHash === keyHash) ?? null);
     return readUnit(repo, async client => (await client.query(`SELECT document FROM jeroc_visma_records
       WHERE organisation_id=$1 AND collection='runs' AND (record_key=$2 OR idempotency_key=$3) ORDER BY sequence LIMIT 1`, [organisationId, id ?? null, keyHash ?? null])).rows[0]?.document ?? null);
   }
-  async function latestRuns(limit = 50, organisationId = ORGANISATION) {
+  async function latestRuns(limit = 50, organisationId = defaultOrganisationId) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new TypeError('Välj ett giltigt antal integrationsförsök.');
     const repo = await ready();
     if (repo.kind !== 'postgresql') return read(document => (document.tenants?.[organisationId]?.runs ?? []).slice().sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, limit));
@@ -228,7 +228,7 @@ export function createVismaStorage({ getRepository } = {}) {
       WHERE organisation_id=$1 AND collection='runs' ORDER BY sort_at DESC NULLS LAST,sequence DESC LIMIT $2`, [organisationId, limit])).rows.map(row => row.document));
   }
   async function queryExports(options = {}) {
-    const { organisationId = ORGANISATION, companyId, id, key, cardId, statuses, trigger, limit, fields, trackingDueAt, trackingGeneration, descending = false } = options;
+    const { organisationId = defaultOrganisationId, companyId, id, key, cardId, statuses, trigger, limit, fields, trackingDueAt, trackingGeneration, descending = false } = options;
     if (statuses !== undefined && (!Array.isArray(statuses) || statuses.some(status => typeof status !== 'string')) || fields !== undefined && (!Array.isArray(fields) || fields.some(field => typeof field !== 'string'))
       || limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 10000)) throw new TypeError('Välj giltiga överföringsfilter.');
     const repo = await ready();

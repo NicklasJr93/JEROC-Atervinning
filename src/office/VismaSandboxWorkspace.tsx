@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowLeft, ArrowUpRight, CheckCircle2, CircleAlert, Code2, Copy, Database, FileText, FlaskConical, History, LoaderCircle, LogOut, Plus, RefreshCw, Send, ShieldCheck, Trash2 } from 'lucide-react';
-import { can, type OfficeUser } from './model';
+import type { OfficeUser } from './model';
+import { mayManageSpiris } from './integration-permissions';
 import { EnvironmentApiError } from './environment-client';
 import { environmentFailure, useEnvironmentSession } from './EnvironmentSession';
 import { environmentTime, type NvvJsonObject, type NvvJsonValue } from './environment-types';
@@ -9,6 +10,7 @@ import { vismaSandboxApi, type VismaOperation, type VismaParameters, type VismaS
 import './environment.css';
 import './nvv-sandbox.css';
 import './visma-sandbox.css';
+import { sharedBusinessCacheKey } from '../shared-data';
 
 const runLabels: Record<VismaSandboxRun['status'], string> = { in_flight: 'Inväntar Visma', accepted: 'Svar från SANDBOX', rejected: 'Avvisat', unknown: 'Oklart resultat' };
 const operationLabels: Record<VismaOperation, string> = {
@@ -154,11 +156,11 @@ function retainUnknownRuns(runs: VismaSandboxRun[], pending: TestDialog | undefi
 
 export default function VismaSandboxWorkspace({ user, actualUser }: { user: OfficeUser; actualUser: OfficeUser }) {
   const { session, loading: sessionLoading, error: sessionError, refreshSession } = useEnvironmentSession();
-  const permitted = user.level === 'Systemadmin' && actualUser.level === 'Systemadmin' && !user.siteIds && !actualUser.siteIds && can(user, 'integrationsRead');
+  const permitted = mayManageSpiris(user, actualUser);
   const sessionMatches = session?.actualUserId === actualUser.id && session?.effectiveUserId === user.id;
   const identity = `${actualUser.id}/${actualUser.level}/${actualUser.permissions.join(',')}/${actualUser.siteIds?.join(',') ?? 'all'}/${user.id}/${user.level}/${user.permissions.join(',')}/${user.siteIds?.join(',') ?? 'all'}`;
-  const pendingStorageKey = `jeroc.visma-sandbox.pending:${encodeURIComponent(actualUser.id)}:${encodeURIComponent(user.id)}`;
-  const acknowledgmentStorageKey = `jeroc.visma-sandbox.acknowledged:${encodeURIComponent(actualUser.id)}:${encodeURIComponent(user.id)}`;
+  const pendingStorageKey = sharedBusinessCacheKey(`jeroc.visma-sandbox.pending:${encodeURIComponent(actualUser.id)}:${encodeURIComponent(user.id)}`, { actor: actualUser.id, user: user.id });
+  const acknowledgmentStorageKey = sharedBusinessCacheKey(`jeroc.visma-sandbox.acknowledged:${encodeURIComponent(actualUser.id)}:${encodeURIComponent(user.id)}`, { actor: actualUser.id, user: user.id });
   const identityRef = useRef(identity); identityRef.current = identity;
   const mounted = useRef(true), generation = useRef(0), busy = useRef(false);
   const readFlight = useRef<{ controller: AbortController; promise: Promise<void>; generation: number } | undefined>(undefined);
@@ -498,8 +500,8 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
   }
 
   return <section className="environment-workspace nvv-sandbox-workspace visma-sandbox-workspace">
-    <div className="office-title environment-workspace-title"><div><a className="office-link" href="/kontor#/integrations?service=visma"><ArrowLeft size={14} />Till integrationsinställningar</a><span className="office-eyebrow">INTEGRATIONER · SEPARATA SANDBOXTESTER</span><h1>Spiris / Visma · systemadminstest</h1><p>Anslut ett sandboxföretag, prova enskilda anrop och se faktiska payloads och svar.</p></div><span className="environment-pill warning"><FlaskConical size={14} />Endast SANDBOX</span></div>
-    {!permitted ? <div className="office-panel environment-empty"><ShieldCheck size={30} /><h2>Endast systemadmin</h2><p>Testverktyget kräver systemadmin med integrationsbehörighet utan anläggningsbegränsning.</p></div>
+    <div className="office-title environment-workspace-title"><div><a className="office-link" href="/kontor#/integrations?service=visma"><ArrowLeft size={14} />Till integrationsinställningar</a><span className="office-eyebrow">INTEGRATIONER · SEPARATA SANDBOXTESTER</span><h1>Spiris / Visma · integrationstest</h1><p>Anslut ett sandboxföretag, prova enskilda anrop och se faktiska payloads och svar.</p></div><span className="environment-pill warning"><FlaskConical size={14} />Endast SANDBOX</span></div>
+    {!permitted ? <div className="office-panel environment-empty"><ShieldCheck size={30} /><h2>Integrationsbehörighet krävs</h2><p>Testverktyget kräver systemadmin eller VD med uttrycklig läs- och hanteringsbehörighet för integrationer och åtkomst till alla anläggningar.</p></div>
       : !sessionMatches ? <div className="environment-access"><LoaderCircle size={18} /><span>{sessionError || (sessionLoading ? 'Ansluter testsessionen…' : 'Testsessionen kunde inte anslutas.')}</span>{!sessionLoading && <button className="office-link" type="button" onClick={() => void refreshSession().catch(() => undefined)}>Försök igen</button>}</div>
         : <>
           <section className="office-panel visma-sandbox-connection" aria-label="Visma sandboxanslutning"><div className="nvv-sandbox-context"><span className="environment-icon"><Database size={22} /></span><div><strong>Visma sandbox · serveranslutning</strong><p>Inloggning och företagsval sker hos Visma. OAuth-uppgifter lagras på servern.</p></div><button className="office-btn outline" type="button" disabled={loading || sending || connectionBusy} onClick={() => void load()}><RefreshCw size={14} />{loading ? 'Hämtar…' : 'Kontrollera historik'}</button></div>

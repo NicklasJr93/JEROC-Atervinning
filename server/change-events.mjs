@@ -2,6 +2,8 @@ import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 
 export const CHANGE_EVENT_CHANNEL = 'jeroc_changes';
+export const changeEventChannel = env => env?.JEROC_TENANT_ID && env.JEROC_TENANT_ID !== 'jeroc-demo'
+  ? `jeroc_changes_${createHash('sha256').update(env.JEROC_TENANT_ID).digest('hex').slice(0,24)}` : CHANGE_EVENT_CHANNEL;
 const hubs = new Map();
 export const makeChangeEvent = input => {
   if (!input || typeof input.domain !== 'string' || !/^[a-z][a-z0-9_-]{0,40}$/.test(input.domain)
@@ -13,7 +15,8 @@ export const makeChangeEvent = input => {
 /** Notifications are invalidations only. Never include a customer, source record,
  * credentials or document bytes. Consumers obtain a newly authorised projection. */
 export function createChangeEvents({ env = process.env, namespace } = {}) {
-  const key = namespace ?? createHash('sha256').update(env.DATABASE_URL ?? env.JEROC_APPLICATION_DB_PATH ?? 'jeroc-local-default').digest('hex');
+  const channel = changeEventChannel(env);
+  const key = namespace ?? createHash('sha256').update(`${env.JEROC_TENANT_ID ?? 'jeroc-demo'}:${env.DATABASE_URL ?? env.JEROC_APPLICATION_DB_PATH ?? 'jeroc-local-default'}`).digest('hex');
   let hub = hubs.get(key);
   if (!hub) {
     const emitter = new EventEmitter(); emitter.setMaxListeners(0);
@@ -43,9 +46,9 @@ export function createChangeEvents({ env = process.env, namespace } = {}) {
           };
           connected.on('error', lost); connected.on('end', lost);
           connected.on('notification', message => {
-            if (message.channel === CHANGE_EVENT_CHANNEL) { try { accept(JSON.parse(message.payload)); } catch {} }
+            if (message.channel === channel) { try { accept(JSON.parse(message.payload)); } catch {} }
           });
-          await connected.query(`LISTEN ${CHANGE_EVENT_CHANNEL}`);
+          await connected.query(`LISTEN ${channel}`);
           if (stopped) { connected.release(true); client=undefined; return; }
           listener = connected; client = undefined;
         } catch { if (client) client.release(true); retry(3000); }
@@ -57,7 +60,7 @@ export function createChangeEvents({ env = process.env, namespace } = {}) {
     hub = { references: 0, emitter, publishLocal, ready: connect,
       async publish(input) {
         const event=publishLocal(input);
-        if (env.DATABASE_URL) { await connect(); if (pool) { try { await pool.query('SELECT pg_notify($1,$2)', [CHANGE_EVENT_CHANNEL,JSON.stringify(event)]); } catch {} } }
+        if (env.DATABASE_URL) { await connect(); if (pool) { try { await pool.query('SELECT pg_notify($1,$2)', [channel,JSON.stringify(event)]); } catch {} } }
         return event;
       },
       async stop() {

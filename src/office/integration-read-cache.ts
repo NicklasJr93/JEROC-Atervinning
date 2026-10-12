@@ -1,5 +1,6 @@
 import type { OfficeUser } from './model';
 import type { EnvironmentSessionState } from './environment-types';
+import { currentPlatformSession } from '../platform/session';
 
 // Only authenticated projections live here, never credentials or persisted
 // browser storage. A new session/permission/site scope cannot reuse a prior
@@ -11,7 +12,8 @@ const userScope = (user: OfficeUser) => [user.id, user.level, [...user.permissio
 
 export function integrationReadScope(actualUser: OfficeUser, user: OfficeUser, session?: EnvironmentSessionState) {
   if (!session || session.actualUserId !== actualUser.id || session.effectiveUserId !== user.id) return '';
-  return JSON.stringify([userScope(actualUser), userScope(user), session.csrfToken, session.expiresAt]);
+  const platform = currentPlatformSession();
+  return JSON.stringify([platform?.authenticated ? [platform.organisationId, platform.generation] : 'legacy', userScope(actualUser), userScope(user), session.csrfToken, session.expiresAt]);
 }
 
 export function cachedIntegrationRead<T>(resource: string, scope: string): { value: T; fresh: boolean } | undefined {

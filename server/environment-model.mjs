@@ -271,19 +271,19 @@ export function addSwedishWorkingDays(receivedAt, count) {
   return dateNumber(day);
 }
 
-export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true, approvalGuard, outboundProvider = async () => [], nvvClient = createNvvClient({ now }), onChanged }) {
+export function createEnvironmentStore({ repository, principalStore, now = () => new Date(), demoMode = true, initialSites = ENVIRONMENT_SITES, approvalGuard, outboundProvider = async () => [], nvvClient = createNvvClient({ now }), onChanged }) {
   if (!repository || !principalStore) throw new Error('Environment requires durable repository and principal store.');
   const outboundSnapshots = new WeakMap();
   const requestContext = new AsyncLocalStorage();
   let nvv, initialization;
   const initialize = () => initialization ??= repository.transact(state => {
     const time = now();
-    if (!state.siteRecords.length) state.siteRecords.push(...ENVIRONMENT_SITES.map((site) => ({ ...site, version: 1, active: true,
+    if (!state.siteRecords.length) state.siteRecords.push(...initialSites.map((site) => ({ ...site, version: 1, active: true,
       permitReference: '', permitNotes: '', updatedAt: time.toISOString(), updatedBy: 'Befintlig anläggning' })));
-    for (const userId of ['admin', 'lars', 'kajsa', 'anna']) if (!state.credentials.some((record) => record.userId === userId)) {
+    if (demoMode) for (const userId of ['admin', 'lars', 'kajsa', 'anna']) if (!state.credentials.some((record) => record.userId === userId)) {
       state.credentials.push({ userId, ...passwordHash(ENVIRONMENT_DEMO_PASSWORD), demo: true });
     }
-    if (!state.classifications.some((record) => record.articleId === 'lead-battery')) state.classifications.push({
+    if (demoMode && !state.classifications.some((record) => record.articleId === 'lead-battery')) state.classifications.push({
       articleId: 'lead-battery', version: 1, hazardous: true, wasteCode: '160601', wasteDescription: 'Blybatterier',
       handlingInstructions: 'Förvara upprätt i tätt, märkt batterikärl. Skydda mot läckage och kortslutning.', adrRequired: false,
       updatedAt: time.toISOString(), updatedBy: 'Demosådd',
@@ -324,13 +324,25 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     }, scope);
   };
   const principalFor = (state, token, time) => {
-    const session = token && state.sessions.find((record) => record.tokenHash === environmentHash(token) && Date.parse(record.expiresAt) > time.getTime());
+    const expected = requestContext.getStore(), trusted = expected?.trustedPrincipal;
+    // This context is installed only by the server's verified platform-session
+    // adapter. A client-supplied user/header/body never reaches trustedPrincipal.
+    // When present, a stale external identity must fail instead of falling back
+    // to an old environmental demo cookie belonging to another login.
+    let session;
+    if (trusted) {
+      if (typeof trusted.actorId !== 'string' || typeof trusted.userId !== 'string'
+        || typeof trusted.csrfToken !== 'string' || !trusted.csrfToken
+        || !Number.isFinite(Date.parse(trusted.expiresAt)) || Date.parse(trusted.expiresAt) <= time.getTime())
+        throw new EnvironmentError('Logga in igen för att använda miljöuppgifterna.', 401, 'session_required');
+      session = { actualUserId: trusted.actorId, effectiveUserId: trusted.userId, csrfToken: trusted.csrfToken,
+        expiresAt: trusted.expiresAt, external: true };
+    } else session = token && state.sessions.find((record) => record.tokenHash === environmentHash(token) && Date.parse(record.expiresAt) > time.getTime());
     if (!session) throw new EnvironmentError('Logga in för att öppna de gemensamma miljöuppgifterna.', 401, 'session_required');
     let principal;
     try { principal = principalStore.principal(session.actualUserId, session.effectiveUserId); }
     catch (error) { throw new EnvironmentError('Kontot eller den valda behörigheten finns inte längre.', error.status ?? 401, 'session_revoked'); }
-    const expected = requestContext.getStore();
-    if (expected?.token === token) {
+    if (trusted || expected?.token === token) {
       if ((expected.actualUserId !== undefined && expected.actualUserId !== principal.actor.id)
         || (expected.effectiveUserId !== undefined && expected.effectiveUserId !== principal.user.id))
         throw new EnvironmentError('Kontot har ändrats i en annan flik. Uppdatera miljöuppgifterna innan du fortsätter.', 403, 'session_identity_mismatch');
@@ -339,7 +351,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     }
     return { session, principal };
   };
-  const sessionResult = (session, principal) => ({ demo: true, actualUserId: principal.actor.id, effectiveUserId: principal.user.id, user: copy(principal.user), csrfToken: session.csrfToken, expiresAt: session.expiresAt });
+  const sessionResult = (session, principal) => ({ demo: !session.external, actualUserId: principal.actor.id, effectiveUserId: principal.user.id, user: copy(principal.user), csrfToken: session.csrfToken, expiresAt: session.expiresAt });
   const resolveArticle = (articleId) => {
     if (typeof principalStore.getArticleForEnvironment !== 'function') throw new EnvironmentError('Artikelregistrets serverkoppling saknas.', 503, 'article_registry_required');
     const article = principalStore.getArticleForEnvironment(articleId);

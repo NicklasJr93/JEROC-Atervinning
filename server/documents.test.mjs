@@ -167,6 +167,29 @@ test('durable PDF job uses its frozen facility and approval without rereading mu
   assert.equal(saved.snapshot.site.name, 'Norrtälje');
 }));
 
+test('two company PDF jobs with identical source IDs retain their own buyer and transport identity', async () => {
+  for (const company of [{ id: 'company-a', name: 'Återbruk A AB', number: '5593593626' }, { id: 'company-b', name: 'Metall B AB', number: '5560000167' }]) {
+    await serviceFixture(async ({ options, sources, repository }) => {
+      sources.company = structuredClone(company);
+      const frozen = structuredClone(sources.approvals[0]);
+      const job = { stage: 'preliminary', sourceHash: frozen.snapshot.hash, siteSnapshot: structuredClone(sources.sites[0]), companySnapshot: structuredClone(company) };
+      const noReread = createDocumentService({ ...options, sourceProvider: () => { throw new Error('Frozen PDF jobs must not reread a mutable company'); } });
+      const document = await noReread.archiveApprovalJob(frozen, job);
+      const saved = await repository.read(database => database.document(document.id));
+      assert.equal(saved.sourceId, '3010');
+      assert.equal(saved.snapshot.company.id, company.id);
+      assert.equal(saved.snapshot.company.name, company.name);
+      assert.equal(saved.snapshot.company.number, company.number);
+      assert.doesNotMatch(JSON.stringify(saved.snapshot.company), /JEROC/);
+      const service = createDocumentService(options);
+      sources.transport.drivers[0].companyId = undefined;
+      const transport = await service.transport('AO-1042', admin);
+      assert.equal(transport.draft.receiver.name, company.name);
+      assert.equal(transport.draft.carrier.number, company.number);
+    });
+  }
+});
+
 test('legacy priced rows without articleName resolve only their missing human names for a current draft', async () => serviceFixture(async ({ options, sources, repository }) => {
   sources.approvals = []; sources.office.cards[0].status = 'new';
   delete sources.office.cards[0].rows[0].articleName;

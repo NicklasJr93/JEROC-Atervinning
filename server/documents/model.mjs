@@ -34,10 +34,15 @@ export const transportDocumentInputSchema = z.object({
 function parse(schema, input) { const value = schema.safeParse(input); if (!value.success) fail(value.error.issues.map(issue => issue.message).join(' '), 422, 'invalid_input'); return value.data; }
 const party = source => ({ name: source?.name ?? '', number: source?.number ?? '', address: source?.address ?? '', postalCode: source?.postalCode ?? '', city: source?.city ?? '' });
 const siteFor = (sources, card) => (sources.sites ?? []).find(site => site.id === card?.siteId || !card?.siteId && site.name === card?.yard);
-const companyFor = (sources, site) => ({ name: sources.company?.name ?? 'JEROC Återvinning AB', number: sources.company?.number ?? '', vat: sources.company?.vat ?? '', address: site?.address ?? sources.company?.address ?? '', postalCode: site?.postalCode ?? sources.company?.postalCode ?? '', city: site?.city ?? sources.company?.city ?? '' });
+const companyFor = (sources, site) => {
+  const company = sources.company;
+  if (company?.id && company.id !== 'jeroc-demo' && !company.name?.trim())
+    fail('Bolagets dokumentprofil saknar företagsnamn.', 409, 'company_identity_missing');
+  return { ...(company?.id && { id: company.id }), name: company?.name ?? 'JEROC Återvinning AB', number: company?.number ?? '', vat: company?.vat ?? '', address: site?.address ?? company?.address ?? '', postalCode: site?.postalCode ?? company?.postalCode ?? '', city: site?.city ?? company?.city ?? '' };
+};
 const latestApproval = (sources, cardId) => (sources.approvals ?? []).filter(approval => String(approval.cardId) === String(cardId)).sort((left, right) => right.version - left.version)[0];
 const validApproved = approval => ['approved', 'attested'].includes(approval.status) && Boolean(approval.approvedAt && approval.approvedMethod) && approval.approvedHash === approval.snapshot.hash;
-const titleFor = (kind, stage) => kind === 'transport' ? stage === 'final' ? 'Transportdokument · registrerad avfärd, demo' : 'Transportdokument · utkast' : kind === 'receipt' ? 'Utbetalningskvitto · demo' : stage === 'final' ? 'Avräkningsnota · JEROC-attesterad' : stage === 'reviewed' ? 'Avräkningsnota · kundgodkänd, preliminär' : 'Avräkningsnota · preliminär';
+const titleFor = (kind, stage, company) => kind === 'transport' ? stage === 'final' ? 'Transportdokument · registrerad avfärd, demo' : 'Transportdokument · utkast' : kind === 'receipt' ? 'Utbetalningskvitto · demo' : stage === 'final' ? company?.id && company.id !== 'jeroc-demo' ? 'Avräkningsnota · internt attesterad' : 'Avräkningsnota · JEROC-attesterad' : stage === 'reviewed' ? 'Avräkningsnota · kundgodkänd, preliminär' : 'Avräkningsnota · preliminär';
 export const documentMetadata = record => Object.fromEntries(Object.entries({ id: record.id, kind: record.kind, sourceId: record.sourceId, sourceVersion: record.sourceVersion, stage: record.stage, siteId: record.siteId, title: record.title, sourceHash: record.sourceHash, pdfHash: record.pdfHash, templateVersion: record.templateVersion, createdAt: record.createdAt, bytes: record.bytes, downloadUrl: `/api/documents/${encodeURIComponent(record.id)}/download` }).filter(([, value]) => value !== undefined));
 
 function approvalSnapshot(approval, sources, stage) {
@@ -105,7 +110,7 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     // the UNIQUE constraint so two processes cannot persist two originals.
     const pdf = Buffer.from(await renderPdf(copy(snapshot)));
     if (!pdf.subarray(0, 5).equals(Buffer.from('%PDF-')) || pdf.length > 20 * 1024 * 1024) fail('PDF-filen kunde inte framställas.', 503, 'pdf_generation_failed');
-    const record = { id: randomUUID(), ...key, siteId, title: titleFor(kind, stage), createdAt: now().toISOString(), createdBy: principal?.user?.id ?? 'system', actualUserId: principal?.actor?.id ?? 'system', pdfHash: documentHash(pdf), bytes: pdf.length, snapshot: copy(snapshot) };
+    const record = { id: randomUUID(), ...key, siteId, title: titleFor(kind, stage, snapshot.company), createdAt: now().toISOString(), createdBy: principal?.user?.id ?? 'system', actualUserId: principal?.actor?.id ?? 'system', pdfHash: documentHash(pdf), bytes: pdf.length, snapshot: copy(snapshot) };
     return repository.transact(async database => {
       const result = await database.insertDocument(record, pdf);
       if (result.inserted) await database.audit({ id: randomUUID(), at: record.createdAt, action: 'document.archived', documentId: record.id, kind, sourceId: String(sourceId), sourceHash, pdfHash: record.pdfHash, actualUserId: record.actualUserId, effectiveUserId: record.createdBy });
@@ -167,7 +172,7 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
       job.sourceHash !== approval.snapshot.hash) fail('PDF-jobbets låsta underlag stämmer inte.', 409, 'snapshot_missing');
     // New durable jobs contain the exact facility used when the signing
     // milestone committed. No mutable office/terminal snapshot is needed here.
-    const sources = job.siteSnapshot ? { sites: [copy(job.siteSnapshot)] }
+    const sources = job.siteSnapshot ? { sites: [copy(job.siteSnapshot)], ...(job.companySnapshot && { company: copy(job.companySnapshot) }) }
       : await sourceProvider({ kind: 'approval-job', siteId: approval.siteId });
     const actor = { actor: { id: approval.actualUserId ?? 'system' }, user: { id: approval.effectiveUserId ?? 'system' } };
     const snapshot = await frozenApprovalDocument(copy(approval), sources, job.stage);

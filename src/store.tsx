@@ -9,7 +9,6 @@ import {
 import { useLocation } from 'react-router-dom';
 import {
   STORE_KEY,
-  seedDemo,
   storeSchema,
   isComplete,
   normalizeRegistration,
@@ -19,20 +18,7 @@ import {
 import { mergeCustomerPriceCatalog, updateCustomerPriceCatalog, type Customer } from './data';
 import { useSharedData } from './shared-data';
 import { useEmployee } from './employee/EmployeeProvider';
-
-function load(): { data: DemoData; error: string } {
-  try {
-    const saved = localStorage.getItem(STORE_KEY);
-    if (!saved) return { data: seedDemo(), error: '' };
-    return { data: storeSchema.parse(JSON.parse(saved)), error: '' };
-  } catch {
-    return {
-      data: seedDemo(),
-      error:
-        'Tidigare demodata kunde inte läsas. Ingenting har skrivits över. Nya utkast kan inte sparas förrän du återställer demon i Profil.',
-    };
-  }
-}
+import { employeeCompanyId, employeeIdentity, employeeRecoveryKey, legacyEmployeeRecoveryKey } from './employee/cache';
 type Context = {
   data: DemoData;
   storageError: string;
@@ -52,15 +38,16 @@ type Context = {
 const DemoContext = createContext<Context | null>(null);
 export function DemoProvider({ children }: { children: ReactNode }) {
   const employee = useEmployee();
-  const [initial] = useState(load);
-  const [data, setData] = useState(initial.data);
+  const [data, setData] = useState<DemoData>({ version: 1, drafts: [], customers: [] });
   const dataRef = useRef(data);
-  const [storageError, setError] = useState(initial.error);
-  const [blocked, setBlocked] = useState(Boolean(initial.error));
+  const [storageError, setError] = useState('');
+  const [blocked, setBlocked] = useState(false);
   const loggedIn = Boolean(employee.session), passwordRequired = false;
   const personId = employee.session?.person.id;
-  const personRef = useRef(personId); personRef.current = personId;
-  const storageKey = personId ? `${STORE_KEY}.employee.${personId}` : `${STORE_KEY}.employee.signed-out`;
+  const companyId = employeeCompanyId(employee.session?.companyId);
+  const identity = employeeIdentity(companyId, personId);
+  const identityRef = useRef(identity); identityRef.current = identity;
+  const storageKey = employeeRecoveryKey(companyId, personId);
   const location = useLocation();
   const priceCustomerId = location.pathname.startsWith('/prices') ? new URLSearchParams(location.search).get('customer') : undefined;
   const [priceRevision, setPriceRevision] = useState('');
@@ -73,9 +60,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     if (!personId) return;
     try {
       const saved = JSON.parse(localStorage.getItem(`${storageKey}.prices`) ?? 'null');
-      if (saved?.personId === personId && mergeCustomerPriceCatalog(saved.prices)) redrawPrices(value => value + 1);
+      if (saved?.personId === personId && saved.companyId === companyId && mergeCustomerPriceCatalog(saved.prices)) redrawPrices(value => value + 1);
     } catch { /* A damaged optional price cache cannot block weighing. */ }
-  }, [personId, storageKey]);
+  }, [personId, companyId, storageKey]);
   useEffect(() => {
     // A person's recovery cache never becomes another employee's current view.
     // Only the existing Niklas demo can offer its earlier local cache to the
@@ -83,20 +70,21 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     let next: DemoData = { version: 1, drafts: [], customers: [] };
     let error = '';
     try {
-      const saved = personId && localStorage.getItem(storageKey);
+      const legacyKey = legacyEmployeeRecoveryKey(companyId, personId);
+      const saved = personId && (localStorage.getItem(storageKey) ?? (legacyKey ? localStorage.getItem(legacyKey) : null));
       if (saved) next = storeSchema.parse(JSON.parse(saved));
-      else if (employee.session?.person.username === 'niklas') {
+      else if (companyId === 'jeroc-demo' && employee.session?.person.username === 'niklas') {
         const legacy = localStorage.getItem(STORE_KEY);
         if (legacy) next = storeSchema.parse(JSON.parse(legacy));
       }
     } catch { error = 'Återhämtningscachen kunde inte läsas. Serverns uppgifter hämtas igen.'; }
     dataRef.current = next; setData(next); setError(error); setBlocked(false);
-  }, [personId, storageKey]);
-  const shared = useSharedData<DemoData>({domain:'mobile',key:storageKey,identity:personId && employee.session?.capabilities.yardWork?{employee:personId}:undefined,current:dataRef,accept:next=>{setData(next);setBlocked(false);},error:setError,parse:value=>storeSchema.parse(value)});
+  }, [personId, companyId, storageKey]);
+  const shared = useSharedData<DemoData>({domain:'mobile',key:STORE_KEY,identity:personId && employee.session?.capabilities.yardWork?{employee:personId,companyId}:undefined,current:dataRef,accept:next=>{setData(next);setBlocked(false);},error:setError,parse:value=>storeSchema.parse(value)});
   useEffect(() => {
     const changed = (event: Event) => {
       const value = (event as CustomEvent<{ identity: string; revision: string }>).detail;
-      if (value?.identity === `employee:${personId}`) setPriceRevision(value.revision);
+      if (value?.identity === identity) setPriceRevision(value.revision);
     };
     const visible = () => { if (!document.hidden) retryPrice(value => value + 1); };
     window.addEventListener('jeroc:mobile-pricing-change', changed);
@@ -107,7 +95,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('online', visible);
       document.removeEventListener('visibilitychange', visible);
     };
-  }, [personId]);
+  }, [identity]);
   useEffect(() => {
     if (!personId || !shared.ready || !priceCustomerId || navigator.onLine === false || document.hidden ||
         !data.customers.some(customer => customer.id === priceCustomerId)) return;
@@ -115,21 +103,21 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const response = await fetch(`/api/application/mobile-prices?customerId=${encodeURIComponent(priceCustomerId)}`, {
-          credentials: 'same-origin', cache: 'no-store', signal: abort.signal,
+          credentials: 'same-origin', cache: 'no-store', signal: abort.signal, headers: { 'X-Employee-Company': companyId },
         });
         if (response.status === 401) window.dispatchEvent(new Event('jeroc:employee-session-check'));
         if (!response.ok) return;
         const result = await response.json();
-        if (abort.signal.aborted || personRef.current !== personId || !result.customerPrices?.[priceCustomerId]) return;
+        if (abort.signal.aborted || identityRef.current !== identity || !result.customerPrices?.[priceCustomerId]) return;
         const prices = mergeCustomerPriceCatalog({ [priceCustomerId]: result.customerPrices[priceCustomerId] });
         if (!prices) return;
         redrawPrices(value => value + 1);
-        try { localStorage.setItem(`${storageKey}.prices`, JSON.stringify({ personId, prices, revision: result.mobilePricingRevision })); }
+        try { localStorage.setItem(`${storageKey}.prices`, JSON.stringify({ companyId, personId, prices, revision: result.mobilePricingRevision })); }
         catch { /* The live quote is usable even when optional offline caching is full. */ }
       } catch { /* Keep this person's earlier quotes on a temporary connection failure. */ }
     })();
     return () => abort.abort();
-  }, [personId, storageKey, shared.ready, priceCustomerId, priceRevision, priceRetry, data.customers.length]);
+  }, [personId, companyId, identity, storageKey, shared.ready, priceCustomerId, priceRevision, priceRetry, data.customers.length]);
 
   function persist(next: DemoData, force = false) {
     if (blocked && !force) return false;

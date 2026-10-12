@@ -29,7 +29,10 @@ function partyLines(party = {}) {
 /** Native A4 rendering of an already authorised, frozen business snapshot. No network access. */
 export async function renderPdf(snapshot) {
   if (!snapshot || !['settlement', 'transport', 'receipt'].includes(snapshot.type)) throw new TypeError('Dokumenttypen stöds inte.');
-  const doc = new PDFDocument({ size: 'A4', margin: 0, bufferPages: true, compress: true, info: { Title: `${snapshot.type === 'transport' ? 'Transportdokument' : snapshot.type === 'receipt' ? 'Utbetalningskvitto' : 'Avräkningsnota'} ${show(snapshot.id)}`, Author: 'JEROC Återvinning', Subject: 'Demounderlag', Creator: 'JEROC PDF-motor' } });
+  // Older frozen JEROC snapshots have no company ID. Retain their formatting;
+  // another company must never inherit JEROC's legal identity or company logo.
+  const legacyBrand = !snapshot.company?.id || snapshot.company.id === 'jeroc-demo';
+  const doc = new PDFDocument({ size: 'A4', margin: 0, bufferPages: true, compress: true, info: { Title: `${snapshot.type === 'transport' ? 'Transportdokument' : snapshot.type === 'receipt' ? 'Utbetalningskvitto' : 'Avräkningsnota'} ${show(snapshot.id)}`, Author: legacyBrand ? 'JEROC Återvinning' : show(snapshot.company?.name, 'ScrapPilot'), Subject: 'Demounderlag', Creator: legacyBrand ? 'JEROC PDF-motor' : 'ScrapPilot PDF-motor' } });
   doc.registerFont('JEROC-Regular', regularFont);
   doc.registerFont('JEROC-Bold', boldFont);
   const output = new Promise((resolve, reject) => {
@@ -85,8 +88,9 @@ export async function renderPdf(snapshot) {
       y = top + 36;
       return;
     }
-    if (existsSync(logo)) doc.image(logo, M, top, { fit: [98, 45], align: 'left', valign: 'center' });
-    else text('JEROC', M, top + 8, 96, 21, true, C.blue);
+    if (legacyBrand && existsSync(logo)) doc.image(logo, M, top, { fit: [98, 45], align: 'left', valign: 'center' });
+    else if (legacyBrand) text('JEROC', M, top + 8, 96, 21, true, C.blue);
+    else text(lines(show(snapshot.company?.name, 'Bolag'), 98, 11, true).slice(0, 3).join('\n'), M, top + 4, 98, 11, true, C.blue);
     const tx = M + 113;
     text(title, tx, top + 4, WIDTH - 113, transport ? 20 : 21, true, C.navy);
     doc.rect(tx, top + 33, 37, 2.5).fill(C.green);
@@ -212,7 +216,7 @@ export async function renderPdf(snapshot) {
     const attest = snapshot.attest;
     cards([
       { title: 'Kundgodkännande', body: approvalBody },
-      { title: 'JEROC:s interna attest', body: final && attest?.at ? [show(attest.name), `Attesterat · ${date(attest.at, true)}`, `Dokumentversion ${snapshot.version}`] : ['Inväntar attest', 'Underlaget granskas före utfärdandet.'] },
+      { title: legacyBrand ? 'JEROC:s interna attest' : 'Intern attest', body: final && attest?.at ? [show(attest.name), `Attesterat · ${date(attest.at, true)}`, `Dokumentversion ${snapshot.version}`] : ['Inväntar attest', 'Underlaget granskas före utfärdandet.'] },
     ], 2, ['#F7FAFE', '#F7FAFE']);
   }
   function financialSummary() {

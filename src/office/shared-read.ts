@@ -1,3 +1,5 @@
+import { currentPlatformSession } from '../platform/session';
+
 type ReadFlight = {
   controller: AbortController;
   promise: Promise<unknown>;
@@ -9,12 +11,18 @@ type ReadFlight = {
 // principal/permission scope in each client; each consumer receives its own
 // copy so editing one workspace cannot mutate another workspace's projection.
 const reads = new Map<string, ReadFlight>();
+const scopedReadKey = (key: string) => {
+  const session = currentPlatformSession();
+  return session?.authenticated ? `${session.organisationId}:${session.generation}:${key}` : key;
+};
 
 export function invalidateOfficeReads(prefix: string) {
+  prefix = scopedReadKey(prefix);
   for (const key of reads.keys()) if (key.startsWith(prefix)) reads.delete(key);
 }
 
 export function sharedOfficeRead<T>(key: string, load: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
+  key = scopedReadKey(key);
   if (signal?.aborted) return Promise.reject(new DOMException('Hämtningen avbröts.', 'AbortError'));
   let flight = reads.get(key);
   if (!flight) {

@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { afterDatabaseCommit, runDatabaseRead, runInDatabaseTransaction } from './database-runtime.mjs';
-import { getChangeEvents } from './change-events.mjs';
+import { getChangeEvents, changeEventChannel } from './change-events.mjs';
 
 // New domains are stored in full alongside the old aggregate. Older deployments
 // gain an empty prepared-weighing registry without resetting any business data.
@@ -158,7 +158,7 @@ export async function createApplicationRepository({ env = process.env, filename,
             const event = { domain: 'application', eventId: randomUUID(), revision: Number(meta.revision) + 1 };
             // PostgreSQL delivers NOTIFY only at the outer commit. Reuse the
             // revision write's round trip; local listeners run after that commit.
-            await c.query("WITH updated AS (UPDATE jeroc_application_meta SET revision=revision+1 WHERE id=1 RETURNING revision) SELECT revision,pg_notify('jeroc_changes',json_build_object('domain','application','revision',revision,'eventId',$1::text)::text) FROM updated", [event.eventId]);
+            await c.query("WITH updated AS (UPDATE jeroc_application_meta SET revision=revision+1 WHERE id=1 RETURNING revision) SELECT revision,pg_notify($2::text,json_build_object('domain','application','revision',revision,'eventId',$1::text)::text) FROM updated", [event.eventId, changeEventChannel(env)]);
             afterDatabaseCommit(() => changeEvents.publishLocal(event));
           }
           const addedImports = (state.imports ?? []).filter(record => !previousImports.has(importKey(record)));

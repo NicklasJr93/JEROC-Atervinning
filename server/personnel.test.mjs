@@ -19,6 +19,15 @@ async function fixture(run) {
   async function repository(){const repo=await createApplicationRepository({env,initial:initialApplicationState});repos.push(repo);return repo;}
   try{await run({a:await instance(),instance,repository});}finally{for(const server of servers)await new Promise(resolve=>server.close(resolve));for(const app of apps)await app.close();for(const repo of repos)await repo.close();if(pool){await pool.query(`DROP SCHEMA "${schema}" CASCADE`);await pool.end();}await rm(dir,{recursive:true,force:true});}
 }
+
+test('personal employee accounts accept email login without changing external driver username rules', async () => fixture(async ({a}) => {
+  const result=await a(personnel,{action:'employeeAccount.save',personId:'person-anna',username:'Anna.Office+login@example.test',active:true,password:'Email-Password-2026!'});
+  assert.equal(result.status,200,result.error);
+  const login=await a('/api/employee/login',{username:'anna.office+login@example.test',password:'Email-Password-2026!'},null);
+  assert.equal(login.status,200,login.error);assert.equal(login.person.username,'anna.office+login@example.test');
+  assert.equal((await a(personnel,{action:'employeeAccount.save',personId:'person-anna',username:'invalid @ address',active:true})).status,422);
+  assert.equal((await a(personnel,{action:'externalAccount.save',personId:'person-oskar',username:'oskar@example.test',active:true,password:'Email-Password-2026!'})).status,422);
+}));
 async function absenceInput(a){const state=await a(personnel),order=state.transport.orders.find(o=>o.id==='AO-1201');return {id:randomUUID(),personId:'person-kalle',kind:'sick',fromDate:order.date,toDate:order.date,allDay:true,managerId:'person-anna'};}
 test('personnel migration preserves bookings and durable records survive a second instance',async()=>fixture(async({a,instance,repository})=>{
   const repo=await repository(),before=await repo.transact(s=>structuredClone(s.transport.orders));const first=await a(personnel);assert.equal(first.status,200,first.error);for(const order of before)assert.deepEqual(first.transport.orders.find(o=>o.id===order.id),order);

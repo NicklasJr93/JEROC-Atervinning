@@ -1,8 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import { articleGroups, updateArticleCatalog, updateCustomerPriceCatalog } from './data';
+import { currentPlatformSession } from './platform/session';
 
-type Identity = { actor: string; user: string } | { mobile: true } | { employee: string };
-const identityScope = (identity: Identity | undefined) => identity && ('employee' in identity ? `employee:${identity.employee}` : 'mobile' in identity ? 'mobile' : `${identity.actor}:${identity.user}`);
+type Identity = { actor: string; user: string } | { mobile: true } | { employee: string; companyId?: string };
+const identityScope = (identity: Identity | undefined) => {
+ if (!identity) return undefined;
+ const principal = 'employee' in identity ? `${identity.companyId ? `${identity.companyId}:` : ''}employee:${identity.employee}` : 'mobile' in identity ? 'mobile' : `${identity.actor}:${identity.user}`;
+ const candidate = 'actor' in identity ? currentPlatformSession() : undefined;
+ const session = candidate?.authenticated ? candidate : undefined;
+ return session?.organisationId ? `${session.organisationId}:${session.generation}:${principal}` : principal;
+};
+/** Recovery data is never reused by another company, acting account or session
+ * generation. These keys are client recovery aids, not authorization. */
+export function sharedBusinessCacheKey(key: string, identity?: Identity) {
+ if (identity && 'employee' in identity && identity.companyId) return `${key}.company.${encodeURIComponent(identity.companyId)}.employee.${encodeURIComponent(identity.employee)}`;
+ const candidate = identity && 'actor' in identity ? currentPlatformSession() : undefined;
+ const session = candidate?.authenticated ? candidate : undefined;
+ return session?.organisationId
+  ? `${key}.company.${encodeURIComponent(session.organisationId)}.principal.${encodeURIComponent(`${identity && 'actor' in identity ? identity.actor : ''}/${identity && 'actor' in identity ? identity.user : ''}`)}.generation.${encodeURIComponent(String(session.generation))}`
+  : key;
+}
 type Pending<T> = { base: T; next: T };
 type Options<T> = {
  domain: 'office' | 'mobile' | 'transport'; key: string; identity?: Identity;
@@ -14,7 +31,8 @@ export type BusinessConnection = { identity: string; connected: boolean };
 const changeEvent = 'jeroc:business-change';
 const connectionEvent = 'jeroc:business-connection';
 const connections = new Map<string, boolean>();
-const mobileCatalogCacheKey = 'jeroc.mobile.article-catalog.v1';
+const mobileCatalogCacheBaseKey = 'jeroc.mobile.article-catalog.v1';
+let activeMobileCatalogScope = '';
 /** Forward metadata from the existing authenticated staff stream, without
  * opening another connection or sharing customer projections between users. */
 export function notifyBusinessChange(change: BusinessChange) {
@@ -79,16 +97,17 @@ export function rebaseConfirmedChanges<T>(base: T, next: T, confirmed: T): Pendi
 /** A local recovery cache and serialized durable write queue. PostgreSQL remains
  * authoritative; failed writes are reported and survive lost connections. */
 export function useSharedData<T>(options: Options<T>) {
- const latest = useRef(options); latest.current = options;
+ const scopedOptions = { ...options, key: sharedBusinessCacheKey(options.key, options.identity) };
+ const latest = useRef(scopedOptions); latest.current = scopedOptions;
  const identityKey = identityScope(options.identity);
  const [ready, setReady] = useState(false);
  const [, refreshCatalog] = useState(0), catalogSignature = useRef('');
  const state = useRef<SyncState<T>>({ scope: '', ready: false, queue: [], observedRevision: 0, confirmedRevision: 0, confirmedEpoch: 0, targetRevision: 0, pendingChange: false });
  const runner = useRef<() => Promise<void>>(async () => {});
- const recoveryKey = `${options.key}.server-pending.${identityKey}`;
+ const recoveryKey = `${scopedOptions.key}.server-pending.${identityKey}`;
  function enqueue(next: T): boolean {
   const o = latest.current, s = state.current;
-  if (!s.ready || s.scope !== identityKey) { o.error('Ansluter till den gemensamma databasen. Vänta ett ögonblick.'); return false; }
+  if (!s.ready || s.scope !== identityKey || identityScope(o.identity) !== identityKey) { o.error('Ansluter till den gemensamma databasen. Vänta ett ögonblick.'); return false; }
   try {
    const parsed = o.parse(next), item = { base: structuredClone(o.current.current), next: parsed };
    const queue = [...s.queue, item], previousCache = localStorage.getItem(o.key);
@@ -106,7 +125,7 @@ export function useSharedData<T>(options: Options<T>) {
  }
  function applyConfirmed(updater: (current: T) => T, revision?: number) {
   const o = latest.current, s = state.current;
-  if (s.scope !== identityKey || !s.ready) return;
+  if (s.scope !== identityKey || identityScope(o.identity) !== identityKey || !s.ready) return;
   if (revision !== undefined && revision < s.confirmedRevision) return;
   let acknowledged = s.queue.length ? o.parse(updater(s.queue[0].base)) : o.parse(updater(o.current.current));
   const queue = s.queue.map(item => {
@@ -126,7 +145,7 @@ export function useSharedData<T>(options: Options<T>) {
  }
  async function flush() {
   const s = state.current;
-  if (s.scope !== identityKey) throw new Error('Användaren har ändrats. Försök igen.');
+  if (s.scope !== identityKey || identityScope(latest.current.identity) !== identityKey) throw new Error('Användaren har ändrats. Försök igen.');
   if (s.ready && !s.queue.length && !s.failure) return;
   await runner.current();
   if (state.current !== s) throw new Error('Användaren har ändrats. Försök igen.');
@@ -139,10 +158,20 @@ export function useSharedData<T>(options: Options<T>) {
   const s: SyncState<T> = { scope: identityKey, ready: false, queue: [], observedRevision: 0, confirmedRevision: 0, confirmedEpoch: 0, targetRevision: 0, pendingChange: false };
   state.current = s; setReady(false);
   const principal = o.identity!;
-  const streamIdentity = 'employee' in principal ? `employee:${principal.employee}` : 'mobile' in principal ? 'mobile' : `${principal.actor}/${principal.user}`;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...('employee' in principal ? {} : 'mobile' in principal ? { 'X-Demo-Mobile': 'niklas' } : { 'X-Demo-Actor': principal.actor, 'X-Demo-User': principal.user }) };
+  const candidate = 'actor' in principal ? currentPlatformSession() : undefined;
+  const platformSession = candidate?.authenticated ? candidate : undefined;
+  const streamIdentity = 'employee' in principal ? `${principal.companyId ? `${principal.companyId}:` : ''}employee:${principal.employee}` : 'mobile' in principal ? 'mobile' : `${principal.actor}/${principal.user}`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...('employee' in principal ? principal.companyId ? { 'X-Employee-Company': principal.companyId } : {} : 'mobile' in principal ? { 'X-Demo-Mobile': 'niklas' } : { 'X-Demo-Actor': principal.actor, 'X-Demo-User': principal.user }),
+   ...(platformSession ? { 'X-Platform-Generation': String(platformSession.generation), 'X-Platform-CSRF': platformSession.csrfToken } : {}) };
   const url = `/api/application/${o.domain}`;
+  const mobileCatalogCacheKey = sharedBusinessCacheKey(mobileCatalogCacheBaseKey, principal);
   if (o.domain === 'mobile') {
+   if ('employee' in principal && principal.companyId && activeMobileCatalogScope !== identityKey) {
+    // Module-level catalogs belong to the previous login until explicitly
+    // cleared. Never display another company's prices during the first read.
+    updateArticleCatalog([], []); updateCustomerPriceCatalog({});
+    catalogSignature.current = ''; activeMobileCatalogScope = identityKey;
+   }
    try {
     const cached = JSON.parse(localStorage.getItem(mobileCatalogCacheKey) ?? 'null');
     if (cached?.version === 1 && updateArticleCatalog(cached.catalog, cached.groups)) refreshCatalog(value => value + 1);
@@ -203,7 +232,10 @@ export function useSharedData<T>(options: Options<T>) {
      if (!s.ready) {
       const legacy = localStorage.getItem(o.key);
       let result = await request();
-      if (legacy && !localStorage.getItem(`${o.key}.postgres-imported`)) {
+      // A platform account always starts with its server projection. Importing
+      // browser demo state into a selected company would cross company scopes.
+      const allowLegacyImport = !platformSession && !('employee' in principal && principal.companyId && principal.companyId !== 'jeroc-demo');
+      if (allowLegacyImport && legacy && !localStorage.getItem(`${o.key}.postgres-imported`)) {
        if (!localStorage.getItem(`${o.key}.legacy-before-postgres`)) localStorage.setItem(`${o.key}.legacy-before-postgres`, legacy);
        let legacyData;
        try { legacyData = o.parse(JSON.parse(legacy)); }
@@ -291,6 +323,6 @@ export function useSharedData<T>(options: Options<T>) {
   runner.current = sync; void sync();
   window.addEventListener(changeEvent, onChange); window.addEventListener('online', online); document.addEventListener('visibilitychange', visible);
   return () => { active = false; clearInterval(timer); if (followUp) clearTimeout(followUp); window.removeEventListener(changeEvent, onChange); window.removeEventListener('online', online); document.removeEventListener('visibilitychange', visible); };
- }, [identityKey, options.domain, options.key]);
+ }, [identityKey, options.domain, scopedOptions.key]);
  return { ready, save: enqueue, refresh: () => runner.current(), flush, applyConfirmed };
 }

@@ -1,4 +1,5 @@
 import { parseTerminalApproval, parseTerminalDemoState, parseTerminalSession, type ApprovalSend, type CustomerReviewCommand, type CustomerReviewResult, type DemoTerminal, type TerminalApproval, type TerminalDemoState, type TerminalSessionState } from './terminal-demo-types';
+import { tenantPublicHeaders } from '../tenant-public-context';
 
 export class TerminalDemoError extends Error {
   constructor(message: string, public code: string, public status: number) { super(message); }
@@ -13,7 +14,7 @@ export async function terminalRequest<T>(path: string, method = 'GET', body?: un
   const deviceRequest = /^\/(?:login|session|heartbeat|logout)(?:$|\/)|^\/approvals\/[^/]+\/(?:respond|displayed)$/.test(path);
   const response = await fetch(`/api/terminal-demo${path}`, {
     method, credentials: 'same-origin', signal,
-    headers: { Accept: 'application/json', ...(path === '/staff-session' || deviceRequest ? {} : staffHeaders(expectedStaff)), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    headers: { Accept: 'application/json', ...(deviceRequest ? await tenantPublicHeaders() : {}), ...(path === '/staff-session' || deviceRequest ? {} : staffHeaders(expectedStaff)), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const result = await response.json().catch(() => ({})) as { message?: string; error?: string; code?: string };

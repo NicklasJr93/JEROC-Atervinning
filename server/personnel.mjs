@@ -63,7 +63,9 @@ function saveEmployeeAccount(state,p,person,input,transactionAudit) {
   if(!linked)fail('Koppla personens användarkonto före inloggningen.',422);
   if(p.user.level!=='Systemadmin' && linked.level==='Systemadmin')fail('Du kan inte ändra en systemadministratörs inloggning.',403);
   if(p.user.siteIds && (!linked.siteIds || linked.siteIds.some(siteId=>!p.user.siteIds.includes(siteId))))fail('Kontot ligger utanför din behörighet.',403);
-  const username=parse(z.string().trim().toLowerCase().min(3).max(80).regex(/^[a-z0-9._-]+$/),input.username);
+  const username=parse(z.string().trim().toLowerCase().min(3).max(200).refine(value=>
+    /^[a-z0-9._-]+$/.test(value) && value.length<=80 || z.string().email().safeParse(value).success,
+    'Ange ett giltigt inloggningsnamn eller en e-postadress.'),input.username);
   const active=parse(z.boolean(),input.active),old=state.personnelAuth.accounts.find(account=>account.personId===person.id);
   if(active && (!person.active || linked.active===false))fail('Aktivera personprofilen och användarkontot först.',422);
   if(state.personnelAuth.accounts.some(account=>account.personId!==person.id && account.username===username))fail('Inloggningsnamnet används redan.',422);

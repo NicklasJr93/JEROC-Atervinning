@@ -1,0 +1,126 @@
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Building2, LogOut, Settings2, ShieldCheck } from 'lucide-react';
+import { platformApi } from './client';
+import { setCurrentPlatformSession } from './session';
+import ProductBrand from './ProductBrand';
+import PlatformLogin from './PlatformLogin';
+import PlatformPasswordChange from './PlatformPasswordChange';
+import PlatformAdmin from './PlatformAdmin';
+import PlatformCompanySwitcher from './PlatformCompanySwitcher';
+import type { AuthenticatedPlatformSession, PlatformSession } from './types';
+import './platform.css';
+
+export type PlatformContextValue = {
+  session: AuthenticatedPlatformSession;
+  refresh: () => Promise<void>;
+  logout: () => Promise<void>;
+  switchCompany: (organisationId: string, effectiveUserId?: string) => Promise<void>;
+  openAdministration: () => void;
+};
+const Context = createContext<PlatformContextValue | undefined>(undefined);
+export const usePlatformContext = () => useContext(Context);
+
+export default function PlatformGate({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<PlatformSession>(), [error, setError] = useState('');
+  const [checking, setChecking] = useState(true), [attempt, setAttempt] = useState(0), [switcherOpen, setSwitcherOpen] = useState(false);
+  const shell = useRef<HTMLDivElement>(null);
+  const checkingSession = useRef<Promise<void> | undefined>(undefined);
+  const initialSession = useRef<{ attempt: number; promise: Promise<PlatformSession> } | undefined>(undefined);
+  const location = useLocation(), navigate = useNavigate();
+  const sessionKey = session?.authenticated ? `${session.organisationId}/${session.generation}` : '';
+  useEffect(() => {
+    const element = shell.current, bar = element?.querySelector<HTMLElement>('.platform-topbar'), strip = element?.querySelector<HTMLElement>('.platform-support-strip');
+    if (!element || !bar) return;
+    const measure = () => {
+      element.style.setProperty('--platform-topbar-height', `${bar.getBoundingClientRect().height}px`);
+      element.style.setProperty('--platform-header-height', `${bar.getBoundingClientRect().height + (strip?.getBoundingClientRect().height ?? 0)}px`);
+    };
+    measure();
+    const observer = new ResizeObserver(measure); observer.observe(bar); if (strip) observer.observe(strip);
+    return () => observer.disconnect();
+  }, [sessionKey, location.pathname]);
+  function accept(value: PlatformSession) {
+    setCurrentPlatformSession(value); setSession(value); setError('');
+  }
+  async function openRequestedCompany(value: PlatformSession): Promise<PlatformSession> {
+    if (!value.authenticated || value.mustChangePassword) return value;
+    const query = new URLSearchParams(window.location.search), requested = query.get('company');
+    setCurrentPlatformSession(value);
+    const selected = requested && requested !== value.organisationId ? await platformApi.switchCompany(requested) : value;
+    if (requested) {
+      query.delete('company');
+      window.history.replaceState(null, '', `${window.location.pathname}${query.size ? `?${query}` : ''}${window.location.hash}`);
+    }
+    return selected;
+  }
+  function authenticated(value: AuthenticatedPlatformSession) {
+    setChecking(true);
+    void openRequestedCompany(value).then(selected => {
+      accept(selected);
+      if (selected.authenticated && selected.actor.platformAdmin && !selected.company) navigate('/platform-admin', { replace: true });
+    }).catch(failure => { setSession(value); setError(failure instanceof Error ? failure.message : 'Bolaget kunde inte öppnas.'); })
+      .finally(() => setChecking(false));
+  }
+  useEffect(() => {
+    let live = true; setChecking(true); setError('');
+    // StrictMode can remount an effect. Share the whole initialization so a
+    // company link cannot submit two switches with the same prior generation.
+    if (initialSession.current?.attempt !== attempt)
+      initialSession.current = { attempt, promise: platformApi.session().then(openRequestedCompany) };
+    void initialSession.current.promise
+      .then(value => { if (live) accept(value); })
+      .catch(failure => { if (live) setError(failure instanceof Error ? failure.message : 'Inloggningen kunde inte kontrolleras.'); })
+      .finally(() => { if (live) setChecking(false); });
+    return () => { live = false; };
+  }, [attempt]);
+  useEffect(() => {
+    const check = () => {
+      if (checkingSession.current) return;
+      checkingSession.current = platformApi.session().then(accept)
+        .catch(failure => setError(failure instanceof Error ? failure.message : 'Inloggningen kunde inte kontrolleras.'))
+        .finally(() => { checkingSession.current = undefined; });
+    };
+    window.addEventListener('scrappilot:check-platform-session', check);
+    return () => window.removeEventListener('scrappilot:check-platform-session', check);
+  }, []);
+  async function refresh() { accept(await platformApi.session()); }
+  async function logout() {
+    await platformApi.logout();
+    setCurrentPlatformSession(undefined);
+    window.history.replaceState(null, '', '/kontor#/dashboard'); window.location.reload();
+  }
+  async function switchCompany(organisationId: string, effectiveUserId?: string) {
+    accept(await platformApi.switchCompany(organisationId, effectiveUserId));
+    // Unmount old forms, cancel requests and reset module caches through a fresh
+    // page. No business data from the previous tenant remains in component state.
+    window.history.replaceState(null, '', '/kontor#/dashboard'); window.location.reload();
+  }
+  const openAdministration = () => { setSwitcherOpen(false); navigate('/platform-admin'); };
+  if (checking) return <main className="platform-auth-screen"><div className="platform-loading" role="status"><ProductBrand large /><span className="platform-spinner" /><p>Öppnar din arbetsyta…</p></div></main>;
+  if (!session || error) return <main className="platform-auth-screen"><section className="platform-auth-card"><ProductBrand large /><h1>Arbetsytan kunde inte öppnas</h1><p className="platform-error" role="alert">{error || 'Inloggningstjänsten är inte tillgänglig.'}</p><button type="button" className="platform-btn" onClick={() => setAttempt(value => value + 1)}>Försök igen</button>{new URLSearchParams(window.location.search).has('company') && <button className="platform-text-btn" type="button" onClick={() => {
+    const query = new URLSearchParams(window.location.search); query.delete('company');
+    window.history.replaceState(null, '', `${window.location.pathname}${query.size ? `?${query}` : ''}${window.location.hash}`);
+    setAttempt(value => value + 1);
+  }}>Öppna min arbetsyta</button>}</section></main>;
+  if (!session.authenticated) return <PlatformLogin onSession={authenticated} />;
+  if (session.mustChangePassword) return <PlatformPasswordChange session={session} onSession={authenticated} onLogout={logout} />;
+  const showAdmin = session.actor.platformAdmin && (!session.company || location.pathname === '/platform-admin');
+  const context: PlatformContextValue = { session, refresh, logout, switchCompany, openAdministration };
+  return <Context.Provider value={context}><div ref={shell} className={`platform-shell${showAdmin ? ' admin' : ' platform-office'}`}>
+    <header className="platform-topbar">
+      <ProductBrand />
+      <span className="platform-company-name">{showAdmin ? <><ShieldCheck size={16} />Systemadministration</> : <><Building2 size={16} />{session.company?.name ?? 'Välj bolag'}</>}</span>
+      <div className="platform-topbar-actions">
+        {session.actor.platformAdmin && !showAdmin && <button type="button" className="platform-text-btn" onClick={openAdministration}><Settings2 size={16} />Systemadmin</button>}
+        {!showAdmin && (session.actor.platformAdmin || session.companies.length > 1) && <button type="button" className="platform-text-btn" aria-expanded={switcherOpen} onClick={() => setSwitcherOpen(value => !value)}><Building2 size={16} />{session.actor.platformAdmin ? 'Jobba som bolag' : 'Byt bolag'}</button>}
+        <span className="platform-actor">{session.actor.name}</span>
+        <button type="button" className="platform-text-btn" onClick={() => void logout().catch(failure => setError(failure instanceof Error ? failure.message : 'Utloggningen misslyckades.'))}><LogOut size={16} />Logga ut</button>
+      </div>
+    </header>
+    {switcherOpen && <section className="platform-context-menu" aria-label="Byt bolag eller behörighet"><PlatformCompanySwitcher session={session} companies={session.companies} onSwitch={switchCompany} compact /></section>}
+    {session.isSupportSession && !showAdmin && <div className="platform-support-strip"><ShieldCheck size={15} />{session.actor.name} arbetar som {session.user.name} i {session.company?.name}. Historiken sparar både inloggad och vald användare.</div>}
+    {showAdmin ? <PlatformAdmin session={session} onSwitch={switchCompany} /> : !session.company ? <main className="platform-admin"><section className="platform-panel"><h1>Välj bolag</h1><PlatformCompanySwitcher session={session} companies={session.companies} onSwitch={switchCompany} /></section></main>
+      : <div className="platform-office-body" key={`${session.organisationId}/${session.generation}`}>{children}</div>}
+  </div></Context.Provider>;
+}

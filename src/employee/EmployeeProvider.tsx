@@ -1,13 +1,20 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { EmployeeAccountPerson, EmployeeLeaveDraft, EmployeeOverview, EmployeeRequirement, EmployeeRequirementPerson, EmployeeSession, EmployeeTimeDraft, EmployeeTimeGate } from './types';
+import { employeeCompanyId } from './cache';
+
+let requestCompanyId: string | undefined;
 
 export class EmployeeError extends Error {
   constructor(message: string, public status: number, public code?: string, public gate?: EmployeeTimeGate) { super(message); }
 }
 export async function employeeRequest<T>(path: string, body?: unknown): Promise<T> {
+  // Capture the initiating company. A cookie changed in another tab must not
+  // silently redirect an existing form or pending command to another company.
+  const expectedCompany = requestCompanyId;
   const response = await fetch(`/api/employee${path}`, {
     credentials: 'same-origin', cache: 'no-store',
-    ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    headers: { ...(expectedCompany ? { 'X-Employee-Company': expectedCompany } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }),
   });
   const result = await response.json().catch(() => null);
   if (!response.ok) throw new EmployeeError(result?.error || result?.message || 'Kunde inte kontakta servern. Försök igen.', response.status, result?.code, result?.gate);
@@ -47,9 +54,11 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
   const focus = useRef({ month: stockholmDay().slice(0, 7), date: stockholmDay() });
   const sessionRef = useRef<EmployeeSession | null>(null);
   const apply = useCallback((result: EmployeeOverview) => {
+    requestCompanyId = employeeCompanyId(result.companyId);
     setOverview(result); setSession(result); sessionRef.current = result; setError(''); setRefreshing(false);
   }, []);
   const clearSession = useCallback(() => {
+    requestCompanyId = undefined;
     generation.current += 1; sequence.current += 1;
     setSession(null); sessionRef.current = null; setOverview(null); setRefreshing(false);
   }, []);
@@ -65,7 +74,7 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
       apply(result);
     } catch (caught) {
       if (current !== generation.current || currentSequence !== sequence.current) return;
-      if (caught instanceof EmployeeError && caught.status === 401) clearSession();
+      if (caught instanceof EmployeeError && (caught.status === 401 || caught.code === 'company_selection_changed')) clearSession();
       setError(employeeError(caught));
       throw caught;
     } finally { if (current === generation.current && currentSequence === sequence.current) setRefreshing(false); }
@@ -94,7 +103,7 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
     document.addEventListener('visibilitychange', check); window.addEventListener('online', check);
     window.addEventListener('jeroc:employee-session-check', check);
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', check); window.removeEventListener('online', check); window.removeEventListener('jeroc:employee-session-check', check); };
-  }, [session?.person.id, refresh]);
+  }, [session?.person.id, session?.companyId, refresh]);
 
   const login = useCallback(async (username: string, password: string) => {
     const current = ++generation.current;
@@ -124,7 +133,7 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
       else await refresh();
     } catch (caught) {
       if (current === generation.current) {
-        if (caught instanceof EmployeeError && caught.status === 401) clearSession();
+        if (caught instanceof EmployeeError && (caught.status === 401 || caught.code === 'company_selection_changed')) clearSession();
         else if (caught instanceof EmployeeError && caught.code === 'EMPLOYEE_TIME_REQUIRED') {
           if (caught.gate) setOverview(value => value ? { ...value, gate: caught.gate! } : value);
           void refresh().catch(() => undefined);

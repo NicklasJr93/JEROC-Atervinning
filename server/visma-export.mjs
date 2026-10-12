@@ -7,7 +7,7 @@ import { latestAttestedVismaCards } from './visma-weightcard.mjs';
 import { normalizeAccountingSettings as normalize, accountingExportEligibility, buildAccountingDraft as buildDraft, previewAccountingExample as examplePreview,
   AccountingError, moneyToCents, calculateMaterialBaseCents } from './visma-accounting.mjs';
 
-const ORGANISATION = 'jeroc-demo', LEASE = 120000, RECONCILE_INTERVAL = 5 * 60 * 1000;
+const LEASE = 120000, RECONCILE_INTERVAL = 5 * 60 * 1000;
 const clone = value => structuredClone(value);
 const fail = (message, status = 409, code = 'visma_export_invalid') => { throw new EnvironmentError(message, status, code); };
 const uuid = value => z.string().uuid().safeParse(value).success;
@@ -59,7 +59,7 @@ const previewAccountingExample = input => accountingCall(examplePreview, input);
 
 // This module gets a private transport capability from the OAuth service. A
 // worker never manufactures a Systemadmin principal or accepts one from HTTP.
-export function createVismaExports({ readTenantProjection, queryExports, connectionPaths, connectionFrom, transact, tenantFor, scoped, audit, clock, config, connection,
+export function createVismaExports({ organisationId = 'jeroc-demo', readTenantProjection, queryExports, connectionPaths, connectionFrom, transact, tenantFor, scoped, audit, clock, config, connection,
   sourceProvider, sitesProvider, authorizeContext, send, lookupBatch, readbackBatch }) {
   const financeFor = (tenant, create = false) => {
     if (!create) return { ...initial(), ...tenant.finance };
@@ -68,8 +68,8 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
     return finance;
   };
   const readFinanceProjection = (operation, paths) => readTenantProjection(tenant => operation(financeFor(tenant)), paths.map(path => ['finance', ...path]));
-  const mutate = (operation, finance = false) => transact(state => { const tenant = tenantFor(state, ORGANISATION, true); return operation(financeFor(tenant, true), tenant); }, { organisationId: ORGANISATION, finance });
-  const exportJobs = options => queryExports({ organisationId: ORGANISATION, ...options });
+  const mutate = (operation, finance = false) => transact(state => { const tenant = tenantFor(state, organisationId, true); return operation(financeFor(tenant, true), tenant); }, { organisationId: organisationId, finance });
+  const exportJobs = options => queryExports({ organisationId: organisationId, ...options });
   const readJob = async id => (await exportJobs({ id, limit: 1 }))[0] ?? null;
   const companyId = () => config().expectedCompanyId;
   const currentSettings = () => readFinanceProjection(finance => clone(finance.settings[companyId()] ?? defaultSettings(companyId())), [['settings', companyId() ?? '']]);
@@ -95,7 +95,8 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
     const suggested = choices?.paymentTerms.filter(term => term.availableForPurchase && term.days === 0) ?? [];
     return { settings, ...connected, sites: actualSites, choices, capabilities: { canConfigure: true,
       canExport: Boolean(settings.enabled && connected.companyVerified), automationEnabled: Boolean(settings.enabled && settings.exportMode === 'after_attest') },
-      issues: [...(!companyId() ? ['Sandboxföretaget behöver låsas med VISMA_SANDBOX_COMPANY_ID.'] : []),
+      issues: [...(!companyId() ? [organisationId === 'jeroc-demo'
+        ? 'Sandboxföretaget behöver låsas med VISMA_SANDBOX_COMPANY_ID.' : 'Anslut företagets eget Spiris-sandboxföretag.'] : []),
         ...(!connected.companyVerified ? ['Anslut och verifiera sandboxföretaget innan överföring.'] : [])],
       ...(suggested.length === 1 ? { suggestedPaymentTermsId: suggested[0].id } : {}) };
   }
@@ -261,7 +262,7 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
     }, { outbox: { key: key(prepared.companyId, prepared.source) } });
   }
   async function assertWorkerAuthorization(context) {
-    if (context?.organisationId !== ORGANISATION || context.actorId !== 'service:spiris-export') fail('Ogiltig arbetarbehörighet.', 403, 'forbidden');
+    if (context?.organisationId !== organisationId || context.actorId !== 'service:spiris-export') fail('Ogiltig arbetarbehörighet.', 403, 'forbidden');
     const settings = await currentSettings();
     if (!config().configured || !settings.enabled || !settings.enabledBy?.actualUserId || settings.companyId !== companyId())
       fail('Automatisk överföring måste aktiveras av systemadmin för det låsta sandboxföretaget.', 409, 'visma_automation_disabled');
@@ -433,7 +434,7 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
     }, { outbox: { key: sourceKey } });
   }
   async function assertTrackingAuthorization(context, id) {
-    if (context?.organisationId !== ORGANISATION || context.actorId === 'service:spiris-export' && context.effectiveUserId !== 'service:spiris-export')
+    if (context?.organisationId !== organisationId || context.actorId === 'service:spiris-export' && context.effectiveUserId !== 'service:spiris-export')
       fail('Ogiltig kontrollbehörighet.', 403, 'forbidden');
     const settings = await currentSettings(), connected = await connection(), job = id ? await readJob(id) : null;
     if (!config().configured || !settings.enabled || !settings.enabledBy?.actualUserId || !connected.companyVerified)
@@ -523,7 +524,7 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
     try {
       const settings = await currentSettings(), connected = await connection();
       if (!settings.enabled || !settings.enabledBy?.actualUserId || !config().configured || !connected.companyVerified) return { checked: 0 };
-      const context = { organisationId: ORGANISATION, actorId: 'service:spiris-export', effectiveUserId: 'service:spiris-export' };
+      const context = { organisationId: organisationId, actorId: 'service:spiris-export', effectiveUserId: 'service:spiris-export' };
       const jobs = await exportJobs({ companyId: companyId(), statuses: ['accepted'], trackingDueAt: clock().toISOString(), trackingGeneration: connected.generation,
         fields: ['id'], limit: 10 });
       let checked = 0;
@@ -608,7 +609,7 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
     try {
       const settings = await currentSettings();
       if (!settings.enabled || !settings.enabledBy?.actualUserId || !config().configured) return { processed: 0 };
-      const context = { organisationId: ORGANISATION, actorId: 'service:spiris-export', effectiveUserId: 'service:spiris-export' };
+      const context = { organisationId: organisationId, actorId: 'service:spiris-export', effectiveUserId: 'service:spiris-export' };
       const automatic = settings.exportMode === 'after_attest';
       const fullReconciliation = reconciliationRequested || lastReconciliationAt !== null && clock().getTime() - lastReconciliationAt >= RECONCILE_INTERVAL;
       const hints = automatic ? [...pendingCards].slice(0, fullReconciliation ? undefined : 50) : [];
@@ -666,7 +667,9 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
       async settings(context) { await authorize(context); return dto(); },
       async saveSettings(input, context) {
         await authorize(context);
-        if (!companyId()) fail('VISMA_SANDBOX_COMPANY_ID behöver låsa sandboxföretaget före konfiguration.', 409, 'visma_company_unverified');
+        if (!companyId()) fail(organisationId === 'jeroc-demo'
+          ? 'VISMA_SANDBOX_COMPANY_ID behöver låsa sandboxföretaget före konfiguration.'
+          : 'Anslut och verifiera företagets eget Spiris-sandboxföretag före konfiguration.', 409, 'visma_company_unverified');
         if (!input || Object.keys(input).some(name => !['expectedRevision', 'settings'].includes(name)) || !Number.isInteger(input.expectedRevision) || input.expectedRevision < 0)
           fail('Inställningarna måste innehålla aktuellt revisionsnummer.', 422);
         const normalized = normalizeAccountingSettings({ ...input.settings, revision: input.expectedRevision + 1 }, { companyId: companyId(), sandbox: true });

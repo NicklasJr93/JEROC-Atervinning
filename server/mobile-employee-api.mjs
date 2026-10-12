@@ -18,6 +18,8 @@ const parse = (schema, value) => {
   if (!result.success) fail(result.error.issues.map(issue => issue.message).join(' '), 422);
   return result.data;
 };
+const accountUsername = z.string().trim().toLowerCase().min(3).max(200).refine(value =>
+  /^[a-z0-9._-]+$/.test(value) && value.length <= 80 || z.string().email().safeParse(value).success, 'Ange ett giltigt inloggningsnamn eller en e-postadress.');
 function passwordHash(password) {
   const salt = randomBytes(24).toString('hex');
   return { salt, digest: scryptSync(password, salt, 64).toString('hex') };
@@ -155,7 +157,8 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
             const user = state.pricing?.users?.find(value => value.id === userId);
             return Boolean(account?.active && person?.active && user && user.active !== false && passwordValid(password, account.password));
           };
-          return { enabled: Boolean(enabled), accounts: {
+          const companyId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
+          return { companyId, companyName: state.metadata?.organisation?.name ?? (companyId === 'jeroc-demo' ? 'JEROC Återvinning AB' : ''), enabled: Boolean(enabled), accounts: {
             niklas: available('niklas', 'person-mobile-demo', 'mobile-demo', 'Demo123!'),
             admin: available('admin', 'person-mobile-admin', 'admin', 'JerocDemo2026!'),
           } };
@@ -178,14 +181,15 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         const overview = identity => {
           const { person, account, principal } = identity;
           const projection = employeeTimeProjection(state, person, { now, month: url.searchParams.get('month') ?? undefined, date: url.searchParams.get('date') ?? undefined, siteCatalog });
-          return { ...projection, person: safePerson(person, account), sites: siteCatalog.filter(site => site.active !== false && person.siteIds.includes(site.id)).map(({ id, name, active }) => ({ id, name, active })),
+          const companyId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
+          return { ...projection, companyId, companyName: state.metadata?.organisation?.name ?? (companyId === 'jeroc-demo' ? 'JEROC Återvinning AB' : ''), person: safePerson(person, account), sites: siteCatalog.filter(site => site.active !== false && person.siteIds.includes(site.id)).map(({ id, name, active }) => ({ id, name, active })),
             capabilities: { yardWork: principal.user.level !== 'Medarbetare' || principal.user.permissions.includes('prepare'), assignedOrders: Boolean(person.canDrive && person.driverId),
               employeeTime: true, manageTimeRequirements: managePeople(state, identity).length > 0,
               manageEmployeeAccounts: principal.user.level === 'Systemadmin' || principal.user.level === 'VD' } };
         };
         if (path === 'login') {
           if (req.method !== 'POST') fail('Metoden stöds inte.', 405);
-          const input = parse(z.object({ username: z.string().trim().toLowerCase().min(1).max(80), password: z.string().min(1).max(200) }).strict(), payload);
+          const input = parse(z.object({ username: z.string().trim().toLowerCase().min(1).max(200), password: z.string().min(1).max(200) }).strict(), payload);
           const address = hash(req.socket.remoteAddress ?? 'unknown');
           if (auth.attempts.filter(value => value.kind === 'employee' && value.address === address).length >= 12) fail('För många inloggningsförsök. Vänta 15 minuter.', 429);
           const account = auth.accounts.find(value => value.username === input.username), person = state.personnel.people.find(value => value.id === account?.personId);
@@ -237,7 +241,7 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           if (principal.user.level !== 'Systemadmin' && principal.user.level !== 'VD') fail('Du saknar behörighet att administrera personalkonton.', 403);
           const people = state.personnel.people.filter(value => value.kind === 'employee' && (!principal.user.siteIds || value.siteIds.every(id => principal.user.siteIds.includes(id))));
           if (req.method === 'POST') {
-            const input = parse(z.object({ personId: z.string().min(1).max(120), username: z.string().trim().toLowerCase().min(3).max(80).regex(/^[a-z0-9._-]+$/), active: z.boolean(), password: z.string().min(10).max(200).optional() }).strict(), payload);
+            const input = parse(z.object({ personId: z.string().min(1).max(120), username: accountUsername, active: z.boolean(), password: z.string().min(10).max(200).optional() }).strict(), payload);
             const target = people.find(value => value.id === input.personId);
             if (!target) fail('Personen ligger utanför ditt personalansvar.', 403);
             let linkedUser = state.pricing.users.find(value => value.id === target.userId);

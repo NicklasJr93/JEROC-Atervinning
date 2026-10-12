@@ -40,6 +40,7 @@ export interface EmployeeLeaveRequest {
 }
 export interface EmployeeLeaveDraft { kind: string; fromDate: string; toDate: string; note: string }
 export interface EmployeeSession {
+  companyId?: string; companyName?: string;
   person: EmployeePerson; capabilities: EmployeeCapabilities;
   sites: { id: string; name: string; active?: boolean }[];
 }

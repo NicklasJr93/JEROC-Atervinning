@@ -16,6 +16,7 @@ import type { PersonnelResponse } from '../personnel/types';
 import { transportUnavailableSpans } from './personnel-availability';
 import TransportDocumentPanel from '../documents/TransportDocumentPanel';
 import '../documents/documents.css';
+import { currentPlatformSession } from '../../platform/session';
 
 type Panel = { kind: 'details' | 'edit'; id: string } | { kind: 'book'; id: string; plan: TransportPlan } | { kind: 'create' } | null;
 type Props = {
@@ -35,6 +36,9 @@ const ActionIcon = ({ action }: { action: TransportOrder['action'] }) => {
 
 export default function TransportWorkspace({ user, actualUser, customers, onExit, workAsControl, officeBlocked, onOpenStaffing, initialOrderId, onOpenWorkOrder }: Props) {
   const [initial] = useState(() => {
+    if (currentPlatformSession()?.authenticated) {
+      return { data: transportSchema.parse({ version: 1, revision: 0, orders: [], drivers: [], vehicles: [], preliminary: {}, events: [] }), error: '' };
+    }
     try {
       const raw = localStorage.getItem(transportKey);
       return { data: raw ? transportSchema.parse(JSON.parse(raw)) : seedTransport(), error: '' };
@@ -53,6 +57,12 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const [view, setView] = useState<'day' | 'week'>('day');
   const [layout, setLayout] = useState<'both' | 'map' | 'plan'>('both');
   const [selectedDriverIds, setSelectedDriverIds] = useState(() => initial.data.drivers.map(driver => driver.id));
+  const driversInitialized = useRef(initial.data.drivers.length > 0);
+  useEffect(() => {
+    if (driversInitialized.current || !shared.ready) return;
+    driversInitialized.current = true;
+    setSelectedDriverIds(data.drivers.map(driver => driver.id));
+  }, [shared.ready, data.drivers]);
   const [vesselFilter, setVesselFilter] = useState('');
   const [showDone, setShowDone] = useState(false);
   const [search, setSearch] = useState('');

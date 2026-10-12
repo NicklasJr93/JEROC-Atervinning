@@ -5,6 +5,8 @@ import { TerminalDemoError, terminalDemoApi } from '../office/terminal-demo-clie
 import { parseTerminalSession, publicApprovalSchema, type PublicApproval, type TerminalSessionState } from '../office/terminal-demo-types';
 import { SettlementView } from './SettlementView';
 import './terminal.css';
+import { tenantPublicEventUrl } from '../tenant-public-context';
+import { useTenantCompanyName } from '../use-tenant-company';
 
 type Dialog = 'id' | 'bankid' | null;
 const changeReasons = ['Fel vikt', 'Fel artikel', 'Fel pris', 'Saknat material', 'Annat'];
@@ -58,6 +60,7 @@ function TerminalDialog({ title, children, onClose, busy = false }: { title: str
 
 
 export default function TerminalApp() {
+  const companyName = useTenantCompanyName();
   const [session, setSession] = useState<TerminalSessionState | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -119,7 +122,7 @@ export default function TerminalApp() {
         if (sequence === requestSequence.current) acceptSession(current, currentGeneration);
       } catch (caught) {
         if (controller.signal.aborted || currentGeneration !== generation.current || sequence !== requestSequence.current) return;
-        if (caught instanceof TerminalDemoError && caught.status === 401) { sessionRef.current = null; setSession(null); clearCustomer(); }
+        if (caught instanceof TerminalDemoError && (caught.status === 401 || caught.code === 'company_selection_changed')) { sessionRef.current = null; setSession(null); clearCustomer(); }
         else markDisconnected();
         setLoading(false);
       } finally { if (refreshFlight.current === pending) refreshFlight.current = undefined; }
@@ -149,40 +152,47 @@ export default function TerminalApp() {
 
   useEffect(() => {
     if (!terminalId) return;
-    const source = new EventSource('/api/terminal-demo/terminal-events', { withCredentials: true });
-    const eventGeneration = generation.current;
-    let lastEventAt = 0;
-    const update = (event: MessageEvent<string>) => {
-      if (eventGeneration !== generation.current) return;
-      try { if (acceptSession(JSON.parse(event.data), eventGeneration)) lastEventAt = Date.now(); }
-      catch { markDisconnected(); void refresh(); }
+    let disposed = false, cleanupStream: (() => void) | undefined;
+    const startStream = async () => {
+      const eventUrl = await tenantPublicEventUrl('/api/terminal-demo/terminal-events');
+      if (disposed) return;
+      const source = new EventSource(eventUrl, { withCredentials: true });
+      const eventGeneration = generation.current;
+      let lastEventAt = 0;
+      const update = (event: MessageEvent<string>) => {
+        if (eventGeneration !== generation.current) return;
+        try { if (acceptSession(JSON.parse(event.data), eventGeneration)) lastEventAt = Date.now(); }
+        catch { markDisconnected(); void refresh(); }
+      };
+      const disconnect = () => { if (eventGeneration === generation.current) { lastEventAt = 0; markDisconnected(); } };
+      source.onmessage = update; source.onerror = disconnect;
+      source.addEventListener('state', update);
+      source.addEventListener('heartbeat', (event: MessageEvent<string>) => {
+        if (eventGeneration !== generation.current) return;
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.connectionId === sessionRef.current?.connectionId) lastEventAt = Date.now();
+        } catch { /* Malformed heartbeats cannot keep a customer view alive. */ }
+      });
+      source.addEventListener('session-ended', () => { source.close(); disconnect(); void refresh(); });
+      // Healthy SSE delivers its own scoped baseline and authenticated heartbeats.
+      // Fallback is single-flight and never fetches again for an ordinary event.
+      const heartbeat = window.setInterval(() => {
+        if (document.hidden) return;
+        if (source.readyState !== EventSource.OPEN || Date.now() - lastEventAt > 45_000) {
+          disconnect();
+          void terminalDemoApi.heartbeat().then(() => refresh()).catch(disconnect);
+        }
+      }, 30_000);
+      const visibility = () => { if (document.hidden) disconnect(); else void refresh(); };
+      const online = () => void refresh();
+      const offline = disconnect;
+      document.addEventListener('visibilitychange', visibility);
+      window.addEventListener('online', online); window.addEventListener('offline', offline);
+      cleanupStream = () => { source.close(); window.clearInterval(heartbeat); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('online', online); window.removeEventListener('offline', offline); };
     };
-    const disconnect = () => { if (eventGeneration === generation.current) { lastEventAt = 0; markDisconnected(); } };
-    source.onmessage = update; source.onerror = disconnect;
-    source.addEventListener('state', update);
-    source.addEventListener('heartbeat', (event: MessageEvent<string>) => {
-      if (eventGeneration !== generation.current) return;
-      try {
-        const payload = JSON.parse(event.data);
-        if (payload.connectionId === sessionRef.current?.connectionId) lastEventAt = Date.now();
-      } catch { /* Malformed heartbeats cannot keep a customer view alive. */ }
-    });
-    source.addEventListener('session-ended', () => { source.close(); disconnect(); void refresh(); });
-    // Healthy SSE delivers its own scoped baseline and authenticated heartbeats.
-    // Fallback is single-flight and never fetches again for an ordinary event.
-    const heartbeat = window.setInterval(() => {
-      if (document.hidden) return;
-      if (source.readyState !== EventSource.OPEN || Date.now() - lastEventAt > 45_000) {
-        disconnect();
-        void terminalDemoApi.heartbeat().then(() => refresh()).catch(disconnect);
-      }
-    }, 30_000);
-    const visibility = () => { if (document.hidden) disconnect(); else void refresh(); };
-    const online = () => void refresh();
-    const offline = disconnect;
-    document.addEventListener('visibilitychange', visibility);
-    window.addEventListener('online', online); window.addEventListener('offline', offline);
-    return () => { source.close(); window.clearInterval(heartbeat); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('online', online); window.removeEventListener('offline', offline); };
+    void startStream().catch(() => { if (!disposed) markDisconnected(); });
+    return () => { disposed = true; cleanupStream?.(); };
   }, [terminalId, acceptSession, refresh, markDisconnected]);
 
   useEffect(() => {
@@ -239,7 +249,7 @@ export default function TerminalApp() {
         acceptSession({ ...previous, approval: response, revision: response.revision ?? previous.revision }, currentGeneration);
     } catch (caught) {
       if (currentGeneration !== generation.current) return;
-      if (caught instanceof TerminalDemoError && caught.status === 401) { sessionRef.current = null; setSession(null); clearCustomer(); }
+      if (caught instanceof TerminalDemoError && (caught.status === 401 || caught.code === 'company_selection_changed')) { sessionRef.current = null; setSession(null); clearCustomer(); }
       else { setError(errorLabel(caught)); void refresh(); }
     } finally { if (currentGeneration === generation.current) setResponding(false); }
   };
@@ -250,24 +260,24 @@ export default function TerminalApp() {
   const visibleDialog = approval?.status === 'waiting' ? dialog : null;
 
   return <div className="terminal-app">
-    <header className="terminal-header"><img src="/images/jeroc-logo-ui.webp" alt="JEROC Återvinning" />
+    <header className="terminal-header"><img src="/images/scrappilot-logo.svg" alt="ScrapPilot" />
       {session && <div className="terminal-device-menu"><button className="terminal-device-button" aria-expanded={menuOpen} aria-label="Terminalinställningar" onClick={() => setMenuOpen(value => !value)}><Monitor size={17} /><span>{session.terminal.name}</span><ChevronDown size={14} /></button>{menuOpen && <div className="terminal-menu"><p>{session.terminal.name}</p><span>Inloggad som kundterminal</span><button onClick={() => void logout()}><LogOut size={17} /> Logga ut terminalen</button></div>}</div>}
     </header>
-    {loading ? <main className="terminal-welcome" aria-live="polite"><LoaderCircle className="terminal-spinner" size={32} /><p>Ansluter till JEROC…</p></main> : !session ? <main className="terminal-login"><div className="terminal-login-icon"><Monitor size={31} /></div><span className="terminal-eyebrow">KUNDTERMINAL</span><h1>Välkommen till JEROC</h1><p>Logga in med terminalens konto.</p><form onSubmit={login}>
+    {loading ? <main className="terminal-welcome" aria-live="polite"><LoaderCircle className="terminal-spinner" size={32} /><p>Ansluter till {companyName}…</p></main> : !session ? <main className="terminal-login"><div className="terminal-login-icon"><Monitor size={31} /></div><span className="terminal-eyebrow">KUNDTERMINAL</span><h1>Välkommen till {companyName}</h1><p>Logga in med terminalens konto.</p><form onSubmit={login}>
       <label htmlFor="terminal-username">Inloggningsnamn</label><div className="terminal-input-icon"><UserRound size={18} /><input id="terminal-username" name="username" autoComplete="username" autoCapitalize="none" autoCorrect="off" required value={username} onChange={event => setUsername(event.target.value)} disabled={loginPending} /></div>
       <label htmlFor="terminal-password">Lösenord</label><div className="terminal-input-icon"><LockKeyhole size={18} /><input id="terminal-password" name="password" type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} disabled={loginPending} /></div>
       {error && <p className="terminal-error" role="alert"><CircleAlert size={17} />{error}</p>}
       <button className="terminal-button green" disabled={loginPending}>{loginPending ? <><LoaderCircle className="terminal-spinner" size={19} /> Ansluter…</> : 'Logga in terminal'}</button>
     </form><p className="terminal-login-help">Kontot skapas av systemadmin under Terminaler.</p></main> : idle ? <main className="terminal-welcome" aria-live="polite">
       <div className={`terminal-welcome-icon${connected ? '' : ' offline'}`}>{connected ? <ShieldCheck size={53} /> : <WifiOff size={48} />}</div>
-      <span className="terminal-eyebrow">{session.terminal.name}</span><h1>Välkommen till JEROC</h1><h2>{connected ? 'Invänta personal' : 'Återansluter…'}</h2><p>{connected ? 'Din avräkning visas här när personalen är redo.' : 'Kundvisningen är dold tills anslutningen har återställts.'}</p>
+      <span className="terminal-eyebrow">{session.terminal.name}</span><h1>Välkommen till {companyName}</h1><h2>{connected ? 'Invänta personal' : 'Återansluter…'}</h2><p>{connected ? 'Din avräkning visas här när personalen är redo.' : 'Kundvisningen är dold tills anslutningen har återställts.'}</p>
       <div className="terminal-ready"><span className={`terminal-connection-dot${connected ? '' : ' offline'}`} />{connected ? 'Terminalen är redo' : 'Ingen kontakt med servern'}</div>{notice && <p className="terminal-notice">{notice}</p>}
     </main> : waitingForId ? <main className="terminal-welcome" aria-hidden="true" /> : approval.status === 'approved' ? <main className="terminal-welcome" aria-live="polite"><div className="terminal-welcome-icon"><CheckCircle2 size={52} /></div><h1>Tack, avräkningen är godkänd</h1><p>Personalen hanterar nästa steg. Kundgodkännandet innebär inte att en utbetalning har genomförts.</p></main> : approval.status === 'change_requested' ? <main className="terminal-welcome" aria-live="polite"><div className="terminal-welcome-icon"><ClipboardList size={52} /></div><h1>Ändringsbegäran skickad</h1><p>Personalen går igenom din kommentar. Du får granska en ny version om avräkningen ändras.</p></main> : <main className="terminal-settlement" key={approvalKey}>
       {changeOpen ? <><button className="terminal-back" onClick={() => { setChangeOpen(false); setError(''); }} disabled={responding}><ArrowLeft size={19} /> Tillbaka till avräkningen</button><h1>Begär ändring</h1><p className="terminal-intro">Beskriv vad som inte stämmer så hjälper personalen dig.</p><section className="terminal-seller-card"><div className="terminal-icon-bubble"><UserRound size={27} /></div><div><h2>{approval.snapshot.customerName}</h2><p>Invägningskort INV-{approval.snapshot.cardId} · Version {approval.version}</p></div></section><form className="terminal-change-form" onSubmit={event => { event.preventDefault(); if (comment.trim()) void respond('change_requested'); }}><fieldset><legend><HelpCircle size={21} /> Vad behöver ändras?</legend>{changeReasons.map(reason => <label key={reason} className="terminal-reason"><input type="radio" name="change-reason" value={reason} checked={changeReason === reason} onChange={() => setChangeReason(reason)} disabled={responding} />{reason}</label>)}</fieldset><label htmlFor="terminal-comment"><FileText size={21} /> Beskrivning</label><textarea id="terminal-comment" required maxLength={2000} value={comment} onChange={event => setComment(event.target.value)} placeholder="Beskriv vad som inte stämmer och vad som behöver ändras…" rows={5} disabled={responding} /><span className="terminal-hint">Beskrivning krävs. {comment.length}/2 000 tecken.</span>{error && <p className="terminal-error" role="alert">{error}</p>}<button className="terminal-button blue" disabled={responding || !comment.trim()}>{responding ? 'Skickar…' : 'Skicka begäran'}</button><button type="button" className="terminal-button outline" onClick={() => setChangeOpen(false)} disabled={responding}>Tillbaka</button><p className="terminal-safe-note"><ShieldCheck size={17} />Avräkningen går inte vidare till attest innan ändringen har hanterats och en ny version godkänts.</p></form></> : <>
         <div className="terminal-heading"><div><span className="terminal-eyebrow">AVRÄKNINGSNOTA</span><h1>Granska och godkänn din avräkning</h1><p className="terminal-intro">Kontrollera material, vikt och belopp innan du godkänner.</p></div></div>
         <SettlementView settlement={approval.snapshot} />
         <button className="terminal-print" onClick={() => window.print()}><Printer size={16} /> Skriv ut preliminärt underlag</button>
-        <section className="terminal-terms"><h2><ShieldCheck size={23} /> Säljarens intygande</h2><p>Genom att godkänna avräkningen intygar jag att:</p><ul><li><Check size={16} />Jag äger materialet eller har rätt att sälja det.</li><li><Check size={16} />Materialet har lagligt ursprung.</li><li><Check size={16} />Uppgifterna jag lämnat är riktiga och jag har granskat artiklar, vikter och priser.</li><li><Check size={16} />Jag har informerat JEROC om farligt innehåll och annat som kan påverka hanteringen.</li><li><Check size={16} />Om jag säljer för ett företag har jag rätt att företräda företaget.</li></ul><p className="terminal-terms-note">En ändrad avräkning behöver granskas och godkännas på nytt.</p><label className="terminal-accept"><input type="checkbox" checked={termsAccepted} onChange={event => { setTermsAccepted(event.target.checked); setError(''); }} /><span>Jag har granskat avräkningen och bekräftar intygandet.</span></label><span className="terminal-hint">Demovillkor {approval.snapshot.termsVersion} · avräkningsversion {approval.version}</span></section>
+        <section className="terminal-terms"><h2><ShieldCheck size={23} /> Säljarens intygande</h2><p>Genom att godkänna avräkningen intygar jag att:</p><ul><li><Check size={16} />Jag äger materialet eller har rätt att sälja det.</li><li><Check size={16} />Materialet har lagligt ursprung.</li><li><Check size={16} />Uppgifterna jag lämnat är riktiga och jag har granskat artiklar, vikter och priser.</li><li><Check size={16} />Jag har informerat {companyName} om farligt innehåll och annat som kan påverka hanteringen.</li><li><Check size={16} />Om jag säljer för ett företag har jag rätt att företräda företaget.</li></ul><p className="terminal-terms-note">En ändrad avräkning behöver granskas och godkännas på nytt.</p><label className="terminal-accept"><input type="checkbox" checked={termsAccepted} onChange={event => { setTermsAccepted(event.target.checked); setError(''); }} /><span>Jag har granskat avräkningen och bekräftar intygandet.</span></label><span className="terminal-hint">Demovillkor {approval.snapshot.termsVersion} · avräkningsversion {approval.version}</span></section>
         {error && <p className="terminal-error" role="alert">{error}</p>}
         <div className="terminal-customer-actions"><button className="terminal-button green" disabled={responding} onClick={() => setDialog('bankid')}><ShieldCheck size={20} /> Godkänn med BankID</button><button className="terminal-button outline green-outline" disabled={responding} onClick={() => { if (!termsAccepted) { setError('Bekräfta att du har granskat avräkningen och intygandet först.'); return; } setDialog('id'); }}><IdCard size={20} /> Godkänn med legitimation</button><button className="terminal-button outline" disabled={responding} onClick={() => { setChangeOpen(true); setError(''); window.scrollTo({ top: 0, behavior: 'instant' }); }}>Begär ändring</button></div>
       </>}

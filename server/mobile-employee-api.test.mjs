@@ -92,6 +92,24 @@ test('demo login shortcuts expose only availability and stop advertising changed
   assert.deepEqual(disabled.accounts, { niklas: false, admin: false });
 }));
 
+test('selected-company metadata is server-owned and staff email usernames can be saved and used for mobile login', async () => fixture(async ({ request, login, repository, env }) => {
+  env.SCRAPPILOT_ORGANISATION_ID = 'tenant-test-company'; env.JEROC_DEMO_AUTO_SESSION = 'false';
+  await repository.transact(state => { state.metadata.organisation = { id: 'tenant-test-company', name: 'Testföretag Mobile' }; });
+  const config = await request('demo-config');
+  assert.equal(config.companyId, 'tenant-test-company'); assert.equal(config.companyName, 'Testföretag Mobile');
+  assert.equal(config.enabled, false);
+  const admin = await login('admin', 'JerocDemo2026!');
+  assert.equal(admin.companyId, config.companyId);
+  const email = 'test.employee+login@example.test';
+  const saved = await request('accounts/save', { personId: 'person-test-alice', username: email.toUpperCase(), active: true }, admin.cookie);
+  assert.equal(saved.status, 200, saved.error);
+  assert.equal(saved.people.find(person => person.id === 'person-test-alice').account.username, email);
+  const employee = await login(email.toUpperCase());
+  assert.equal(employee.companyId, 'tenant-test-company'); assert.equal(employee.companyName, 'Testföretag Mobile');
+  assert.equal(employee.person.username, email);
+  assert.equal((await request('session', undefined, employee.cookie, { 'x-demo-company': 'another-company' })).companyId, 'tenant-test-company');
+}));
+
 test('employee GET views use read snapshots without revising data or pruning persisted auth', async () => fixture(async ({ request, login, repository }) => {
   const admin = await login('admin', 'JerocDemo2026!');
   await repository.transact(state => {
