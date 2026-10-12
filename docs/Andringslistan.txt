@@ -1923,3 +1923,26 @@ Status: Planerad 2026-10-12. Inte implementerat.
 - Befintliga kundbehörigheter och serverkontroller gäller fortsatt. Den som
   saknar redigeringsbehörighet kan inte aktivera redigering. Ändrade uppgifter
   påverkar inte redan låsta kundgodkännanden, attester eller dokument.
+
+091 – Spara manuellt angivet ursprung och referens på kunden
+Status: Planerad 2026-10-12. Inte implementerat.
+- När en ny ursprungsadress eller referens skrivs manuellt och sparas på ett
+  viktkort med vald kund ska uppgiften även läggas till bland kundens sparade
+  ursprungsadresser respektive referenser i den gemensamma databasen.
+  Gäller befintliga kunder och kunder skapade direkt från viktkortet.
+- Återanvänd kundregistrets befintliga listor för origins och references.
+  Uppgifterna visas på kundkortet och blir valbara på framtida viktkort för
+  just den kunden, i mobil och webb. Ursprung och referens kan väljas separat.
+- Spara hela ursprungsadressen inklusive postnummer och ort när de finns.
+  Normalisering och databasformat följer 089; trimma referensens överflödiga
+  blanksteg. Lägg inte till tomma värden eller dubbletter av samma normaliserade
+  uppgift. Befintliga sparade uppgifter ska inte ersättas av det nya valet.
+- Uppgifterna läggs till först när de sparas, inte för varje tangenttryck.
+  Servern kopplar dem till rätt vald kund och bevarar andra samtidiga tillägg;
+  kundbyte eller avbruten redigering får inte spara värden på fel kund.
+- Framtida viktkort fylls inte automatiskt med ett tidigare ursprung eller en
+  referens. Kontoristen väljer uppgiften aktivt. Kundadresskopiering enligt 084
+  är fortsatt en separat, från början avmarkerad kryssruta.
+- Befintliga behörigheter och kundhistorik används. Senare ändring eller
+  borttagning av ett sparat kundval ändrar inte redan låsta viktkort,
+  kundgodkännanden, miljömottagningar eller dokument.
