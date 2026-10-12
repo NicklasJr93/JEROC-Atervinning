@@ -1762,3 +1762,28 @@ Status: Planerad 2026-10-12. Förslag antecknat; inte implementerat.
   i kundregistret ändrar inte sparade kort, godkända underlag eller miljömottagningar.
 - Befintlig behörighet, adress-/kommunhantering och låsning används. Ursprunget
   ska fortfarande vara sparat innan kundgodkännandet startar.
+
+085 – Kundens momsuppgifter i mobilens Ny kund
+Status: Planerad 2026-10-12. Befintligt flöde granskat; inte implementerat.
+- Nuläge: mobilen visar namn, kundtyp, nummer, kontaktuppgifter och adress.
+  Mobilens kundmodell saknar momsregistrering och individuella betalningsvillkor.
+  Servern sätter nya Företag/BRF till momsregistrerad Ja och Privatperson till Nej;
+  det är ett standardvärde, ingen automatisk kontroll av momsregistrering.
+- Lägg till Momsregistrerad Ja/Nej för Företag och BRF i mobilens Ny kund,
+  med samma förvalda Ja och kontrollrutin som kontorets snabbformulär.
+  Privatperson behöver inget momsval och sparas som inte momsregistrerad.
+- Valet ska följa med genom mobilens kundmodell, offlinekö och API och sparas
+  i det gemensamma kundregistret. Ett explicit Nej får inte ersättas av dagens
+  automatiska Ja. Kund- och momsuppgifter ska valideras på servern.
+- Betalningsvillkor använder fortsatt integrationens standard när kunden saknar
+  eget antal dagar. Direkt innebär 0 dagar när det är det valda standardvillkoret;
+  Spiris-ID:t hämtas från företagets verkliga betalningsvillkor, inte ett påhittat ID.
+  Individuella villkor kan fortsatt hanteras på kontoret utan extra obligatoriska
+  ekonomifält vid mobilens snabba kundregistrering.
+- Befintliga kunders momsstatus, individuella villkor och ekonomiska uppgifter
+  ska bevaras när mobilen ändrar kontaktuppgifter eller kopplar ett fordon.
+- Leverantörs-ID matchas eller skapas av Spiris-exporten; konton, momskoder,
+  resultatenheter och projekt hämtas från integrationens ekonomiinställningar.
+  De ska inte behöva fyllas i manuellt i mobilens Ny kund.
+- Momsberäkningen använder kundens momsstatus och artikelns momsregel vid
+  avräkning. Frysta kundgodkända/attesterade ekonomiska versioner ändras inte.
