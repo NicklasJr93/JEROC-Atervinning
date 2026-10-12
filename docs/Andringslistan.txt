@@ -2128,3 +2128,57 @@ Status: Planerad 2026-10-12. Radklick och den rekommenderade kompakta hoverrutan
 - Behåll vald kö/flik, sökning, filter och scrollposition när användaren
   återvänder från kortet. Förhandsvisningen använder samma behörighetsfiltrerade
   uppgifter som listan och ska inte hämta ett helt kort vid varje musrörelse.
+
+098 – Utbetalning via bank/Swish först, betalningsbokföring i Spiris därefter
+Status: Godkänt flöde för framtida bygge 2026-10-12. Planering sparad;
+bank-/Swish-sändning och Spiris-betalningsregistrering är inte implementerade.
+- Ekonomiansvarig använder Betala ut och en förifylld bekräftelsepopup.
+  Belopp och mottagaruppgifter hämtas från låst avräkning; betalsätt och
+  nödvändiga uppgifter ska vara kompletta före attest. JEROC:s betalningskonto
+  väljs från integrationens inställningar. Normalfallet kräver ingen ny inmatning.
+- Ordning: attesterat underlag -> utbetalning begärd -> skickad/väntar
+  signering -> verifierat genomförd -> betalning bokförd i Spiris.
+  Skickad, mottagen eller accepterad instruktion räknas inte som genomförd.
+- Avräkningsutkastet kan fortsatt skickas till Spiris efter attest och
+  fakturan bokföras separat. Det är betalningsregistreringen som väntar på
+  bekräftat genomförd utbetalning. Om fakturan ännu inte bokförts väntar
+  betalningsbokföringen på rätt slutligt faktura-ID.
+- Gemensam betalningsjournal och separata adapterkopplingar för bank och
+  Swish. Kopplingar kräver rätt avtal, autentisering och verifierad testmiljö.
+  Ingen riktig utbetalning aktiveras av befintliga demo- eller sandboxknappar.
+- Bank: visa eventuell väntan på signering och bankens behandling.
+  Genomförd kräver bankens slutliga verifierade resultat. Banken eller JEROC
+  ska ha en ansvarig sändväg per ärende; undvik parallell sändning via Spiris.
+- Swish: använd produkten Swish Utbetalning och dess API, inte API:t för
+  att ta emot kundbetalningar. Swedbanks beskrivning kräver privat mottagare,
+  personnummer och Swish-kopplat mobilnummer. Uppgifterna måste vara klara
+  före attest för automatisk Swish-utbetalning. Företagsmottagare använder
+  en betalväg som stöder företagsutbetalningar.
+- Swish Payouts v1 har nu granskats: CREATED och DEBITED är mellanlägen;
+  endast verifierat PAID startar Spiris-betalningsbokföringen. Det stabila
+  payoutInstructionUUID används för Swishs dokumenterade dubblettskydd.
+  Callback stäms av och följs av GET på samma instruktion. Personnummer
+  måste vara 12 siffror; databasens E.164-telefon behålls och anpassas endast
+  i API-payloaden. Simulatorguide MSS v1 finns för framtida test.
+- Callback och statusåterläsning ska verifiera rätt betalnings-ID, mottagare,
+  belopp och organisation. Samma eller försenad callback får inte skapa ny
+  utbetalning eller ny bokföring. Fel ska ge en tydlig separat status.
+- Kontant: behörig personal bekräftar att pengarna faktiskt lämnats över;
+  det registrerar genomförd utbetalning med person och tid. Därefter skickas
+  betalningsbokföringen till Spiris. Kontant har ingen bankcallback.
+- Spara på saldo: beloppet kvarstår som tillgodohavande tills verkligt uttag
+  sker. Då används bank, Swish eller kontant och betalningen kopplas till
+  respektive underlag. Saldosparande skapar ingen fiktiv bankbetalning.
+- Spiris: POST /v2/supplierinvoices/{invoiceId}/payments används med slutligt
+  faktura-ID, vårt bank-/kassakonto-ID, faktiskt betalningsdatum, belopp och
+  valuta. Returnerad transaktion och betalningsstatus återläses. Fakturans
+  verifikation och betalningsverifikationen hålls isär i spårbarheten.
+- Varje betalning har ett beständigt serverägt ID. Registrering och utkorg
+  sparas atomiskt med dubbelsändningsskydd. Osäkert sändningsresultat kräver
+  avstämning av samma instruktion; automatisk ny utbetalning är spärrad.
+- Efter genomförd utbetalning får ett Spiris-fel bara påverka bokföringskön.
+  Pengastatus behålls, exempelvis Utbetald · bokföringsöverföring behöver åtgärdas.
+- Återställning av backup och byte/bortkoppling av integration ska pausa
+  externa sändningar tills kopplingar och betalningsjournal stämts av.
+  Historiska demoutbetalningar ska inte automatiskt återspelas mot bank/Spiris.
+- Detaljer och källor: docs/integrationer/utbetalningar-plan.md.
