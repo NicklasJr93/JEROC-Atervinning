@@ -1580,13 +1580,15 @@ Status: Planering sparad 2026-10-12. Alla tre områden avvaktar implementation.
 - Dokumentationsändring; inga nya funktioner eller externa leveranser aktiveras.
 
 078 – Schema & tid i mobilen och chefens granskning
-Status: Klickbar mockup framtagen 2026-10-12. Implementation återstår.
+Status: Statiska huvudvyer och tidigare klickbar mockup framtagna 2026-10-12.
+Implementation återstår.
 - Uppdaterad riktning 2026-10-12: en gemensam mobilapp och startsida med
   Gårdsarbete, Mina uppdrag och Schema & tid. Den egna delen heter Schema & tid;
-  Personal används fortsatt för chefens administration. Huvudmenyn har Start,
-  Arbete, Schema & tid och Profil. Samma upplägg, funktioner efter behörighet.
-- Mobilappens Schema & tid får eget schema, veckans
-  rapporterade arbetstid, ledighetsansökningar och separata semester-/komp-/flexsaldon.
+  Personal används fortsatt för chefens administration. Bottenmenyn har Hem,
+  Schema, Tid och Profil. Samma upplägg, funktioner efter behörighet.
+- Schema visar dag/vecka/månad och vald dags jobb direkt under kalendern.
+  Tid visar månadens registrerade timmar och vald dags tider per jobb/aktivitet;
+  ledighetsansökningar och separata semester-/komp-/flexsaldon finns här.
 - Faktiskt arbetad tid och obetald rast registreras manuellt. Planerat schema
   räknas inte automatiskt som utfört. Rapport skickas, låses och kan godkännas
   eller återföras med kommentar av chef. Övertidsersättning och flex kräver egna regler.
@@ -1597,8 +1599,9 @@ Status: Klickbar mockup framtagen 2026-10-12. Implementation återstår.
   av tid/ledighet, även på mobil. Medarbetaren ser sina egna uppgifter.
 - Prototypen återanvänder JEROC:s visuella språk och samma exempelperson genom
   hela kedjan. Fullsidiga mobilformulär och separat chefsvy; inga produktionsdata ändras.
-- 13 bilder och provflöde: docs/mockups/personal-mobil/README.md.
-  Klickbar prototyp: public/mockups/personal-mobil/index.html.
+- Fyra statiska huvudvyer: docs/mockups/mobil-huvudvyer/README.md.
+  Tidigare 13 bilder och provflöde: docs/mockups/personal-mobil/README.md.
+  Tidigare klickbar prototyp: public/mockups/personal-mobil/index.html.
 - Före implementation behövs verklig gemensam inloggning, serverstyrd egen- och
   chefsåtkomst samt beslutade saldo-/semester-/tidsregler. Personaldokument,
   utrustning, lönekörning och integrationer ingår inte i mockupen.

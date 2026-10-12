@@ -1,6 +1,14 @@
 # Schema & tid – mobil självservice och chefens granskning
 
-## Nytt designförslag: gemensam startsida
+## Senaste statiska huvudvyer
+
+[Öppna bilderna för Hem, Schema, Tid och Profil](../mobil-huvudvyer/README.md).
+Den gemensamma appens bottenmeny är **Hem · Schema · Tid · Profil**.
+Hem samlar gårdsarbete och egna uppdrag. Schema visar planeringen; Tid
+samlar rapporterad arbetstid, ledighetsansökningar och saldon. Profil har
+kontouppgifter och inställningar. Den verkliga appen är inte ändrad.
+
+## Tidigare förslag: gemensam startsida
 
 [Öppna bilden på den gemensamma startsidan](14_Gemensam_Startsida.png).
 
@@ -9,15 +17,16 @@
 Startsidan samlar dagens arbetspass och nästa uppdrag samt tre ingångar:
 **Gårdsarbete**, **Mina uppdrag** och **Schema & tid**. Samma upplägg föreslås
 för alla, med funktioner utifrån behörighet. Pågående vägningar kan återupptas
-längst ner. Huvudmenyn har **Start**, **Arbete**, **Schema & tid** och **Profil**.
+längst ner. Bildens tidigare huvudmeny ersätts i de senaste förslagen av
+**Hem**, **Schema**, **Tid** och **Profil**.
 Namnet **Schema & tid** är valt för medarbetarens egna uppgifter. Chefens
 personaladministration heter fortsatt **Personal**.
 
-Detta är en ny statisk bild. Den klickbara prototypen och ZIP-filen nedan
+Detta är en tidigare statisk bild. Den klickbara prototypen och ZIP-filen nedan
 visar fortfarande det tidigare navigationsförslaget med namnet Min personal; den riktiga appen är
 inte ändrad av denna mockup.
 
-## Klickbar prototyp
+## Tidigare klickbar prototyp
 
 Klickbart designförslag 2026-10-12 i befintlig JEROC-design.
 [Öppna mobilmockupen](https://jeroc-atervinning.onrender.com/mockups/personal-mobil/index.html#profil)
@@ -49,8 +58,8 @@ verkliga appen. Ladda om eller välj **Återställ** för att börja om.
 | Godkänd ledighet och bemanning | [12_Chef_Godkand_Ledighet.png](12_Chef_Godkand_Ledighet.png) |
 | Medarbetarens uppdaterade saldon | [13_Mobil_Uppdaterat_Saldo.png](13_Mobil_Uppdaterat_Saldo.png) |
 
-Ingången föreslås under **Profil → Min personal** i befintlig mobilapp, även
-när den öppnas genom Expo. De egna personalvyerna visar egen information;
+Denna tidigare prototyp visar ingången **Profil → Min personal**. Det senaste
+förslaget ovan har separata flikar för Schema och Tid. De egna vyerna visar egen information;
 chefens kö ligger under kontorets Personal och anpassas även till mobilbredd.
 Riktig implementation måste använda personalkopplingen, verklig inloggning
 och serverns chefs-/anläggningsbehörigheter.
