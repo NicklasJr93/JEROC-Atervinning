@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApplicationRepository } from './application-storage.mjs';
 import { createVismaSandbox } from './visma-sandbox.mjs';
+import { createVismaStorage } from './visma-storage.mjs';
 import { freezePurchaseAccounting } from './visma-accounting.mjs';
 
 const companyId = '55c5ec9b-4e91-4d10-b41e-c58f7ab0a0d2', supplierId = '1831c176-4020-4a9c-9fe5-1f8b2fdb0d91', draftId = '9841366b-4020-4a9c-9fe5-1f8b2fdb0d91';
@@ -16,11 +17,11 @@ const page = values => body({ Data: values, Meta: { CurrentPage: 1, PageSize: 10
 const configuration = (extra = {}) => ({ revision: 0, enabled: true, exportMode: 'manual', companyId, sandbox: true, paymentTermDays: 0, paymentTermsId: termsId,
   accounts: { privatePurchase: 4000, reversePurchase: 4000, standardPurchase: 4000, noVatPurchase: 4000, supplierLiability: 2440, inputVat: 2641, inputReverseVat: 2645, outputReverseVat: 2614 },
   vatCodes: { reverse25: vatId, standard25: vatId }, sites: [{ siteId: 'yard', useDefaults: true }], ...extra });
-async function fixture(run) {
+async function fixture(run, { local = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'jeroc-visma-export-')), filename = join(directory, 'application.sqlite');
   const repositoryEnv = {};
   let pool, schema;
-  if (process.env.JEROC_TEST_DATABASE_URL) {
+  if (process.env.JEROC_TEST_DATABASE_URL && !local) {
     const { Pool } = await import('pg'); pool = new Pool({ connectionString: process.env.JEROC_TEST_DATABASE_URL });
     schema = `jeroc_visma_${randomUUID().replaceAll('-', '')}`; await pool.query(`CREATE SCHEMA "${schema}"`);
     const url = new URL(process.env.JEROC_TEST_DATABASE_URL); url.searchParams.set('options', `-c search_path=${schema}`); repositoryEnv.DATABASE_URL = url.toString();
@@ -50,11 +51,15 @@ async function fixture(run) {
     return provider(call);
   };
   const otherRepositories = [];
+  const inspector = createVismaStorage({ getRepository: async () => repository });
   const makeService = (selectedRepository, options = {}) => createVismaSandbox({ getRepository: async () => selectedRepository ?? repository, env, fetchImpl, now: () => time, ...options,
-    sourceProvider: async () => structuredClone(approvals), sitesProvider: async () => [{ id: 'yard', name: 'Testanläggning' }],
+    sourceProvider: options.sourceProvider ?? (async () => structuredClone(approvals)), sitesProvider: async () => [{ id: 'yard', name: 'Testanläggning' }],
     authorizeContext: async () => { if (revoked) { const error = new Error('Session revoked'); error.status = 403; error.code = 'session_revoked'; throw error; } } });
   let service = makeService();
   const f = { calls, approvals, suppliers, env, normalProvider, postgres: Boolean(pool),
+    makeService,
+    readIntegration: operation => inspector.read(operation),
+    transactIntegration: operation => inspector.transact(operation),
     withLookupTimeout: milliseconds => makeService(undefined, { lookupTimeoutMs: milliseconds }),
     get service() { return service; }, get repository() { return repository; },
     setProvider: handler => { provider = handler; }, revoke: () => { revoked = true; }, advance: () => { time = new Date(time.getTime() + 120001); },
@@ -94,11 +99,67 @@ test('finance settings are company-scoped, revision guarded and select only actu
   assert.equal(preview.draft.TotalAmount, 1000); assert.equal(preview.draft.DueDate, '2026-10-11'); assert.equal(f.calls.length, before);
 }));
 
+test('status and accounting settings project one tenant snapshot without historical runs, exports or credentials', async () => fixture(async f => {
+  await f.enable();
+  const expected = await f.service.settings(context), extraTerm = randomUUID();
+  await f.transactIntegration(document => {
+    const tenant = document.tenants['jeroc-demo'];
+    tenant.runs.push({ id: randomUUID(), startedAt: '2026-10-01T00:00:00Z', response: { historical: 'x'.repeat(2 * 1024 * 1024) } });
+    tenant.finance.outbox.push({ historical: 'y'.repeat(1024 * 1024) });
+    tenant.finance.mappings.secretHistory = { supplierResponse: 'not-needed-for-settings' };
+    tenant.finance.settingsHistory[companyId].unused = { historical: 'z'.repeat(1024 * 1024) };
+    tenant.finance.choices[companyId].paymentTerms.push({ id: extraTerm, days: 1, availableForPurchase: true, name: '1 dag' });
+    document.tenants['another-tenant'] = { company: { id: 'other' }, secretHistory: 'other-tenant-private' };
+  });
+  const before = await f.repository.read((state, revision) => ({ state, revision })), projections = [];
+  const projectedRepository = {
+    kind: f.repository.kind,
+    read() { assert.fail('These lightweight reads must not deserialize the full integration document'); },
+    readProjection(operation, options) {
+      projections.push(options);
+      return f.repository.readProjection((state, revision) => {
+        const tenant = state.vismaIntegration.tenants['jeroc-demo'];
+        assert.equal(state.vismaIntegration.tenants['another-tenant'], undefined);
+        assert.equal(tenant.runs, undefined); assert.equal(tenant.audit, undefined);
+        if (tenant.tokens) assert.deepEqual(Object.keys(tenant.tokens), ['version']);
+        if (tenant.finance) for (const key of ['outbox', 'mappings', 'settingsHistory']) assert.equal(tenant.finance[key], undefined);
+        assert.ok(JSON.stringify(state).length < 10000, 'Historical response size cannot enlarge a settings/status snapshot');
+        return operation(state, revision);
+      }, options);
+    },
+  };
+  const service = f.makeService(projectedRepository), callCount = f.calls.length;
+  assert.deepEqual(await service.integrationStatus(context), { mode: 'test', configured: true, connected: true, failed: false, lastCheckedAt: '2026-10-11T10:00:00.000Z' });
+  assert.equal(projections.length, 1); assert.ok(projections[0].paths.every(path => path[2] !== 'finance'));
+  projections.length = 0;
+  const result = await service.settings(context);
+  assert.equal(projections.length, 1, 'Status, settings and cached choices are one consistent read');
+  assert.deepEqual(result.settings, expected.settings); assert.deepEqual(result.company, expected.company);
+  assert.equal(result.companyVerified, true); assert.equal(result.choices.accounts.length, expected.choices.accounts.length);
+  assert.equal(result.choices.paymentTerms.length, 2); assert.equal(result.suggestedPaymentTermsId, termsId);
+  projections.length = 0;
+  const selected = await service.financeSettingsForCompany({ paymentTermDays: 1 });
+  assert.equal(selected.paymentTermsId, extraTerm); assert.equal(selected.paymentTermDays, 1);
+  assert.equal(projections.length, 2);
+  assert.deepEqual(projections[0].paths, [['tenants', 'jeroc-demo', 'finance', 'settings', companyId]]);
+  assert.deepEqual(projections[1].paths, [['tenants', 'jeroc-demo', 'finance', 'choices', companyId, 'paymentTerms']]);
+  await assert.rejects(() => service.settings({ ...context, organisationId: 'another-tenant' }), error => error.status === 403);
+  assert.equal(f.calls.length, callCount, 'Local status/settings never call Spiris');
+  assert.deepEqual(await f.repository.read((state, revision) => ({ state, revision })), before, 'Projected reads do not mutate or bump revisions');
+}, { local: true }));
+
+test('custom repositories without projection support still read settings once and preserve public results', async () => fixture(async f => {
+  await f.enable(); const expected = await f.service.settings(context); let reads = 0;
+  const repository = { kind: f.repository.kind, read(operation, options) { reads++; return f.repository.read(operation, options); } };
+  assert.deepEqual(await f.makeService(repository).settings(context), expected);
+  assert.equal(reads, 1, 'The fallback is also one snapshot rather than three reads');
+}, { local: true }));
+
 test('settings lookup fetches three complete 1,413-account plans in six large pages with one company check', { timeout: 5000 }, async () => fixture(async f => {
   await f.connect();
   const years = [2025, 2026, 2027].map(year => ({ Id: randomUUID(), StartDate: `${year}-01-01T00:00:00Z`, EndDate: `${year}-12-31T00:00:00Z`, IsLockedForAccounting: false }));
   const start = f.calls.length; let inFlight = 0, maxInFlight = 0;
-  const runsBefore = await f.repository.read(state => state.vismaIntegration.tenants['jeroc-demo'].runs.length);
+  const runsBefore = await f.readIntegration(document => document.tenants['jeroc-demo'].runs.length);
   f.setProvider(async call => {
     if (call.url.pathname === '/v2/fiscalyears') return page(years);
     if (!call.url.pathname.startsWith('/v2/accounts/')) return f.normalProvider(call);
@@ -121,7 +182,7 @@ test('settings lookup fetches three complete 1,413-account plans in six large pa
   assert.equal(calls.filter(call => call.url.pathname === '/v2/companysettings').length, 1);
   assert.ok(maxInFlight > 1, 'Independent fiscal-year reads must overlap'); assert.ok(maxInFlight <= 4);
   assert.ok(calls.every(call => call.method === 'GET')); assert.equal(f.posts().length, 0);
-  const stored = await f.repository.read(state => state.vismaIntegration.tenants['jeroc-demo']);
+  const stored = await f.readIntegration(document => document.tenants['jeroc-demo']);
   assert.equal(stored.runs.length, runsBefore, 'Settings reads do not repeatedly journal full raw account pages');
   assert.equal(stored.audit.at(-1).action, 'visma.accounting_choices_fetched');
   assert.equal(stored.audit.at(-1).accounts, 4239);
@@ -158,7 +219,7 @@ for (const change of ['revoke', 'disconnect']) test(`settings pages recheck ${ch
   if (change === 'revoke') f.revoke(); else await f.service.disconnect(context);
   release(); await assert.rejects(() => lookup, error => ['session_revoked', 'visma_not_connected'].includes(error.code));
   assert.equal(accountCalls, 1, 'The next page cannot dispatch after permission/connection changes');
-  const stored = await f.repository.read(state => state.vismaIntegration.tenants['jeroc-demo'].finance.choices[companyId]);
+  const stored = await f.readIntegration(document => document.tenants['jeroc-demo'].finance.choices[companyId]);
   assert.deepEqual(stored, previous); assert.equal(f.posts().length, 0);
 }));
 
@@ -226,10 +287,84 @@ test('automatic worker discovers only frozen authorised attest versions and uses
   f.approvals.push({ ...structuredClone(f.approvals[0]), id: randomUUID(), cardId: 3017, snapshot: { ...f.approvals[0].snapshot, card: { id: 3017 } } });
   assert.equal((await f.service.processQueuedExports()).processed, 1); assert.equal(f.posts().length, 2);
   const jobs = await f.service.exports(context); assert.equal(jobs.exports.length, 1); assert.equal(jobs.exports[0].trigger, 'after_attest'); assert.equal(jobs.exports[0].status, 'accepted');
-  const audits = await f.repository.read(state => state.vismaIntegration.tenants['jeroc-demo'].audit);
+  const audits = await f.readIntegration(document => document.tenants['jeroc-demo'].audit);
   assert.equal(audits.find(item => item.action === 'visma.export_queued').actualUserId, 'service:spiris-export');
   assert.equal(audits.find(item => item.action === 'visma.export_queued').attestActorId, 'staff-1');
   await f.restart(); await f.service.processQueuedExports(); assert.equal(f.posts().length, 2);
+}));
+
+test('automatic reconciliation reads sources once and skips unchanged attest versions before accounting lookups', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' }); await f.source(); let sourceReads = 0;
+  const worker = f.makeService(undefined, { sourceProvider: async () => { sourceReads++; return structuredClone(f.approvals); } });
+  assert.equal((await worker.processQueuedExports()).processed, 1);
+  const providerCalls = f.calls.length; sourceReads = 0;
+  assert.equal((await worker.processQueuedExports()).processed, 0);
+  assert.equal(sourceReads, 1, 'An unchanged pass reads one authoritative source snapshot, without rereading every approval to enqueue it again');
+  assert.equal(f.calls.length, providerCalls);
+  const next = structuredClone(f.approvals[0]); next.id = randomUUID(); next.version = 2; f.approvals.push(next);
+  assert.equal((await worker.processQueuedExports()).processed, 1, 'A new frozen version is discovered despite the earlier known source');
+  assert.equal(f.posts().filter(call => call.url.pathname === '/v2/suppliers').length, 1);
+  assert.equal(f.posts().filter(call => call.url.pathname === '/v2/supplierinvoicedrafts').length, 2);
+}));
+
+test('prefill, export preparation and every pre-dispatch source check request only the selected weight card', async () => fixture(async f => {
+  await f.enable(); await f.source(); const requests = [];
+  const service = f.makeService(undefined, { sourceProvider: async request => {
+    requests.push(request);
+    return structuredClone(f.approvals.filter(approval => request?.cardId === undefined || approval.cardId === request.cardId));
+  } });
+  assert.equal((await service.prefill(3016, context)).source.cardId, 3016);
+  assert.equal((await service.preview({ cardId: 3016 }, context)).eligible, true);
+  assert.equal((await service.sendExport({ cardId: 3016 }, context)).status, 'accepted');
+  assert.ok(requests.length >= 5, 'Source validity still gets checked again before provider dispatch');
+  assert.ok(requests.every(request => request?.cardId === 3016), 'Single-card actions cannot read the complete source journal');
+}));
+
+test('attest hints survive a busy worker and periodic queue drains avoid full source scans', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' }); const requests = [];
+  const worker = f.makeService(undefined, { sourceProvider: async request => {
+    requests.push(request);
+    return structuredClone(f.approvals.filter(approval => request?.cardId === undefined || approval.cardId === request.cardId));
+  } });
+  assert.equal((await worker.processQueuedExports()).processed, 0, 'Startup performs one authoritative empty reconciliation');
+  assert.deepEqual(requests, [undefined]); requests.length = 0;
+  await f.source(); await f.source({ cardId: 3017 });
+  let entered, release;
+  const reached = new Promise(resolve => { entered = resolve; }), held = new Promise(resolve => { release = resolve; });
+  f.setProvider(async call => {
+    if (call.method === 'POST' && call.url.pathname === '/v2/suppliers') { entered(); await held; }
+    return f.normalProvider(call);
+  });
+  const first = worker.processQueuedExports({ cardId: 3016, reconcile: false });
+  await reached;
+  assert.deepEqual(await worker.processQueuedExports({ cardId: 3017, reconcile: false }), { processed: 0 });
+  release(); assert.equal((await first).processed, 1);
+  assert.ok(requests.every(request => request?.cardId === 3016)); requests.length = 0;
+  assert.equal((await worker.processQueuedExports({ reconcile: false })).processed, 1, 'The next pass consumes the hint received during the first export');
+  assert.ok(requests.length > 0); assert.ok(requests.every(request => request?.cardId === 3017)); requests.length = 0;
+  const calls = f.calls.length;
+  assert.equal((await worker.processQueuedExports({ reconcile: false })).processed, 0);
+  assert.deepEqual(requests, []); assert.equal(f.calls.length, calls);
+  f.advance(); f.advance(); f.advance();
+  assert.equal((await worker.processQueuedExports({ reconcile: false })).processed, 0);
+  assert.deepEqual(requests, [undefined], 'An authoritative full reconciliation remains available periodically even without hints');
+  assert.equal(f.calls.length, calls);
+}));
+
+test('PostgreSQL keeps integration journals outside the business aggregate and preserves export idempotence after restart', async t => fixture(async f => {
+  if (!f.postgres) { t.skip('Requires isolated PostgreSQL'); return; }
+  await f.enable(); await f.source(); const result = await f.service.sendExport({ cardId: 3016 }, context);
+  assert.equal(result.status, 'accepted');
+  const compact = await f.repository.read(state => state.vismaIntegration.tenants['jeroc-demo']);
+  assert.equal(compact.runs, undefined); assert.equal(compact.audit, undefined);
+  for (const key of ['outbox', 'choices', 'settingsHistory', 'mappings']) assert.equal(compact.finance[key], undefined);
+  assert.equal(compact.finance.settings[companyId].enabled, true);
+  const complete = await f.readIntegration(document => document.tenants['jeroc-demo']);
+  assert.equal(complete.finance.outbox[0].draftId, draftId); assert.ok(complete.runs.length > 0); assert.ok(complete.audit.length > 0);
+  const calls = f.calls.length; await f.restart();
+  assert.deepEqual(await f.service.sendExport({ cardId: 3016 }, context), result); assert.equal(f.calls.length, calls);
+  assert.equal((await f.service.settings(context)).choices.accounts.length, 5);
+  assert.equal((await f.service.status(context)).connected, true);
 }));
 
 test('explicit manually queued work resumes after restart while automatic discovery remains disabled', async () => fixture(async f => {
@@ -277,8 +412,8 @@ test('Spiris fractional VAT rates and old raw caches normalize to percent for se
   f.setProvider(call => call.url.pathname === '/v2/vatcodes' ? page(values.map(rate => ({ Id: rate === 0.25 ? vatId : randomUUID(), Code: String(rate), Description: 'Spiris moms', VatRate: rate }))) : f.normalProvider(call));
   const fetched = await f.service.lookupChoices(context);
   assert.deepEqual(fetched.choices.vatCodes.map(code => code.rate), [0, 6, 12, 25]); assert.equal(fetched.choices.vatRateUnit, 'percent');
-  await f.repository.transact(state => {
-    const cached = state.vismaIntegration.tenants['jeroc-demo'].finance.choices[companyId];
+  await f.transactIntegration(document => {
+    const cached = document.tenants['jeroc-demo'].finance.choices[companyId];
     delete cached.vatRateUnit; cached.vatCodes.forEach(code => { code.rate /= 100; });
   });
   const calls = f.calls.length;
@@ -288,10 +423,10 @@ test('Spiris fractional VAT rates and old raw caches normalize to percent for se
   const preview = await f.service.preview({ example: 'standard_25', siteId: 'yard', amount: 1000, date: '2026-10-11' }, context);
   assert.equal(preview.eligible, true); assert.equal(preview.draft.Vat, 250);
   assert.equal(f.calls.length, calls, 'Old choices are repaired on read without another Spiris request');
-  const cached = await f.repository.read(state => state.vismaIntegration.tenants['jeroc-demo'].finance.choices[companyId]);
+  const cached = await f.readIntegration(document => document.tenants['jeroc-demo'].finance.choices[companyId]);
   assert.equal(cached.vatCodes.at(-1).rate, 0.25, 'Read normalization does not rewrite accounting history or old cache');
-  await f.repository.transact(state => {
-    const choices = state.vismaIntegration.tenants['jeroc-demo'].finance.choices[companyId];
+  await f.transactIntegration(document => {
+    const choices = document.tenants['jeroc-demo'].finance.choices[companyId];
     choices.vatRateUnit = 'percent'; choices.vatCodes = [{ id: randomUUID(), code: '1', name: 'One percent', rate: 1 }];
   });
   assert.equal((await f.service.settings(context)).choices.vatCodes[0].rate, 1, 'An explicit percent unit prevents double normalization');
@@ -319,11 +454,11 @@ test('restart recovers a returned supplier ID from its durable run before drafti
   await f.enable(); await f.source(); const result = await f.service.sendExport({ cardId: 3016 }, context);
   // Reconstruct a crash after the supplier response was persisted, before the
   // mapping/outbox stage update committed. The supplier run itself is retained.
-  await f.repository.transact(state => {
-    const finance = state.vismaIntegration.tenants['jeroc-demo'].finance, job = finance.outbox[0], mapping = Object.values(finance.mappings)[0];
+  await f.transactIntegration(document => {
+    const finance = document.tenants['jeroc-demo'].finance, job = finance.outbox[0], mapping = Object.values(finance.mappings)[0];
     delete mapping.supplierId; mapping.status = 'reserved'; delete job.supplierId; delete job.draftId; job.status = 'processing'; job.stage = 'supplier';
     job.lease = { id: randomUUID(), until: '2026-10-11T09:00:00Z' };
-    const runs = state.vismaIntegration.tenants['jeroc-demo'].runs;
+    const runs = document.tenants['jeroc-demo'].runs;
     const draft = runs.find(run => run.id === job.runs.draftRequestId); runs.splice(runs.indexOf(draft), 1);
   });
   await f.restart(); const resumed = await f.service.processExport(result.id, context); assert.equal(resumed.status, 'accepted');

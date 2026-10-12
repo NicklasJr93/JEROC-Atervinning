@@ -15,6 +15,7 @@ import { vismaSandboxApi, type VismaSandboxRun } from './visma-sandbox-client';
 import { mergeSpirisSettings } from './spiris-settings-merge';
 import SpirisManualExport from './SpirisManualExport';
 import './spiris-accounting.css';
+import { cacheIntegrationRead, cachedIntegrationRead, clearIntegrationReadCache, integrationReadScope } from './integration-read-cache';
 
 const money = (value: number) => value.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const message = (issue: string | { code: string; message: string }) => typeof issue === 'string' ? issue : issue.message;
@@ -40,6 +41,19 @@ const exportLabels: Record<string, string> = {
   rejected: 'Avvisad', failed: 'Avvisad', blocked: 'Behöver kompletteras', unknown: 'Oklart resultat',
 };
 
+function missingPreviewFields(settings: AccountingSettings | undefined, siteId: string, example: SpirisExample) {
+  if (!settings) return [];
+  const site = settings.sites.find(item => item.siteId === siteId);
+  const accounts = { ...settings.accounts, ...(site?.useDefaults === false ? site.accountOverrides : {}) };
+  const roles: AccountRole[] = example === 'reverse_scrap' ? ['reversePurchase', 'supplierLiability', 'inputReverseVat', 'outputReverseVat']
+    : example === 'standard_25' ? ['standardPurchase', 'supplierLiability', 'inputVat']
+      : [example === 'private' ? 'privatePurchase' : 'noVatPurchase', 'supplierLiability'];
+  const issues = roles.filter(role => !accounts[role]).map(role => `${accountLabels[role]} behöver väljas.`);
+  if (!settings.paymentTermsId) issues.push('Betalvillkor behöver väljas.');
+  if (example === 'non_vat_business' && settings.nonVatBusinessRule !== 'no_vat') issues.push('Företag utan momsregistrering kräver en fastställd regel.');
+  return issues;
+}
+
 function SectionHeading({ icon, title, description, children }: { icon: ReactNode; title: string; description: string; children?: ReactNode }) {
   return <div className="spiris-section-heading"><span className="spiris-section-icon">{icon}</span><div><h3>{title}</h3><p>{description}</p></div>{children}</div>;
 }
@@ -47,7 +61,7 @@ function SectionHeading({ icon, title, description, children }: { icon: ReactNod
 export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
   user: OfficeUser; actualUser: OfficeUser; onNotice: (message: string) => void;
 }) {
-  const { session, loading: sessionLoading, error: sessionError, refresh: refreshSession } = useEnvironmentSession();
+  const { session, loading: sessionLoading, error: sessionError, refreshSession } = useEnvironmentSession();
   const administrator = user.level === 'Systemadmin' && actualUser.level === 'Systemadmin' && !user.siteIds && !actualUser.siteIds && can(user, 'integrationsRead');
   const matchingSession = session?.actualUserId === actualUser.id && session?.effectiveUserId === user.id;
   const identity = `${actualUser.id}/${actualUser.level}/${actualUser.permissions.join(',')}/${actualUser.siteIds?.join(',') ?? 'all'}/${user.id}/${user.level}/${user.permissions.join(',')}/${user.siteIds?.join(',') ?? 'all'}`;
@@ -70,6 +84,9 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
   const [journal, setJournal] = useState<Record<string, VismaSandboxRun>>({}), [journalLoading, setJournalLoading] = useState<string>();
   const configured = administrator && matchingSession && !!state?.capabilities.canConfigure;
   const fieldsDisabled = !configured || pending === 'save' || pending === 'choices';
+  const cacheScope = integrationReadScope(actualUser, user, session);
+  const previewMissing = missingPreviewFields(form, siteId, example);
+  const previewReady = previewMissing.length === 0 && !!state?.companyVerified;
 
   useEffect(() => {
     mounted.current = true;
@@ -94,7 +111,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
     const suggested = immediate.length === 1 &&
       (!next.suggestedPaymentTermsId || next.suggestedPaymentTermsId === immediate[0].id) ? immediate[0] : undefined;
     if (!replaceForm) {
-      if (baseSettings.current && next.settings.revision !== baseSettings.current.revision) setConflict(true);
+      if (baseSettings.current && (next.settings.revision !== baseSettings.current.revision || next.settings.companyId !== baseSettings.current.companyId)) setConflict(true);
       if (suggested && !paymentTermEdited.current) setForm(previous => {
         if (!previous || previous.paymentTermsId) return previous;
         dirtyRef.current = true; setDirty(true);
@@ -112,16 +129,31 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
     setForm(nextForm); dirtyRef.current = changed; setDirty(changed);
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     if (!administrator || !matchingSession || busy.current) return;
     const controller = new AbortController(); controllers.current.add(controller);
     const request = ++generation.current;
     const current = () => mounted.current && !controller.signal.aborted && identityRef.current === identity && permittedRef.current && generation.current === request;
+    const cached = !force && cachedIntegrationRead<SpirisAccountingState>('spiris-settings', cacheScope);
+    if (cached) {
+      applyState(cached.value, !dirtyRef.current);
+      if (cached.fresh) { controllers.current.delete(controller); return; }
+    }
     busy.current = true; setPending('load'); setError(''); setLookupFailed(false);
-    try { const next = await spirisAccountingApi.settings(controller.signal); if (current()) applyState(next, !dirtyRef.current); }
-    catch (failure) { if (current()) setError(environmentFailure(failure)); }
+    try {
+      const next = await spirisAccountingApi.settings(controller.signal);
+      if (current()) { cacheIntegrationRead('spiris-settings', cacheScope, next); applyState(next, !dirtyRef.current); }
+    }
+    catch (failure) {
+      if (current()) {
+        if (failure instanceof EnvironmentApiError && [401, 403].includes(failure.status)) {
+          clearIntegrationReadCache(); setState(undefined); setForm(undefined);
+        }
+        setError(environmentFailure(failure));
+      }
+    }
     finally { controllers.current.delete(controller); if (current()) { busy.current = false; setPending(undefined); } }
-  }, [administrator, matchingSession, identity, applyState]);
+  }, [administrator, matchingSession, identity, cacheScope, applyState]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -154,6 +186,8 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
       const next = action === 'save' ? await spirisAccountingApi.saveSettings({ ...frozen, revision: expectedRevision }, expectedRevision, controller.signal)
         : await spirisAccountingApi.lookupChoices(controller.signal);
       if (!current()) return;
+      cacheIntegrationRead('spiris-settings', cacheScope, next);
+      clearIntegrationReadCache('catalog');
       applyState(next, action === 'save' || !dirtyRef.current);
       if (action === 'save') onNotice('Spiris-inställningarna är sparade.');
       else onNotice('Verkliga konton och val har hämtats från Spiris sandbox.');
@@ -163,7 +197,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
       setLookupFailed(action === 'choices');
       if (action === 'save' && failure instanceof EnvironmentApiError && ['revision_conflict', 'accounting_settings_conflict'].includes(failure.code)) {
         setConflict(true);
-        try { const next = await spirisAccountingApi.settings(controller.signal); if (current()) applyState(next, false); }
+        try { const next = await spirisAccountingApi.settings(controller.signal); if (current()) { cacheIntegrationRead('spiris-settings', cacheScope, next); applyState(next, false); } }
         catch { /* Keep the user's form and the original conflict message. */ }
       }
     } finally { controllers.current.delete(controller); if (current()) { busy.current = false; setPending(undefined); } }
@@ -172,7 +206,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
   useEffect(() => {
     setPreview(undefined); setPreviewError('');
     const request = ++previewGeneration.current;
-    if (!configured || !form || !siteId || tab !== 'settings') { setPreviewLoading(false); return; }
+    if (!configured || !form || !siteId || !previewReady || tab !== 'settings') { setPreviewLoading(false); return; }
     const controller = new AbortController(); controllers.current.add(controller);
     const current = () => mounted.current && !controller.signal.aborted && identityRef.current === identity && permittedRef.current && previewGeneration.current === request;
     setPreviewLoading(true);
@@ -183,7 +217,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
         .finally(() => { controllers.current.delete(controller); if (current()) setPreviewLoading(false); });
     }, 250);
     return () => { window.clearTimeout(timer); controller.abort(); controllers.current.delete(controller); };
-  }, [configured, form, siteId, example, tab, identity]);
+  }, [configured, form, siteId, example, tab, identity, previewReady]);
 
   const loadHistory = useCallback(async () => {
     if (!administrator || !matchingSession) return;
@@ -219,7 +253,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
   const rows = preview?.rows ?? preview?.draft?.Rows ?? [];
   const debit = rows.reduce((total, row) => total + Math.round(row.DebitAmount * 100), 0);
   const credit = rows.reduce((total, row) => total + Math.round(row.CreditAmount * 100), 0);
-  const issues = [...(preview?.issues ?? [])];
+  const issues = [...previewMissing, ...(preview?.issues ?? [])];
   for (const row of rows) {
     const account = accounts.find(item => item.number === row.AccountNumber);
     if (account?.firstCostCenterMandatory && !row.CostCenterItemId1) issues.push({ code: 'visma_dimension_required', message: `Konto ${row.AccountNumber} kräver kostnadsställe.` });
@@ -257,6 +291,10 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
   }
   function reconcile() {
     if (!form || !state || !baseSettings.current || fieldsDisabled) return;
+    if (form.companyId !== state.settings.companyId) {
+      setError('Det anslutna företaget har ändrats. Återställ formuläret för att använda det nya företagets inställningar.');
+      return;
+    }
     const remoteTermChanged = state.settings.paymentTermsId !== baseSettings.current.paymentTermsId || state.settings.paymentTermDays !== baseSettings.current.paymentTermDays;
     const local = !paymentTermEdited.current && remoteTermChanged ? { ...form, paymentTermsId: baseSettings.current.paymentTermsId, paymentTermDays: baseSettings.current.paymentTermDays } : form;
     const merged = mergeSpirisSettings(baseSettings.current, local, state.settings);
@@ -295,7 +333,7 @@ export default function SpirisAccountingPanel({ user, actualUser, onNotice }: {
       : !matchingSession ? <div className="spiris-message" role={sessionError ? 'alert' : 'status'}><RefreshCw size={18} /><p>{sessionError || (sessionLoading ? 'Hämtar din session…' : 'Sessionen behöver uppdateras.')}</p>{!sessionLoading && <button type="button" className="office-btn outline" onClick={() => void refreshSession().catch(() => undefined)}>Försök igen</button>}</div>
         : <>
           <nav className="spiris-tabs" aria-label="Spiris integrationsflikar"><button type="button" aria-current={tab === 'settings' ? 'page' : undefined} className={tab === 'settings' ? 'selected' : ''} onClick={() => setTab('settings')}><Settings2 size={15} />Inställningar</button><button type="button" aria-current={tab === 'history' ? 'page' : undefined} className={tab === 'history' ? 'selected' : ''} onClick={() => setTab('history')}><History size={15} />Överföringar{exports.length > 0 && <span className="spiris-tab-count">{exports.length}</span>}</button><div>Alla anläggningar använder samma anslutning</div></nav>
-          {error && <div className="spiris-message error" role="alert"><CircleAlert size={18} /><div><p>{error}</p>{conflict && <p>Dina ändringar finns kvar. Granska den senaste sparade versionen innan du sparar igen.</p>}</div><button type="button" className="office-btn outline" onClick={() => void (lookupFailed ? perform('choices') : load())} disabled={!!pending}>{lookupFailed ? 'Försök hämta igen' : 'Hämta senaste version'}</button></div>}
+          {error && <div className="spiris-message error" role="alert"><CircleAlert size={18} /><div><p>{error}</p>{conflict && <p>Dina ändringar finns kvar. Granska den senaste sparade versionen innan du sparar igen.</p>}</div><button type="button" className="office-btn outline" onClick={() => void (lookupFailed ? perform('choices') : load(true))} disabled={!!pending}>{lookupFailed ? 'Försök hämta igen' : 'Hämta senaste version'}</button></div>}
           {pending === 'choices' && <div className="spiris-message" role="status"><RefreshCw size={18} /><p>Hämtar kontoplan, betalningsvillkor, momskoder, kostnadsställen och projekt från Spiris…</p></div>}
           {conflict && state && form && <section className="spiris-conflict-review" aria-label="Granska ändrade Spiris-inställningar"><h3>Senast sparad version {state.settings.revision}</h3><p>Dina ändringar finns kvar. Skillnaderna visas nedan. När du uppdaterar versionen behålls andras ändringar i de fält som du inte har ändrat.</p><div><table><thead><tr><th>Inställning</th><th>Senast sparat</th><th>Ditt formulär</th></tr></thead><tbody>{differences.map(row => <tr key={row.label}><th scope="row">{row.label}</th><td>{row.saved}</td><td>{row.edited}</td></tr>)}</tbody></table></div><button type="button" className="office-btn outline" onClick={reconcile} disabled={fieldsDisabled || !!pending}>Behåll mina ändringar och uppdatera version</button></section>}
           {!state && !error && <div className="spiris-message" role="status"><RefreshCw size={18} /><p>Hämtar Spiris-inställningar…</p></div>}

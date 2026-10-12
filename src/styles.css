@@ -9,6 +9,10 @@
   --green: #008854;
   --muted: #758597;
   --line: #e4ebf1;
+  --yard-image: url('/images/yard-960.webp');
+}
+@media (min-resolution: 2dppx) {
+  :root { --yard-image: url('/images/yard-1440.webp'); }
 }
 * {
   box-sizing: border-box;
@@ -416,7 +420,7 @@ small {
   position: relative;
   background-image:
     linear-gradient(90deg, #f2f7fbed 0%, #f0f6fc65 42%, #f0f6fc00 75%),
-    url('/images/yard.png');
+    var(--yard-image);
   background-size: cover;
   background-position: center;
   border-radius: 17px;
@@ -754,7 +758,7 @@ select:focus {
   width: 61px;
   height: 61px;
   border-radius: 8px;
-  background-image: url('/images/materials.png');
+  background-image: none;
   background-size: 400% 700%;
   background-repeat: no-repeat;
   background-color: #d7e1e6;
@@ -1818,7 +1822,7 @@ dl > div:last-child {
   height: 340px;
   background-image:
     linear-gradient(180deg, #f2f8ffed 0%, #f2f8ff55 55%, #f2f8ff00 100%),
-    url('/images/yard.png');
+    var(--yard-image);
   background-size: cover;
   background-position: 60%;
   padding: 30px;
@@ -1997,7 +2001,7 @@ dl > div:last-child {
   min-height: 48px;
   height: auto;
   padding: 0;
-  background-image: url('/images/yard.png');
+  background-image: var(--yard-image);
   background-position: center 55%;
 }
 .login-card {

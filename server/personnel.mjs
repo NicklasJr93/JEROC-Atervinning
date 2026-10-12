@@ -133,7 +133,12 @@ function affectedOrders(state,absence) {
   return state.transport.orders.filter(o=>o.driverId===person?.driverId && ['booked','on_way'].includes(o.status) && o.date>=absence.fromDate && o.date<=absence.toDate && (absence.allDay || o.startMinute<absence.endMinute && o.startMinute+o.durationMinutes>absence.startMinute));
 }
 export function refreshStaffingTasks(state) {
-  for(const a of state.personnel.absences.filter(a=>a.status==='registered'))for(const order of affectedOrders(state,a))if(!state.personnel.staffingTasks.some(t=>t.absenceId===a.id && t.orderId===order.id && t.status==='open'))state.personnel.staffingTasks.push({id:uid('staffing'),absenceId:a.id,personId:a.personId,orderId:order.id,managerId:a.managerId,date:order.date,startMinute:order.startMinute,durationMinutes:order.durationMinutes,status:'open'});
+  // A read projection can discover an unresolved absence before the next
+  // command persists it. Its identity must match that later command exactly.
+  for(const a of state.personnel.absences.filter(a=>a.status==='registered'))for(const order of affectedOrders(state,a))if(!state.personnel.staffingTasks.some(t=>t.absenceId===a.id && t.orderId===order.id && t.status==='open')) {
+    const generation=state.personnel.staffingTasks.filter(t=>t.absenceId===a.id && t.orderId===order.id).length;
+    state.personnel.staffingTasks.push({id:`staffing-${hash(JSON.stringify([a.id,order.id,generation])).slice(0,32)}`,absenceId:a.id,personId:a.personId,orderId:order.id,managerId:a.managerId,date:order.date,startMinute:order.startMinute,durationMinutes:order.durationMinutes,status:'open'});
+  }
   for(const task of state.personnel.staffingTasks.filter(t=>t.status==='open')) {
     const absence=state.personnel.absences.find(a=>a.id===task.absenceId),order=state.transport.orders.find(o=>o.id===task.orderId);
     if(!absence || absence.status==='cancelled' || !order || !affectedOrders(state,absence).some(o=>o.id===order.id)){task.status='resolved';task.resolvedAt=stamp();task.resolvedBy='system';}
@@ -323,9 +328,15 @@ export function createDriverApi({getRepository,readBody,json}) {
     if(!url.pathname.startsWith('/api/driver/'))return false;
     try {
       if(req.headers.origin && new URL(req.headers.origin).host!==req.headers.host)fail('Anropet måste komma från samma webbplats.',403);
+      if(!['GET','POST'].includes(req.method))fail('Metoden stöds inte.',405);
       const path=url.pathname.slice('/api/driver/'.length),payload=req.method==='POST'?await readBody(req):null;
-      const result=await (await getRepository()).transact((state,_,transactionAudit)=>{
-        ensurePersonnel(state);ensureLogistics(state);const auth=state.personnelAuth;auth.sessions=auth.sessions.filter(s=>Date.parse(s.expiresAt)>Date.now());auth.attempts=auth.attempts.filter(a=>Date.parse(a.at)>Date.now()-15*60*1000);
+      const repository=await getRepository();
+      const operate=(state,_,transactionAudit=[])=>{
+        ensurePersonnel(state);const auth=state.personnelAuth??={accounts:[],sessions:[],attempts:[]};
+        if(req.method==='POST') {
+          ensureLogistics(state);
+          auth.sessions=auth.sessions.filter(s=>Date.parse(s.expiresAt)>Date.now());auth.attempts=auth.attempts.filter(a=>Date.parse(a.at)>Date.now()-15*60*1000);
+        }
         if(path==='login') {
           if(req.method!=='POST')fail('Metoden stöds inte.',405);
           const input=parse(z.object({username:z.string().trim().toLowerCase().min(1).max(80),password:z.string().min(1).max(200)}),payload),address=hash(req.socket.remoteAddress??'unknown');
@@ -336,7 +347,7 @@ export function createDriverApi({getRepository,readBody,json}) {
           transactionAudit.push({action:'driver.login',personId:person.id,at:stamp()});
           return {cookie:token,value:sessionView(state,person)};
         }
-        const session=auth.sessions.find(s=>s.tokenHash===hash(cookie(req)??'')),person=state.personnel.people.find(p=>p.id===session?.personId),account=auth.accounts.find(a=>a.personId===person?.id);
+        const session=auth.sessions.find(s=>s.tokenHash===hash(cookie(req)??'') && Date.parse(s.expiresAt)>Date.now()),person=state.personnel.people.find(p=>p.id===session?.personId),account=auth.accounts.find(a=>a.personId===person?.id);
         if(!session || !enabledPerson(state,person) || !account?.active || session.companyId!==person.companyId)fail('Logga in som chaufför.',401);
         if(path==='logout' && req.method==='POST'){auth.sessions=auth.sessions.filter(s=>s!==session);return {cookie:'',logout:true,value:{ok:true}};}
         const driver=state.transport.drivers.find(d=>d.id===person.driverId);
@@ -377,7 +388,10 @@ export function createDriverApi({getRepository,readBody,json}) {
           return {value:{order:clone(orderView(state.transport.orders.find(o=>o.id===order.id))),demo:true}};
         }
         fail('Chaufförsidan finns inte.',404);
-      });
+      };
+      const result=req.method==='GET' && repository.read
+        ? await repository.read(operate,{domains:['pricing','personnel','personnelAuth','transport','logistics']})
+        : await repository.transact(operate);
       if(result.failure)json(res,401,{error:result.failure});else {if(result.cookie!==undefined)setCookie(res,result.cookie,req,result.logout?0:8*3600);json(res,200,result.value);}
     } catch(error) {json(res,error instanceof PricingError?error.status:503,{error:error instanceof PricingError?error.message:'Chaufförstjänsten kunde inte nås.',...(error.code?{code:error.code}:{}),...(error.gate?{gate:error.gate}:{})});}
     return true;

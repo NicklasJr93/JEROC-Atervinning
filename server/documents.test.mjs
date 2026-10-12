@@ -140,6 +140,63 @@ async function serviceFixture(run) {
   });
 }
 
+test('settlement list reads existing archive metadata and signals pending milestones without rendering or writing', async () => serviceFixture(async ({ service, options, sources, rendered, repository }) => {
+  attest(sources.approvals[0]);
+  const requests = [];
+  const readOnly = createDocumentService({ ...options,
+    sourceProvider: async request => { requests.push(request); return structuredClone(sources); },
+    repository: { ...repository, transact: () => { throw new Error('A list GET must not open an archive write transaction'); } },
+  });
+  const pending = await readOnly.list({ kind: 'settlement', sourceId: '3010' }, admin);
+  assert.equal(pending.pending, true); assert.deepEqual(pending.documents, []); assert.equal(rendered.length, 0);
+  assert.deepEqual(requests[0], { kind: 'settlement', sourceId: '3010' });
+  await service.ensureApproval(sources.approvals[0]);
+  const completed = await readOnly.list({ kind: 'settlement', sourceId: '3010' }, admin);
+  assert.equal(completed.pending, false); assert.equal(completed.documents.length, 3); assert.equal(rendered.length, 3);
+}));
+
+test('durable PDF job uses its frozen facility and approval without rereading mutable business stores', async () => serviceFixture(async ({ options, sources, repository }) => {
+  const frozen = structuredClone(sources.approvals[0]);
+  const job = { stage: 'preliminary', sourceHash: frozen.snapshot.hash, siteSnapshot: structuredClone(sources.sites[0]) };
+  sources.office.cards[0].rows[0].weight = 999;
+  sources.sites[0].name = 'Changed live facility';
+  const service = createDocumentService({ ...options, sourceProvider: () => { throw new Error('A current durable PDF job needs no source reread'); } });
+  const document = await service.archiveApprovalJob(frozen, job);
+  const saved = await repository.read(database => database.document(document.id));
+  assert.equal(saved.snapshot.rows[0].weight, frozen.snapshot.rows[0].weight);
+  assert.equal(saved.snapshot.site.name, 'Norrtälje');
+}));
+
+test('legacy priced rows without articleName resolve only their missing human names for a current draft', async () => serviceFixture(async ({ options, sources, repository }) => {
+  sources.approvals = []; sources.office.cards[0].status = 'new';
+  delete sources.office.cards[0].rows[0].articleName;
+  const requests = [];
+  const service = createDocumentService({ ...options, sourceProvider: async request => {
+    requests.push(request);
+    return request.kind === 'article-names'
+      ? { pricing: { articles: [{ id: sources.office.cards[0].rows[0].articleId, name: 'Koppar klass 1' }] } } : structuredClone(sources);
+  } });
+  const { document } = await service.generateSettlement(3010, { stage: 'preliminary' }, admin);
+  const saved = await repository.read(database => database.document(document.id));
+  assert.equal(saved.snapshot.rows[0].name, 'Koppar klass 1');
+  assert.deepEqual(requests.filter(request => request.kind === 'article-names'), [{ kind: 'article-names', articleIds: [sources.office.cards[0].rows[0].articleId] }]);
+  const count = requests.length;
+  await service.list({ kind: 'settlement', sourceId: '3010' }, admin);
+  assert.ok(requests.slice(count).every(request => request.kind !== 'article-names'), 'Opening an archive list must not fetch rendering-only names');
+}));
+
+test('simultaneous generation of the same immutable version shares one render and retains one original', async () => serviceFixture(async ({ options, sources, repository }) => {
+  let renders = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const service = createDocumentService({ ...options, renderPdf: async () => { renders++; await gate; return pdfBytes; } });
+  const pending = Array.from({ length: 5 }, () => service.generateSettlement(3010, {}, admin));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  release();
+  const documents = await Promise.all(pending);
+  assert.equal(renders, 1); assert.equal(new Set(documents.map(value => value.document.id)).size, 1);
+  assert.equal((await repository.read(database => database.documents('settlement', sources.approvals[0].cardId))).length, 1);
+}));
+
 test('preliminary settlement uses the frozen review rather than mutable customer/card fields and masks private payment identity', async () => serviceFixture(async ({ service, sources }) => {
   sources.office.cards[0].rows[0].weight = 999;
   sources.office.cards[0].reference = 'Changed after customer review';

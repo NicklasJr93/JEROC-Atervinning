@@ -91,7 +91,7 @@ export default function App() {
           >
             <Image
               source={{
-                uri: `${origin || 'https://jeroc-atervinning.onrender.com'}/images/jeroc-logo-v2.png`,
+                uri: `${origin || 'https://jeroc-atervinning.onrender.com'}/images/jeroc-logo-ui.webp`,
               }}
               style={styles.brandLogo}
               resizeMode="contain"

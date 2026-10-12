@@ -48,7 +48,7 @@ function configuredState(): SpirisAccountingState {
   return result;
 }
 
-async function fixture(page: Page, options: { configured?: boolean; conflict?: boolean; delayed?: Promise<void>; choicesGate?: Promise<void>; remoteOnChoices?: boolean; mandatoryCenter?: boolean; sendGate?: Promise<void> } = {}) {
+async function fixture(page: Page, options: { configured?: boolean; conflict?: boolean; delayed?: Promise<void>; choicesGate?: Promise<void>; catalogGate?: Promise<void>; remoteOnChoices?: boolean; mandatoryCenter?: boolean; sendGate?: Promise<void> } = {}) {
   let current = options.configured ? configuredState() : initialState();
   if (options.mandatoryCenter && current.choices) { current.choices.accounts.find(account => account.number === 4000)!.firstCostCenterMandatory = true; delete current.settings.sites[0].costCenterId; }
   const saves: { expectedRevision: number; settings: AccountingSettings }[] = [];
@@ -64,10 +64,12 @@ async function fixture(page: Page, options: { configured?: boolean; conflict?: b
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(host)) { external.push(host); return route.abort('blockedbyclient'); }
     return route.continue();
   });
-  await page.route('**/api/environment/integrations/catalog**', route => route.fulfill({ json: { version: 1, organisationId: 'jeroc-demo', capabilities: { canManage: true }, providers: [{
+  await page.route('**/api/environment/integrations/catalog**', async route => {
+    if (options.catalogGate) await options.catalogGate;
+    return safeFulfill(route, { json: { version: 1, organisationId: 'jeroc-demo', capabilities: { canManage: true }, providers: [{
     id: 'visma', name: 'Spiris / Visma eEkonomi', description: 'Lokal testfixtur', category: 'accounting', status: 'connected', mode: 'test', implemented: true, configured: true, connected: true,
     requiredSetup: [], capabilities: { canView: true, canConfigure: true, canCheck: false, canConnect: false }, links: { settings: '/integrations/visma-test' },
-  }] } }));
+  }] } }); });
   await page.route(`**${endpoint}/**`, async route => {
     const path = new URL(route.request().url()).pathname, method = route.request().method(); requests.push(`${method} ${path}`);
     if (path.endsWith('/settings') && method === 'GET') {
@@ -320,4 +322,52 @@ test('sent svar från systemadmins inställningar publiceras inte efter Jobba so
   await expect(page.getByRole('heading', { name: 'Behörighet saknas', exact: true })).toBeVisible();
   await expect(page.getByLabel('Inköpskonto privatinköp', { exact: true })).toHaveCount(0);
   expect(local.saves).toEqual([]); expect(local.previews).toEqual([]); expect(local.external).toEqual([]);
+});
+
+test('Spiris-inställningar öppnas parallellt med katalogen utan full miljöhämtning eller ofullständigt provanrop', async ({ page }) => {
+  let release!: () => void;
+  const catalogGate = new Promise<void>(resolve => { release = resolve; });
+  const environmentReads: string[] = [];
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/environment/state') environmentReads.push(request.url()); });
+  const local = await fixture(page, { catalogGate });
+  try {
+    const panel = await open(page);
+    await expect(panel.getByLabel('Betalvillkor', { exact: true })).toBeVisible();
+    // Vite's React StrictMode may abort its first development-only mount read.
+    const reads = local.requests.filter(request => request === `GET ${endpoint}/settings`);
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.length).toBeLessThanOrEqual(2);
+    expect(environmentReads).toEqual([]);
+    expect(local.previews).toEqual([]);
+    await expect(panel.getByText('Betalvillkor behöver väljas.', { exact: true })).toBeVisible();
+  } finally { release(); }
+});
+
+test('varm Spiris-vy återanvänder sessionsbundna val och artikelns miljöklassificering hämtas först i detaljen', async ({ page }) => {
+  const environmentReads: string[] = [];
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/environment/state') environmentReads.push(request.url()); });
+  const local = await fixture(page, { configured: true }), panel = await open(page);
+  await expect(panel.getByLabel('Inköpskonto privatinköp', { exact: true })).toHaveValue('4000');
+  const firstReads = local.requests.filter(request => request === `GET ${endpoint}/settings`).length;
+  await page.locator('.office-sidebar').getByRole('button', { name: 'Invägningar', exact: true }).click();
+  await page.locator('.office-sidebar').getByRole('button', { name: 'Integrationer', exact: true }).click();
+  await page.getByRole('button', { name: 'Spiris / Visma eEkonomi', exact: true }).click();
+  await expect(panel.getByLabel('Inköpskonto privatinköp', { exact: true })).toHaveValue('4000');
+  expect(local.requests.filter(request => request === `GET ${endpoint}/settings`)).toHaveLength(firstReads);
+  expect(environmentReads).toEqual([]);
+  await page.clock.install();
+  await page.clock.fastForward(31_000);
+  expect(environmentReads).toEqual([]);
+  await page.locator('.office-sidebar').getByRole('button', { name: 'Invägningar', exact: true }).click();
+  await page.locator('.office-sidebar').getByRole('button', { name: 'Integrationer', exact: true }).click();
+  await page.getByRole('button', { name: 'Spiris / Visma eEkonomi', exact: true }).click();
+  await expect(panel.getByLabel('Inköpskonto privatinköp', { exact: true })).toHaveValue('4000');
+  await expect.poll(() => local.requests.filter(request => request === `GET ${endpoint}/settings`).length).toBeGreaterThan(firstReads);
+  await page.locator('.office-sidebar').getByRole('button', { name: 'Artiklar & priser', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Redigera Blybatterier', exact: true })).toBeVisible();
+  expect(environmentReads).toEqual([]);
+  await page.getByRole('button', { name: 'Redigera Blybatterier', exact: true }).click();
+  const classification = page.getByRole('region', { name: 'Miljöklassificering för Blybatterier', exact: true });
+  await expect(classification.getByLabel('Avfallskod', { exact: true })).toHaveValue('160601');
+  expect(environmentReads).toHaveLength(1);
 });

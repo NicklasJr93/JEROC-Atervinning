@@ -25,6 +25,21 @@ function fixture() {
 const fullDay = { date: '2026-10-12', startMinute: 420, endMinute: 960, breakMinutes: 60, activity: 'Gårdsarbete', siteId: 'norrtalje', note: 'Sortering och städning.' };
 const admin = { user: { id: 'admin', level: 'Systemadmin', permissions: [] }, actor: { id: 'admin' } };
 
+test('person/day read indexes exclude foreign history and never retain stale corrected hours', () => {
+  const { state, person, other, audits } = fixture();
+  enrollEmployeeTime(state, person, monday);
+  const saved = employeeTimeCommand(state, person, { action: 'time.save', entry: fullDay }, audits, context(tuesday));
+  const baseline = employeeTimeProjection(state, person, context(tuesday));
+  for (let i = 0; i < 10000; i++) state.employeeTime.entries.push({ ...saved.entry, id: `foreign-${i}`, personId: other.id });
+  const before = JSON.stringify(state);
+  assert.deepEqual(employeeTimeProjection(state, person, context(tuesday)), baseline);
+  assert.equal(JSON.stringify(state), before);
+  employeeTimeCommand(state, person, { action: 'time.remove', id: saved.entry.id, revision: saved.entry.revision }, audits, context(tuesday));
+  const changed = employeeTimeProjection(state, person, context(tuesday));
+  assert.equal(changed.gate.blocked, true);
+  assert.equal(changed.selectedDay.recordedMinutes, 0);
+});
+
 test('first successful enrollment starts today; old employment never retroactively locks', () => {
   const { state, person } = fixture();
   assert.equal(employeeTimeGate(state, person, monday).blocked, false);

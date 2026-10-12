@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Leaf, RefreshCw } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { can, type OfficeUser, type Permission } from './model';
 import { environmentApi, EnvironmentApiError } from './environment-client';
 import type { BusinessChange } from '../shared-data';
 import type { EnvironmentalDraft, EnvironmentalReceipt, EnvironmentalSourceProjection, EnvironmentSessionState, EnvironmentState } from './environment-types';
 import './environment.css';
+import { clearIntegrationReadCache } from './integration-read-cache';
 
 export const environmentFailure = (failure: unknown) => failure instanceof Error ? failure.message : 'Åtgärden kunde inte utföras.';
 export const hasEnvironmentPermission = (user: OfficeUser, permission: Extract<Permission, `environment${string}`>) => can(user, permission);
@@ -16,6 +18,9 @@ interface EnvironmentContextValue {
   user: OfficeUser;
   actualUser: OfficeUser;
   refresh: () => Promise<void>;
+  refreshSession: () => Promise<void>;
+  fullStateReady: boolean;
+  registerFullRead: () => () => void;
   refreshSource: (sourceId: string) => Promise<EnvironmentalSourceProjection | undefined>;
   applySource: (projection: EnvironmentalSourceProjection) => void;
   applyReceipt: (receipt: EnvironmentalReceipt) => void;
@@ -61,6 +66,11 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
   const [state, setState] = useState<EnvironmentState>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const location = useLocation();
+  const [fullReaders, setFullReaders] = useState(0);
+  const fullStateVisible = /^\/(environment|facilities)(?:\/|$)/.test(location.pathname) || fullReaders > 0;
+  const sourceVisible = /^\/(weighings|attest|payments|customer-approvals|corrections)\/\d+(?:\/|$)/.test(location.pathname);
+  const activeSource = useRef<string | undefined>(undefined);
   const owner = useRef(Symbol('environment-session'));
   const identity = `${actualUser.id}/${user.id}`;
   const identityRef = useRef(identity);
@@ -69,7 +79,7 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
   const stateRef = useRef<EnvironmentState | undefined>(undefined), sessionRef = useRef<EnvironmentSessionState | undefined>(undefined);
   const mutationGeneration = useRef(0), sourceRevisions = useRef(new Map<string, number>());
   const fullReadRevision = useRef(-1);
-  const inFlight = useRef<{ generation: number; promise: Promise<void>; controller: AbortController } | undefined>(undefined);
+  const inFlight = useRef<{ generation: number; promise: Promise<void>; controller: AbortController; full: boolean } | undefined>(undefined);
   const sourceFlights = useRef(new Map<string, { generation: number; promise: Promise<EnvironmentalSourceProjection | undefined>; controller: AbortController }>());
   const permissionSignature = `${actualUser.level}/${actualUser.permissions.join(',')}/${actualUser.siteIds?.join(',') ?? 'all'}/${user.level}/${user.permissions.join(',')}/${user.siteIds?.join(',') ?? 'all'}`;
   const readable = hasEnvironmentPermission(user, 'environmentRead');
@@ -78,6 +88,10 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
     value.actualUserId === actualUser.id && value.effectiveUserId === user.id, [actualUser.id, user.id]);
 
   const publish = useCallback((next: EnvironmentState) => { stateRef.current = next; setState(next); }, []);
+  const registerFullRead = useCallback(() => {
+    setFullReaders(value => value + 1);
+    return () => setFullReaders(value => Math.max(0, value - 1));
+  }, []);
   const emptyState = useCallback((): EnvironmentState => ({
     demo: true, mode: 'prepared-only', revision: 0, actualUserId: actualUser.id, effectiveUserId: user.id,
     sites: [], municipalities: [], classifications: [], receipts: [], storagePolicies: [], inventory: [], reports: [], drafts: [], corrections: [], reportHistory: [],
@@ -116,8 +130,11 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
     publish({ ...current, drafts: [...current.drafts.filter(item => item.sourceId !== draft.sourceId), draft] });
   }, [applySource, emptyState, matches, publish]);
 
-  const refresh = useCallback((): Promise<void> => {
-    if (inFlight.current?.generation === generation.current) return inFlight.current.promise;
+  const refresh = useCallback((includeState = true): Promise<void> => {
+    if (inFlight.current?.generation === generation.current) {
+      const flight = inFlight.current;
+      return includeState && !flight.full ? flight.promise.then(() => refresh(true)) : flight.promise;
+    }
     const expectedIdentity = identity;
     const expectedGeneration = generation.current;
     const controller = new AbortController();
@@ -127,7 +144,7 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
       await Promise.resolve();
       try {
         if (!current() || !permitted) return;
-        if (!sessionRef.current || !matches(sessionRef.current)) await orderedConnection(async () => {
+        if (!sessionRef.current || !matches(sessionRef.current) || !includeState) await orderedConnection(async () => {
           if (!current()) return;
           let nextSession: EnvironmentSessionState | undefined;
           try { nextSession = await environmentApi.session(controller.signal); }
@@ -139,7 +156,7 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
           environmentApi.adoptSession(nextSession); sessionRef.current = nextSession; setSession(nextSession);
         });
         if (!current() || !sessionRef.current) return;
-        if (readable) {
+        if (readable && includeState) {
           const epoch = mutationGeneration.current, beforeRevision = stateRef.current?.revision ?? -1;
           const next = await environmentApi.state(controller.signal);
           if (!current()) return;
@@ -162,12 +179,14 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
         if (inFlight.current?.generation === expectedGeneration) inFlight.current = undefined;
       }
     })();
-    inFlight.current = { generation: expectedGeneration, promise, controller };
+    inFlight.current = { generation: expectedGeneration, promise, controller, full: includeState };
     return promise;
   }, [identity, actualUser.id, user.id, readable, permitted, matches, permissionSignature, publish]);
+  const refreshSession = useCallback(() => refresh(false), [refresh]);
 
   const refreshSource = useCallback((sourceId: string): Promise<EnvironmentalSourceProjection | undefined> => {
     if (!sourceId || !readable || !sessionRef.current || !matches(sessionRef.current)) return Promise.resolve(undefined);
+    activeSource.current = sourceId;
     const existing = sourceFlights.current.get(sourceId);
     if (existing?.generation === generation.current) return existing.promise;
     const expectedIdentity = identity, expectedGeneration = generation.current, controller = new AbortController();
@@ -202,10 +221,16 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
     setError('');
     setLoading(true);
     environmentApi.forgetSession();
-    void refresh().catch(() => undefined).finally(() => {
+    clearIntegrationReadCache();
+    void refreshSession().catch(() => undefined).finally(() => {
       if (generation.current === expectedGeneration && activeOwner === owner.current) setLoading(false);
     });
-  }, [refresh]);
+  }, [refreshSession]);
+
+  useEffect(() => {
+    if (session && matches(session) && readable && fullStateVisible) void refresh().catch(() => undefined);
+  }, [session, matches, readable, fullStateVisible, refresh]);
+  useEffect(() => { if (!sourceVisible) activeSource.current = undefined; }, [sourceVisible]);
 
   useEffect(() => () => {
     const releasedIdentity = identityRef.current;
@@ -222,7 +247,8 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
   }, []);
 
   useEffect(() => {
-    if (!session || !matches(session) || !readable) return;
+    if (!session || !matches(session) || !readable || (!fullStateVisible && !sourceVisible)) return;
+    const refreshVisible = () => fullStateVisible ? refresh() : activeSource.current ? refreshSource(activeSource.current).then(() => undefined) : Promise.resolve();
     let scheduled: ReturnType<typeof setTimeout> | undefined, active = true, targetRevision = -1;
     const invalidate = (event: Event) => {
       const change = (event as CustomEvent<BusinessChange>).detail;
@@ -233,34 +259,40 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
       scheduled = setTimeout(() => {
         scheduled = undefined;
         if (!active || !sessionRef.current || targetRevision <= (stateRef.current?.revision ?? -1)) return;
-        void refresh().then(() => {
+        void refreshVisible().then(() => {
           // One coalesced follow-up covers an event received during an older
           // read; polling never adds work behind an in-flight request.
-          if (active && sessionRef.current && targetRevision > (stateRef.current?.revision ?? -1)) void refresh().catch(() => undefined);
+          if (active && sessionRef.current && targetRevision > (stateRef.current?.revision ?? -1)) void refreshVisible().catch(() => undefined);
         }).catch(() => undefined);
       }, 80);
     };
     const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refresh().catch(() => undefined);
+      if (document.visibilityState === 'visible') void refreshVisible().catch(() => undefined);
     }, 30000);
-    const visible = () => { if (document.visibilityState === 'visible') void refresh().catch(() => undefined); };
+    const visible = () => { if (document.visibilityState === 'visible') void refreshVisible().catch(() => undefined); };
     window.addEventListener('jeroc:business-change', invalidate);
     document.addEventListener('visibilitychange', visible);
     return () => { active = false; window.clearInterval(timer); if (scheduled) clearTimeout(scheduled); window.removeEventListener('jeroc:business-change', invalidate); document.removeEventListener('visibilitychange', visible); };
-  }, [identity, session, matches, readable, refresh]);
+  }, [identity, session, matches, readable, fullStateVisible, sourceVisible, refresh, refreshSource]);
 
-  return <EnvironmentContext.Provider value={{ session: session && matches(session) ? session : undefined, state: state && matches(state) ? state : undefined, loading, error, user, actualUser, refresh, refreshSource, applySource, applyReceipt, applyDraft }}>{children}</EnvironmentContext.Provider>;
+  return <EnvironmentContext.Provider value={{ session: session && matches(session) ? session : undefined, state: state && matches(state) ? state : undefined, loading, error, user, actualUser, refresh, refreshSession, fullStateReady: fullReadRevision.current >= 0 && !!state && matches(state), registerFullRead, refreshSource, applySource, applyReceipt, applyDraft }}>{children}</EnvironmentContext.Provider>;
 }
 
-export function EnvironmentAccessBoundary({ children, permission = 'environmentRead' }: {
+export function EnvironmentAccessBoundary({ children, permission = 'environmentRead', fullState = false }: {
   children: ReactNode;
   permission?: 'environmentRead' | 'environmentWrite' | 'environmentClassify' | 'environmentStorage' | 'integrationsRead';
+  fullState?: boolean;
 }) {
-  const { session, user, loading, error, refresh } = useEnvironmentSession();
+  const { session, user, loading, error, refresh, fullStateReady, registerFullRead } = useEnvironmentSession();
+  const location = useLocation();
+  const requiresFullState = fullState || /^\/(environment|facilities)(?:\/|$)/.test(location.pathname);
+  const allowed = can(user, permission);
+  useEffect(() => fullState && allowed ? registerFullRead() : undefined, [fullState, allowed, registerFullRead]);
   if (!can(user, permission)) return <div className="environment-access environment-muted"><Leaf size={18} /><span>Du saknar behörighet för denna funktion.</span></div>;
   if (!session) return <div className={`environment-access ${error ? 'environment-error' : 'environment-muted'}`} role={error ? 'alert' : undefined}>
     <Leaf size={18} /><span>{error || (loading ? 'Hämtar miljöuppgifter…' : 'Miljöuppgifterna kunde inte hämtas.')}</span>
     {!loading && <button type="button" className="office-link" onClick={() => void refresh().catch(() => undefined)}><RefreshCw size={14} />Försök igen</button>}
   </div>;
+  if (requiresFullState && !fullStateReady) return <div className={`environment-access ${error ? 'environment-error' : 'environment-muted'}`} role={error ? 'alert' : 'status'}><Leaf size={18} /><span>{error || 'Hämtar miljöuppgifter…'}</span>{error && <button type="button" className="office-link" onClick={() => void refresh().catch(() => undefined)}><RefreshCw size={14} />Försök igen</button>}</div>;
   return <>{error && <div className="environment-alert" role="alert">{error}<button type="button" className="office-link" onClick={() => void refresh().catch(() => undefined)}><RefreshCw size={13} />Försök igen</button></div>}{children}</>;
 }

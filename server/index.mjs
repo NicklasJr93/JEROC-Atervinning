@@ -9,10 +9,12 @@ import { createApplicationService } from './application.mjs';
 import { createTerminalDemoApi } from './terminal-demo.mjs';
 import { createEnvironmentApi } from './environment-api.mjs';
 import { createDocumentsApi } from './documents/api.mjs';
-import { renderPdf } from './documents/render.mjs';
-import { PricingError, createPricingStore, getArticleMediaReferences } from './pricing.mjs';
+import { renderPdf, closePdfRenderer } from './documents/render-pool.mjs';
+import { PricingError, getArticleMediaReferences } from './pricing.mjs';
+import { measureDatabaseWork } from './database-runtime.mjs';
 import { createVismaSandbox } from './visma-sandbox.mjs';
 import { createArticleMediaApi } from './article-media.mjs';
+import { ensureLogistics } from './logistics.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -150,7 +152,23 @@ async function handle(req, res) {
   else await pipeline(createReadStream(file), res);
 }
 const server = createServer((req, res) => {
-  handle(req, res).catch((error) => {
+  const started = performance.now();
+  const operation = async metrics => {
+    if (metrics) {
+      const writeHead = res.writeHead;
+      res.writeHead = function (...args) {
+        const fields = args.find(value => value && typeof value === 'object');
+        const current = fields?.['Server-Timing'] ?? this.getHeader('Server-Timing');
+        const timings = `request;dur=${(performance.now() - started).toFixed(1)}, db_pool;dur=${metrics.poolWaitMs.toFixed(1)}, db_sql;dur=${metrics.sqlMs.toFixed(1)}, db_queries;desc="${metrics.sqlCount}", db_lock;dur=${metrics.lockQueryMs.toFixed(1)}`;
+        const merged = [current, timings].filter(Boolean).join(', ');
+        if (fields) fields['Server-Timing'] = merged;
+        else this.setHeader('Server-Timing', merged);
+        return writeHead.apply(this, args);
+      };
+    }
+    await handle(req, res);
+  };
+  (req.url?.startsWith('/api/') ? measureDatabaseWork(operation) : operation()).catch((error) => {
     if (res.destroyed) return;
     console.error('Kunde inte hantera anrop:', error.code ?? 'unknown');
     if (res.headersSent) res.destroy();
@@ -181,16 +199,13 @@ const articleMediaApi = createArticleMediaApi({ authorize: req => applicationApi
   return principalStore.principal(actor, user);
 }) });
 const vismaService = createVismaSandbox({ getRepository: () => applicationApi.getRepository(),
-  sourceProvider: () => terminalDemoApi.documentProjections(), sitesProvider: () => environmentApi.getSites(),
+  sourceProvider: request => terminalDemoApi.documentProjections(request), sitesProvider: () => environmentApi.getSites(),
   authorizeContext: async context => {
     if (typeof context.reauthorize !== 'function') throw new PricingError('Den aktiva integrationssessionen saknas.', 403);
     const session = await context.reauthorize();
     if (session.actor.id !== context.actorId || session.user.id !== context.effectiveUserId) throw new PricingError('Integrationssessionen har ändrats.', 403);
-    await (await applicationApi.getRepository()).read(state => {
-      const principal = createPricingStore({ initialState: state.pricing }).principal(context.actorId, context.effectiveUserId);
-      if (principal.actor.level !== 'Systemadmin' || principal.user.level !== 'Systemadmin' || principal.actor.siteIds || principal.user.siteIds)
-        throw new PricingError('Systemadmin med åtkomst till alla anläggningar krävs.', 403);
-    }, { domains: ['pricing'] });
+    if (session.actor.level !== 'Systemadmin' || session.user.level !== 'Systemadmin' || session.actor.siteIds || session.user.siteIds)
+      throw new PricingError('Systemadmin med åtkomst till alla anläggningar krävs.', 403);
   },
 });
 const environmentApi = createEnvironmentApi({ principalStore,
@@ -209,35 +224,64 @@ const terminalDemoApi = createTerminalDemoApi({ principalStore, siteProvider: ()
     if (!settings) return null;
     return { settings, customer };
   },
-  onAttested: () => vismaService.processQueuedExports(),
+  onAttested: approval => vismaService.processQueuedExports({ cardId: approval.cardId, reconcile: false }),
   onApprovalChanged: (approval, job) => job
     ? documentsApi.archiveApprovalJob(approval, job)
     : documentsApi.ensureApproval(approval),
 });
 const documentsApi = createDocumentsApi({
   renderPdf,
-  resolvePrincipal: req => applicationApi.withPrincipal(() => {
+  resolvePrincipal: req => principalStore.runFreshPrincipal(() => {
     const actor = req.headers['x-demo-actor'];
     const user = req.headers['x-demo-user'] ?? actor;
     if (typeof actor !== 'string' || typeof user !== 'string')
       throw new PricingError('Välj ett giltigt demokonto.', 401);
     return principalStore.principal(actor, user);
   }),
-  sourceProvider: async () => {
+  sourceProvider: async (request = {}) => {
+    if (request.kind === 'article-names') {
+      const repository = await applicationApi.getRepository();
+      return { pricing: { articles: await repository.readArticleNames(request.articleIds) } };
+    }
+    // A durable PDF job already supplies its frozen business/approval source.
+    // Older jobs need only the facility, never all current application history.
+    if (request.kind === 'approval-job') return { sites: await environmentApi.getSites() };
+    if (request.kind === 'approval') {
+      const [approvals, sites] = await Promise.all([
+        terminalDemoApi.documentProjections({ cardId: Number(request.sourceId), approvalId: request.approvalId }),
+        environmentApi.getSites(),
+      ]);
+      return { approvals, sites };
+    }
     const repository = await applicationApi.getRepository();
     // Release the application aggregate before reading the terminal/environment
     // aggregates. No nested cross-module locks while rendering or archiving PDF.
-    const source = await repository.read(state => structuredClone({
-      office: state.office,
-      transport: state.transport,
-      personnel: state.personnel,
-      logistics: state.logistics,
-      pricing: { articles: [...new Map((state.pricing.articleHistory ?? []).map(
-        article => [article.id, { id: article.id, name: article.name }],
-      )).values()] },
-    }), { domains: ['office', 'transport', 'personnel', 'logistics', 'pricing'] });
-    const approvals = await terminalDemoApi.documentProjections();
-    const sites = await environmentApi.getSites();
+    const transport = request.kind === 'transport';
+    const readSource = async () => {
+      const logistics = transport && repository.readProjection
+        ? await repository.readProjection(state => state.logistics ?? { details: {} }, { domain: 'logistics', paths: [['details', String(request.sourceId)]] }) : undefined;
+      return repository.read(state => {
+        if (logistics) state.logistics = logistics;
+        const payments = request.kind === 'receipt' ? state.office.payments.filter(value => String(value.id) === String(request.sourceId)) : [];
+        const cardId = request.kind === 'receipt' ? payments[0]?.cardId : request.sourceId;
+        const cards = transport ? [] : state.office.cards.filter(value => String(value.id) === String(cardId));
+        const orders = transport ? state.transport.orders.filter(order => order.id === request.sourceId) : [];
+        const customers = state.office.customers.filter(customer => cards.some(card => card.customerId === customer.id) || orders.some(order => order.customerId === customer.id));
+        const drivers = transport ? state.transport.drivers.filter(driver => orders.some(order => order.driverId === driver.id || state.logistics?.details?.[order.id]?.assignedDriverId === driver.id)) : [];
+        return structuredClone({ office: { cards, customers, payments },
+          ...(transport ? {
+            transport: { orders, drivers, vehicles: state.transport.vehicles.filter(vehicle => orders.some(order => order.vehicleId === vehicle.id || state.logistics?.details?.[order.id]?.assignedVehicleId === vehicle.id)) },
+            personnel: { companies: state.personnel.companies.filter(company => drivers.some(driver => driver.companyId === company.id) || state.logistics?.details?.[request.sourceId]?.carrierId === company.id) },
+            logistics: { details: state.logistics?.details?.[request.sourceId] ? { [request.sourceId]: state.logistics.details[request.sourceId] } : {} },
+          } : {}),
+        });
+      }, { domains: transport ? ['office', 'transport', 'personnel', ...(logistics ? [] : ['logistics'])] : ['office'] });
+    };
+    const source = await (repository.runInReadTransaction ? repository.runInReadTransaction(readSource) : readSource());
+    const [approvals, sites] = await Promise.all([
+      transport ? [] : terminalDemoApi.documentProjections({ cardId: Number(source.office.cards[0]?.id ?? source.office.payments[0]?.cardId ?? request.sourceId) }),
+      environmentApi.getSites(),
+    ]);
     return { ...source, approvals, sites };
   },
 });
@@ -252,12 +296,21 @@ server.on('error', (error) => {
 // Complete migrations/seeding before accepting a request. Read-only snapshots
 // and SSE reconnects never need to initialize another repository while open.
 await applicationApi.getRepository();
+await vismaService.initialize();
 await articleMediaApi.ready();
 await environmentApi.initialize();
+// Persist initial stock/catalog maintenance once, so a fresh installation also
+// records physical mobile/office changes without relying on a later GET.
+const [logisticsSites, logisticsEnvironment] = await Promise.all([
+  environmentApi.getSites(), environmentApi.getLogisticsSource(),
+]);
+await (await applicationApi.getRepository()).transact(state => ensureLogistics(state, {
+  sites: logisticsSites, ...logisticsEnvironment,
+}));
 await terminalDemoApi.initialize?.();
 // Discover committed attests after a restart as well as through the immediate
 // hook. The queue is durable; no provider operation runs in the attest request.
-const accountingTimer = setInterval(() => { void vismaService.processQueuedExports().catch(() => console.warn('Spiris-kön väntar på nästa kontroll.')); }, 20000);
+const accountingTimer = setInterval(() => { void vismaService.processQueuedExports({ reconcile: false }).catch(() => console.warn('Spiris-kön väntar på nästa kontroll.')); }, 20000);
 accountingTimer.unref();
 void vismaService.processQueuedExports().catch(() => console.warn('Spiris-kön kunde inte kontrolleras vid start.'));
 server.listen(port, '0.0.0.0', () => {
@@ -270,6 +323,7 @@ async function stop(code = 0) {
   clearInterval(accountingTimer);
   setTimeout(() => process.exit(1), 10000).unref();
   await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close()]);
+  await closePdfRenderer();
   process.exit(code);
 }
 process.on('SIGTERM', () => stop());

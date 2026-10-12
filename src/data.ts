@@ -295,10 +295,17 @@ export const demoCustomerPrices: Record<
   'customer-build': { 'copper-1': { tier: 0, special: 84 }, iron: { tier: 0 } },
   'customer-erik': { 'copper-1': { tier: 1 } },
 };
-let sharedCustomerPrices: Record<string,Record<string,{price:number;source:string}>> | undefined;
-export function updateCustomerPriceCatalog(prices: typeof sharedCustomerPrices) { sharedCustomerPrices=prices; }
+export type MobileCustomerPrices = Record<string,Record<string,{price:number | null;source:string}>>;
+let sharedCustomerPrices: MobileCustomerPrices | undefined;
+export function updateCustomerPriceCatalog(prices: MobileCustomerPrices | undefined) { sharedCustomerPrices=prices; }
+export function mergeCustomerPriceCatalog(prices: unknown): MobileCustomerPrices | undefined {
+  const parsed = z.record(z.record(z.object({ price: z.number().finite().nullable(), source: z.string().max(100) }))).safeParse(prices);
+  if (!parsed.success) return undefined;
+  sharedCustomerPrices = { ...sharedCustomerPrices, ...parsed.data };
+  return structuredClone(sharedCustomerPrices);
+}
 export function demoCustomerPrice(customerId: string, article: Article) {
-  if(sharedCustomerPrices)return sharedCustomerPrices[customerId]?.[article.id]??{price:article.prices[2],source:"C"};
+  if(sharedCustomerPrices)return sharedCustomerPrices[customerId]?.[article.id]??{price:null,source:"Pris saknas"};
   const example = demoCustomerPrices[customerId]?.[article.id];
   const tier = example?.tier ?? 2;
   return {

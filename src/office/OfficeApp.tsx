@@ -65,8 +65,7 @@ const VesselsWorkspace = lazy(() => import('./logistics/VesselsWorkspace'));
 const IntegrationsWorkspace = lazy(() => import('./IntegrationsWorkspace'));
 const NvvSandboxWorkspace = lazy(() => import('./NvvSandboxWorkspace'));
 const VismaSandboxWorkspace = lazy(() => import('./VismaSandboxWorkspace'));
-import { logisticsRequest } from './logistics/client';
-import type { LogisticsOfficeState } from './logistics/types';
+import { logisticsSummaryRequest, type LogisticsSummary } from './logistics/client';
 import type { WorkOrderPrefill } from './logistics/WorkOrderForm';
 import {
   cardRoute,
@@ -116,7 +115,7 @@ import {
   exportOfficeCsv,
 } from './OfficeOverview';
 import './office.css';
-import { useSharedData } from '../shared-data';
+import { useSharedData, type BusinessChange } from '../shared-data';
 const fmt = (s: string) =>
   new Intl.DateTimeFormat('sv-SE', {
     dateStyle: 'short',
@@ -205,29 +204,53 @@ export function OfficeApp() {
       ? (data.users.find((u) => u.id === actingId && u.active !== false) ?? actualUser)
       : actualUser;
   const principalRef = useRef('');
-  const principalIdentity = `${actualUser?.id ?? ''}:${user?.id ?? ''}:${user?.level ?? ''}/${user?.permissions.join(',') ?? ''}/${user?.siteIds?.join(',') ?? 'all'}`;
+  const principalIdentity = `${actualUser?.id ?? ''}/${actualUser?.level ?? ''}/${actualUser?.permissions.join(',') ?? ''}/${actualUser?.siteIds?.join(',') ?? 'all'}:${user?.id ?? ''}/${user?.level ?? ''}/${user?.permissions.join(',') ?? ''}/${user?.siteIds?.join(',') ?? 'all'}`;
   principalRef.current = principalIdentity;
   const acting = Boolean(actualUser && user && actualUser.id !== user.id);
 
   const terminalDemo = useTerminalDemo(actualUser, user);
   const [siteFilter, setSiteFilter] = useState('all');
-  const [logisticsSummary, setLogisticsSummary] = useState<LogisticsOfficeState>();
+  const logisticsScope = `${principalIdentity}:${siteFilter}`;
+  const [logisticsCount, setLogisticsCount] = useState<{ scope: string; value: LogisticsSummary }>();
+  const logisticsSummary = logisticsCount?.scope === logisticsScope ? logisticsCount.value : undefined;
   const [workOrderPrefill, setWorkOrderPrefill] = useState<WorkOrderPrefill>();
+  useEffect(() => { setWorkOrderPrefill(undefined); }, [principalIdentity]);
   useEffect(() => {
-    setLogisticsSummary(undefined);
-    setWorkOrderPrefill(undefined);
+    setLogisticsCount(undefined);
     if (!actualUser || !user || !can(user, 'workOrdersRead')) return;
     const abort = new AbortController();
-    const refresh = () => {
-      if (document.hidden) return;
-      void logisticsRequest(actualUser.id, user.id, undefined, abort.signal)
-        .then(value => { if (!abort.signal.aborted) setLogisticsSummary(value); })
-        .catch(() => { /* The module's own view reports connection errors. */ });
+    const identity = `${actualUser.id}/${user.id}`;
+    let inFlight = false, pending = false, scheduled: number | undefined;
+    const schedule = () => {
+      pending = true;
+      if (scheduled !== undefined || abort.signal.aborted) return;
+      scheduled = window.setTimeout(() => { scheduled = undefined; refresh(); }, 150);
     };
+    const refresh = () => {
+      if (abort.signal.aborted || document.hidden || navigator.onLine === false || inFlight) return;
+      inFlight = true; pending = false;
+      void logisticsSummaryRequest(actualUser.id, user.id, siteFilter, abort.signal, principalIdentity)
+        .then(value => { if (!abort.signal.aborted) setLogisticsCount({ scope: logisticsScope, value }); })
+        .catch(() => { /* The module's own view reports connection errors. */ })
+        .finally(() => { inFlight = false; if (pending && !abort.signal.aborted) schedule(); });
+    };
+    const changed = (event: Event) => {
+      const change = (event as CustomEvent<BusinessChange>).detail;
+      if (change?.identity === identity && ['application', 'transport', 'logistics', 'personnel'].includes(change.domain)) schedule();
+    };
+    const visible = () => { if (!document.hidden) schedule(); };
     refresh();
-    const timer = window.setInterval(refresh, 5000);
-    return () => { abort.abort(); window.clearInterval(timer); };
-  }, [actualUser?.id, user?.id, JSON.stringify(user?.permissions)]);
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener('jeroc:business-change', changed);
+    window.addEventListener('online', schedule);
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      abort.abort(); window.clearInterval(timer); window.clearTimeout(scheduled);
+      window.removeEventListener('jeroc:business-change', changed);
+      window.removeEventListener('online', schedule);
+      document.removeEventListener('visibilitychange', visible);
+    };
+  }, [principalIdentity, siteFilter]);
   const createLogisticsOrder = (prefill: WorkOrderPrefill) => {
     setWorkOrderPrefill(prefill);
     navigate('/work-orders/new', { state: { workOrderPrefill: prefill, returnTo: location.pathname } });
@@ -342,14 +365,18 @@ export function OfficeApp() {
   useEffect(() => {
     if (location.pathname !== '/customers/new') setCustomerCreation(undefined);
   }, [location.pathname]);
+  const cardPricingPath = selected && workflowSections.includes(section)
+    ? `state?at=${new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(selected.date))}`
+    : undefined;
   useEffect(() => {
     let current = true;
     setPricing(undefined);
-    if (user && actualUser && (can(user, 'prices') || can(user, 'lmeRead') || can(user, 'weighingAddArticle')))
+    setPricingError('');
+    // Article/customer workspaces load their own catalog. The shell needs it
+    // only for a selected weighing card's images, price editor and material UI.
+    if (cardPricingPath && user && actualUser && (can(user, 'prices') || can(user, 'lmeRead') || can(user, 'weighingAddArticle')))
       pricingRequest<PricingState>(
-        workflowSections.includes(section) && selected
-          ? `state?at=${new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(selected.date))}`
-          : 'state',
+        cardPricingPath,
         user,
         actualUser,
       )
@@ -365,7 +392,7 @@ export function OfficeApp() {
     return () => {
       current = false;
     };
-  }, [userId, actingId, section, selectedId]);
+  }, [principalIdentity, cardPricingPath]);
   const shared = useSharedData<OfficeData>({domain:'office',key:officeKey,identity:actualUser&&user?{actor:actualUser.id,user:user.id}:undefined,current:dataRef,accept:next=>{setData(next);setBlocked(false);},error:setError,parse:value=>officeSchema.parse(value)});
   function persist(next: OfficeData, force = false) {
     if (blocked && !force) return false;
@@ -740,8 +767,7 @@ export function OfficeApp() {
   const visibleCards = data.cards.filter(c => siteFilter === 'all' || cardSiteId(c) === siteFilter);
   const navigationCounts: Record<string, number> = Object.fromEntries(workflowSections.map(section => [section, visibleCards.filter(card => inQueue(card, section, false)).length]));
   navigationCounts.corrections = data.corrections.filter(correction => correction.status !== 'approved' && visibleCards.some(card => card.id === correction.cardId)).length;
-  navigationCounts['work-orders'] = logisticsSummary?.orders.filter(order =>
-    !['done', 'cancelled'].includes(order.status) && (siteFilter === 'all' || order.detail.siteId === siteFilter)).length ?? 0;
+  navigationCounts['work-orders'] = logisticsSummary?.workOrders ?? 0;
   const cards = visibleCards
     .filter((c) => inQueue(c, section, historyTab))
     .filter((c) => !filter || c.status === filter)
@@ -1113,7 +1139,7 @@ export function OfficeApp() {
     return (
       <div className="office office-login">
         <div className="office-login-card">
-          <img src="/images/jeroc-logo-v2.png" alt="JEROC Återvinning" />
+          <img src="/images/jeroc-logo-ui.webp" alt="JEROC Återvinning" />
           <span className="office-eyebrow">
             KONTORET · DEMO {OFFICE_VERSION}
           </span>
@@ -1182,7 +1208,7 @@ export function OfficeApp() {
       <aside className="office-sidebar">
         <img
           className="office-logo"
-          src="/images/jeroc-logo-v2.png"
+          src="/images/jeroc-logo-ui.webp"
           alt="JEROC Återvinning"
         />
         <span className="office-eyebrow">KONTORSÖVERSIKT</span>

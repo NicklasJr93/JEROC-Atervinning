@@ -1,6 +1,7 @@
 import { mkdir, chmod, readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runDatabaseRead } from '../database-runtime.mjs';
 
 export class DocumentError extends Error {
   constructor(message, status = 409, code = 'invalid_document') {
@@ -26,6 +27,26 @@ export async function createDocumentRepository({ env = process.env, filename } =
     if (migrationFailure) { await pool.end(); throw migrationFailure; }
     return {
       kind: 'postgresql',
+      read(callback) {
+        return runDatabaseRead(pool, connection => callback({
+          async document(id, includeBytes = false) {
+            const { rows } = await connection.query(`SELECT record${includeBytes ? ', pdf' : ''} FROM jeroc_document_archive WHERE id=$1`, [id]);
+            return rows[0] ? { ...metadata(rows[0]), ...(includeBytes ? { pdf: rows[0].pdf } : {}) } : undefined;
+          },
+          async documents(kind, sourceId) {
+            const { rows } = await connection.query('SELECT record FROM jeroc_document_archive WHERE kind=$1 AND source_id=$2 ORDER BY created_at, id', [kind, String(sourceId)]);
+            return rows.map(metadata);
+          },
+          async sameDocument(record) {
+            const { rows } = await connection.query('SELECT record FROM jeroc_document_archive WHERE kind=$1 AND source_id=$2 AND source_version=$3 AND stage=$4 AND source_hash=$5 AND template_version=$6', keyOf(record));
+            return metadata(rows[0]);
+          },
+          async transportDraft(orderId) {
+            const { rows } = await connection.query('SELECT record FROM jeroc_transport_document_drafts WHERE order_id=$1 ORDER BY version DESC LIMIT 1', [orderId]);
+            return metadata(rows[0]);
+          },
+        }));
+      },
       async transact(callback) {
         const connection = await pool.connect();
         try {
@@ -73,6 +94,17 @@ export async function createDocumentRepository({ env = process.env, filename } =
   let tail = Promise.resolve();
   return {
     kind: 'sqlite-development',
+    read(callback) {
+      // Join the local archive queue to avoid exposing an unfinished write on
+      // this SQLite connection. Unlike commands, reads open no write transaction.
+      const operation = tail.then(() => callback({
+        async document(id, includeBytes = false) { const row = database.prepare(`SELECT record${includeBytes ? ',pdf' : ''} FROM jeroc_document_archive WHERE id=?`).get(id); return row ? { ...decode(row), ...(includeBytes ? { pdf: Buffer.from(row.pdf) } : {}) } : undefined; },
+        async documents(kind, sourceId) { return database.prepare('SELECT record FROM jeroc_document_archive WHERE kind=? AND source_id=? ORDER BY created_at,id').all(kind, String(sourceId)).map(decode); },
+        async sameDocument(record) { return decode(database.prepare('SELECT record FROM jeroc_document_archive WHERE kind=? AND source_id=? AND source_version=? AND stage=? AND source_hash=? AND template_version=?').get(...keyOf(record))); },
+        async transportDraft(orderId) { return decode(database.prepare('SELECT record FROM jeroc_transport_document_drafts WHERE order_id=? ORDER BY version DESC LIMIT 1').get(orderId)); },
+      }));
+      tail = operation.catch(() => {}); return operation;
+    },
     transact(callback) {
       const operation = tail.then(async () => {
         database.exec('BEGIN IMMEDIATE');

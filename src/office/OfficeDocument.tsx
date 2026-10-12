@@ -45,17 +45,18 @@ export default function OfficeDocument({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const [pending, setPending] = useState(false);
   const validApprovalStatus = card.customerApproval?.status === 'approved' || card.customerApproval?.status === 'attested';
   const frozenReview = card.customerApproval && ['waiting', 'id_requested', 'approved', 'attested'].includes(card.customerApproval.status);
   const stage: Exclude<DocumentStage, 'draft'> = card.customerApproval?.status === 'attested' && card.customerApproval.attestedAt ? 'final' : validApprovalStatus && card.customerApproval?.approvedAt ? 'reviewed' : 'preliminary';
   const fullPriceAccess = card.rows.every(showRowPrice);
   const mayGenerate = sourceId !== undefined && fullPriceAccess && (!receipt || showPaymentDetails);
   useEffect(() => {
-    const controller = new AbortController(); setLoading(true); setError(''); setDocuments([]); setPreferredId(undefined); setNotice('');
+    const controller = new AbortController(); setLoading(true); setError(''); setDocuments([]); setPreferredId(undefined); setNotice(''); setPending(false);
     if (sourceId === undefined) { setError('Utbetalningskvittot saknar en registrerad betalning. Utskriftsvyn finns kvar.'); setView('preview'); setLoading(false); return; }
     void documentApi.list(receipt ? 'receipt' : 'settlement', sourceId, identity, controller.signal).then(value => {
       if (controller.signal.aborted) return;
-      const ordered = documentsNewestFirst(value.documents); setDocuments(ordered);
+      const ordered = documentsNewestFirst(value.documents); setDocuments(ordered); setPending(value.pending === true);
       const current = receipt ? ordered[0] : frozenReview ? ordered.find(document => document.stage === stage && document.sourceVersion === card.customerApproval?.version) : undefined;
       setPreferredId(current?.id); setView(current ? 'pdf' : 'preview');
     }).catch(reason => { if (!controller.signal.aborted) { setError(reason instanceof Error ? reason.message : 'Dokumentarkivet kunde inte hämtas.'); setView('preview'); } })
@@ -68,7 +69,7 @@ export default function OfficeDocument({
     try {
       const result = receipt ? await documentApi.receipt(payment!.id, identity) : await documentApi.settlement(card.id, stage, identity);
       setDocuments(previous => [result.document, ...previous.filter(document => document.id !== result.document.id)]);
-      setPreferredId(result.document.id); setView('pdf'); setNotice('PDF-filen är arkiverad.');
+      setPreferredId(result.document.id); setView('pdf'); setPending(false); setNotice('PDF-filen är arkiverad.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'PDF-filen kunde inte skapas.'); }
     finally { setSaving(false); }
   }
@@ -98,6 +99,7 @@ export default function OfficeDocument({
         <nav className="document-tabs" aria-label="Dokumentvy"><button className={view === 'pdf' ? 'active' : ''} onClick={() => setView('pdf')}>PDF & historik{documents.length ? ` (${documents.length})` : ''}</button><button className={view === 'preview' ? 'active' : ''} onClick={() => setView('preview')}>Förhandsvisning</button></nav>
         {error && <div className="document-error" role="alert">{error}</div>}
         {notice && <p role="status">{notice}</p>}
+        {pending && <p role="status">En dokumentversion väntar på arkivering. Förhandsvisningen finns tillgänglig. Tryck Uppdatera för att hämta den sparade PDF-filen.</p>}
         {!fullPriceAccess && <p>PDF med priser kräver behörighet till underlagets priser.</p>}
         {loading && <div className="document-empty" role="status">Hämtar dokumentarkivet…</div>}
         {!loading && view === 'pdf' && <ArchiveViewer documents={documents} identity={identity} preferredId={preferredId} />}
@@ -105,7 +107,7 @@ export default function OfficeDocument({
       </section>
       {view === 'preview' && <article className="office-document">
         <header>
-          <img src="/images/jeroc-logo-v2.png" alt="JEROC Återvinning" />
+          <img src="/images/jeroc-logo-print.webp" alt="JEROC Återvinning" />
           <div>
             <span>DEMO · FIKTIVT UNDERLAG</span>
             <h1>{receipt ? 'Utbetalningskvitto' : 'Avräkningsnota'}</h1>

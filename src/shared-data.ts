@@ -34,6 +34,17 @@ type SyncState<T> = {
 const equalValue = (first: unknown, second: unknown) => JSON.stringify(first) === JSON.stringify(second);
 const objectValue = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 const identifiedArray = (value: unknown): value is Array<Record<string, unknown> & { id: string | number }> => Array.isArray(value) && value.every(item => objectValue(item) && (typeof item.id === 'string' || typeof item.id === 'number')) && new Set(value.map(item => item.id)).size === value.length;
+export function compactMobileUpdate(payload: unknown): unknown {
+ if (!objectValue(payload) || !objectValue(payload.base) || !objectValue(payload.next)) return payload;
+ const before = payload.base, after = payload.next;
+ if (!identifiedArray(before.drafts) || !identifiedArray(after.drafts) || !identifiedArray(before.customers) || !identifiedArray(after.customers)) return payload;
+ const changes = (base: Array<Record<string, unknown> & { id: string | number }>, next: Array<Record<string, unknown> & { id: string | number }>) => {
+  const old = new Map(base.map(record => [record.id, record])), wanted = new Map(next.map(record => [record.id, record]));
+  return [...new Set([...old.keys(), ...wanted.keys()])].filter(id => !equalValue(old.get(id), wanted.get(id)))
+   .map(id => ({ id, ...(old.has(id) ? { base: old.get(id) } : {}), ...(wanted.has(id) ? { next: wanted.get(id) } : {}) }));
+ };
+ return { kind: 'records', version: 1, drafts: changes(before.drafts, after.drafts), customers: changes(before.customers, after.customers) };
+}
 /** Advance untouched server fields while retaining optimistic changes and the
  * old base of competing changes, so the server can explicitly reject them. */
 export function rebaseConfirmedChanges<T>(base: T, next: T, confirmed: T): Pending<T> {
@@ -144,7 +155,9 @@ export function useSharedData<T>(options: Options<T>) {
   };
   async function request(payload?: unknown) {
    const confirmedEpoch = s.confirmedEpoch;
-   const response = await fetch(url, { method: payload ? 'POST' : 'GET', credentials: 'same-origin', headers, body: payload ? JSON.stringify(payload) : undefined });
+   const command = o.domain === 'mobile' ? compactMobileUpdate(payload) : payload;
+   const requestUrl = o.domain === 'mobile' && !payload ? `${url}?prices=none` : url;
+   const response = await fetch(requestUrl, { method: payload ? 'POST' : 'GET', credentials: 'same-origin', headers, body: payload ? JSON.stringify(command) : undefined });
    const result = await response.json();
    if (!currentScope()) throw new DOMException('Användaren har ändrats.', 'AbortError');
    if (!response.ok) {
@@ -161,6 +174,8 @@ export function useSharedData<T>(options: Options<T>) {
     }
    }
    if (o.domain === 'mobile' && result.customerPrices) updateCustomerPriceCatalog(result.customerPrices);
+   if (o.domain === 'mobile' && typeof result.businessDate === 'string') observedBusinessDate = result.businessDate;
+   if (o.domain === 'mobile' && typeof result.mobilePricingRevision === 'string') window.dispatchEvent(new CustomEvent('jeroc:mobile-pricing-change', { detail: { identity: identityKey, revision: result.mobilePricingRevision } }));
    return { ...result, confirmedEpoch } as { data: T; revision?: number; importConflicts?: number; confirmedEpoch: number };
   }
   function accept(data: T) {
@@ -247,9 +262,31 @@ export function useSharedData<T>(options: Options<T>) {
   // With a live staff stream, reads follow committed revisions. Mobile and
   // disconnected clients retain a small recovery poll without overlapping it.
   let lastPoll = Date.now();
+  let checkingRevision = false;
+  let observedBusinessDate: string | undefined;
+  async function checkRevision() {
+   if (!currentScope() || s.flight || checkingRevision || navigator.onLine === false) return;
+   if (!s.ready || s.queue.length || s.failure) { void sync(); return; }
+   checkingRevision = true;
+   try {
+    const response = await fetch(`/api/application/revision?domain=${o.domain}`, { credentials: 'same-origin', headers });
+    const value = await response.json();
+    if (!currentScope()) return;
+    if (!response.ok) {
+     if ('employee' in principal && response.status === 401) window.dispatchEvent(new Event('jeroc:employee-session-check'));
+     throw new Error(value.error ?? 'Databasen kunde inte nås.');
+    }
+    const changedDay = o.domain === 'mobile' && typeof value.businessDate === 'string'
+      && value.businessDate !== observedBusinessDate;
+    observedBusinessDate = value.businessDate;
+    if (changedDay || Number.isSafeInteger(value.revision) && value.revision > s.observedRevision) void sync();
+   } catch (error) {
+    if (currentScope()) latest.current.error(error instanceof Error ? error.message : 'Databasen kunde inte nås.');
+   } finally { checkingRevision = false; }
+  }
   const timer = setInterval(() => {
-   const delay = businessConnection(streamIdentity) ? 30000 : 8000;
-   if (document.visibilityState === 'visible' && Date.now() - lastPoll >= delay) { lastPoll = Date.now(); void sync(); }
+   const delay = businessConnection(streamIdentity) ? 60000 : 15000;
+   if (document.visibilityState === 'visible' && Date.now() - lastPoll >= delay) { lastPoll = Date.now(); void checkRevision(); }
   }, 2000);
   runner.current = sync; void sync();
   window.addEventListener(changeEvent, onChange); window.addEventListener('online', online); document.addEventListener('visibilitychange', visible);

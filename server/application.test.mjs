@@ -94,3 +94,24 @@ test('a read-only office can archive old local data without gaining write privil
  assert.notEqual((await a(office)).data.cards[0].origin,'Unprivileged import');
  const next=structuredClone(result.data);next.cards[0].origin='Forbidden update';assert.equal((await a(office,{base:result.data,next},'anna')).status,403);
 }));
+
+test('compact mobile records preserve field conflicts, replay-safe numbering and locked completed weighings',async()=>fixture(async({a,instance})=>{
+ const initial=(await a(`${mobile}?prices=none`));assert.equal(initial.customerPrices,undefined);assert.ok(initial.catalog.length);
+ const draft={id:randomUUID(),number:1,mode:'direct',status:'draft',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),reference:'',origin:'',rows:[{id:randomUUID(),articleId:'iron',method:'direct',weight:10}]};
+ const create={kind:'records',version:1,drafts:[{id:draft.id,next:draft}],customers:[]};
+ const created=await a(mobile,create);assert.equal(created.status,200,created.error);assert.equal(created.catalog,undefined);assert.equal(created.customerPrices,undefined);
+ const number=created.data.drafts.find(row=>row.id===draft.id).number;
+ assert.equal((await a(mobile,create)).data.drafts.find(row=>row.id===draft.id).number,number);
+ const base=created.data.drafts.find(row=>row.id===draft.id),first={...base,reference:'Office reference'},second={...base,origin:'Testgatan 4'};
+ const command=next=>({kind:'records',version:1,drafts:[{id:draft.id,base,next}],customers:[]});
+ assert.equal((await a(mobile,command(first))).status,200);
+ const merged=await a(mobile,command(second));assert.equal(merged.status,200,merged.error);
+ assert.equal(merged.data.drafts.find(row=>row.id===draft.id).reference,'Office reference');
+ assert.equal((await a(mobile,command({...base,reference:'Stale reference'}))).status,409);
+ const current=merged.data.drafts.find(row=>row.id===draft.id),completed={...current,status:'ready'};
+ assert.equal((await a(mobile,{kind:'records',version:1,drafts:[{id:draft.id,base:current,next:completed}],customers:[]})).status,200);
+ const b=await instance();const card=(await b(office)).data.cards.find(card=>card.sourceId===draft.id);assert.equal(card.id,number);
+ assert.equal((await a(mobile,{kind:'records',version:1,drafts:[{id:draft.id,base:completed,next:{...completed,origin:'Forbidden'}}],customers:[]})).status,409);
+ const customerId=initial.data.customers[0].id,prices=await a(`/api/application/mobile-prices?customerId=${customerId}`);
+ assert.equal(prices.status,200,prices.error);assert.deepEqual(Object.keys(prices.customerPrices),[customerId]);assert.equal(prices.data,undefined);
+}));

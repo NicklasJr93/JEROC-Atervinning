@@ -20,12 +20,13 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useDemo } from './store';
 import { kilos } from './model';
 import type { ArticleImage } from './catalog-types';
+import { builtInArticleImage } from './catalog-images';
 
 export function Logo() {
   return (
     <img
       className="company-logo"
-      src="/images/jeroc-logo-v2.png"
+      src="/images/jeroc-logo-ui.webp"
       alt="JEROC Återvinning"
     />
   );
@@ -49,17 +50,15 @@ export function Photo({
   if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index > 39) {
     return <div role="img" aria-label={label} className={`material-photo material-photo-missing ${className}`} title="Referensbild saknas"><ImageIcon aria-hidden="true" /></div>;
   }
-  const extra = index >= 28;
-  const cell = extra ? index - 28 : index;
   return (
     <div
       role="img"
       aria-label={label}
       className={`material-photo ${className}`}
       style={{
-        backgroundImage: extra ? "url('/images/copper-grades.png')" : undefined,
-        backgroundSize: extra ? '400% 300%' : undefined,
-        backgroundPosition: `${((cell % 4) * 100) / 3}% ${(Math.floor(cell / 4) * 100) / (extra ? 2 : 6)}%`,
+        backgroundImage: `url(${builtInArticleImage(index, variant)})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
       }}
     />
   );

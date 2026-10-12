@@ -9,6 +9,7 @@ import { createApplicationService, initialApplicationState } from './application
 import { createApplicationRepository } from './application-storage.mjs';
 import { createTerminalDemoRepository } from './terminal-demo-storage.mjs';
 import { createTerminalDemoStore } from './terminal-demo.mjs';
+import { ensureLogistics } from './logistics.mjs';
 
 const office = '/api/application/office', material = `${office}/material`;
 const users = [
@@ -88,6 +89,41 @@ test('material rights are independent and zero weight requires both edit and rem
   assert.equal(added.status, 200, added.error); assert.equal(added.cardProjection.rows[0].articleId, 'iron');
   const removed = await f.api(material, f.command(await f.card('remove-only'), { operation: 'remove', rowIndex: 0 }), 'remove-only');
   assert.equal(removed.status, 200, removed.error); assert.equal(removed.cardProjection.rows.length, 0);
+}));
+
+test('physical material commands persist incoming stock corrections atomically, without relying on a later logistics GET', async () => fixture(async f => {
+  const sourceId = randomUUID();
+  await f.repository.transact(state => {
+    const card = state.office.cards.find(card => card.id === 2053); card.sourceId = sourceId; card.siteId = 'norrtalje';
+    ensureLogistics(state, { sites: [{ id: 'norrtalje', name: 'Norrtälje', active: true }], classifications: [] });
+  });
+  const ledger = () => f.repository.read(state => structuredClone(state.logistics.inventoryMovements.filter(row => row.sourceId === sourceId)));
+  const original = await ledger(); assert.equal(original.reduce((sum, row) => sum + row.kg, 0), 72);
+  const start = await f.card();
+  const edited = await f.api(material, f.command(start, { operation: 'weight', rowIndex: 0, weight: 80 }));
+  assert.equal(edited.status, 200, edited.error);
+  assert.deepEqual((await ledger()).map(row => row.kg), [72, 8]);
+  f.rejectCommit(true);
+  assert.equal((await f.api(material, f.command(edited.cardProjection, { operation: 'weight', rowIndex: 0, weight: 90 }))).status, 503);
+  f.rejectCommit(false);
+  assert.deepEqual((await ledger()).map(row => row.kg), [72, 8]);
+  assert.equal((await f.card()).rows[0].weight, 80);
+  const removed = await f.api(material, f.command(await f.card(), { operation: 'weight', rowIndex: 0, weight: 0 }));
+  assert.equal(removed.status, 200, removed.error);
+  assert.deepEqual((await ledger()).map(row => row.kg), [72, 8, -80]);
+  assert.equal((await ledger()).reduce((sum, row) => sum + row.kg, 0), 0);
+}));
+
+test('mobile submission records normal incoming physical stock in the weighing commit exactly once', async () => fixture(async f => {
+  await f.repository.transact(state => ensureLogistics(state, { sites: [{ id: 'norrtalje', name: 'Norrtälje', active: true }], classifications: [] }));
+  const path = '/api/application/mobile', base = (await f.api(path)).data, next = structuredClone(base), sourceId = randomUUID();
+  next.drafts.push({ id: sourceId, number: 1418, mode: 'direct', status: 'ready', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    reference: 'Lager från mobil', origin: 'Testgatan 1', rows: [{ id: randomUUID(), articleId: 'copper-1', method: 'direct', weight: 15 }] });
+  const submitted = await f.api(path, { base, next }); assert.equal(submitted.status, 200, submitted.error);
+  assert.equal((await f.api(path, { base, next })).status, 200);
+  const saved = await f.repository.read(state => structuredClone(state));
+  assert.equal(saved.office.cards.filter(card => card.sourceId === sourceId).length, 1);
+  assert.deepEqual(saved.logistics.inventoryMovements.filter(row => row.sourceId === sourceId).map(row => row.kg), [15]);
 }));
 
 test('quantity commands reject stale or tampered input and recompute authoritative volume prices and totals', async () => fixture(async f => {

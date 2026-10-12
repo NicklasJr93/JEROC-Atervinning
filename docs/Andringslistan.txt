@@ -1685,7 +1685,7 @@ Status: Implementerad i kontor 0.17.2, 2026-10-12.
 
 082 – Prestandagranskning och föreslagna etapper
 Status: Granskning och mätunderlag sparade 2026-10-12. Optimeringarna är
-planerade; inga appfunktioner ändrades i denna granskning.
+implementerade tillsammans i 083; inga appfunktioner ändrades i själva granskningen.
 - Samlad rapport: docs/prestandagranskning-2026-10-12.md. Kod, 36 driftläsningar,
   webbläsarens laddningskedjor och separata lokala PostgreSQL-prov ingår.
   Driftproven är tre varma observationer per endpoint, inte P95/belastningsprov.
@@ -1710,3 +1710,39 @@ planerade; inga appfunktioner ändrades i denna granskning.
   server-/DB-tider och representativ samtidighet. Render-planer/resurser är
   inte bekräftade. Befintlig behörighet, commit, lagerkontroll, godkännande,
   offlinekön och skydd mot dubbla externa operationer måste bevaras.
+
+083 – Fyra prestandaetapper i samma bygge
+Status: Implementerad 2026-10-12, kontor 0.18.0 och mobilwebb 0.5.1.
+- Integrationer läser små SQL-projektioner. Sparade Spiris-val och inställningar
+  hämtas i en snapshot. Behörighet kontrolleras från aktuella användare utan
+  att bygga hela prismotorn; ingen behörighetskontroll hoppas över.
+- Personal, logistik och äldre chaufför-/kund-/åkeriportaler använder läsningar
+  utan skrivlås. Verkliga viktkortsändringar sparar lagerhistorik i samma commit.
+  Arbetsorderräknaren är en liten behörighets-/anläggningsfiltrerad läsning.
+- Sidor hämtar sina egna register. På Integrationer laddas inte längre hela
+  miljö-/pris-/logistikregistret. Samtidiga identiska läsningar samordnas;
+  giltiga Spiris-val återanvänds kortvarigt inom samma session och behörighet.
+- SSE uppdaterar ändrade vyer. Reservpollningen kontrollerar revision och
+  hämtar fulla uppgifter endast vid förändring. Mobilen upptäcker även nytt
+  datum i Stockholm, så tidsstyrda prisregler uppdateras utan databasändring.
+- Appfamiljer laddas separat, originalbilder bevaras och mobil-/UI-varianter
+  använder mindre bilder. Artikelbilder laddas individuellt, inte som ett
+  bildark på flera MB. Reproducerbart: scripts/optimize-demo-images.mjs.
+- Mobilen hämtar priser för vald kund. Små sparkommandon skickar ändrade
+  utkast/kunder i stället för två hela register. Befintlig offlinekö, konflikter,
+  person-/anläggningskontroll, färdiglås och serverns nummerfördelning kvarstår.
+- Tidrapportens person-/dagsindex är lokala för anropet; rättelser, frånvaro,
+  historiska timkrav och sommar-/vintertid räknas fortsatt från aktuella data.
+- Spiris-historik, exportjobb, val, inställningsversioner och leverantörskopplingar
+  migreras atomiskt till indexerade JSONB-poster. Fulla poster och okända framtida
+  attribut bevaras; vanliga sparningar bär inte längre hela integrationsjournalen.
+- Exportarbetaren köar det aktuella kortet vid attest och hoppar över redan köade
+  versioner. Full avstämning sker vid start och var femte minut. Varje kontroll
+  före ett externt anrop hämtar bara det aktuella kortets senaste attestversion.
+  Leverantörs-/fakturaförsök med okänt svar skickas aldrig om automatiskt.
+- PDF-listning skapar inga PDF-filer. Durabla jobb skapar låsta versioner i en
+  separat begränsad PDF-arbetare; kö, timeout, arkivunikhet och återstart kvarstår.
+- Server-Timing delar upp anrop, SQL, pool och låsfrågor utan privata data.
+  Migreringen sker före trafikstart och databasen spärrar äldre journalförfattare
+  under rullande deploy. Återgång till äldre kod kräver en kompatibel återställning.
+- Samlad beskrivning och verifiering: docs/prestandabygge-2026-10-12.md.

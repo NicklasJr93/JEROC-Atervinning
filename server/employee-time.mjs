@@ -15,6 +15,33 @@ const revision = z.number().int().nonnegative();
 const dateSchema = z.string().regex(dayPattern).refine(validDay, 'Ange ett giltigt datum.');
 const clockFormatter = new Intl.DateTimeFormat('sv-SE', { timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const localInstantCache = new Map();
+const projectionIndex = Symbol('employee-time-projection-index');
+
+/** Request-local indexes: no persisted summary can drift from corrected hours,
+ * historic schedule versions, absences or the current Stockholm day. */
+function indexedPersonState(state, person) {
+  if (state[projectionIndex]?.personId === person.id) return state;
+  const domain = state.employeeTime ?? {}, entries = (domain.entries ?? []).filter(value => value.personId === person.id),
+    sessions = (domain.orderSessions ?? []).filter(value => value.personId === person.id);
+  const manualByDate = new Map(), sessionsByDate = new Map();
+  for (const entry of entries) {
+    if (!manualByDate.has(entry.date)) manualByDate.set(entry.date, []);
+    manualByDate.get(entry.date).push(entry);
+  }
+  for (const session of sessions) {
+    if (!session.endedAt) continue;
+    const first = localParts(session.startedAt).date, last = localParts(session.endedAt).date;
+    for (const date of datesBetween(first, last)) {
+      if (!sessionsByDate.has(date)) sessionsByDate.set(date, []);
+      sessionsByDate.get(date).push(session);
+    }
+  }
+  return { ...state, employeeTime: { ...domain, entries, orderSessions: sessions,
+    settings: (domain.settings ?? []).filter(value => value.personId === person.id),
+    requirementHistory: (domain.requirementHistory ?? []).filter(value => value.personId === person.id),
+    normativeHistory: (domain.normativeHistory ?? []).filter(value => value.personId === person.id) },
+    [projectionIndex]: { personId: person.id, manualByDate, sessionsByDate, days: new Map() } };
+}
 
 function validDay(value) {
   if (!dayPattern.test(value)) return false;
@@ -194,8 +221,9 @@ function orderSegments(session, dayStart, dayEnd) {
 }
 function datedEntries(state, person, date, sites) {
   const dayStart = localInstant(date, 0), dayEnd = localInstant(addDays(date, 1), 0);
-  const manual = (state.employeeTime?.entries ?? []).filter(value => value.personId === person.id && value.date === date && !value.deletedAt).map(value => ({ ...copy(value), source: 'manual', intervals: manualIntervals(value) }));
-  const automatic = (state.employeeTime?.orderSessions ?? []).filter(value => value.personId === person.id && value.endedAt && Date.parse(value.startedAt) < dayEnd && Date.parse(value.endedAt) > dayStart).flatMap(value => {
+  const index = state[projectionIndex];
+  const manual = (index ? index.manualByDate.get(date) ?? [] : state.employeeTime?.entries ?? []).filter(value => value.personId === person.id && value.date === date && !value.deletedAt).map(value => ({ ...copy(value), source: 'manual', intervals: manualIntervals(value) }));
+  const automatic = (index ? index.sessionsByDate.get(date) ?? [] : state.employeeTime?.orderSessions ?? []).filter(value => value.personId === person.id && value.endedAt && Date.parse(value.startedAt) < dayEnd && Date.parse(value.endedAt) > dayStart).flatMap(value => {
     const intervals = orderSegments(value, dayStart, dayEnd);
     if (!intervals.length) return [];
     const [start, end] = intervals[0];
@@ -204,17 +232,22 @@ function datedEntries(state, person, date, sites) {
   return [...manual, ...automatic].map(entry => ({ ...entry, minutes: elapsedMinutes(entry.intervals), orderName: state.transport?.orders?.find(value => value.id === entry.orderId)?.customerName, siteName: sites.find(value => value.id === entry.siteId)?.name })).sort((a, b) => a.startMinute - b.startMinute || a.id.localeCompare(b.id));
 }
 function dayData(state, person, date, sites, orders = ownOrders(state, person)) {
+  const cached = state[projectionIndex]?.days.get(date);
+  if (cached) return cached;
   const expected = expectedDay(state, person, date), entries = datedEntries(state, person, date, sites);
   const recordedMinutes = elapsedMinutes(entries.flatMap(entry => entry.intervals));
   const automaticMinutes = elapsedMinutes(entries.filter(entry => entry.source === 'order').flatMap(entry => entry.intervals));
   const manualMinutes = recordedMinutes - automaticMinutes;
   const expectedMinutes = expected.expectedMinutes, missingMinutes = Math.max(0, expectedMinutes - recordedMinutes);
-  return { date, expectedMinutes, recordedMinutes, missingMinutes, automaticMinutes, manualMinutes, absenceMinutes: expected.absenceMinutes, jobsCount: orders.filter(order => order.date === date && order.status !== 'cancelled').length, status: expectedMinutes === 0 ? 'not_required' : recordedMinutes === 0 ? 'empty' : missingMinutes > 0 ? 'partial' : 'complete', entries, schedules: expected.schedules, absences: expected.absences, orders: orders.filter(order => order.date === date) };
+  const result = { date, expectedMinutes, recordedMinutes, missingMinutes, automaticMinutes, manualMinutes, absenceMinutes: expected.absenceMinutes, jobsCount: orders.filter(order => order.date === date && order.status !== 'cancelled').length, status: expectedMinutes === 0 ? 'not_required' : recordedMinutes === 0 ? 'empty' : missingMinutes > 0 ? 'partial' : 'complete', entries, schedules: expected.schedules, absences: expected.absences, orders: orders.filter(order => order.date === date) };
+  state[projectionIndex]?.days.set(date, result);
+  return result;
 }
 function publicDay({ entries, schedules, absences, orders, ...day }) { return day; }
 
 export function employeeTimeGate(state, personOrId, context = {}) {
   const person = ownPerson(state, personOrId), today = employeeTimeToday(context);
+  state = indexedPersonState(state, person);
   const setting = requirementAt(state, person, today), empty = { blocked: false, expectedMinutes: 0, recordedMinutes: 0, missingMinutes: 0 };
   if (!setting.enabled || !state.employeeTime?.settings.some(value => value.personId === person.id)) return empty;
   const sites = siteList(state, person, context), orders = ownOrders(state, person);
@@ -227,6 +260,7 @@ export function employeeTimeGate(state, personOrId, context = {}) {
 }
 export function employeeTimeProjection(state, personOrId, context = {}) {
   const person = ownPerson(state, personOrId), today = employeeTimeToday(context);
+  state = indexedPersonState(state, person);
   const month = context.month ?? today.slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(month) || !validDay(`${month}-01`)) fail('Ange en giltig månad.');
   const date = parse(dateSchema, context.date ?? (today.startsWith(month) ? today : `${month}-01`));

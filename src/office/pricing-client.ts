@@ -1,6 +1,7 @@
 import type { OfficeUser } from './model';
 import type { ArticleTaxCategory } from './accounting-types';
 import type { ArticleGroup, ArticleImage } from '../catalog-types';
+import { invalidateOfficeReads, sharedOfficeRead } from './shared-read';
 export type { ArticleTaxCategory } from './accounting-types';
 export type { ArticleGroup, ArticleImage, SaveArticleGroup } from '../catalog-types';
 
@@ -128,30 +129,42 @@ export async function pricingRequest<T>(
   actualUser: OfficeUser,
   body?: unknown,
 ): Promise<T> {
-  const response = await fetch(`/api/pricing/${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: {
-      'X-Demo-Actor': actualUser.id,
-      'X-Demo-User': user.id,
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  let result: unknown;
-  try {
-    result = await response.json();
-  } catch {
-    throw new Error(
-      'Pristjänsten svarade inte. Försök igen när servern har startat.',
-    );
+  const prefix = `pricing:${actualUser.id}/${user.id}:`;
+  if (body !== undefined) invalidateOfficeReads(prefix);
+  const load = async (signal?: AbortSignal): Promise<T> => {
+    const response = await fetch(`/api/pricing/${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: {
+        'X-Demo-Actor': actualUser.id,
+        'X-Demo-User': user.id,
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal,
+    });
+    let result: unknown;
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error(
+        'Pristjänsten svarade inte. Försök igen när servern har startat.',
+      );
+    }
+    if (!response.ok) {
+      const detail = result as { error?: string; message?: string };
+      throw new Error(
+        detail.error ||
+          detail.message ||
+          'Pristjänsten kunde inte utföra åtgärden.',
+      );
+    }
+    if (body !== undefined) invalidateOfficeReads(prefix);
+    return result as T;
+  };
+  if (body === undefined && /^state(?:\?|$)/.test(path)) {
+    const scope = JSON.stringify([actualUser.level, actualUser.permissions, actualUser.siteIds,
+      user.level, user.permissions, user.siteIds, path]);
+    return sharedOfficeRead(`${prefix}${scope}`, load);
   }
-  if (!response.ok) {
-    const detail = result as { error?: string; message?: string };
-    throw new Error(
-      detail.error ||
-        detail.message ||
-        'Pristjänsten kunde inte utföra åtgärden.',
-    );
-  }
-  return result as T;
+  return load();
 }

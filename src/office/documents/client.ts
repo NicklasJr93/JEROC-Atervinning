@@ -31,7 +31,7 @@ async function request<T>(path: string, identity: DocumentIdentity, method = 'GE
   return value as T;
 }
 export const documentApi = {
-  list: (kind: DocumentKind, sourceId: string | number, identity: DocumentIdentity, signal?: AbortSignal) => request<{documents: ArchivedDocument[]; demo: true}>(`?kind=${encodeURIComponent(kind)}&sourceId=${encodeURIComponent(sourceId)}`, identity, 'GET', undefined, signal),
+  list: (kind: DocumentKind, sourceId: string | number, identity: DocumentIdentity, signal?: AbortSignal) => request<{documents: ArchivedDocument[]; pending?: boolean; demo: true}>(`?kind=${encodeURIComponent(kind)}&sourceId=${encodeURIComponent(sourceId)}`, identity, 'GET', undefined, signal),
   settlement: (cardId: number, stage: Exclude<DocumentStage, 'draft'>, identity: DocumentIdentity) => request<{document: ArchivedDocument}>(`/settlements/${encodeURIComponent(cardId)}/generate`, identity, 'POST', { stage }),
   receipt: (paymentId: string, identity: DocumentIdentity) => request<{document: ArchivedDocument}>(`/receipts/${encodeURIComponent(paymentId)}/generate`, identity, 'POST', {}),
   transport: (orderId: string, identity: DocumentIdentity, signal?: AbortSignal) => request<TransportDocumentResponse>(`/transport/${encodeURIComponent(orderId)}`, identity, 'GET', undefined, signal),

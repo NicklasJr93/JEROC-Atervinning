@@ -5,7 +5,7 @@ import { latestAttestedVismaCards } from './visma-weightcard.mjs';
 import { normalizeAccountingSettings as normalize, accountingExportEligibility, buildAccountingDraft as buildDraft, previewAccountingExample as examplePreview,
   AccountingError, moneyToCents, calculateMaterialBaseCents } from './visma-accounting.mjs';
 
-const ORGANISATION = 'jeroc-demo', LEASE = 120000;
+const ORGANISATION = 'jeroc-demo', LEASE = 120000, RECONCILE_INTERVAL = 5 * 60 * 1000;
 const clone = value => structuredClone(value);
 const fail = (message, status = 409, code = 'visma_export_invalid') => { throw new EnvironmentError(message, status, code); };
 const uuid = value => z.string().uuid().safeParse(value).success;
@@ -53,21 +53,39 @@ const previewAccountingExample = input => accountingCall(examplePreview, input);
 
 // This module gets a private transport capability from the OAuth service. A
 // worker never manufactures a Systemadmin principal or accepts one from HTTP.
-export function createVismaExports({ read, transact, tenantFor, scoped, audit, clock, config, connection,
+export function createVismaExports({ readTenantProjection, queryExports, connectionPaths, connectionFrom, transact, tenantFor, scoped, audit, clock, config, connection,
   sourceProvider, sitesProvider, authorizeContext, send, lookupBatch }) {
-  const financeFor = (tenant, create = false) => create ? tenant.finance ??= initial() : tenant.finance ?? initial();
-  const readFinance = operation => read(state => operation(financeFor(tenantFor(state, ORGANISATION))));
-  const mutate = operation => transact(state => { const tenant = tenantFor(state, ORGANISATION, true); return operation(financeFor(tenant, true), tenant); });
+  const financeFor = (tenant, create = false) => {
+    if (!create) return { ...initial(), ...tenant.finance };
+    const finance = tenant.finance ??= {};
+    for (const [name, value] of Object.entries(initial())) finance[name] ??= value;
+    return finance;
+  };
+  const readFinanceProjection = (operation, paths) => readTenantProjection(tenant => operation(financeFor(tenant)), paths.map(path => ['finance', ...path]));
+  const mutate = (operation, finance = false) => transact(state => { const tenant = tenantFor(state, ORGANISATION, true); return operation(financeFor(tenant, true), tenant); }, { organisationId: ORGANISATION, finance });
+  const exportJobs = options => queryExports({ organisationId: ORGANISATION, ...options });
+  const readJob = async id => (await exportJobs({ id, limit: 1 }))[0] ?? null;
   const companyId = () => config().expectedCompanyId;
-  const currentSettings = () => readFinance(finance => clone(finance.settings[companyId()] ?? defaultSettings(companyId())));
-  const currentChoices = () => readFinance(finance => normalizedChoices(finance.choices[companyId()] ?? null));
+  const currentSettings = () => readFinanceProjection(finance => clone(finance.settings[companyId()] ?? defaultSettings(companyId())), [['settings', companyId() ?? '']]);
+  const currentChoices = () => readFinanceProjection(finance => normalizedChoices(finance.choices[companyId()] ?? null), [['choices', companyId() ?? '']]);
   const authorize = async context => { scoped(context); await authorizeContext(context); };
   async function sites() {
     const values = await sitesProvider();
     return (Array.isArray(values) ? values : values?.sites ?? []).map(site => ({ id: String(site.id), name: cleanText(site.name ?? site.label ?? site.id) }));
   }
   async function dto() {
-    const [settings, connected, actualSites, choices] = await Promise.all([currentSettings(), connection(), sites(), currentChoices()]);
+    // Connection, configuration and cached choices must describe one database
+    // snapshot. Reading the whole integration document three times also copied
+    // every historical response and export, even for this small settings page.
+    const [snapshot, actualSites] = await Promise.all([
+      readTenantProjection(tenant => {
+        const finance = financeFor(tenant);
+        return { settings: clone(finance.settings[companyId()] ?? defaultSettings(companyId())),
+          choices: normalizedChoices(finance.choices[companyId()] ?? null), connected: connectionFrom(tenant) };
+      }, [...connectionPaths, ['finance', 'settings', companyId() ?? ''], ['finance', 'choices', companyId() ?? '']]),
+      sites(),
+    ]);
+    const { settings, connected, choices } = snapshot;
     const suggested = choices?.paymentTerms.filter(term => term.availableForPurchase && term.days === 0) ?? [];
     return { settings, ...connected, sites: actualSites, choices, capabilities: { canConfigure: true,
       canExport: Boolean(settings.enabled && connected.companyVerified), automationEnabled: Boolean(settings.enabled && settings.exportMode === 'after_attest') },
@@ -136,7 +154,7 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
     }
   }
   async function findApproval(cardId) {
-    const approval = latestAttestedVismaCards(await sourceProvider()).find(item => String(item.cardId) === String(cardId));
+    const approval = latestAttestedVismaCards(await sourceProvider({ cardId })).find(item => String(item.cardId) === String(cardId));
     if (!approval) fail('Kortets aktuella version måste vara kundgodkänd och internt attesterad.', 409, 'visma_source_unattested');
     return approval;
   }
@@ -186,7 +204,7 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
       companyId: accounting.companyId, settingsRevision: accounting.settingsRevision ?? accounting.settingsVersion ?? accounting.revision };
   }
   async function assertFrozenAuthorization(prepared) {
-    const original = await readFinance(finance => finance.settingsHistory?.[prepared.companyId]?.[prepared.settingsRevision]);
+    const original = await readFinanceProjection(finance => finance.settingsHistory?.[prepared.companyId]?.[prepared.settingsRevision], [['settingsHistory', prepared.companyId, String(prepared.settingsRevision)]]);
     if (!original?.enabled || !original.enabledBy?.actualUserId || original.companyId !== prepared.companyId || original.exportMode !== prepared.accounting.exportMode)
       fail('Den låsta ekonomiversionen saknar en sparad aktivering av systemadmin för detta sandboxföretag.', 409, 'visma_accounting_config_unknown');
   }
@@ -197,9 +215,9 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
       const approval = await findApproval(parsed.data.cardId);
       try {
         const prepared = prepare(approval); await assertFrozenAuthorization(prepared);
-        const mapping = await readFinance(finance => clone(finance.mappings[mappingKey(prepared.companyId, prepared.customerId)] ?? null));
+        const mapping = await readFinanceProjection(finance => clone(finance.mappings[mappingKey(prepared.companyId, prepared.customerId)] ?? null), [['mappings', mappingKey(prepared.companyId, prepared.customerId)]]);
         return { ...prepared, eligible: true, issues: [], mapping: mapping?.supplierId ? { supplierId: mapping.supplierId } : null,
-          export: await readFinance(finance => { const job = finance.outbox.find(item => item.key === key(prepared.companyId, prepared.source)); return job ? publicExport(job) : null; }) };
+          export: await exportJobs({ companyId: prepared.companyId, key: key(prepared.companyId, prepared.source), limit: 1 }).then(jobs => jobs[0] ? publicExport(jobs[0]) : null) };
       } catch (error) { if (!(error instanceof EnvironmentError)) throw error; return { source: ref(approval), eligible: false, issues: [error.message], code: error.code }; }
     }
     if (!input || typeof input !== 'object' || Object.keys(input).some(name => !['settings', 'siteId', 'example', 'amount', 'date'].includes(name))) fail('Förhandsvisningens uppgifter är inte giltiga.', 422);
@@ -213,10 +231,10 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
     verifyDraftAccounts(preview.draft, choices.accounts.filter(account => account.fiscalYearId === years[0].id), true);
     return { ...preview, eligible: preview.issues.length === 0 };
   }
-  async function enqueue(input, context, worker = false) {
+  async function enqueue(input, context, worker = false, approvalSnapshot) {
     if (!worker) await authorize(context); else await assertWorkerAuthorization(context);
     const parsed = exportInput.safeParse(input); if (!parsed.success) fail('Välj ett giltigt viktkort.', 422);
-    const approval = await findApproval(parsed.data.cardId), prepared = prepare(approval);
+    const approval = approvalSnapshot ?? await findApproval(parsed.data.cardId), prepared = prepare(approval);
     await assertFrozenAuthorization(prepared);
     if (parsed.data.source && Object.keys(prepared.source).some(name => parsed.data.source[name] !== prepared.source[name])) fail('Attestversionen har ändrats. Hämta uppgifterna igen.', 409, 'visma_source_changed');
     const settings = await currentSettings();
@@ -233,7 +251,7 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
         events: [{ at: timestamp, text: 'Attesterad version köad för Spiris.', actor: worker ? 'Spiris-arbetare' : context.actorId }] };
       finance.outbox.push(job); audit(tenant, context, 'visma.export_queued', { exportId: job.id, source: job.source, trigger: job.trigger, settingsRevision: job.settingsRevision, attestActorId: job.attestActorId });
       return publicExport(job);
-    });
+    }, { outbox: { key: key(prepared.companyId, prepared.source) } });
   }
   async function assertWorkerAuthorization(context) {
     if (context?.organisationId !== ORGANISATION || context.actorId !== 'service:spiris-export') fail('Ogiltig arbetarbehörighet.', 403, 'forbidden');
@@ -241,7 +259,7 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
     if (!config().configured || !settings.enabled || !settings.enabledBy?.actualUserId || settings.companyId !== companyId())
       fail('Automatisk överföring måste aktiveras av systemadmin för det låsta sandboxföretaget.', 409, 'visma_automation_disabled');
     if (settings.exportMode !== 'after_attest') {
-      const job = context.exportId ? await readFinance(finance => finance.outbox.find(item => item.id === context.exportId)) : null;
+      const job = context.exportId ? await readJob(context.exportId) : null;
       if (job?.trigger !== 'manual' || job.authorization?.kind !== 'manual' || !job.authorization.actualUserId || !job.authorization.effectiveUserId || job.authorization.companyId !== companyId())
         fail('Automatisk upptäckt av attestversioner är inte aktiverad.', 409, 'visma_automation_disabled');
     }
@@ -251,17 +269,20 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
     const settings = await currentSettings();
     if (!settings.enabled || settings.companyId !== companyId()) fail('Spiris-överföring har stängts av.', 409, 'visma_export_disabled');
     if (id) {
-      const job = await readFinance(finance => finance.outbox.find(item => item.id === id));
+      const job = await readJob(id);
       if (!job || job.companyId !== companyId()) fail('Överföringen tillhör ett annat Spiris-företag.', 409, 'visma_company_mismatch');
     }
   }
-  async function updateJob(id, owner, operation) {
+  async function updateJob(id, owner, operation, relatedMappingKey) {
     return mutate((finance, tenant) => { const job = finance.outbox.find(item => item.id === id);
       if (!job || job.lease?.id !== owner) fail('Överföringen hanteras av en annan arbetare.', 409, 'visma_export_busy');
-      operation(job, finance, tenant); job.updatedAt = clock().toISOString(); return publicExport(job); });
+      operation(job, finance, tenant); job.updatedAt = clock().toISOString(); return publicExport(job); }, { outbox: { id }, mappingKeys: relatedMappingKey ? [relatedMappingKey] : [] });
   }
   async function process(id, context, worker = false) {
     await assertExportAuthorization(context, worker, id);
+    const current = await readJob(id);
+    if (!current) fail('Överföringen finns inte.', 404, 'not_found');
+    const relatedMappingKey = mappingKey(current.companyId, current.customerId);
     const reservation = await mutate(finance => {
       const job = finance.outbox.find(item => item.id === id); if (!job) fail('Överföringen finns inte.', 404, 'not_found');
       if (['accepted', 'rejected', 'unknown', 'blocked'].includes(job.status)) return { prior: publicExport(job) };
@@ -272,9 +293,10 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
       job.lease = { id: owner, until }; job.status = 'processing';
       const mapping = finance.mappings[mappingKey(job.companyId, job.customerId)] ??= { companyId: job.companyId, customerId: job.customerId };
       mapping.lease = { jobId: job.id, until }; return { job: clone(job), mapping: clone(mapping), owner };
-    });
+    }, { outbox: { id }, mappingKeys: [relatedMappingKey] });
     if (reservation.prior) return reservation.prior;
     let { job, mapping } = reservation; const owner = reservation.owner;
+    const update = operation => updateJob(job.id, owner, operation, relatedMappingKey);
     const event = (entry, text) => entry.events.push({ at: clock().toISOString(), text, actor: worker ? 'Spiris-arbetare' : context.actorId });
     try {
       const approval = await findApproval(job.source.cardId), prepared = prepare(approval);
@@ -302,14 +324,14 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
             if (!job.privateSeller && job.supplier.CorporateIdentityNumber && match.CorporateIdentityNumber &&
               organisationNumber(match.CorporateIdentityNumber) !== job.supplier.CorporateIdentityNumber)
               fail('Spiris-leverantörens organisationsnummer motsäger kundens låsta identitet.', 409, 'visma_supplier_identity_conflict');
-            await updateJob(job.id, owner, (entry, finance, tenant) => {
+            await update((entry, finance, tenant) => {
               const record = finance.mappings[mappingKey(job.companyId, job.customerId)]; record.supplierId = match.Id; record.status = 'accepted'; record.matchedBy = exact.length ? 'supplier_number' : 'organisation_number';
               entry.supplierId = match.Id; entry.stage = 'draft'; event(entry, 'Befintlig Spiris-leverantör kopplad.');
               audit(tenant, context, 'visma.supplier_mapped', { exportId: entry.id, customerId: entry.customerId, companyId: entry.companyId, supplierId: match.Id });
             });
             mapping.supplierId = match.Id;
           } else {
-            await updateJob(job.id, owner, (entry, finance) => {
+            await update((entry, finance) => {
               const record = finance.mappings[mappingKey(job.companyId, job.customerId)];
               record.createRequest = { requestId: entry.runs.supplierRequestId, source: entry.source, payload: entry.supplier, scopeKey: entry.id }; record.status = 'reserved';
             });
@@ -318,22 +340,22 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
         }
         if (!mapping.supplierId) {
           const request = mapping.createRequest;
-          await updateJob(job.id, owner, entry => { entry.runs.supplierRequestId = request.requestId; entry.supplierRequestReserved = true; });
+          await update(entry => { entry.runs.supplierRequestId = request.requestId; entry.supplierRequestReserved = true; });
           const run = await send({ operation: 'createSupplier', requestId: request.requestId, idempotencyKey: `supplier:${request.requestId}`, payload: request.payload, source: request.source }, context, worker, request.scopeKey);
-          await updateJob(job.id, owner, (entry, finance, tenant) => {
+          await update((entry, finance, tenant) => {
             const record = finance.mappings[mappingKey(job.companyId, job.customerId)];
             if (run.status === 'accepted') { record.supplierId = run.resourceId; record.status = 'accepted'; entry.supplierId = run.resourceId; entry.stage = 'draft'; event(entry, 'Spiris-leverantör skapad och kopplad.'); }
             else if (run.status !== 'in_flight') { record.status = run.status; entry.status = run.status; entry.error = run.error; event(entry, 'Leverantörsförsöket behöver kontrolleras.'); }
             audit(tenant, context, `visma.export_supplier_${run.status}`, { exportId: entry.id, runId: run.id, supplierId: run.resourceId ?? null });
           });
-          if (run.status !== 'accepted') return await finish(job.id, owner);
+          if (run.status !== 'accepted') return await finish(job.id, owner, relatedMappingKey);
           mapping.supplierId = run.resourceId;
         }
       }
-      await updateJob(job.id, owner, entry => { entry.supplierId = mapping.supplierId; entry.stage = 'draft'; });
+      await update(entry => { entry.supplierId = mapping.supplierId; entry.stage = 'draft'; });
       // Validate the mapped supplier and the exact fiscal year's real accounts.
       const supplierRequestId = randomUUID();
-      await updateJob(job.id, owner, entry => { if (!entry.supplierRequestReserved) { entry.runs.supplierRequestId = supplierRequestId; entry.supplierRequestReserved = true; } });
+      await update(entry => { if (!entry.supplierRequestReserved) { entry.runs.supplierRequestId = supplierRequestId; entry.supplierRequestReserved = true; } });
       const supplierRun = await send({ operation: 'supplier', requestId: supplierRequestId, idempotencyKey: supplierRequestId,
         parameters: { resourceId: mapping.supplierId } }, context, worker, job.id);
       if (supplierRun.status !== 'accepted' || supplierRun.response?.Id !== mapping.supplierId || supplierRun.response.IsActive === false)
@@ -350,51 +372,93 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
       if (!fiscalYear || fiscalYear.IsLockedForAccounting || !uuid(fiscalYear.Id)) fail('Fakturadatumet saknar ett öppet räkenskapsår i Spiris.', 409, 'visma_fiscal_year_invalid');
       const accounts = await list('accounts', { fiscalYearId: fiscalYear.Id }, context, worker, job.id);
       verifyDraftAccounts(job.draft, accounts);
-      await updateJob(job.id, owner, entry => { entry.draftRequestReserved = true; });
+      await update(entry => { entry.draftRequestReserved = true; });
       const draftRun = await send({ operation: 'createDraft', requestId: job.runs.draftRequestId, idempotencyKey: `draft:${job.runs.draftRequestId}`,
         parameters: { useDefaultVatCodes: false, calculateVatOnCostAccounts: false }, payload: { ...job.draft, SupplierId: mapping.supplierId }, source: job.source }, context, worker, job.id);
-      await updateJob(job.id, owner, (entry, _finance, tenant) => {
+      await update((entry, _finance, tenant) => {
         if (draftRun.status !== 'in_flight') { entry.status = draftRun.status; entry.error = draftRun.error ?? null; entry.draftId = draftRun.resourceId ?? null;
           entry.finishedAt = clock().toISOString(); event(entry, draftRun.status === 'accepted' ? 'Leverantörsfakturautkast skapat i Spiris.' : 'Fakturautkastets försök behöver kontrolleras.'); }
         audit(tenant, context, `visma.export_draft_${draftRun.status}`, { exportId: entry.id, runId: draftRun.id, draftId: draftRun.resourceId ?? null });
       });
-      return await finish(job.id, owner);
+      return await finish(job.id, owner, relatedMappingKey);
     } catch (error) {
       if (!(error instanceof EnvironmentError)) error = new EnvironmentError('Överföringen avbröts. Kontrollera det sparade försöket innan fortsatt arbete.', 409, 'visma_export_interrupted');
-      await updateJob(job.id, owner, (entry, _finance, tenant) => { entry.status = 'blocked'; entry.error = { code: error.code, message: error.message }; event(entry, error.message);
+      await update((entry, _finance, tenant) => { entry.status = 'blocked'; entry.error = { code: error.code, message: error.message }; event(entry, error.message);
         audit(tenant, context, 'visma.export_blocked', { exportId: entry.id, code: error.code }); });
-      return await finish(job.id, owner);
+      return await finish(job.id, owner, relatedMappingKey);
     }
   }
-  async function finish(id, owner) {
+  async function finish(id, owner, relatedMappingKey) {
     return updateJob(id, owner, (job, finance) => {
       if (job.status === 'processing') job.status = 'queued';
       const mapping = finance.mappings[mappingKey(job.companyId, job.customerId)]; if (mapping?.lease?.jobId === job.id) delete mapping.lease;
       delete job.lease;
-    });
+    }, relatedMappingKey);
   }
-  let workerRunning = false;
-  async function processQueuedExports() {
+  let workerRunning = false, reconciliationRequested = false, lastReconciliationAt = null;
+  const pendingCards = new Set();
+  async function processQueuedExports({ cardId, reconcile = true } = {}) {
+    if (cardId !== undefined) {
+      if (!Number.isSafeInteger(cardId) || cardId <= 0) fail('Välj ett giltigt viktkort.', 422);
+      pendingCards.add(cardId);
+    }
+    if (reconcile) reconciliationRequested = true;
+    // A new committed attest may arrive while another provider request is in
+    // flight. Keep its hint for the next pass rather than dropping the event.
     if (workerRunning) return { processed: 0 };
     workerRunning = true;
+    let consumedHints = [], consumedReconciliation = false;
     try {
       const settings = await currentSettings();
       if (!settings.enabled || !settings.enabledBy?.actualUserId || !config().configured) return { processed: 0 };
       const context = { organisationId: ORGANISATION, actorId: 'service:spiris-export', effectiveUserId: 'service:spiris-export' };
-      for (const approval of settings.exportMode === 'after_attest' ? latestAttestedVismaCards(await sourceProvider()) : []) {
+      const automatic = settings.exportMode === 'after_attest';
+      const fullReconciliation = reconciliationRequested || lastReconciliationAt !== null && clock().getTime() - lastReconciliationAt >= RECONCILE_INTERVAL;
+      const hints = automatic ? [...pendingCards].slice(0, fullReconciliation ? undefined : 50) : [];
+      consumedHints = hints; consumedReconciliation = automatic && fullReconciliation;
+      if (!automatic) pendingCards.clear();
+      for (const id of hints) pendingCards.delete(id);
+      let approvals = [];
+      try {
+        if (automatic && fullReconciliation) {
+          reconciliationRequested = false;
+          approvals = latestAttestedVismaCards(await sourceProvider());
+          lastReconciliationAt = clock().getTime();
+        } else if (automatic && hints.length) {
+          const requested = new Set(hints);
+          approvals = latestAttestedVismaCards((await Promise.all(hints.map(id => sourceProvider({ cardId: id })))).flat())
+            .filter(approval => requested.has(Number(approval.cardId)));
+        }
+      } catch (error) {
+        for (const id of hints) pendingCards.add(id);
+        if (fullReconciliation) reconciliationRequested = true;
+        throw error;
+      }
+      // Startup and periodic reconciliation remain authoritative after restart;
+      // normal 20-second passes drain indexed jobs without scanning all attests.
+      const knownKeys = new Set(automatic && fullReconciliation ? (await exportJobs({ companyId: companyId(), fields: ['key'] })).map(job => job.key) : []);
+      for (const approval of approvals) {
+        const sourceKey = key(companyId(), ref(approval));
+        if (knownKeys.has(sourceKey)) continue;
+        if (!fullReconciliation && (await exportJobs({ companyId: companyId(), key: sourceKey, fields: ['key'], limit: 1 })).length) continue;
         try {
           const prepared = prepare(approval);
-          const authorizedRevision = await readFinance(finance => finance.settingsHistory?.[prepared.companyId]?.[prepared.settingsRevision]);
+          const authorizedRevision = await readFinanceProjection(finance => finance.settingsHistory?.[prepared.companyId]?.[prepared.settingsRevision], [['settingsHistory', prepared.companyId, String(prepared.settingsRevision)]]);
           if (prepared.accounting.exportMode === 'after_attest' && authorizedRevision?.enabled && authorizedRevision.exportMode === 'after_attest' && authorizedRevision.enabledBy?.actualUserId)
-            await enqueue({ cardId: approval.cardId }, context, true);
+            await enqueue({ cardId: approval.cardId }, context, true, approval);
+          knownKeys.add(sourceKey);
         }
         catch (error) { if (!(error instanceof EnvironmentError)) throw error; }
       }
-      const jobs = await readFinance(finance => finance.outbox.filter(job => ['queued', 'processing'].includes(job.status) &&
-        (job.trigger === 'manual' || settings.exportMode === 'after_attest')).map(job => job.id));
+      const jobs = await exportJobs({ companyId: companyId(), statuses: ['queued', 'processing'],
+        ...(!automatic ? { trigger: 'manual' } : {}), fields: ['id'], limit: 25 });
       let processed = 0;
-      for (const id of jobs.slice(0, 25)) { await process(id, { ...context, exportId: id }, true); processed++; }
+      for (const { id } of jobs) { await process(id, { ...context, exportId: id }, true); processed++; }
       return { processed };
+    } catch (error) {
+      for (const id of consumedHints) pendingCards.add(id);
+      if (consumedReconciliation) reconciliationRequested = true;
+      throw error;
     } finally { workerRunning = false; }
   }
   return {
@@ -464,7 +528,7 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
         });
       },
       preview,
-      async exports(context, cardId) { await authorize(context); return readFinance(finance => ({ exports: finance.outbox.filter(job => cardId === undefined || String(job.source.cardId) === String(cardId)).slice().reverse().map(publicExport) })); },
+      async exports(context, cardId) { await authorize(context); return { exports: (await exportJobs({ ...(cardId === undefined ? {} : { cardId }), descending: true })).map(publicExport) }; },
       enqueueExport: (input, context) => enqueue(input, context),
       async sendExport(input, context) { const job = await enqueue(input, context); return process(job.id, context); },
       processExport: (id, context) => process(id, context),
@@ -474,17 +538,18 @@ export function createVismaExports({ read, transact, tenantFor, scoped, audit, c
         const days = customer?.paymentTermDays ?? settings.paymentTermDays;
         if (!Number.isInteger(days) || days < 0 || days > 3650) fail('Kundens betalningsvillkor behöver granskas före kundgodkännande.', 409, 'accounting_payment_terms_invalid');
         if (days === settings.paymentTermDays) return settings;
-        const terms = await readFinance(finance => finance.choices[companyId()]?.paymentTerms.filter(term => term.days === days && term.availableForPurchase) ?? []);
+        const terms = await readFinanceProjection(finance => finance.choices[companyId()]?.paymentTerms.filter(term => term.days === days && term.availableForPurchase) ?? [], [['choices', companyId() ?? '', 'paymentTerms']]);
         if (terms.length !== 1) fail(`Kundens villkor ${days} dagar behöver ett entydigt verkligt inköpsvillkor i Spiris. Hämta och kontrollera betalningsvillkoren.`, 409, 'accounting_payment_terms_unmapped');
         return { ...settings, paymentTermDays: days, paymentTermsId: terms[0].id };
       },
-      async cardExportProjection(cardId) { return readFinance(finance => {
-        const job = finance.outbox.filter(item => String(item.source.cardId) === String(cardId)).sort((a, b) => b.source.version - a.source.version || b.createdAt.localeCompare(a.createdAt))[0];
+      async cardExportProjection(cardId) {
+        const job = (await exportJobs({ cardId, fields: ['id', 'source', 'status', 'createdAt', 'finishedAt', 'supplierId', 'draftId', 'error', 'events'] }))
+          .sort((a, b) => b.source.version - a.source.version || b.createdAt.localeCompare(a.createdAt))[0];
         if (!job) return null;
         return { id: job.id, cardId: job.source.cardId, approvalId: job.source.approvalId, version: job.source.version, status: job.status,
           startedAt: job.createdAt, finishedAt: job.finishedAt ?? null, supplierId: job.supplierId ?? null, draftId: job.draftId ?? null,
           error: job.error ? { message: job.error.message } : null, events: clone(job.events), canExport: false };
-      }); },
+      },
     },
   };
 }

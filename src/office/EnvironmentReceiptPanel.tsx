@@ -99,6 +99,7 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
   const [error, setError] = useState('');
   const [savedAt, setSavedAt] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [loadedSource, setLoadedSource] = useState('');
   const [storagePreview, setStoragePreview] = useState<{ key: string; assessment?: EnvironmentalStorageAssessment; error?: string }>();
   const requestKey = useRef(crypto.randomUUID());
   const mountedRef = useRef(true), mutationBusyRef = useRef(false);
@@ -109,11 +110,12 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
   const previousCustomerRef = useRef(customer);
   const receiptIdentity = `${sourceId}/${actualUser.id}/${user.id}`;
   const identityRef = useRef(receiptIdentity); identityRef.current = receiptIdentity;
+  const sourceReady = loadedSource === `${receiptIdentity}/${session?.csrfToken ?? ''}`;
   const dialogRef = useRef<HTMLElement>(null);
   const editable = hasEnvironmentPermission(user, 'environmentWrite');
   const guidanceVisible = Boolean(state && (recordedHazardousRows.length > 0 || classifiedRows.length > 0));
   const received = Boolean(receipt && rowSignature(classifiedRows) === rowSignature(recordedHazardousRows) && card.origin.trim() === (receipt.snapshot.originAddress ?? receipt.snapshot.lastPlace.address).trim());
-  const canConfirm = guidanceVisible && !received && editable && customerApprovalValid && Boolean(session && sourceId);
+  const canConfirm = sourceReady && guidanceVisible && !received && editable && customerApprovalValid && Boolean(session && sourceId);
   const canReceiveException = customerChangeRequested && !receipt && editable && (user.level !== 'Medarbetare' || user.permissions.includes('environmentReceiveException'));
   const editing = !receipt || correcting;
   const relevantStorage = JSON.stringify([
@@ -133,17 +135,19 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
 
   function updateForm(updater: (previous: ReceiptForm) => ReceiptForm) { dirtyRef.current = true; setDirty(true); setError(''); setForm(updater); }
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
-  useEffect(() => { onGuidanceState?.({ loaded: Boolean(state && session), visible: guidanceVisible, received, canConfirm }); }, [onGuidanceState, Boolean(state && session), guidanceVisible, received, canConfirm]);
+  useEffect(() => { onGuidanceState?.({ loaded: Boolean(state && session && sourceReady), visible: guidanceVisible, received, canConfirm }); }, [onGuidanceState, Boolean(state && session && sourceReady), guidanceVisible, received, canConfirm]);
   useEffect(() => {
     setForm(newForm(card, customer)); setOriginEdit(card.origin || ''); setExpanded(false); setEditSection(null); setCorrecting(false); setCorrectionReason(''); setConfirmOpen(false); setExceptionOpen(false); setExceptionReason(''); setShowContacts(false); setError(''); setSavedAt(''); setBusy(false);
-    dirtyRef.current = false; mutationBusyRef.current = false; setDirty(false); hydratedRef.current = ''; draftVersionRef.current = 0; requestKey.current = crypto.randomUUID();
+    dirtyRef.current = false; mutationBusyRef.current = false; setDirty(false); setLoadedSource(''); hydratedRef.current = ''; draftVersionRef.current = 0; requestKey.current = crypto.randomUUID();
   }, [receiptIdentity]);
   useEffect(() => {
     if (!sourceId || !session) return;
     let active = true;
-    void refreshSource(sourceId).catch(failure => { if (active && identityRef.current === receiptIdentity) setError(environmentFailure(failure)); });
+    void refreshSource(sourceId).then(projection => {
+      if (projection && active && identityRef.current === receiptIdentity) setLoadedSource(`${receiptIdentity}/${session.csrfToken}`);
+    }).catch(failure => { if (active && identityRef.current === receiptIdentity) setError(environmentFailure(failure)); });
     return () => { active = false; };
-  }, [sourceId, receiptIdentity, session?.actualUserId, session?.effectiveUserId, refreshSource]);
+  }, [sourceId, receiptIdentity, session?.actualUserId, session?.effectiveUserId, session?.csrfToken, refreshSource]);
   useEffect(() => {
     if (!state || correcting) return;
     const key = receipt ? `receipt/${receipt.id}/${receipt.version}` : draft ? `draft/${draft.version}` : 'initial';
@@ -305,12 +309,12 @@ export default function EnvironmentReceiptPanel({ card, customer, user, actualUs
     return editing && editable && allowed && <button type="button" className="office-link environment-inline-edit" aria-label={label} disabled={busy} onClick={() => { setEditSection(previous => previous === section ? null : section); if (section === 'origin') setOriginEdit(card.origin || ''); }}><Pencil size={12} />Ändra</button>;
   }
 
-  if (state && !guidanceVisible) return null;
+  if (sourceReady && state && !guidanceVisible) return null;
 
   return <section className={`office-panel environment-panel environment-receipt-panel${guidance ? ` office-guidance-${guidance}` : ''}`} aria-label="Miljö och mottagning">
     <ElectricFocusBorder active={guidance === 'focus'} />
     <header className="environment-heading"><span className="environment-icon"><Leaf size={22} /></span><div><h2>Miljö & mottagning</h2><p>Bekräfta mottagningen efter kundgodkännande och före intern attest.</p></div>{session && guidanceVisible && <button type="button" className="environment-toggle" aria-expanded={expanded} aria-label={expanded ? 'Dölj mottagningsuppgifter' : 'Visa mottagningsuppgifter'} onClick={() => setExpanded(value => !value)}>{expanded ? <ChevronUp size={19} /> : <ChevronDown size={19} />}</button>}</header>
-    <EnvironmentAccessBoundary>{!state ? <p>Hämtar miljöuppgifter…</p> : <>
+    <EnvironmentAccessBoundary>{!state || !sourceReady ? error ? <p className="environment-error" role="alert">{error}<button type="button" className="office-link" onClick={() => void refreshSource(sourceId).then(projection => { if (projection && identityRef.current === receiptIdentity) { setLoadedSource(`${receiptIdentity}/${session?.csrfToken ?? ''}`); setError(''); } }).catch(failure => setError(environmentFailure(failure)))}>Försök igen</button></p> : <p>Hämtar miljöuppgifter…</p> : <>
       <div className={`environment-receipt-summary${expanded ? '' : ' is-compact'}`}><div className="environment-summary-status"><span className={`environment-pill ${receipt && !correcting ? 'success' : 'warning'}`}>{receipt && !correcting && <CheckCircle2 size={14} />}{correcting ? 'Miljörättelse · utkast' : receipt ? 'Mottagning registrerad' : !customerApprovalValid ? 'Inväntar kundgodkännande' : draft ? 'Utkast sparat' : 'Inväntar mottagningsbekräftelse'}</span><small>{receipt ? `${environmentTime(receipt.receivedAt)} · ${state.sites.find(item => item.id === receipt.siteId)?.name}` : 'Ingen lagerregistrering förrän mottagningen bekräftas.'}</small></div><div className="environment-summary-weight"><strong>{environmentWeight(receipt && !correcting ? recordedHazardousRows.reduce((sum, row) => sum + row.weight, 0) : hazardousWeight)}</strong><small>{receipt && !correcting ? `Version ${receipt.version} · ${reports.length} miljöunderlag · ej skickat` : classifiedRows.map(row => formatWasteCode(row.classification!.wasteCode)).join(', ') || 'Registrerad lagring'}</small></div>{!expanded && storageSummary}<div className="environment-summary-actions"><button type="button" className="office-btn outline" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><FileText size={14} />{expanded ? 'Dölj uppgifter' : 'Visa uppgifter'}</button>{!expanded && editing && confirmButton}</div></div>
       {expanded && storageSummary}
       {receipt && !correcting && receipt.deviations.map(deviation => <div className="environment-alert" key={deviation.code}><CircleAlert size={16} />{deviation.message}</div>)}

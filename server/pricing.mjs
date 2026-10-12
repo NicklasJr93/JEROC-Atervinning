@@ -599,6 +599,16 @@ function validateArticleGroupTree(groups) {
   }
 }
 
+/** Resolve a live identity without constructing the article/quote engine. */
+export function resolvePricingPrincipal(users, actorId, userId = actorId) {
+  const actor = users.find(user => user.id === actorId), user = users.find(user => user.id === userId);
+  if (!actor || !user || actor.active === false || user.active === false)
+    throw new PricingError('Välj ett giltigt demokonto.', 401);
+  if (actor.id !== user.id && actor.level !== 'Systemadmin')
+    throw new PricingError('Endast Systemadmin får använda Jobba som.', 403);
+  return { actor: copy(actor), user: copy(user) };
+}
+
 export function createPricingStore({ now = () => new Date(), initialState } = {}) {
   const state = {
     revision: 0,
@@ -727,13 +737,7 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
       throw new PricingError('Du saknar behörighet för detta moment.', 403);
   };
   function principal(actorId, userId = actorId) {
-    const actor = state.users.find((user) => user.id === actorId);
-    const user = state.users.find((user) => user.id === userId);
-    if (!actor || !user || actor.active === false || user.active === false)
-      throw new PricingError('Välj ett giltigt demokonto.', 401);
-    if (actor.id !== user.id && actor.level !== 'Systemadmin')
-      throw new PricingError('Endast Systemadmin får använda Jobba som.', 403);
-    return { actor: copy(actor), user: copy(user) };
+    return resolvePricingPrincipal(state.users, actorId, userId);
   }
   function articleAt(articleId, asOf) {
     const article = latest(

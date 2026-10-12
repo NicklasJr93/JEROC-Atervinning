@@ -33,7 +33,7 @@ const progressFor = (run: NvvSandboxRun): NvvCheckProgress => run.status === 'in
 type SubmissionDialog = { progress: NvvCheckProgress; payload: NvvJsonObject; run?: NvvSandboxRun };
 
 export default function NvvSandboxWorkspace({ user, actualUser }: { user: OfficeUser; actualUser: OfficeUser }) {
-  const { session, loading: sessionLoading, error: sessionError, refresh: refreshSession } = useEnvironmentSession();
+  const { session, loading: sessionLoading, error: sessionError, refreshSession } = useEnvironmentSession();
   const permitted = user.level === 'Systemadmin' && actualUser.level === 'Systemadmin' && !user.siteIds && !actualUser.siteIds && can(user, 'environmentIntegration');
   const sessionMatches = session?.actualUserId === actualUser.id && session?.effectiveUserId === user.id;
   const identity = `${actualUser.id}/${actualUser.level}/${actualUser.permissions.join(',')}/${actualUser.siteIds?.join(',') ?? 'all'}/${user.id}/${user.level}/${user.permissions.join(',')}/${user.siteIds?.join(',') ?? 'all'}`;

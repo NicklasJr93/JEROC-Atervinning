@@ -64,12 +64,13 @@ function articleOf(state, id) { const article = articlesOf(state).find(article =
 function synchronizeStock(state, environmentInventory) {
   const domain = state.logistics;
   const previousCount = domain.inventoryMovements.length;
+  const articleById = new Map(articlesOf(state).map(article => [article.id, article]));
   for (const movement of environmentInventory ?? []) {
     const id = `environment:${movement.id}`;
     if (domain.inventoryMovements.some(value => value.id === id)) continue;
     const classification = movement.classification ?? domain.classifications.find(value => value.articleId === movement.articleId);
     if (classification?.hazardous !== true && !movement.wasteCode) continue;
-    const article = articlesOf(state).find(value => value.id === movement.articleId);
+    const article = articleById.get(movement.articleId);
     domain.inventoryMovements.push({ id, siteId: movement.siteId, articleId: movement.articleId, articleName: article?.name ?? classification?.wasteDescription ?? movement.articleId,
       hazardous: true, wasteCode: movement.wasteCode ?? classification?.wasteCode ?? '', kg: Number(movement.weight), kind: 'receipt', sourceId: movement.id, at: movement.receivedAt ?? stamp(), actorId: 'environment', reason: 'Registrerad miljömottagning eller miljörättelse.' });
   }
@@ -81,7 +82,7 @@ function synchronizeStock(state, environmentInventory) {
     const site = domain.sites.find(site => site.id === card.siteId || !card.siteId && site.name === card.yard);
     if (!site) continue;
     for (const row of card.rows) {
-      const article = articlesOf(state).find(value => value.id === row.articleId);
+      const article = articleById.get(row.articleId);
       if (!article || article.hazardous) continue;
       const key = `${card.sourceId}:${site.id}:${row.articleId}`;
       const value = projected.get(key) ?? { sourceId: card.sourceId, siteId: site.id, articleId: row.articleId, articleName: article.name, wasteCode: article.wasteCode, hazardous: false, kg: 0, at: card.date };
@@ -99,6 +100,11 @@ function synchronizeStock(state, environmentInventory) {
     domain.incomingProjection[key] = { ...previous, kg: 0 };
   }
   if (domain.inventoryMovements.length !== previousCount) domain.revision += 1;
+}
+// Physical weighing commands can keep the ordinary incoming ledger durable in
+// their existing business transaction, without an environmental API lookup.
+export function synchronizeLogisticsIncomingStock(state) {
+  if (state.logistics) synchronizeStock(state);
 }
 export function ensureLogistics(state, context = {}) {
   ensurePersonnel(state);
@@ -609,16 +615,45 @@ function portalSession(state, req, kind) {
 }
 export function createLogisticsApi({ getRepository, readBody, json, siteProvider = async () => [], environmentProvider = async () => ({ classifications: [], inventory: [] }) }) {
   return async (req, res, url) => {
-    const office = url.pathname === '/api/logistics/office'; const match = url.pathname.match(/^\/api\/(customer|carrier)\/(session|login|logout|state|assets|orders|requests|actions)$/);
-    if (!office && !match) return false;
+    const office = url.pathname === '/api/logistics/office', summary = url.pathname === '/api/logistics/summary'; const match = url.pathname.match(/^\/api\/(customer|carrier)\/(session|login|logout|state|assets|orders|requests|actions)$/);
+    if (!office && !summary && !match) return false;
     try {
       if (!['GET', 'POST'].includes(req.method)) fail('Metoden stöds inte.', 405);
       if (req.method === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) fail('Anropet måste komma från samma webbplats.', 403);
+      const repository = await getRepository();
+      if (summary) {
+        if (req.method !== 'GET') fail('Metoden stöds inte.', 405);
+        const operate = (state, revision) => {
+          const actor = req.headers['x-demo-actor'], user = req.headers['x-demo-user'] ?? actor;
+          if (typeof actor !== 'string' || typeof user !== 'string') fail('Välj ett giltigt demokonto.', 401);
+          const principal = createPricingStore({ initialState: state.pricing }).principal(actor, user);
+          demand(principal, 'workOrdersRead');
+          const selectedSite = url.searchParams.get('siteId');
+          if (selectedSite && selectedSite !== 'all' && !visible(principal, selectedSite)) fail('Du saknar åtkomst till anläggningen.', 403);
+          const sites = state.logistics?.sites ?? [], details = state.logistics?.details ?? {};
+          const workOrders = state.transport.orders.filter(order => {
+            // Older planning orders acquire their facility when a real command
+            // initializes logistics. Use the same fallback without writing here.
+            const siteId = order.siteId ?? details[order.id]?.siteId
+              ?? sites.find(site => site.city && site.city.toLowerCase() === order.city?.toLowerCase())?.id ?? 'norrtalje';
+            return openOrder(order) && visible(principal, siteId) && (!sites.length || sites.some(site => site.id === siteId))
+              && (!selectedSite || selectedSite === 'all' || selectedSite === siteId);
+          }).length;
+          return { workOrders, revision };
+        };
+        const result = repository.read
+          ? await repository.read(operate, { domains: ['pricing', 'transport', 'logistics'] })
+          : await repository.transact(operate);
+        res.setHeader('Cache-Control', 'private, no-store'); json(res, 200, result); return true;
+      }
       const payload = req.method === 'POST' ? await readBody(req) : undefined;
       // Resolve other stores before acquiring the business transaction lock.
-      const [sites, environment] = await Promise.all([siteProvider(), environmentProvider()]);
-      const result = await (await getRepository()).transact((state, _, transactionAudit) => {
-        ensureLogistics(state, { sites: Array.isArray(sites) ? sites : sites.sites, ...environment });
+      // Portal reads show already prepared assignments. They do not need the
+      // environmental stock ledger, facility store or any stock maintenance.
+      const [sites, environment] = office || req.method === 'POST'
+        ? await Promise.all([siteProvider(), environmentProvider()]) : [undefined, undefined];
+      const operate = (state, _, transactionAudit = []) => {
+        if (office || req.method === 'POST' || !state.logistics) ensureLogistics(state, { sites: Array.isArray(sites) ? sites : sites?.sites, ...environment });
         if (office) {
           const actor = req.headers['x-demo-actor'], user = req.headers['x-demo-user'] ?? actor;
           if (typeof actor !== 'string' || typeof user !== 'string') fail('Välj ett giltigt demokonto.', 401);
@@ -628,8 +663,10 @@ export function createLogisticsApi({ getRepository, readBody, json, siteProvider
           return { value: { ...officeState(state, principal), ...(commandResult ? { result: commandResult } : {}) } };
         }
         const [, kind, path] = match, auth = state.logisticsAuth;
-        auth.sessions = auth.sessions.filter(session => Date.parse(session.expiresAt) > Date.now());
-        auth.attempts = auth.attempts.filter(attempt => Date.parse(attempt.at) > Date.now() - 15 * 60 * 1000);
+        if (req.method === 'POST') {
+          auth.sessions = auth.sessions.filter(session => Date.parse(session.expiresAt) > Date.now());
+          auth.attempts = auth.attempts.filter(attempt => Date.parse(attempt.at) > Date.now() - 15 * 60 * 1000);
+        }
         if (path === 'login') {
           if (req.method !== 'POST') fail('Metoden stöds inte.', 405);
           const input = parse(z.object({ username: z.string().trim().toLowerCase().min(1).max(80), password: z.string().min(1).max(200) }).strict(), payload), address = hash(req.socket.remoteAddress ?? 'unknown');
@@ -649,7 +686,13 @@ export function createLogisticsApi({ getRepository, readBody, json, siteProvider
         }
         if (kind === 'carrier' && path === 'actions' && req.method === 'POST') { const result = carrierCommand(state, subject, payload, transactionAudit); return { value: { ...carrierState(state, subject), result } }; }
         fail('Portalsidan finns inte.', 404);
-      });
+      };
+      // The callback may refresh a disposable projection (current stock and
+      // legacy weighing preparation), but ordinary reads never persist it or
+      // queue behind the aggregate's global write lock.
+      const result = req.method === 'GET' && repository.read
+        ? await repository.read(operate, { domains: ['pricing', 'personnel', 'transport', 'office', 'logistics', 'logisticsAuth', 'workOrderWeighing'] })
+        : await repository.transact(operate);
       if (result.error) json(res, result.status, { error: result.error });
       else {
         if (result.token !== undefined) res.setHeader('Set-Cookie', `jeroc_${result.kind}=${result.token}; HttpOnly; Path=/api/${result.kind}; SameSite=Strict; Max-Age=${result.token ? 8 * 3600 : 0}${req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`);

@@ -1,0 +1,515 @@
+{
+  "sourcesPreserved": true,
+  "variants": [
+    {
+      "filename": "jeroc-logo-ui.webp",
+      "bytes": 63344,
+      "width": 480,
+      "height": 192
+    },
+    {
+      "filename": "jeroc-logo-print.webp",
+      "bytes": 277560,
+      "width": 1200,
+      "height": 480
+    },
+    {
+      "filename": "jeroc-favicon.png",
+      "bytes": 6952,
+      "width": 96,
+      "height": 38
+    },
+    {
+      "filename": "yard-960.webp",
+      "bytes": 86458,
+      "width": 960,
+      "height": 540
+    },
+    {
+      "filename": "yard-1440.webp",
+      "bytes": 155774,
+      "width": 1440,
+      "height": 810
+    },
+    {
+      "filename": "catalog/0-thumb.webp",
+      "bytes": 13498,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/0-full.webp",
+      "bytes": 21720,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/1-thumb.webp",
+      "bytes": 9774,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/1-full.webp",
+      "bytes": 15804,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/2-thumb.webp",
+      "bytes": 8478,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/2-full.webp",
+      "bytes": 14018,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/3-thumb.webp",
+      "bytes": 17732,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/3-full.webp",
+      "bytes": 28906,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/4-thumb.webp",
+      "bytes": 11898,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/4-full.webp",
+      "bytes": 20420,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/5-thumb.webp",
+      "bytes": 11056,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/5-full.webp",
+      "bytes": 18790,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/6-thumb.webp",
+      "bytes": 7592,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/6-full.webp",
+      "bytes": 13092,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/7-thumb.webp",
+      "bytes": 10952,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/7-full.webp",
+      "bytes": 18270,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/8-thumb.webp",
+      "bytes": 9842,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/8-full.webp",
+      "bytes": 15390,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/9-thumb.webp",
+      "bytes": 8760,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/9-full.webp",
+      "bytes": 14696,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/10-thumb.webp",
+      "bytes": 10976,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/10-full.webp",
+      "bytes": 18078,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/11-thumb.webp",
+      "bytes": 8838,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/11-full.webp",
+      "bytes": 13822,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/12-thumb.webp",
+      "bytes": 11604,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/12-full.webp",
+      "bytes": 19258,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/13-thumb.webp",
+      "bytes": 10340,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/13-full.webp",
+      "bytes": 17230,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/14-thumb.webp",
+      "bytes": 10808,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/14-full.webp",
+      "bytes": 17670,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/15-thumb.webp",
+      "bytes": 18808,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/15-full.webp",
+      "bytes": 29598,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/16-thumb.webp",
+      "bytes": 9034,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/16-full.webp",
+      "bytes": 14350,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/17-thumb.webp",
+      "bytes": 6674,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/17-full.webp",
+      "bytes": 11558,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/18-thumb.webp",
+      "bytes": 9908,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/18-full.webp",
+      "bytes": 16002,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/19-thumb.webp",
+      "bytes": 11332,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/19-full.webp",
+      "bytes": 17862,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/20-thumb.webp",
+      "bytes": 12354,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/20-full.webp",
+      "bytes": 19858,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/21-thumb.webp",
+      "bytes": 9240,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/21-full.webp",
+      "bytes": 15404,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/22-thumb.webp",
+      "bytes": 11326,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/22-full.webp",
+      "bytes": 18878,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/23-thumb.webp",
+      "bytes": 11670,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/23-full.webp",
+      "bytes": 19056,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/24-thumb.webp",
+      "bytes": 12850,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/24-full.webp",
+      "bytes": 19860,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/25-thumb.webp",
+      "bytes": 10706,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/25-full.webp",
+      "bytes": 17716,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/26-thumb.webp",
+      "bytes": 11590,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/26-full.webp",
+      "bytes": 18768,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/27-thumb.webp",
+      "bytes": 12618,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/27-full.webp",
+      "bytes": 20638,
+      "width": 237,
+      "height": 237
+    },
+    {
+      "filename": "catalog/28-thumb.webp",
+      "bytes": 8934,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/28-full.webp",
+      "bytes": 29164,
+      "width": 362,
+      "height": 362
+    },
+    {
+      "filename": "catalog/29-thumb.webp",
+      "bytes": 14804,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/29-full.webp",
+      "bytes": 47776,
+      "width": 362,
+      "height": 362
+    },
+    {
+      "filename": "catalog/30-thumb.webp",
+      "bytes": 12008,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/30-full.webp",
+      "bytes": 38662,
+      "width": 362,
+      "height": 362
+    },
+    {
+      "filename": "catalog/31-thumb.webp",
+      "bytes": 8904,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/31-full.webp",
+      "bytes": 29044,
+      "width": 362,
+      "height": 362
+    },
+    {
+      "filename": "catalog/32-thumb.webp",
+      "bytes": 10810,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/32-full.webp",
+      "bytes": 31074,
+      "width": 362,
+      "height": 362
+    },
+    {
+      "filename": "catalog/33-thumb.webp",
+      "bytes": 13566,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/33-full.webp",
+      "bytes": 42440,
+      "width": 362,
+      "height": 362
+    },
+    {
+      "filename": "catalog/34-thumb.webp",
+      "bytes": 9782,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/34-full.webp",
+      "bytes": 32284,
+      "width": 362,
+      "height": 362
+    },
+    {
+      "filename": "catalog/35-thumb.webp",
+      "bytes": 14844,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/35-full.webp",
+      "bytes": 46286,
+      "width": 362,
+      "height": 362
+    },
+    {
+      "filename": "catalog/36-thumb.webp",
+      "bytes": 10860,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/36-full.webp",
+      "bytes": 34614,
+      "width": 362,
+      "height": 362
+    },
+    {
+      "filename": "catalog/37-thumb.webp",
+      "bytes": 14814,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/37-full.webp",
+      "bytes": 48760,
+      "width": 362,
+      "height": 362
+    },
+    {
+      "filename": "catalog/38-thumb.webp",
+      "bytes": 12226,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/38-full.webp",
+      "bytes": 39476,
+      "width": 362,
+      "height": 362
+    },
+    {
+      "filename": "catalog/39-thumb.webp",
+      "bytes": 10622,
+      "width": 192,
+      "height": 192
+    },
+    {
+      "filename": "catalog/39-full.webp",
+      "bytes": 32934,
+      "width": 362,
+      "height": 362
+    }
+  ]
+}

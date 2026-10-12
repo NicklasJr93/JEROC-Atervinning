@@ -90,3 +90,15 @@ test('request diagnostics count nested SQL once, contain no parameters and resto
   const restored = repository.clients[0].query;
   await restored('SELECT after request'); assert.equal(measured.metrics.sqlCount, 3);
 });
+
+test('route diagnostics also contribute to the enclosing HTTP metrics on success and failure', async () => {
+  const repository = pool();
+  const outer = await measureDatabaseWork(async metrics => {
+    const inner = await measureDatabaseWork(() => runDatabaseRead(repository, client => client.query('SELECT inner')));
+    assert.equal(inner.metrics.sqlCount, 3);
+    assert.equal(metrics.sqlCount, 3);
+    await assert.rejects(measureDatabaseWork(() => runDatabaseRead(repository, () => { throw new Error('expected'); })), /expected/);
+    assert.equal(metrics.sqlCount, 5); // BEGIN and ROLLBACK remain diagnostic evidence.
+  });
+  assert.equal(outer.metrics.sqlCount, 5);
+});

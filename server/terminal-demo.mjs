@@ -262,7 +262,12 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     projections: cardId => readOperation(state => state.approvals.map(approval => approvalDTO(approval, {user: {level: "Systemadmin"}},state.revision)),{projections:true,...(cardId===undefined?{}:{cardId})}),
     // Internal document source only. Never return confirmation hashes or private
     // approval fields through the public terminal API.
-    documentProjections: () => readOperation(state => structuredClone(state.approvals),{projections:true}),
+    documentProjections: request => (repository.read ?? repository.transact).call(repository, async state => {
+      // Server-only immutable document sources need no pricing principal. Keep
+      // ordinary expiry projection, but do not load the entire pricing catalog.
+      const value = copy(state), catalog = await siteProvider(); cleanup(value, now(), catalog);
+      return copy(request?.approvalId ? value.approvals.filter(approval => approval.id === request.approvalId) : value.approvals);
+    }, {projections:true,...(request?.cardId===undefined?{}:{cardId:request.cardId})}),
     repository,
     // Server-only callback. Holding the terminal aggregate lock prevents a
     // cancelled/superseded customer version from winning a concurrent receipt.
@@ -813,7 +818,7 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
   api.withApprovedCard = async (input, operation) => (await getStore()).withApprovedCard(input, operation);
   api.withMaterialChangeApproval = async (input, identity, operation) => (await getStore()).withMaterialChangeApproval(input, identity, operation);
   api.projections = async cardId => (await getStore()).projections(cardId);
-  api.documentProjections = async () => (await getStore()).documentProjections();
+  api.documentProjections = async request => (await getStore()).documentProjections(request);
   api.drainDocumentJobs = async () => { await getStore(); return drainJobs(); };
   api.documentJobs = async () => { await getStore(); return (await repositoryPromise).documentJobs(); };
   api.close = async () => {

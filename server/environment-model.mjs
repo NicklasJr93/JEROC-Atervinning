@@ -287,7 +287,9 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       updatedAt: time.toISOString(), updatedBy: 'Demosådd',
     });
   }).catch(error => { initialization = undefined; throw error; });
-  const fresh = operation => principalStore.runFresh ? principalStore.runFresh(operation) : operation();
+  const fresh = (operation, principalOnly = false) => principalOnly && principalStore.runFreshPrincipal
+    ? principalStore.runFreshPrincipal(operation)
+    : principalStore.runFresh ? principalStore.runFresh(operation) : operation();
   const transaction = async (operation, options = {}) => {
     await initialize();
     if (options.nvv) await nvv?.prepare();
@@ -316,7 +318,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         if (options.outbound) outboundSnapshots.set(state, await outboundProvider());
         return operation(state, now());
       };
-      return options.principal === false ? project() : fresh(project);
+      return options.principal === false ? project() : fresh(project, options.principalOnly === true);
     }, scope);
   };
   const principalFor = (state, token, time) => {
@@ -451,14 +453,14 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     authorize(token, right, siteId) { return read((state, time) => {
       const { principal } = principalFor(state, token, time); demand(principal, right); if (siteId) demandSite(state, principal, siteId);
       return copy(principal);
-    }); },
+    }, { principalOnly: true }); },
     assertIdentity(token, actualUserId, effectiveUserId) { return read((state, time) => {
       const { principal } = principalFor(state, token, time);
       // These are an expected identity check only. A valid server cookie and
       // live permissions remain mandatory; headers never authenticate anyone.
       if ((actualUserId !== undefined && actualUserId !== principal.actor.id) || (effectiveUserId !== undefined && effectiveUserId !== principal.user.id))
         throw new EnvironmentError('Demokontot ändrades i en annan flik. Läs in ditt aktuella konto innan du sparar.', 403, 'session_identity_mismatch');
-    }); },
+    }, { principalOnly: true }); },
     async login(payload, previousToken, remoteAddress = '') {
       const request = parse(z.object({ userId: id, password: z.string().min(1).max(128), effectiveUserId: id.optional() }).strict(), payload);
       const token = secret();
@@ -484,11 +486,11 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       if (outcome.failure) throw outcome.failure;
       return outcome;
     },
-    session(token) { return read((state, time) => { const { session, principal } = principalFor(state, token, time); return sessionResult(session, principal); }); },
+    session(token) { return read((state, time) => { const { session, principal } = principalFor(state, token, time); return sessionResult(session, principal); }, { principalOnly: true }); },
     csrf(token, value) { return read((state, time) => {
       const { session } = principalFor(state, token, time);
       if (!value || value !== session.csrfToken) throw new EnvironmentError('Sessionsskyddet saknas. Logga in igen.', 403, 'csrf_required');
-    }); },
+    }, { principalOnly: true }); },
     logout(token) { return transaction((state, time) => { principalFor(state, token, time); if (token) state.sessions = state.sessions.filter((record) => record.tokenHash !== environmentHash(token)); return { demo: true }; }); },
     state(token, filterSite = 'all') { return read((state, time) => {
       const { principal } = principalFor(state, token, time); demand(principal, 'environmentRead');

@@ -11,6 +11,7 @@ import { environmentFailure, useEnvironmentSession } from './EnvironmentSession'
 import type { NvvIntegrationStatus } from './environment-types';
 import NvvIntegrationPanel from './NvvIntegrationPanel';
 import SpirisAccountingPanel from './SpirisAccountingPanel';
+import { cacheIntegrationRead, cachedIntegrationRead, clearIntegrationReadCache, integrationReadScope } from './integration-read-cache';
 import './environment.css';
 import './integrations.css';
 
@@ -110,7 +111,7 @@ function IntegrationStatus({ provider }: { provider: IntegrationProvider }) {
 }
 
 export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all', onNotice }: IntegrationsWorkspaceProps) {
-  const { session, loading: sessionLoading, error: sessionError, refresh } = useEnvironmentSession();
+  const { session, loading: sessionLoading, error: sessionError, refreshSession } = useEnvironmentSession();
   const [search, setSearch] = useSearchParams();
   const selectedId = search.get('service') ?? '';
   const [catalog, setCatalog] = useState<IntegrationCatalog>();
@@ -129,6 +130,7 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
   const identityRef = useRef(identity);
   identityRef.current = identity;
   const matchingSession = session?.actualUserId === actualUser.id && session?.effectiveUserId === user.id;
+  const cacheScope = integrationReadScope(actualUser, user, session);
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
@@ -138,20 +140,22 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
     setNvv(undefined); setNvvError(''); setNvvLoading(false);
   }, [identity]);
 
-  const loadCatalog = useCallback(async (signal?: AbortSignal) => {
+  const loadCatalog = useCallback(async (signal?: AbortSignal, force = false) => {
     if (!matchingSession || !readable) return;
     const generation = ++catalogGeneration.current;
     const current = () => mounted.current && !signal?.aborted && identityRef.current === identity && catalogGeneration.current === generation;
+    const cached = !force && cachedIntegrationRead<IntegrationCatalog>('catalog', cacheScope);
+    if (cached) { setCatalog(cached.value); if (cached.fresh) { setCatalogLoading(false); setCatalogError(''); return; } }
     setCatalogLoading(true); setCatalogError('');
     try {
       const value = await environmentRequest<IntegrationCatalog>('/integrations/catalog', 'GET', undefined, signal);
-      if (current()) setCatalog(value);
+      if (current()) { cacheIntegrationRead('catalog', cacheScope, value); setCatalog(value); }
     } catch (failure) {
       if (current()) setCatalogError(environmentFailure(failure));
     } finally {
       if (current()) setCatalogLoading(false);
     }
-  }, [identity, matchingSession, readable]);
+  }, [identity, matchingSession, readable, cacheScope]);
 
   const loadNvv = useCallback(async (signal?: AbortSignal) => {
     if (!matchingSession || !nvvReadable) return;
@@ -186,21 +190,24 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
 
   const providers = catalog?.providers.filter(provider => provider.capabilities.canView) ?? [];
   const selected = providers.find(provider => provider.id === selectedId);
+  // The known settings endpoint authorizes this service itself. Do not put a
+  // catalog read in front of it when opening a direct Spiris settings link.
+  const parallelSpiris = selectedId === 'visma' && (!catalog || !!selected?.implemented);
   const selectedPresentation = selected && providerPresentation[selected.id];
   const SelectedIcon = selectedPresentation?.icon ?? PlugZap;
 
   useEffect(() => { detailHeading.current?.focus(); }, [selected?.id]);
 
   async function update() {
-    if (!matchingSession) { await refresh().catch(() => undefined); return; }
-    await Promise.all([loadCatalog(), selectedId === 'nvv' ? loadNvv() : Promise.resolve()]);
+    if (!matchingSession) { await refreshSession().catch(() => undefined); return; }
+    await Promise.all([loadCatalog(undefined, true), selectedId === 'nvv' ? loadNvv() : Promise.resolve()]);
   }
 
   function nvvChanged(next: NvvIntegrationStatus) {
     nvvGeneration.current += 1;
     setNvv(next); setNvvError(''); setNvvLoading(false);
-    void loadCatalog();
-    void refresh().catch(() => undefined);
+    clearIntegrationReadCache('catalog');
+    void loadCatalog(undefined, true);
   }
 
   if (!readable) return <section className="integrations-workspace"><div className="office-panel integration-message"><ShieldCheck size={19} /><span>Du saknar behörighet att visa integrationer.</span></div></section>;
@@ -214,12 +221,16 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
 
     {!matchingSession && <div className={`office-panel integration-message ${sessionError ? 'error' : ''}`} role={sessionError ? 'alert' : 'status'}>
       {sessionError ? <CircleAlert size={19} /> : <RefreshCw size={19} />}<span>{sessionError || (sessionLoading ? 'Hämtar anslutningar…' : 'Anslutningarna kunde inte hämtas.')}</span>
-      {!sessionLoading && <button type="button" className="office-btn outline" onClick={() => void refresh().catch(() => undefined)}>Försök igen</button>}
+      {!sessionLoading && <button type="button" className="office-btn outline" onClick={() => void refreshSession().catch(() => undefined)}>Försök igen</button>}
     </div>}
-    {matchingSession && catalogError && <div className="office-panel integration-message error" role="alert"><CircleAlert size={19} /><span>{catalogError}</span><button type="button" className="office-btn outline" onClick={() => void loadCatalog()} disabled={catalogLoading}>Försök igen</button></div>}
-    {matchingSession && !catalog && !catalogError && <div className="office-panel integration-message" role="status"><RefreshCw size={19} /><span>Hämtar integrationer…</span></div>}
+    {matchingSession && catalogError && <div className="office-panel integration-message error" role="alert"><CircleAlert size={19} /><span>{catalogError}</span><button type="button" className="office-btn outline" onClick={() => void loadCatalog(undefined, true)} disabled={catalogLoading}>Försök igen</button></div>}
+    {matchingSession && !catalog && !catalogError && !parallelSpiris && <div className="office-panel integration-message" role="status"><RefreshCw size={19} /><span>Hämtar integrationer…</span></div>}
+    {matchingSession && parallelSpiris && <>
+      <button type="button" className="office-link integration-back" onClick={() => setSearch({})}><ArrowLeft size={15} />Alla integrationer</button>
+      <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} />
+    </>}
 
-    {!!catalog && matchingSession && <>
+    {!!catalog && matchingSession && !parallelSpiris && <>
       {selected ? <>
         <button type="button" className="office-link integration-back" onClick={() => setSearch({})}><ArrowLeft size={15} />Alla integrationer</button>
         {selected.id === 'visma' && selected.implemented ? <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} /> : <article className="office-panel integration-detail">

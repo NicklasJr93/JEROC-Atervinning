@@ -53,7 +53,7 @@ async function fixture(run) {
     return { status: response.status, cookie: response.headers.get('set-cookie')?.split(';')[0], headers: response.headers, ...await response.json() };
   };
   const login = async (username = 'alice', secret = 'Test-Password-2026!') => { const value = await request('login', { username, password: secret }); assert.equal(value.status, 200, value.error); return value; };
-  try { await run({ repository, openRepository, request, login, clock: value => { now = new Date(value); }, base }); }
+  try { await run({ repository, openRepository, request, login, now: () => now, clock: value => { now = new Date(value); }, base }); }
   finally {
     await new Promise(resolve => server.close(resolve));
     for (const value of repositories) await value.close();
@@ -62,7 +62,7 @@ async function fixture(run) {
   }
 }
 
-test('employee authentication supports a non-driver, protects origin and has no demo-header downgrade', async () => fixture(async ({ request, login, repository, base }) => {
+test('employee authentication supports a non-driver, protects origin and has no demo-header downgrade', async () => fixture(async ({ request, login, repository, base, now }) => {
   const result = await login(); assert.equal(result.person.id, 'person-test-alice'); assert.equal(result.capabilities.yardWork, true);
   assert.equal(result.capabilities.assignedOrders, false); assert.ok(result.headers.get('set-cookie').includes('HttpOnly; Path=/api; SameSite=Strict'));
   assert.equal((await request('session')).status, 401);
@@ -70,8 +70,8 @@ test('employee authentication supports a non-driver, protects origin and has no 
   assert.equal((await request('profile', { phone: '123', email: '' }, result.cookie, { origin: 'https://other.example' })).status, 403);
   assert.equal((await request('profile', { phone: '123', email: '' }, result.cookie, { origin: base })).status, 200);
   assert.equal(hasEmployeeSession({ headers: { cookie: result.cookie } }), true);
-  await repository.read(state => { assert.equal(employeeRequestPrincipal(state, { headers: { cookie: result.cookie } }).user.id, 'test-alice');
-    assert.throws(() => employeeRequestPrincipal(state, { headers: { cookie: 'jeroc_employee=invalid', 'x-demo-actor': 'admin' } }), error => error.status === 401); });
+  await repository.read(state => { assert.equal(employeeRequestPrincipal(state, { headers: { cookie: result.cookie } }, { now }).user.id, 'test-alice');
+    assert.throws(() => employeeRequestPrincipal(state, { headers: { cookie: 'jeroc_employee=invalid', 'x-demo-actor': 'admin' } }, { now }), error => error.status === 401); });
 }));
 
 test('employee GET views use read snapshots without revising data or pruning persisted auth', async () => fixture(async ({ request, login, repository }) => {

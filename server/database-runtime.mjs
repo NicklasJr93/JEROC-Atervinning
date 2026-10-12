@@ -115,6 +115,11 @@ export function afterDatabaseCommit(callback) {
  * Lock-query time includes its SQL round trip; it is not pure lock wait. */
 export async function measureDatabaseWork(callback) {
   const metrics = { poolWaitMs: 0, sqlMs: 0, sqlCount: 0, lockQueryMs: 0, commitMs: 0 };
-  const result = await diagnostics.run(metrics, callback);
-  return { result, metrics };
+  const parent = diagnostics.getStore();
+  try {
+    const result = await diagnostics.run(metrics, () => callback(metrics));
+    return { result, metrics };
+  } finally {
+    if (parent) for (const key of Object.keys(metrics)) parent[key] += metrics[key];
+  }
 }

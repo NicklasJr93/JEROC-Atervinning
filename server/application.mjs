@@ -3,16 +3,18 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { createApplicationRepository } from './application-storage.mjs';
-import { createPricingStore, PricingError } from './pricing.mjs';
+import { createPricingStore, resolvePricingPrincipal, PricingError } from './pricing.mjs';
 import { createPricingApi } from './pricing-api.mjs';
 import { createTransportOutbox, createTransportIntegrationsApi } from './transport-integrations.mjs';
 import { ensurePersonnel, personnelCommand, personnelProjection, personnelCan, validatePersonnelTransportChange, refreshStaffingTasks, createDriverApi } from './personnel.mjs';
-import { createLogisticsApi, validateLogisticsTransportChange } from './logistics.mjs';
+import { createLogisticsApi, validateLogisticsTransportChange, synchronizeLogisticsIncomingStock } from './logistics.mjs';
 import { createMobileEmployeeApi, ensureMobileEmployeeAccounts, hasEmployeeSession, employeeRequestPrincipal } from './mobile-employee-api.mjs';
 import { ensureEmployeeTime, refreshEmployeeTimeNorms } from './employee-time.mjs';
 import { allocateWeighingNumber } from './work-order-weighing.mjs';
 import { prepareCustomerReview } from './customer-review.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
+import { mobileRecordPayload } from './mobile-records.mjs';
+import { createMobilePricingProjection, mobileBusinessDate } from './mobile-pricing-projection.mjs';
 import { officeSchema, seedOffice, migrateOffice, storeSchema, isComplete, rowWeight, transportSchema, seedTransport, articles, recordPayment, validPaymentDetails } from '../dist-server/domain-models.mjs';
 
 const clone = value => structuredClone(value);
@@ -374,6 +376,7 @@ export function createApplicationService({ repository, env = process.env, projec
   withMaterialChangeApproval, guardMaterialChange, siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider,
   accountingSettingsProvider, accountingCardStatusProvider, validateArticleMedia } = {}) {
   projections ??= approvalProvider;
+  const mobilePricingProjection = createMobilePricingProjection();
   const context = new AsyncLocalStorage(); let fallback = createPricingStore(); let repoPromise;
   const getRepo = () => repoPromise ??= (repository ? Promise.resolve(repository) : createApplicationRepository({ env, seed: initialApplicationState }))
     .then(async value => {
@@ -388,11 +391,20 @@ export function createApplicationService({ repository, env = process.env, projec
       });
       return value;
     }).catch(error => { repoPromise = undefined; throw error; });
-  const principalStore = new Proxy({}, { get: (_, key) => key === 'runFresh' ? withPrincipal : typeof (context.getStore()?.pricing ?? fallback)[key] === 'function' ? (...args) => (context.getStore()?.pricing ?? fallback)[key](...args) : undefined });
+  const principalStore = new Proxy({}, { get: (_, key) => key === 'runFresh' ? withPrincipal : key === 'runFreshPrincipal' ? withPrincipalOnly : typeof (context.getStore()?.pricing ?? fallback)[key] === 'function' ? (...args) => (context.getStore()?.pricing ?? fallback)[key](...args) : undefined });
+  async function withPrincipalOnly(operation) {
+    if (context.getStore()) return operation();
+    const repository = await getRepo();
+    const users = repository.readProjection
+      ? await repository.readProjection(state => state.pricing.users, { domain: 'pricing', paths: [['users']] })
+      : await (repository.read ? repository.read(state => clone(state.pricing.users), { domains: ['pricing'] })
+        : repository.transact(state => clone(state.pricing.users)));
+    return context.run({ principalOnly: true, pricing: { principal: (actor, user) => resolvePricingPrincipal(users, actor, user) } }, operation);
+  }
   async function withPrincipal(operation) {
     // All checks in one request use its freshly loaded principal. Re-entering
     // from terminal/environment must not reload the entire application again.
-    if (context.getStore()) return operation();
+    if (context.getStore() && !context.getStore().principalOnly) return operation();
     const repository = await getRepo();
     const state = await (repository.read
       ? repository.read(state => clone(state.pricing), { domains: ['pricing'] })
@@ -404,7 +416,36 @@ export function createApplicationService({ repository, env = process.env, projec
     if (!url.pathname.startsWith('/api/application/')) return false;
     try {
       if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) fail('Anropet måste komma från samma webbplats.', 403);
-      const domain = url.pathname.slice('/api/application/'.length);
+      const routeDomain = url.pathname.slice('/api/application/'.length);
+      const mobilePricesOnly = routeDomain === 'mobile-prices';
+      const domain = mobilePricesOnly ? 'mobile' : routeDomain;
+      if (domain === 'revision') {
+        if (req.method !== 'GET') fail('Metoden stöds inte.', 405);
+        const view = url.searchParams.get('domain');
+        if (!['office', 'mobile', 'transport'].includes(view)) fail('API-vyn finns inte.', 404);
+        const repository = await getRepo();
+        const project = (state, revision) => {
+          const pricing = { principal: (actor, user) => resolvePricingPrincipal(state.pricing.users, actor, user) };
+          let principal;
+          if (view === 'mobile' && hasEmployeeSession(req)) principal = employeeRequestPrincipal(state, req);
+          else {
+            if (view === 'mobile' && env.RENDER) fail('Logga in i appen med ditt personalkonto.', 401);
+            principal = requestPrincipal(pricing, req);
+          }
+          if (principal.actor.id === 'mobile-demo' && view !== 'mobile') fail('Mobilkontot får bara använda mobilflödet.', 403);
+          demand(principal, view === 'transport' ? 'transportRead' : 'view');
+          if (view === 'transport' && Array.isArray(principal.user.siteIds)) fail('Du saknar åtkomst till hela transportplaneringen.', 403);
+          return { revision, domain: view, ...(view === 'mobile' ? { businessDate: new Intl.DateTimeFormat('sv-SE', {
+            timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit',
+          }).format(new Date()) } : {}) };
+        };
+        const result = hasEmployeeSession(req) && view === 'mobile'
+          ? await repository.read(project, { domains: ['pricing', 'personnel', 'personnelAuth'] })
+          : repository.readProjection
+            ? await repository.readProjection(project, { domain: 'pricing', paths: [['users']] })
+            : await repository.read(project, { domains: ['pricing'] });
+        json(res, 200, result); return true;
+      }
       if (/^office\/accounting\/cards\/[1-9]\d{0,11}$/.test(domain)) {
         if (req.method !== 'GET') fail('Metoden stöds inte.', 405);
         const cardId = Number(domain.split('/').at(-1)), repository = await getRepo();
@@ -501,6 +542,7 @@ export function createApplicationService({ repository, env = process.env, projec
                 updated.audit.push({ at: time, actor: principal.user.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
                   text: `${text}${cancelled ? ' Tidigare kundgodkännande återkallat; ny kundgranskning krävs.' : ''}` });
                 state.office = officeSchema.parse(state.office);
+                synchronizeLogisticsIncomingStock(state);
                 audit.push({ action: 'weighing.material.changed', cardId: card.id, operation: input.operation,
                   before, after: clone(pricedRows), actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
                   ...(cancelled ? { cancelledApprovalId: cancelled.id } : {}) });
@@ -548,7 +590,8 @@ export function createApplicationService({ repository, env = process.env, projec
         const planning = url.searchParams.get('view') === 'planning';
         if (planning && command) fail('Planeringsvyn är endast läsbar.',405);
         const sites = await siteProvider();
-        const result = await (await getRepo()).transact((state,_,audit)=>{
+        const repository = await getRepo();
+        const operate = (state,_,audit=[])=>{
           const pricing=createPricingStore({initialState:state.pricing}),p=requestPrincipal(pricing,req);
           if(p.actor.id==='mobile-demo')fail('Mobilkontot saknar åtkomst till personal.',403);
           if(!personnelCan(p,planning?'transportRead':'personnelRead'))fail('Du saknar behörighet att läsa personal.',403);
@@ -556,7 +599,10 @@ export function createApplicationService({ repository, env = process.env, projec
           const preview=command?personnelCommand(state,p,command,audit,sites):undefined;
           if(command) refreshEmployeeTimeNorms(state);
           return {...personnelProjection(state,p,planning,sites),...(preview?{preview}:{})};
-        });
+        };
+        const result = req.method === 'GET' && repository.read
+          ? await repository.read(operate, { domains: ['pricing', 'personnel', 'transport'] })
+          : await repository.transact(operate);
         json(res,200,result);return true;
       }
       if (domain === 'import-pricing') {
@@ -589,7 +635,13 @@ export function createApplicationService({ repository, env = process.env, projec
       }
       if (!['office', 'mobile', 'transport'].includes(domain)) fail('API-vyn finns inte.', 404);
       if (!['GET', 'POST'].includes(req.method)) fail('Metoden stöds inte.', 405);
+      if (mobilePricesOnly && req.method !== 'GET') fail('Kundpriserna är en läsvy.', 405);
       let payload = req.method === 'POST' ? await body(req) : null;
+      const compactMobileWrite = payload?.kind === 'records';
+      if (compactMobileWrite) {
+        if (domain !== 'mobile') fail('Postkommandot gäller bara mobilens vägningar.', 422);
+        payload = mobileRecordPayload(payload);
+      }
       if (payload?.kind === 'import') payload = { importData: payload.data };
       if (payload?.kind === 'archive') payload = { archiveData: payload.data };
       const approvals = domain === 'office' && req.method !== 'GET' ? await projections() : [];
@@ -607,6 +659,12 @@ export function createApplicationService({ repository, env = process.env, projec
         }
         if (p.actor.id === 'mobile-demo' && domain !== 'mobile') fail('Mobilkontot får bara använda mobilflödet.', 403);
         demand(p, domain === 'transport' ? 'transportRead' : 'view');
+        if (mobilePricesOnly) {
+          const customerId = url.searchParams.get('customerId');
+          if (!customerId || !state.office.customers.some(customer => customer.id === customerId)) fail('Välj en befintlig kund för prisuppslaget.', 422);
+          return { ...mobilePricingProjection({ ...state.pricing, customers: state.office.customers.map(({ id, name }) => ({ id, name })) },
+            { catalog: false, prices: true, customerIds: [customerId] }), revision, storage: 'database' };
+        }
         if(domain==='transport')ensurePersonnel(state);
         // Read projections on this same PostgreSQL snapshot, reusing the live
         // pricing principal already selected above instead of another roundtrip.
@@ -701,38 +759,18 @@ export function createApplicationService({ repository, env = process.env, projec
           }
           audit.push({ action: 'business.changed', domain, actualUserId: p.actor.id, effectiveUserId: p.user.id });
         }
+        // Physical incoming quantities and their correction history are saved
+        // in the same real command. A logistics GET only projects current stock.
+        if (req.method === 'POST' && domain !== 'transport' && (payload?.importData || payload?.base && payload?.next))
+          synchronizeLogisticsIncomingStock(state);
         // One canonical customer registry also supplies the pricing engine.
         state.pricing.customers = state.office.customers.map(({ id, name }) => ({ id, name }));
         state.mobile.customers = mobileCustomers(state.office.customers);
         state.metadata.nextCard = Math.max(state.metadata.nextCard, ...state.office.cards.map(card => card.id + 1));
         if (domain === 'transport' && Array.isArray(p.user.siteIds)) fail('Du saknar åtkomst till hela transportplaneringen.', 403);
-        const mobilePricing = createPricingStore({ initialState: state.pricing });
-        const catalogPrincipal = mobilePricing.principal(state.pricing.users.find(user => user.level === 'Systemadmin' && user.active !== false).id);
-        // Catalog rules and customer quotes must use the same Swedish business
-        // day. Taking the UTC date prefix selects yesterday after local midnight.
-        const mobileDeliveredAt = new Date().toISOString();
-        const mobileBusinessDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(mobileDeliveredAt));
-        const mobileCatalog = domain === 'mobile' ? mobilePricing.read(catalogPrincipal, mobileBusinessDate) : undefined;
-        const catalog = mobileCatalog?.articles.map(article => ({ id: article.id, active: article.active, category: article.category, taxCategory: article.taxCategory, name: article.name, description: article.description, includes: article.includes.join('\n'), excludes: article.excludes.join('\n'), photos: article.photos, prices: ['A', 'B', 'C'].map(tier => article.prices[tier]) }));
-        const customerPrices = {};
-        if (domain === 'mobile') for (const customer of state.office.customers) {
-          customerPrices[customer.id] = {};
-          for (const article of catalog.filter(a => a.active !== false)) {
-            let quote;
-            try { quote = mobilePricing.quote({ customerId: customer.id, deliveredAt: mobileDeliveredAt, rows: [{ articleId: article.id, weight: 1 }] }, catalogPrincipal); }
-            catch (error) {
-              // An article can be visible while its reference price is not yet
-              // configured. Omit that quote, preserving all other customer data;
-              // permissions, invalid agreements and unexpected errors still fail.
-              if (error instanceof PricingError && error.status === 422 &&
-                (error.message === `Artikeln ${article.id} saknar inställningar på inlämningsdagen.` ||
-                  error.message.startsWith('LME-pris saknas för ') && error.message.endsWith(' på inlämningsdagen.'))) continue;
-              throw error;
-            }
-            customerPrices[customer.id][article.id] = { price: quote.rows[0].price, source: quote.rows[0].tier };
-          }
-        }
-        return { data: clone(domain === 'office' ? officeView(state, p) : domain === 'mobile' ? mobileView(state, p) : state[domain]), catalog, groups: mobileCatalog?.groups, customerPrices: domain === 'mobile' ? customerPrices : undefined, revision, storage: 'database', storageKind: (await getRepo()).kind, demo: true, deliveryEnabled: false,
+        const mobilePrices = domain === 'mobile' && !compactMobileWrite
+          ? mobilePricingProjection(state.pricing, { prices: url.searchParams.get('prices') !== 'none' }) : {};
+        return { data: clone(domain === 'office' ? officeView(state, p) : domain === 'mobile' ? mobileView(state, p) : state[domain]), ...mobilePrices, ...(domain === 'mobile' ? { businessDate: mobileBusinessDate(new Date()) } : {}), revision, storage: 'database', storageKind: (await getRepo()).kind, demo: true, deliveryEnabled: false,
           importConflicts, importArchived: Boolean(payload?.importData), importNotice: payload?.importData ? 'Tidigare testdata har arkiverats på servern. Befintliga serverkort och ekonomiska original har inte skrivits över.' : undefined };
       };
       const result = await (req.method === 'GET' && repository.read

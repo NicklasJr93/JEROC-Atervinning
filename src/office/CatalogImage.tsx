@@ -1,5 +1,6 @@
 import { Image as ImageIcon } from 'lucide-react';
 import type { ArticleImage } from '../catalog-types';
+import { builtInArticleImage } from '../catalog-images';
 import './article-images-editor.css';
 
 export type CatalogImageProps = {
@@ -21,12 +22,10 @@ export function CatalogImage({ image, alt, name, className = '', large = false, 
   if (typeof image !== 'number' || !Number.isInteger(image) || image < 0 || image >= 40) {
     return <span className={`${classes} empty`} role="img" aria-label={`${imageLabel} – bild saknas`}><ImageIcon size={large ? 32 : 22} aria-hidden="true" /></span>;
   }
-  const extra = image >= 28;
-  const position = extra ? image - 28 : image;
   return <span className={classes} role="img" aria-label={imageLabel} style={{
-    backgroundImage: `url(${extra ? '/images/copper-grades.png' : '/images/materials.png'})`,
-    backgroundSize: extra ? '400% 300%' : '400% 700%',
-    backgroundPosition: `${((position % 4) * 100) / 3}% ${(Math.floor(position / 4) * 100) / (extra ? 2 : 6)}%`,
+    backgroundImage: `url(${builtInArticleImage(image, variant)})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
   }} />;
 }
 

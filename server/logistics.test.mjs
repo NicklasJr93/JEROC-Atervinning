@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { initialApplicationState } from './application.mjs';
 import { createApplicationRepository } from './application-storage.mjs';
-import { createLogisticsApi, applyDriverAction, driverOrderView, validateLogisticsTransportChange, logisticsOutboundInventory } from './logistics.mjs';
+import { createLogisticsApi, applyDriverAction, driverOrderView, validateLogisticsTransportChange, logisticsOutboundInventory, ensureLogistics, synchronizeLogisticsIncomingStock } from './logistics.mjs';
 import { ensurePersonnel } from './personnel.mjs';
 import { transportSchema } from '../dist-server/domain-models.mjs';
 
@@ -41,12 +41,13 @@ async function account(request, kind, subjectId) { const username = `${kind}.${r
 async function createOrder(request, value) { const created = await request(officePath, { action: 'order.create', input: value, idempotencyKey: randomUUID() }); assert.equal(created.status, 200, created.error); return created.orders.find(order => order.id === created.result.orderId); }
 async function commandOrder(request, order, action, extra = {}) { const response = await request(officePath, { action, orderId: order.id, expectedVersion: order.detail.version, ...extra }); assert.equal(response.status, 200, response.error); return response.orders.find(value => value.id === order.id); }
 
-test('logistics persists on the existing repository and read views preserve legacy orders', async () => fixture(async ({ request, repository, instance }) => {
-  const original = await repository.transact(state => structuredClone(state.transport.orders));
+test('logistics reads preserve the repository and real commands persist legacy preparation once', async () => fixture(async ({ request, repository, instance }) => {
+  const original = await repository.read(state => structuredClone(state));
   const state = await request(); assert.equal(state.status, 200, state.error); assert.equal(state.vessels.length, 0); assert.equal(state.stock.length, 0);
-  const stored = await repository.transact(state => structuredClone(state)); assert.ok(!JSON.stringify(stored.logisticsAuth).includes('password')); assert.equal(Object.keys(stored.logistics.details).length, 0);
-  for (const order of original) assert.deepEqual(stored.transport.orders.find(value => value.id === order.id), { ...order, siteId: 'norrtalje' });
+  assert.deepEqual(await repository.read(state => structuredClone(state)), original);
   const order = await createOrder(request, input()); const second = await (await instance()).request(); assert.ok(second.orders.some(value => value.id === order.id));
+  const stored = await repository.read(state => structuredClone(state)); assert.ok(!JSON.stringify(stored.logisticsAuth).includes('password')); assert.equal(Object.keys(stored.logistics.details).length, 1);
+  for (const old of original.transport.orders) assert.deepEqual(stored.transport.orders.find(value => value.id === old.id), { ...old, siteId: 'norrtalje' });
   assert.equal(order.durationMinutes, 60); assert.equal(order.operator, 'own'); assert.equal(order.driverId, undefined);
 }));
 test('office scopes all records and denies cross-facility mutations and missing permissions', async () => fixture(async ({ request, repository }) => {
@@ -91,10 +92,10 @@ test('carrier can propose and accept a wish, and only assign its own active peop
 }));
 test('normal submitted yard stock is projected once and reconciles later weight edits without financial dependency', async () => fixture(async ({ request, repository, instance }) => {
   const articles = (await request()).articles, article = articles.find(article => !article.hazardous), sourceId = randomUUID();
-  await repository.transact(state => state.office.cards.push({ id: 9010, sourceId, siteId: 'norrtalje', status: 'new', yard: 'Norrtälje', date: '2026-10-10', rows: [{ articleId: article.id, weight: 100 }] }));
+  await repository.transact(state => { state.office.cards.push({ id: 9010, sourceId, siteId: 'norrtalje', status: 'new', yard: 'Norrtälje', date: '2026-10-10', rows: [{ articleId: article.id, weight: 100 }] }); ensureLogistics(state, { sites, classifications }); });
   const before = await request(); assert.equal(before.stock.find(row => row.articleId === article.id).onHandKg, 100);
   assert.equal((await (await instance()).request()).stock.find(row => row.articleId === article.id).onHandKg, 100);
-  await repository.transact(state => { state.office.cards[0].rows[0].weight = 90; });
+  await repository.transact(state => { state.office.cards[0].rows[0].weight = 90; synchronizeLogisticsIncomingStock(state); });
   const changed = await request(); assert.equal(changed.stock.find(row => row.articleId === article.id).onHandKg, 90); assert.equal(changed.inventoryMovements.filter(row => row.sourceId === sourceId).length, 2);
 }));
 test('hazard stock comes solely from genuine environmental movements and cannot be manually invented', async () => fixture(async ({ request, inventory, repository }) => {
@@ -146,9 +147,9 @@ test('PostgreSQL multiple instances preserve authentication and atomic reservati
 
 test('removing an incoming article reverses its ordinary warehouse projection once', async () => fixture(async ({ request, repository }) => {
   const article = (await request()).articles.find(article => !article.hazardous), sourceId = randomUUID();
-  await repository.transact(state => state.office.cards.push({ id: 9010, sourceId, siteId: 'norrtalje', date: '2026-10-10', rows: [{ articleId: article.id, weight: 100 }] }));
+  await repository.transact(state => { state.office.cards.push({ id: 9010, sourceId, siteId: 'norrtalje', date: '2026-10-10', rows: [{ articleId: article.id, weight: 100 }] }); ensureLogistics(state, { sites, classifications }); });
   assert.equal((await request()).stock.find(row => row.articleId === article.id).onHandKg, 100);
-  await repository.transact(state => { state.office.cards[0].rows = []; });
+  await repository.transact(state => { state.office.cards[0].rows = []; synchronizeLogisticsIncomingStock(state); });
   assert.equal((await request()).stock.find(row => row.articleId === article.id).onHandKg, 0);
   assert.equal((await request()).inventoryMovements.filter(row => row.sourceId === sourceId).length, 2);
 }));

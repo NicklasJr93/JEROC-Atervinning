@@ -1,11 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
-import { OfficeApp } from './office/OfficeApp';
-import { App } from './App';
-import { DemoProvider } from './store';
-import { EmployeeProvider } from './employee/EmployeeProvider';
 import './styles.css';
+const OfficeApp = React.lazy(() => import('./office/OfficeApp').then(module => ({ default: module.OfficeApp })));
+const MobileApp = React.lazy(() => import('./MobileAppEntry'));
 const TerminalApp = React.lazy(() => import('./terminal/TerminalApp'));
 const DriverApp = React.lazy(() => import('./driver/DriverApp'));
 const CustomerApp = React.lazy(() => import('./customer/CustomerApp'));
@@ -29,13 +27,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       ) : pagePath === '/akeri' ? (
         <React.Suspense fallback={<div role="status">Öppnar åkeriportalen…</div>}><CarrierApp /></React.Suspense>
       ) : pagePath === '/kontor' || nvvTestPage || vismaTestPage ? (
-        <OfficeApp />
+        <React.Suspense fallback={<div role="status">Öppnar kontoret…</div>}><OfficeApp /></React.Suspense>
       ) : (
-        <EmployeeProvider>
-          <DemoProvider>
-            <App />
-          </DemoProvider>
-        </EmployeeProvider>
+        <React.Suspense fallback={<div role="status">Öppnar appen…</div>}><MobileApp /></React.Suspense>
       )}
     </HashRouter>
   </React.StrictMode>,
