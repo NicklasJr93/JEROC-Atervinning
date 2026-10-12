@@ -1579,9 +1579,13 @@ Status: Planering sparad 2026-10-12. Alla tre områden avvaktar implementation.
   ärendekopplingar och svar. AI-stöd kan läggas till efter fungerande mejlflöde.
 - Dokumentationsändring; inga nya funktioner eller externa leveranser aktiveras.
 
-078 – Min personal i mobilen och chefens granskning
+078 – Schema & tid i mobilen och chefens granskning
 Status: Klickbar mockup framtagen 2026-10-12. Implementation återstår.
-- Mobilappens Profil får ingången Min personal med eget schema, veckans
+- Uppdaterad riktning 2026-10-12: en gemensam mobilapp och startsida med
+  Gårdsarbete, Mina uppdrag och Schema & tid. Den egna delen heter Schema & tid;
+  Personal används fortsatt för chefens administration. Huvudmenyn har Start,
+  Arbete, Schema & tid och Profil. Samma upplägg, funktioner efter behörighet.
+- Mobilappens Schema & tid får eget schema, veckans
   rapporterade arbetstid, ledighetsansökningar och separata semester-/komp-/flexsaldon.
 - Faktiskt arbetad tid och obetald rast registreras manuellt. Planerat schema
   räknas inte automatiskt som utfört. Rapport skickas, låses och kan godkännas

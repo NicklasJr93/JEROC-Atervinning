@@ -1,4 +1,4 @@
-# Min personal – mobil självservice och chefens granskning
+# Schema & tid – mobil självservice och chefens granskning
 
 ## Nytt designförslag: gemensam startsida
 
@@ -7,12 +7,14 @@
 ![Gemensam startsida efter inloggning](14_Gemensam_Startsida.png)
 
 Startsidan samlar dagens arbetspass och nästa uppdrag samt tre ingångar:
-**Gårdsarbete**, **Mina uppdrag** och **Min personal**. Samma upplägg föreslås
+**Gårdsarbete**, **Mina uppdrag** och **Schema & tid**. Samma upplägg föreslås
 för alla, med funktioner utifrån behörighet. Pågående vägningar kan återupptas
-längst ner. Huvudmenyn har **Start**, **Arbete**, **Min personal** och **Profil**.
+längst ner. Huvudmenyn har **Start**, **Arbete**, **Schema & tid** och **Profil**.
+Namnet **Schema & tid** är valt för medarbetarens egna uppgifter. Chefens
+personaladministration heter fortsatt **Personal**.
 
 Detta är en ny statisk bild. Den klickbara prototypen och ZIP-filen nedan
-visar fortfarande det tidigare navigationsförslaget; den riktiga appen är
+visar fortfarande det tidigare navigationsförslaget med namnet Min personal; den riktiga appen är
 inte ändrad av denna mockup.
 
 ## Klickbar prototyp
