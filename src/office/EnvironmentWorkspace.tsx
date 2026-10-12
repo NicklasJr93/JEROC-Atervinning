@@ -1,3 +1,4 @@
+import { OfficePageHeader } from './OfficePageHeader';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, ChevronRight, CircleAlert, FileText, Leaf, Package, PlugZap, RefreshCw, Search, X } from 'lucide-react';
@@ -100,7 +101,15 @@ export default function EnvironmentWorkspace({ user, actualUser, onNotice, siteI
   async function reload() { try { await refresh(); setNvv(await environmentApi.nvvStatus()); onNotice('Miljöunderlagen och NVV-statusen är uppdaterade.'); } catch { /* Error is shown by the session boundary. */ } }
 
   return <section className="environment-workspace" data-user={user.id}>
+    <OfficePageHeader controls={<>
+        <div className="environment-list-tools"><div className="environment-tabs" role="tablist" aria-label="Miljöunderlag">
+          <button type="button" role="tab" aria-selected={tab === 'active'} className={tab === 'active' ? 'active' : ''} onClick={() => setTab('active')}>Aktiva {active.length > 0 && <span>{active.length}</span>}</button>
+          <button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>Historik {history.length > 0 && <span>{history.length}</span>}</button>
+          <button type="button" role="tab" aria-selected={tab === 'inventory'} className={tab === 'inventory' ? 'active' : ''} onClick={() => setTab('inventory')}>Lager</button>
+        </div>{tab === 'active' && <><label className="environment-search"><Search size={16} /><input aria-label="Sök miljöunderlag" placeholder="Sök invägning, innehavare eller avfall…" value={query} onChange={event => setQuery(event.target.value)} /></label><select aria-label="Filtrera miljöstatus" value={status} onChange={event => setStatus(event.target.value)}><option value="">Alla statusar</option>{(['ready', 'incomplete', 'sending', 'error', 'unknown', 'correction_required'] as NvvReportStatus[]).map(value => <option value={value} key={value}>{nvvStatusLabels[value]}</option>)}</select></>}</div>
+    </>}>
     <div className="office-title environment-workspace-title"><div><span className="office-eyebrow">MOTTAGNING & LAGER</span><h1>Miljörapportering</h1><p>Mottagningsunderlag, NVV-rapportering och lagerrörelser.</p></div><div className="environment-title-actions"><span className={`environment-pill ${nvv?.connected ? 'success' : 'warning'}`}><Leaf size={14} />{nvv ? nvvModeLabel(nvv.mode) : 'NVV · hämtar status'}</span>{can(user, 'integrationsRead') && <Link to="/integrations?service=nvv" className="office-btn outline"><PlugZap size={14} />NVV-inställningar</Link>}<button type="button" className="office-btn outline" onClick={() => void reload()} disabled={loading}><RefreshCw size={14} />Uppdatera</button></div></div>
+    </OfficePageHeader>
     <EnvironmentAccessBoundary>
       {!!nvvError && <div className="environment-error" role="alert"><CircleAlert size={16} />{nvvError}</div>}
       <div className="environment-stats">
@@ -110,11 +119,7 @@ export default function EnvironmentWorkspace({ user, actualUser, onNotice, siteI
         <article><span className="environment-stat-icon success"><Package size={23} /></span><div><strong>{environmentWeight(inventory.reduce((sum, item) => sum + item.weight, 0))}</strong><h2>Registrerat lager</h2><small>{inventory.length} sparade lagerrörelser</small></div></article>
       </div>
       <div className="office-panel environment-list-panel">
-        <div className="environment-list-tools"><div className="environment-tabs" role="tablist" aria-label="Miljöunderlag">
-          <button type="button" role="tab" aria-selected={tab === 'active'} className={tab === 'active' ? 'active' : ''} onClick={() => setTab('active')}>Aktiva {active.length > 0 && <span>{active.length}</span>}</button>
-          <button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>Historik {history.length > 0 && <span>{history.length}</span>}</button>
-          <button type="button" role="tab" aria-selected={tab === 'inventory'} className={tab === 'inventory' ? 'active' : ''} onClick={() => setTab('inventory')}>Lager</button>
-        </div>{tab === 'active' && <><label className="environment-search"><Search size={16} /><input aria-label="Sök miljöunderlag" placeholder="Sök invägning, innehavare eller avfall…" value={query} onChange={event => setQuery(event.target.value)} /></label><select aria-label="Filtrera miljöstatus" value={status} onChange={event => setStatus(event.target.value)}><option value="">Alla statusar</option>{(['ready', 'incomplete', 'sending', 'error', 'unknown', 'correction_required'] as NvvReportStatus[]).map(value => <option value={value} key={value}>{nvvStatusLabels[value]}</option>)}</select></>}</div>
+
         {tab === 'active' && <><div className="office-table-wrap"><table className="office-table environment-table"><thead><tr><th>Miljöärende / källa</th><th>Tidigare innehavare</th><th>Avfall / vikt</th><th>Anläggning</th><th>Frister</th><th>Status</th><th /></tr></thead><tbody>{filtered.map(report => {
           const receipt = receipts.find(item => item.id === report.receiptId);
           return <tr key={report.id}><td><button type="button" className="office-link" onClick={() => selectReport(report)}>{report.id}</button><small>Invägningskort INV-{report.cardId}</small></td><td><strong>{receipt?.snapshot.previousHolder.name}</strong><small>{receipt?.snapshot.previousHolder.number}</small></td><td><strong>{report.wasteDescription}</strong><small>{formatWasteCode(report.wasteCode)} · {environmentWeight(report.weight)}</small></td><td>{state?.sites.find(site => site.id === report.siteId)?.name ?? report.siteId}</td><td className={report.reportDueDate < today() ? 'environment-overdue' : ''}><strong>Anteckning: {dueDate(report.noteDueDate)}</strong><small>Rapportering: {dueDate(report.reportDueDate)}</small></td><td><span className={`environment-pill ${nvvStatusTone(report.status)}`}>{nvvStatusLabels[report.status]}</span>{receipt?.deviations.length ? <small className="environment-deviation-text"><CircleAlert size={12} />Dokumentavvikelse</small> : null}</td><td><button type="button" className="office-link" aria-label={`Visa miljöunderlag för INV-${report.cardId}`} onClick={() => selectReport(report)}>Visa <ChevronRight size={14} /></button></td></tr>;

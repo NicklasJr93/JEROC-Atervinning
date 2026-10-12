@@ -1,6 +1,36 @@
 .office-customers {
   min-width: 0;
 }
+.office-customers .office-page-header .customer-back {
+  margin-bottom: 8px;
+}
+.office-customers .office-page-header .customer-profile-title,
+.office-customers .office-page-header .customer-filterbar {
+  margin-bottom: 0;
+}
+.office-customers .office-page-header .customer-filterbar {
+  flex-wrap: wrap;
+}
+.office-customers .office-page-header .customer-profile-title > div {
+  min-width: 0;
+}
+@media (max-width: 700px), (max-height: 700px) {
+  .office-customers .office-page-header .customer-profile-title {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .office-customers .office-page-header .customer-heading-actions {
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+  .office-customers .office-page-header .customer-profile-title > button {
+    margin-left: 0;
+  }
+  .office-customers .office-page-header .customer-big-icon {
+    width: 40px;
+    height: 40px;
+  }
+}
 .customer-actions {
   display: flex;
   align-items: center;
@@ -243,14 +273,6 @@
   align-items: center;
   font-size: 11px !important;
   margin-bottom: 17px;
-}
-.customer-profile-heading {
-  position: sticky;
-  top: 0;
-  z-index: 8;
-  background: #f5f8fc;
-  padding-top: 3px;
-  margin-bottom: 20px;
 }
 .customer-profile-title {
   display: flex;
@@ -505,6 +527,11 @@
   background: #fff;
   z-index: 5;
   padding: 7px 0;
+}
+.customer-detail-workspace .customer-sticky-tools {
+  position: static;
+  top: auto;
+  z-index: auto;
 }
 .customer-info {
   display: flex;
@@ -917,9 +944,6 @@
   .office-customers .customer-tabs button {
     padding: 12px 9px;
     font-size: 11px;
-  }
-  .customer-profile-heading {
-    position: relative;
   }
   .customer-sticky-tools {
     top: 0;

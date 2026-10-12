@@ -1,3 +1,4 @@
+import { OfficePageHeader } from './OfficePageHeader';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowLeft, ArrowUpRight, CheckCircle2, CircleAlert, Code2, Copy, Database, FileText, FlaskConical, History, LoaderCircle, LogOut, Plus, RefreshCw, Send, ShieldCheck, Trash2 } from 'lucide-react';
 import type { OfficeUser } from './model';
@@ -500,7 +501,9 @@ export default function VismaSandboxWorkspace({ user, actualUser }: { user: Offi
   }
 
   return <section className="environment-workspace nvv-sandbox-workspace visma-sandbox-workspace">
+    <OfficePageHeader>
     <div className="office-title environment-workspace-title"><div><a className="office-link" href="/kontor#/integrations?service=visma"><ArrowLeft size={14} />Till integrationsinställningar</a><span className="office-eyebrow">INTEGRATIONER · SEPARATA SANDBOXTESTER</span><h1>Spiris / Visma · integrationstest</h1><p>Anslut ett sandboxföretag, prova enskilda anrop och se faktiska payloads och svar.</p></div><span className="environment-pill warning"><FlaskConical size={14} />Endast SANDBOX</span></div>
+    </OfficePageHeader>
     {!permitted ? <div className="office-panel environment-empty"><ShieldCheck size={30} /><h2>Integrationsbehörighet krävs</h2><p>Testverktyget kräver systemadmin eller VD med uttrycklig läs- och hanteringsbehörighet för integrationer och åtkomst till alla anläggningar.</p></div>
       : !sessionMatches ? <div className="environment-access"><LoaderCircle size={18} /><span>{sessionError || (sessionLoading ? 'Ansluter testsessionen…' : 'Testsessionen kunde inte anslutas.')}</span>{!sessionLoading && <button className="office-link" type="button" onClick={() => void refreshSession().catch(() => undefined)}>Försök igen</button>}</div>
         : <>

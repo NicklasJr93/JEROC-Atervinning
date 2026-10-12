@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import CatalogImage from './CatalogImage';
+import { OfficePageHeader } from './OfficePageHeader';
 import { articleGroupPath, sortArticleGroups } from '../catalog-types';
 import {
   ArrowLeft,
@@ -349,25 +350,27 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
   if (isNew)
     return (
       <div className="office-customers">
-        <button
-          className="office-link customer-back"
-          onClick={cancelNewCustomer}
-        >
-          <ArrowLeft size={15} /> {newCustomerDraft ? 'Till invägningen' : 'Till kundlistan'}
-        </button>
-        <div className="customer-profile-title">
-          <h1>Skapa kund</h1>
-          {can(user, 'customers') && <div className="customer-heading-actions">
-            <button className="office-btn outline" type="button" disabled={editBusy} onClick={cancelNewCustomer}>Avbryt</button>
-            <button className="office-btn" type="submit" form={detailsFormId} disabled={editBusy}>
-              <ShieldCheck size={15} />{editBusy ? 'Sparar…' : 'Spara kunduppgifter'}
-            </button>
-          </div>}
-        </div>
-        <p>
-          Kontakt, sparade referenser och betalningsprofil för kommande
-          vägningar.
-        </p>
+        <OfficePageHeader className="customer-new-heading">
+          <button
+            className="office-link customer-back"
+            onClick={cancelNewCustomer}
+          >
+            <ArrowLeft size={15} /> {newCustomerDraft ? 'Till invägningen' : 'Till kundlistan'}
+          </button>
+          <div className="customer-profile-title">
+            <h1>Skapa kund</h1>
+            {can(user, 'customers') && <div className="customer-heading-actions">
+              <button className="office-btn outline" type="button" disabled={editBusy} onClick={cancelNewCustomer}>Avbryt</button>
+              <button className="office-btn" type="submit" form={detailsFormId} disabled={editBusy}>
+                <ShieldCheck size={15} />{editBusy ? 'Sparar…' : 'Spara kunduppgifter'}
+              </button>
+            </div>}
+          </div>
+          <p>
+            Kontakt, sparade referenser och betalningsprofil för kommande
+            vägningar.
+          </p>
+        </OfficePageHeader>
         {can(user, 'customers') ? (
           <CustomerDetails
             key={freshCustomer.id}
@@ -390,55 +393,99 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
   if (!customer)
     return (
       <div className="office-customers">
-        <div className="office-title">
-          <div>
-            <span className="office-eyebrow">
-              GOD ÖVERBLICK, FRÅN GÅRD TILL KONTOR
-            </span>
-            <h1>Kunder</h1>
-            <p>Kundregister, aktivitet och betalningsöversikt.</p>
-          </div>
-          <div className="customer-actions">
-            <span className="customer-period">
-              <CalendarDays size={15} /> Rullande 12 månader
-            </span>
-            {can(user, 'reports') && (
-              <button
-                className="office-btn outline"
-                onClick={() =>
-                  csvFile('jeroc-kunder.csv', [
-                    [
-                      'Kundnummer',
-                      'Kund',
-                      'Typ',
-                      'Vikt 12 mån',
-                      'Öppna kort',
-                      'Saldo',
-                    ],
-                    ...filtered.map(({ customer: c, stats }) => [
-                      c.customerNumber,
-                      c.name,
-                      c.type,
-                      stats.totalKg,
-                      stats.openCount,
-                      stats.balance,
-                    ]),
-                  ])
-                }
+        <OfficePageHeader className="customer-list-heading" controls={
+          <>
+            <div className="customer-list-tools">
+              <label className="customer-search">
+                <Search size={17} />
+                <input
+                  aria-label="Sök kunder"
+                  placeholder="Sök kund, organisationsnummer, kundnummer eller reg.nr"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </label>
+              <select
+                aria-label="Sortera kunder"
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
               >
-                <Download size={15} /> Exportera
-              </button>
-            )}
-            {can(user, 'customers') && (
-              <button
-                className="office-btn"
-                onClick={() => navigate('/customers/new')}
-              >
-                <Plus size={15} /> Skapa kund
-              </button>
-            )}
+                <option value="activity">Senaste aktivitet</option>
+                <option value="name">Namn</option>
+                <option value="weight">Högsta vikt, 12 mån</option>
+              </select>
+            </div>
+            <div className="customer-filterbar">
+              {['', 'Företag', 'Privatperson', 'BRF'].map((value) => (
+                <button
+                  key={value}
+                  className={type === value ? 'active' : ''}
+                  onClick={() => setType(value)}
+                >
+                  {value || 'Alla'}
+                </button>
+              ))}
+              <label>
+                <input
+                  type="checkbox"
+                  checked={openOnly}
+                  onChange={(e) => setOpenOnly(e.target.checked)}
+                />{' '}
+                Med öppna viktkort
+              </label>
+            </div>
+          </>
+        }>
+          <div className="office-title">
+            <div>
+              <span className="office-eyebrow">
+                GOD ÖVERBLICK, FRÅN GÅRD TILL KONTOR
+              </span>
+              <h1>Kunder</h1>
+              <p>Kundregister, aktivitet och betalningsöversikt.</p>
+            </div>
+            <div className="customer-actions">
+              <span className="customer-period">
+                <CalendarDays size={15} /> Rullande 12 månader
+              </span>
+              {can(user, 'reports') && (
+                <button
+                  className="office-btn outline"
+                  onClick={() =>
+                    csvFile('jeroc-kunder.csv', [
+                      [
+                        'Kundnummer',
+                        'Kund',
+                        'Typ',
+                        'Vikt 12 mån',
+                        'Öppna kort',
+                        'Saldo',
+                      ],
+                      ...filtered.map(({ customer: c, stats }) => [
+                        c.customerNumber,
+                        c.name,
+                        c.type,
+                        stats.totalKg,
+                        stats.openCount,
+                        stats.balance,
+                      ]),
+                    ])
+                  }
+                >
+                  <Download size={15} /> Exportera
+                </button>
+              )}
+              {can(user, 'customers') && (
+                <button
+                  className="office-btn"
+                  onClick={() => navigate('/customers/new')}
+                >
+                  <Plus size={15} /> Skapa kund
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        </OfficePageHeader>
         <div className="customer-metrics">
           <Metric
             icon={<Users size={22} />}
@@ -467,45 +514,6 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
           />
         </div>
         <section className="office-panel customer-panel">
-          <div className="customer-list-tools">
-            <label className="customer-search">
-              <Search size={17} />
-              <input
-                aria-label="Sök kunder"
-                placeholder="Sök kund, organisationsnummer, kundnummer eller reg.nr"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </label>
-            <select
-              aria-label="Sortera kunder"
-              value={sort}
-              onChange={(e) => setSort(e.target.value)}
-            >
-              <option value="activity">Senaste aktivitet</option>
-              <option value="name">Namn</option>
-              <option value="weight">Högsta vikt, 12 mån</option>
-            </select>
-          </div>
-          <div className="customer-filterbar">
-            {['', 'Företag', 'Privatperson', 'BRF'].map((value) => (
-              <button
-                key={value}
-                className={type === value ? 'active' : ''}
-                onClick={() => setType(value)}
-              >
-                {value || 'Alla'}
-              </button>
-            ))}
-            <label>
-              <input
-                type="checkbox"
-                checked={openOnly}
-                onChange={(e) => setOpenOnly(e.target.checked)}
-              />{' '}
-              Med öppna viktkort
-            </label>
-          </div>
           <div className="customer-table-wrap">
             <table className="office-table customer-table">
               <thead>
@@ -613,8 +621,29 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
       (c) => c.customerId === customer.id,
     ).length;
   return (
-    <div className="office-customers">
-      <div className="customer-profile-heading">
+    <div className="office-customers customer-detail-workspace">
+      <OfficePageHeader className="customer-profile-heading" controls={
+        <nav
+          className="customer-tabs"
+          role="tablist"
+          aria-label="Kundkortets flikar"
+        >
+          {tabs
+            .filter(([id]) => id !== 'prices' || hasPrices(user))
+            .map(([id, title]) => (
+              <button
+                key={id}
+                role="tab"
+                aria-selected={tab === id}
+                className={tab === id ? 'active' : ''}
+                disabled={editBusy}
+                onClick={() => goTab(id)}
+              >
+                {title}
+              </button>
+            ))}
+        </nav>
+      }>
         <button
           className="office-link customer-back"
           onClick={() => navigate(listUrl)}
@@ -658,27 +687,7 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
             </button>
           ))}
         </div>
-        <nav
-          className="customer-tabs"
-          role="tablist"
-          aria-label="Kundkortets flikar"
-        >
-          {tabs
-            .filter(([id]) => id !== 'prices' || hasPrices(user))
-            .map(([id, title]) => (
-              <button
-                key={id}
-                role="tab"
-                aria-selected={tab === id}
-                className={tab === id ? 'active' : ''}
-                disabled={editBusy}
-                onClick={() => goTab(id)}
-              >
-                {title}
-              </button>
-            ))}
-        </nav>
-      </div>
+      </OfficePageHeader>
       {priceError && (tab === 'prices' || tab === 'overview') && (
         <div className="customer-error" role="alert">
           {priceError}

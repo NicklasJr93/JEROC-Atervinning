@@ -56,7 +56,7 @@ test('a missing LME reference leaves only that article unpriced while mobile dra
     assert.deepEqual(response.catalog.find(item => item.id === article.id).prices, [null, null, null]);
     assert.equal(response.customerPrices['customer-build'][article.id], undefined);
     assert.equal(response.customerPrices['customer-build']['copper-1'].price, 84);
-    const next = structuredClone(response.data), id = randomUUID(); next.drafts.push({ id, number: 999, mode: 'direct', status: 'draft',
+    const next = structuredClone(response.data), id = randomUUID(); next.drafts.push({ id, siteId: 'norrtalje', number: 999, mode: 'direct', status: 'draft',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), reference: 'Tillgänglig mobil', origin: '', rows: [{ id: randomUUID(), articleId: 'copper-1', method: 'direct', weight: 12 }] });
     const saved = await api('/api/application/mobile', { base: response.data, next }); assert.equal(saved.status, 200, saved.error);
     assert.ok(saved.data.drafts.some(draft => draft.id === id));

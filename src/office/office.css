@@ -985,11 +985,6 @@
 }
 
 /* Kontorsdemo 0.2: samma kompakta arbetsyta som de godkända mockuperna. */
-.office-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 15;
-}
 .office .office-work-as {
   margin: 0;
   min-width: 170px;
@@ -1126,16 +1121,8 @@
   }
 }
 
-/* Working queues retain their controls while the list scrolls. */
-.office-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-}
+/* Queue controls are grouped with the shared page header. */
 .office-queue-controls {
-  position: sticky;
-  top: 64px;
-  z-index: 15;
   background: #f5f8fc;
   padding: 10px 0;
   margin-bottom: 12px;
@@ -1707,11 +1694,6 @@
 .office .office-card-correction > form > button {
   justify-self: start;
   margin: 0;
-}
-@media (max-width: 1000px) {
-  .office .office-queue-controls {
-    position: static;
-  }
 }
 @media (min-width: 851px) and (max-width: 1179px) {
   .office .office-detail-grid {

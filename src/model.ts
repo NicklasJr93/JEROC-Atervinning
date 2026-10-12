@@ -24,6 +24,9 @@ const rowSchema = z.discriminatedUnion('method', [
 ]);
 export const draftSchema = z.object({
   id: z.string(),
+  // Optional only for older persisted/browser drafts. New weighings capture
+  // their facility before any weight is entered and the server validates it.
+  siteId: z.string().trim().min(1).max(100).optional(),
   number: z.number().int(),
   mode: z.enum(['direct', 'vehicle']),
   status: z.enum(['draft', 'awaiting-exit', 'ready']),
@@ -83,7 +86,7 @@ export const storeSchema = z
 ;
 export type DemoData = { version: 1; drafts: Draft[]; customers: Customer[] };
 export const STORE_KEY = 'jeroc.mobile.demo.v1';
-export const APP_VERSION = '0.7.0';
+export const APP_VERSION = '0.8.0';
 export const normalizeRegistration = (value: string) =>
   value.toUpperCase().replace(/[\s-]/g, '');
 export const draftPath = (draft: Draft) =>
@@ -159,10 +162,11 @@ export function isComplete(draft: Draft): boolean {
     )
   );
 }
-export function createDraft(data: DemoData, mode: Draft['mode']): Draft {
+export function createDraft(data: DemoData, mode: Draft['mode'], siteId?: string): Draft {
   const now = new Date().toISOString();
   return {
     id: id(),
+    ...(siteId ? { siteId } : {}),
     number: Math.max(1417, ...data.drafts.map((d) => d.number)) + 1,
     mode,
     status: 'draft',

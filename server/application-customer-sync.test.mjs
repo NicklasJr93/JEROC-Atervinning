@@ -34,7 +34,7 @@ async function fixture(run) {
 const customer = (patch = {}) => ({ id: randomUUID(), name: 'Formatprov AB', type: 'Företag', number: '559359-3626',
   phone: '0722002220', email: 'test@example.invalid', address: 'Testgatan 1, 761 41 Norrtälje',
   references: [], origins: [], vatRegistered: false, ...patch });
-const draft = (patch = {}) => ({ id: randomUUID(), number: 1, mode: 'direct', status: 'draft',
+const draft = (patch = {}) => ({ id: randomUUID(), siteId: 'norrtalje', number: 1, mode: 'direct', status: 'draft',
   createdAt: '2026-10-12T09:00:00Z', updatedAt: '2026-10-12T09:00:00Z', reference: '', origin: '',
   rows: [{ id: randomUUID(), articleId: 'lead-battery', method: 'direct', weight: 70 }], ...patch });
 const records = (draftChanges = [], customerChanges = []) => ({ kind: 'records', version: 1, drafts: draftChanges, customers: customerChanges });

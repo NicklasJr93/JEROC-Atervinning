@@ -96,7 +96,7 @@ export function completeWorkOrderWeighing(state, order, principal, articles) {
   if (existing) fail('Arbetsordern har redan ett annat invägningskort. Kontrollera kopplingen.', 409);
   const at = new Date().toISOString(), site = state.logistics.sites.find(site => site.id === draft.siteId);
   const card = officeSchema.shape.cards.element.parse({
-    id: allocateWeighingNumber(state), sourceId: draft.id, workOrderId: order.id, siteId: draft.siteId, status: 'new', yard: site?.name ?? 'Norrtälje', weigher: principal.user.name, date: at,
+    id: allocateWeighingNumber(state), sourceId: draft.id, workOrderId: order.id, siteId: draft.siteId, status: 'new', yard: site?.name ?? draft.siteId, weigher: principal.user.name, date: at,
     customerId: draft.customerId, customerSnapshot: state.office.customers.find(customer => customer.id === draft.customerId), reference: draft.reference, origin: normalizeOriginAddress(draft.origin), originDetails: normalizeAddress(draft.origin),
     rows: draft.rows.map(row => ({ articleId: row.articleId, articleName: row.name, weight: row.weight, tier: 'C', price: 0, pricePending: true })),
     payment: '', idVerified: false, financialPending: true,

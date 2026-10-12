@@ -35,6 +35,9 @@ import {
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
+import WeightCardTable from './WeightCardTable';
+import { useWeightCardListNavigation } from './useWeightCardListNavigation';
+import { OfficePageHeader, OfficeStickyShell } from './OfficePageHeader';
 import CustomerWorkspace from './CustomerWorkspace';
 import PaymentEditor from './PaymentEditor';
 import CorrectionsWorkspace from './CorrectionsWorkspace';
@@ -112,7 +115,6 @@ import {
   QueueSummary,
   QuickActions,
   DailyWeights,
-  CardPreview,
   exportOfficeCsv,
 } from './OfficeOverview';
 import './office.css';
@@ -198,7 +200,6 @@ export function OfficeApp() {
       return '';
     }
   });
-  const [previewId, setPreviewId] = useState<number | undefined>(2050);
   const [pricing, setPricing] = useState<PricingState>();
   const [priceBusy, setPriceBusy] = useState(false);
   const [addArticleCardId, setAddArticleCardId] = useState<number>();
@@ -294,7 +295,6 @@ export function OfficeApp() {
       setActingId(id);
       setSearch('');
       setMessage('');
-      setPreviewId(undefined);
       navigate('/dashboard');
     } catch {
       setError('Tillåt sessionslagring för att använda Jobba som.');
@@ -413,6 +413,8 @@ export function OfficeApp() {
     };
   }, [principalIdentity, cardPricingPath]);
   const shared = useSharedData<OfficeData>({domain:'office',key:officeKey,identity:actualUser&&user?{actor:actualUser.id,user:user.id}:undefined,current:dataRef,accept:next=>{setData(next);setBlocked(false);},error:setError,parse:value=>officeSchema.parse(value)});
+  const cardListNavigation = useWeightCardListNavigation({ scope: principalIdentity, search, setSearch,
+    siteId: siteFilter, setSiteId: setSiteFilter, ready: shared.ready });
   function persist(next: OfficeData, force = false) {
     if (blocked && !force) return false;
     try { return shared.save(officeSchema.parse(next)); }
@@ -776,7 +778,7 @@ export function OfficeApp() {
     const card = dataRef.current.cards.find((c) => c.id === id);
     if (!card) return;
     setMessage('');
-    navigate(
+    cardListNavigation.open(
       workflowSections.includes(section)
         ? `/${section}/${id}${location.search}`
         : cardRoute(card, user),
@@ -1316,6 +1318,7 @@ export function OfficeApp() {
         </div>
       </aside>
       <div className="office-workspace">
+        <OfficeStickyShell>
         <header className="office-topbar">
           <span>
             Kontoret <ChevronRight size={14} />{' '}
@@ -1364,6 +1367,7 @@ export function OfficeApp() {
             </button>
           </div>
         )}
+        </OfficeStickyShell>
         {addArticleCardId === selected?.id && selected && materialEditable && can(user, 'weighingAddArticle') && <AddWeighingArticleModal
           articles={pricing?.articles.filter(article => article.active) ?? []} requiresNewApproval={materialRequiresNewApproval} onSave={addWeighingArticle} onClose={() => setAddArticleCardId(undefined)} />}
         {editMaterial && editMaterial.cardId === selected?.id && selected && materialEditable &&
@@ -1411,18 +1415,19 @@ export function OfficeApp() {
             </section>
           ) : selected && workflowSections.includes(section) ? (
             <>
+              <OfficePageHeader>
               <button
                 className="office-back"
-                onClick={() => navigate(`/${section}${location.search}`)}
+                onClick={() => cardListNavigation.back(`/${section}${location.search}`)}
               >
                 <ArrowLeft size={16} />
-                {section === 'attest'
+                {cardListNavigation.backLabel(section === 'attest'
                   ? 'Till attest'
                   : section === 'customer-approvals'
                     ? 'Till kundgodkännanden'
                   : section === 'payments'
                     ? 'Till utbetalningar'
-                    : 'Till invägningar'}
+                    : 'Till invägningar')}
               </button>
               <div className="office-title">
                 <div>
@@ -1440,8 +1445,49 @@ export function OfficeApp() {
                     Arbetsorder {selected.workOrderId}<ChevronRight size={14} />
                   </button>}
                 </div>
-                <Status status={selected.status} />
+                <div className="office-page-actions">
+                  <Status status={selected.status} />
+                  {!['ready', 'paid', 'balance'].includes(selected.status) && (
+                      <button
+                        className="office-btn outline"
+                        disabled={!selectedCustomer || !cardMoneyVisible(user, selected)}
+                        onClick={() => setDocumentType('settlement')}
+                      >
+                        <Printer size={16} /> Förhandsvisa avräkning
+                      </button>
+                  )}
+                  {['ready', 'paid', 'balance'].includes(selected.status) && (
+                        <button
+                          className="office-btn outline"
+                          disabled={!cardMoneyVisible(user, selected)}
+                          onClick={() => setDocumentType('settlement')}
+                        >
+                          <Printer size={16} />
+                          Avräkningsnota
+                        </button>
+                  )}
+                  {selected.status === 'paid' && (
+                          <button
+                            className="office-btn outline"
+                            disabled={!cardMoneyVisible(user, selected)}
+                            onClick={() => setDocumentType('receipt')}
+                          >
+                            <Printer size={16} />
+                            Utbetalningskvitto
+                          </button>
+                  )}
+                  {selected.status === 'ready' && can(user, 'pay') && selectedSettlement && (
+                            <button
+                              className="office-btn"
+                              disabled={selected.financialPending || priceBusy}
+                              onClick={() => payCard(selected)}
+                            >
+                              Registrera demoutbetalning
+                            </button>
+                  )}
+                </div>
               </div>
+              </OfficePageHeader>
               {pricingError && editable && (
                 <div className="office-alert" role="alert">
                   {pricingError}
@@ -1838,15 +1884,7 @@ export function OfficeApp() {
                               </strong>
                             </span>
                           </div>
-                          {selected.status === 'ready' && (
-                            <button
-                              className="office-btn"
-                              disabled={selected.financialPending || priceBusy}
-                              onClick={() => payCard(selected)}
-                            >
-                              Registrera demoutbetalning
-                            </button>
-                          )}
+
 
                           {selected.status === 'balance' && !payBalance && (
                             <button
@@ -1871,41 +1909,7 @@ export function OfficeApp() {
                           )}
                         </>
                       )}
-                    {!['ready', 'paid', 'balance'].includes(selected.status) && (
-                      <button
-                        className="office-btn outline"
-                        disabled={!selectedCustomer || !cardMoneyVisible(user, selected)}
-                        onClick={() => setDocumentType('settlement')}
-                      >
-                        <Printer size={16} /> Förhandsvisa avräkning
-                      </button>
-                    )}
-                    {['ready', 'paid', 'balance'].includes(selected.status) && (
-                      <>
-                        <p className="office-lock">
-                          <ShieldCheck size={16} />
-                          Låst underlag · ändringar kräver rättelsekort
-                        </p>
-                        <button
-                          className="office-btn outline"
-                          disabled={!cardMoneyVisible(user, selected)}
-                          onClick={() => setDocumentType('settlement')}
-                        >
-                          <Printer size={16} />
-                          Avräkningsnota
-                        </button>
-                        {selected.status === 'paid' && (
-                          <button
-                            className="office-btn outline"
-                            disabled={!cardMoneyVisible(user, selected)}
-                            onClick={() => setDocumentType('receipt')}
-                          >
-                            <Printer size={16} />
-                            Utbetalningskvitto
-                          </button>
-                        )}
-                      </>
-                    )}
+                    {['ready', 'paid', 'balance'].includes(selected.status) && <p className="office-lock"><ShieldCheck size={16} />Låst underlag · ändringar kräver rättelsekort</p>}
                   </section>
                   {['ready', 'paid', 'balance'].includes(selected.status) &&
                     can(user, 'corrections') && (
@@ -1981,6 +1985,7 @@ export function OfficeApp() {
             </>
           ) : section === 'dashboard' ? (
             <>
+              <OfficePageHeader>
               <div className="office-title">
                 <div>
                   <span className="office-eyebrow">
@@ -1994,6 +1999,7 @@ export function OfficeApp() {
                 </div>
                 <span className="office-date">{platform ? companyName : 'Norrtälje · Kontorsdemo'}</span>
               </div>
+              </OfficePageHeader>
               <div className="office-metrics">
                 {(['new', 'complement', 'attest', 'ready'] as const).map(
                   (s, i) => (
@@ -2040,26 +2046,17 @@ export function OfficeApp() {
                         Visa alla <ChevronRight size={15} />
                       </button>
                     </div>
-                    <CardTable
+                    <WeightCardTable
                       customers={data.customers}
                       cards={visibleCards
                         .filter((c) => c.status !== 'paid')
                         .sort((a, b) => b.id - a.id)}
                       showMoney={can(user, 'prices') || can(user, 'reports')}
                       user={user}
-                      open={open}
-                      selectedId={previewId}
-                      onSelect={setPreviewId}
+                      onOpen={open}
+                      getCardRoute={card => cardRoute(card, user)}
                     />
                   </section>
-                  {data.cards.find((c) => c.id === previewId) && (
-                    <CardPreview
-                      customers={data.customers}
-                      card={data.cards.find((c) => c.id === previewId)!}
-                      user={user}
-                      onOpen={open}
-                    />
-                  )}
                 </div>
                 <aside>
                   <QuickActions user={user} onNavigate={navigate} />
@@ -2104,6 +2101,7 @@ export function OfficeApp() {
             </>
           ) : ['weighings', 'attest', 'payments'].includes(section) ? (
             <>
+              <OfficePageHeader>
               <div className="office-title">
                 <div>
                   <h1>
@@ -2133,9 +2131,6 @@ export function OfficeApp() {
                   </button>
                 )}
               </div>
-              {(section === 'attest' || section === 'payments') && (
-                <QueueSummary cards={visibleCards} user={user} mode={section} />
-              )}
               <div className="office-queue-controls">
                 <div
                   role="tablist"
@@ -2149,7 +2144,6 @@ export function OfficeApp() {
                       aria-selected={historyTab === Boolean(i)}
                       className={historyTab === Boolean(i) ? 'active' : ''}
                       onClick={() => {
-                        setPreviewId(undefined);
                         navigate(`/${section}${i ? '?tab=history' : ''}`);
                       }}
                     >
@@ -2195,28 +2189,23 @@ export function OfficeApp() {
                   </select>
                 </div>
               </div>
+              </OfficePageHeader>
+              {(section === 'attest' || section === 'payments') && (
+                <QueueSummary cards={visibleCards} user={user} mode={section} />
+              )}
               <section className="office-panel">
-                <CardTable
+                <WeightCardTable
                   customers={data.customers}
                   cards={cards}
                   showMoney={can(user, 'prices') || can(user, 'reports')}
                   user={user}
-                  open={open}
-                  selectedId={previewId}
-                  onSelect={setPreviewId}
+                  onOpen={open}
+                  getCardRoute={card => `/${section}/${card.id}${location.search}`}
                 />
                 {!cards.length && (
                   <p>Inga vägningar matchar den här kön eller sökningen.</p>
                 )}
               </section>
-              {cards.find((c) => c.id === previewId) && (
-                <CardPreview
-                  customers={data.customers}
-                  card={cards.find((c) => c.id === previewId)!}
-                  user={user}
-                  onOpen={open}
-                />
-              )}
             </>
           ) : section === 'work-orders' ? (
             <Suspense fallback={<div role="status">Hämtar arbetsorder…</div>}><WorkOrdersWorkspace
@@ -2235,16 +2224,14 @@ export function OfficeApp() {
               customers={data.customers} selectedSite={siteFilter} onNotice={setMessage}
               onBookOrder={prefill => createLogisticsOrder(prefill)} /></Suspense>
           ) : accountsView ? (
-            <>
-              <nav className="office-personnel-nav" aria-label="Personal">
+              <StaffAccountPanel key={`${actualUser!.id}:${user.id}:${query.get('user') ?? ''}`}
+                users={data.users} initialUserId={query.get('user') ?? undefined}
+                actor={user} sites={terminalDemo.state?.sites} save={saveStaffUsers}
+                navigation={<nav className="office-personnel-nav" aria-label="Personal">
                 {can(user, 'personnelRead') && <button onClick={() => navigate('/personnel')}>Alla personer</button>}
                 {can(user, 'personnelRead') && <button onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa</button>}
                 <button className="active" onClick={() => navigate('/personnel/accounts')}>Konton</button>
-              </nav>
-              <StaffAccountPanel key={`${actualUser!.id}:${user.id}:${query.get('user') ?? ''}`}
-                users={data.users} initialUserId={query.get('user') ?? undefined}
-                actor={user} sites={terminalDemo.state?.sites} save={saveStaffUsers} />
-            </>
+              </nav>} />
           ) : section === 'personnel' ? (
             <Suspense fallback={<div className="office-panel" role="status">Hämtar personalregistret…</div>}><PersonalWorkspace
               key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!}
@@ -2383,93 +2370,6 @@ function MaterialImage({ id, state }: { id: string; state?: PricingState }) {
     cell = state?.articles.find(article => article.id === id)?.photos[0] ?? a?.photos[0];
   if (cell === undefined) return <span className="office-material-image" role="img" aria-label={`${a?.name ?? id} · referensbild saknas`}><Battery size={24} /></span>;
   return <CatalogImage image={cell} alt={a?.name ?? id} className="office-material-image" />;
-}
-function CardTable({
-  cards,
-  customers,
-  showMoney,
-  user,
-  open,
-  selectedId,
-  onSelect,
-}: {
-  cards: OfficeCard[];
-  customers?: OfficeCustomer[];
-  showMoney: boolean;
-  user: OfficeUser;
-  open: (id: number) => void;
-  selectedId?: number;
-  onSelect?: (id: number) => void;
-}) {
-  return (
-    <div className="office-table-wrap">
-      <table className="office-table">
-        <thead>
-          <tr>
-            <th>Viktkort</th>
-            <th>Kund / invägare</th>
-            <th>Vikt</th>
-            {showMoney && <th>Belopp</th>}
-            <th>Status</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {cards.map((c) => (
-            <tr
-              key={c.id}
-              className={selectedId === c.id ? 'office-row-selected' : ''}
-              onClick={() => onSelect?.(c.id)}
-            >
-              <td>
-                <button
-                  className="office-link"
-                  aria-label={`Förhandsvisa viktkort ${c.id}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelect?.(c.id);
-                  }}
-                >
-                  #{c.id}
-                </button>
-                <small>{fmt(c.date)}</small>
-              </td>
-              <td>
-                <strong>
-                  {c.customerSnapshot?.name ??
-                    customers?.find((x) => x.id === c.customerId)?.name ??
-                    customerName(c)}
-                </strong>
-                <small>
-                  {c.weigher} · {c.yard}
-                </small>
-              </td>
-              <td>
-                {kilos(weight(c))} kg<small>{c.rows.length} material</small>
-              </td>
-              {showMoney && (
-                <td>
-                  {cardMoneyVisible(user, c) ? `${money(amount(c))} kr` : '–'}
-                </td>
-              )}
-              <td>
-                <Status status={c.status} />
-              </td>
-              <td>
-                <button
-                  className="office-view"
-                  aria-label={`Öppna viktkort ${c.id}`}
-                  onClick={() => open(c.id)}
-                >
-                  Visa <ChevronRight size={13} />
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 function PriceEditor({
   row,

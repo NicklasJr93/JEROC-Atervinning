@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { Plus } from 'lucide-react';
 import { can, permissionNames, sensitivePersonnelPermissions, type OfficeUser, type Permission } from '../model';
 import { useEnvironmentSession } from '../EnvironmentSession';
+import { OfficePageHeader } from '../OfficePageHeader';
 
 const permissionPrerequisites: Partial<Record<Permission, Permission[]>> = {
   lmeWrite: ['lmeRead'],
@@ -44,6 +45,7 @@ export default function StaffAccountPanel({
   users,
   initialUserId,
   embedded = false,
+  navigation,
   actor,
   sites: fallbackSites,
   save,
@@ -51,6 +53,7 @@ export default function StaffAccountPanel({
   users: OfficeUser[];
   initialUserId?: string;
   embedded?: boolean;
+  navigation?: ReactNode;
   actor: OfficeUser;
   sites?: { id: string; name: string }[];
   save: (u: OfficeUser[]) => Promise<boolean>;
@@ -87,7 +90,7 @@ export default function StaffAccountPanel({
   }
   return (
     <>
-      {!embedded && <div className="office-title">
+      {!embedded && <OfficePageHeader controls={navigation}><div className="office-title">
         <div>
           <h1>Konton & behörigheter</h1>
           <p>
@@ -113,7 +116,7 @@ export default function StaffAccountPanel({
           <Plus size={17} />
           Nytt konto
         </button>
-      </div>}
+      </div></OfficePageHeader>}
       <div className={embedded ? 'office-account-embedded' : 'office-user-admin'}>
         {!embedded && <section className="office-panel">
           {users.map((u) => (

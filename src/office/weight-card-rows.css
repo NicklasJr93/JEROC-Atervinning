@@ -1,0 +1,38 @@
+.office-weight-card-row { cursor: pointer; }
+.office-weight-card-row:focus-visible { outline: 2px solid #2469c9; outline-offset: -2px; }
+.office-weight-card-row:focus-visible td { background: #f0f6ff; }
+.office-weight-card-preview {
+  position: fixed;
+  z-index: 70;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  box-sizing: border-box;
+  overflow: hidden;
+  pointer-events: auto;
+  padding: 16px;
+  border: 1px solid #cfdded;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 36px #20385729;
+  color: #294664;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.office-weight-card-preview header { display: grid; gap: 3px; margin-bottom: 11px; }
+.office-weight-card-preview header strong { color: #133452; font-size: 14px; }
+.office-weight-card-preview header span { color: #62778e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.office-weight-card-preview ul { list-style: none; padding: 0; margin: 0 0 10px; }
+.office-weight-card-preview li { display: flex; gap: 12px; justify-content: space-between; margin: 4px 0; }
+.office-weight-card-preview li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.office-weight-card-preview li strong { white-space: nowrap; font-weight: 600; }
+.office-weight-card-preview p { margin: 5px 0; }
+.office-weight-card-preview dl { margin: 10px 0 0; display: grid; gap: 6px; }
+.office-weight-card-preview dl div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 7px; }
+.office-weight-card-preview dt { color: #70849a; }
+.office-weight-card-preview dd { margin: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.office-weight-card-preview .office-preview-more, .office-weight-card-preview .office-preview-note { color: #70849a; font-size: 11px; }
+.office-weight-card-preview .office-preview-next { border-top: 1px solid #e5edf5; padding-top: 10px; margin-top: 12px; }
+.office-preview-next span { display: block; color: #1762b4; font-weight: 700; font-size: 10px; margin-bottom: 3px; }
+@media print { .office-weight-card-preview { display: none; } }

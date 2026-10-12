@@ -138,6 +138,19 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     },
     saveDraft(draft) {
       const data = dataRef.current;
+      const existing = data.drafts.find(d => d.id === draft.id);
+      if (existing && existing.siteId !== draft.siteId) {
+        setError('En pågående vägning behåller anläggningen där den startades.');
+        return false;
+      }
+      if (existing && !draft.siteId) {
+        setError('Vägningens anläggning saknas. Kontakta din chef eller systemadmin för att återställa den.');
+        return false;
+      }
+      if (!existing && !employee.session?.sites.some(site => site.id === draft.siteId && site.active !== false && employee.session?.person.siteIds.includes(site.id))) {
+        setError('Välj en tillgänglig anläggning innan du startar en vägning.');
+        return false;
+      }
       if (data.drafts.find((d) => d.id === draft.id)?.status === 'ready') {
         setError('Vägningen är färdig och låst. Den kan inte ändras.');
         return false;

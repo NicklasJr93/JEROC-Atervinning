@@ -4,7 +4,9 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.7.0. Aktuell kontorsversion: 0.20.0.
+Aktuell mobilwebbversion: 0.8.0. Aktuell kontorsversion: 0.21.0.
+096, 097 och 100 är genomförda tillsammans i bygge 2026-10-13.
+Byggets innehåll: docs/sticky-viktkort-anlaggningsval-2026-10-13.md.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 084–086 och 088–095 är genomförda i bygge 2026-10-12 enligt beställningen
@@ -1541,7 +1543,7 @@ Status: Implementerad i kontorsdemo 0.17.0 och gårdsapp 0.4.0, 2026-10-12.
   kvar när listan scrollas. LME Cash nås via fliken under Artiklar & priser;
   separat huvudmenyval tas bort. Artikeldetaljen har breadcrumbs och
   tillbaka-knapp i stället för översiktens flikar.
-  Sticky rubrikparti även på artikeldetaljen återstår; förtydligat i 096.
+  Sticky rubrikparti även på artikeldetaljen ingår i 096, kontor 0.21.0.
 - Fliken Artikelgrupper hanterar huvudgrupper och undergrupper med namn,
   bild, beskrivning, sorteringsordning och aktivstatus. Huvudgrupper kan
   innehålla artiklar direkt. Gruppdetaljen visar sina tillhörande artiklar.
@@ -2082,7 +2084,7 @@ Status: Genomförd 2026-10-12 i kontor 0.19.0. Kompletterar 093.
   docs/integrationer/spiris-visma/bokforingsuppfoljning.md.
 
 096 – Gemensamt sticky rubrikparti i kontorsvyerna
-Status: Planerad 2026-10-12. Förtydligar tidigare önskemål i 076; inte implementerat.
+Status: Implementerad 2026-10-13 i kontor 0.21.0. Förtydligar tidigare önskemål i 076.
 - Utökad omfattning 2026-10-12: samma beteende ska gälla kontorets list- och
   detaljvyer som följer grundlayouten, inte bara artikeldetaljen. Exempel är
   kunder, viktkort, personal, arbetsordrar, lager, anläggningar och integrationer.
@@ -2114,8 +2116,8 @@ Status: Planerad 2026-10-12. Förtydligar tidigare önskemål i 076; inte implem
   scrollar med sidan. Denna punkt avser det saknade beteendet.
 
 097 – Öppna viktkort från hela raden och kompakt förhandsvisning
-Status: Planerad 2026-10-12. Radklick och den rekommenderade kompakta hoverrutan
-är godkänd utformning efter användarens återkoppling. Ingen appkod ändrad.
+Status: Implementerad 2026-10-13 i kontor 0.21.0. Radklick och den kompakta
+hoverrutan följer godkänd utformning efter användarens återkoppling.
 - I viktkortslistorna ska klick på valfri vanlig yta i raden öppna det fulla
   viktkortet direkt. Samma beteende gäller de olika leden och deras flikar:
   Invägningar, Attest, Utbetalningar och övriga listor som visar viktkort.
@@ -2241,7 +2243,7 @@ Status: Genomförd 2026-10-12 i kontor 0.20.0 och mobilwebb 0.7.0.
   docs/scrappilot-bolagsgrund-2026-10-12.md.
 
 ÄL 100 – Välj aktiv anläggning i mobilappen
-Status: Planerad 2026-10-12. Godkänd utformning; inte implementerat.
+Status: Implementerad 2026-10-13 i mobilwebb 0.8.0 och kontor 0.21.0.
 - Lägg en kompakt anläggningsväljare uppe till höger på Hem och Gårdsarbete,
   exempelvis Norrtälje med nedåtpil. Valet ska vara gemensamt för båda vyerna.
 - Visa bara aktiva anläggningar i det aktuella bolaget som både personprofilen

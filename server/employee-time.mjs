@@ -111,10 +111,13 @@ export function ensureEmployeeTime(state) {
   for (const key of ['settings', 'requirementHistory', 'normativeHistory', 'entries', 'orderSessions', 'leaveRequests', 'audit']) state.employeeTime[key] ??= [];
   return state.employeeTime;
 }
-function ownPerson(state, personOrId) {
+function ownPerson(state, personOrId, context = {}) {
   const person = state.personnel?.people?.find(value => value.id === (typeof personOrId === 'string' ? personOrId : personOrId?.id));
   if (!person || !person.active || person.kind !== 'employee') fail('Tidrapportering kräver en aktiv anställd.', 403);
-  return person;
+  // Reload the authoritative profile, then apply only the server-supplied
+  // request scope. Never replace the persisted person's permissions.
+  return Array.isArray(context.allowedSiteIds)
+    ? { ...person, siteIds: person.siteIds.filter(id => context.allowedSiteIds.includes(id)) } : person;
 }
 function audit(state, person, action, details, transactionAudit, context, actorId = person.userId ?? person.id) {
   const row = { id: uid('time-event'), action, at: clock(context).toISOString(), personId: person.id, actorId, ...details };
@@ -199,11 +202,16 @@ function assignedOrder(state, person, orderId) {
   const order = state.transport?.orders?.find(value => value.id === orderId), detail = state.logistics?.details?.[orderId];
   if (!order) fail('Arbetsordern finns inte.', 404);
   if (!person.driverId || (detail?.assignedDriverId ?? order.driverId) !== person.driverId || detail?.operator === 'external') fail('Arbetsordern är inte tilldelad dig.', 403);
+  if (!allowedPersonSite(person, detail?.siteId ?? order.siteId)) fail('Uppdragets anläggning ligger utanför din behörighet.', 403);
   return order;
 }
+const allowedPersonSite = (person, siteId) => !siteId || person.siteIds.includes(siteId);
+const timeRecordSite = (state, record) => record.siteId ?? state.logistics?.details?.[record.orderId]?.siteId
+  ?? state.transport?.orders?.find(value => value.id === record.orderId)?.siteId;
 function ownOrders(state, person) {
   if (!person.driverId) return [];
-  return (state.transport?.orders ?? []).filter(order => (state.logistics?.details?.[order.id]?.assignedDriverId ?? order.driverId) === person.driverId && state.logistics?.details?.[order.id]?.operator !== 'external').map(order => Object.fromEntries(['id', 'customerName', 'action', 'address', 'city', 'date', 'startMinute', 'durationMinutes', 'status', 'siteId', 'driverId', 'vehicleId', 'material', 'notes'].filter(key => order[key] !== undefined).map(key => [key, copy(order[key])])));
+  return (state.transport?.orders ?? []).filter(order => (state.logistics?.details?.[order.id]?.assignedDriverId ?? order.driverId) === person.driverId && state.logistics?.details?.[order.id]?.operator !== 'external'
+    && allowedPersonSite(person, state.logistics?.details?.[order.id]?.siteId ?? order.siteId)).map(order => Object.fromEntries(['id', 'customerName', 'action', 'address', 'city', 'date', 'startMinute', 'durationMinutes', 'status', 'siteId', 'driverId', 'vehicleId', 'material', 'notes'].filter(key => order[key] !== undefined).map(key => [key, copy(order[key])])));
 }
 function siteList(state, person, context) {
   const sites = context.siteCatalog ?? state.environment?.sites ?? state.logistics?.sites ?? [];
@@ -246,7 +254,7 @@ function dayData(state, person, date, sites, orders = ownOrders(state, person)) 
 function publicDay({ entries, schedules, absences, orders, ...day }) { return day; }
 
 export function employeeTimeGate(state, personOrId, context = {}) {
-  const person = ownPerson(state, personOrId), today = employeeTimeToday(context);
+  const person = ownPerson(state, personOrId, context), today = employeeTimeToday(context);
   state = indexedPersonState(state, person);
   const setting = requirementAt(state, person, today), empty = { blocked: false, expectedMinutes: 0, recordedMinutes: 0, missingMinutes: 0 };
   if (!setting.enabled || !state.employeeTime?.settings.some(value => value.personId === person.id)) return empty;
@@ -259,7 +267,7 @@ export function employeeTimeGate(state, personOrId, context = {}) {
   return empty;
 }
 export function employeeTimeProjection(state, personOrId, context = {}) {
-  const person = ownPerson(state, personOrId), today = employeeTimeToday(context);
+  const person = ownPerson(state, personOrId, context), today = employeeTimeToday(context);
   state = indexedPersonState(state, person);
   const month = context.month ?? today.slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(month) || !validDay(`${month}-01`)) fail('Ange en giltig månad.');
@@ -268,12 +276,19 @@ export function employeeTimeProjection(state, personOrId, context = {}) {
   last.setUTCMonth(last.getUTCMonth() + 1); last.setUTCDate(last.getUTCDate() - 1);
   const days = datesBetween(`${month}-01`, last.toISOString().slice(0, 10)).map(day => publicDay(dayData(state, person, day, sites, orders)));
   const selected = dayData(state, person, date, sites, orders);
-  const selectedDay = { ...selected, entries: selected.entries.map(({ intervals, personId, ...entry }) => entry) };
+  const selectedDay = { ...selected, entries: selected.entries.map(({ intervals, personId, ...entry }) => {
+    const siteId = timeRecordSite(state, entry);
+    if (allowedPersonSite(person, siteId)) return entry;
+    // Employees retain their own worked hours after a scope change without
+    // receiving the inaccessible order's customer or facility details.
+    const { orderId, orderName, siteId: recordedSite, siteName, ...personalTime } = entry;
+    return personalTime;
+  }) };
   const summary = days.reduce((sum, day) => {
     const requirement = requirementAt(state, person, day.date);
     return { expectedMinutes: sum.expectedMinutes + day.expectedMinutes, recordedMinutes: sum.recordedMinutes + day.recordedMinutes, missingMinutes: sum.missingMinutes + (day.date < today && requirement.enabled && day.date >= requirement.enforcementFrom ? day.missingMinutes : 0) };
   }, { expectedMinutes: 0, recordedMinutes: 0, missingMinutes: 0 });
-  const activeWork = state.employeeTime?.orderSessions.find(value => value.personId === person.id && !value.endedAt);
+  const activeWork = state.employeeTime?.orderSessions.find(value => value.personId === person.id && !value.endedAt && allowedPersonSite(person, timeRecordSite(state, value)));
   return { revision: state.employeeTime?.revision ?? 0, today, month, date, person: Object.fromEntries(['id', 'name', 'role', 'team', 'phone', 'email', 'employeeNumber', 'siteIds'].filter(key => person[key] !== undefined).map(key => [key, copy(person[key])])), requirement: requirementAt(state, person, today), gate: employeeTimeGate(state, person, context), days, selectedDay, orders, ...(activeWork ? { activeWork: copy(activeWork) } : {}), leaveRequests: copy((state.employeeTime?.leaveRequests ?? []).filter(value => value.personId === person.id)), sites, summary, balances: { available: false } };
 }
 
@@ -282,6 +297,7 @@ function saveEntry(state, person, value, transactionAudit, context) {
   const input = parse(entrySchema, value), domain = ensureEmployeeTime(state), old = input.id ? domain.entries.find(entry => entry.id === input.id) : undefined;
   if (input.id && !old) fail('Tidsposten finns inte.', 404);
   if (old && old.personId !== person.id) fail('Du kan bara ändra din egen tid.', 403);
+  if (old && !allowedPersonSite(person, timeRecordSite(state, old))) fail('Tidspostens anläggning ligger utanför din behörighet.', 403);
   if (old?.deletedAt) fail('Tidsposten har redan tagits bort.', 409);
   if (old && old.revision !== input.revision) fail('Tidsposten ändrades i en annan session. Ladda om.', 409);
   const now = clock(context), today = employeeTimeToday(context);
@@ -304,6 +320,7 @@ function removeEntry(state, person, command, transactionAudit, context) {
   const entry = state.employeeTime.entries.find(value => value.id === input.id);
   if (!entry) fail('Tidsposten finns inte.', 404);
   if (entry.personId !== person.id) fail('Du kan bara ta bort din egen tid.', 403);
+  if (!allowedPersonSite(person, timeRecordSite(state, entry))) fail('Tidspostens anläggning ligger utanför din behörighet.', 403);
   if (entry.revision !== input.revision || entry.deletedAt) fail('Tidsposten har ändrats. Ladda om.', 409);
   entry.deletedAt = clock(context).toISOString(); entry.revision += 1;
   audit(state, person, 'time.removed', { entryId: entry.id, date: entry.date, text: 'Manuell tidspost borttagen. Händelsen finns kvar i historiken.' }, transactionAudit, context);
@@ -314,7 +331,7 @@ function removeEntry(state, person, command, transactionAudit, context) {
  * start, even if the order is subsequently reassigned. Multiple closed sessions
  * are allowed; completed planned orders alone never create worked hours. */
 export function employeeTimeLifecycle(state, personOrId, orderId, phase, transactionAudit = [], context = {}) {
-  const person = ownPerson(state, personOrId), domain = ensureEmployeeTime(state), now = clock(context).toISOString();
+  const person = ownPerson(state, personOrId, context), domain = ensureEmployeeTime(state), now = clock(context).toISOString();
   const active = domain.orderSessions.find(value => value.personId === person.id && !value.endedAt);
   if (phase === 'start') {
     const order = assignedOrder(state, person, orderId);
@@ -329,9 +346,13 @@ export function employeeTimeLifecycle(state, personOrId, orderId, phase, transac
   if (phase !== 'stop') fail('Välj start eller stopp för uppdragstiden.');
   if (!active || active.orderId !== orderId) {
     const last = domain.orderSessions.filter(value => value.personId === person.id && value.orderId === orderId && value.endedAt).at(-1);
-    if (last) return { session: copy(last), gate: employeeTimeGate(state, person, context) };
+    if (last) {
+      if (!allowedPersonSite(person, timeRecordSite(state, last))) fail('Uppdragets anläggning ligger utanför din behörighet.', 403);
+      return { session: copy(last), gate: employeeTimeGate(state, person, context) };
+    }
     fail('Uppdraget har ingen startad tid för dig.', 409);
   }
+  if (!allowedPersonSite(person, timeRecordSite(state, active))) fail('Uppdragets anläggning ligger utanför din behörighet.', 403);
   if (Date.parse(now) < Date.parse(active.startedAt)) fail('Sluttiden måste vara efter starten.');
   const breakMinutes = parse(z.number().int().min(0).max(720), context.breakMinutes ?? 0);
   if (breakMinutes * 60000 > Date.parse(now) - Date.parse(active.startedAt)) fail('Rasten kan inte vara längre än uppdragstiden.');
@@ -353,7 +374,7 @@ function requestLeave(state, person, value, transactionAudit, context) {
   return { request: copy(request) };
 }
 export function employeeTimeCommand(state, personOrId, command, transactionAudit = [], context = {}) {
-  const person = ownPerson(state, personOrId); ensureEmployeeTime(state);
+  const person = ownPerson(state, personOrId, context); ensureEmployeeTime(state);
   if (!command || typeof command.action !== 'string') fail('Välj en tidrapporteringsåtgärd.');
   if (command.action === 'time.save') return saveEntry(state, person, command.entry, transactionAudit, context);
   if (command.action === 'time.remove') return removeEntry(state, person, command, transactionAudit, context);

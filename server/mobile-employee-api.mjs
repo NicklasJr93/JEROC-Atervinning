@@ -7,6 +7,7 @@ import { createTransportOutbox } from './transport-integrations.mjs';
 import { applyTransportChange, personnelPlanIssues, normalizePhoneNumber, phoneNumberError } from '../dist-server/domain-models.mjs';
 import { ensureEmployeeTime, enrollEmployeeTime, employeeTimeProjection, employeeTimeCommand,
   employeeTimeGate, employeeTimeRequirementCommand, employeeTimeLifecycle } from './employee-time.mjs';
+import { employeeSites, employeeCompanyId, employeeActiveSite, saveEmployeeActiveSite } from './mobile-sites.mjs';
 
 const COOKIE = 'jeroc_employee';
 const SESSION_HOURS = 8;
@@ -93,12 +94,12 @@ function sessionIdentity(state, req, { now } = {}) {
   const user = person?.userId ? state.pricing?.users?.find(value => value.id === person.userId) : undefined;
   if (!session || !person?.active || person.kind !== 'employee' || !account?.active || person.userId && (!user || user.active === false))
     fail('Logga in igen för att använda appen.', 401);
-  if (user?.siteIds && person.siteIds.some(id => !user.siteIds.includes(id))) fail('Personprofilens anläggningar matchar inte kontots behörighet.', 403);
-  const employeeUser = user ?? { id: person.id, name: person.name, level: 'Medarbetare', permissions: ['view', ...(person.canDrive ? ['transportRead'] : [])], siteIds: person.siteIds };
+  const accountUser = user ?? { id: person.id, name: person.name, level: 'Medarbetare', permissions: ['view', ...(person.canDrive ? ['transportRead'] : [])] };
+  const employeeUser = { ...accountUser, siteIds: person.siteIds.filter(id => !Array.isArray(accountUser.siteIds) || accountUser.siteIds.includes(id)) };
   return { session, account, person, principal: { actor: employeeUser, user: employeeUser } };
 }
-function demandTimeComplete(state, person, now) {
-  const gate = employeeTimeGate(state, person, { now });
+function demandTimeComplete(state, person, now, allowedSiteIds) {
+  const gate = employeeTimeGate(state, person, { now, allowedSiteIds });
   if (gate.blocked) fail('Registrera den saknade tiden innan du fortsätter arbetet.', 423, { code: 'EMPLOYEE_TIME_REQUIRED', gate });
 }
 /** A genuine cookie always takes precedence over browser-supplied demo headers.
@@ -106,7 +107,7 @@ function demandTimeComplete(state, person, now) {
 export function employeeRequestPrincipal(state, req, { enforceGate = false, now } = {}) {
   const identity = sessionIdentity(state, req, { now });
   if (!identity) return undefined;
-  if (enforceGate) demandTimeComplete(state, identity.person, now);
+  if (enforceGate) demandTimeComplete(state, identity.person, now, identity.principal.user.siteIds);
   return identity.principal;
 }
 
@@ -157,7 +158,7 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
             const user = state.pricing?.users?.find(value => value.id === userId);
             return Boolean(account?.active && person?.active && user && user.active !== false && passwordValid(password, account.password));
           };
-          const companyId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
+          const companyId = employeeCompanyId(env, state);
           return { companyId, companyName: state.metadata?.organisation?.name ?? (companyId === 'jeroc-demo' ? 'JEROC Återvinning AB' : ''), enabled: Boolean(enabled), accounts: {
             niklas: available('niklas', 'person-mobile-demo', 'mobile-demo', 'Demo123!'),
             admin: available('admin', 'person-mobile-admin', 'admin', 'JerocDemo2026!'),
@@ -180,9 +181,12 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         }
         const overview = identity => {
           const { person, account, principal } = identity;
-          const projection = employeeTimeProjection(state, person, { now, month: url.searchParams.get('month') ?? undefined, date: url.searchParams.get('date') ?? undefined, siteCatalog });
-          const companyId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
-          return { ...projection, companyId, companyName: state.metadata?.organisation?.name ?? (companyId === 'jeroc-demo' ? 'JEROC Återvinning AB' : ''), person: safePerson(person, account), sites: siteCatalog.filter(site => site.active !== false && person.siteIds.includes(site.id)).map(({ id, name, active }) => ({ id, name, active })),
+          const scopedPerson = { ...person, siteIds: principal.user.siteIds };
+          const sites = employeeSites(siteCatalog, person, principal.user);
+          const projection = employeeTimeProjection(state, scopedPerson, { now, allowedSiteIds: principal.user.siteIds, month: url.searchParams.get('month') ?? undefined, date: url.searchParams.get('date') ?? undefined, siteCatalog: sites });
+          const companyId = employeeCompanyId(env, state);
+          return { ...projection, companyId, companyName: state.metadata?.organisation?.name ?? (companyId === 'jeroc-demo' ? 'JEROC Återvinning AB' : ''), person: safePerson(scopedPerson, account), sites: sites.map(({ id, name, active }) => ({ id, name, active })),
+            activeSiteId: employeeActiveSite(state, companyId, person.id, sites),
             capabilities: { yardWork: principal.user.level !== 'Medarbetare' || principal.user.permissions.includes('prepare'), assignedOrders: Boolean(person.canDrive && person.driverId),
               employeeTime: true, manageTimeRequirements: managePeople(state, identity).length > 0,
               manageEmployeeAccounts: principal.user.level === 'Systemadmin' || principal.user.level === 'VD' } };
@@ -209,8 +213,19 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         const identity = sessionIdentity(state, req, { now });
         if (!identity) fail('Logga in för att använda appen.', 401);
         const { person, account, principal, session } = identity;
+        const scopedPerson = { ...person, siteIds: principal.user.siteIds };
+        const timeContext = { now, allowedSiteIds: principal.user.siteIds, siteCatalog: employeeSites(siteCatalog, person, principal.user) };
         if (path === 'logout' && req.method === 'POST') { auth.sessions = auth.sessions.filter(value => value !== session); return { token: '', value: { ok: true } }; }
         if (['session', 'bootstrap', 'overview', 'calendar'].includes(path) && req.method === 'GET') return { value: overview(identity) };
+        if (path === 'active-site' && req.method === 'POST') {
+          const input = parse(z.object({ siteId: z.string().trim().min(1).max(100) }).strict(), payload);
+          if (!employeeSites(siteCatalog, person, principal.user).some(site => site.id === input.siteId))
+            fail('Välj en aktiv anläggning som du har behörighet till.', 403);
+          const companyId = employeeCompanyId(env, state);
+          saveEmployeeActiveSite(state, companyId, person.id, input.siteId);
+          audit.push({ action: 'employee.active-site.updated', companyId, personId: person.id, siteId: input.siteId, actualUserId: principal.actor.id, at });
+          return { value: overview(identity) };
+        }
         if (path === 'profile' && req.method === 'POST') {
           const input = parse(z.object({ phone: z.string().trim().max(100), email: z.union([z.literal(''), z.string().trim().email().max(200)]) }).strict(), payload);
           const phoneError = phoneNumberError(input.phone);
@@ -233,9 +248,9 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           if (!people.length) fail('Du saknar behörighet att hantera timkrav.', 403);
           if (req.method === 'POST') {
             if (!people.some(value => value.id === payload?.personId)) fail('Personen ligger utanför ditt personalansvar.', 403);
-            employeeTimeRequirementCommand(state, principal, payload, audit, { now });
+            employeeTimeRequirementCommand(state, principal, payload, audit, timeContext);
           }
-          return { value: { ...overview(identity), people: people.map(value => ({ id: value.id, name: value.name, role: value.role, requirement: employeeTimeProjection(state, value, { now, siteCatalog }).requirement, canEdit: true })) } };
+          return { value: { ...overview(identity), people: people.map(value => ({ id: value.id, name: value.name, role: value.role, requirement: employeeTimeProjection(state, value, timeContext).requirement, canEdit: true })) } };
         }
         if (['accounts', 'accounts/save'].includes(path)) {
           if (principal.user.level !== 'Systemadmin' && principal.user.level !== 'VD') fail('Du saknar behörighet att administrera personalkonton.', 403);
@@ -277,32 +292,32 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           const command = path === 'time' ? payload : path === 'time/save' ? { action: 'time.save', entry: payload?.entry ?? payload }
             : path === 'time/remove' ? { action: 'time.remove', ...payload } : path === 'leave/request' ? { action: 'leave.request', request: payload?.request ?? payload } : { action: 'leave.cancel', ...payload };
           if (!['time.save', 'time.remove', 'leave.request', 'leave.cancel', 'order.start', 'order.stop'].includes(command?.action)) fail('Åtgärden stöds inte.', 422);
-          if (command.action === 'order.start') { demandTimeComplete(state, person, now); ownOrder(state, person, command.orderId); }
-          employeeTimeCommand(state, person, command, audit, { now, siteCatalog });
+          if (command.action === 'order.start') { demandTimeComplete(state, scopedPerson, now, principal.user.siteIds); ownOrder(state, scopedPerson, command.orderId); }
+          employeeTimeCommand(state, scopedPerson, command, audit, timeContext);
           return { value: overview(identity) };
         }
         if (path === 'orders' && req.method === 'GET') return { value: { ...overview(identity), orders: person.canDrive && person.driverId ? state.transport.orders
-          .filter(order => !((state.logistics?.details[order.id]?.siteId ?? order.siteId)) || person.siteIds.includes(state.logistics?.details[order.id]?.siteId ?? order.siteId))
-          .map(order => driverOrderView(state, person, order)).filter(Boolean).map(safeOrder) : [] } };
+          .filter(order => !((state.logistics?.details[order.id]?.siteId ?? order.siteId)) || scopedPerson.siteIds.includes(state.logistics?.details[order.id]?.siteId ?? order.siteId))
+          .map(order => driverOrderView(state, scopedPerson, order)).filter(Boolean).map(safeOrder) : [] } };
         const match = path.match(/^orders\/([^/]+)\/(start|stop|logistics|status)$/);
         if (match && req.method === 'POST') {
           const orderId = decodeURIComponent(match[1]), action = match[2];
           if (action === 'stop') {
             const input = parse(z.object({ breakMinutes: z.number().int().min(0).max(720).optional() }).strict(), payload);
-            employeeTimeCommand(state, person, { action: 'order.stop', orderId, ...input }, audit, { now, siteCatalog }); return { value: overview(identity) };
+            employeeTimeCommand(state, scopedPerson, { action: 'order.stop', orderId, ...input }, audit, timeContext); return { value: overview(identity) };
           }
-          demandTimeComplete(state, person, now); const order = ownOrder(state, person, orderId);
-          if (action === 'start') { employeeTimeCommand(state, person, { action: 'order.start', orderId }, audit, { now, siteCatalog }); return { value: overview(identity) }; }
+          demandTimeComplete(state, scopedPerson, now, principal.user.siteIds); const order = ownOrder(state, scopedPerson, orderId);
+          if (action === 'start') { employeeTimeCommand(state, scopedPerson, { action: 'order.start', orderId }, audit, timeContext); return { value: overview(identity) }; }
           if (action === 'logistics') {
-            const updated = applyDriverAction(state, person, order.id, payload, audit);
-            if (['travel.empty', 'depart'].includes(payload?.action)) employeeTimeLifecycle(state, person, orderId, 'start', audit, { now });
-            if (payload?.action === 'deliver' && state.employeeTime.orderSessions.some(value => value.personId === person.id && value.orderId === orderId && !value.endedAt)) employeeTimeLifecycle(state, person, orderId, 'stop', audit, { now });
+            const updated = applyDriverAction(state, scopedPerson, order.id, payload, audit);
+            if (['travel.empty', 'depart'].includes(payload?.action)) employeeTimeLifecycle(state, scopedPerson, orderId, 'start', audit, timeContext);
+            if (payload?.action === 'deliver' && state.employeeTime.orderSessions.some(value => value.personId === person.id && value.orderId === orderId && !value.endedAt)) employeeTimeLifecycle(state, scopedPerson, orderId, 'stop', audit, timeContext);
             refreshStaffingTasks(state); return { value: { ...overview(identity), order: safeOrder(updated) } };
           }
           const input = parse(z.object({ status: z.enum(['on_way', 'done']) }).strict(), payload);
           if (state.logistics?.details[order.id]) {
-            const updated = applyDriverAction(state, person, order.id, { action: input.status === 'on_way' ? 'travel.empty' : 'deliver', expectedVersion: state.logistics.details[order.id].version }, audit);
-            if (input.status === 'on_way' || state.employeeTime.orderSessions.some(value => value.personId === person.id && value.orderId === orderId && !value.endedAt)) employeeTimeLifecycle(state, person, orderId, input.status === 'on_way' ? 'start' : 'stop', audit, { now });
+            const updated = applyDriverAction(state, scopedPerson, order.id, { action: input.status === 'on_way' ? 'travel.empty' : 'deliver', expectedVersion: state.logistics.details[order.id].version }, audit);
+            if (input.status === 'on_way' || state.employeeTime.orderSessions.some(value => value.personId === person.id && value.orderId === orderId && !value.endedAt)) employeeTimeLifecycle(state, scopedPerson, orderId, input.status === 'on_way' ? 'start' : 'stop', audit, timeContext);
             refreshStaffingTasks(state); return { value: { ...overview(identity), order: safeOrder(updated) } };
           }
           if (order.status !== input.status) {
@@ -314,7 +329,7 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
             const box = createTransportOutbox({ initialState: state.outbox }); box.prepare({ events }, { actor: principal.actor, user: { ...principal.user, permissions: ['transportRead', 'transportPlan'] } }); state.outbox = box.exportState();
             audit.push(...events.map(event => ({ action: event.type, personId: person.id, orderId: order.id, at: event.at })));
           }
-          if (input.status === 'on_way' || state.employeeTime.orderSessions.some(value => value.personId === person.id && value.orderId === orderId && !value.endedAt)) employeeTimeLifecycle(state, person, orderId, input.status === 'on_way' ? 'start' : 'stop', audit, { now });
+          if (input.status === 'on_way' || state.employeeTime.orderSessions.some(value => value.personId === person.id && value.orderId === orderId && !value.endedAt)) employeeTimeLifecycle(state, scopedPerson, orderId, input.status === 'on_way' ? 'start' : 'stop', audit, timeContext);
           refreshStaffingTasks(state); return { value: { ...overview(identity), order: safeOrder(state.transport.orders.find(value => value.id === orderId)) } };
         }
         fail('Mobilsidan finns inte.', 404);

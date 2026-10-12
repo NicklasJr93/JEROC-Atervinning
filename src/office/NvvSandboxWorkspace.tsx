@@ -1,3 +1,4 @@
+import { OfficePageHeader } from './OfficePageHeader';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUpRight, CheckCircle2, CircleAlert, Code2, Copy, FileText, FlaskConical, History, Leaf, LoaderCircle, RefreshCw, Send, ShieldCheck } from 'lucide-react';
 import { can, type OfficeUser } from './model';
@@ -184,7 +185,9 @@ export default function NvvSandboxWorkspace({ user, actualUser }: { user: Office
     : sandbox?.mode !== 'test' ? 'Servern behöver vara inställd för NVV:s testmiljö.' : !sandbox.ready ? 'Komplettera serveranslutningen före testet.' : '';
 
   return <section className="environment-workspace nvv-sandbox-workspace">
+    <OfficePageHeader>
     <div className="office-title environment-workspace-title"><div><a className="office-link" href="/kontor#/integrations?service=nvv"><ArrowLeft size={14} />Till NVV-inställningar</a><span className="office-eyebrow">INTEGRATIONER · SEPARAT TESTFORMULÄR</span><h1>NVV · systemadminstest</h1><p>Prova ett mottagningsanrop och se exakt vilka uppgifter NVV svarar på.</p></div><span className="environment-pill warning"><FlaskConical size={14} />Endast TEST</span></div>
+    </OfficePageHeader>
     {!permitted ? <div className="office-panel environment-empty"><ShieldCheck size={30} /><h2>Endast systemadmin</h2><p>Testformuläret kräver systemadmin med NVV-behörighet.</p></div>
       : !sessionMatches ? <div className="environment-access"><LoaderCircle size={18} /><span>{sessionError || (sessionLoading ? 'Ansluter testsessionen…' : 'Testsessionen kunde inte anslutas.')}</span>{!sessionLoading && <button className="office-link" type="button" onClick={() => void refreshSession().catch(() => undefined)}>Försök igen</button>}</div>
         : <>

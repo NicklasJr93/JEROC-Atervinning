@@ -23,6 +23,7 @@ import ArticleGroupsWorkspace from './ArticleGroupsWorkspace';
 import ArticleImagesEditor from './ArticleImagesEditor';
 import CatalogMobilePreview from './CatalogMobilePreview';
 import CatalogImage from './CatalogImage';
+import { OfficePageHeader } from './OfficePageHeader';
 import type { OfficeUser, Permission } from './model';
 import EnvironmentalArticlePanel from './EnvironmentalArticlePanel';
 import {
@@ -195,9 +196,7 @@ export default function PricingWorkspace({
     window.addEventListener('resize', measure);
     return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
   }, [overview, state, error]);
-  return (
-    <div ref={workspaceRef} className={`office-pricing ${overview ? 'office-pricing-overview' : ''}`}>
-      {!groupDetail && <>
+  const pageHeading = <>
       {selected && <nav className="office-pricing-breadcrumbs" aria-label="Artikelns sökväg"><button onClick={() => setSelected(undefined)}>{currentSection === 'article-groups' ? 'Artikelgrupper' : 'Artiklar & priser'}</button><ChevronRight size={14} /><span>{selected.name || 'Ny artikel'}</span></nav>}
       <div className="office-pricing-heading">
         <div>
@@ -270,7 +269,26 @@ export default function PricingWorkspace({
             </button>
           ))}
       </nav>}
-      </>}
+  </>;
+  return (
+    <div ref={workspaceRef} className={`office-pricing ${overview ? 'office-pricing-overview' : ''}`}>
+      {!groupDetail && (selected || currentSection !== 'article-groups' || !state) && <OfficePageHeader sticky={!overview} controls={!selected && currentSection === 'customer-prices' && state ? <>
+            <label className="office-pricing-customer-filter">
+              Kund
+              <select
+                aria-label="Filtrera kundpriser"
+                value={customer}
+                onChange={(event) => setCustomer(event.target.value)}
+              >
+                <option value="">Alla kunder</option>
+                {state.customers.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+</> : undefined}>{pageHeading}</OfficePageHeader>}
       {!selected && !groupDetail && currentSection !== 'articles' && <div className="office-pricing-demo">
         <Info size={15} />
         <span>
@@ -317,7 +335,7 @@ export default function PricingWorkspace({
           }}
         />
       ) : currentSection === 'article-groups' ? (
-        <ArticleGroupsWorkspace state={state} user={user} actualUser={actualUser} editable={right(user, 'articlesEdit')} busy={busy} onDetailChange={setGroupDetail} onOpenArticle={setSelected} onSave={body => save('article-groups', body, 'Artikelgruppen sparades. Gårdsappen använder samma grupper.')} />
+        <ArticleGroupsWorkspace header={pageHeading} state={state} user={user} actualUser={actualUser} editable={right(user, 'articlesEdit')} busy={busy} onDetailChange={setGroupDetail} onOpenArticle={setSelected} onSave={body => save('article-groups', body, 'Artikelgruppen sparades. Gårdsappen använder samma grupper.')} />
       ) : currentSection === 'lme' ? (
         <LmeWorkspace
           state={state}
@@ -1729,21 +1747,7 @@ function CustomerWorkspace({
         <section className="office-panel">
           <div className="office-pricing-panel-title">
             <h2>Kundens prisregler</h2>
-            <label className="office-pricing-customer-filter">
-              Kund
-              <select
-                aria-label="Filtrera kundpriser"
-                value={selectedCustomer}
-                onChange={(event) => onCustomer(event.target.value)}
-              >
-                <option value="">Alla kunder</option>
-                {state.customers.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+
           </div>
           <div className="office-pricing-table-wrap">
             <table className="office-pricing-table">

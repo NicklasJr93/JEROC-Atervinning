@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CalendarDays, Check, Search, TriangleAlert, Users } from 'lucide-react';
+import { OfficePageHeader } from '../../OfficePageHeader';
 import type { PersonnelCommand, PersonnelResponse, ReplacementCandidate, StaffingTask } from '../types';
 import { Alert, Dialog, Panel, Pill, formatDate, initials, minuteLabel } from './Ui';
 
@@ -8,8 +9,9 @@ interface Props {
   runCommand: (command: PersonnelCommand) => Promise<PersonnelResponse>;
   onOpenPerson?: (id: string, tab?: string) => void;
   onOpenOrder?: (id: string) => void;
+  navigation?: ReactNode;
 }
-export default function StaffingPanel({ response, runCommand, onOpenPerson, onOpenOrder }: Props) {
+export default function StaffingPanel({ response, runCommand, onOpenPerson, onOpenOrder, navigation }: Props) {
   const [tab, setTab] = useState<'active' | 'history'>('active');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
@@ -44,14 +46,20 @@ export default function StaffingPanel({ response, runCommand, onOpenPerson, onOp
   };
   const close = () => { if (!busy) { setPreview(undefined); setError(''); } };
   return <div className="hr-staffing-workspace">
-    <div className="office-page-title"><div><h1>Bemanning att lösa</h1><p>Uppdrag som behöver en tillgänglig förare med rätt kompetens.</p></div></div>
+    <OfficePageHeader className="hr-page-header" controls={
+      <>
+        <div className="hr-subtabs" role="tablist" aria-label="Bemanningsuppgifter"><button role="tab" aria-selected={tab === 'active'} className={tab === 'active' ? 'active' : ''} onClick={() => setTab('active')}>Aktiva{active.length > 0 && <span className="hr-tab-count">{active.length}</span>}</button><button role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>Historik</button></div>
+        <label className="hr-search"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Sök arbetsorder, kund, förare eller ansvarig…" aria-label="Sök bemanningsuppgift" /></label>
+      </>
+    }>
+      {navigation}
+      <div className="office-page-title"><div><h1>Bemanning att lösa</h1><p>Uppdrag som behöver en tillgänglig förare med rätt kompetens.</p></div>{tab === 'active' && canAssign && <button className="office-btn primary" disabled={!selected.length || busy} onClick={() => checkReplacement(selected)}>{busy ? 'Kontrollerar…' : `Välj ersättare${selected.length ? ` · ${selected.length} uppdrag` : ''}`}</button>}</div>
+    </OfficePageHeader>
     <div className="hr-metrics three"><div className="hr-metric"><span>Behöver ersättare</span><strong>{active.length}</strong><small>Bokade uppdrag ligger kvar</small></div><div className="hr-metric"><span>Berörda förare</span><strong>{new Set(active.map(item => item.personId)).size}</strong><small>Registrerad frånvaro</small></div><div className="hr-metric"><span>Hanterade uppdrag</span><strong>{history.length}</strong><small>Spårbar tilldelning av ersättare</small></div></div>
     {success && <Alert tone="green"><Check size={20} /><div><strong>Bemanningen är uppdaterad</strong><p>{success}</p></div></Alert>}
     {error && !preview && <Alert tone="red">{error}</Alert>}
     {active.length > 0 && <Alert tone="orange"><TriangleAlert size={20} /><div><strong>{active.length} uppdrag behöver hanteras</strong><p>Välj ett eller flera uppdrag. Tillgänglighet, arbetstid, fordon och kompetenser kontrolleras före tilldelning.</p></div></Alert>}
-    <Panel title={tab === 'active' ? 'Berörda uppdrag' : 'Hanterade uppdrag'} icon={<Users size={20} />} actions={tab === 'active' && canAssign && <button className="office-btn primary" disabled={!selected.length || busy} onClick={() => checkReplacement(selected)}>{busy ? 'Kontrollerar…' : `Välj ersättare${selected.length ? ` · ${selected.length} uppdrag` : ''}`}</button>}>
-      <div className="hr-subtabs" role="tablist" aria-label="Bemanningsuppgifter"><button role="tab" aria-selected={tab === 'active'} className={tab === 'active' ? 'active' : ''} onClick={() => setTab('active')}>Aktiva{active.length > 0 && <span className="hr-tab-count">{active.length}</span>}</button><button role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>Historik</button></div>
-      <label className="hr-search"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Sök arbetsorder, kund, förare eller ansvarig…" aria-label="Sök bemanningsuppgift" /></label>
+    <Panel title={tab === 'active' ? 'Berörda uppdrag' : 'Hanterade uppdrag'} icon={<Users size={20} />}>
       <div className="hr-table-scroll"><table className="hr-table"><thead><tr>{tab === 'active' && canAssign && <th><input type="checkbox" aria-label="Välj alla visade uppdrag" checked={allSelected} onChange={() => setSelected(current => allSelected ? current.filter(id => !filtered.some(item => item.id === id)) : [...new Set([...current, ...filtered.map(item => item.id)])])} /></th>}<th>Arbetsorder / kund</th><th>Tid</th><th>Förare</th><th>Krav</th><th>Ansvarig</th><th>Status</th><th /></tr></thead><tbody>{filtered.map(item => { const booking = order(item.orderId); const original = person(item.personId); const replacement = person(item.replacementPersonId); const vehicle = response.transport.vehicles.find(value => value.id === booking?.vehicleId); const requirements = [...new Set([...(booking?.requiredCompetencies ?? []), ...(vehicle?.requiredCompetencies ?? [])])]; return <tr key={item.id}>{tab === 'active' && canAssign && <td><input type="checkbox" aria-label={`Välj ${item.orderId}`} checked={selected.includes(item.id)} onChange={() => choose(item.id)} /></td>}<td><strong>{item.orderId} · {booking?.customerName ?? 'Arbetsorder'}</strong><small>{booking?.material ?? ''}</small>{onOpenOrder && <button className="hr-text-btn" onClick={() => onOpenOrder(item.orderId)}>Visa arbetsorder</button>}</td><td>{formatDate(item.date)}<small>{minuteLabel(item.startMinute)}–{minuteLabel(item.startMinute + item.durationMinutes)}</small></td><td>{onOpenPerson ? <button className="hr-text-btn" onClick={() => onOpenPerson(item.replacementPersonId ?? item.personId, 'schedule')}>{replacement?.name ?? original?.name ?? 'Förare'}</button> : <strong>{replacement?.name ?? original?.name ?? 'Förare'}</strong>}<small>{replacement ? `Ersätter ${original?.name ?? 'tidigare förare'}` : 'Frånvarande'}</small></td><td>{vehicle?.name ?? 'Fordon enligt arbetsorder'}<small>{requirements.length ? requirements.join(' · ') : 'Uppdragets registrerade krav'}</small></td><td>{person(item.managerId)?.name ?? 'Ej tilldelad'}</td><td><Pill tone={item.status === 'resolved' ? 'green' : 'orange'}>{item.status === 'resolved' ? 'Löst' : 'Behöver förare'}</Pill>{item.resolvedAt && <small>{formatDate(item.resolvedAt)}</small>}</td><td>{item.status === 'open' && canAssign && <button className="office-btn" disabled={busy} onClick={() => checkReplacement([item.id])}>Hantera</button>}</td></tr>; })}</tbody></table></div>{!filtered.length && <p className="hr-empty">{query ? 'Inga uppdrag matchar sökningen.' : tab === 'active' ? 'Inga bemanningsproblem just nu.' : 'Inga hanterade bemanningsuppgifter ännu.'}</p>}
     </Panel>
     {preview && <Dialog title="Välj ersättare" description={`${chosenTasks.length} uppdrag · Samma tider och kunder, ny förare.`} onClose={close}>

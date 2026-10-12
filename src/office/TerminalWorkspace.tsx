@@ -1,3 +1,4 @@
+import { OfficePageHeader } from './OfficePageHeader';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Building2, Check, ExternalLink, KeyRound, Monitor, Pencil, Plus, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { terminalDemoApi } from './terminal-demo-client';
@@ -67,7 +68,9 @@ export default function TerminalWorkspace({ state, loading, error, configuration
   }
 
   return <section className="terminal-workspace">
+    <OfficePageHeader>
     <div className="office-title terminal-workspace-title"><div><span className="office-eyebrow">ADMINISTRATION</span><h1>Kundterminaler</h1><p>Skapa terminaler och visa rätt avräkning på rätt skärm.</p></div><div className="terminal-title-actions"><a className="office-btn outline" href="/terminal" target="_blank" rel="noopener noreferrer"><ExternalLink size={15} />Öppna terminal</a><button className="office-btn" disabled={!state || loading} onClick={() => { setCreating(true); setFormError(''); }}><Plus size={16} />Skapa terminal</button></div></div>
+    </OfficePageHeader>
     {(error || configurationRequired) && <TerminalServiceNotice error={error} configurationRequired={configurationRequired} onRefresh={onRefresh} />}
     {loading && !state && <div className="office-panel" role="status">Hämtar terminaler…</div>}
     {state && <><div className="terminal-summary"><span><Monitor size={16} /><strong>{state.terminals.length}</strong> terminaler</span><span><i className="terminal-dot online" /><strong>{state.terminals.filter(t => t.online && t.active && !t.busy).length}</strong> lediga online</span><span><i className="terminal-dot busy" /><strong>{state.terminals.filter(t => t.busy).length}</strong> kundvisningar</span></div>

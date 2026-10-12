@@ -1,0 +1,140 @@
+.office-workspace {
+  --office-shell-height: 64px;
+}
+.office-sticky-shell {
+  position: sticky;
+  top: var(--platform-header-height, 0px);
+  z-index: 30;
+  background: #fff;
+}
+.office-sticky-shell .office-topbar {
+  position: static;
+}
+.office-page-header {
+  position: sticky;
+  top: calc(var(--platform-header-height, 0px) + var(--office-shell-height, 64px));
+  z-index: 14;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 10px 0 12px;
+  margin-bottom: 16px;
+  background: #f5f8fc;
+  border-bottom: 1px solid #e1e9f1;
+}
+.office-page-header-contained {
+  position: static;
+}
+.office-page-header-heading,
+.office-page-header-controls {
+  min-width: 0;
+}
+.office-page-header-controls {
+  margin-top: 12px;
+}
+.office-page-header .office-title,
+.office-page-header .office-pricing-heading,
+.office-page-header .wo-title {
+  margin-bottom: 0;
+}
+.office-page-header h1 {
+  overflow-wrap: anywhere;
+}
+.office-page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.office-page-header .office-back {
+  margin-bottom: 8px;
+}
+.office-page-header-heading > .office-queue-controls,
+.office-page-header-heading > .office-pricing-tabs {
+  margin-top: 12px;
+}
+/* Existing queue controls are part of this one sticky surface. */
+.office .office-page-header .office-queue-controls,
+.office-page-header .office-pricing-tabs {
+  position: static;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+.office-page-header [role='tablist'],
+.office-page-header .office-pricing-tabs {
+  min-width: 0;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+.office-page-header [role='tablist'] > button,
+.office-page-header .office-pricing-tabs > button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+@media (max-width: 700px), (max-height: 700px) {
+  .office-page-header {
+    padding: 7px 0 9px;
+    margin-bottom: 12px;
+    max-height: max(84px, min(38dvh, calc(100dvh - var(--platform-header-height, 0px) - var(--office-shell-height, 64px) - 140px)));
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+  .office-page-header p,
+  .office-page-header .office-eyebrow,
+  .office-page-header .wo-eyebrow {
+    display: none;
+  }
+  .office .office-page-header h1 {
+    font-size: 21px;
+    line-height: 1.25;
+  }
+  .office-page-header .office-title,
+  .office-page-header .office-pricing-heading,
+  .office-page-header .wo-title {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .office-page-header-controls {
+    margin-top: 8px;
+  }
+  .office-page-header .office-queue-search {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .office-page-header .office-queue-search .office-search {
+    min-width: min(220px, 100%);
+  }
+  .office-page-header .office-queue-search select {
+    flex: 1;
+    max-width: none;
+  }
+  .office-sticky-shell .office-acting-banner {
+    padding: 7px 18px;
+    gap: 6px;
+  }
+  .office-sticky-shell .office-acting-banner small {
+    display: none;
+  }
+  .office-sticky-shell .office-demo-notice {
+    display: none;
+  }
+  .office-sticky-shell .office-topbar {
+    min-height: 44px;
+    padding-block: 6px;
+    gap: 6px;
+  }
+}
+@media print {
+  .office-sticky-shell {
+    display: none;
+  }
+  .office-page-header {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    background: #fff;
+  }
+}

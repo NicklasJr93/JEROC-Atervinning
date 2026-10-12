@@ -9,7 +9,6 @@ import {
   EyeOff,
   LockKeyhole,
   LogOut,
-  MapPin,
   Scale,
   Truck,
   Trash2,
@@ -30,6 +29,7 @@ import {
 } from '../components';
 import { useDemo } from '../store';
 import { useEmployee } from '../employee/EmployeeProvider';
+import { ActiveSitePicker } from '../employee/ActiveSitePicker';
 import { articleById } from '../data';
 import {
   APP_VERSION,
@@ -127,7 +127,6 @@ export function Login() {
   );
 }
 export function HomePage() {
-  const employee = useEmployee();
   const location = useLocation();
   const navigateHome = useNavigate();
   const [entrySaved, setEntrySaved] = useState<string | undefined>(
@@ -151,10 +150,8 @@ export function HomePage() {
           <div>
             <button type="button" className="text-button yard-back" onClick={() => navigate('/')}><ArrowLeft size={18} />Hem</button>
             <h1>Gårdsarbete</h1>
-            <p>
-              <MapPin size={14} /> {employee.session?.sites[0]?.name ?? 'Anläggning saknas'}
-            </p>
           </div>
+          <ActiveSitePicker />
         </header>
         <button className="hero-action" onClick={() => navigate('/new')}>
           <span className="hero-action-icon">
@@ -200,6 +197,8 @@ export function HomePage() {
 }
 function OngoingCard({ draft }: { draft: Draft }) {
   const { data, markDraftActive } = useDemo();
+  const { session } = useEmployee();
+  const site = session?.sites.find(site => site.id === draft.siteId);
   const navigate = useNavigate();
   const vehicle = draft.rows.find((r) => r.method === 'vehicle');
   const article = draft.rows[0] && articleById(draft.rows[0].articleId);
@@ -232,6 +231,7 @@ function OngoingCard({ draft }: { draft: Draft }) {
           kg
         </small>
         <small>Sparad {dateTime(draft.updatedAt)}</small>
+        {site && <small>{site.name}</small>}
       </span>
       <ChevronRight size={17} />
     </button>
@@ -367,6 +367,8 @@ function WeighingCard({
   onDelete: () => void;
 }) {
   const { data, markDraftActive } = useDemo();
+  const { session } = useEmployee();
+  const site = session?.sites.find(site => site.id === draft.siteId);
   const navigate = useNavigate();
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -495,6 +497,7 @@ function WeighingCard({
             #{draft.number} · {dateTime(draft.updatedAt)}
             {locked ? ` · ${draft.rows.length} material` : ''}
           </small>
+          {site && <small className="muted">{site.name}</small>}
         </span>
         <span className="weighing-card-weight">
           {awaiting && <small>Infart</small>}

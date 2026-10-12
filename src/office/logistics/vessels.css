@@ -71,3 +71,6 @@
 .vessels-history small { display:block; color:#8398b2; margin-top:4px; }
 @media(max-width:1150px) { .vessels-cards { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:680px) { .vessels-cards { grid-template-columns:1fr; } .vessels-summary>div { padding:0 12px; gap:7px; font-size:10px; } .vessels-summary strong { font-size:21px; } .vessels-form { grid-template-columns:1fr; } .vessels-dialog { padding:18px; } .vessels-title-actions { width:100%; } .vessels-filterbar label { width:100%; } }
+
+.vessels-workspace > .office-page-header { margin-bottom:0; }
+.vessels-workspace .office-page-header-controls .vessels-filterbar { margin-top:12px; }

@@ -1,3 +1,4 @@
+import { OfficePageHeader } from './OfficePageHeader';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -213,10 +214,13 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
   if (!readable) return <section className="integrations-workspace"><div className="office-panel integration-message"><ShieldCheck size={19} /><span>Du saknar behörighet att visa integrationer.</span></div></section>;
 
   return <section className="integrations-workspace">
+    <OfficePageHeader>
+      {(parallelSpiris || selected) && <button type="button" className="office-link integration-back" onClick={() => setSearch({})}><ArrowLeft size={15} />Alla integrationer</button>}
     <div className="office-title integration-page-title">
       <div><span className="office-eyebrow">BOLAGETS ANSLUTNINGAR</span><h1>{selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : 'Integrationer'}</h1><p>{selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : 'Koppla bolaget till myndigheter, ekonomi och andra tjänster.'}</p></div>
       <button type="button" className="office-btn outline" onClick={() => void update()} disabled={catalogLoading || sessionLoading || nvvLoading}><RefreshCw size={14} />Uppdatera</button>
     </div>
+    </OfficePageHeader>
     {siteId !== 'all' && <p className="integration-scope"><Building2 size={14} />Anslutningarna är gemensamma för alla anläggningar.</p>}
 
     {!matchingSession && <div className={`office-panel integration-message ${sessionError ? 'error' : ''}`} role={sessionError ? 'alert' : 'status'}>
@@ -226,13 +230,11 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
     {matchingSession && catalogError && <div className="office-panel integration-message error" role="alert"><CircleAlert size={19} /><span>{catalogError}</span><button type="button" className="office-btn outline" onClick={() => void loadCatalog(undefined, true)} disabled={catalogLoading}>Försök igen</button></div>}
     {matchingSession && !catalog && !catalogError && !parallelSpiris && <div className="office-panel integration-message" role="status"><RefreshCw size={19} /><span>Hämtar integrationer…</span></div>}
     {matchingSession && parallelSpiris && <>
-      <button type="button" className="office-link integration-back" onClick={() => setSearch({})}><ArrowLeft size={15} />Alla integrationer</button>
       <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} />
     </>}
 
     {!!catalog && matchingSession && !parallelSpiris && <>
       {selected ? <>
-        <button type="button" className="office-link integration-back" onClick={() => setSearch({})}><ArrowLeft size={15} />Alla integrationer</button>
         {selected.id === 'visma' && selected.implemented ? <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} /> : <article className="office-panel integration-detail">
           <div className="integration-detail-heading"><span className={`integration-icon ${selected.id}`}><SelectedIcon size={25} /></span><div><small>{categoryLabel(selected.category)}</small><h2 ref={detailHeading} tabIndex={-1}>{selected.name}</h2><p>{selected.description}</p></div><IntegrationStatus provider={selected} /></div>
           <div className="integration-detail-columns">

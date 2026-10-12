@@ -13,10 +13,11 @@ import { employeeError, employeeRequest, stockholmDay, useEmployee } from './Emp
 import type { EmployeeAccountPerson, EmployeeOrder, EmployeeOverview, EmployeeRequirement, EmployeeRequirementPerson, EmployeeTimeDraft, EmployeeTimeEntry } from './types';
 import './employee.css';
 import { tenantPublicHeaders } from '../tenant-public-context';
+import { ActiveSitePicker } from './ActiveSitePicker';
 
-function Page({ title, subtitle, children, back }: { title: string; subtitle?: string; children: ReactNode; back?: string }) {
+function Page({ title, subtitle, children, back, sitePicker = false }: { title: string; subtitle?: string; children: ReactNode; back?: string; sitePicker?: boolean }) {
   const navigate = useNavigate();
-  return <><main className="employee-page"><header className="employee-page-heading">{back && <button className="icon-button" aria-label="Tillbaka" onClick={() => navigate(back)}><ArrowLeft size={22} /></button>}<div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div></header>{children}</main><Nav /></>;
+  return <><main className="employee-page"><header className="employee-page-heading">{back && <button className="icon-button" aria-label="Tillbaka" onClick={() => navigate(back)}><ArrowLeft size={22} /></button>}<div className="employee-heading-copy"><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>{sitePicker && <ActiveSitePicker />}</header>{children}</main><Nav /></>;
 }
 function Empty({ children, icon = 'calendar' }: { children: ReactNode; icon?: 'calendar' | 'clock' | 'truck' }) {
   return <div className="employee-empty">{icon === 'clock' ? <Clock3 size={28} /> : icon === 'truck' ? <Truck size={28} /> : <CalendarDays size={28} />}<p>{children}</p></div>;
@@ -77,11 +78,11 @@ export function EmployeeHomePage() {
   const next = todayOrders.find(order => order.status !== 'done');
   const schedule = overview.date === today ? overview.selectedDay.schedules[0] : undefined;
   const ongoing = sharedReady ? data.drafts.filter(draft => draft.status !== 'ready').sort(recentDraftFirst)[0] : undefined;
-  const site = session.sites.find(item => session.person.siteIds.includes(item.id));
-  return <Page title={`Hej, ${session.person.name.split(' ')[0]}!`} subtitle={`${capitalize(fullDayLabel(today))}${site ? ` · ${site.name}` : ''}`}><OverviewError />
+  const ongoingSite = session.sites.find(site => site.id === ongoing?.siteId);
+  return <Page title={`Hej, ${session.person.name.split(' ')[0]}!`} subtitle={capitalize(fullDayLabel(today))} sitePicker><OverviewError />
     <section className="employee-card employee-day-overview"><h2>Din dag</h2><div className="employee-two-stat"><div><span>Arbetspass</span><strong>{schedule ? `${minuteLabel(schedule.startMinute)}–${minuteLabel(schedule.endMinute)}` : 'Inget planerat'}</strong></div><div><span>Dagens uppdrag</span><strong>{todayOrders.length} {todayOrders.length === 1 ? 'jobb' : 'jobb'}</strong></div></div>{next ? <button className="employee-next-job" onClick={() => navigate(`/assignments?order=${encodeURIComponent(next.id)}`)}><span className="employee-tile-icon blue"><Truck size={25} /></span><span><small>Nästa{next.startMinute !== undefined ? ` · ${minuteLabel(next.startMinute)}–${minuteLabel(next.startMinute + next.durationMinutes)}` : ''}</small><strong>{actionLabels[next.action]} · {next.customerName}</strong><span>{next.city || next.address}</span></span><ChevronRight size={21} /></button> : <p className="employee-subtle">Inga fler planerade uppdrag idag.</p>}</section>
     <section className="employee-section"><h2>Vad vill du göra?</h2>{session.capabilities.yardWork && <MenuRow title="Gårdsarbete" description="Väg in, vägningar och prislista" icon={Scale} onClick={() => navigate('/yard')} />}{session.capabilities.assignedOrders && <MenuRow title="Mina uppdrag" description="Arbetsorder och transportdokument" icon={Truck} trailing={todayOrders.filter(order => order.status !== 'done').length > 0 ? String(todayOrders.filter(order => order.status !== 'done').length) : undefined} onClick={() => navigate('/assignments')} />}{session.capabilities.employeeTime && <MenuRow title="Schema & tid" description="Mitt schema, tidrapportering och ledighet" icon={CalendarDays} onClick={() => navigate('/schedule')} />}</section>
-    {(overview.activeWork || ongoing && session.capabilities.yardWork) && <section className="employee-section"><h2>Fortsätt där du var</h2>{overview.activeWork && <MenuRow title="Pågående arbetstid" description={`${overview.activeWork.orderId} · startad ${new Intl.DateTimeFormat('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' }).format(new Date(overview.activeWork.startedAt))}`} icon={Clock3} onClick={() => navigate(`/assignments?order=${encodeURIComponent(overview.activeWork!.orderId)}`)} />}{ongoing && session.capabilities.yardWork && <MenuRow title={ongoing.vehicleInput?.registration || `Vägning #${ongoing.number}`} description={ongoing.status === 'awaiting-exit' ? 'Väntar på utvägning' : 'Fortsätt din invägning'} icon={Scale} onClick={() => { markDraftActive(ongoing.id); navigate(draftPath(ongoing)); }} />}</section>}
+    {(overview.activeWork || ongoing && session.capabilities.yardWork) && <section className="employee-section"><h2>Fortsätt där du var</h2>{overview.activeWork && <MenuRow title="Pågående arbetstid" description={`${overview.activeWork.orderId} · startad ${new Intl.DateTimeFormat('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' }).format(new Date(overview.activeWork.startedAt))}`} icon={Clock3} onClick={() => navigate(`/assignments?order=${encodeURIComponent(overview.activeWork!.orderId)}`)} />}{ongoing && session.capabilities.yardWork && <MenuRow title={ongoing.vehicleInput?.registration || `Vägning #${ongoing.number}`} description={`${ongoing.status === 'awaiting-exit' ? 'Väntar på utvägning' : 'Fortsätt din invägning'}${ongoingSite ? ` · ${ongoingSite.name}` : ''}`} icon={Scale} onClick={() => { markDraftActive(ongoing.id); navigate(draftPath(ongoing)); }} />}</section>}
   </Page>;
 }
 
@@ -158,7 +159,7 @@ function TimeForm({ date, entry, loadingEntry, onClose }: { date: string; entry?
   const { saveTime, removeTime, overview, session } = useEmployee();
   const [day, setDay] = useState(entry?.date || date), [from, setFrom] = useState(minuteLabel(entry?.startMinute ?? 420)), [to, setTo] = useState(minuteLabel(entry?.endMinute ?? 960));
   const [rest, setRest] = useState(String(entry?.breakMinutes ?? 60)), [activity, setActivity] = useState(entry?.activity || 'Gårdsarbete');
-  const [orderId, setOrderId] = useState(entry?.orderId || ''), [siteId, setSiteId] = useState(entry?.siteId || session?.person.siteIds[0] || '');
+  const [orderId, setOrderId] = useState(entry?.orderId || ''), [siteId, setSiteId] = useState(entry?.siteId || session?.activeSiteId || '');
   const [note, setNote] = useState(entry?.note || ''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [confirmDelete, setConfirmDelete] = useState(false);
   const asMinutes = (value: string) => { const [hour, minute] = value.split(':').map(Number); return hour * 60 + minute; };
   const minutes = asMinutes(to) - asMinutes(from) - Number(rest);

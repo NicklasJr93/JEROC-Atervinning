@@ -1,4 +1,4 @@
-import { test as base, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test as base, expect, request as playwrightRequest, type APIRequestContext, type Page, type Route } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 
-type Backend = { origin: string; database: string };
+type Backend = { origin: string; database: string; administrator: APIRequestContext; adminHeaders: Record<string, string> };
 const admin = { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' };
 const password = 'Employee-Browser-Test-2026!';
+const initialAdminPassword = 'Private-Employee-Fixture-Bootstrap-2026!';
+const adminPassword = 'Changed-Employee-Fixture-Administrator-2026!';
 const test = base.extend<{ employeeBackend: Backend }>({
   employeeBackend: async ({}, use) => {
     // Every case owns all its data. Browser requests still exercise the actual
@@ -17,7 +19,7 @@ const test = base.extend<{ employeeBackend: Backend }>({
     // live PostgreSQL, external integrations or shared demo data are touched.
     const directory = await mkdtemp(join(tmpdir(), 'jeroc-employee-browser-'));
     const database = join(directory, 'application.sqlite');
-    let output = '';
+    let output = '', administrator: APIRequestContext | undefined;
     const child = spawn(process.execPath, ['server/index.mjs'], {
       cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'],
       env: {
@@ -27,6 +29,8 @@ const test = base.extend<{ employeeBackend: Backend }>({
         JEROC_TERMINAL_DB_PATH: join(directory, 'terminal.sqlite'),
         JEROC_ARTICLE_MEDIA_DB_PATH: join(directory, 'media.sqlite'),
         JEROC_DOCUMENT_DB_PATH: join(directory, 'documents.sqlite'),
+        JEROC_PLATFORM_DB_PATH: join(directory, 'platform.sqlite'),
+        SCRAPPILOT_PLATFORM_ADMIN_PASSWORD: initialAdminPassword,
       },
     });
     try {
@@ -41,8 +45,21 @@ const test = base.extend<{ employeeBackend: Backend }>({
           if (match) { clearTimeout(timer); resolve(`http://127.0.0.1:${match[1]}`); }
         });
       });
-      await use({ origin, database });
+      // Fixture administration uses its own authenticated cookie jar. Employee
+      // browser sessions never inherit platform administrator credentials.
+      administrator = await playwrightRequest.newContext({ baseURL: origin });
+      const loginResponse = await administrator.post('/api/platform/login', { data: { username: 'admin', password: initialAdminPassword } });
+      expect(loginResponse.ok(), await loginResponse.text()).toBe(true);
+      const initialSession = await loginResponse.json();
+      const changed = await administrator.post('/api/platform/change-password', {
+        headers: { 'X-Platform-CSRF': initialSession.csrfToken, 'X-Platform-Generation': initialSession.generation },
+        data: { currentPassword: initialAdminPassword, newPassword: adminPassword },
+      });
+      expect(changed.ok(), await changed.text()).toBe(true);
+      const session = await changed.json();
+      await use({ origin, database, administrator, adminHeaders: { 'X-Platform-CSRF': session.csrfToken, 'X-Platform-Generation': session.generation } });
     } finally {
+      await administrator?.dispose();
       await stop(child);
       await rm(directory, { recursive: true, force: true });
     }
@@ -69,8 +86,8 @@ test.beforeEach(async ({ page, employeeBackend }) => {
   });
 });
 
-async function post(request: APIRequestContext, backend: Backend, path: string, data: unknown) {
-  const response = await request.post(`${backend.origin}${path}`, { headers: admin, data });
+async function post(_request: APIRequestContext, backend: Backend, path: string, data: unknown) {
+  const response = await backend.administrator.post(path, { headers: backend.adminHeaders, data });
   expect(response.ok(), await response.text()).toBe(true);
   return response.json();
 }
@@ -146,6 +163,8 @@ test('riktig inloggning ger fyra kompakta huvudvyer och befintlig invägning fun
   await page.getByLabel('Lösenord', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Logga in', exact: true }).click();
   await expect(page.getByRole('heading', { name: /^Hej,/ })).toBeVisible();
+  await expect(page.getByLabel('Aktiv anläggning: Norrtälje', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Byt anläggning/ })).toHaveCount(0);
   const navigation = page.getByRole('navigation', { name: 'Huvudmeny', exact: true });
   await expect(navigation.getByRole('button')).toHaveText(['Hem', 'Schema', 'Tid', 'Profil']);
   await expect(page.getByRole('img', { name: 'JEROC Återvinning', exact: true })).toHaveCount(0);
@@ -181,6 +200,91 @@ test('riktig inloggning ger fyra kompakta huvudvyer och befintlig invägning fun
   expect((await page.request.get(`${employeeBackend.origin}/api/employee/session`)).status()).toBe(401);
   const stored = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }));
   expect(stored).not.toContain(password);
+});
+
+test('anläggningsval består per person och nya samt återhämtade vägningar behåller sin anläggning', async ({ page, employeeBackend }) => {
+  const first = await createEmployee(page.request, employeeBackend);
+  const second = await createEmployee(page.request, employeeBackend);
+  modifyIsolatedFixture(employeeBackend, state => {
+    for (const employee of [first, second]) {
+      state.personnel.people.find((person: any) => person.id === employee.personId).siteIds = ['norrtalje', 'rimbo'];
+      state.pricing.users.find((user: any) => user.id === employee.person.userId).siteIds = ['norrtalje', 'rimbo'];
+    }
+  });
+  await login(page, first.username);
+  await expect(page.getByRole('button', { name: 'Byt anläggning, Norrtälje', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^Gårdsarbete/ }).click();
+  await page.getByRole('button', { name: /Starta invägning/ }).click();
+  await page.getByRole('button', { name: /Materialvåg/ }).click();
+  const originalId = new URL(page.url()).hash.match(/\/weigh\/([^/]+)/)![1];
+  const mobileDrafts = async () => {
+    const response = await page.request.get(`${employeeBackend.origin}/api/application/mobile`);
+    expect(response.ok(), await response.text()).toBe(true);
+    return (await response.json()).data.drafts;
+  };
+  await expect.poll(async () => (await mobileDrafts()).find((draft: any) => draft.id === originalId)?.siteId).toBe('norrtalje');
+  await page.goto('/#/yard');
+  await expect(page.locator('.pending-mini')).toContainText('Norrtälje');
+  await page.getByRole('button', { name: 'Byt anläggning, Norrtälje', exact: true }).click();
+  await expect(page.getByRole('option')).toHaveText(['Norrtälje', 'Rimbo']);
+  const unavailable = (route: Route) => route.abort('failed');
+  await page.route('**/api/employee/active-site**', unavailable);
+  await page.getByRole('option', { name: 'Rimbo', exact: true }).click();
+  await expect(page.locator('.employee-site-popover').getByRole('alert')).toContainText('Kunde inte nå servern');
+  await expect(page.getByRole('button', { name: 'Byt anläggning, Norrtälje', exact: true })).toBeVisible();
+  await page.unroute('**/api/employee/active-site**', unavailable);
+  await page.getByRole('option', { name: 'Rimbo', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Byt anläggning, Rimbo', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Gårdsarbete', exact: true })).toBeVisible();
+  await expect(page.locator('.pending-mini')).toContainText('Norrtälje');
+  expect((await overview(page, employeeBackend)).activeSiteId).toBe('rimbo');
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Byt anläggning, Rimbo', exact: true })).toBeVisible();
+  for (const width of [320, 768]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.getByRole('button', { name: 'Byt anläggning, Rimbo', exact: true }).click();
+    await expect(page.getByRole('listbox', { name: 'Anläggning', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.keyboard.press('Escape');
+  }
+  await page.context().setOffline(true);
+  await page.getByRole('button', { name: 'Byt anläggning, Rimbo', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Anläggningen kan inte bytas utan anslutning');
+  await expect(page.getByRole('option', { name: 'Norrtälje', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /Starta invägning/ }).click();
+  await page.getByRole('button', { name: /Materialvåg/ }).click();
+  const recoveredId = new URL(page.url()).hash.match(/\/weigh\/([^/]+)/)![1];
+  const recoveredSite = await page.evaluate(id => {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith('jeroc.') || !key.includes('.employee.')) continue;
+      try {
+        const cached = JSON.parse(localStorage.getItem(key) || 'null');
+        const draft = cached?.drafts?.find((value: any) => value.id === id);
+        if (draft) return draft.siteId;
+      } catch { /* Other employee caches can have a different shape. */ }
+    }
+  }, recoveredId);
+  expect(recoveredSite).toBe('rimbo');
+  await page.context().setOffline(false);
+  await expect.poll(async () => (await mobileDrafts()).find((draft: any) => draft.id === recoveredId)?.siteId).toBe('rimbo');
+  expect((await mobileDrafts()).find((draft: any) => draft.id === originalId)?.siteId).toBe('norrtalje');
+  await page.goto('/#/profile');
+  await page.getByRole('button', { name: 'Logga ut', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Välkommen tillbaka' })).toBeVisible();
+  await login(page, second.username);
+  await expect(page.getByRole('button', { name: 'Byt anläggning, Norrtälje', exact: true })).toBeVisible();
+  await page.goto('/#/yard');
+  // Drafts are intentionally shared with colleagues at permitted facilities.
+  // The second account receives its authorized server data and own selection.
+  await expect(page.locator('.pending-mini')).toHaveCount((await mobileDrafts()).filter((draft: any) => draft.status !== 'ready').length);
+  expect((await overview(page, employeeBackend)).activeSiteId).toBe('norrtalje');
+  await page.goto('/#/profile');
+  await page.getByRole('button', { name: 'Logga ut', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Välkommen tillbaka' })).toBeVisible();
+  await login(page, first.username);
+  await expect(page.getByRole('button', { name: 'Byt anläggning, Rimbo', exact: true })).toBeVisible();
 });
 
 test('manuell tid räknar av rast, består efter omladdning och avvisar överlapp', async ({ page, employeeBackend }) => {
@@ -303,7 +407,7 @@ test('kalendern visar valda dagens uppdrag och bara verklig start/stopp ger arbe
 });
 
 test('admin sparar timkrav och skapar personalkonto utan att ge arbetaren administratörsrättigheter', async ({ page, employeeBackend }) => {
-  await login(page, 'admin', 'JerocDemo2026!');
+  await login(page, 'admin', adminPassword);
   await expect(page.getByRole('heading', { name: /^Hej,/ })).toBeVisible();
   const navigation = page.getByRole('navigation', { name: 'Huvudmeny', exact: true });
   await navigation.getByRole('button', { name: 'Profil', exact: true }).click();

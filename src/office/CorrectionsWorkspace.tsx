@@ -1,3 +1,4 @@
+import { OfficePageHeader } from './OfficePageHeader';
 import { useState } from 'react';
 import { safeAuditText } from './workflow';
 import { articleById } from '../data';
@@ -33,6 +34,7 @@ export default function CorrectionsWorkspace({
   );
   return (
     <>
+      <OfficePageHeader>
       <div className="office-title">
         <div>
           <span className="office-eyebrow">SPÅRBARHET OCH KUNDSALDO</span>
@@ -71,6 +73,7 @@ export default function CorrectionsWorkspace({
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
+      </OfficePageHeader>
       <section className="office-panel">
         <div className="office-table-wrap">
           <table className="office-table">

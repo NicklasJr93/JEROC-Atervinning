@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, CalendarDays, FileText, MapPin, Package, Plus, Repeat2, Save, Trash2, Truck, Users } from 'lucide-react';
+import { OfficePageHeader } from '../OfficePageHeader';
 import type { TransportPlan } from '../transport/types';
 import type { LogisticsOfficeState, LogisticsOrder, LogisticsOrderInput, LogisticsPlace } from './types';
 import { Field } from './Ui';
@@ -61,8 +62,10 @@ export default function WorkOrderForm({ state, selectedSite = 'all', prefill, or
   const vessels = state.vessels.filter(value => value.active && value.siteId === input.siteId);
   const actionChoices = [ ['pickup', 'Hämtning', ArrowDownToLine], ['exchange', 'Byte', Repeat2], ['placement', 'Utställning', ArrowUpFromLine], ['outbound', 'Utleverans', Truck] ] as const;
   return <div className="wo-order-form-page">
-    <button type="button" className="office-link wo-form-back" disabled={busy} onClick={onClose}><ArrowLeft size={15} />{order ? 'Till arbetsordern' : 'Tillbaka'}</button>
-    <header className="wo-title"><div><span className="wo-eyebrow">ARBETSBESTÄLLNING · {initialSite?.name ?? 'JEROC'}</span><h1>{order ? `Redigera ${order.id}` : 'Ny arbetsorder'}</h1><p>Samma arbetsorder följer beställning, planering och utförande.</p></div></header>
+    <OfficePageHeader>
+      <button type="button" className="office-link wo-form-back" disabled={busy} onClick={onClose}><ArrowLeft size={15} />{order ? 'Till arbetsordern' : 'Tillbaka'}</button>
+      <header className="wo-title"><div><span className="wo-eyebrow">ARBETSBESTÄLLNING · {initialSite?.name ?? 'JEROC'}</span><h1>{order ? `Redigera ${order.id}` : 'Ny arbetsorder'}</h1><p>Samma arbetsorder följer beställning, planering och utförande.</p></div></header>
+    </OfficePageHeader>
     <form onSubmit={submit} className="wo-order-form"><fieldset disabled={busy} className="wo-form-fieldset wo-order-form-layout">
       <section className="office-panel wo-form-section wo-form-type"><h3><Truck size={17} />Typ av arbetsorder</h3><div className="wo-form-type-grid" role="group" aria-label="Typ av arbetsorder">{actionChoices.map(([value, label, Icon]) => <button type="button" key={value} className={input.action === value ? 'active' : ''} aria-pressed={input.action === value} onClick={() => chooseAction(value)}><Icon size={16} />{label}</button>)}</div></section>
       <section className="office-panel wo-form-section wo-form-place"><h3><MapPin size={17} />Plats & kund</h3><div className="wo-form-grid">

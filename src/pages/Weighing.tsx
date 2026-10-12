@@ -43,15 +43,17 @@ import {
 } from '../model';
 import { useDemo } from '../store';
 import { MissingDraft, useDraft } from './shared';
+import { useEmployee } from '../employee/EmployeeProvider';
 
 export function ModePage() {
   const { data, saveDraft } = useDemo();
+  const { session } = useEmployee();
   const navigate = useNavigate();
   const starting = useRef(false);
   function start(mode: 'direct' | 'vehicle') {
     if (starting.current) return;
     starting.current = true;
-    const draft = createDraft(data, mode);
+    const draft = createDraft(data, mode, session?.activeSiteId);
     if (saveDraft(draft))
       navigate(
         `/weigh/${draft.id}/${mode === 'vehicle' ? 'vehicle' : 'materials'}`,
@@ -64,8 +66,9 @@ export function ModePage() {
       <main className="page-body">
         <h2>Hur vill du väga?</h2>
         <p className="muted">Tryck på ett alternativ för att fortsätta.</p>
+        {!session?.activeSiteId && <Notice tone="amber">Ingen anläggning är tillgänglig. Kontakta din chef eller systemadmin innan du startar en vägning.</Notice>}
         <div className="direct-mode-options">
-          <button className="direct-mode-card" onClick={() => start('direct')}>
+          <button className="direct-mode-card" disabled={!session?.activeSiteId} onClick={() => start('direct')}>
             <Scale size={38} />
             <span>
               <strong>Materialvåg</strong>
@@ -73,7 +76,7 @@ export function ModePage() {
             </span>
             <ChevronRight />
           </button>
-          <button className="direct-mode-card" onClick={() => start('vehicle')}>
+          <button className="direct-mode-card" disabled={!session?.activeSiteId} onClick={() => start('vehicle')}>
             <Truck size={38} />
             <span>
               <strong>Fordonsvåg</strong>

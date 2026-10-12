@@ -27,10 +27,34 @@ const demand = (p, right) => { if (!can(p, right)) fail('Du saknar behörighet f
 const visible = (p, card) => !p.user.siteIds || p.user.siteIds.includes(card.siteId ?? (card.yard === 'Rimbo' ? 'rimbo' : 'norrtalje'));
 const mobileCustomers = customers => customers.map(({ id, name, type, number, phone, email, address, postalCode, city, countryCode, vatRegistered, paymentTermDays, references, origins, registrations }) =>
   ({ id, name, type, number, phone, email, address, postalCode, city, countryCode, vatRegistered, paymentTermDays, references, origins, registrations }));
-const mobileDraftSite = (state, draft) => state.metadata.mobileDraftSites?.[draft.id]
-  ?? state.office.cards.find(card => card.sourceId === draft.id)?.siteId ?? 'norrtalje';
+const mobileDraftSite = (state, draft) => {
+  const card = state.office.cards.find(card => card.sourceId === draft.id);
+  const saved = state.metadata.mobileDraftSites;
+  return (saved && Object.hasOwn(saved, draft.id) ? saved[draft.id] : undefined) ?? card?.siteId ?? draft.siteId
+    ?? (card?.yard === 'Rimbo' ? 'rimbo' : card?.yard === 'Norrtälje' ? 'norrtalje' : undefined);
+};
+const withMobileDraftSite = (state, draft) => {
+  const siteId = mobileDraftSite(state, draft);
+  return siteId ? { ...draft, siteId } : draft;
+};
 const mobileDraftVisible = (state, principal, draft) => !principal.user.siteIds || principal.user.siteIds.includes(mobileDraftSite(state, draft));
-const mobileView = (state, principal) => ({ ...state.mobile, drafts: state.mobile.drafts.filter(draft => mobileDraftVisible(state, principal, draft)) });
+const mobileView = (state, principal) => ({ ...state.mobile, drafts: state.mobile.drafts.filter(draft => mobileDraftVisible(state, principal, draft)).map(draft => withMobileDraftSite(state, draft)) });
+const validMobileSite = (principal, siteCatalog, siteId) => Boolean(siteId)
+  && siteCatalog.some(site => site.id === siteId && site.active !== false)
+  && (!Array.isArray(principal.user.siteIds) || principal.user.siteIds.includes(siteId));
+function demandNewMobileSite(principal, siteCatalog, draft) {
+  if (!draft.siteId) fail('Välj en aktiv anläggning innan du skapar vägningen.', 422);
+  if (!validMobileSite(principal, siteCatalog, draft.siteId)) fail('Välj en aktiv anläggning som du har behörighet till.', 403);
+}
+function demandOriginalMobileSite(state, draft) {
+  const savedSiteId = mobileDraftSite(state, { id: draft.id });
+  if (savedSiteId && draft.siteId !== savedSiteId) fail('Vägningens sparade anläggning får inte ändras.', 409);
+}
+function rememberMobileSite(state, draft) {
+  state.metadata.mobileDraftSites ??= {};
+  // Browser-generated draft IDs need not be safe object property names.
+  Object.defineProperty(state.metadata.mobileDraftSites, draft.id, { value: draft.siteId, enumerable: true, configurable: true, writable: true });
+}
 const officeRowSchema = officeSchema.shape.cards.element.shape.rows.element;
 const materialCommandSchema = z.object({
   cardId: z.number().int().positive(), expectedRows: z.array(officeRowSchema).max(100),
@@ -405,11 +429,15 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
   for (const { before, after } of changes) if (after && !['attest', 'ready', 'paid', 'balance'].includes(after.status))
     rememberCustomerSelections(state, before, after, p);
 }
-function mobileToOffice(state, draft, p, pricing) {
+function mobileToOffice(state, draft, p, pricing, siteCatalog) {
   if (draft.status !== 'ready') return;
   if (!isComplete(draft) || draft.pendingWeight || draft.vehicleInput) fail('Vägningen är inte färdig.');
   const existing = state.office.cards.find(card => card.sourceId === draft.id);
   if (existing) return; // Stable source ID is the submission idempotency key.
+  const siteId = mobileDraftSite(state, draft);
+  if (!siteId) fail('Den äldre vägningen saknar sparad anläggning och behöver kompletteras innan den kan skickas.', 422);
+  const yard = siteCatalog.find(site => site.id === siteId)?.name
+    ?? state.logistics?.sites?.find(site => site.id === siteId)?.name ?? siteId;
   const vehicle = draft.rows.find(row => row.method === 'vehicle');
   const customer = state.office.customers.find(value => value.id === draft.customerId);
   let quote, pendingReason;
@@ -426,7 +454,7 @@ function mobileToOffice(state, draft, p, pricing) {
   } else pendingReason = 'Välj kund och beräkna priser innan kundgodkännande.';
   const pending = !quote;
   state.office.cards.push(officeSchema.shape.cards.element.parse({
-    id: draft.number, sourceId: draft.id, siteId: mobileDraftSite(state, draft), status: 'new', yard: mobileDraftSite(state, draft) === 'rimbo' ? 'Rimbo' : 'Norrtälje', weigher: p.user.name, date: draft.updatedAt,
+    id: draft.number, sourceId: draft.id, siteId, status: 'new', yard, weigher: p.user.name, date: draft.updatedAt,
     customerId: draft.customerId, customerSnapshot: customer,
     reference: draft.reference, origin: normalizeOriginAddress(draft.origin), originDetails: normalizeAddress(draft.origin),
     registration: vehicle?.registration, gross: vehicle?.gross, tare: vehicle?.tare, deduction: vehicle?.deduction,
@@ -730,6 +758,7 @@ export function createApplicationService({ repository, env = process.env, seed =
       if (payload?.kind === 'import') payload = { importData: payload.data };
       if (payload?.kind === 'archive') payload = { archiveData: payload.data };
       const approvals = domain === 'office' && req.method !== 'GET' ? await projections() : [];
+      const mobileSites = domain === 'mobile' && req.method === 'POST' ? await siteProvider() : [];
       const repository = await getRepo();
       const operate = async (state, revision, audit = []) => {
         const pricing = createPricingStore({ initialState: state.pricing });
@@ -773,8 +802,12 @@ export function createApplicationService({ repository, env = process.env, seed =
             if (domain === 'mobile') {
               for (const draft of imported.drafts) if (!state.mobile.drafts.some(old => old.id === draft.id)) {
                 demand(p, 'prepare');
-                const copy = clone(draft); copy.number = allocateWeighingNumber(state);
-                state.metadata.mobileDraftSites ??= {}; state.metadata.mobileDraftSites[copy.id] = p.user.siteIds?.[0] ?? 'norrtalje';
+                const copy = clone(withMobileDraftSite(state, draft));
+                // Preserve unlocated legacy records in the immutable import
+                // archive. A later facility selection cannot relocate them.
+                if (draft.siteId && draft.siteId !== copy.siteId || !validMobileSite(p, mobileSites, copy.siteId)) { importConflicts++; continue; }
+                copy.number = state.office.cards.find(card => card.sourceId === copy.id)?.id ?? allocateWeighingNumber(state);
+                rememberMobileSite(state, copy);
                 state.mobile.drafts.push(copy); importedMobileDrafts.push(copy);
               }
             } else if (domain === 'office') {
@@ -803,7 +836,7 @@ export function createApplicationService({ repository, env = process.env, seed =
             if (importedMobileDrafts.length) {
               state.pricing.customers = state.office.customers.map(({ id, name }) => ({ id, name }));
               const importPricing = createPricingStore({ initialState: state.pricing });
-              for (const draft of importedMobileDrafts) mobileToOffice(state, draft, p, importPricing);
+              for (const draft of importedMobileDrafts) mobileToOffice(state, draft, p, importPricing, mobileSites);
             }
             audit.push({ action: 'legacy.import.archived', domain, hash, actualUserId: p.actor.id, effectiveUserId: p.user.id });
           }
@@ -813,19 +846,36 @@ export function createApplicationService({ repository, env = process.env, seed =
           else if (domain === 'mobile') {
             demand(p, 'prepare');
             const base = storeSchema.parse(payload.base), next = storeSchema.parse(payload.next);
-            for (const draft of next.drafts) if (!base.drafts.some(old => old.id === draft.id)) {
-              const existing = state.mobile.drafts.find(old => old.id === draft.id); if (existing) draft.number = existing.number;
+            for (const draft of next.drafts) {
+              const existing = state.mobile.drafts.find(old => old.id === draft.id);
+              if (existing) {
+                const siteId = mobileDraftSite(state, existing);
+                if (!siteId) {
+                  if (!equal(draft, base.drafts.find(old => old.id === draft.id)))
+                    fail('Den äldre vägningen saknar sparad anläggning och behöver granskas innan den kan ändras.', 422);
+                  continue;
+                }
+                if (draft.siteId !== undefined && draft.siteId !== siteId) fail('Vägningens sparade anläggning får inte ändras.', 409);
+                draft.siteId = siteId;
+                const previous = base.drafts.find(old => old.id === draft.id);
+                if (previous) {
+                  if (previous.siteId !== undefined && previous.siteId !== siteId) fail('Vägningens sparade anläggning stämmer inte med servern.', 409);
+                  previous.siteId = siteId;
+                } else draft.number = existing.number;
+              }
             }
             const explicitlySaved = new Set(next.drafts.filter(draft => draft.status === 'ready' || draft.customerSelectionsSavedAt &&
               draft.customerSelectionsSavedAt !== base.drafts.find(old => old.id === draft.id)?.customerSelectionsSavedAt).map(draft => draft.id));
-            const changes = changedRecords(state.mobile.drafts, base.drafts, next.drafts, row => row.id,
+            const changes = changedRecords(state.mobile.drafts.map(draft => withMobileDraftSite(state, draft)), base.drafts, next.drafts, row => row.id,
               draft => explicitlySaved.has(draft.id) ? normalizeSavedOrigin(draft) : draft);
             for (const change of changes) {
               if (change.before && !mobileDraftVisible(state, p, change.before)) fail('Vägningen tillhör en annan anläggning.', 403);
               if (change.before?.status === 'ready' && !equal(change.before, change.after)) fail('Färdiga vägningar är låsta.');
               if (change.after && !change.before) {
-                change.after.number = allocateWeighingNumber(state);
-                state.metadata.mobileDraftSites ??= {}; state.metadata.mobileDraftSites[change.after.id] = p.user.siteIds?.[0] ?? 'norrtalje';
+                demandNewMobileSite(p, mobileSites, change.after);
+                demandOriginalMobileSite(state, change.after);
+                change.after.number = state.office.cards.find(card => card.sourceId === change.after.id)?.id ?? allocateWeighingNumber(state);
+                rememberMobileSite(state, change.after);
               }
               if (change.after && (change.after.status === 'ready' || change.after.customerSelectionsSavedAt && change.after.customerSelectionsSavedAt !== change.before?.customerSelectionsSavedAt))
                 Object.assign(change.after, normalizeSavedOrigin(change.after));
@@ -856,7 +906,7 @@ export function createApplicationService({ repository, env = process.env, seed =
             for (const { before, after } of changes) if (after) {
               if (after.status === 'ready' && before?.status !== 'ready' || after.customerSelectionsSavedAt && after.customerSelectionsSavedAt !== before?.customerSelectionsSavedAt)
                 rememberCustomerSelections(state, before, after, p, { force: true });
-              mobileToOffice(state, after, p, submissionPricing);
+              mobileToOffice(state, after, p, submissionPricing, mobileSites);
             }
           } else {
             demand(p, 'transportPlan');

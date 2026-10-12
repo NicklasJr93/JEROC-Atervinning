@@ -29,6 +29,7 @@ async function fixture(run) {
     repositories.push(value); return value;
   };
   const repository = await openRepository();
+  const siteCatalog = structuredClone(sites);
   let now = new Date('2026-10-12T06:00:00Z');
   await repository.transact(state => {
     ensureMobileEmployeeAccounts(state);
@@ -41,7 +42,7 @@ async function fixture(run) {
       state.personnelAuth.accounts.push({ personId, username: name, active: true, createdAt: now.toISOString(), updatedAt: now.toISOString(), password: password('Test-Password-2026!') });
     }
   });
-  const api = createMobileEmployeeApi({ getRepository: async () => repository, now: () => now, siteProvider: async () => sites, env,
+  const api = createMobileEmployeeApi({ getRepository: async () => repository, now: () => now, siteProvider: async () => siteCatalog, env,
     readBody: async req => { const chunks = []; for await (const value of req) chunks.push(value); return JSON.parse(Buffer.concat(chunks).toString()); },
     json: (res, status, value) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); } });
   const server = createServer((req, res) => { void api(req, res, new URL(req.url, 'http://localhost')); });
@@ -53,7 +54,7 @@ async function fixture(run) {
     return { status: response.status, cookie: response.headers.get('set-cookie')?.split(';')[0], headers: response.headers, ...await response.json() };
   };
   const login = async (username = 'alice', secret = 'Test-Password-2026!') => { const value = await request('login', { username, password: secret }); assert.equal(value.status, 200, value.error); return value; };
-  try { await run({ repository, openRepository, request, login, now: () => now, clock: value => { now = new Date(value); }, base, env }); }
+  try { await run({ repository, openRepository, request, login, now: () => now, clock: value => { now = new Date(value); }, base, env, siteCatalog }); }
   finally {
     await new Promise(resolve => server.close(resolve));
     for (const value of repositories) await value.close();
@@ -74,6 +75,132 @@ test('employee authentication supports a non-driver, protects origin and has no 
   assert.equal(hasEmployeeSession({ headers: { cookie: result.cookie } }), true);
   await repository.read(state => { assert.equal(employeeRequestPrincipal(state, { headers: { cookie: result.cookie } }, { now }).user.id, 'test-alice');
     assert.throws(() => employeeRequestPrincipal(state, { headers: { cookie: 'jeroc_employee=invalid', 'x-demo-actor': 'admin' } }, { now }), error => error.status === 401); });
+}));
+
+test('active facility persists per tenant and person, rejects forged choices and remains available through the time gate', async () => fixture(async ({ request, login, repository, openRepository, clock, base, env }) => {
+  await repository.transact(state => {
+    const person = state.personnel.people.find(value => value.userId === 'test-alice'); person.siteIds = ['norrtalje', 'rimbo'];
+    state.pricing.users.find(value => value.id === person.userId).siteIds = [...person.siteIds];
+  });
+  const alice = await login(); assert.equal(alice.activeSiteId, 'norrtalje');
+  assert.equal((await request('active-site', { siteId: 'rimbo' })).status, 401);
+  assert.equal((await request('active-site', { siteId: 'rimbo' }, 'jeroc_employee=invalid')).status, 401);
+  assert.equal((await request('active-site', { siteId: 'rimbo' }, alice.cookie, { origin: 'https://other.example' })).status, 403);
+  assert.equal((await request('active-site', { siteId: 'rimbo', personId: 'person-test-bob' }, alice.cookie)).status, 422);
+  const changed = await request('active-site', { siteId: 'rimbo' }, alice.cookie, { origin: base });
+  assert.equal(changed.status, 200); assert.equal(changed.activeSiteId, 'rimbo'); assert.equal(changed.person.id, alice.person.id); assert.ok(changed.gate);
+  const reopened = await openRepository();
+  await reopened.read(state => assert.deepEqual(state.metadata.mobileEmployeeActiveSites, [{ companyId: 'jeroc-demo', personId: alice.person.id, siteId: 'rimbo' }]));
+  assert.equal((await login()).activeSiteId, 'rimbo');
+  const bob = await login('bob'); assert.equal(bob.activeSiteId, 'norrtalje');
+  assert.equal((await request('active-site', { siteId: 'rimbo' }, bob.cookie)).status, 403);
+  env.SCRAPPILOT_ORGANISATION_ID = 'other-company';
+  assert.equal((await request('session', undefined, alice.cookie)).activeSiteId, 'norrtalje');
+  env.SCRAPPILOT_ORGANISATION_ID = 'jeroc-demo';
+  assert.equal((await request('session', undefined, alice.cookie)).activeSiteId, 'rimbo');
+  clock('2026-10-13T06:00:00Z');
+  const blocked = await request('session', undefined, alice.cookie);
+  // Refresh a real session after advancing to the next working day.
+  const nextVisit = await login(); assert.equal(nextVisit.gate.blocked, true);
+  const whileBlocked = await request('active-site', { siteId: 'norrtalje' }, nextVisit.cookie);
+  assert.equal(whileBlocked.status, 200); assert.equal(whileBlocked.gate.blocked, true); assert.equal(whileBlocked.activeSiteId, 'norrtalje');
+  assert.equal(blocked.status, 401);
+}));
+
+test('facility choices intersect registered active sites and revoked account scopes without writing GET snapshots', async () => fixture(async ({ request, login, repository, siteCatalog }) => {
+  siteCatalog.push({ id: 'inactive', name: 'Inaktiv', active: false }, { id: 'account-only', name: 'Kontobehörighet', active: true });
+  await repository.transact(state => {
+    const person = state.personnel.people.find(value => value.userId === 'test-alice'); person.siteIds = ['rimbo', 'norrtalje', 'inactive', 'unknown'];
+    state.pricing.users.find(value => value.id === person.userId).siteIds = ['rimbo', 'norrtalje', 'inactive', 'account-only'];
+  });
+  const alice = await login(); assert.deepEqual(alice.sites.map(value => value.id), ['norrtalje', 'rimbo']);
+  assert.equal((await request('active-site', { siteId: 'rimbo' }, alice.cookie)).status, 200);
+  for (const siteId of ['inactive', 'unknown', 'account-only']) assert.equal((await request('active-site', { siteId }, alice.cookie)).status, 403);
+  await repository.transact(state => { state.pricing.users.find(value => value.id === 'test-alice').siteIds = ['norrtalje']; });
+  const before = await repository.read((state, revision) => ({ revision, metadata: structuredClone(state.metadata) }));
+  const revoked = await request('session', undefined, alice.cookie);
+  assert.equal(revoked.status, 200); assert.deepEqual(revoked.sites.map(value => value.id), ['norrtalje']); assert.equal(revoked.activeSiteId, 'norrtalje');
+  assert.deepEqual(await repository.read((state, revision) => ({ revision, metadata: structuredClone(state.metadata) })), before);
+  await repository.transact(state => { state.pricing.users.find(value => value.id === 'test-alice').siteIds = ['rimbo']; });
+  siteCatalog.find(value => value.id === 'rimbo').active = false;
+  const empty = await request('session', undefined, alice.cookie);
+  assert.equal(empty.status, 200); assert.deepEqual(empty.sites, []); assert.equal(empty.activeSiteId, undefined);
+  assert.equal((await request('active-site', { siteId: 'norrtalje' }, alice.cookie)).status, 403);
+}));
+
+test('mismatched employee scopes deny foreign-site time and every assigned-order action without changing the profile', async () => fixture(async ({ request, login, repository }) => {
+  const forbiddenId = 'AO-scope-rimbo', allowedId = 'AO-scope-norrtalje';
+  await repository.transact(state => {
+    const person = state.personnel.people.find(value => value.userId === 'test-alice');
+    Object.assign(person, { siteIds: ['norrtalje', 'rimbo'], canDrive: true, driverId: 'scope-alice' });
+    state.transport.drivers.push({ ...structuredClone(state.transport.drivers[0]), id: person.driverId, personId: person.id });
+    const template = structuredClone(state.transport.orders[0]);
+    for (const [id, siteId] of [[forbiddenId, 'rimbo'], [allowedId, 'norrtalje']])
+      state.transport.orders.push({ ...structuredClone(template), id, siteId, driverId: person.driverId, status: 'booked', date: '2026-10-12', customerName: id });
+  });
+  const alice = await login(); assert.equal(alice.status, 200); assert.deepEqual(alice.person.siteIds, ['norrtalje']);
+  for (const path of ['session', 'overview', 'calendar?date=2026-10-12', 'orders']) {
+    const result = await request(path, undefined, alice.cookie); assert.equal(result.status, 200);
+    assert.deepEqual(result.orders.map(value => value.id), [allowedId]);
+    assert.deepEqual(result.selectedDay.orders.map(value => value.id), [allowedId]);
+    assert.equal(result.selectedDay.jobsCount, 1); assert.ok(!JSON.stringify(result).includes(forbiddenId));
+  }
+  const entry = { date: '2026-10-12', startMinute: 420, endMinute: 450, breakMinutes: 0, activity: 'Gårdsarbete', note: '' };
+  assert.equal((await request('time/save', { ...entry, siteId: 'rimbo' }, alice.cookie)).status, 403);
+  assert.equal((await request('time/save', { ...entry, siteId: 'norrtalje', orderId: forbiddenId }, alice.cookie)).status, 403);
+  assert.equal((await request('time', { action: 'order.start', orderId: forbiddenId }, alice.cookie)).status, 403);
+  for (const [action, payload] of [['start', {}], ['status', { status: 'on_way' }], ['logistics', { action: 'travel.empty', expectedVersion: 1 }]])
+    assert.equal((await request(`orders/${forbiddenId}/${action}`, payload, alice.cookie)).status, 403);
+  await repository.read(state => {
+    assert.deepEqual(state.personnel.people.find(value => value.id === alice.person.id).siteIds, ['norrtalje', 'rimbo']);
+    assert.equal(state.employeeTime.entries.length, 0); assert.equal(state.employeeTime.orderSessions.length, 0);
+    assert.equal(state.transport.orders.find(value => value.id === forbiddenId).status, 'booked');
+  });
+  const profile = await request('profile', { phone: '0722002220', email: 'scoped@example.test' }, alice.cookie);
+  assert.equal(profile.status, 200); assert.equal(profile.person.phone, '+46722002220');
+  await repository.read(state => assert.equal(state.personnel.people.find(value => value.id === alice.person.id).email, 'scoped@example.test'));
+  const allowed = await request('orders/AO-scope-norrtalje/start', {}, alice.cookie);
+  assert.equal(allowed.status, 200, allowed.error); assert.equal(allowed.activeWork.orderId, allowedId);
+  await repository.transact(state => {
+    state.employeeTime.orderSessions = [{ id: 'restricted-session', personId: alice.person.id, orderId: forbiddenId, siteId: 'rimbo', startedAt: '2026-10-12T05:00:00Z', revision: 1 }];
+  });
+  const restricted = await request('session', undefined, alice.cookie); assert.equal(restricted.activeWork, undefined);
+  assert.equal((await request(`orders/${forbiddenId}/stop`, {}, alice.cookie)).status, 403);
+  assert.equal((await request('time', { action: 'order.stop', orderId: forbiddenId }, alice.cookie)).status, 403);
+  await repository.read(state => assert.equal(state.employeeTime.orderSessions[0].endedAt, undefined));
+}));
+
+test('revoked facilities redact historical order details while preserving worked hours, and manager lists keep effective scope', async () => fixture(async ({ request, login, repository, clock }) => {
+  clock('2026-10-12T15:00:00Z');
+  await repository.transact(state => {
+    const person = state.personnel.people.find(value => value.userId === 'test-alice'); person.siteIds = ['norrtalje', 'rimbo'];
+    const user = state.pricing.users.find(value => value.id === person.userId); user.siteIds = ['norrtalje', 'rimbo']; user.permissions.push('employmentWrite');
+    state.personnel.people.find(value => value.userId === 'test-bob').managerId = person.id;
+    state.personnel.people.push({ ...structuredClone(person), id: 'person-scope-foreign', userId: undefined, siteIds: ['rimbo'], managerId: person.id });
+  });
+  const initial = await login();
+  const saved = await request('time/save', { date: '2026-10-12', startMinute: 420, endMinute: 960, breakMinutes: 60, activity: 'Gårdsarbete', note: '', siteId: 'rimbo' }, initial.cookie);
+  assert.equal(saved.status, 200, saved.error); assert.equal(saved.selectedDay.recordedMinutes, 480);
+  const oldEntry = saved.selectedDay.entries[0];
+  await repository.transact(state => {
+    state.pricing.users.find(value => value.id === 'test-alice').siteIds = ['norrtalje'];
+    state.transport.orders.push({ ...structuredClone(state.transport.orders[0]), id: 'AO-restricted-history', siteId: 'rimbo', customerName: 'Restricted historic customer' });
+    state.employeeTime.orderSessions.push({ id: 'scope-historic-session', personId: initial.person.id, orderId: 'AO-restricted-history', siteId: 'rimbo',
+      startedAt: '2026-10-12T05:00:00Z', endedAt: '2026-10-12T14:00:00Z', breakMinutes: 60, revision: 1 });
+  });
+  clock('2026-10-13T06:00:00Z');
+  const nextVisit = await login(); assert.equal(nextVisit.gate.blocked, false);
+  const historical = await request('calendar?date=2026-10-12', undefined, nextVisit.cookie);
+  assert.equal(historical.selectedDay.recordedMinutes, 480); assert.equal(historical.selectedDay.entries[0].siteId, undefined);
+  assert.equal(historical.selectedDay.entries[0].siteName, undefined);
+  assert.ok(!JSON.stringify(historical).includes('Restricted historic customer'));
+  assert.ok(!JSON.stringify(historical).includes('AO-restricted-history'));
+  assert.equal((await request('time/save', { id: oldEntry.id, revision: oldEntry.revision, date: oldEntry.date, startMinute: oldEntry.startMinute, endMinute: oldEntry.endMinute,
+    breakMinutes: oldEntry.breakMinutes, activity: 'Ändra historik', note: '', siteId: 'norrtalje' }, nextVisit.cookie)).status, 403);
+  assert.equal((await request('time/remove', { id: oldEntry.id, revision: oldEntry.revision }, nextVisit.cookie)).status, 403);
+  const managed = await request('requirements', undefined, nextVisit.cookie);
+  assert.equal(managed.status, 200); assert.deepEqual(managed.people.map(value => value.id), ['person-test-bob']);
+  assert.equal((await request('requirements', { personId: 'person-scope-foreign', requirement: { enabled: false, mode: 'schedule' } }, nextVisit.cookie)).status, 403);
 }));
 
 test('demo login shortcuts expose only availability and stop advertising changed or disabled fixture accounts', async () => fixture(async ({ request, login, repository, env }) => {

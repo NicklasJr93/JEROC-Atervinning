@@ -117,7 +117,7 @@ test('physical material commands persist incoming stock corrections atomically, 
 test('mobile submission records normal incoming physical stock in the weighing commit exactly once', async () => fixture(async f => {
   await f.repository.transact(state => ensureLogistics(state, { sites: [{ id: 'norrtalje', name: 'Norrtälje', active: true }], classifications: [] }));
   const path = '/api/application/mobile', base = (await f.api(path)).data, next = structuredClone(base), sourceId = randomUUID();
-  next.drafts.push({ id: sourceId, number: 1418, mode: 'direct', status: 'ready', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  next.drafts.push({ id: sourceId, siteId: 'norrtalje', number: 1418, mode: 'direct', status: 'ready', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     reference: 'Lager från mobil', origin: 'Testgatan 1', rows: [{ id: randomUUID(), articleId: 'copper-1', method: 'direct', weight: 15 }] });
   const submitted = await f.api(path, { base, next }); assert.equal(submitted.status, 200, submitted.error);
   assert.equal((await f.api(path, { base, next })).status, 200);

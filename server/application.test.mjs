@@ -32,7 +32,7 @@ test('two offices merge different fields and reject a stale competing edit',asyn
 }));
 test('mobile submission survives a new instance and produces exactly one numbered office card',async()=>fixture(async({a,instance})=>{
  const base=(await a(mobile)).data,next=structuredClone(base),id=randomUUID(),customer={...next.customers[0],id:randomUUID(),name:'Mobilverkstaden'};next.customers.push(customer);
- next.drafts.push({id,number:1418,mode:'direct',status:'ready',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),reference:'Mobil',origin:'Testgatan 2',customerId:customer.id,rows:[{id:randomUUID(),articleId:'lead-battery',method:'direct',weight:12}]});
+ next.drafts.push({id,siteId:'norrtalje',number:1418,mode:'direct',status:'ready',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),reference:'Mobil',origin:'Testgatan 2',customerId:customer.id,rows:[{id:randomUUID(),articleId:'lead-battery',method:'direct',weight:12}]});
  await post(a,mobile,base,next);await post(a,mobile,base,next);const b=await instance(),data=(await b(office)).data,cards=data.cards.filter(card=>card.sourceId===id);
  assert.equal(cards.length,1);assert.ok(cards[0].id>2053);assert.equal(cards[0].rows[0].weight,12);assert.equal(cards[0].status,'new');assert.ok(data.customers.some(c=>c.id===customer.id));
  const saved=(await b(mobile)).data;assert.equal(saved.drafts[0].number,cards[0].id);const edit=structuredClone(saved);edit.drafts[0].rows[0].weight=13;assert.equal((await b(mobile,{base:saved,next:edit})).status,409);
@@ -97,7 +97,7 @@ test('a read-only office can archive old local data without gaining write privil
 
 test('compact mobile records preserve field conflicts, replay-safe numbering and locked completed weighings',async()=>fixture(async({a,instance})=>{
  const initial=(await a(`${mobile}?prices=none`));assert.equal(initial.customerPrices,undefined);assert.ok(initial.catalog.length);
- const draft={id:randomUUID(),number:1,mode:'direct',status:'draft',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),reference:'',origin:'',rows:[{id:randomUUID(),articleId:'iron',method:'direct',weight:10}]};
+ const draft={id:randomUUID(),siteId:'norrtalje',number:1,mode:'direct',status:'draft',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),reference:'',origin:'',rows:[{id:randomUUID(),articleId:'iron',method:'direct',weight:10}]};
  const create={kind:'records',version:1,drafts:[{id:draft.id,next:draft}],customers:[]};
  const created=await a(mobile,create);assert.equal(created.status,200,created.error);assert.equal(created.catalog,undefined);assert.equal(created.customerPrices,undefined);
  const number=created.data.drafts.find(row=>row.id===draft.id).number;

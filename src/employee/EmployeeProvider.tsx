@@ -35,6 +35,7 @@ interface EmployeeContextValue {
   cancelLeave: (id: string, revision: number) => Promise<void>;
   updateProfile: (profile: { phone: string; email: string }) => Promise<void>;
   changePassword: (currentPassword: string, password: string) => Promise<void>;
+  setActiveSite: (siteId: string) => Promise<void>;
   loadRequirements: () => Promise<EmployeeRequirementPerson[]>;
   saveRequirement: (personId: string, requirement: EmployeeRequirement) => Promise<void>;
   loadAccounts: () => Promise<EmployeeAccountPerson[]>;
@@ -143,7 +144,17 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
       throw caught;
     }
   }, [apply, clearSession, refresh]);
+  const setActiveSite = useCallback(async (siteId: string) => {
+    const currentSession = sessionRef.current;
+    if (!currentSession) throw new EmployeeError('Logga in igen för att välja anläggning.', 401);
+    if (!currentSession.sites.some(site => site.id === siteId && site.active !== false && currentSession.person.siteIds.includes(site.id))) {
+      throw new EmployeeError('Anläggningen är inte tillgänglig för ditt konto.', 403);
+    }
+    if (navigator.onLine === false) throw new EmployeeError('Anläggningen kan inte bytas utan anslutning. Försök igen när du är online.', 0);
+    await mutate('/active-site', { siteId });
+  }, [mutate]);
   return <EmployeeContext.Provider value={{ session, overview, loading, refreshing, error, login, logout, refresh,
+    setActiveSite,
     saveTime: entry => mutate('/time/save', entry, entry.date),
     removeTime: (id, revision) => mutate('/time/remove', { id, revision }),
     requestLeave: request => mutate('/leave/request', request),

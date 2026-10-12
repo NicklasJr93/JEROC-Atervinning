@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowLeft, Check, ChevronRight, Layers3, Plus, Search, ShieldCheck } from 'lucide-react';
 import type { ArticleGroup, ArticleImage } from '../catalog-types';
 import { articleGroupPath, childArticleGroups, rootArticleGroups } from '../catalog-types';
@@ -7,9 +7,11 @@ import type { PriceArticle, PricingState } from './pricing-client';
 import ArticleImagesEditor from './ArticleImagesEditor';
 import CatalogImage from './CatalogImage';
 import CatalogMobilePreview from './CatalogMobilePreview';
+import { OfficePageHeader } from './OfficePageHeader';
 import './article-groups.css';
 
 type Props = {
+  header: ReactNode;
   state: PricingState;
   user: OfficeUser;
   actualUser: OfficeUser;
@@ -20,7 +22,7 @@ type Props = {
   onOpenArticle: (article: PriceArticle) => void;
 };
 
-export default function ArticleGroupsWorkspace({ state, user, actualUser, editable, busy, onSave, onDetailChange, onOpenArticle }: Props) {
+export default function ArticleGroupsWorkspace({ header, state, user, actualUser, editable, busy, onSave, onDetailChange, onOpenArticle }: Props) {
   const groups = state.groups || [];
   const [selected, setSelected] = useState<ArticleGroup>();
   const [search, setSearch] = useState('');
@@ -36,9 +38,12 @@ export default function ArticleGroupsWorkspace({ state, user, actualUser, editab
   if (selected) return <GroupEditor key={`${selected.id}:${selected.parentId || ''}:${selected.revision}`} group={selected} groups={groups} articles={groupMembers(selected.id)} user={user} actualUser={actualUser} editable={editable} busy={busy} onCancel={() => setSelected(undefined)} onSelectGroup={setSelected} onCreateChild={() => create(selected.id)} onOpenArticle={article => { onDetailChange(false); onOpenArticle(article); }} onSave={async body => {
     if (await onSave(body)) setSelected(undefined);
   }} />;
-  return <section className="office-panel office-article-groups-overview">
+  return <>
+    <OfficePageHeader controls={<>
     <div className="office-pricing-panel-title"><div><h2>Grupper i gårdsappen</h2><p>En huvudgrupp kan innehålla artiklar och undergrupper.</p></div>{editable && <button className="office-pricing-primary" disabled={busy} onClick={() => create()}><Plus size={15} /> Ny artikelgrupp</button>}</div>
     <div className="office-pricing-toolbar office-article-groups-toolbar"><label className="office-pricing-search"><Search size={15} /><input aria-label="Sök artikelgrupp" placeholder="Sök grupp eller undergrupp…" value={search} onChange={event => setSearch(event.target.value)} /></label><label className="office-article-groups-active"><input type="checkbox" checked={activeOnly} onChange={event => setActiveOnly(event.target.checked)} /> Bara aktiva</label></div>
+    </>}>{header}</OfficePageHeader>
+    <section className="office-panel office-article-groups-overview">
     <div className="office-article-groups-list">
       {visibleRoots.map(group => <article className="office-article-group-card" key={group.id}>
         <button className="office-article-group-main" onClick={() => setSelected(group)} aria-label={`Öppna artikelgrupp ${group.name}`}><CatalogImage image={group.photo} name={group.name} className="office-article-group-image" /><span><strong>{group.name}</strong><small>{group.description || 'Ingen beskrivning'}</small><span className="office-article-group-meta">{groupMembers(group.id).length} artiklar · {childArticleGroups(groups, group.id).length} undergrupper <span className={`office-pricing-badge ${group.active ? 'green' : 'gray'}`}>{group.active ? 'Aktiv' : 'Inaktiv'}</span></span></span><ChevronRight size={17} /></button>
@@ -47,7 +52,7 @@ export default function ArticleGroupsWorkspace({ state, user, actualUser, editab
     </div>
     {!visibleRoots.length && <p className="office-pricing-empty">Inga artikelgrupper matchar sökningen.</p>}
     <div className="office-article-group-ungrouped"><Layers3 size={19} /><span><strong>Övrigt</strong><small>{state.articles.filter(article => !article.category).length} artiklar utan grupp visas under Övrigt i appen.</small></span></div>
-  </section>;
+  </section></>;
 }
 
 function GroupEditor({ group, groups, articles, user, actualUser, editable, busy, onSave, onCancel, onSelectGroup, onCreateChild, onOpenArticle }: {
@@ -66,8 +71,10 @@ function GroupEditor({ group, groups, articles, user, actualUser, editable, busy
     await onSave({ group: { id: draft.id || undefined, name: draft.name.trim(), description: draft.description.trim(), photo: draft.photo, parentId: draft.parentId || undefined, sortOrder: draft.sortOrder, active: draft.active }, ...(group.id ? { expectedRevision: group.revision } : {}) });
   }
   return <div className="office-article-group-detail">
+    <OfficePageHeader>
     <nav className="office-pricing-breadcrumbs" aria-label="Artikelgruppens sökväg"><button onClick={onCancel}>Artikelgrupper</button>{group.parentId && <><ChevronRight size={14} /><button onClick={() => { const parent = groups.find(item => item.id === group.parentId); if (parent) onSelectGroup(parent); }}>{groups.find(item => item.id === group.parentId)?.name}</button></>}<ChevronRight size={14} /><span>{group.name || (group.parentId ? 'Ny undergrupp' : 'Ny artikelgrupp')}</span></nav>
     <div className="office-pricing-heading"><div><h1>{group.name || (group.parentId ? 'Ny undergrupp' : 'Ny artikelgrupp')}</h1><p>Presentation och innehåll i gårdsappens materialmeny.</p></div><button className="office-pricing-plain" onClick={onCancel}><ArrowLeft size={15} /> Till artikelgrupper</button></div>
+    </OfficePageHeader>
     <div className="office-article-group-editor-grid">
       <form className="office-pricing-form" onSubmit={event => void submit(event)}>
         {stale && <div className="office-pricing-error" role="alert">Gruppen har ändrats sedan du öppnade den. Öppna senaste versionen innan du sparar.<button type="button" disabled={imageBusy} onClick={() => { if (latestGroup) onSelectGroup(latestGroup); }}>Öppna senaste versionen</button></div>}

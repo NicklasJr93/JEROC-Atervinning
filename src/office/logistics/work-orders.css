@@ -44,3 +44,6 @@
   .office .wo-weighing-summary,.office .wo-weighing-actions { align-items: flex-start; flex-direction: column; }
   .office .wo-weighing-rows .wo-material-row { grid-template-columns: minmax(0,1fr) 100px 30px; gap: 7px; }
 }
+
+.office .wo-header-tools { margin-bottom: 0; }
+.office .wo-header-tools .wo-filters { margin-bottom: 0; }

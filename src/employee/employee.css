@@ -11,6 +11,28 @@
 .employee-app .bottom-nav button.active { background: #e9f4ff; color: #116df4; }
 .employee-app.fixed-screen .employee-login { flex: 1; min-height: 0; overflow-y: auto; justify-content: flex-start; padding-top: clamp(25px, 9dvh, 70px); }
 .employee-page-heading { display: flex; gap: 8px; align-items: center; }
+.employee-heading-copy { flex: 1; min-width: 0; }
+.employee-heading-copy h1 { overflow-wrap: anywhere; }
+.yard-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.yard-header > div:first-child { min-width: 0; }
+.employee-site-picker, .employee-site-current { flex: 0 1 auto; max-width: min(43%, 180px); align-self: flex-start; }
+.employee-site-picker { position: relative; }
+.employee-site-trigger, .employee-site-current { display: flex; align-items: center; gap: 5px; color: #587591; font-size: 12px; line-height: 1.4; }
+.employee-site-trigger { min-height: 40px; width: 100%; padding: 8px 9px; border: 1px solid #dce8f6; border-radius: 10px; background: #fff; text-align: left; }
+.employee-site-trigger:disabled { opacity: .7; }
+.employee-site-trigger > span, .employee-site-current > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.employee-site-trigger > svg, .employee-site-current > svg { flex-shrink: 0; }
+.employee-site-current { min-height: 40px; padding: 8px 0; }
+.employee-site-popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 120; width: min(275px, calc(100vw - 36px)); border: 1px solid #dce8f6; border-radius: 12px; padding: 6px; background: #fff; box-shadow: 0 10px 30px #17375620; }
+.employee-site-options { display: flex; flex-direction: column; gap: 3px; max-height: 40dvh; overflow-y: auto; }
+.employee-site-options > button { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 10px; border: 0; border-radius: 8px; text-align: left; color: #294b6d; background: transparent; font-size: 13px; line-height: 1.45; }
+.employee-site-options > button[aria-selected="true"] { color: #116df4; background: #edf6ff; }
+.employee-site-options > button:disabled { opacity: .55; }
+.employee-site-options > button > span { min-width: 0; overflow-wrap: anywhere; }
+.employee-site-options > button > svg { flex-shrink: 0; }
+.employee-site-popover > p { margin: 7px 9px; color: #71829a; font-size: 12px; line-height: 1.5; }
+.employee-site-popover > p[role="alert"] { color: #b94943; }
+.direct-mode-card:disabled { opacity: .55; }
 .employee-page-heading h1 { font-size: 27px; letter-spacing: -.045em; }
 .employee-page-heading p { color: #7185a2; font-size: 13px; margin-top: 7px; line-height: 1.5; }
 .employee-page h2 { font-size: 19px; }
