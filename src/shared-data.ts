@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { updateArticleCatalog, updateCustomerPriceCatalog } from './data';
+import { articleGroups, updateArticleCatalog, updateCustomerPriceCatalog } from './data';
 
 type Identity = { actor: string; user: string } | { mobile: true };
 type Pending<T> = { base: T; next: T };
@@ -13,6 +13,7 @@ export type BusinessConnection = { identity: string; connected: boolean };
 const changeEvent = 'jeroc:business-change';
 const connectionEvent = 'jeroc:business-connection';
 const connections = new Map<string, boolean>();
+const mobileCatalogCacheKey = 'jeroc.mobile.article-catalog.v1';
 /** Forward metadata from the existing authenticated staff stream, without
  * opening another connection or sharing customer projections between users. */
 export function notifyBusinessChange(change: BusinessChange) {
@@ -128,6 +129,12 @@ export function useSharedData<T>(options: Options<T>) {
   const streamIdentity = 'mobile' in o.identity! ? 'mobile' : `${o.identity!.actor}/${o.identity!.user}`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...('mobile' in o.identity! ? { 'X-Demo-Mobile': 'niklas' } : { 'X-Demo-Actor': o.identity!.actor, 'X-Demo-User': o.identity!.user }) };
   const url = `/api/application/${o.domain}`;
+  if (o.domain === 'mobile') {
+   try {
+    const cached = JSON.parse(localStorage.getItem(mobileCatalogCacheKey) ?? 'null');
+    if (cached?.version === 1 && updateArticleCatalog(cached.catalog, cached.groups)) refreshCatalog(value => value + 1);
+   } catch { /* A damaged catalog cache leaves the seed register intact. */ }
+  }
   const currentScope = () => {
    const current = latest.current, principal = current.identity;
    const currentIdentity = principal && ('mobile' in principal ? 'mobile' : `${principal.actor}:${principal.user}`);
@@ -140,8 +147,13 @@ export function useSharedData<T>(options: Options<T>) {
    if (!currentScope()) throw new DOMException('Användaren har ändrats.', 'AbortError');
    if (!response.ok) throw Object.assign(new Error(result.error ?? 'Databasen kunde inte nås.'), { status: response.status });
    if (o.domain === 'mobile' && Array.isArray(result.catalog)) {
-    const signature = JSON.stringify([result.catalog, result.customerPrices]);
-    if (signature !== catalogSignature.current) { catalogSignature.current = signature; updateArticleCatalog(result.catalog); refreshCatalog(value => value + 1); }
+    const signature = JSON.stringify([result.catalog, result.groups, result.customerPrices]);
+    if (signature !== catalogSignature.current && updateArticleCatalog(result.catalog, result.groups)) {
+     catalogSignature.current = signature;
+     refreshCatalog(value => value + 1);
+     try { localStorage.setItem(mobileCatalogCacheKey, JSON.stringify({ version: 1, catalog: result.catalog, groups: articleGroups })); }
+     catch { /* The current server register remains usable without a cache. */ }
+    }
    }
    if (o.domain === 'mobile' && result.customerPrices) updateCustomerPriceCatalog(result.customerPrices);
    return { ...result, confirmedEpoch } as { data: T; revision?: number; importConflicts?: number; confirmedEpoch: number };

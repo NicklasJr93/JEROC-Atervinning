@@ -28,7 +28,8 @@ import {
   Search,
   Total,
 } from '../components';
-import { articleById, articles, categories } from '../data';
+import { articleById, articles, articleGroups, materialGroupId, selectableArticles, UNGROUPED_ARTICLE_GROUP_ID } from '../data';
+import { activeArticleGroups, articleGroupPath, childArticleGroups, rootArticleGroups } from '../catalog-types';
 import {
   createDraft,
   dateTime,
@@ -97,77 +98,66 @@ export function MaterialsPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
+  useEffect(() => setSearch(''), [categoryId]);
   if (!draft) return <MissingDraft />;
   const query = params.toString();
-  const category = categories.find((c) => c.id === categoryId);
+  const visibleGroups = activeArticleGroups(articleGroups);
+  const category = visibleGroups.find(group => group.id === categoryId);
+  const ungrouped = categoryId === UNGROUPED_ARTICLE_GROUP_ID;
   const target = params.get('target');
-  const back = category
-    ? `/weigh/${draft.id}/materials?${query}`
+  const materialsPath = `/weigh/${draft.id}/materials`;
+  const back = categoryId
+    ? `${materialsPath}${category?.parentId ? `/${category.parentId}` : ''}?${query}`
     : `/weigh/${draft.id}/${params.get('back') === 'vehicle' || target === 'vehicle' ? 'vehicle' : 'summary'}`;
-  const listed = articles.filter(
-    (a) =>
-      a.active !== false && (!categoryId || a.category === categoryId) &&
-      `${a.name} ${a.description}`.toLowerCase().includes(search.toLowerCase()),
-  );
+  const children = category ? childArticleGroups(articleGroups, category.id, true) : [];
+  const available = selectableArticles();
+  const needle = search.trim().toLocaleLowerCase('sv');
+  const listed = available.filter(article => {
+    const groupId = materialGroupId(article);
+    const matchesGroup = !categoryId || (ungrouped ? groupId === UNGROUPED_ARTICLE_GROUP_ID : category && (groupId === category.id || (needle && children.some(group => group.id === groupId))));
+    const groupNames = articleGroupPath(articleGroups, article.category).map(group => group.name).join(' ');
+    return matchesGroup && `${article.name} ${article.description} ${groupNames}`.toLocaleLowerCase('sv').includes(needle);
+  });
+  const roots = rootArticleGroups(articleGroups, true);
+  const showGroups = !needle && !ungrouped && (!categoryId || Boolean(category));
+  const groups = categoryId ? children : roots;
+  const hasUngrouped = available.some(article => materialGroupId(article) === UNGROUPED_ARTICLE_GROUP_ID);
   function openArticle(articleId: string) {
-    if (
-      draft!.pendingWeight &&
-      !draft!.pendingWeight.rowId &&
-      target !== 'vehicle'
-    )
-      saveDraft({ ...draft!, pendingWeight: undefined });
+    if (draft!.pendingWeight && !draft!.pendingWeight.rowId && target !== 'vehicle') saveDraft({ ...draft!, pendingWeight: undefined });
     navigate(`/weigh/${draft!.id}/article/${articleId}?${query}`);
   }
   return (
     <>
-      <Header title={category?.name ?? 'Välj material'} back={back} />
+      <Header title={category?.name ?? (ungrouped ? 'Övrigt' : categoryId ? 'Artikelgruppen saknas' : 'Välj material')} back={back} />
       <main className="page-body">
-        <Search
-          value={search}
-          setValue={setSearch}
-          placeholder="Sök material eller artikel"
-        />
-        {category && <p className="section-caption">VÄLJ ARTIKEL</p>}
+        <Search value={search} setValue={setSearch} placeholder="Sök material eller artikel" />
+        {category?.description && <p className="muted small">{category.description}</p>}
+        {categoryId && <p className="section-caption">VÄLJ ARTIKEL{showGroups && children.length ? ' ELLER UNDERGRUPP' : ''}</p>}
         <div className="material-list">
-          {!categoryId && !search
-            ? categories.map((c) => (
-                <button
-                  className="material-choice"
-                  key={c.id}
-                  onClick={() =>
-                    navigate(`/weigh/${draft.id}/materials/${c.id}?${query}`)
-                  }
-                >
-                  <Photo index={c.photo} label={c.name} />
-                  <span>
-                    <strong>{c.name}</strong>
-                    <small>{c.description}</small>
-                  </span>
-                  <ChevronRight />
-                </button>
-              ))
-            : listed.map((a) => (
-                <button
-                  className="material-choice"
-                  key={a.id}
-                  onClick={() => openArticle(a.id)}
-                >
-                  <Photo index={a.photos[0]} label={a.name} />
-                  <span>
-                    <strong>{a.name}</strong>
-                    <small>{a.description}</small>
-                  </span>
-                  <ChevronRight />
-                </button>
-              ))}
+          {showGroups && groups.map(group => (
+            <button className="material-choice" key={group.id} onClick={() => navigate(`${materialsPath}/${group.id}?${query}`)}>
+              <Photo index={group.photo} label={group.name} />
+              <span><strong>{group.name}</strong><small>{group.description}</small></span>
+              <ChevronRight />
+            </button>
+          ))}
+          {!categoryId && !needle && hasUngrouped && (
+            <button className="material-choice" onClick={() => navigate(`${materialsPath}/${UNGROUPED_ARTICLE_GROUP_ID}?${query}`)}>
+              <Photo index={null} label="Övrigt" />
+              <span><strong>Övrigt</strong><small>Artiklar utan artikelgrupp</small></span><ChevronRight />
+            </button>
+          )}
+          {(categoryId || needle) && listed.map(article => (
+            <button className="material-choice" key={article.id} onClick={() => openArticle(article.id)}>
+              <Photo index={article.photos[0]} label={article.name} />
+              <span><strong>{article.name}</strong><small>{article.description}</small></span><ChevronRight />
+            </button>
+          ))}
         </div>
-        {(categoryId || search) && !listed.length && (
-          <Empty title="Inget material hittades" text="Prova ett annat namn." />
+        {(categoryId || needle) && !listed.length && (!showGroups || !groups.length) && (
+          <Empty title="Inget material hittades" text={categoryId && !category && !ungrouped ? 'Gruppen har ändrats eller är inaktiv. Gå tillbaka och välj en annan grupp.' : 'Prova ett annat namn eller en annan artikelgrupp.'} />
         )}
-        <Notice>
-          Saknas en artikel? Be kontoret lägga till den. I demon finns ett urval
-          av artiklar.
-        </Notice>
+        <Notice>Saknas en artikel? Be kontoret lägga till den i artikelregistret.</Notice>
       </main>
     </>
   );
@@ -181,17 +171,24 @@ export function ArticlePage() {
   const [zoom, setZoom] = useState(false);
   const touch = useRef<{ x: number; y: number } | null>(null);
   const article = articles.find((a) => a.id === articleId);
-  if (!draft || !article) return <MissingDraft />;
+  const photoSignature = JSON.stringify(article?.photos ?? []);
+  useEffect(() => { setPhoto(0); setZoom(false); }, [articleId, photoSignature]);
+  if (!draft) return <MissingDraft />;
   const query = params.toString();
   const target = params.get('target');
+  if (!article || !selectableArticles().some(value => value.id === article.id)) {
+    return <><Header title="Artikeln är inte tillgänglig" back={`/weigh/${draft.id}/materials?${query}`} /><main className="page-body"><Empty title="Välj en annan artikel" text="Artikeln eller dess artikelgrupp har ändrats. Gå tillbaka till materialvalet." /></main></>;
+  }
   const count = article.photos.length;
+  const selectedPhoto = count ? Math.min(photo, count - 1) : 0;
+  const groupId = materialGroupId(article);
   function swipe(x: number, y: number) {
     const start = touch.current;
     touch.current = null;
     if (!start) return;
     const dx = x - start.x,
       dy = y - start.y;
-    if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy))
+    if (count > 1 && Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy))
       setPhoto((p) => (p + (dx < 0 ? 1 : -1) + count) % count);
   }
   function select() {
@@ -223,7 +220,7 @@ export function ArticlePage() {
     <div className="article-screen">
       <Header
         title={article.name}
-        back={`/weigh/${draft.id}/materials/${article.category}?${query}`}
+        back={`/weigh/${draft.id}/materials/${groupId}?${query}`}
       />
       <main className="page-body article-info">
         <div
@@ -232,7 +229,7 @@ export function ArticlePage() {
           aria-label="Materialets exempelbilder"
           tabIndex={0}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            if (count > 1 && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
               e.preventDefault();
               setPhoto(
                 (p) => (p + (e.key === 'ArrowRight' ? 1 : -1) + count) % count,
@@ -253,27 +250,29 @@ export function ArticlePage() {
           }}
         >
           <Photo
-            index={article.photos[photo]}
-            label={`${article.name}, exempel ${photo + 1}`}
+            index={article.photos[selectedPhoto]}
+            variant="full"
+            label={count ? `${article.name}, exempel ${selectedPhoto + 1}` : `${article.name}, referensbild saknas`}
             className="gallery-photo"
           />
-          <button
+          {count > 0 && <button
             className="gallery-zoom"
             aria-label="Förstora referensbild"
             onClick={() => setZoom(true)}
           >
             <Maximize2 size={20} />
-          </button>
-          <div
+          </button>}
+          {count > 1 && <div
             className="overlay-dots"
-            aria-label={`Bild ${photo + 1} av ${count}`}
+            aria-label={`Bild ${selectedPhoto + 1} av ${count}`}
           >
             {article.photos.map((_, i) => (
-              <span key={i} className={i === photo ? 'active' : ''} />
+              <span key={i} className={i === selectedPhoto ? 'active' : ''} />
             ))}
-          </div>
+          </div>}
         </div>
-        <p className="swipe-help">Svep för fler exempel</p>
+        <p className="swipe-help">{count > 1 ? 'Svep för fler exempel' : count === 0 ? 'Referensbilder saknas för artikeln.' : 'Exempelbild'}</p>
+        {article.description && <p className="article-description">{article.description}</p>}
         <div className="classification included">
           <CircleCheck size={21} />
           <div>
@@ -294,9 +293,9 @@ export function ArticlePage() {
           Välj {article.name}
         </Button>
       </footer>
-      {zoom && (
+      {zoom && count > 0 && (
         <Modal
-          title={`${article.name} · ${photo + 1} av ${count}`}
+          title={`${article.name} · ${selectedPhoto + 1} av ${count}`}
           onClose={() => setZoom(false)}
         >
           <div
@@ -312,12 +311,13 @@ export function ArticlePage() {
             }
           >
             <Photo
-              index={article.photos[photo]}
+              index={article.photos[selectedPhoto]}
+              variant="full"
               label={article.name}
               className="zoom-photo"
             />
           </div>
-          <p className="swipe-help">Svep för fler exempel</p>
+          {count > 1 && <p className="swipe-help">Svep för fler exempel</p>}
         </Modal>
       )}
     </div>

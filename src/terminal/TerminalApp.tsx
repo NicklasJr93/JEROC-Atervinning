@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowLeft, Check, CheckCircle2, ChevronDown, CircleAlert, ClipboardList, FileText, HelpCircle, IdCard, LoaderCircle, LockKeyhole, LogOut, Monitor, Printer, ShieldCheck, UserRound, WifiOff, X } from 'lucide-react';
 import { TerminalDemoError, terminalDemoApi } from '../office/terminal-demo-client';
 import { parseTerminalSession, publicApprovalSchema, type PublicApproval, type TerminalSessionState } from '../office/terminal-demo-types';
@@ -9,29 +10,50 @@ type Dialog = 'id' | 'bankid' | null;
 const changeReasons = ['Fel vikt', 'Fel artikel', 'Fel pris', 'Saknat material', 'Annat'];
 const errorLabel = (error: unknown) => error instanceof Error ? error.message : 'Något gick fel. Försök igen.';
 
-function TerminalDialog({ title, children, onClose, busy = false }: { title: string; children: ReactNode; onClose: () => void; busy?: boolean }) {
+function TerminalDialog({ title, children, onClose, busy = false }: { title: string; children: ReactNode; onClose?: () => void; busy?: boolean }) {
   const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  const controlsRef = useRef({ onClose, busy });
+  controlsRef.current = { onClose, busy };
+  useLayoutEffect(() => {
     const previous = document.activeElement;
-    const dialog = dialogRef.current;
-    const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex="0"]') ?? []);
-    focusable()[0]?.focus();
+    const scroll = { x: window.scrollX, y: window.scrollY };
+    const body = document.body, html = document.documentElement;
+    const previousStyles = { position: body.style.position, top: body.style.top, left: body.style.left, width: body.style.width, overflow: body.style.overflow, htmlOverflow: html.style.overflow };
+    // Fixing the body also prevents background touch scrolling on mobile Safari.
+    // Keep its visual position while the portal is anchored to the viewport.
+    Object.assign(body.style, { position: 'fixed', top: `${-scroll.y}px`, left: `${-scroll.x}px`, width: '100%', overflow: 'hidden' });
+    html.style.overflow = 'hidden';
+    const focusable = () => Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), [tabindex="0"]') ?? [])
+      .filter(element => element.getClientRects().length > 0);
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !busy) onClose();
+      if (event.key === 'Escape' && !controlsRef.current.busy) controlsRef.current.onClose?.();
       if (event.key !== 'Tab') return;
       const elements = focusable();
-      if (!elements.length) { event.preventDefault(); return; }
+      if (!elements.length) { event.preventDefault(); dialogRef.current?.focus({ preventScroll: true }); return; }
       const first = elements[0], last = elements.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last.focus({ preventScroll: true }); }
+      if (!event.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) { event.preventDefault(); first.focus({ preventScroll: true }); }
     };
     document.addEventListener('keydown', keydown);
-    return () => { document.removeEventListener('keydown', keydown); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
-  }, [busy, onClose]);
-  return <div className="terminal-dialog-backdrop"><div ref={dialogRef} className="terminal-dialog" role="dialog" aria-modal="true" aria-label={title}>
-    <button className="terminal-dialog-close" aria-label="Stäng" disabled={busy} onClick={onClose}><X size={20} /></button>
+    return () => {
+      document.removeEventListener('keydown', keydown);
+      Object.assign(body.style, { position: previousStyles.position, top: previousStyles.top, left: previousStyles.left, width: previousStyles.width, overflow: previousStyles.overflow });
+      html.style.overflow = previousStyles.htmlOverflow;
+      window.scrollTo({ left: scroll.x, top: scroll.y, behavior: 'instant' });
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, []);
+  useLayoutEffect(() => {
+    const element = dialogRef.current;
+    if (!element) return;
+    element.scrollTop = 0;
+    const first = element.querySelector<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), [tabindex="0"]');
+    (first ?? element).focus({ preventScroll: true });
+  }, [title]);
+  return createPortal(<div className="terminal-dialog-backdrop"><div ref={dialogRef} className="terminal-dialog" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
+    {onClose && <button className="terminal-dialog-close" aria-label="Stäng" disabled={busy} onClick={onClose}><X size={20} /></button>}
     {children}
-  </div></div>;
+  </div></div>, document.body);
 }
 
 
@@ -224,6 +246,8 @@ export default function TerminalApp() {
 
   const closeDialog = useCallback(() => { if (!responding) setDialog(null); }, [responding]);
   const idle = !approval || ['cancelled', 'expired', 'attested'].includes(approval.status);
+  const waitingForId = !idle && approval?.status === 'id_requested';
+  const visibleDialog = approval?.status === 'waiting' ? dialog : null;
 
   return <div className="terminal-app">
     <header className="terminal-header"><img src="/images/jeroc-logo-v2.png" alt="JEROC Återvinning" />
@@ -238,7 +262,7 @@ export default function TerminalApp() {
       <div className={`terminal-welcome-icon${connected ? '' : ' offline'}`}>{connected ? <ShieldCheck size={53} /> : <WifiOff size={48} />}</div>
       <span className="terminal-eyebrow">{session.terminal.name}</span><h1>Välkommen till JEROC</h1><h2>{connected ? 'Invänta personal' : 'Återansluter…'}</h2><p>{connected ? 'Din avräkning visas här när personalen är redo.' : 'Kundvisningen är dold tills anslutningen har återställts.'}</p>
       <div className="terminal-ready"><span className={`terminal-connection-dot${connected ? '' : ' offline'}`} />{connected ? 'Terminalen är redo' : 'Ingen kontakt med servern'}</div>{notice && <p className="terminal-notice">{notice}</p>}
-    </main> : approval.status === 'id_requested' ? <main className="terminal-welcome" aria-live="polite"><div className="terminal-welcome-icon"><IdCard size={52} /></div><h1>Visa din legitimation</h1><h2>Inväntar personalens bekräftelse</h2><p>Kontoristen kontrollerar din legitimation och registrerar godkännandet för den här avräkningen.</p><div className="terminal-waiting"><LoaderCircle size={18} className="terminal-spinner" /> Kontoristen fortsätter på sin skärm</div></main> : approval.status === 'approved' ? <main className="terminal-welcome" aria-live="polite"><div className="terminal-welcome-icon"><CheckCircle2 size={52} /></div><h1>Tack, avräkningen är godkänd</h1><p>Personalen hanterar nästa steg. Kundgodkännandet innebär inte att en utbetalning har genomförts.</p></main> : approval.status === 'change_requested' ? <main className="terminal-welcome" aria-live="polite"><div className="terminal-welcome-icon"><ClipboardList size={52} /></div><h1>Ändringsbegäran skickad</h1><p>Personalen går igenom din kommentar. Du får granska en ny version om avräkningen ändras.</p></main> : <main className="terminal-settlement" key={approvalKey}>
+    </main> : waitingForId ? <main className="terminal-welcome" aria-hidden="true" /> : approval.status === 'approved' ? <main className="terminal-welcome" aria-live="polite"><div className="terminal-welcome-icon"><CheckCircle2 size={52} /></div><h1>Tack, avräkningen är godkänd</h1><p>Personalen hanterar nästa steg. Kundgodkännandet innebär inte att en utbetalning har genomförts.</p></main> : approval.status === 'change_requested' ? <main className="terminal-welcome" aria-live="polite"><div className="terminal-welcome-icon"><ClipboardList size={52} /></div><h1>Ändringsbegäran skickad</h1><p>Personalen går igenom din kommentar. Du får granska en ny version om avräkningen ändras.</p></main> : <main className="terminal-settlement" key={approvalKey}>
       {changeOpen ? <><button className="terminal-back" onClick={() => { setChangeOpen(false); setError(''); }} disabled={responding}><ArrowLeft size={19} /> Tillbaka till avräkningen</button><h1>Begär ändring</h1><p className="terminal-intro">Beskriv vad som inte stämmer så hjälper personalen dig.</p><section className="terminal-seller-card"><div className="terminal-icon-bubble"><UserRound size={27} /></div><div><h2>{approval.snapshot.customerName}</h2><p>Invägningskort INV-{approval.snapshot.cardId} · Version {approval.version}</p></div></section><form className="terminal-change-form" onSubmit={event => { event.preventDefault(); if (comment.trim()) void respond('change_requested'); }}><fieldset><legend><HelpCircle size={21} /> Vad behöver ändras?</legend>{changeReasons.map(reason => <label key={reason} className="terminal-reason"><input type="radio" name="change-reason" value={reason} checked={changeReason === reason} onChange={() => setChangeReason(reason)} disabled={responding} />{reason}</label>)}</fieldset><label htmlFor="terminal-comment"><FileText size={21} /> Beskrivning</label><textarea id="terminal-comment" required maxLength={2000} value={comment} onChange={event => setComment(event.target.value)} placeholder="Beskriv vad som inte stämmer och vad som behöver ändras…" rows={5} disabled={responding} /><span className="terminal-hint">Beskrivning krävs. {comment.length}/2 000 tecken.</span>{error && <p className="terminal-error" role="alert">{error}</p>}<button className="terminal-button blue" disabled={responding || !comment.trim()}>{responding ? 'Skickar…' : 'Skicka begäran'}</button><button type="button" className="terminal-button outline" onClick={() => setChangeOpen(false)} disabled={responding}>Tillbaka</button><p className="terminal-safe-note"><ShieldCheck size={17} />Avräkningen går inte vidare till attest innan ändringen har hanterats och en ny version godkänts.</p></form></> : <>
         <div className="terminal-heading"><div><span className="terminal-eyebrow">AVRÄKNINGSNOTA</span><h1>Granska och godkänn din avräkning</h1><p className="terminal-intro">Kontrollera material, vikt och belopp innan du godkänner.</p></div></div>
         <SettlementView settlement={approval.snapshot} />
@@ -249,7 +273,10 @@ export default function TerminalApp() {
       </>}
     </main>}
     <footer className="terminal-footer"><span>DEMO · Inga riktiga betalningar eller BankID-signeringar</span>{session && <small>{session.terminal.name}</small>}</footer>
-    {dialog === 'id' && approval && <TerminalDialog title="Manuell verifiering" onClose={closeDialog} busy={responding}><div className="terminal-dialog-icon"><IdCard size={36} /></div><h2>Manuell verifiering</h2><p>Visa din legitimation för kontoristen så att identiteten kan kontrolleras.</p><div className="terminal-dialog-info"><ShieldCheck size={22} /><span>Godkännandet registreras först när personalen har kontrollerat legitimationen och bekräftat på sin skärm.</span></div><p className="terminal-dialog-method">Fysisk legitimation · avräkningsversion {approval.version}</p>{error && <p className="terminal-error" role="alert">{error}</p>}<button className="terminal-button green" disabled={responding} onClick={() => void respond('id_requested')}>{responding ? 'Skickar till personal…' : 'Okej'}</button><button className="terminal-button outline" disabled={responding} onClick={closeDialog}>Avbryt</button></TerminalDialog>}
-    {dialog === 'bankid' && approval && <TerminalDialog title="BankID – demoläge" onClose={closeDialog}><div className="terminal-dialog-icon"><ShieldCheck size={37} /></div><span className="terminal-demo-label">DEMO</span><h2>BankID är inte anslutet</h2><p>I den färdiga kopplingen signerar du med BankID på din egen mobil. Här utförs ingen signering eller identitetskontroll.</p><div className="terminal-dialog-info"><IdCard size={22} /><span>För att prova terminalflödet väljer du Godkänn med legitimation. Personalen fortsätter sedan från kontorets vy.</span></div><button className="terminal-button outline" onClick={closeDialog}>Tillbaka till avräkningen</button></TerminalDialog>}
+    {approval && (waitingForId || visibleDialog) && <TerminalDialog key={`terminal-dialog:${approvalKey}`}
+      title={waitingForId ? 'Visa din legitimation' : visibleDialog === 'id' ? 'Manuell verifiering' : 'BankID – demoläge'}
+      onClose={waitingForId ? undefined : closeDialog} busy={responding}>
+      {waitingForId ? <><div className="terminal-dialog-icon"><IdCard size={36} /></div><h2>Visa din legitimation</h2><h3 className="terminal-dialog-waiting-title">Inväntar personalens bekräftelse</h3><p>Visa din legitimation för kontoristen. Personalen kontrollerar identiteten och registrerar godkännandet på sin skärm.</p><div className="terminal-waiting" role="status"><LoaderCircle size={18} className="terminal-spinner" /> Kontoristen fortsätter på sin skärm</div><p className="terminal-dialog-method">Fysisk legitimation · avräkningsversion {approval.version}</p></> : visibleDialog === 'id' ? <><div className="terminal-dialog-icon"><IdCard size={36} /></div><h2>Manuell verifiering</h2><p>Visa din legitimation för kontoristen så att identiteten kan kontrolleras.</p><div className="terminal-dialog-info"><ShieldCheck size={22} /><span>Godkännandet registreras först när personalen har kontrollerat legitimationen och bekräftat på sin skärm.</span></div><p className="terminal-dialog-method">Fysisk legitimation · avräkningsversion {approval.version}</p>{error && <p className="terminal-error" role="alert">{error}</p>}<button className="terminal-button green" disabled={responding} onClick={() => void respond('id_requested')}>{responding ? 'Skickar till personal…' : 'Okej'}</button><button className="terminal-button outline" disabled={responding} onClick={closeDialog}>Avbryt</button></> : <><div className="terminal-dialog-icon"><ShieldCheck size={37} /></div><span className="terminal-demo-label">DEMO</span><h2>BankID är inte anslutet</h2><p>I den färdiga kopplingen signerar du med BankID på din egen mobil. Här utförs ingen signering eller identitetskontroll.</p><div className="terminal-dialog-info"><IdCard size={22} /><span>För att prova terminalflödet väljer du Godkänn med legitimation. Personalen fortsätter sedan från kontorets vy.</span></div><button className="terminal-button outline" onClick={closeDialog}>Tillbaka till avräkningen</button></>}
+    </TerminalDialog>}
   </div>;
 }

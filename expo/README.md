@@ -22,7 +22,7 @@ Om Mac inte kör filen när du dubbelklickar: öppna Terminal i projektmappen oc
 
 Om datorns brandvägg frågar, tillåt anslutning på det privata nätverket. Appdelen använder port 4173, Expo port 8081. Startfilen kan använda en redan startad JEROC-demo på 4173 och stänger då inte den när du avslutar Expo.
 
-**Inget skickas till kontoret.** Utkast finns lokalt i Expo-appens WebView. De synkas inte med datorn eller mobilens vanliga webbläsare. Behåll samma datoradress när du fortsätter ett test, eftersom lagringen är knuten till adressen. Datorns appserver behövs även när Expo Go är öppet.
+**Mobil och kontor delar serverdata.** Expo visar samma mobilwebb som webbläsaren: utkast sparas på servern och färdiga vägningar visas på kontoret. Artikelgrupper, bilder och instruktioner hämtas från kontorets register. WebView har dessutom en lokal återhämtningscache för arbete som väntar på sparning. Använd samma JEROC-serveradress på mobilen och kontoret. Vid lokal testning behöver datorns appserver vara igång även när Expo Go är öppet.
 
 ## Utveckling
 

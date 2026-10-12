@@ -753,6 +753,32 @@ select:focus {
   background-repeat: no-repeat;
   background-color: #d7e1e6;
 }
+.material-photo-upload {
+  display: block;
+  object-fit: cover;
+  background-image: none;
+}
+.material-photo-missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8a9bac;
+  background-image: none;
+  background-color: #edf2f6;
+}
+.material-photo-missing svg {
+  width: 28px;
+  height: 28px;
+}
+.gallery-photo.material-photo-missing svg {
+  width: 54px;
+  height: 54px;
+}
+.article-description {
+  color: #536576;
+  font-size: 13px;
+  line-height: 1.6;
+}
 .material-list {
   display: flex;
   flex-direction: column;

@@ -1530,3 +1530,37 @@ Status: Klickbara mockuper framtagna 2026-10-12. Funktionerna är inte byggda.
 - Klickbar prototyp och 15 bilder: public/mockups/roll-dashboard/index.html
   samt docs/mockups/roll-dashboard/README.md. Lokala exempel och inget API.
   Outlook-anslutning, AI-provider och liveleveranser återstår att bygga.
+
+076 – Dynamiska artikelgrupper, egna bilder och terminalens ID-dialog
+Status: Implementerad i kontorsdemo 0.17.0 och gårdsapp 0.4.0, 2026-10-12.
+- Artikelöversiktens rubrik, flikar, sök/filter och tabellrubriker ligger
+  kvar när listan scrollas. LME Cash nås via fliken under Artiklar & priser;
+  separat huvudmenyval tas bort. Artikeldetaljen har breadcrumbs och
+  tillbaka-knapp i stället för översiktens flikar.
+- Fliken Artikelgrupper hanterar huvudgrupper och undergrupper med namn,
+  bild, beskrivning, sorteringsordning och aktivstatus. Huvudgrupper kan
+  innehålla artiklar direkt. Gruppdetaljen visar sina tillhörande artiklar.
+- Artikelns grupp och undergrupp väljs med dropdowns. Ingen innebär Övrigt
+  i appen. Inaktiva grupper/undergrupper och deras artiklar döljs i appen,
+  medan registerkopplingarna behålls. Grupprevision skyddar samtidiga ändringar.
+- Egna bilder kan kombineras med demobibliotekets 40 exempel. Högst sex
+  bilder per artikel och en per grupp; huvudbild och ordning kan ändras.
+  JPEG/PNG/WebP/AVIF, högst 10 MB. Servern kontrollerar filen, tar bort EXIF
+  och sparar fullbild högst 1600 px och miniatyr högst 400 px som WebP.
+- Bilder och metadata lagras beständigt i PostgreSQL. UUID-referenser
+  kontrolleras före sparande; gamla filer skrivs inte över. Befintlig
+  DATABASE_URL används, inga nya Renderfält behövs.
+- Mobilmenyn och prislistan hämtar grupper, bilder och texter från samma
+  serverregister. Kontoret har mobilförhandsvisning. Befintliga appgrupper
+  migreras med stabila ID:n och artikelkopplingarna bevaras; prishistorik,
+  miljöunderlag och frysta ekonomisnapshots ändras inte. Pris, momsregel och
+  artikelaktivitet följer fortfarande inlämningsdatumets regler.
+- Terminalens fysiska ID-instruktion ligger i synlig viewport även efter
+  scrollning. Eget dialoginnehåll börjar överst, bakgrunden scrollåses och
+  Avbryt återställer scroll/fokus. Aktuell version och personalens kontroll
+  krävs fortsatt före kundgodkännande och attest.
+- Verifierat: full serversvit 506 tester, 483 passerade och 23
+  miljöberoende överhoppade; separat PostgreSQL 32/32. Riktade browserfall
+  täcker kontorets grupper/bilder/stickyvy, mobilmeny/sökning och terminalens
+  ID-popup/återanslutning. Kontrollerna avser testmiljöer, inte aktuell drift.
+- Provflöde och lagringsbeskrivning: docs/article-catalog.md.

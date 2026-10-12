@@ -1,0 +1,29 @@
+.office-catalog-image{display:inline-flex;width:46px;height:46px;flex-shrink:0;align-items:center;justify-content:center;border-radius:8px;background-repeat:no-repeat;background-color:#edf4fc;object-fit:cover;overflow:hidden;vertical-align:middle}
+.office-catalog-image.large{width:78px;height:78px;border-radius:11px}
+.office-catalog-image.empty{color:#7894b5;border:1px solid #e2ebf6}
+.office-article-images{min-width:0;display:grid;gap:10px;margin:4px 0 0}
+.office-article-images-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.office-article-images-selected{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(106px,1fr));gap:9px}
+.office-article-images-selected li{min-width:0;padding:7px;border:1px solid #e1eaf5;border-radius:9px;background:#fff}
+.office-article-images-selected .office-catalog-image{display:flex;width:100%;height:auto;aspect-ratio:1.35;border-radius:6px}
+.office-article-images-caption{display:flex;align-items:center;justify-content:center;gap:4px;min-height:26px;color:#617996;font-size:10px;font-weight:600}
+.office-article-images-selected li:first-child{border-color:#b7d4fb;background:#f8fbff}
+.office-article-images-selected li:first-child .office-article-images-caption{color:#0868ef}
+.office-article-images-tools{display:flex;justify-content:center;gap:3px}
+.office-article-images-tools button{display:flex;align-items:center;justify-content:center;width:24px;height:26px;background:#fff;border:1px solid #e1eaf5;border-radius:5px;padding:0;color:#617996}
+.office-article-images-tools button:hover:not(:disabled){background:#edf5ff;color:#0868ef;border-color:#b5d1f8}
+.office-article-images-tools button:disabled{opacity:.38;cursor:default}
+.office-article-images-library{display:grid;grid-template-columns:repeat(auto-fill,minmax(53px,1fr));gap:6px;padding:10px;background:#f5f8fc;border:1px solid #e1eaf5;border-radius:9px;max-height:330px;overflow:auto}
+.office-article-images-library button{position:relative;display:flex;aspect-ratio:1;min-width:0;padding:3px;background:#fff;border:2px solid transparent;border-radius:7px}
+.office-article-images-library button.selected{border-color:#0868ef}
+.office-article-images-library .office-catalog-image{width:100%;height:100%;border-radius:4px}
+.office-article-images-library button>svg{position:absolute;right:1px;bottom:1px;padding:2px;box-sizing:content-box;border-radius:50%;color:#fff;background:#0868ef}
+.office-article-images-library button:disabled:not(.selected){opacity:.5}
+.office-article-images-help{color:#8497ae;font-size:10px;line-height:1.5;margin:0}
+.office-article-images-error{border:1px solid #f3c7c4;background:#fff4f3;color:#b24741;border-radius:7px;padding:9px 11px;font-size:11px;line-height:1.5}
+.office-article-images-progress{display:flex;align-items:center;gap:6px;color:#4d78ad;font-size:11px}
+.office-article-image-spinner{animation:office-article-image-spin 1s linear infinite}
+@keyframes office-article-image-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.office-article-image-spinner{animation:none}}
+/* Office form rules must not expose the native picker behind the upload button. */
+.office-article-images input[type='file'][hidden]{display:none!important}

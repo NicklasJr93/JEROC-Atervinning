@@ -1,4 +1,43 @@
-# JEROC kontorsdemo 0.16.0
+# JEROC kontorsdemo 0.17.0
+
+## Nytt i 0.17.0 – artikelgrupper, egna bilder och terminalens ID-popup
+
+Artikelöversiktens rubrik, flikar och sök/filter ligger kvar när artikellistan
+scrollas. LME Cash finns som flik under **Artiklar & priser**; den separata
+länken i vänstermenyn är borttagen. När en artikel öppnas ersätts översiktens
+flikar av breadcrumbs och tillbaka-knapp till artikellistan.
+
+Fliken **Artikelgrupper** administrerar huvudgrupper och undergrupper med namn,
+bild, beskrivning, sorteringsordning och aktivstatus. En huvudgrupp kan innehålla
+både artiklar och undergrupper. Gruppdetaljen visar tillhörande artiklar.
+Befintliga appkategorier förs över med stabila ID:n; lagrade artikelkopplingar
+och tidigare pris-/miljöunderlag bevaras.
+
+Artikeldetaljen har dropdowns för **Artikelgrupp** och **Undergrupp**. Ingen
+placering innebär **Övrigt** i gårdsappen. Befintliga beskrivningar och
+Ingår/Ingår inte återanvänds. Grupperna och artikelpresentationen hämtas från
+servern, och en mobilförhandsvisning visar resultatet i kontoret.
+
+Utöver demobiblioteket kan egna JPEG-, PNG-, WebP- och AVIF-bilder laddas upp.
+En artikel kan ha upp till sex bilder, en grupp en bild. Bildordningen kan
+ändras och första bilden används som huvudbild. Servern kontrollerar och
+storleksanpassar filen, tar bort EXIF och sparar två WebP-varianter beständigt
+i PostgreSQL. Bilderna kräver inga nya Renderfält.
+
+Terminalens instruktion för fysisk legitimation öppnas mitt i den synliga
+skärmen även om kunden står längst ner på avräkningen. Dialogens eget innehåll
+börjar överst, bakgrunden scrollåses och Avbryt återställer scroll och fokus.
+Personalens godkännande och kontrollen av aktuell granskningsversion behålls.
+
+Kontorsversionen är **0.17.0** och gårdsappens version **0.4.0**.
+Fulla serversviten omfattade 506 tester: 483 passerade och 23
+miljöberoende tester hoppades över. Dessutom passerade 32 tester mot isolerad
+PostgreSQL, samt riktade webbläsarfall för kontorets grupper/bilder/stickyvy,
+mobilens dynamiska meny och terminalens ID-dialog efter scrollning.
+Kontrollerna gäller testmiljöerna; aktuell Render-deploy eller drift har inte
+verifierats av dessa körningar.
+
+Se [artikelregistret och provflödet](article-catalog.md).
 
 ## Nytt i 0.16.0 – ekonomiinställningar och Spiris-export
 

@@ -10,9 +10,11 @@ import {
   Nav,
   Modal,
 } from '../components';
-import { articles, demoCustomerPrice, type Article } from '../data';
+import { articles, demoCustomerPrice, selectableArticles, type Article } from '../data';
 import { money } from '../model';
 import { useDemo } from '../store';
+
+const shownPrice = (price: number | null) => price == null ? '—' : money(price);
 
 function usePriceContext() {
   const { data } = useDemo();
@@ -111,7 +113,7 @@ export function PricesPage() {
   useEffect(() => {
     listRef.current?.scrollTo(0, 0);
   }, [search]);
-  const filtered = articles.filter((a) =>
+  const filtered = selectableArticles().filter((a) =>
     `${a.name} ${a.description}`.toLowerCase().includes(search.toLowerCase()),
   );
   return (
@@ -177,7 +179,7 @@ export function PricesPage() {
               {customer ? (
                 <span className="customer-price-value">
                   <strong>
-                    {money(demoCustomerPrice(customer.id, a).price)}
+                    {shownPrice(demoCustomerPrice(customer.id, a).price)}
                   </strong>
                   <small
                     className={`badge ${demoCustomerPrice(customer.id, a).source === 'Specialpris' ? 'green' : 'blue'}`}
@@ -188,7 +190,7 @@ export function PricesPage() {
               ) : (
                 a.prices.map((price, index) => (
                   <span className={`price-value tier-${index}`} key={index}>
-                    {money(price)}
+                    {shownPrice(price)}
                   </span>
                 ))
               )}
@@ -236,12 +238,13 @@ function PriceTrend({
 }) {
   const [period, setPeriod] = useState(12);
   const start = 12 - period;
-  const series = article.prices.map((price) =>
+  const series = article.prices.map((price) => price == null ? [] :
     factors.slice(start).map((f) => Math.round(price * f * 100) / 100),
   );
   const values = series
     .flat()
     .concat(customerPrice == null ? [] : [customerPrice]);
+  if (!values.length) return <section className="article-price-panel"><h2>Prisutveckling</h2><p className="muted">Pris saknas. Kontoret behöver komplettera prissättningen.</p></section>;
   const min = Math.min(...values),
     max = Math.max(...values);
   const span = Math.max(max - min, max * 0.15, 0.1);
@@ -312,7 +315,7 @@ function PriceTrend({
             {months[start + i]}
           </text>
         ))}
-        {series.map((prices, tier) => (
+        {series.map((prices, tier) => prices.length > 0 && (
           <g key={tier}>
             <polyline
               fill="none"
@@ -393,8 +396,10 @@ export function ArticlePricesPage() {
         <Nav />
       </>
     );
-  const quote = customer && demoCustomerPrice(customer.id, article);
-  const difference = (base: number) => {
+  const quoted = customer && demoCustomerPrice(customer.id, article);
+  const quote = quoted && quoted.price != null ? { ...quoted, price: quoted.price } : undefined;
+  const difference = (base: number | null) => {
+    if (base == null) return '—';
     const diff = Math.round((quote!.price - base) * 100) / 100;
     return `${diff > 0 ? '+' : diff < 0 ? '−' : ''}${money(Math.abs(diff))}`;
   };
@@ -440,10 +445,10 @@ export function ArticlePricesPage() {
                         <i style={{ background: colors[i] }} />
                         {['A', 'B', 'C'][i]}
                       </th>
-                      <td>{money(price)}</td>
+                      <td>{shownPrice(price)}</td>
                       <td
                         className={
-                          quote.price >= price
+                          price != null && quote.price >= price
                             ? 'price-positive'
                             : 'price-negative'
                         }
@@ -466,7 +471,7 @@ export function ArticlePricesPage() {
                     <i style={{ background: colors[i] }} />
                     {['A', 'B', 'C'][i]}
                   </span>
-                  <strong>{money(price)}</strong>
+                  <strong>{shownPrice(price)}</strong>
                   <small>kr/kg</small>
                 </div>
               ))}

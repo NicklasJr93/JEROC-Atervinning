@@ -10,8 +10,9 @@ import { createTerminalDemoApi } from './terminal-demo.mjs';
 import { createEnvironmentApi } from './environment-api.mjs';
 import { createDocumentsApi } from './documents/api.mjs';
 import { renderPdf } from './documents/render.mjs';
-import { PricingError, createPricingStore } from './pricing.mjs';
+import { PricingError, createPricingStore, getArticleMediaReferences } from './pricing.mjs';
 import { createVismaSandbox } from './visma-sandbox.mjs';
+import { createArticleMediaApi } from './article-media.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -76,6 +77,7 @@ async function handle(req, res) {
       'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' });
     res.end(); return;
   }
+  if (await articleMediaApi(req, res, url)) return;
   if (await applicationApi(req, res, url)) return;
   if (await documentsApi(req, res, url)) return;
   if (pathname.startsWith("/api/terminal-demo") || pathname.startsWith("/api/environment")) {
@@ -164,8 +166,20 @@ const applicationApi = createApplicationService({ approvalProvider: () => termin
   environmentProvider: () => environmentApi.getLogisticsSource(),
   accountingSettingsProvider: customer => vismaService.financeSettingsForCompany(customer),
   accountingCardStatusProvider: cardId => vismaService.cardExportProjection(cardId),
+  validateArticleMedia: async (route, input) => {
+    const references = getArticleMediaReferences(route, input);
+    if (references.length && !await articleMediaApi.hasImages(references))
+      throw new PricingError('En uppladdad bild saknas. Ladda upp bilden igen innan du sparar.', 422);
+  },
 });
 const principalStore = applicationApi.principalStore;
+const articleMediaApi = createArticleMediaApi({ authorize: req => applicationApi.withPrincipal(() => {
+  const actor = req.headers['x-demo-actor'];
+  const user = req.headers['x-demo-user'] ?? actor;
+  if (typeof actor !== 'string' || typeof user !== 'string')
+    throw new PricingError('Välj ett giltigt konto innan du laddar upp en bild.', 401);
+  return principalStore.principal(actor, user);
+}) });
 const vismaService = createVismaSandbox({ getRepository: () => applicationApi.getRepository(),
   sourceProvider: () => terminalDemoApi.documentProjections(), sitesProvider: () => environmentApi.getSites(),
   authorizeContext: async context => {
@@ -238,6 +252,7 @@ server.on('error', (error) => {
 // Complete migrations/seeding before accepting a request. Read-only snapshots
 // and SSE reconnects never need to initialize another repository while open.
 await applicationApi.getRepository();
+await articleMediaApi.ready();
 await environmentApi.initialize();
 await terminalDemoApi.initialize?.();
 // Discover committed attests after a restart as well as through the immediate
@@ -254,7 +269,7 @@ async function stop(code = 0) {
   stopping = true;
   clearInterval(accountingTimer);
   setTimeout(() => process.exit(1), 10000).unref();
-  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close()]);
+  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close()]);
   process.exit(code);
 }
 process.on('SIGTERM', () => stop());

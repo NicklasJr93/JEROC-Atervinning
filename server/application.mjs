@@ -366,14 +366,19 @@ function requestPrincipal(store, req) {
 
 export function createApplicationService({ repository, env = process.env, projections, approvalProvider = async () => [], sendCustomerReview,
   withMaterialChangeApproval, guardMaterialChange, siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider,
-  accountingSettingsProvider, accountingCardStatusProvider } = {}) {
+  accountingSettingsProvider, accountingCardStatusProvider, validateArticleMedia } = {}) {
   projections ??= approvalProvider;
   const context = new AsyncLocalStorage(); let fallback = createPricingStore(); let repoPromise;
   const getRepo = () => repoPromise ??= (repository ? Promise.resolve(repository) : createApplicationRepository({ env, seed: initialApplicationState }))
     .then(async value => {
       // Legacy personnel seeding changes planning IDs/timestamps. Persist it
       // once at startup; never generate a different plan in each read-copy.
-      await value.transact(state => { ensurePersonnel(state); refreshStaffingTasks(state); });
+      await value.transact(state => {
+        ensurePersonnel(state); refreshStaffingTasks(state);
+        // Persist catalog upgrades once. Existing article revisions, financial
+        // snapshots and category IDs are retained by the pricing migration.
+        state.pricing = createPricingStore({ initialState: state.pricing }).exportState();
+      });
       return value;
     }).catch(error => { repoPromise = undefined; throw error; });
   const principalStore = new Proxy({}, { get: (_, key) => key === 'runFresh' ? withPrincipal : typeof (context.getStore()?.pricing ?? fallback)[key] === 'function' ? (...args) => (context.getStore()?.pricing ?? fallback)[key](...args) : undefined });
@@ -679,7 +684,8 @@ export function createApplicationService({ repository, env = process.env, projec
         // day. Taking the UTC date prefix selects yesterday after local midnight.
         const mobileDeliveredAt = new Date().toISOString();
         const mobileBusinessDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(mobileDeliveredAt));
-        const catalog = domain === 'mobile' ? mobilePricing.read(catalogPrincipal, mobileBusinessDate).articles.map(article => ({ id: article.id, active: article.active, category: article.category, taxCategory: article.taxCategory, name: article.name, description: article.description, includes: article.includes.join('\n'), excludes: article.excludes.join('\n'), photos: article.photos, prices: ['A', 'B', 'C'].map(tier => article.prices[tier]) })) : undefined;
+        const mobileCatalog = domain === 'mobile' ? mobilePricing.read(catalogPrincipal, mobileBusinessDate) : undefined;
+        const catalog = mobileCatalog?.articles.map(article => ({ id: article.id, active: article.active, category: article.category, taxCategory: article.taxCategory, name: article.name, description: article.description, includes: article.includes.join('\n'), excludes: article.excludes.join('\n'), photos: article.photos, prices: ['A', 'B', 'C'].map(tier => article.prices[tier]) }));
         const customerPrices = {};
         if (domain === 'mobile') for (const customer of state.office.customers) {
           customerPrices[customer.id] = {};
@@ -691,13 +697,14 @@ export function createApplicationService({ repository, env = process.env, projec
               // configured. Omit that quote, preserving all other customer data;
               // permissions, invalid agreements and unexpected errors still fail.
               if (error instanceof PricingError && error.status === 422 &&
-                [ `Artikeln ${article.id} saknar inställningar på inlämningsdagen.`, `LME-pris saknas för ${article.name} på inlämningsdagen.` ].includes(error.message)) continue;
+                (error.message === `Artikeln ${article.id} saknar inställningar på inlämningsdagen.` ||
+                  error.message.startsWith('LME-pris saknas för ') && error.message.endsWith(' på inlämningsdagen.'))) continue;
               throw error;
             }
             customerPrices[customer.id][article.id] = { price: quote.rows[0].price, source: quote.rows[0].tier };
           }
         }
-        return { data: clone(domain === 'office' ? officeView(state, p) : state[domain]), catalog, customerPrices: domain === 'mobile' ? customerPrices : undefined, revision, storage: 'database', storageKind: (await getRepo()).kind, demo: true, deliveryEnabled: false,
+        return { data: clone(domain === 'office' ? officeView(state, p) : state[domain]), catalog, groups: mobileCatalog?.groups, customerPrices: domain === 'mobile' ? customerPrices : undefined, revision, storage: 'database', storageKind: (await getRepo()).kind, demo: true, deliveryEnabled: false,
           importConflicts, importArchived: Boolean(payload?.importData), importNotice: payload?.importData ? 'Tidigare testdata har arkiverats på servern. Befintliga serverkort och ekonomiska original har inte skrivits över.' : undefined };
       };
       const result = await (req.method === 'GET' && repository.read
@@ -723,7 +730,7 @@ export function createApplicationService({ repository, env = process.env, projec
       const operate = async (state, _, audit = []) => {
         const pricing = createPricingStore({ initialState: state.pricing });
         const outbox = createTransportOutbox({ initialState: state.outbox });
-        await context.run({ pricing }, () => pricingRoute ? createPricingApi({ store: pricing })(req, buffered, url) : createTransportIntegrationsApi({ principalStore: pricing, outbox })(req, buffered, url));
+        await context.run({ pricing }, () => pricingRoute ? createPricingApi({ store: pricing, validateMediaReferences: validateArticleMedia })(req, buffered, url) : createTransportIntegrationsApi({ principalStore: pricing, outbox })(req, buffered, url));
         if (status < 400) {
           const next = pricing.exportState();
           if (!equal(next, state.pricing)) audit.push({ action: 'pricing.changed', actualUserId: req.headers['x-demo-actor'], effectiveUserId: req.headers['x-demo-user'] });

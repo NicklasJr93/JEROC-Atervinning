@@ -17,7 +17,6 @@ import {
   Printer,
   Plus,
   X,
-  TrendingUp,
   Download,
   Truck,
   Monitor,
@@ -47,6 +46,7 @@ import ElectricFocusBorder from './ElectricFocusBorder';
 import QuickCustomerModal from './QuickCustomerModal';
 import AddWeighingArticleModal from './AddWeighingArticleModal';
 import EditWeighingRowModal from './EditWeighingRowModal';
+import CatalogImage from './CatalogImage';
 import { changeWeighingMaterial, type MaterialCommand } from './weighing-material-client';
 import StaffAccountPanel from './personnel/StaffAccountPanel';
 import { EnvironmentSessionProvider } from './EnvironmentSession';
@@ -259,6 +259,9 @@ export function OfficeApp() {
     }
   }
   const section = location.pathname.split('/')[1] || 'dashboard';
+  useEffect(() => {
+    if (section === 'lme') navigate('/prices?tab=lme', { replace: true });
+  }, [section, navigate]);
   const nvvSandboxView = location.pathname === '/integrations/nvv-test';
   const vismaSandboxView = location.pathname === '/integrations/visma-test';
   const selectedId = Number(location.pathname.split('/')[2]);
@@ -711,12 +714,6 @@ export function OfficeApp() {
       icon: FileText,
       right: 'prices',
     },
-    {
-      id: 'lme',
-      name: 'LME Cash',
-      icon: TrendingUp,
-      right: 'lmeRead',
-    },
     { id: 'integrations', name: 'Integrationer', icon: PlugZap, right: 'integrationsRead' },
     { id: 'environment', name: 'Miljörapportering', icon: Leaf, right: 'environmentRead' },
     { id: 'facilities', name: 'Anläggningar', icon: Building2, right: 'environmentRead' },
@@ -1083,6 +1080,7 @@ export function OfficeApp() {
       can(user, 'environmentRead') ||
       can(user, 'environmentClassify') ||
       can(user, 'customerPrices') ||
+      can(user, 'lmeRead') ||
       can(user, 'customerPriceEdit'));
   const terminalAdminDenied = section === 'terminals' && user?.level !== 'Systemadmin';
   const nvvSandboxDenied = nvvSandboxView && (user?.level !== 'Systemadmin' || actualUser?.level !== 'Systemadmin' || !!user?.siteIds || !!actualUser?.siteIds || !can(user, 'environmentIntegration'));
@@ -1435,7 +1433,7 @@ export function OfficeApp() {
                             <tr key={i}>
                               <td>
                                 <span className="office-material">
-                                  <MaterialImage id={r.articleId} />
+                                  <MaterialImage id={r.articleId} state={pricing} />
                                   {(r.articleName ?? articleById(r.articleId)?.name ?? r.articleId)}
                                 </span>
                               </td>
@@ -2256,6 +2254,10 @@ export function OfficeApp() {
               section={
                 section === 'lme'
                   ? 'lme'
+                  : new URLSearchParams(location.search).get('tab') === 'lme'
+                    ? 'lme'
+                    : new URLSearchParams(location.search).get('tab') === 'article-groups'
+                      ? 'article-groups'
                   : new URLSearchParams(location.search).get('tab') ===
                       'customer-prices'
                     ? 'customer-prices'
@@ -2264,7 +2266,9 @@ export function OfficeApp() {
               onSectionChange={(next) =>
                 navigate(
                   next === 'lme'
-                    ? '/lme'
+                    ? '/prices?tab=lme'
+                    : next === 'article-groups'
+                      ? '/prices?tab=article-groups'
                     : next === 'customer-prices'
                       ? '/prices?tab=customer-prices'
                       : '/prices',
@@ -2332,22 +2336,11 @@ function Status({ status }: { status: OfficeCard['status'] }) {
     </span>
   );
 }
-function MaterialImage({ id }: { id: string }) {
+function MaterialImage({ id, state }: { id: string; state?: PricingState }) {
   const a = articleById(id),
-    cell = a?.photos[0];
+    cell = state?.articles.find(article => article.id === id)?.photos[0] ?? a?.photos[0];
   if (cell === undefined) return <span className="office-material-image" role="img" aria-label={`${a?.name ?? id} · referensbild saknas`}><Battery size={24} /></span>;
-  return (
-    <span
-      className="office-material-image"
-      role="img"
-      aria-label={a?.name ?? id}
-      style={{
-        backgroundImage: `url(${cell >= 28 ? '/images/copper-grades.png' : '/images/materials.png'})`,
-        backgroundSize: cell >= 28 ? '400% 300%' : '400% 700%',
-        backgroundPosition: `${(((cell >= 28 ? cell - 28 : cell) % 4) * 100) / 3}% ${(Math.floor((cell >= 28 ? cell - 28 : cell) / 4) * 100) / (cell >= 28 ? 2 : 6)}%`,
-      }}
-    />
-  );
+  return <CatalogImage image={cell} alt={a?.name ?? id} className="office-material-image" />;
 }
 function CardTable({
   cards,

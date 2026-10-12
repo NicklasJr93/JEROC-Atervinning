@@ -6,6 +6,8 @@ import {
   type ReactNode,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import CatalogImage from './CatalogImage';
+import { articleGroupPath, sortArticleGroups } from '../catalog-types';
 import {
   ArrowLeft,
   Building2,
@@ -157,19 +159,7 @@ function Photo({ id, state }: { id: string; state?: PricingState }) {
     state?.articles.find((a) => a.id === id)?.photos[0] ??
     articles.find((a) => a.id === id)?.photos[0] ??
     0;
-  const extra = photo >= 28,
-    cell = extra ? photo - 28 : photo;
-  return (
-    <span
-      className="customer-photo"
-      aria-hidden="true"
-      style={{
-        backgroundImage: `url(${extra ? '/images/copper-grades.png' : '/images/materials.png'})`,
-        backgroundSize: extra ? '400% 300%' : '400% 700%',
-        backgroundPosition: `${((cell % 4) * 100) / 3}% ${(Math.floor(cell / 4) * 100) / (extra ? 2 : 6)}%`,
-      }}
-    />
-  );
+  return <CatalogImage image={photo} alt={state?.articles.find(article => article.id === id)?.name ?? id} className="customer-photo" />;
 }
 function Metric({
   icon,
@@ -1633,7 +1623,7 @@ function CustomerPrices({
   const list = (state?.articles ?? []).filter(
     (a) =>
       a.active &&
-      (!category || a.category === category) &&
+      (!category || (category === '__ungrouped__' ? !a.category : a.category === category || state?.groups?.some(group => group.id === a.category && group.parentId === category))) &&
       a.name.toLowerCase().includes(search.toLowerCase()),
   );
   const rules = sortedRules(
@@ -1676,9 +1666,10 @@ function CustomerPrices({
               onChange={(e) => setCategory(e.target.value)}
             >
               <option value="">Alla material</option>
-              {categories.map((c) => (
+              <option value="__ungrouped__">Ingen grupp / Övrigt</option>
+              {(state.groups ? sortArticleGroups(state.groups) : categories).map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {state.groups ? articleGroupPath(state.groups, c.id).map(group => group.name).join(' / ') : c.name}
                 </option>
               ))}
             </select>

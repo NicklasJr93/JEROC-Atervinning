@@ -963,3 +963,51 @@
     grid-template-columns: repeat(6, 1fr);
   }
 }
+
+/* The overview owns its scrolling list so headings, tabs and filters never
+   leave the viewport or overlap another sticky header. Detail forms retain
+   ordinary page scrolling. */
+.office-pricing-overview {
+  height: var(--pricing-available-height, calc(100dvh - 145px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.office-pricing-overview > .office-pricing-heading,
+.office-pricing-overview > .office-pricing-tabs,
+.office-pricing-overview > .office-pricing-stats,
+.office-pricing-overview > .office-pricing-error {
+  flex-shrink: 0;
+}
+.office-pricing-overview .office-pricing-heading { margin-bottom: 12px; }
+.office-pricing-overview .office-pricing-stats { margin-bottom: 12px; }
+.office-pricing-overview .office-pricing-stat { padding: 12px; }
+.office-pricing-tabs,
+.office-pricing-toolbar { position: static; }
+.office-pricing-overview .office-pricing-grid { flex: 1; min-height: 0; align-items: stretch; }
+.office-pricing-overview .office-pricing-article-panel { display: flex; flex-direction: column; margin: 0; min-height: 0; }
+.office-pricing-overview .office-pricing-toolbar { flex-shrink: 0; }
+.office-pricing-overview .office-pricing-table-wrap { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.office-pricing-overview .office-pricing-table th { position: sticky; top: 0; z-index: 2; box-shadow: 0 1px #e6edf6; }
+.office-pricing-overview .office-pricing-footer { flex-shrink: 0; padding-top: 10px; }
+.office-pricing-overview .office-pricing-aside { overflow-y: auto; min-height: 0; }
+.office-pricing-breadcrumbs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 13px; color: #8294ab; font-size: 11px; }
+.office-pricing-breadcrumbs button { background: transparent; border: 0; color: #3d76be; padding: 0; font-size: 11px; }
+.office-pricing-breadcrumbs > span { color: #445d7e; }
+.office-pricing-app-settings > p { font-size: 11px; margin-top: 7px; }
+@media(max-width:1050px) {
+  .office-pricing-overview .office-pricing-aside { display: none; }
+}
+@media(max-width:700px) {
+  .office-pricing-overview .office-pricing-heading { flex-direction: row; flex-wrap: wrap; gap: 9px; }
+  .office-pricing-overview .office-pricing-heading p,
+  .office-pricing-overview .office-eyebrow,
+  .office-pricing-overview .office-pricing-stats { display: none; }
+  .office-pricing-overview .office-pricing-heading-actions { width: auto; gap: 5px; }
+  .office-pricing-overview .office-pricing-heading h1 { font-size: 20px; }
+  .office-pricing-overview .office-pricing-heading-actions button { padding: 8px; font-size: 10px; }
+  .office-pricing-tabs { overflow-x: auto; flex-shrink: 0; }
+  .office-pricing-tabs button { white-space: nowrap; }
+  .office-pricing-overview .office-pricing-article-panel { padding: 12px; }
+  .office-pricing-overview .office-pricing-toolbar > select { max-width: none; flex: 1; }
+}

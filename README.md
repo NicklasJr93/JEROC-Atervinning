@@ -1,10 +1,10 @@
 # JEROC · Mobilappen
 
-**Mobil/Expo 0.3.0 och kontor 0.9.1** delar verksamhetsdata i PostgreSQL. Utkast, kunder, färdiga mobilvägningar, kontorskort, prisregister, planering och integrationsutkorg sparas beständigt. Färdiga mobilvägningar visas på kontoret. Kontoret har även personal, schema, kompetenser och bemanning samt extern chaufförsvy på `/chauffor`. Personal och konton hanteras nu tillsammans; en ny person kan få ett kopplat konto vid samma sparning.
+**Mobilwebb 0.4.0, Expo-skal 0.3.0 och kontor 0.17.0** delar verksamhetsdata i PostgreSQL. Utkast, kunder, färdiga mobilvägningar, kontorskort, prisregister, artikelgrupper, egna artikelbilder, planering och integrationsutkorg sparas beständigt. Kontoret styr mobilens materialmeny, bilder och instruktioner. Färdiga mobilvägningar visas på kontoret. Kontoret har även personal, schema, kompetenser och bemanning samt extern chaufförsvy på `/chauffor`. Personal och konton hanteras tillsammans; en ny person kan få ett kopplat konto vid samma sparning.
 
-Detta är fortfarande en demo med valbara exempelkonton. Använd testuppgifter. Utbetalningar är manuell demoregistrering; inga bank-, Visma-, Naturvårdsverks-, SMS-, e-post- eller BankID-leveranser aktiveras.
+Detta är fortfarande en demo med valbara exempelkonton. Använd testuppgifter. NVV:s testmiljö och Spiris sandbox kan anslutas med serverns integrationsinställningar. Utbetalningar registreras manuellt; bankbetalning, SMS, e-post och BankID är ännu inte aktiverade.
 
-[Gemensam databas och säker import](docs/shared-postgres.md) · [Kontorsversionen](docs/office-demo.md) · [Personal](docs/personnel-demo.md) · [Terminaler](docs/terminal-demo.md). Backup och återställning är planerade enligt ÄL 045, inte byggda här.
+[Gemensam databas och säker import](docs/shared-postgres.md) · [Kontorsversionen](docs/office-demo.md) · [Artikelgrupper och bilder](docs/article-catalog.md) · [Personal](docs/personnel-demo.md) · [Terminaler](docs/terminal-demo.md). Backup och återställning är planerade enligt ÄL 045, inte byggda här.
 
 ## Starta på Windows eller Mac
 
@@ -24,13 +24,14 @@ Du kan även testa i **Expo Go** med en QR-kod: använd `Windows_Starta_JEROC_Ex
 
 För **Expo Go utan datorn igång**, använd [Render-instruktionerna för Expo-token och QR-kod](docs/render.md#öppna-i-expo-go-utan-datorn). Expo-servern kan köras i samma Web Service. Den startas först när Expo-inloggningen har konfigurerats i Render.
 
-Datorn och mobilen ska vara på samma wifi. Startfönstret skriver ut datorns nätverksadress, exempelvis `http://192.168.1.10:4173`. Öppna den adress som visas i mobilens webbläsare. Tillåt åtkomst på det privata nätverket om datorns brandvägg frågar. Appen använder inga externa API:er eller kontorsanslutningar.
+Datorn och mobilen ska vara på samma wifi vid lokal testning. Startfönstret skriver ut datorns nätverksadress, exempelvis `http://192.168.1.10:4173`. Öppna den adress som visas i mobilens webbläsare. Tillåt åtkomst på det privata nätverket om datorns brandvägg frågar. Mobil och kontor delar uppgifter när de använder samma JEROC-server.
 
 Utkast sparas på den gemensamma servern. Webbläsaren har dessutom en återhämtningscache för arbete som ännu inte skickats. Använd samma serveradress i mobil och kontor för att dela uppgifter.
 
 ## Flöden att prova
 
-- **Materialvägning:** starta invägning → välj kategori/artikel → jämför de fyra referensbilderna → ange vikt → lägg till fler material → sammanställning → spara färdig vägning. Kortet låses och visas under Vägningar → Historik / inskickade.
+- **Materialvägning:** starta invägning → välj artikelgrupp/undergrupp/artikel → jämför artikelns referensbilder → ange vikt → lägg till fler material → sammanställning → spara färdig vägning. Kortet låses och visas under Vägningar → Historik / inskickade.
+- **Artikelregister:** kontoret → Artiklar & priser → Artikelgrupper. Skapa en grupp eller undergrupp. Öppna en artikel, välj grupp och lägg till bilder under Visning i gårdsappen. Mobilförhandsvisningen visar ändringarna; spara för att uppdatera appen. Ingen grupp placerar artikeln under Övrigt.
 - **Fordonsvåg:** välj fordonsvåg → registreringsnummer/material/infartsvikt → spara infart → öppna under Pågående vägningar → utfartsvikt → eventuellt viktavdrag med orsak → sammanställning.
 - **Separat vikt på samma kort:** ta av exempelvis koppar före första fordonsvägningen. Lägg till kopparn med vanliga materialvalet. `2 004 − 1 880 = 124 kg` järnskrot och `12 kg` separat koppar ger `136 kg` totalt.
 - **Viktavdrag:** öppna exempelbilen ABC123. `12 450 − 11 600 = 850 kg`; avdrag `20 kg`, orsak `Betongrester`, ger `830 kg` material. Vågens originalvärden finns kvar i Vågunderlag.
@@ -39,7 +40,7 @@ Utkast sparas på den gemensamma servern. Webbläsaren har dessutom en återhäm
 - **Prislista:** sök och läs allmänna A/B/C-priser. Inga prisnivåer eller priser hanteras i vägningsflödet.
 - **Lösenord:** efter varje demoinloggning visas lösenordsbyte innan hemskärmen. Byte finns även under Profil. Ändringen gäller bara medan appen är öppen; omladdning återställer `Demo123!`.
 
-Det finns ingen bottenmeny i vägningsflödet och inga kundbilder/bilagor eller Övrigt-material i denna demo. Referensbilderna är genererade exempelbilder för prototypen; inför riktig drift ska artikelregler och bilder fastställas av JEROC.
+Det finns ingen bottenmeny i vägningsflödet. Artikelbilder kan väljas från demobiblioteket eller laddas upp av kontoret. Demobibliotekets referensbilder är genererade exempelbilder för prototypen; inför riktig drift ska artikelregler och bilder fastställas av JEROC.
 
 ## Utveckling
 
@@ -49,7 +50,7 @@ npm run build
 npm run dev
 ```
 
-Appen körs på port 5173 under utveckling. `npm run dev` startar även Node-serverns prismotor på port 3000; Vite skickar `/api` dit. Produktionsbygget kan testas med `npm run build` och `npm start` på port 3000 (preview är enbart statisk och saknar API). Verksamhetsdata lagras på servern; webbläsaren behåller återhämtningscache och UI-inställningar. Produktionsinloggning återstår. Strukturer för artikelrader, fordonsunderlag och kunder finns i `src/model.ts` och `src/data.ts` inför den framtida gemensamma backenddelen.
+Appen körs på port 5173 under utveckling. `npm run dev` startar även Node-servern på port 3000; Vite skickar `/api` dit. Produktionsbygget kan testas med `npm run build` och `npm start` på port 3000 (preview är enbart statisk och saknar API). Verksamhetsdata lagras på servern; webbläsaren behåller återhämtningscache och UI-inställningar. Produktionsinloggning återstår. Strukturer för artikelrader, fordonsunderlag och kunder finns i `src/model.ts` och `src/data.ts`.
 
 För Render och annan serverdrift: kör `npm run build` och sedan `npm start`. Node-servern i `server/index.mjs` serverar webbbygget från `dist` på `0.0.0.0` och den port som miljövariabeln `PORT` anger (lokalt 3000). `/healthz` används för hälsokontroll. Kontorets prismotor finns nu på `/api/pricing/` i samma tjänst. Render behöver `DATABASE_URL` till PostgreSQL; migrationer körs automatiskt. Lokal utveckling använder annars beständig SQLite.
 

@@ -42,7 +42,7 @@ function checkOrigin(req) {
   if (origin.host !== req.headers.host)
     throw new PricingError('Anropet måste komma från samma webbplats.', 403);
 }
-export function createPricingApi({ store = createPricingStore() } = {}) {
+export function createPricingApi({ store = createPricingStore(), validateMediaReferences } = {}) {
   return async function pricingApi(req, res, url) {
     if (!url.pathname.startsWith('/api/pricing/')) return false;
     try {
@@ -100,6 +100,7 @@ export function createPricingApi({ store = createPricingStore() } = {}) {
         const actions = {
           lme: store.saveLme,
           articles: store.saveArticle,
+          'article-groups': store.saveArticleGroup,
           'customer-prices': store.saveSpecial,
           quote: store.quote,
           snapshots: store.snapshot,
@@ -112,6 +113,11 @@ export function createPricingApi({ store = createPricingStore() } = {}) {
         if (!Object.hasOwn(actions, route))
           throw new PricingError('API-vyn finns inte.', 404);
         const payload = await body(req);
+        if (route === 'articles' || route === 'article-groups') {
+          if (!store.can(principal.actor, 'articlesEdit') || !store.can(principal.user, 'articlesEdit'))
+            throw new PricingError('Du saknar behörighet för detta moment.', 403);
+          await validateMediaReferences?.(route, payload, principal);
+        }
         const result = actions[route](payload, principal);
         json(
           res,

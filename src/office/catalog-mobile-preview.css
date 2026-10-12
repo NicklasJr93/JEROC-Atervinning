@@ -1,0 +1,31 @@
+.office-catalog-preview{min-width:0;display:grid;gap:12px;border:1px solid #e1eaf5;border-radius:11px;background:#f8fbff;padding:16px;align-self:start}
+.office-catalog-preview-label{display:flex;align-items:center;gap:7px;color:#5d789b;font-size:11px}
+.office-catalog-preview-label svg{color:#0868ef;flex-shrink:0}
+.office-catalog-preview-phone{width:100%;max-width:300px;margin:0 auto;border:1px solid #d6e3f3;border-radius:24px;background:#fff;overflow:hidden;box-shadow:0 6px 18px #294c7610}
+.office-catalog-preview-status{display:flex;align-items:center;justify-content:space-between;padding:12px 19px 6px;color:#354d6b;font-size:10px;font-weight:650}
+.office-catalog-preview-appbar{display:flex;align-items:center;gap:10px;padding:14px 13px;border-bottom:1px solid #e8eef6;color:#17314e}
+.office-catalog-preview-appbar>strong{font-size:14px;flex:1}
+.office-catalog-preview-appbar>svg{color:#0868ef}
+.office-catalog-preview-body{padding:15px 13px 21px;min-height:220px}
+.office-catalog-preview-path{display:flex;flex-wrap:wrap;align-items:center;gap:3px;color:#8495ab;font-size:9px;margin:0 0 12px;line-height:1.6}
+.office-catalog-preview-path span{display:inline-flex;align-items:center;gap:2px}
+.office-catalog-preview h3{font-size:18px;color:#17314e;line-height:1.25;margin:0 0 5px;overflow-wrap:anywhere}
+.office-catalog-preview-description{color:#75879b;font-size:10px;line-height:1.6;margin:0 0 13px}
+.office-catalog-preview-gallery{display:flex;gap:6px;overflow-x:auto;padding-bottom:3px;margin-bottom:13px}
+.office-catalog-preview-gallery .office-catalog-image{display:flex;width:100%;min-width:calc(50% - 3px);height:auto;aspect-ratio:1.1;flex:0 0 calc(50% - 3px);border-radius:9px}
+.office-catalog-preview-gallery .office-catalog-image:only-child{min-width:100%;flex-basis:100%;aspect-ratio:1.55}
+.office-catalog-preview-info{padding:10px 11px;border:1px solid #e2ebe6;border-radius:8px;background:#f5fbf7;margin-top:9px}
+.office-catalog-preview-info>div{display:flex;align-items:center;gap:6px;color:#268052;font-size:11px}
+.office-catalog-preview-info ul{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:5px;font-size:10px;line-height:1.6;color:#546d63}
+.office-catalog-preview-info.excludes{background:#fff8f6;border-color:#f2e3dd}
+.office-catalog-preview-info.excludes>div{color:#a26651}
+.office-catalog-preview-info.excludes ul{color:#8c7469}
+.office-catalog-preview-group{display:flex;align-items:center;gap:9px;border:1px solid #e3eaf3;padding:10px;border-radius:9px}
+.office-catalog-preview-group .office-catalog-image{width:55px;height:55px}
+.office-catalog-preview-group>div{min-width:0;flex:1}
+.office-catalog-preview-group strong{color:#16304d;font-size:13px;overflow-wrap:anywhere}
+.office-catalog-preview-group p{color:#8293a6;font-size:9px;margin:4px 0 0;line-height:1.5;overflow-wrap:anywhere}
+.office-catalog-preview-group>svg{color:#8da7c6;flex-shrink:0}
+.office-catalog-preview-inactive{color:#9d7943;font-size:10px;margin:12px 0 0;line-height:1.5}
+.office-catalog-preview-homebar{height:4px;width:32%;margin:0 auto 9px;border-radius:10px;background:#27374c}
+.office-catalog-preview-help{color:#8295ad;font-size:10px;line-height:1.6;margin:0}

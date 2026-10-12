@@ -1,8 +1,12 @@
-.terminal-app {
+.terminal-app, .terminal-dialog-backdrop {
   --terminal-blue: #0765df;
   --terminal-green: #18853d;
   --terminal-ink: #11325a;
   --terminal-muted: #718097;
+  color: var(--terminal-ink);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.terminal-app {
   min-height: 100dvh;
   background: linear-gradient(165deg, #f4f9fc 0, #fff 42%, #f5faf7 100%);
   color: var(--terminal-ink);
@@ -10,7 +14,7 @@
   flex-direction: column;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
-.terminal-app button, .terminal-app input, .terminal-app textarea { font: inherit; }
+.terminal-app button, .terminal-app input, .terminal-app textarea, .terminal-dialog-backdrop button { font: inherit; }
 .terminal-app button { touch-action: manipulation; }
 .terminal-header { width: min(100%, 1100px); margin: 0 auto; padding: 23px 32px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .terminal-header > img { width: 164px; height: 86px; object-fit: contain; mix-blend-mode: multiply; }
@@ -39,8 +43,8 @@
 .terminal-button.outline { border-color: #80aee6; background: #fff; color: #0765d7; }
 .terminal-button.green-outline { border-color: #91bf9a; color: #157e39; }
 .terminal-button:disabled { opacity: .55; }
-.terminal-app .terminal-error { margin: 12px 0; padding: 12px; border: 1px solid #f3d0ce; border-radius: 9px; background: #fff4f3; color: #a43b32; font-size: 13px; display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
-.terminal-app .terminal-error svg { flex: 0 0 auto; margin-top: 2px; }
+.terminal-app .terminal-error, .terminal-dialog-backdrop .terminal-error { margin: 12px 0; padding: 12px; border: 1px solid #f3d0ce; border-radius: 9px; background: #fff4f3; color: #a43b32; font-size: 13px; display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
+.terminal-app .terminal-error svg, .terminal-dialog-backdrop .terminal-error svg { flex: 0 0 auto; margin-top: 2px; }
 .terminal-welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 25px 25px 70px; margin: 0 auto; max-width: 610px; gap: 16px; }
 .terminal-welcome-icon { width: 122px; height: 122px; display: grid; place-items: center; border-radius: 39px; background: linear-gradient(140deg, #e2f4e8, #f0faf3); color: #238d47; box-shadow: 0 0 0 12px #eff8f330; margin-bottom: 16px; }
 .terminal-welcome-icon.offline { background: #eef2f7; color: #8291a3; }
@@ -94,16 +98,18 @@
 .terminal-customer-actions { display: grid; gap: 9px; margin-top: 20px; }
 .terminal-footer { width: 100%; text-align: center; padding: 16px 20px calc(17px + env(safe-area-inset-bottom)); color: #97a3af; font-size: 10px; line-height: 1.5; background: #f6f9fb; border-top: 1px solid #edf2f5; }
 .terminal-footer small { display: block; margin-top: 4px; font-size: 10px; }
-.terminal-app .terminal-dialog-backdrop { position: fixed; inset: 0; z-index: 40; background: #13284169; display: flex; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(3px); }
-.terminal-app .terminal-dialog { position: relative; width: min(100%, 430px); max-height: calc(100dvh - 40px); overflow-y: auto; background: #fff; padding: 29px 26px 25px; border-radius: 20px; box-shadow: 0 20px 90px #061b3333; text-align: center; }
-.terminal-app .terminal-dialog-close { position: absolute; right: 11px; top: 11px; display: grid; place-items: center; background: #f3f7fa; border: 0; border-radius: 50%; width: 32px; height: 32px; color: #8793a1; }
-.terminal-app .terminal-dialog-icon { display: grid; place-items: center; color: #228647; background: #eaf7ef; border-radius: 50%; width: 75px; height: 75px; margin: 3px auto 18px; }
-.terminal-app .terminal-dialog h2 { font-size: 24px; margin: 9px 0; }
-.terminal-app .terminal-dialog > p { color: #758399; font-size: 14px; line-height: 1.6; }
-.terminal-app .terminal-dialog-info { display: flex; text-align: left; align-items: flex-start; gap: 10px; background: #eff6ff; color: #567295; border-radius: 10px; padding: 14px; font-size: 13px; line-height: 1.5; margin: 17px 0; }
-.terminal-app .terminal-dialog-info svg { color: #1872db; flex: 0 0 22px; margin-top: 2px; }
-.terminal-app .terminal-dialog .terminal-dialog-method { font-size: 12px; margin-bottom: 22px; }
-.terminal-app .terminal-dialog .terminal-button + .terminal-button { margin-top: 9px; }
+.terminal-dialog-backdrop { position: fixed; inset: 0; height: 100dvh; z-index: 100; overflow: hidden; overscroll-behavior: none; background: #13284169; display: flex; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(3px); }
+.terminal-dialog-backdrop .terminal-dialog { position: relative; width: min(100%, 430px); max-height: calc(100dvh - 40px); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; background: #fff; padding: 29px 26px 25px; border-radius: 20px; box-shadow: 0 20px 90px #061b3333; text-align: center; }
+.terminal-dialog-backdrop .terminal-dialog-close { position: absolute; right: 11px; top: 11px; display: grid; place-items: center; background: #f3f7fa; border: 0; border-radius: 50%; width: 32px; height: 32px; color: #8793a1; }
+.terminal-dialog-backdrop .terminal-dialog-icon { display: grid; place-items: center; color: #228647; background: #eaf7ef; border-radius: 50%; width: 75px; height: 75px; margin: 3px auto 18px; }
+.terminal-dialog-backdrop .terminal-dialog h2 { font-size: 24px; margin: 9px 0; }
+.terminal-dialog-backdrop .terminal-dialog .terminal-dialog-waiting-title { font-size: 17px; color: #4a637e; font-weight: 600; line-height: 1.4; margin: 12px 0; }
+.terminal-dialog-backdrop .terminal-dialog .terminal-waiting { justify-content: center; }
+.terminal-dialog-backdrop .terminal-dialog > p { color: #758399; font-size: 14px; line-height: 1.6; }
+.terminal-dialog-backdrop .terminal-dialog-info { display: flex; text-align: left; align-items: flex-start; gap: 10px; background: #eff6ff; color: #567295; border-radius: 10px; padding: 14px; font-size: 13px; line-height: 1.5; margin: 17px 0; }
+.terminal-dialog-backdrop .terminal-dialog-info svg { color: #1872db; flex: 0 0 22px; margin-top: 2px; }
+.terminal-dialog-backdrop .terminal-dialog .terminal-dialog-method { font-size: 12px; margin-bottom: 22px; }
+.terminal-dialog-backdrop .terminal-dialog .terminal-button + .terminal-button { margin-top: 9px; }
 .terminal-demo-label { display: inline-block; color: #8e691e; background: #fff4d8; border: 1px solid #f8e5b9; font-size: 11px; letter-spacing: .08em; font-weight: 750; border-radius: 5px; padding: 5px 9px; }
 .terminal-back { display: flex; align-items: center; gap: 7px; border: 0; background: none; color: #4f7194; padding: 9px 0; margin-bottom: 13px; font-size: 13px !important; }
 .terminal-change-form { padding: 20px; border: 1px solid #e2ebf3; border-radius: 13px; background: #fff; }

@@ -11,6 +11,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { articles, initialCustomers } from '../data';
+import CatalogImage from './CatalogImage';
 import {
   amount,
   can,
@@ -419,15 +420,7 @@ export function CardPreview({
               return (
                 <li key={`${row.articleId}-${index}`}>
                   {cell !== undefined && (
-                    <span
-                      className="office-preview-material-image"
-                      aria-hidden="true"
-                      style={{
-                        backgroundImage: `url(${cell >= 28 ? '/images/copper-grades.png' : '/images/materials.png'})`,
-                        backgroundSize: cell >= 28 ? '400% 300%' : '400% 700%',
-                        backgroundPosition: `${(((cell >= 28 ? cell - 28 : cell) % 4) * 100) / 3}% ${(Math.floor((cell >= 28 ? cell - 28 : cell) / 4) * 100) / (cell >= 28 ? 2 : 6)}%`,
-                      }}
-                    />
+                    <CatalogImage image={cell} alt={article?.name ?? row.articleId} className="office-preview-material-image" />
                   )}
                   <span>
                     <strong>{article?.name ?? row.articleId}</strong>

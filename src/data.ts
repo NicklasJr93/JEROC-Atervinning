@@ -1,4 +1,7 @@
 import type { ArticleTaxCategory } from './office/pricing-client';
+import { z } from 'zod';
+import type { ArticleGroup, ArticleImage } from './catalog-types';
+import { activeArticleGroups } from './catalog-types';
 
 export type Category = {
   id: string;
@@ -15,8 +18,8 @@ export type Article = {
   description: string;
   includes: string;
   excludes: string;
-  photos: number[];
-  prices: [number, number, number];
+  photos: ArticleImage[];
+  prices: [number | null, number | null, number | null];
 };
 export const categories: Category[] = [
   {
@@ -48,6 +51,21 @@ export const categories: Category[] = [
     photo: 16,
   },
 ];
+/** Keep the fixed seed export for migrations; the app reads the live register. */
+export const articleGroups: ArticleGroup[] = categories.map((category, sortOrder) => ({
+  ...category, sortOrder, active: true, revision: 1,
+}));
+export const UNGROUPED_ARTICLE_GROUP_ID = '__ungrouped__';
+
+export function selectableArticles(): Article[] {
+  const visible = new Set(activeArticleGroups(articleGroups).map(group => group.id));
+  const known = new Set(articleGroups.map(group => group.id));
+  return articles.filter(article => article.active !== false && (!known.has(article.category) || visible.has(article.category)));
+}
+
+export function materialGroupId(article: Article): string {
+  return articleGroups.some(group => group.id === article.category) ? article.category : UNGROUPED_ARTICLE_GROUP_ID;
+}
 export const articles: Article[] = [
   {
     taxCategory: 'scrap_reverse',
@@ -289,7 +307,28 @@ export function demoCustomerPrice(customerId: string, article: Article) {
   };
 }
 
-/** Refresh the existing material views from the shared server register. */
-export function updateArticleCatalog(values: Article[]) {
-  articles.splice(0,articles.length,...values);
+const imageReferenceSchema = z.union([z.number().int().min(0).max(39), z.string().uuid()]);
+const mobileArticleSchema = z.object({
+  id: z.string().min(1), active: z.boolean().optional(), category: z.string(),
+  name: z.string(), description: z.string(), includes: z.string(), excludes: z.string(),
+  photos: z.array(imageReferenceSchema).max(6),
+  prices: z.tuple([z.number().finite().nullable(), z.number().finite().nullable(), z.number().finite().nullable()]),
+  taxCategory: z.enum(['scrap_reverse', 'standard_25', 'no_vat', 'review']).optional(),
+});
+const mobileGroupsSchema = z.array(z.object({
+  id: z.string().min(1), name: z.string(), description: z.string(),
+  photo: imageReferenceSchema.nullable(), parentId: z.string().min(1).optional(),
+  sortOrder: z.number().int(), active: z.boolean(), revision: z.number().int().positive(),
+}));
+
+/** Apply a validated register as a unit, including authoritative empty groups. */
+export function updateArticleCatalog(values: unknown, groups?: unknown): boolean {
+  const parsed = z.array(mobileArticleSchema).safeParse(values);
+  const parsedGroups = groups === undefined ? undefined : mobileGroupsSchema.safeParse(groups);
+  if (!parsed.success || (parsedGroups && !parsedGroups.success)) return false;
+  if (new Set(parsed.data.map(article => article.id)).size !== parsed.data.length) return false;
+  if (parsedGroups?.success && new Set(parsedGroups.data.map(group => group.id)).size !== parsedGroups.data.length) return false;
+  articles.splice(0, articles.length, ...parsed.data);
+  if (parsedGroups?.success) articleGroups.splice(0, articleGroups.length, ...parsedGroups.data);
+  return true;
 }

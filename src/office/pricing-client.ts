@@ -1,6 +1,8 @@
 import type { OfficeUser } from './model';
 import type { ArticleTaxCategory } from './accounting-types';
+import type { ArticleGroup, ArticleImage } from '../catalog-types';
 export type { ArticleTaxCategory } from './accounting-types';
+export type { ArticleGroup, ArticleImage, SaveArticleGroup } from '../catalog-types';
 
 export type PriceTier = 'A' | 'B' | 'C';
 export type PriceRule = { discountPercent: number; adjustmentKr: number };
@@ -11,7 +13,7 @@ export type PriceArticle = {
   description: string;
   includes: string[];
   excludes: string[];
-  photos: number[];
+  photos: ArticleImage[];
   active: boolean;
   taxCategory?: ArticleTaxCategory;
   base: { type: 'lme'; metal: string } | { type: 'manual'; price: number };
@@ -58,6 +60,8 @@ export type PricingAudit = {
   revisionId?: string;
   taxCategory?: ArticleTaxCategory;
   previousTaxCategory?: ArticleTaxCategory;
+  groupId?: string;
+  groupRevision?: number;
 };
 export type PricingState = {
   version: string;
@@ -66,6 +70,7 @@ export type PricingState = {
   asOfDate: string;
   metals: { id: string; name: string }[];
   articles: PriceArticle[];
+  groups?: ArticleGroup[];
   articleHistory?: PriceArticle[];
   lme?: LmeRate[];
   customerPrices?: CustomerPrice[];

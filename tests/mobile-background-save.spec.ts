@@ -23,7 +23,9 @@ async function login(page: Page) {
   await page.getByLabel('Bekräfta nytt lösenord').fill('Test12345!');
   await page.getByRole('button', { name: 'Spara och fortsätt' }).click();
   await expect(page.getByRole('heading', { name: 'Gårdsappen' })).toBeVisible();
-  await expect.poll(() => reads).toBeGreaterThanOrEqual(2);
+  // Bootstrap needs one confirmed baseline. The recovery poll runs later and
+  // is unrelated to whether the user can begin saving a new weighing.
+  await expect.poll(() => reads).toBeGreaterThanOrEqual(1);
 }
 
 async function openWeight(page: Page) {

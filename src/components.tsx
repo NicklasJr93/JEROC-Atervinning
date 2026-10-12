@@ -6,6 +6,7 @@ import {
   FileText,
   Home,
   Info,
+  Image as ImageIcon,
   List,
   MapPin,
   Scale,
@@ -14,9 +15,10 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useDemo } from './store';
 import { kilos } from './model';
+import type { ArticleImage } from './catalog-types';
 
 export function Logo() {
   return (
@@ -31,11 +33,21 @@ export function Photo({
   index,
   className = '',
   label,
+  variant = 'thumb',
 }: {
-  index: number;
+  index: ArticleImage | null | undefined;
   className?: string;
   label: string;
+  variant?: 'thumb' | 'full';
 }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [index, variant]);
+  if (typeof index === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(index) && !failed) {
+    return <img className={`material-photo material-photo-upload ${className}`} src={`/api/article-media/${index}?variant=${variant}`} alt={label} loading="lazy" decoding="async" onError={() => setFailed(true)} />;
+  }
+  if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index > 39) {
+    return <div role="img" aria-label={label} className={`material-photo material-photo-missing ${className}`} title="Referensbild saknas"><ImageIcon aria-hidden="true" /></div>;
+  }
   const extra = index >= 28;
   const cell = extra ? index - 28 : index;
   return (

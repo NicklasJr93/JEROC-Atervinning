@@ -99,18 +99,34 @@ const deliveredAt = z.union([
     ),
 ]);
 const tier = z.enum(['A', 'B', 'C']);
+const articleImageSchema = z.union([z.number().int().min(0).max(39), z.string().uuid()]);
+const articleImagesSchema = z.array(articleImageSchema).max(6).refine(images => new Set(images).size === images.length, 'Välj varje bild bara en gång.');
+const articleGroupSchema = z.object({
+  id: id.optional(),
+  name: z.string().trim().min(1).max(100),
+  description: z.string().trim().max(1000).default(''),
+  photo: articleImageSchema.nullable().default(null),
+  parentId: id.optional(),
+  sortOrder: z.number().int().min(0).max(1000000).default(0),
+  active: z.boolean().default(true),
+});
+const savedArticleGroupSchema = articleGroupSchema.extend({ id, revision: z.number().int().positive().safe() });
+const saveArticleGroupSchema = z.object({
+  group: articleGroupSchema,
+  expectedRevision: z.number().int().nonnegative().safe().optional(),
+});
 const tierRule = z.object({
   discountPercent: finite.min(0).max(100),
   adjustmentKr: finite.min(-1e6).max(1e6).default(0),
 });
 const articleSchema = z.object({
   id: id.optional(),
-  category: id,
+  category: z.union([id, z.literal('')]),
   name: text,
   description: z.string().trim().max(1000).default(''),
   includes: z.array(z.string().trim().min(1).max(1000)).max(20).default([]),
   excludes: z.array(z.string().trim().min(1).max(1000)).max(20).default([]),
-  photos: z.array(z.number().int().min(0).max(39)).max(6).default([]),
+  photos: articleImagesSchema.default([]),
   active: z.boolean().default(true),
   // Financial classification is independent of hazardous waste and NVV.
   taxCategory: z.enum(['scrap_reverse', 'standard_25', 'no_vat', 'review']).optional(),
@@ -552,11 +568,43 @@ const articleSeeds = [
   ],
 ];
 
+// Stable IDs preserve every existing app grouping and article reference.
+export const defaultArticleGroups = [
+  { id: 'aluminium', name: 'Aluminium', description: 'Profiler, plåt och gjutgods', photo: 8 },
+  { id: 'bly', name: 'Bly', description: 'Block, plåt och vikter', photo: 20 },
+  { id: 'batterier', name: 'Batterier', description: 'Blybatterier · separat hantering', photo: 20 },
+  { id: 'jarn', name: 'Järn', description: 'Järnskrot och stål', photo: 4 },
+  { id: 'kabel', name: 'Kabel', description: 'Isolerad kabel', photo: 24 },
+  { id: 'koppar', name: 'Koppar', description: 'Rör, tråd och blandad koppar', photo: 0 },
+  { id: 'massing', name: 'Mässing', description: 'Rör, ventiler och detaljer', photo: 12 },
+  { id: 'rostfritt', name: 'Rostfritt', description: 'Rör, plåt och blandat', photo: 16 },
+].map((group, index) => ({ ...group, sortOrder: index * 10, active: true, revision: 1 }));
+
+export function getArticleMediaReferences(route, input) {
+  const values = route === 'article-groups' ? [input?.group?.photo] : route === 'articles' && Array.isArray(input?.photos) ? input.photos : [];
+  return [...new Set(values.filter(value => typeof value === 'string'))];
+}
+
+function validateArticleGroupTree(groups) {
+  if (new Set(groups.map(group => group.id)).size !== groups.length)
+    throw new PricingError('Artikelgrupperna har dubbla ID:n.', 422);
+  for (const group of groups) {
+    if (group.id === '__ungrouped__')
+      throw new PricingError('Detta ID är reserverat för artiklar utan grupp.', 422);
+    if (!group.parentId) continue;
+    const parent = groups.find(candidate => candidate.id === group.parentId);
+    if (!parent) throw new PricingError('Den överordnade artikelgruppen finns inte.', 422);
+    if (parent.id === group.id || parent.parentId)
+      throw new PricingError('Artikelgrupper får ha högst två nivåer: grupp och undergrupp.', 422);
+  }
+}
+
 export function createPricingStore({ now = () => new Date(), initialState } = {}) {
   const state = {
     revision: 0,
     lme: [],
     articleHistory: [],
+    groups: copy(defaultArticleGroups),
     customerPrices: [],
     users: seedUsers(),
     customers: copy(customerSeed),
@@ -654,6 +702,9 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
   // Fresh demo cards have no approval or financial booking yet. Historical
   // volumes arise from real demo workflow actions, never invented attestations.
   if (initialState) Object.assign(state, copy(initialState));
+  // Legacy registers had no group table. This migration only adds the existing
+  // app groups; article revisions and frozen snapshots remain unchanged.
+  state.groups ??= copy(defaultArticleGroups);
   // Upgrade only previously unclassified article revisions. Explicit choices
   // and frozen transaction snapshots remain untouched.
   const demoScrapIds = new Set(articleSeeds.map(([articleId]) => articleId));
@@ -667,6 +718,12 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
       : user.level !== 'Medarbetare' || user.permissions.includes(permission);
   const demand = (principal, permission) => {
     if (!can(principal.user, permission))
+      throw new PricingError('Du saknar behörighet för detta moment.', 403);
+  };
+  const demandArticleEditor = principalValue => {
+    demand(principalValue, 'articlesEdit');
+    // Acting as someone else cannot grant the actual account extra write rights.
+    if (!can(principalValue.actor, 'articlesEdit'))
       throw new PricingError('Du saknar behörighet för detta moment.', 403);
   };
   function principal(actorId, userId = actorId) {
@@ -690,6 +747,10 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
         422,
       );
     return article;
+  }
+  function currentArticleCatalog(articleId) {
+    return state.articleHistory.filter(article => article.id === articleId)
+      .sort((a, b) => (b.sequence ?? 0) - (a.sequence ?? 0))[0];
   }
   function calculateArticle(article, asOf) {
     const reference =
@@ -950,6 +1011,11 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
             baseSekKg: null,
           };
         }
+        // Catalog presentation changes apply immediately to the app. The price,
+        // tax, availability and revision selected by delivery date keep their original meaning.
+        const catalog = currentArticleCatalog(article.id);
+        for (const field of ['category', 'name', 'description', 'includes', 'excludes', 'photos'])
+          current[field] = copy(catalog[field]);
         for (const letter of ['A', 'B', 'C'])
           if (!can(principalValue.user, `price${letter}`))
             current.prices[letter] = null;
@@ -969,6 +1035,7 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
       revision: state.revision,
       asOfDate,
       metals,
+      groups: [...state.groups].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'sv') || a.id.localeCompare(b.id)),
       articles,
       articleHistory: editor ? state.articleHistory : [],
       lme: can(principalValue.user, 'lmeRead') ? state.lme : [],
@@ -1010,6 +1077,8 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
           revisionId: entry.revisionId,
           taxCategory: entry.taxCategory,
           previousTaxCategory: entry.previousTaxCategory,
+          groupId: entry.groupId,
+          groupRevision: entry.groupRevision,
         })),
       ...(can(principalValue.user, 'customerPrices')
         ? { ledger: state.ledger }
@@ -1096,9 +1165,17 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     };
   }
   function saveArticle(input, principalValue) {
-    demand(principalValue, 'articlesEdit');
+    demandArticleEditor(principalValue);
     const parsed = validate(articleSchema, input);
     const articleId = parsed.id ?? `article-${randomUUID()}`;
+    const previousCatalog = currentArticleCatalog(articleId);
+    if (parsed.category) {
+      const group = state.groups.find(candidate => candidate.id === parsed.category);
+      const parent = group?.parentId && state.groups.find(candidate => candidate.id === group.parentId);
+      // Legacy/inactive assignments can remain when unrelated fields change.
+      if ((!group || !group.active || parent && !parent.active) && previousCatalog?.category !== parsed.category)
+        throw new PricingError(group ? 'Välj en aktiv artikelgrupp eller Ingen.' : 'Artikelgruppen finns inte. Välj en grupp eller Ingen.', 422);
+    }
     const previous = latest(state.articleHistory, (article) => article.id === articleId, parsed.effectiveFrom);
     const row = {
       ...parsed,
@@ -1109,6 +1186,24 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     };
     state.articleHistory.push(row);
     state.audit.push({ ...copy(row), articleId, previousTaxCategory: previous?.taxCategory });
+    return read(principalValue);
+  }
+  function saveArticleGroup(input, principalValue) {
+    demandArticleEditor(principalValue);
+    const { group: parsed, expectedRevision } = validate(saveArticleGroupSchema, input);
+    const groupId = parsed.id ?? `group-${randomUUID()}`;
+    const previous = state.groups.find(group => group.id === groupId);
+    if (previous && expectedRevision !== previous.revision)
+      throw new PricingError('Artikelgruppen har ändrats av någon annan. Hämta aktuella uppgifter och försök igen.', 409);
+    if (!previous && expectedRevision !== undefined && expectedRevision !== 0)
+      throw new PricingError('Artikelgruppen finns inte längre. Hämta aktuella uppgifter.', 409);
+    if (!previous && state.groups.length >= 2000)
+      throw new PricingError('Artikelregistret har nått gränsen på 2 000 grupper.', 422);
+    const row = { ...parsed, id: groupId, revision: (previous?.revision ?? 0) + 1 };
+    const next = previous ? state.groups.map(group => group.id === groupId ? row : group) : [...state.groups, row];
+    validateArticleGroupTree(next);
+    state.groups = next;
+    state.audit.push({ ...stamp(principalValue, 'Artikelgrupp ändrad'), groupId, groupRevision: row.revision });
     return read(principalValue);
   }
   function saveSpecial(input, principalValue) {
@@ -1591,6 +1686,13 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     if (!Number.isInteger(input?.revision) || input.revision < 0 || fields.some(key => !Array.isArray(input[key]) || input[key].length > 100000)) throw new PricingError('Ogiltigt prisregister för import.');
     for (const row of input.lme) validate(lmeSchema, row);
     for (const row of input.articleHistory) validate(articleSchema, row);
+    let importedGroups = defaultArticleGroups;
+    if (input.groups !== undefined) {
+      if (!Array.isArray(input.groups) || input.groups.length > 2000)
+        throw new PricingError('Ogiltiga artikelgrupper för import.');
+      importedGroups = input.groups.map(group => validate(savedArticleGroupSchema, group));
+      validateArticleGroupTree(importedGroups);
+    }
     for (const row of input.customerPrices) validate(specialSchema, row);
     for (const row of input.users) validate(userSchema, row);
     for (const row of input.customers) validate(customerSchema, row);
@@ -1598,7 +1700,7 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     if (ids.size !== input.snapshots.length || input.snapshots.some(row => typeof row.id !== 'string' || !Array.isArray(row.rows) || !Number.isFinite(row.total)) || input.ledger.some(row => !ids.has(row.snapshotId))) throw new PricingError('Prisunderlaget eller volymjournalen är ofullständig.');
     const checker = createPricingStore({ initialState: input });
     checker.saveUsers({users: input.users}, checker.principal(principalValue.actor.id));
-    return copy(input);
+    return { ...copy(input), groups: copy(importedGroups) };
   }
   return {
     validateMigration,
@@ -1610,6 +1712,7 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     saveCustomer,
     customerPreview,
     saveArticle,
+    saveArticleGroup,
     saveSpecial,
     quote,
     // Internal calculation for quantity-only commands. These commands check
@@ -1625,7 +1728,8 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     // pricing output is needed to record an article's physical receipt.
     getArticleForEnvironment: (articleId) => {
       const article = latest(state.articleHistory, (entry) => entry.id === articleId, day(now().toISOString()));
-      return article ? { id: article.id, name: article.name, active: article.active } : null;
+      const catalog = currentArticleCatalog(articleId);
+      return article ? { id: article.id, name: catalog.name, active: article.active } : null;
     },
     restoreLegacySnapshot,
     correct,

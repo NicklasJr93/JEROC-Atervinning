@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
   Battery,
@@ -18,7 +18,11 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react';
-import { categories } from '../data';
+import { articleGroupPath, childArticleGroups, rootArticleGroups, type ArticleImage } from '../catalog-types';
+import ArticleGroupsWorkspace from './ArticleGroupsWorkspace';
+import ArticleImagesEditor from './ArticleImagesEditor';
+import CatalogMobilePreview from './CatalogMobilePreview';
+import CatalogImage from './CatalogImage';
 import type { OfficeUser, Permission } from './model';
 import EnvironmentalArticlePanel from './EnvironmentalArticlePanel';
 import {
@@ -33,7 +37,7 @@ import {
 } from './pricing-client';
 import './pricing.css';
 
-export type PricingSection = 'articles' | 'lme' | 'customer-prices';
+export type PricingSection = 'articles' | 'article-groups' | 'lme' | 'customer-prices';
 type Props = {
   user: OfficeUser;
   actualUser: OfficeUser;
@@ -87,6 +91,8 @@ export default function PricingWorkspace({
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [selected, setSelected] = useState<PriceArticle>();
+  const [groupDetail, setGroupDetail] = useState(false);
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const [customer, setCustomer] = useState('');
   const [localSection, setLocalSection] = useState(section);
   const principal = `${actualUser.id}/${user.id}`;
@@ -95,6 +101,7 @@ export default function PricingWorkspace({
   const currentSection = onSectionChange ? section : localSection;
   function switchSection(next: PricingSection) {
     setSelected(undefined);
+    setGroupDetail(false);
     if (onSectionChange) onSectionChange(next);
     else setLocalSection(next);
   }
@@ -148,7 +155,7 @@ export default function PricingWorkspace({
   }
   const visibleArticles = (state?.articles || []).filter(
     (article) =>
-      (!category || article.category === category) &&
+      (!category || (category === '__ungrouped' ? !article.category : article.category === category || (state?.groups || []).some(group => group.id === article.category && group.parentId === category))) &&
       `${article.name} ${article.description} ${article.id}`
         .toLocaleLowerCase('sv')
         .includes(search.toLocaleLowerCase('sv')),
@@ -164,6 +171,7 @@ export default function PricingWorkspace({
         right(user, 'environmentRead') ||
         right(user, 'environmentClassify'),
     },
+    { id: 'article-groups', name: 'Artikelgrupper', allowed: right(user, 'prices') || right(user, 'articlesEdit') },
     { id: 'lme', name: 'LME Cash', allowed: right(user, 'lmeRead') },
     {
       id: 'customer-prices',
@@ -173,8 +181,24 @@ export default function PricingWorkspace({
     },
   ];
   const currentAllowed = tabs.find((tab) => tab.id === currentSection)?.allowed;
+  const overview = !selected && currentSection === 'articles';
+  useLayoutEffect(() => {
+    const node = workspaceRef.current;
+    if (!node || !overview) return;
+    const measure = () => {
+      const top = node.getBoundingClientRect().top;
+      node.style.setProperty('--pricing-available-height', `${Math.max(360, window.innerHeight - top - 24)}px`);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (node.parentElement) observer.observe(node.parentElement);
+    window.addEventListener('resize', measure);
+    return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
+  }, [overview, state, error]);
   return (
-    <div className="office-pricing">
+    <div ref={workspaceRef} className={`office-pricing ${overview ? 'office-pricing-overview' : ''}`}>
+      {!groupDetail && <>
+      {selected && <nav className="office-pricing-breadcrumbs" aria-label="Artikelns sökväg"><button onClick={() => setSelected(undefined)}>{currentSection === 'article-groups' ? 'Artikelgrupper' : 'Artiklar & priser'}</button><ChevronRight size={14} /><span>{selected.name || 'Ny artikel'}</span></nav>}
       <div className="office-pricing-heading">
         <div>
           <span className="office-eyebrow">
@@ -182,9 +206,11 @@ export default function PricingWorkspace({
           </span>
           <h1>
             {selected
-              ? `Artikelinställningar – ${selected.name}`
+              ? selected.name || 'Ny artikel'
               : currentSection === 'lme'
                 ? 'LME Cash'
+                : currentSection === 'article-groups'
+                  ? 'Artikelgrupper'
                 : currentSection === 'customer-prices'
                   ? 'Kundanpassade skrotpriser'
                   : 'Artiklar & priser'}
@@ -194,6 +220,8 @@ export default function PricingWorkspace({
               ? 'Referensbilder, momshantering, prisformler och volymgränser per artikel.'
               : currentSection === 'lme'
                 ? 'Manuella Cash-priser som artikelns prisformler räknar mot.'
+                : currentSection === 'article-groups'
+                  ? 'Grupper, undergrupper och presentation i gårdsappen.'
                 : currentSection === 'customer-prices'
                   ? 'En kundregel går före kundens ordinarie volympris.'
                   : 'Prismotorns aktuella artiklar, A/B/C-priser och LME-kopplingar.'}
@@ -205,7 +233,7 @@ export default function PricingWorkspace({
               className="office-pricing-plain"
               onClick={() => setSelected(undefined)}
             >
-              <ArrowLeft size={15} /> Till artikelöversikten
+              <ArrowLeft size={15} /> {currentSection === 'article-groups' ? 'Till artikelgrupper' : 'Till artikelöversikten'}
             </button>
           ) : (
             <button
@@ -229,7 +257,7 @@ export default function PricingWorkspace({
             )}
         </div>
       </div>
-      <nav className="office-pricing-tabs" aria-label="Prisvyer">
+      {!selected && <nav className="office-pricing-tabs" aria-label="Prisvyer">
         {tabs
           .filter((tab) => tab.allowed)
           .map((tab) => (
@@ -241,14 +269,15 @@ export default function PricingWorkspace({
               {tab.name}
             </button>
           ))}
-      </nav>
-      <div className="office-pricing-demo">
+      </nav>}
+      </>}
+      {!selected && !groupDetail && currentSection !== 'articles' && <div className="office-pricing-demo">
         <Info size={15} />
         <span>
           <strong>Gemensamt prisregister.</strong> Priser och historik sparas i databasen.
           Mobilen hämtar samma artikelregister och aktuella kundpriser.
         </span>
-      </div>
+      </div>}
       {error && (
         <div className="office-pricing-error" role="alert">
           {error}
@@ -287,6 +316,8 @@ export default function PricingWorkspace({
               setSelected(undefined);
           }}
         />
+      ) : currentSection === 'article-groups' ? (
+        <ArticleGroupsWorkspace state={state} user={user} actualUser={actualUser} editable={right(user, 'articlesEdit')} busy={busy} onDetailChange={setGroupDetail} onOpenArticle={setSelected} onSave={body => save('article-groups', body, 'Artikelgruppen sparades. Gårdsappen använder samma grupper.')} />
       ) : currentSection === 'lme' ? (
         <LmeWorkspace
           state={state}
@@ -372,16 +403,13 @@ export default function PricingWorkspace({
                   />
                 </label>
                 <select
-                  aria-label="Filtrera materialkategori"
+                  aria-label="Filtrera artikelgrupp"
                   value={category}
                   onChange={(event) => setCategory(event.target.value)}
                 >
-                  <option value="">Alla material</option>
-                  {categories.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
+                  <option value="">Alla artikelgrupper</option>
+                  <option value="__ungrouped">Ingen grupp / Övrigt</option>
+                  {(state.groups || []).map(item => <option key={item.id} value={item.id}>{articleGroupPath(state.groups || [], item.id).map(group => group.name).join(' › ')}{item.active ? '' : ' (inaktiv)'}</option>)}
                 </select>
                 {right(user, 'reports') && (
                   <button
@@ -556,21 +584,7 @@ function ArticlePhoto({
       </span>
     );
   }
-  const cell = article.photos[0] ?? 0,
-    extra = cell >= 28,
-    position = extra ? cell - 28 : cell;
-  return (
-    <span
-      className={`office-pricing-photo ${large ? 'large' : ''}`}
-      role="img"
-      aria-label={article.name}
-      style={{
-        backgroundImage: `url(${extra ? '/images/copper-grades.png' : '/images/materials.png'})`,
-        backgroundSize: extra ? '400% 300%' : '400% 700%',
-        backgroundPosition: `${((position % 4) * 100) / 3}% ${(Math.floor(position / 4) * 100) / (extra ? 2 : 6)}%`,
-      }}
-    />
-  );
+  return <CatalogImage image={article.photos[0]} name={article.name} className={`office-pricing-photo ${large ? 'large' : ''}`} />;
 }
 function PricingPriority() {
   return (
@@ -653,11 +667,11 @@ function newArticle(state: PricingState): PriceArticle {
   return {
     id: '',
     name: '',
-    category: 'koppar',
+    category: '',
     description: '',
     includes: [],
     excludes: [],
-    photos: [0],
+    photos: [],
     active: true,
     taxCategory: 'review',
     base: { type: 'lme', metal: state.metals[0]?.id || 'copper' },
@@ -988,7 +1002,7 @@ function ArticleEditor({
   }));
   const [includeText, setIncludeText] = useState(article.includes.join('\n'));
   const [excludeText, setExcludeText] = useState(article.excludes.join('\n'));
-  const [photoPicker, setPhotoPicker] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
   const [validation, setValidation] = useState('');
   const base =
     draft.base.type === 'manual'
@@ -1030,7 +1044,7 @@ function ArticleEditor({
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!editable) return;
+    if (!editable || imageBusy || busy) return;
     setValidation('');
     if (draft.thresholds.A <= draft.thresholds.B) {
       setValidation('A-gränsen måste vara högre än B-gränsen.');
@@ -1068,7 +1082,7 @@ function ArticleEditor({
       <div className={`office-pricing-editor-grid ${editable ? '' : 'office-pricing-editor-readonly'} ${canReadPrices ? '' : 'office-pricing-editor-classification-only'}`}>
         <div className="office-pricing-article-stack">
         <section className="office-panel">
-          <h2>Grunduppgifter & referensbilder</h2>
+          <h2>Grunduppgifter</h2>
           <fieldset className="office-pricing-fields" disabled={!editable}>
           <div className="office-pricing-article-identity">
             <ArticlePhoto article={draft} large />
@@ -1084,26 +1098,35 @@ function ArticleEditor({
                   maxLength={120}
                 />
               </label>
-              <label>
-                Materialkategori
-                <select
-                  value={draft.category}
-                  onChange={(event) =>
-                    setDraft((old) => ({
-                      ...old,
-                      category: event.target.value,
-                    }))
-                  }
-                >
-                  {categories.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+
             </div>
           </div>
+          <label className="office-pricing-checkbox">
+            <input
+              type="checkbox"
+              checked={draft.active}
+              onChange={(event) =>
+                setDraft((old) => ({ ...old, active: event.target.checked }))
+              }
+            />{' '}
+            Artikeln är aktiv för invägning
+          </label>
+          </fieldset>
+        </section>
+        <section className="office-panel office-pricing-app-settings">
+          <h2>Visning i gårdsappen</h2>
+          <p>Placering, bilder och instruktioner som visas vid materialval.</p>
+          <fieldset className="office-pricing-fields" disabled={!editable || imageBusy}>
+            <div className="office-pricing-form-row">
+              <label>Artikelgrupp<select aria-label="Artikelgrupp" value={((state.groups || []).find(group => group.id === draft.category)?.parentId || draft.category)} onChange={event => setDraft(old => ({ ...old, category: event.target.value }))}>
+                <option value="">Ingen / Övrigt</option>
+                {rootArticleGroups(state.groups || []).map(group => <option key={group.id} value={group.id} disabled={!group.active && group.id !== ((state.groups || []).find(item => item.id === draft.category)?.parentId || draft.category)}>{group.name}{group.active ? '' : ' (inaktiv)'}</option>)}
+              </select></label>
+              <label>Undergrupp<select aria-label="Undergrupp" value={(state.groups || []).find(group => group.id === draft.category)?.parentId ? draft.category : ''} disabled={!draft.category || !childArticleGroups(state.groups || [], (state.groups || []).find(group => group.id === draft.category)?.parentId || draft.category).length} onChange={event => setDraft(old => ({ ...old, category: event.target.value || (state.groups || []).find(group => group.id === old.category)?.parentId || old.category }))}>
+                <option value="">Ingen undergrupp</option>
+                {childArticleGroups(state.groups || [], (state.groups || []).find(group => group.id === draft.category)?.parentId || draft.category).map(group => <option key={group.id} value={group.id} disabled={(!group.active || !(state.groups || []).find(parent => parent.id === group.parentId)?.active) && group.id !== draft.category}>{group.name}{group.active ? '' : ' (inaktiv)'}</option>)}
+              </select></label>
+            </div>
           <label>
             Kort beskrivning
             <input
@@ -1114,54 +1137,6 @@ function ArticleEditor({
               maxLength={250}
             />
           </label>
-          <button
-            type="button"
-            className="office-pricing-plain"
-            onClick={() => setPhotoPicker((value) => !value)}
-          >
-            {photoPicker
-              ? 'Stäng bildval'
-              : `Välj referensbilder (${draft.photos.length})`}
-          </button>
-          {photoPicker && (
-            <div
-              className="office-pricing-photo-picker"
-              aria-label="Referensbilder"
-            >
-              {Array.from({ length: 40 }, (_, cell) => (
-                <button
-                  className={draft.photos.includes(cell) ? 'selected' : ''}
-                  type="button"
-                  key={cell}
-                  aria-label={`Referensbild ${cell + 1}`}
-                  aria-pressed={draft.photos.includes(cell)}
-                  onClick={() =>
-                    setDraft((old) => ({
-                      ...old,
-                      photos: old.photos.includes(cell)
-                        ? old.photos.filter((photo) => photo !== cell)
-                        : old.photos.length < 6
-                          ? [...old.photos, cell]
-                          : old.photos,
-                    }))
-                  }
-                >
-                  <ArticlePhoto
-                    article={{
-                      name: `Referensbild ${cell + 1}`,
-                      photos: [cell],
-                    }}
-                  />
-                  {draft.photos.includes(cell) && <Check size={12} />}
-                </button>
-              ))}
-            </div>
-          )}
-          <small>
-            {draft.photos.length
-              ? 'Upp till sex bilder ur demobiblioteket.'
-              : 'Exempelartikel – referensbilder saknas.'}
-          </small>
           <label>
             Exempel på vad som ingår
             <textarea
@@ -1180,17 +1155,8 @@ function ArticleEditor({
               maxLength={3000}
             />
           </label>
-          <label className="office-pricing-checkbox">
-            <input
-              type="checkbox"
-              checked={draft.active}
-              onChange={(event) =>
-                setDraft((old) => ({ ...old, active: event.target.checked }))
-              }
-            />{' '}
-            Artikeln är aktiv för invägning
-          </label>
           </fieldset>
+          <ArticleImagesEditor key={`${article.id}:${actualUser.id}:${user.id}`} images={draft.photos as ArticleImage[]} onChange={photos => setDraft(old => ({ ...old, photos }))} user={user} actualUser={actualUser} disabled={!editable || busy} onBusyChange={setImageBusy} />
         </section>
         <section className={`office-panel office-pricing-tax-panel ${draft.taxCategory === 'review' ? 'needs-review' : ''}`}>
           <div className="office-pricing-tax-heading">
@@ -1398,8 +1364,9 @@ function ArticleEditor({
           </div>
         </section>
         )}
-        {canReadPrices && (
+        {(canReadPrices || editable) && (
         <aside className="office-pricing-preview">
+          <CatalogMobilePreview article={{ ...draft, includes: lines(includeText), excludes: lines(excludeText) }} groups={state.groups || []} />
           <section className="office-panel">
             <h2>Prisförhandsvisning</h2>
             <p>{editable ? 'Beräknat mot prisbasen' : 'Aktuella artikelpriser'} för {draft.effectiveFrom}.</p>
@@ -1513,9 +1480,9 @@ function ArticleEditor({
         {editable && <button
           type="submit"
           className="office-pricing-primary"
-          disabled={busy}
+          disabled={busy || imageBusy}
         >
-          <Check size={15} /> {busy ? 'Sparar…' : 'Spara artikel'}
+          <Check size={15} /> {imageBusy ? 'Laddar upp bild…' : busy ? 'Sparar…' : 'Spara artikel'}
         </button>}
       </div>
     </form>
