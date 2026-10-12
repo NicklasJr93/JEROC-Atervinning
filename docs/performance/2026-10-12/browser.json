@@ -1,0 +1,814 @@
+{
+  "method": "Live production browser; desktop headless Chromium1440x1000; verified upstream HTTPS via route.fetch; cache disabled by routing; SSE may fail Chromium proxy CA; no financial/NVV/Spiris writes; no throttling; readiness is element visibility, full API completion reported separately",
+  "measurements": [
+    {
+      "name": "cold-login-page",
+      "readyMs": 741
+    },
+    {
+      "name": "office-bootstrap",
+      "readyMs": 196
+    },
+    {
+      "name": "integrations-grid",
+      "readyMs": 337
+    },
+    {
+      "name": "spiris-settings",
+      "readyMs": 3878
+    },
+    {
+      "name": "weighings-list",
+      "readyMs": 176
+    },
+    {
+      "name": "articles-list",
+      "readyMs": 54
+    },
+    {
+      "name": "work-orders-list",
+      "readyMs": 1902
+    },
+    {
+      "name": "personnel-list",
+      "readyMs": 1952
+    }
+  ],
+  "requests": [
+    {
+      "phase": "cold-login-page",
+      "path": "/kontor",
+      "method": "GET",
+      "resourceType": "document",
+      "status": 200,
+      "ms": 208,
+      "decodedBytes": 655,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "cold-login-page",
+      "path": "/assets/index-SV-_ZUdm.css",
+      "method": "GET",
+      "resourceType": "stylesheet",
+      "status": 200,
+      "ms": 122,
+      "decodedBytes": 200980,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "cold-login-page",
+      "path": "/assets/index-BTFDQCfp.js",
+      "method": "GET",
+      "resourceType": "script",
+      "status": 200,
+      "ms": 206,
+      "decodedBytes": 906589,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "cold-login-page",
+      "path": "/images/jeroc-logo-v2.png",
+      "method": "GET",
+      "resourceType": "other",
+      "status": 200,
+      "ms": 192,
+      "decodedBytes": 1013856,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "cold-login-page",
+      "path": "/images/jeroc-logo-v2.png",
+      "method": "GET",
+      "resourceType": "image",
+      "status": 200,
+      "ms": 249,
+      "decodedBytes": 1013856,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/images/jeroc-logo-v2.png",
+      "method": "GET",
+      "resourceType": "image",
+      "status": 200,
+      "ms": 210,
+      "decodedBytes": 1013856,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/images/jeroc-logo-v2.png",
+      "method": "GET",
+      "resourceType": "other",
+      "status": 200,
+      "ms": 243,
+      "decodedBytes": 1013856,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/images/materials.png",
+      "method": "GET",
+      "resourceType": "image",
+      "status": 200,
+      "ms": 364,
+      "decodedBytes": 3586588,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/environment/session",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 401,
+      "ms": 637,
+      "decodedBytes": 130,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/pricing/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 705,
+      "decodedBytes": 29608,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/application/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1013,
+      "decodedBytes": 33832,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/terminal-demo/staff-session",
+      "method": "POST",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1103,
+      "decodedBytes": 62,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/terminal-demo/staff-session",
+      "method": "POST",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 588,
+      "decodedBytes": 62,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/terminal-demo/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 498,
+      "decodedBytes": 33804,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/application/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 704,
+      "decodedBytes": 33832,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 4059,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/environment/demo-session",
+      "method": "POST",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 3497,
+      "decodedBytes": 660,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/environment/session",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 200,
+      "decodedBytes": 660,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 4478,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/environment/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1443,
+      "decodedBytes": 107160,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-grid",
+      "path": "/assets/visma-sandbox-client-BknD_QmN.js",
+      "method": "GET",
+      "resourceType": "script",
+      "status": 200,
+      "ms": 106,
+      "decodedBytes": 512,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-grid",
+      "path": "/assets/IntegrationsWorkspace-BjbzGs-N.css",
+      "method": "GET",
+      "resourceType": "stylesheet",
+      "status": 200,
+      "ms": 110,
+      "decodedBytes": 19865,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-grid",
+      "path": "/assets/IntegrationsWorkspace-CnaHCMar.js",
+      "method": "GET",
+      "resourceType": "script",
+      "status": 200,
+      "ms": 121,
+      "decodedBytes": 59041,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-grid",
+      "path": "/assets/sliders-horizontal-EnkScZfm.js",
+      "method": "GET",
+      "resourceType": "script",
+      "status": 200,
+      "ms": 143,
+      "decodedBytes": 753,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-grid",
+      "path": "/images/jeroc-logo-v2.png",
+      "method": "GET",
+      "resourceType": "other",
+      "status": 200,
+      "ms": 162,
+      "decodedBytes": 1013856,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "integrations-grid",
+      "path": "/api/pricing/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 215,
+      "decodedBytes": 29608,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "office-bootstrap",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 2080,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-grid",
+      "path": "/api/environment/integrations/catalog",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 2399,
+      "decodedBytes": 3857,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-grid",
+      "path": "/api/application/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 816,
+      "decodedBytes": 33832,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "spiris-settings",
+      "path": "/images/jeroc-logo-v2.png",
+      "method": "GET",
+      "resourceType": "other",
+      "status": 200,
+      "ms": 314,
+      "decodedBytes": 1013856,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "integrations-grid",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1880,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "spiris-settings",
+      "path": "/api/environment/visma/accounting/settings",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 3327,
+      "decodedBytes": 1265916,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "spiris-settings",
+      "path": "/api/environment/visma/accounting/preview",
+      "method": "POST",
+      "resourceType": "fetch",
+      "status": 422,
+      "ms": 1262,
+      "decodedBytes": 152,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "spiris-settings",
+      "path": "/api/application/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 703,
+      "decodedBytes": 33832,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "spiris-settings",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1779,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "weighings-list",
+      "path": "/images/jeroc-logo-v2.png",
+      "method": "GET",
+      "resourceType": "other",
+      "status": 200,
+      "ms": 171,
+      "decodedBytes": 1013856,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "weighings-list",
+      "path": "/api/pricing/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 109,
+      "decodedBytes": 29608,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "articles-list",
+      "path": "/api/pricing/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 84,
+      "decodedBytes": 29608,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "articles-list",
+      "path": "/api/pricing/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 92,
+      "decodedBytes": 29608,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "articles-list",
+      "path": "/images/jeroc-logo-v2.png",
+      "method": "GET",
+      "resourceType": "other",
+      "status": 200,
+      "ms": 120,
+      "decodedBytes": 1013856,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "articles-list",
+      "path": "/images/copper-grades.png",
+      "method": "GET",
+      "resourceType": "image",
+      "status": 200,
+      "ms": 124,
+      "decodedBytes": 3434239,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "articles-list",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1181,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "work-orders-list",
+      "path": "/assets/arrow-down-to-line-BEDwN90_.js",
+      "method": "GET",
+      "resourceType": "script",
+      "status": 200,
+      "ms": 133,
+      "decodedBytes": 375,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "work-orders-list",
+      "path": "/assets/WorkOrdersWorkspace-CgrdYGo7.css",
+      "method": "GET",
+      "resourceType": "stylesheet",
+      "status": 200,
+      "ms": 143,
+      "decodedBytes": 14423,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "work-orders-list",
+      "path": "/assets/repeat-2-BgH7DUjW.js",
+      "method": "GET",
+      "resourceType": "script",
+      "status": 200,
+      "ms": 160,
+      "decodedBytes": 767,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "work-orders-list",
+      "path": "/images/jeroc-logo-v2.png",
+      "method": "GET",
+      "resourceType": "other",
+      "status": 200,
+      "ms": 144,
+      "decodedBytes": 1013856,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "work-orders-list",
+      "path": "/api/pricing/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 151,
+      "decodedBytes": 29608,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "work-orders-list",
+      "path": "/assets/WorkOrdersWorkspace-BxzYo0cd.js",
+      "method": "GET",
+      "resourceType": "script",
+      "status": 200,
+      "ms": 181,
+      "decodedBytes": 61415,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "work-orders-list",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1526,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "work-orders-list",
+      "path": "/api/application/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 409,
+      "decodedBytes": 33832,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "work-orders-list",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1594,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "personnel-list",
+      "path": "/assets/PersonalWorkspace-BOy1N8aO.js",
+      "method": "GET",
+      "resourceType": "script",
+      "status": 200,
+      "ms": 335,
+      "decodedBytes": 72834,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "personnel-list",
+      "path": "/assets/PersonalWorkspace-CI1P4Vk7.css",
+      "method": "GET",
+      "resourceType": "stylesheet",
+      "status": 200,
+      "ms": 401,
+      "decodedBytes": 15972,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "personnel-list",
+      "path": "/assets/client-D3vses6J.js",
+      "method": "GET",
+      "resourceType": "script",
+      "status": 200,
+      "ms": 403,
+      "decodedBytes": 444,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "personnel-list",
+      "path": "/images/jeroc-logo-v2.png",
+      "method": "GET",
+      "resourceType": "other",
+      "status": 200,
+      "ms": 515,
+      "decodedBytes": 1013856,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "personnel-list",
+      "path": "/api/pricing/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 199,
+      "decodedBytes": 29608,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "personnel-list",
+      "path": "/api/application/personnel",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1341,
+      "decodedBytes": 23962,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "personnel-list",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1284,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "personnel-list",
+      "path": "/api/application/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 410,
+      "decodedBytes": 33832,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "personnel-list",
+      "path": "/api/terminal-demo/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 142,
+      "decodedBytes": 33804,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/pricing/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 345,
+      "decodedBytes": 29608,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/images/jeroc-logo-v2.png",
+      "method": "GET",
+      "resourceType": "other",
+      "status": 200,
+      "ms": 442,
+      "decodedBytes": 1013856,
+      "contentEncoding": ""
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/environment/integrations/catalog",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1534,
+      "decodedBytes": 3857,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/environment/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 392,
+      "decodedBytes": 107160,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1579,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/application/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 83,
+      "decodedBytes": 33832,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1381,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1688,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/application/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 170,
+      "decodedBytes": 33832,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1390,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/application/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 105,
+      "decodedBytes": 33832,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1478,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/logistics/office",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 1285,
+      "decodedBytes": 32996,
+      "contentEncoding": "br"
+    },
+    {
+      "phase": "integrations-idle",
+      "path": "/api/terminal-demo/state",
+      "method": "GET",
+      "resourceType": "fetch",
+      "status": 200,
+      "ms": 434,
+      "decodedBytes": 33804,
+      "contentEncoding": "br"
+    }
+  ],
+  "denied": [],
+  "longTasks": [
+    {
+      "startTime": 528.0999999642372,
+      "duration": 66
+    },
+    {
+      "startTime": 596.3999999761581,
+      "duration": 63
+    },
+    {
+      "startTime": 1770.5999999642372,
+      "duration": 90
+    },
+    {
+      "startTime": 16885,
+      "duration": 108
+    },
+    {
+      "startTime": 20388.80000001192,
+      "duration": 96
+    },
+    {
+      "startTime": 21476,
+      "duration": 88
+    },
+    {
+      "startTime": 21582.30000001192,
+      "duration": 82
+    }
+  ],
+  "memory": {
+    "usedJSHeapSize": 9082745,
+    "totalJSHeapSize": 11309181
+  }
+}

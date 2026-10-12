@@ -1682,3 +1682,31 @@ Status: Implementerad i kontor 0.17.2, 2026-10-12.
   decimalandel (0,25), medan inställningarna använder procent (25).
   Normalisera import och tidigare sparade val så att 25-procentskoder visas
   och godkänns korrekt. Frysta bokföringsunderlag och inställningar ändras inte.
+
+082 – Prestandagranskning och föreslagna etapper
+Status: Granskning och mätunderlag sparade 2026-10-12. Optimeringarna är
+planerade; inga appfunktioner ändrades i denna granskning.
+- Samlad rapport: docs/prestandagranskning-2026-10-12.md. Kod, 36 driftläsningar,
+  webbläsarens laddningskedjor och separata lokala PostgreSQL-prov ingår.
+  Driftproven är tre varma observationer per endpoint, inte P95/belastningsprov.
+- Uppmätt median: kontorsdata 128 ms, prisregister 89 ms, integrationskatalog
+  1 604 ms, sparade Spiris-inställningar 3 133 ms, logistik 1 484 ms och
+  Personal 1 490 ms. Katalog/inställningar gör inga externa Spiris-anrop.
+- Etapp 1: små SQL-projektioner för integrationsstatus, en gemensam
+  inställningsläsning, riktad/gemensam behörighetsläsning, återanvända val
+  och uppdelad Server-Timing. Mål 0,3–0,5 s för varma oberoende läsningar.
+- Etapp 2: GET utan skrivlås för Personal/logistik/äldre chaufförsportal,
+  små menyräknare, sidstyrda hämtningar och samordnad SSE/reservhämtning.
+  Global logistik var femte sekund utgör cirka 75 procent av grundtrafiken
+  i synlig kontorsflik med arbetsorder-/miljöbehörighet och frisk realtid.
+- Etapp 3: mindre startpaket och bilder, riktade mobilpriser/kataloger,
+  små sparkommandon och person-/dagssammanställningar för tid.
+- Etapp 4: separerad historik/kö, inkrementell attestköning,
+  paginering/index för heta poster och begränsad dokument-/integrationsarbetare.
+- Lokalt syntetiskt prov: cirka 10 MB orelaterad historik gjorde en
+  oförändrad transaktion över alla domäner cirka 28 gånger långsammare.
+  Avgränsad kontorsläsning påverkades knappt. Ingen Render-tidsprognos av kvoten.
+- Uppskattningar och mål ska följas upp med samma data/behörighet, verkliga
+  server-/DB-tider och representativ samtidighet. Render-planer/resurser är
+  inte bekräftade. Befintlig behörighet, commit, lagerkontroll, godkännande,
+  offlinekön och skydd mot dubbla externa operationer måste bevaras.

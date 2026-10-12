@@ -1,0 +1,511 @@
+{
+  "method": "Warm sequential HTTPS requests via managed proxy; n=3, no P95 claim; session login/logout only POST; standard existing GET paths",
+  "rows": [
+    {
+      "path": "/healthz",
+      "status": 200,
+      "ttfbMs": 115.1,
+      "totalMs": 115.3,
+      "wireBytes": 35,
+      "decodedBytes": 15,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/healthz",
+      "status": 200,
+      "ttfbMs": 258.5,
+      "totalMs": 258.7,
+      "wireBytes": 35,
+      "decodedBytes": 15,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/healthz",
+      "status": 200,
+      "ttfbMs": 176.4,
+      "totalMs": 176.6,
+      "wireBytes": 35,
+      "decodedBytes": 15,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/application/office",
+      "status": 200,
+      "ttfbMs": 151.6,
+      "totalMs": 151.7,
+      "wireBytes": 4678,
+      "decodedBytes": 33832,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/application/office",
+      "status": 200,
+      "ttfbMs": 126.6,
+      "totalMs": 127.0,
+      "wireBytes": 4678,
+      "decodedBytes": 33832,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/application/office",
+      "status": 200,
+      "ttfbMs": 127.8,
+      "totalMs": 127.9,
+      "wireBytes": 4685,
+      "decodedBytes": 33832,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/pricing/state",
+      "status": 200,
+      "ttfbMs": 129.4,
+      "totalMs": 129.6,
+      "wireBytes": 4311,
+      "decodedBytes": 29608,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/pricing/state",
+      "status": 200,
+      "ttfbMs": 88.8,
+      "totalMs": 89.0,
+      "wireBytes": 4311,
+      "decodedBytes": 29608,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/pricing/state",
+      "status": 200,
+      "ttfbMs": 85.3,
+      "totalMs": 85.4,
+      "wireBytes": 4311,
+      "decodedBytes": 29608,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/session",
+      "status": 200,
+      "ttfbMs": 125.5,
+      "totalMs": 125.7,
+      "wireBytes": 380,
+      "decodedBytes": 660,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/session",
+      "status": 200,
+      "ttfbMs": 76.0,
+      "totalMs": 76.1,
+      "wireBytes": 380,
+      "decodedBytes": 660,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/session",
+      "status": 200,
+      "ttfbMs": 65.5,
+      "totalMs": 65.6,
+      "wireBytes": 380,
+      "decodedBytes": 660,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/state",
+      "status": 200,
+      "ttfbMs": 270.9,
+      "totalMs": 274.3,
+      "wireBytes": 11283,
+      "decodedBytes": 107160,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/state",
+      "status": 200,
+      "ttfbMs": 390.6,
+      "totalMs": 400.4,
+      "wireBytes": 11290,
+      "decodedBytes": 107160,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/state",
+      "status": 200,
+      "ttfbMs": 597.0,
+      "totalMs": 597.2,
+      "wireBytes": 11290,
+      "decodedBytes": 107160,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/integrations/catalog",
+      "status": 200,
+      "ttfbMs": 1877.0,
+      "totalMs": 1877.1,
+      "wireBytes": 1126,
+      "decodedBytes": 3857,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/integrations/catalog",
+      "status": 200,
+      "ttfbMs": 1306.3,
+      "totalMs": 1306.5,
+      "wireBytes": 1126,
+      "decodedBytes": 3857,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/integrations/catalog",
+      "status": 200,
+      "ttfbMs": 1602.4,
+      "totalMs": 1603.5,
+      "wireBytes": 1126,
+      "decodedBytes": 3857,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/visma/accounting/settings",
+      "status": 200,
+      "ttfbMs": 3409.3,
+      "totalMs": 3440.9,
+      "wireBytes": 65293,
+      "decodedBytes": 1265916,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/visma/accounting/settings",
+      "status": 200,
+      "ttfbMs": 3025.8,
+      "totalMs": 3093.2,
+      "wireBytes": 65683,
+      "decodedBytes": 1265916,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/environment/visma/accounting/settings",
+      "status": 200,
+      "ttfbMs": 3106.1,
+      "totalMs": 3133.2,
+      "wireBytes": 65056,
+      "decodedBytes": 1265916,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/terminal-demo/state",
+      "status": 200,
+      "ttfbMs": 84.4,
+      "totalMs": 84.5,
+      "wireBytes": 4427,
+      "decodedBytes": 33804,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/terminal-demo/state",
+      "status": 200,
+      "ttfbMs": 76.5,
+      "totalMs": 76.6,
+      "wireBytes": 4427,
+      "decodedBytes": 33804,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/terminal-demo/state",
+      "status": 200,
+      "ttfbMs": 68.5,
+      "totalMs": 68.7,
+      "wireBytes": 4427,
+      "decodedBytes": 33804,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/logistics/office",
+      "status": 200,
+      "ttfbMs": 1413.4,
+      "totalMs": 1413.5,
+      "wireBytes": 4988,
+      "decodedBytes": 32996,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/logistics/office",
+      "status": 200,
+      "ttfbMs": 1615.8,
+      "totalMs": 1616.0,
+      "wireBytes": 5000,
+      "decodedBytes": 32996,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/logistics/office",
+      "status": 200,
+      "ttfbMs": 1484.1,
+      "totalMs": 1484.3,
+      "wireBytes": 4988,
+      "decodedBytes": 32996,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/application/personnel",
+      "status": 200,
+      "ttfbMs": 1205.3,
+      "totalMs": 1205.8,
+      "wireBytes": 3795,
+      "decodedBytes": 23962,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/application/personnel",
+      "status": 200,
+      "ttfbMs": 1505.5,
+      "totalMs": 1506.0,
+      "wireBytes": 3795,
+      "decodedBytes": 23962,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/application/personnel",
+      "status": 200,
+      "ttfbMs": 1490.1,
+      "totalMs": 1490.2,
+      "wireBytes": 3795,
+      "decodedBytes": 23962,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/employee/overview",
+      "status": 200,
+      "ttfbMs": 106.3,
+      "totalMs": 106.4,
+      "wireBytes": 722,
+      "decodedBytes": 6719,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/employee/overview",
+      "status": 200,
+      "ttfbMs": 90.6,
+      "totalMs": 90.8,
+      "wireBytes": 722,
+      "decodedBytes": 6719,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/employee/overview",
+      "status": 200,
+      "ttfbMs": 201.3,
+      "totalMs": 201.5,
+      "wireBytes": 722,
+      "decodedBytes": 6719,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/application/mobile",
+      "status": 200,
+      "ttfbMs": 143.5,
+      "totalMs": 143.6,
+      "wireBytes": 4001,
+      "decodedBytes": 16278,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/application/mobile",
+      "status": 200,
+      "ttfbMs": 109.8,
+      "totalMs": 109.9,
+      "wireBytes": 4001,
+      "decodedBytes": 16278,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    },
+    {
+      "path": "/api/application/mobile",
+      "status": 200,
+      "ttfbMs": 95.4,
+      "totalMs": 95.6,
+      "wireBytes": 4001,
+      "decodedBytes": 16278,
+      "contentEncoding": "gzip",
+      "serverTiming": ""
+    }
+  ],
+  "summary": [
+    {
+      "path": "/healthz",
+      "n": 3,
+      "medianMs": 176.6,
+      "minMs": 115.3,
+      "maxMs": 258.7,
+      "decodedBytesMedian": 15,
+      "wireBytesMedian": 35,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "path": "/api/application/office",
+      "n": 3,
+      "medianMs": 127.9,
+      "minMs": 127.0,
+      "maxMs": 151.7,
+      "decodedBytesMedian": 33832,
+      "wireBytesMedian": 4678,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "path": "/api/pricing/state",
+      "n": 3,
+      "medianMs": 89.0,
+      "minMs": 85.4,
+      "maxMs": 129.6,
+      "decodedBytesMedian": 29608,
+      "wireBytesMedian": 4311,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "path": "/api/environment/session",
+      "n": 3,
+      "medianMs": 76.1,
+      "minMs": 65.6,
+      "maxMs": 125.7,
+      "decodedBytesMedian": 660,
+      "wireBytesMedian": 380,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "path": "/api/environment/state",
+      "n": 3,
+      "medianMs": 400.4,
+      "minMs": 274.3,
+      "maxMs": 597.2,
+      "decodedBytesMedian": 107160,
+      "wireBytesMedian": 11290,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "path": "/api/environment/integrations/catalog",
+      "n": 3,
+      "medianMs": 1603.5,
+      "minMs": 1306.5,
+      "maxMs": 1877.1,
+      "decodedBytesMedian": 3857,
+      "wireBytesMedian": 1126,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "path": "/api/environment/visma/accounting/settings",
+      "n": 3,
+      "medianMs": 3133.2,
+      "minMs": 3093.2,
+      "maxMs": 3440.9,
+      "decodedBytesMedian": 1265916,
+      "wireBytesMedian": 65293,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "path": "/api/terminal-demo/state",
+      "n": 3,
+      "medianMs": 76.6,
+      "minMs": 68.7,
+      "maxMs": 84.5,
+      "decodedBytesMedian": 33804,
+      "wireBytesMedian": 4427,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "path": "/api/logistics/office",
+      "n": 3,
+      "medianMs": 1484.3,
+      "minMs": 1413.5,
+      "maxMs": 1616.0,
+      "decodedBytesMedian": 32996,
+      "wireBytesMedian": 4988,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "path": "/api/application/personnel",
+      "n": 3,
+      "medianMs": 1490.2,
+      "minMs": 1205.8,
+      "maxMs": 1506.0,
+      "decodedBytesMedian": 23962,
+      "wireBytesMedian": 3795,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "path": "/api/employee/overview",
+      "n": 3,
+      "medianMs": 106.4,
+      "minMs": 90.8,
+      "maxMs": 201.5,
+      "decodedBytesMedian": 6719,
+      "wireBytesMedian": 722,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "path": "/api/application/mobile",
+      "n": 3,
+      "medianMs": 109.9,
+      "minMs": 95.6,
+      "maxMs": 143.6,
+      "decodedBytesMedian": 16278,
+      "wireBytesMedian": 4001,
+      "statuses": [
+        200
+      ]
+    }
+  ]
+}
