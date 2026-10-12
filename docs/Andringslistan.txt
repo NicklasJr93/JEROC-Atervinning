@@ -2224,3 +2224,26 @@ Status: Genomförd 2026-10-12 i kontor 0.20.0 och mobilwebb 0.7.0.
   lösenordsbyte; därefter används valt lösenord, inte initialvariabeln.
 - Bygge, verifiering och kvarvarande avgränsningar:
   docs/scrappilot-bolagsgrund-2026-10-12.md.
+
+ÄL 100 – Välj aktiv anläggning i mobilappen
+Status: Planerad 2026-10-12. Godkänd utformning; inte implementerat.
+- Lägg en kompakt anläggningsväljare uppe till höger på Hem och Gårdsarbete,
+  exempelvis Norrtälje med nedåtpil. Valet ska vara gemensamt för båda vyerna.
+- Visa bara aktiva anläggningar i det aktuella bolaget som både personprofilen
+  och det kopplade användarkontot tillåter. Kontoret hanterar dessa behörigheter
+  under Personal. Med bara en tillåten anläggning visas dess namn utan byte.
+- Spara aktivt val per bolag och användare och återanvänd det vid nästa besök.
+  Ett sparat val måste kontrolleras igen om anläggningen avaktiveras eller
+  behörigheterna ändras. Inget val får följa med till ett annat bolag/konto.
+- Nya invägningar använder det aktiva valet. Spara anläggnings-ID på viktkortet
+  redan när utkastet skapas och validera valet på servern. Ersätt dagens
+  automatiska val av kontots första anläggning och Norrtälje-fallback.
+- Påbörjade och färdiga viktkort behåller sin ursprungliga anläggning när
+  användaren byter gård. Även väntande/offline-sparade utkast behåller sitt val;
+  synkronisering får inte flytta dem till användarens senare aktiva anläggning.
+- Kontorsvy, kundterminal, miljömottagning, lager och Spiris-fördelning ska
+  fortsatt utgå från respektive viktkorts sparade anläggning. Väljaren flyttar
+  inte befintliga kort, mottagningar eller lagerhändelser.
+- Bakgrund: mobilappen saknar i dag väljare för invägning. Niklas demokonto
+  tillåter Norrtälje och nya utkast får kontots första tillåtna anläggning.
+  Att ge kontot flera anläggningar skapar ännu inget aktivt val i appen.
