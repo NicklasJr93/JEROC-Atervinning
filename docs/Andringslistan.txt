@@ -1586,6 +1586,10 @@ Implementation återstår.
   Gårdsarbete, Mina uppdrag och Schema & tid. Den egna delen heter Schema & tid;
   Personal används fortsatt för chefens administration. Bottenmenyn har Hem,
   Schema, Tid och Profil. Samma upplägg, funktioner efter behörighet.
+- Kompakt sidhuvud på samtliga fem statiska mobilvyer: ta bort JEROC-loggan,
+  aviseringsklockan och profilgenvägen högst upp. Behåll sidrubrik, nödvändiga
+  tillbaka-knappar och bottenmenyn. Egna personuppgifter finns kvar på Profil.
+  Detta är mockupens designriktning; den verkliga appen är inte ändrad.
 - Schema visar dag/vecka/månad och vald dags jobb direkt under kalendern.
   Tid visar månadens registrerade timmar och vald dags tider per jobb/aktivitet;
   ledighetsansökningar och separata semester-/komp-/flexsaldon finns här.
@@ -1599,7 +1603,7 @@ Implementation återstår.
   av tid/ledighet, även på mobil. Medarbetaren ser sina egna uppgifter.
 - Prototypen återanvänder JEROC:s visuella språk och samma exempelperson genom
   hela kedjan. Fullsidiga mobilformulär och separat chefsvy; inga produktionsdata ändras.
-- Fyra statiska huvudvyer: docs/mockups/mobil-huvudvyer/README.md.
+- Fyra statiska huvudvyer och Gårdsarbete: docs/mockups/mobil-huvudvyer/README.md.
   Tidigare 13 bilder och provflöde: docs/mockups/personal-mobil/README.md.
   Tidigare klickbar prototyp: public/mockups/personal-mobil/index.html.
 - Före implementation behövs verklig gemensam inloggning, serverstyrd egen- och

@@ -5,6 +5,11 @@ En gemensam app med bottenmenyn
 **Hem · Schema · Tid · Profil**. Fiktiva exempeluppgifter för Kalle Nilsson.
 Detta är designförslag; den verkliga appen är inte ändrad.
 
+Alla fem vyer har ett kompakt sidhuvud: JEROC-loggan, aviseringsklockan
+och profilgenvägen högst upp tas bort för att ge innehållet mer plats.
+Sidans rubrik och nödvändiga tillbaka-knappar finns kvar. Bottenmenyn
+**Hem · Schema · Tid · Profil** ligger kvar; personens uppgifter visas på Profil.
+
 ## Hem
 
 Dagens överblick och tydliga ingångar till gårdsarbete och egna uppdrag.
