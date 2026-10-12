@@ -4,6 +4,9 @@ Klickbart designförslag 2026-10-12 i befintlig JEROC-design.
 [Öppna mobilmockupen](https://jeroc-atervinning.onrender.com/mockups/personal-mobil/index.html#profil)
 efter Render-deploy. [Öppna chefsvyn](https://jeroc-atervinning.onrender.com/mockups/personal-mobil/index.html#chef).
 
+[Ladda ner den kompletta prototypen och bilderna](JEROC_Min_Personal_Mockup.zip).
+Packa upp ZIP-filen och öppna `index.html` i webbläsaren för att prova lokalt.
+
 Detta är en fristående prototyp med fiktiva exempeluppgifter i minnet.
 Profilväljaren provar arbetsflöden och är ingen autentisering. Ingen personal,
 tidrapport, semesterreservation, arbetsorder eller databaspost ändras i den
