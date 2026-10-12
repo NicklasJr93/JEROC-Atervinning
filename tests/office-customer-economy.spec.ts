@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { createOfficeCard, readOffice } from './helpers/financial-card';
+import { testOrganisationNumber } from './helpers/customer-identity';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 
@@ -23,6 +24,7 @@ test('momsval behålls mellan kundtyper och snabb/full form och betalningsvillko
   await dialog.getByRole('button', { name: 'Företag', exact: true }).click();
   await expect(quickVat.getByRole('button', { name: 'Nej', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await dialog.getByLabel('Företagsnamn', { exact: true }).fill(name);
+  await dialog.getByLabel('Organisationsnummer', { exact: true }).fill(testOrganisationNumber());
   await dialog.getByRole('button', { name: 'Öppna fullständigt kundformulär', exact: true }).click();
   const fullVat = page.getByRole('group', { name: 'Momsregistrerad', exact: true });
   await expect(fullVat.getByRole('button', { name: 'Nej', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -34,6 +36,7 @@ test('momsval behålls mellan kundtyper och snabb/full form och betalningsvillko
   expect(customer).toMatchObject({ vatRegistered: false, paymentTermDays: 45 });
   await page.goto(`/kontor#/customers/${customer.id}?tab=details`);
   await expect(page.getByLabel('Antal betalningsdagar', { exact: true })).toHaveValue('45');
+  await page.getByRole('button', { name: 'Redigera kund', exact: true }).click();
   await page.getByLabel('Kundtyp', { exact: true }).selectOption('Privatperson');
   await expect(fullVat).toHaveCount(0);
   await page.getByLabel('Kundtyp', { exact: true }).selectOption('BRF');
@@ -41,6 +44,7 @@ test('momsval behålls mellan kundtyper och snabb/full form och betalningsvillko
   await page.getByLabel('Betalningsvillkor', { exact: true }).selectOption('0');
   await page.getByRole('button', { name: 'Spara kunduppgifter', exact: true }).click();
   await expect.poll(async () => (await readOffice(request)).customers.find(row => row.id === customer.id)?.paymentTermDays).toBe(0);
+  await page.getByRole('button', { name: 'Redigera kund', exact: true }).click();
   await page.getByLabel('Betalningsvillkor', { exact: true }).selectOption('default');
   await page.getByRole('button', { name: 'Spara kunduppgifter', exact: true }).click();
   await expect.poll(async () => (await readOffice(request)).customers.find(row => row.id === customer.id)?.paymentTermDays).toBeUndefined();

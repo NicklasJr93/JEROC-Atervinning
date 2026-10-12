@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import municipalities from './data/environment-municipalities.json' with { type: 'json' };
 import { EnvironmentError } from './environment-storage.mjs';
+import { normalizeAddress } from '../dist-server/domain-models.mjs';
 
 /** SCB's four-digit municipal regions, never inferred from postal codes. */
 export const ENVIRONMENT_MUNICIPALITIES = Object.freeze(municipalities.municipalities.map((entry) => Object.freeze(entry)));
@@ -13,7 +14,6 @@ const municipalityForName = (value) => {
   const name = municipalityName(value);
   return municipalityByName.get(name) ?? (/s$/.test(name) ? municipalityByName.get(name.slice(0, -1)) : undefined);
 };
-const trimSeparators = (value) => value.replace(/^[\s,;]+|[\s,;]+$/g, '').trim();
 const postal = (value = '') => String(value).replaceAll(' ', '');
 const schema = z.object({
   originAddress: z.string().trim().max(300),
@@ -23,20 +23,17 @@ const schema = z.object({
 
 /** Parse only the card's origin. A customer's postal/billing address is never a fallback. */
 export function parseOriginAddress(originAddress) {
-  const origin = String(originAddress ?? '').trim().replace(/,?\s+(?:Sverige|Sweden)$/i, '').trim();
-  const postMatch = /(?:^|[\s,;])(\d{3}\s?\d{2})(?=$|[\s,;])/.exec(origin);
-  if (postMatch) {
-    const postStart = postMatch.index + postMatch[0].indexOf(postMatch[1]);
-    return {
-      address: trimSeparators(origin.slice(0, postStart)), postalCode: postal(postMatch[1]),
-      city: trimSeparators(origin.slice(postStart + postMatch[1].length)), municipalityCode: '',
+  const { address, postalCode, city } = normalizeAddress(String(originAddress ?? ''));
+  if (!postalCode && !city) {
+    // Preserve the established partial-address UX only for an explicitly
+    // written, known locality. Arbitrary suffixes such as "bakom ladan" are
+    // kept as address text and never invented as a city or municipality.
+    const parts = address.split(/[,;]/).map(value => value.trim()).filter(Boolean);
+    if (parts.length === 2 && municipalityForName(parts[1])) return {
+      address: parts[0], postalCode: '', city: parts[1], municipalityCode: '',
     };
   }
-  const parts = origin.split(/[,;]/).map((part) => part.trim()).filter(Boolean);
-  return {
-    address: parts.length > 1 ? parts.slice(0, -1).join(', ') : origin,
-    postalCode: '', city: parts.length > 1 ? parts.at(-1) : '', municipalityCode: '',
-  };
+  return { address, postalCode, city, municipalityCode: '' };
 }
 
 const DEMO_REFERENCES = [

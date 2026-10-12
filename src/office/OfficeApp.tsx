@@ -51,7 +51,7 @@ import { changeWeighingMaterial, type MaterialCommand } from './weighing-materia
 import StaffAccountPanel from './personnel/StaffAccountPanel';
 import { EnvironmentSessionProvider } from './EnvironmentSession';
 import EnvironmentReceiptPanel from './EnvironmentReceiptPanel';
-import CardSpirisStatusPanel from './CardSpirisStatusPanel';
+import CardSpirisStatusPanel, { CardSpirisTrackingProvider, CardAuditTimeline } from './CardSpirisStatusPanel';
 import EnvironmentWorkspace from './EnvironmentWorkspace';
 import { useTerminalDemo } from './useTerminalDemo';
 import { terminalDemoApi } from './terminal-demo-client';
@@ -84,6 +84,7 @@ import {
   validPaymentDetails,
 } from './customer-model';
 import { money, kilos } from '../model';
+import { formatAddress, normalizeCustomerDetails, normalizeOriginAddress } from '../data-format';
 import {
   OFFICE_VERSION,
   officeKey,
@@ -783,14 +784,14 @@ export function OfficeApp() {
       (c) => c.id === customer.id,
     );
     const contactPart = (c: OfficeCustomer) => {
-      const { paymentProfile: _profile, audit: _audit, ...contact } = c;
+      const { paymentProfile: _profile, audit: _audit, ...contact } = normalizeCustomerDetails(c);
       return JSON.stringify(contact);
     };
     const contactChanged =
       !previous || contactPart(previous) !== contactPart(customer);
     const paymentChanged =
-      JSON.stringify(previous?.paymentProfile) !==
-      JSON.stringify(customer.paymentProfile);
+      JSON.stringify(previous && normalizeCustomerDetails(previous).paymentProfile) !==
+      JSON.stringify(normalizeCustomerDetails(customer).paymentProfile);
     if (
       (contactChanged && !can(user, 'customers')) ||
       (paymentChanged && !can(user, 'paymentDetails'))
@@ -862,7 +863,7 @@ export function OfficeApp() {
     const saved = await calculatePrices(current, customer.id, true);
     if (!saved) return false;
     setQuickCustomerOpen(false);
-    setMessage('Kunden är skapad och vald på invägningen.');
+    setMessage(alreadySaved ? 'Kunden är vald på invägningen.' : 'Kunden är skapad och vald på invägningen.');
     return true;
   }
   async function finishCustomerCreation(customer: OfficeCustomer) {
@@ -1346,6 +1347,7 @@ export function OfficeApp() {
             onClose={() => setEditMaterial(undefined)} />}
         {quickCustomerOpen && selected && can(user, 'customers') && <QuickCustomerModal data={data} user={user}
           onSave={customer => selectCreatedCustomer(customer, selected.id, principalRef.current)}
+          onSelectExisting={customer => selectCreatedCustomer(customer, selected.id, principalRef.current, true)}
           onOpenFull={draft => {
             setCustomerCreation({ cardId: selected.id, returnRoute: location.pathname + location.search, draft, principal: principalRef.current });
             setQuickCustomerOpen(false);
@@ -1487,12 +1489,12 @@ export function OfficeApp() {
                                             ? 'Engångspris'
                                             : 'Kundpris'
                                           : `${r.tier}-pris`
-                                        : 'Dolt pris'}
+                                        : r.pricePending && !selected.pricingRedacted ? 'Pris ej beräknat' : 'Dolt pris'}
                                     </span>
                                     <small>
                                       {rowVisible(user, r)
                                         ? (r.source ?? 'Befintligt underlag')
-                                        : 'Behörighet saknas'}
+                                        : r.pricePending && !selected.pricingRedacted ? (selected.pricingPendingReason ?? 'Beräkna priser för att komplettera underlaget') : 'Behörighet saknas'}
                                     </small>
                                   </td>
                                   <td>
@@ -1678,6 +1680,8 @@ export function OfficeApp() {
                         value={selected.paymentDetails}
                         legacy={selected.payment}
                         customerName={selectedCustomer?.name}
+                        customerPhone={selectedCustomer?.phone}
+                        customerKey={selectedCustomer?.id}
                         disabled={
                           priceBusy || !editable || !can(user, 'paymentDetails')
                         }
@@ -1752,9 +1756,9 @@ export function OfficeApp() {
                     <div className="office-summary-info"><Calculator size={28} aria-hidden="true" /><div><h2>Sammanställning</h2><p>{['ready', 'paid', 'balance'].includes(selected.status) ? 'Attesterat underlag. Utbetalningar registreras manuellt.' : 'Efter kundgodkännande och intern attest blir kortet klart för manuell utbetalning.'}</p></div></div>
                     {selected.financialPending && (
                       <p className="office-small">
-                        Beloppet finns i serverns prisunderlag. En användare med
-                        ekonomibehörighet behöver läsa in det före attest och
-                        utbetalning.
+                        {selected.pricingRedacted
+                          ? 'Prisuppgifterna är dolda för din behörighet.'
+                          : selected.pricingPendingReason ?? 'Pris ej beräknat. Beräkna priser innan kundgodkännande och attest.'}
                       </p>
                     )}
                     {cardMoneyVisible(user, selected) ? (
@@ -1900,6 +1904,7 @@ export function OfficeApp() {
                         }}
                       />
                     )}
+                  <CardSpirisTrackingProvider card={selected} user={user} actualUser={actualUser!}>
                   <CardSpirisStatusPanel card={selected} user={user} actualUser={actualUser!} />
                   <section className="office-panel office-card-audit">
                     <h2><History size={21} aria-hidden="true" /> Spårbarhet</h2>
@@ -1939,28 +1944,9 @@ export function OfficeApp() {
                           </span>
                         ))}
                     </div>
-                    <ol className="office-audit">
-                      {selected.audit
-                        .filter(
-                          (a) =>
-                            !a.text.startsWith('Pris för') ||
-                            can(user, 'changePrice'),
-                        )
-                        .slice()
-                        .reverse()
-                        .map((a, i) => (
-                          <li key={i}>
-                            <i />
-                            <div>
-                              <strong>{safeAuditText(user, a.text)}</strong>
-                              <small>
-                                {a.actor} · {fmt(a.at)}
-                              </small>
-                            </div>
-                          </li>
-                        ))}
-                    </ol>
+                    <CardAuditTimeline card={selected} user={user} renderText={text => safeAuditText(user, text)} />
                   </section>
+                  </CardSpirisTrackingProvider>
               </div>
             </>
           ) : section === 'dashboard' ? (
@@ -2547,6 +2533,8 @@ function DetailFields({
 }) {
   const [reference, setReference] = useState(card.reference),
     [origin, setOrigin] = useState(card.origin);
+  const [copiedCustomerAddress, setCopiedCustomerAddress] = useState(false);
+  const customerAddress = customer ? formatAddress(customer) : '';
   useEffect(() => {
     setReference(card.reference);
     setOrigin(card.origin);
@@ -2558,7 +2546,7 @@ function DetailFields({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        save(reference, origin);
+        save(reference.trim(), normalizeOriginAddress(origin));
       }}
     >
       <label>
@@ -2586,11 +2574,25 @@ function DetailFields({
           }
           disabled={disabled || !card.customerId}
           value={origin}
-          onChange={(e) => setOrigin(e.target.value)}
+          onChange={(e) => {
+            setOrigin(e.target.value);
+            setCopiedCustomerAddress(false);
+          }}
           list="office-origin"
           placeholder="Gatuadressen där materialet kommer ifrån"
         />
       </label>
+      {!disabled && card.customerId && customerAddress && (
+        <label className="office-copy-customer-field">
+          <input type="checkbox" checked={copiedCustomerAddress} aria-label="Använd kundens adress som ursprungsadress"
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setCopiedCustomerAddress(checked);
+              if (checked) setOrigin(customerAddress);
+            }} />
+          <span>Använd kundens adress som ursprungsadress<small>{customerAddress}</small></span>
+        </label>
+      )}
       {!disabled && (
         <p className="office-small" id="office-origin-requirement">
           {!origin.trim()

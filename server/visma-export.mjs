@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { addSpirisEvent, initialTracking, publicSpirisEvents, observeSpirisDraft, trackingInterval } from './visma-tracking.mjs';
 import { z } from 'zod';
+import { customerIdentifierError, customerIdentityKey, normalizeOrganisationNumber } from '../dist-server/domain-models.mjs';
 import { EnvironmentError } from './environment-storage.mjs';
 import { latestAttestedVismaCards } from './visma-weightcard.mjs';
 import { normalizeAccountingSettings as normalize, accountingExportEligibility, buildAccountingDraft as buildDraft, previewAccountingExample as examplePreview,
@@ -25,12 +27,15 @@ function normalizedChoices(value) {
   choices.vatRateUnit = 'percent'; return choices;
 }
 const defaultSettings = companyId => ({ revision: 0, enabled: false, exportMode: 'manual', companyId: companyId ?? '', sandbox: true,
-  paymentTermDays: 0, accounts: {}, vatCodes: {}, sites: [] });
+  paymentTermDays: 0, trackingMaxDays: 30, accounts: {}, vatCodes: {}, sites: [] });
 const cleanText = (value, max = 100) => typeof value === 'string' ? value.trim().slice(0, max) : '';
-function organisationNumber(value) {
-  if (typeof value !== 'string' || !/^(?:16)?\d{6}-?\d{4}$/.test(value)) return null;
-  const digits = value.replace('-', '').replace(/^16(?=\d{10}$)/, '');
-  return digits.length === 10 && Number(digits[2]) >= 2 ? digits : null;
+function organisationNumber(value, type = 'Företag') {
+  if (typeof value !== 'string') return null;
+  // An enskild firma has the owner's valid ten-digit personal identifier as
+  // its business identifier. Private sellers never receive a CIN at all.
+  const normalized = normalizeOrganisationNumber(value);
+  const candidate = /^16\d{10}$/.test(normalized) ? normalized.slice(2) : value;
+  return customerIdentifierError(type, candidate) ? null : customerIdentityKey(type, candidate);
 }
 function safeSupplierNumber(value) {
   if (value === undefined || value === null || value === '') return null;
@@ -43,7 +48,8 @@ function safeSupplierNumber(value) {
 const exportInput = z.object({ cardId: z.number().int().positive().safe(), source: z.object({ cardId: z.number().int().positive().safe(),
   approvalId: z.string().uuid(), version: z.number().int().positive(), hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().optional() }).strict();
 const publicExport = job => ({ ...Object.fromEntries(['id', 'source', 'companyId', 'customerId', 'status', 'stage', 'createdAt', 'updatedAt',
-  'finishedAt', 'supplierId', 'draftId', 'error', 'settingsRevision', 'trigger', 'events'].filter(name => job[name] !== undefined).map(name => [name, clone(job[name])])),
+  'finishedAt', 'supplierId', 'draftId', 'error', 'settingsRevision', 'trigger', 'tracking', 'environment', 'recreatedFrom', 'attemptNumber'].filter(name => job[name] !== undefined).map(name => [name, clone(job[name])])),
+  events: publicSpirisEvents(job),
   runs: { ...(job.supplierRequestReserved ? { supplierRequestId: job.runs.supplierRequestId } : {}),
     ...(job.draftRequestReserved ? { draftRequestId: job.runs.draftRequestId } : {}) } });
 const accountingCall = (operation, ...args) => { try { return operation(...args); } catch (error) { if (error instanceof AccountingError) throw new EnvironmentError(error.message, error.status, error.code); throw error; } };
@@ -54,7 +60,7 @@ const previewAccountingExample = input => accountingCall(examplePreview, input);
 // This module gets a private transport capability from the OAuth service. A
 // worker never manufactures a Systemadmin principal or accepts one from HTTP.
 export function createVismaExports({ readTenantProjection, queryExports, connectionPaths, connectionFrom, transact, tenantFor, scoped, audit, clock, config, connection,
-  sourceProvider, sitesProvider, authorizeContext, send, lookupBatch }) {
+  sourceProvider, sitesProvider, authorizeContext, send, lookupBatch, readbackBatch }) {
   const financeFor = (tenant, create = false) => {
     if (!create) return { ...initial(), ...tenant.finance };
     const finance = tenant.finance ??= {};
@@ -186,8 +192,8 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
     const add = (name, value, max) => { const parsed = cleanText(value, max); if (parsed) supplier[name] = parsed; };
     const supplierNumber = safeSupplierNumber(customer.customerNumber); if (supplierNumber) supplier.SupplierNumber = supplierNumber;
     const privateSeller = customer.type === 'Privatperson';
-    if (!privateSeller && customer.number) {
-      const identifier = organisationNumber(customer.number);
+    if (!privateSeller) {
+      const identifier = organisationNumber(customer.number, customer.type);
       if (!identifier) fail('Företagets organisationsnummer behöver granskas före Spiris-koppling.', 409, 'visma_supplier_identity_invalid');
       supplier.CorporateIdentityNumber = identifier;
     }
@@ -244,11 +250,12 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
       const prior = finance.outbox.find(job => job.key === key(prepared.companyId, prepared.source));
       if (prior) return publicExport(prior);
       const timestamp = clock().toISOString(), job = { ...prepared, id: randomUUID(), key: key(prepared.companyId, prepared.source), status: 'queued', stage: 'supplier',
-        trigger: worker ? 'after_attest' : 'manual', createdAt: timestamp, updatedAt: timestamp, actualUserId: context.actorId, effectiveUserId: context.effectiveUserId,
+        trackingMaxDays: settings.trackingMaxDays ?? 30, environment: 'sandbox', attemptNumber: 1, trigger: worker ? 'after_attest' : 'manual', createdAt: timestamp, updatedAt: timestamp, actualUserId: context.actorId, effectiveUserId: context.effectiveUserId,
         authorization: { kind: worker ? 'after_attest' : 'manual', actualUserId: context.actorId, effectiveUserId: context.effectiveUserId,
           at: timestamp, configRevision: settings.revision, companyId: settings.companyId },
         attestActorId: approval.attestedById ?? approval.attestedBy ?? null, runs: { supplierRequestId: randomUUID(), draftRequestId: randomUUID() },
-        events: [{ at: timestamp, text: 'Attesterad version köad för Spiris.', actor: worker ? 'Spiris-arbetare' : context.actorId }] };
+        events: [] };
+      addSpirisEvent(job, 'queued', timestamp, worker ? 'Spiris-arbetare' : context.actorId);
       finance.outbox.push(job); audit(tenant, context, 'visma.export_queued', { exportId: job.id, source: job.source, trigger: job.trigger, settingsRevision: job.settingsRevision, attestActorId: job.attestActorId });
       return publicExport(job);
     }, { outbox: { key: key(prepared.companyId, prepared.source) } });
@@ -291,17 +298,20 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
       if (map?.lease && map.lease.jobId !== job.id && Date.parse(map.lease.until) > clock().getTime()) return { prior: publicExport(job) };
       const owner = randomUUID(), until = new Date(clock().getTime() + LEASE).toISOString();
       job.lease = { id: owner, until }; job.status = 'processing';
+      if (!job.events.some(event => event.type === 'started')) addSpirisEvent(job, 'started', clock().toISOString(), worker ? 'Spiris-arbetare' : context.actorId);
       const mapping = finance.mappings[mappingKey(job.companyId, job.customerId)] ??= { companyId: job.companyId, customerId: job.customerId };
       mapping.lease = { jobId: job.id, until }; return { job: clone(job), mapping: clone(mapping), owner };
     }, { outbox: { id }, mappingKeys: [relatedMappingKey] });
     if (reservation.prior) return reservation.prior;
     let { job, mapping } = reservation; const owner = reservation.owner;
     const update = operation => updateJob(job.id, owner, operation, relatedMappingKey);
-    const event = (entry, text) => entry.events.push({ at: clock().toISOString(), text, actor: worker ? 'Spiris-arbetare' : context.actorId });
+    const event = (entry, text, type) => type
+      ? addSpirisEvent(entry, type, clock().toISOString(), worker ? 'Spiris-arbetare' : context.actorId, text)
+      : entry.events.push({ id: randomUUID(), at: clock().toISOString(), text, actor: worker ? 'Spiris-arbetare' : context.actorId });
     try {
       const approval = await findApproval(job.source.cardId), prepared = prepare(approval);
       await assertFrozenAuthorization(prepared);
-      if (key(job.companyId, prepared.source) !== job.key) fail('Kortets attestversion har ändrats.', 409, 'visma_source_changed');
+      if (key(job.companyId, prepared.source) !== (job.sourceKey ?? job.key)) fail('Kortets attestversion har ändrats.', 409, 'visma_source_changed');
       const terms = await list('paymentTerms', {}, context, worker, job.id);
       const term = terms.find(item => item.Id === job.accounting.paymentTermsId);
       if (!term || term.AvailableForPurchase !== true || term.NumberOfDays !== job.accounting.customer.paymentTermDays)
@@ -345,7 +355,7 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
           await update((entry, finance, tenant) => {
             const record = finance.mappings[mappingKey(job.companyId, job.customerId)];
             if (run.status === 'accepted') { record.supplierId = run.resourceId; record.status = 'accepted'; entry.supplierId = run.resourceId; entry.stage = 'draft'; event(entry, 'Spiris-leverantör skapad och kopplad.'); }
-            else if (run.status !== 'in_flight') { record.status = run.status; entry.status = run.status; entry.error = run.error; event(entry, 'Leverantörsförsöket behöver kontrolleras.'); }
+            else if (run.status !== 'in_flight') { record.status = run.status; entry.status = run.status; entry.error = run.error; event(entry, run.error?.message ?? 'Leverantörsförsöket behöver kontrolleras.', run.status === 'rejected' ? 'remote_rejected' : run.status === 'unknown' ? 'response_unknown' : 'local_blocked'); }
             audit(tenant, context, `visma.export_supplier_${run.status}`, { exportId: entry.id, runId: run.id, supplierId: run.resourceId ?? null });
           });
           if (run.status !== 'accepted') return await finish(job.id, owner, relatedMappingKey);
@@ -372,18 +382,28 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
       if (!fiscalYear || fiscalYear.IsLockedForAccounting || !uuid(fiscalYear.Id)) fail('Fakturadatumet saknar ett öppet räkenskapsår i Spiris.', 409, 'visma_fiscal_year_invalid');
       const accounts = await list('accounts', { fiscalYearId: fiscalYear.Id }, context, worker, job.id);
       verifyDraftAccounts(job.draft, accounts);
+      // Recheck absence immediately before a recreation POST, after terms and
+      // account reads. A human may have booked/restored the old draft meanwhile.
+      if (job.recreatedFrom) {
+        const previous = await readJob(job.recreatedFrom);
+        if (!previous || previous.companyId !== job.companyId) fail('Tidigare försök saknar rätt Spiris-koppling.', 409, 'visma_recreate_invalid');
+        const observed = await readbackBatch(context, sendRead => observeSpirisDraft(previous, sendRead), worker, previous.id);
+        if (observed.kind !== 'missing') fail('Det tidigare underlaget finns eller är bokfört. Återskapandet stoppades.', 409, 'visma_recreate_exists');
+      }
       await update(entry => { entry.draftRequestReserved = true; });
       const draftRun = await send({ operation: 'createDraft', requestId: job.runs.draftRequestId, idempotencyKey: `draft:${job.runs.draftRequestId}`,
         parameters: { useDefaultVatCodes: false, calculateVatOnCostAccounts: false }, payload: { ...job.draft, SupplierId: mapping.supplierId }, source: job.source }, context, worker, job.id);
       await update((entry, _finance, tenant) => {
         if (draftRun.status !== 'in_flight') { entry.status = draftRun.status; entry.error = draftRun.error ?? null; entry.draftId = draftRun.resourceId ?? null;
-          entry.finishedAt = clock().toISOString(); event(entry, draftRun.status === 'accepted' ? 'Leverantörsfakturautkast skapat i Spiris.' : 'Fakturautkastets försök behöver kontrolleras.'); }
+          entry.finishedAt = clock().toISOString();
+          if (draftRun.status === 'accepted') { entry.tracking = initialTracking(entry, entry.trackingMaxDays ?? 30); event(entry, '', entry.recreatedFrom ? 'draft_recreated' : 'draft_created'); }
+          else event(entry, draftRun.error?.message ?? 'Fakturautkastets försök behöver kontrolleras.', draftRun.status === 'rejected' ? 'remote_rejected' : draftRun.status === 'unknown' ? 'response_unknown' : 'local_blocked'); }
         audit(tenant, context, `visma.export_draft_${draftRun.status}`, { exportId: entry.id, runId: draftRun.id, draftId: draftRun.resourceId ?? null });
       });
       return await finish(job.id, owner, relatedMappingKey);
     } catch (error) {
       if (!(error instanceof EnvironmentError)) error = new EnvironmentError('Överföringen avbröts. Kontrollera det sparade försöket innan fortsatt arbete.', 409, 'visma_export_interrupted');
-      await update((entry, _finance, tenant) => { entry.status = 'blocked'; entry.error = { code: error.code, message: error.message }; event(entry, error.message);
+      await update((entry, _finance, tenant) => { entry.status = 'blocked'; entry.error = { code: error.code, message: error.message }; event(entry, error.message, 'local_blocked');
         audit(tenant, context, 'visma.export_blocked', { exportId: entry.id, code: error.code }); });
       return await finish(job.id, owner, relatedMappingKey);
     }
@@ -394,6 +414,181 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
       const mapping = finance.mappings[mappingKey(job.companyId, job.customerId)]; if (mapping?.lease?.jobId === job.id) delete mapping.lease;
       delete job.lease;
     }, relatedMappingKey);
+  }
+  async function recordPrequeueBlock(approval, error, context) {
+    const accounting = approval.snapshot.accounting ?? approval.snapshot.card?.accounting;
+    if (!accounting || accounting.companyId !== companyId() || accounting.exportMode !== 'after_attest') return;
+    const original = await readFinanceProjection(finance => finance.settingsHistory?.[accounting.companyId]?.[accounting.settingsRevision ?? accounting.settingsVersion ?? accounting.revision],
+      [['settingsHistory', accounting.companyId, String(accounting.settingsRevision ?? accounting.settingsVersion ?? accounting.revision)]]);
+    if (!original?.enabled || !original.enabledBy?.actualUserId) return;
+    const source = ref(approval), sourceKey = key(accounting.companyId, source);
+    await mutate((finance, tenant) => {
+      if (finance.outbox.some(job => job.key === sourceKey)) return;
+      const at = clock().toISOString(), job = { id: randomUUID(), key: sourceKey, source, companyId: accounting.companyId, environment: 'sandbox',
+        status: 'blocked', stage: 'validation', createdAt: at, updatedAt: at, finishedAt: at, trigger: 'after_attest', attemptNumber: 1,
+        customerId: String(approval.snapshot.customer?.id ?? ''), settingsRevision: original.revision,
+        error: { code: error.code, message: error.message }, events: [], runs: {} };
+      addSpirisEvent(job, 'local_blocked', at, 'Spiris-arbetare', error.message); finance.outbox.push(job);
+      audit(tenant, context, 'visma.export_prequeue_blocked', { exportId: job.id, source, code: error.code });
+    }, { outbox: { key: sourceKey } });
+  }
+  async function assertTrackingAuthorization(context, id) {
+    if (context?.organisationId !== ORGANISATION || context.actorId === 'service:spiris-export' && context.effectiveUserId !== 'service:spiris-export')
+      fail('Ogiltig kontrollbehörighet.', 403, 'forbidden');
+    const settings = await currentSettings(), connected = await connection(), job = id ? await readJob(id) : null;
+    if (!config().configured || !settings.enabled || !settings.enabledBy?.actualUserId || !connected.companyVerified)
+      fail('Spiris-kontrollen är pausad. Aktivera och verifiera anslutningen till rätt företag.', 409, 'visma_tracking_paused');
+    if (!job || job.status !== 'accepted' || job.companyId !== companyId() || (job.environment ?? 'sandbox') !== 'sandbox')
+      fail('Kontrollen tillhör en annan koppling eller saknar ett bekräftat utkast.', 409, 'visma_company_mismatch');
+  }
+  async function sourceMatches(job) {
+    const approval = await findApproval(job.source.cardId);
+    if (key(job.companyId, ref(approval)) !== (job.sourceKey ?? job.key)) fail('Kortets attestversion har ändrats. Underlaget får inte återskapas.', 409, 'visma_source_changed');
+    await assertFrozenAuthorization(prepare(approval)); return approval;
+  }
+  const mutateTracking = (id, owner, operation) => mutate((finance, tenant) => {
+    const job = finance.outbox.find(item => item.id === id);
+    if (!job || job.tracking?.lease?.id !== owner) fail('En annan arbetare hanterar statuskontrollen.', 409, 'visma_tracking_busy');
+    operation(job, tenant); job.updatedAt = clock().toISOString(); delete job.tracking.lease; return publicExport(job);
+  }, { outbox: { id } });
+  async function refreshExport(id, context, worker = false, force = true) {
+    if (!worker) await authorize(context);
+    await assertTrackingAuthorization(context, id);
+    const settings = await currentSettings(), connected = await connection();
+    const reservation = await mutate(finance => {
+      const job = finance.outbox.find(item => item.id === id);
+      if (!job || job.status !== 'accepted') fail('Det finns inget bekräftat fakturautkast att kontrollera.', 409, 'visma_tracking_unverified');
+      job.tracking ??= initialTracking(job, settings.trackingMaxDays ?? 30);
+      const tracking = job.tracking;
+      if (['booked', 'replaced'].includes(tracking.state) || tracking.lease && Date.parse(tracking.lease.until) > clock().getTime()) return { prior: publicExport(job) };
+      if (!force && (['missing', 'expired', 'attention'].includes(tracking.state) || tracking.state === 'paused' && tracking.checkedGeneration === connected.generation ||
+        tracking.nextCheckAt && Date.parse(tracking.nextCheckAt) > clock().getTime())) return { prior: publicExport(job) };
+      const deadlineAt = new Date(Date.parse(tracking.startedAt) + (settings.trackingMaxDays ?? 30) * 86400000).toISOString(); tracking.deadlineAt = deadlineAt;
+      if (!force && clock().getTime() >= Date.parse(deadlineAt)) {
+        if (tracking.state !== 'expired') addSpirisEvent(job, 'tracking_expired', clock().toISOString(), 'Spiris-arbetare');
+        tracking.state = 'expired'; tracking.nextCheckAt = null; tracking.reason = 'Automatisk uppföljning har avslutats. Kontrollera bokföringen manuellt.';
+        return { prior: publicExport(job) };
+      }
+      const owner = randomUUID(); tracking.lease = { id: owner, until: new Date(clock().getTime() + LEASE).toISOString() };
+      return { owner, job: clone(job) };
+    }, { outbox: { id } });
+    if (reservation.prior) return reservation.prior;
+    const { job, owner } = reservation;
+    try {
+      const observation = await readbackBatch(context, async (sendRead, generation) => ({ ...await observeSpirisDraft(job, sendRead), generation }), worker, id);
+      return await mutateTracking(id, owner, (entry, tenant) => {
+        if (tenant.generation !== observation.generation) fail('Anslutningen har ändrats under kontrollen.', 409, 'visma_not_connected');
+        const tracking = entry.tracking, at = clock().toISOString(); tracking.lastCheckedAt = at; tracking.failureCount = 0;
+        tracking.checkedGeneration = observation.generation; tracking.intervalMinutes = trackingInterval(entry, clock());
+        delete tracking.reason; delete tracking.error;
+        if (observation.kind === 'booked') {
+          Object.assign(tracking, { state: 'booked', invoiceId: observation.invoiceId, invoiceNumber: observation.invoiceNumber,
+            voucherId: observation.voucherId, voucherNumber: observation.voucherNumber, nextCheckAt: null });
+          addSpirisEvent(entry, 'booked', at, worker ? 'Spiris-arbetare' : context.actorId, `Verifikation ${observation.voucherNumber}`);
+          audit(tenant, context, 'visma.invoice_booked_confirmed', { exportId: id, source: entry.source, invoiceId: observation.invoiceId, voucherId: observation.voucherId });
+        } else if (observation.kind === 'missing') {
+          if (!tracking.firstMissingAt) { tracking.firstMissingAt = at; tracking.missingCount = 1; }
+          else if (clock().getTime() - Date.parse(tracking.firstMissingAt) >= 300000) tracking.missingCount = Math.max(2, tracking.missingCount + 1);
+          if (tracking.missingCount >= 2) {
+            if (tracking.state !== 'missing') addSpirisEvent(entry, 'draft_missing', at, worker ? 'Spiris-arbetare' : context.actorId);
+            tracking.state = 'missing'; tracking.nextCheckAt = null; tracking.reason = 'Utkastet och motsvarande bokförda faktura saknas efter förnyad kontroll.';
+          } else { tracking.state = 'pending'; tracking.nextCheckAt = new Date(clock().getTime() + 300000).toISOString();
+            tracking.reason = 'Underlaget hittades inte. Systemet gör en förnyad kontroll innan återskapande blir möjligt.'; }
+        } else {
+          tracking.state = 'pending'; tracking.missingCount = 0; delete tracking.firstMissingAt;
+          tracking.nextCheckAt = new Date(clock().getTime() + tracking.intervalMinutes * 60000).toISOString();
+        }
+      });
+    } catch (error) {
+      if (error?.status === 403) { await mutateTracking(id, owner, () => {}); throw error; }
+      const code = error instanceof EnvironmentError ? error.code : 'visma_tracking_unavailable';
+      return mutateTracking(id, owner, entry => {
+        const tracking = entry.tracking; tracking.failureCount = (tracking.failureCount ?? 0) + 1;
+        tracking.error = { code, message: error instanceof EnvironmentError ? error.message : 'Bokföringskontrollen avbröts. Senaste bekräftade status behålls.' };
+        tracking.reason = tracking.error.message; tracking.lastAttemptAt = clock().toISOString(); tracking.checkedGeneration = connected.generation;
+        if (['visma_tracking_access', 'visma_tracking_paused', 'visma_not_connected', 'visma_credentials_unavailable', 'visma_refresh_failed', 'visma_refresh_unknown'].includes(code)) {
+          tracking.state = 'paused'; tracking.nextCheckAt = null;
+        } else if (tracking.failureCount >= 8 || ['visma_tracking_ambiguous', 'visma_tracking_identity_conflict', 'visma_tracking_accounting_unknown'].includes(code)) {
+          tracking.state = 'attention'; tracking.nextCheckAt = null;
+        } else { tracking.state = 'pending'; tracking.nextCheckAt = new Date(clock().getTime() + Math.min(1440, 5 * 2 ** (tracking.failureCount - 1)) * 60000).toISOString(); }
+      });
+    }
+  }
+  let trackingRunning = false;
+  async function processAccountingTracking() {
+    if (trackingRunning) return { checked: 0 };
+    trackingRunning = true;
+    try {
+      const settings = await currentSettings(), connected = await connection();
+      if (!settings.enabled || !settings.enabledBy?.actualUserId || !config().configured || !connected.companyVerified) return { checked: 0 };
+      const context = { organisationId: ORGANISATION, actorId: 'service:spiris-export', effectiveUserId: 'service:spiris-export' };
+      const jobs = await exportJobs({ companyId: companyId(), statuses: ['accepted'], trackingDueAt: clock().toISOString(), trackingGeneration: connected.generation,
+        fields: ['id'], limit: 10 });
+      let checked = 0;
+      for (const { id } of jobs) { await refreshExport(id, context, true, false); checked++; }
+      return { checked };
+    } finally { trackingRunning = false; }
+  }
+  async function recreateExport(id, input, context) {
+    await authorize(context);
+    if (!input || Object.keys(input).some(name => name !== 'requestId') || !uuid(input.requestId)) fail('Återskapandet behöver ett nytt giltigt försöks-ID.', 422, 'visma_invalid');
+    await assertTrackingAuthorization(context, id);
+    const previous = await readJob(id);
+    if (previous.recreation?.requestId === input.requestId) {
+      const prior = await readJob(previous.recreation.jobId); if (prior) return publicExport(prior);
+    }
+    if (previous.tracking?.state !== 'missing') fail('Återskapande kräver att utkast och bokförd faktura bekräftats saknade.', 409, 'visma_recreate_not_missing');
+    await sourceMatches(previous);
+    const settings = await currentSettings();
+    const owner = randomUUID();
+    const reservation = await mutate(finance => {
+      const old = finance.outbox.find(job => job.id === id);
+      if (old.recreation) return { priorId: old.recreation.jobId };
+      if (old.tracking?.state !== 'missing' || old.tracking.lease && Date.parse(old.tracking.lease.until) > clock().getTime())
+        fail('Underlaget kontrolleras eller återskapas redan.', 409, 'visma_tracking_busy');
+      old.tracking.lease = { id: owner, until: new Date(clock().getTime() + LEASE).toISOString() }; return { job: clone(old) };
+    }, { outbox: { id } });
+    if (reservation.priorId) return publicExport(await readJob(reservation.priorId));
+    try {
+      const observation = await readbackBatch(context, async (sendRead, generation) => ({ ...await observeSpirisDraft(reservation.job, sendRead), generation }), false, id);
+      if (observation.kind !== 'missing') {
+        await mutateTracking(id, owner, (old, tenant) => {
+          if (tenant.generation !== observation.generation) fail('Anslutningen har ändrats.', 409, 'visma_not_connected');
+          const at = clock().toISOString(); old.tracking.lastCheckedAt = at; delete old.tracking.reason; delete old.tracking.error;
+          if (observation.kind === 'booked') {
+            Object.assign(old.tracking, { state: 'booked', invoiceId: observation.invoiceId, invoiceNumber: observation.invoiceNumber,
+              voucherId: observation.voucherId, voucherNumber: observation.voucherNumber, nextCheckAt: null });
+            addSpirisEvent(old, 'booked', at, context.actorId, `Verifikation ${observation.voucherNumber}`);
+          } else {
+            old.tracking.state = 'pending'; old.tracking.missingCount = 0; delete old.tracking.firstMissingAt;
+            old.tracking.nextCheckAt = new Date(clock().getTime() + trackingInterval(old, clock()) * 60000).toISOString();
+          }
+        });
+        fail('Spiris-underlaget finns eller är bokfört. Inget nytt utkast har skapats.', 409, 'visma_recreate_exists');
+      }
+      await sourceMatches(previous); await authorize(context); await assertTrackingAuthorization(context, id);
+      const created = await mutate((finance, tenant) => {
+        const old = finance.outbox.find(job => job.id === id);
+        if (old.recreation) return publicExport(finance.outbox.find(job => job.id === old.recreation.jobId));
+        if (old.tracking?.lease?.id !== owner || tenant.generation !== observation.generation)
+          fail('Kopplingen eller kontrollen har ändrats. Inget nytt utkast har skapats.', 409, 'visma_tracking_busy');
+        const at = clock().toISOString(), sourceKey = old.sourceKey ?? old.key;
+        const job = { ...clone(old), id: randomUUID(), key: `${sourceKey}:recreate:${input.requestId}`, sourceKey,
+          status: 'queued', stage: 'draft', createdAt: at, updatedAt: at, trigger: 'manual', environment: 'sandbox',
+          recreatedFrom: old.id, attemptNumber: (old.attemptNumber ?? 1) + 1, actualUserId: context.actorId, effectiveUserId: context.effectiveUserId,
+          authorization: { kind: 'manual', actualUserId: context.actorId, effectiveUserId: context.effectiveUserId, at, configRevision: settings.revision, companyId: old.companyId },
+          trackingMaxDays: settings.trackingMaxDays ?? 30, events: [], runs: { supplierRequestId: randomUUID(), draftRequestId: randomUUID() } };
+        for (const name of ['tracking', 'lease', 'finishedAt', 'draftId', 'error', 'recreation', 'supplierRequestReserved', 'draftRequestReserved']) delete job[name];
+        addSpirisEvent(job, 'queued', at, context.actorId, 'Aktivt återskapande av samma attesterade underlag.');
+        old.recreation = { requestId: input.requestId, jobId: job.id, at }; old.tracking.state = 'replaced'; old.tracking.nextCheckAt = null; delete old.tracking.lease;
+        finance.outbox.push(job); audit(tenant, context, 'visma.export_recreation_reserved', { exportId: job.id, previousExportId: old.id, source: old.source });
+        return publicExport(job);
+      }, { outbox: { id } });
+      return process(created.id, context);
+    } catch (error) {
+      await mutate(finance => { const old = finance.outbox.find(job => job.id === id); if (old?.tracking?.lease?.id === owner) delete old.tracking.lease; }, { outbox: { id } });
+      throw error;
+    }
   }
   let workerRunning = false, reconciliationRequested = false, lastReconciliationAt = null;
   const pendingCards = new Set();
@@ -448,7 +643,7 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
             await enqueue({ cardId: approval.cardId }, context, true, approval);
           knownKeys.add(sourceKey);
         }
-        catch (error) { if (!(error instanceof EnvironmentError)) throw error; }
+        catch (error) { if (!(error instanceof EnvironmentError)) throw error; await recordPrequeueBlock(approval, error, context); }
       }
       const jobs = await exportJobs({ companyId: companyId(), statuses: ['queued', 'processing'],
         ...(!automatic ? { trigger: 'manual' } : {}), fields: ['id'], limit: 25 });
@@ -464,6 +659,7 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
   return {
     assertWorkerAuthorization,
     assertExportAuthorization,
+    assertTrackingAuthorization,
     publicMethods: {
       async settings(context) { await authorize(context); return dto(); },
       async saveSettings(input, context) {
@@ -533,6 +729,9 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
       async sendExport(input, context) { const job = await enqueue(input, context); return process(job.id, context); },
       processExport: (id, context) => process(id, context),
       processQueuedExports,
+      processAccountingTracking,
+      refreshExport: (id, context) => refreshExport(id, context),
+      recreateExport,
       async financeSettingsForCompany(customer) {
         const settings = await currentSettings(); if (!settings.enabled || settings.companyId !== companyId()) return null;
         const days = customer?.paymentTermDays ?? settings.paymentTermDays;
@@ -543,12 +742,28 @@ export function createVismaExports({ readTenantProjection, queryExports, connect
         return { ...settings, paymentTermDays: days, paymentTermsId: terms[0].id };
       },
       async cardExportProjection(cardId) {
-        const job = (await exportJobs({ cardId, fields: ['id', 'source', 'status', 'createdAt', 'finishedAt', 'supplierId', 'draftId', 'error', 'events'] }))
-          .sort((a, b) => b.source.version - a.source.version || b.createdAt.localeCompare(a.createdAt))[0];
+        const jobs = await exportJobs({ cardId, fields: ['id', 'source', 'companyId', 'environment', 'status', 'createdAt', 'finishedAt', 'supplierId', 'draftId', 'draft', 'error', 'events', 'tracking', 'attemptNumber', 'recreatedFrom', 'recreation'] });
+        const job = jobs.sort((a, b) => b.source.version - a.source.version || b.createdAt.localeCompare(a.createdAt) || (b.attemptNumber ?? 1) - (a.attemptNumber ?? 1))[0];
         if (!job) return null;
-        return { id: job.id, cardId: job.source.cardId, approvalId: job.source.approvalId, version: job.source.version, status: job.status,
-          startedAt: job.createdAt, finishedAt: job.finishedAt ?? null, supplierId: job.supplierId ?? null, draftId: job.draftId ?? null,
-          error: job.error ? { message: job.error.message } : null, events: clone(job.events), canExport: false };
+        const [settings, connected] = await Promise.all([currentSettings(), connection()]);
+        const sameConnection = job.companyId === companyId() && (job.environment ?? 'sandbox') === 'sandbox';
+        const available = sameConnection && settings.enabled && config().configured && connected.companyVerified;
+        let tracking = job.status === 'accepted' ? clone(job.tracking ?? initialTracking(job, settings.trackingMaxDays ?? 30)) : null;
+        if (tracking?.lease) delete tracking.lease;
+        if (tracking) {
+          delete tracking.checkedGeneration;
+          if (!available && !['booked', 'replaced'].includes(tracking.state)) tracking = { ...tracking, state: 'paused', nextCheckAt: null,
+            reason: sameConnection ? 'Anslutningen eller överföringen är avstängd. Senaste bekräftade status behålls.' : 'Underlaget hör till en tidigare Spiris-koppling. Det kontrolleras inte mot det nya företaget.' };
+        }
+        const related = jobs.filter(item => item.companyId === job.companyId && item.source.approvalId === job.source.approvalId && item.source.hash === job.source.hash);
+        const events = related.flatMap(item => publicSpirisEvents(item).map(event => ({ ...event, exportId: item.id, version: item.source.version })))
+          .sort((a, b) => a.at.localeCompare(b.at));
+        return { id: job.id, cardId: job.source.cardId, approvalId: job.source.approvalId, version: job.source.version, companyId: job.companyId, environment: job.environment ?? 'sandbox', status: job.status,
+          startedAt: job.createdAt, finishedAt: job.finishedAt ?? null, supplierId: job.supplierId ?? null, draftId: job.draftId ?? null, reference: job.draft?.InvoiceNumber ?? `AV-${job.source.cardId}-V${job.source.version}`,
+          error: job.error ? { code: job.error.code, message: job.error.message } : null, events, tracking,
+          relatedAttemptIds: related.map(item => item.id), canExport: false, canRefresh: Boolean(available && job.status === 'accepted' && !['booked', 'replaced'].includes(tracking?.state)),
+          canRecreate: Boolean(available && job.status === 'accepted' && tracking?.state === 'missing' && !job.recreation) };
+
       },
     },
   };

@@ -3,6 +3,8 @@ import { seedOffice, type OfficeCard, type OfficeData } from '../src/office/mode
 import { migrateOffice } from '../src/office/customer-model';
 import { randomInt, randomUUID } from 'node:crypto';
 import { approveCustomerCard } from './helpers/customer-approval';
+import { testOrganisationNumber, testPersonalNumber } from './helpers/customer-identity';
+import { saveOffice } from './helpers/financial-card';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 
@@ -22,16 +24,16 @@ async function createCard(page: Page, templateId = 2051, patch: Partial<OfficeCa
   const fixture = migrateOffice(seedOffice());
   const card: OfficeCard = { ...fixture.cards.find(value => value.id === templateId)!, ...patch,
     id: 37_000_000 + randomInt(1_000_000), sourceId: randomUUID(), status: 'complement' };
-  fixture.cards = [card];
-  const imported = await page.request.post('/api/application/office', { headers: actor, data: { kind: 'import', data: fixture } });
-  expect(imported.ok(), await imported.text()).toBe(true);
+  const base = await officeData(page), next = structuredClone(base);
+  next.cards.push(card);
+  await saveOffice(page.request, base, next);
   expect((await officeData(page)).cards.some(value => value.id === card.id)).toBe(true);
   return card;
 }
 
 test('snabbkund sparas och kopplas till rätt invägning utan att ändra ett låst kort', async ({ page, request }) => {
   const customerName = `Snabb Återbruk AB ${randomUUID().slice(0, 8)}`;
-  const customerNumber = `55${randomInt(1000, 10000)}-${randomInt(1000, 10000)}`;
+  const customerNumber = testOrganisationNumber();
   await login(page);
   const locked = await createCard(page, 2052);
   const approval = await approveCustomerCard(request, locked);
@@ -67,7 +69,7 @@ test('snabbkund sparas och kopplas till rätt invägning utan att ändra ett lå
 
 test('fullständigt kundformulär behåller popupens uppgifter och återgår med vald kund', async ({ page }) => {
   const customerName = `Elin Test ${randomUUID().slice(0, 8)}`;
-  const customerNumber = `19800101-${randomInt(1000, 10000)}`;
+  const customerNumber = testPersonalNumber();
   await login(page);
   const card = await createCard(page);
   await page.goto(`/kontor#/weighings/${card.id}`);
@@ -110,6 +112,7 @@ test('ett lämnat kundformulär återkopplar inte senare vanlig kundregistrering
   await page.getByRole('button', { name: 'Skapa kund', exact: true }).click();
   await expect(page.getByLabel('Namn', { exact: true })).toHaveValue('');
   await page.getByLabel('Namn', { exact: true }).fill(customerName);
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill(testOrganisationNumber());
   await page.getByRole('button', { name: 'Spara kunduppgifter', exact: true }).click();
   await expect(page.getByRole('heading', { name: customerName, exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/customers\/customer-[^?]+\?tab=details$/);

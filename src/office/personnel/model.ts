@@ -8,7 +8,9 @@ const required = text.min(1);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value + 'T12:00:00Z')) && new Date(value + 'T12:00:00Z').toISOString().slice(0,10) === value, 'Ange ett giltigt datum.');
 const minute = z.number().int().min(0).max(1440);
 const revision = z.number().int().nonnegative().default(0);
-export const personSchema = z.object({id, name:required, kind:z.enum(['employee','external']), active:z.boolean(), role:text, team:text, siteIds:z.array(id).min(1).max(50), managerId:id.optional(), companyId:id.optional(), employeeNumber:text.optional(), phone:text, email:text, address:text, userId:id.optional(), driverId:id.optional(), vehicleId:id.optional(), canDrive:z.boolean(), revision});
+export const personSchema = z.object({id, name:required, kind:z.enum(['employee','external']), active:z.boolean(), role:text, team:text, siteIds:z.array(id).min(1).max(50), managerId:id.optional(), companyId:id.optional(), employeeNumber:text.optional(), phone:text, email:text, address:text,
+  addressDetails:z.object({address:text,postalCode:text,city:text,countryCode:text}).optional(),
+  userId:id.optional(), driverId:id.optional(), vehicleId:id.optional(), canDrive:z.boolean(), revision});
 export const companySchema = z.object({id, name:required, number:text, contact:text, phone:text, email:text});
 export const employmentSchema = z.object({personId:id, form:z.enum(['permanent','temporary','probation','hourly']), startDate:date, endDate:date.optional(), percentage:z.number().min(0).max(100), hoursPerWeek:z.number().min(0).max(168), revision}).refine(value=>!value.endDate || value.endDate>=value.startDate,'Slutdatum får inte ligga före startdatum.');
 export const salarySchema = z.object({personId:id, kind:z.enum(['monthly','hourly']), amount:z.number().finite().min(0).max(1e8), effectiveFrom:date, nextReview:date.optional(), note:text, revision});

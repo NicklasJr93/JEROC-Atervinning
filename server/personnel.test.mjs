@@ -22,13 +22,15 @@ async function fixture(run) {
 async function absenceInput(a){const state=await a(personnel),order=state.transport.orders.find(o=>o.id==='AO-1201');return {id:randomUUID(),personId:'person-kalle',kind:'sick',fromDate:order.date,toDate:order.date,allDay:true,managerId:'person-anna'};}
 test('personnel migration preserves bookings and durable records survive a second instance',async()=>fixture(async({a,instance,repository})=>{
   const repo=await repository(),before=await repo.transact(s=>structuredClone(s.transport.orders));const first=await a(personnel);assert.equal(first.status,200,first.error);for(const order of before)assert.deepEqual(first.transport.orders.find(o=>o.id===order.id),order);
-  const kalle=first.data.people.find(p=>p.id==='person-kalle');const saved=await a(personnel,{action:'person.save',person:{...kalle,phone:'070-123 44 55'}});assert.equal(saved.status,200,saved.error);
-  const second=await (await instance())(personnel);assert.equal(second.data.people.find(p=>p.id===kalle.id).phone,'070-123 44 55');assert.equal(second.transport.orders.filter(o=>/^AO-120[123]$/.test(o.id)).length,3);
+  const kalle=first.data.people.find(p=>p.id==='person-kalle');const saved=await a(personnel,{action:'person.save',person:{...kalle,phone:'070-123 44 55',address:'Testgatan 12, 761 41 Norrtälje'}});assert.equal(saved.status,200,saved.error);
+  assert.deepEqual(saved.data.people.find(p=>p.id===kalle.id).addressDetails,{address:'Testgatan 12',postalCode:'76141',city:'Norrtälje',countryCode:'SE'});
+  const second=await (await instance())(personnel);assert.equal(second.data.people.find(p=>p.id===kalle.id).phone,'+46701234455');assert.equal(second.transport.orders.filter(o=>/^AO-120[123]$/.test(o.id)).length,3);
 }));
 test('salary and absence reasons require explicit VD rights and planning never leaks sensitive data',async()=>fixture(async({a})=>{
   const admin=await a(personnel);assert.ok(admin.data.salaries.length);const users=(await a('/api/pricing/state')).users.map(u=>u.id==='lars'?{...u,permissions:u.permissions.filter(p=>!['salaryRead','salaryWrite','absenceRead','absenceWrite'].includes(p))}:u);assert.equal((await a('/api/pricing/users',{users})).status,200);
+  const profiled=await a(personnel,{action:'person.save',person:{...admin.data.people.find(person=>person.id==='person-kalle'),address:'Hemgatan 12, 76141 Norrtälje'}});assert.equal(profiled.status,200,profiled.error);assert.equal(profiled.data.people.find(person=>person.id==='person-kalle').addressDetails.city,'Norrtälje');
   const vd=await a(personnel,undefined,'lars');assert.deepEqual(vd.data.salaries,[]);assert.ok(vd.data.absences.every(a=>!('kind'in a) && !('createdBy'in a)));assert.equal((await a(personnel,{action:'salary.save',salary:admin.data.salaries[0]},'lars')).status,403);
-  const planning=await a(personnel+'?view=planning',undefined,'kajsa');assert.equal(planning.status,200,planning.error);assert.equal(planning.data.employment.length,0);assert.equal(planning.data.salaries.length,0);assert.ok(planning.data.people.every(p=>!p.userId && !p.phone && !p.email && !p.address));assert.ok(planning.data.absences.every(a=>!a.kind));
+  const planning=await a(personnel+'?view=planning',undefined,'kajsa');assert.equal(planning.status,200,planning.error);assert.equal(planning.data.employment.length,0);assert.equal(planning.data.salaries.length,0);assert.ok(planning.data.people.every(p=>!p.userId && !p.phone && !p.email && !p.address && !p.addressDetails));assert.ok(planning.data.absences.every(a=>!a.kind));
 }));
 test('absence creates staffing tasks without deleting bookings; eligible replacement atomically updates orders and outbox',async()=>fixture(async({a})=>{
   const input=await absenceInput(a),before=(await a(personnel)).transport;

@@ -1,4 +1,5 @@
 import { demoPrivateIdentityNumber } from '../data';
+import { phoneNumberError } from '../data-format';
 import {
   amount,
   can,
@@ -91,9 +92,8 @@ export function validPaymentDetails(details?: PaymentDetails): boolean {
       Boolean(details.holder?.trim())
     );
   }
-  const phone = (details.phone ?? '').replace(/[\s()\-]/g, '');
   return (
-    /^(?:07\d{8}|(?:\+46|0046|46)7\d{8})$/.test(phone) &&
+    phoneNumberError(details.phone ?? '', { required: true, swish: true }) === null &&
     Boolean(details.recipient?.trim())
   );
 }

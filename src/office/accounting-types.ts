@@ -14,6 +14,7 @@ export const accountingSettingsSchema = z.object({
   paymentTermsId: uuid.optional(), accounts: accountsSchema,
   vatCodes: z.object({ private: uuid.optional(), reverse25: uuid.optional(), standard25: uuid.optional(), noVat: uuid.optional() }),
   nonVatBusinessRule: z.literal('no_vat').optional(),
+  trackingMaxDays: z.number().int().min(1).max(365).optional(),
   offsetReconciliation: z.object({ mode: z.literal('clearing'), accountNumber: account }).optional(),
   sites: z.array(z.object({ siteId: z.string().min(1).max(100), useDefaults: z.boolean(), costCenterId: uuid.optional(), projectId: uuid.optional(), accountOverrides: accountsSchema.optional() })),
 }).strict();

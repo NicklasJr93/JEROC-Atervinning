@@ -10,7 +10,7 @@ import { createTerminalDemoRepository, TerminalDemoError } from './terminal-demo
 import { createTerminalDemoStore, createTerminalDemoApi } from './terminal-demo.mjs';
 
 const fail = (operation, status, code) => assert.rejects(async () => operation(), (error) => error.status === status && (!code || error.code === code));
-const customer = { id: 'customer-build', name: 'Bygg & Riv AB', type: 'Företag', number: '551923-4567',
+const customer = { id: 'customer-build', name: 'Bygg & Riv AB', type: 'Företag', number: '5591237895',
   customerNumber: 'K-1001', phone: '0701234567', email: 'kund@example.invalid', address: 'Storgatan 12',
   paymentProfile: { method: 'bank', bank: 'Demobank', clearing: '8327', account: '1234567890', holder: 'Bygg & Riv AB' } };
 
@@ -183,7 +183,7 @@ test('each device sees only its own redacted review and cannot act on another te
   assert.equal(publicState.approval.id, first.id);
   assert.equal((await f.service.session(twoSession.token)).approval.id, second.id);
   const data = JSON.stringify(publicState);
-  for (const sensitive of ['1234567890', '551923-4567', 'kund@example.invalid', 'customerSnapshot', 'pricingSnapshotId']) assert.equal(data.includes(sensitive), false, sensitive);
+  for (const sensitive of ['1234567890', '5591237895', 'kund@example.invalid', 'customerSnapshot', 'pricingSnapshotId']) assert.equal(data.includes(sensitive), false, sensitive);
   await fail(() => f.service.respond(second.id, { action: 'change_requested', comment: 'Wrong', termsAccepted: false }, oneSession.token), 409, 'stale_approval');
   await f.service.cancel(first.id, f.kajsa);
   assert.equal((await f.service.session(oneSession.token)).approval, null);

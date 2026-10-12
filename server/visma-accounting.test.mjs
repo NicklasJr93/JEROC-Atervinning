@@ -27,7 +27,7 @@ test('money and weighted material arithmetic round decimal half cents without bi
 });
 
 test('settings defaults, UUIDs, scope, duplicate sites and contradictory inheritance are checked', () => {
-  assert.deepEqual(normalizeAccountingSettings({ companyId }), { revision: 1, enabled: false, exportMode: 'manual', companyId, sandbox: true, paymentTermDays: 0, accounts: {}, vatCodes: {}, sites: [] });
+  assert.deepEqual(normalizeAccountingSettings({ companyId }), { revision: 1, enabled: false, exportMode: 'manual', companyId, sandbox: true, paymentTermDays: 0, trackingMaxDays: 30, accounts: {}, vatCodes: {}, sites: [] });
   assert.throws(() => normalizeAccountingSettings(settings(), { companyId: 'another-company' }), isCode('accounting_company_mismatch'));
   for (const patch of [{ sandbox: false }, { revision: 0 }, { paymentTermDays: 1.5 }, { paymentTermsId: '0' }, { vatCodes: { reverse25: '25' } }, { sites: [{ siteId: 'yard-1', useDefaults: true, projectId: 'Project-X' }] }])
     assert.throws(() => normalizeAccountingSettings({ ...settings(), ...patch }), isCode('accounting_settings_invalid'));

@@ -9,6 +9,7 @@ const accountMap = z.object(Object.fromEntries(ACCOUNT_ROLES.map(role => [role, 
 const settingsSchema = z.object({
   revision: z.number().int().positive().safe().default(1), enabled: z.boolean().default(false), exportMode: z.enum(['manual', 'after_attest']).default('manual'),
   companyId: z.string().trim().min(1).max(100), sandbox: z.literal(true).default(true), paymentTermDays: z.number().int().min(0).max(3650).default(0),
+  trackingMaxDays: z.number().int().min(1).max(365).default(30),
   paymentTermsId: uuid.optional(), accounts: accountMap.default({}),
   vatCodes: z.object({ private: uuid.optional(), reverse25: uuid.optional(), standard25: uuid.optional(), noVat: uuid.optional() }).strict().default({}),
   nonVatBusinessRule: z.literal('no_vat').optional(),

@@ -724,6 +724,25 @@
   align-items: center;
   gap: 8px;
 }
+.office label.office-copy-customer-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  color: #294d7d;
+  font-size: 12px;
+  font-weight: 500;
+}
+.office-copy-customer-field input[type='checkbox'] {
+  margin: 2px 0 0;
+  flex-shrink: 0;
+}
+.office-copy-customer-field span small {
+  display: block;
+  margin-top: 3px;
+  color: #7890af;
+  font-weight: 400;
+}
 .office input[type='checkbox'] {
   width: 15px;
   height: 15px;

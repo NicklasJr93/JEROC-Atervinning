@@ -60,3 +60,9 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- Keep active bookkeeping follow-ups separate from completed transfer history.
+CREATE INDEX IF NOT EXISTS jeroc_visma_tracking_due
+  ON jeroc_visma_records(organisation_id,company_id,(document->'tracking'->>'nextCheckAt'),sequence)
+  WHERE collection='outbox' AND status='accepted' AND
+    (NOT(document ? 'tracking') OR document->'tracking'->>'state' IN ('pending','paused'));

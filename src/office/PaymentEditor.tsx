@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import {
   Banknote,
   CheckCircle2,
@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { PaymentDetails } from './model';
 import { paymentSummary, validPaymentDetails } from './customer-model';
+import { normalizePhoneNumber, phoneNumberError } from '../data-format';
 import './payment.css';
 
 type PaymentMethod = PaymentDetails['method'];
@@ -27,10 +28,14 @@ export type PaymentEditorProps = {
   value?: PaymentDetails;
   legacy?: string;
   customerName?: string;
+  customerPhone?: string;
+  customerKey?: string;
   disabled?: boolean;
   onSave: (details: PaymentDetails) => boolean | Promise<boolean>;
   buttonLabel?: string;
   allowBalance?: boolean;
+  onDraftChange?: (details: PaymentDetails) => void;
+  hideSaveAction?: boolean;
 };
 
 const methods = [
@@ -65,7 +70,7 @@ function cleanDraft(draft: PaymentDraft): PaymentDetails {
   if (draft.method === 'swish') {
     return {
       method: 'swish',
-      phone: draft.phone.replace(/[\s()\-]/g, ''),
+      phone: normalizePhoneNumber(draft.phone, { swish: true }),
       recipient: draft.recipient.trim(),
     };
   }
@@ -85,9 +90,8 @@ function fieldErrors(draft: PaymentDraft) {
     if (!clean.holder) errors.holder = 'Ange kontohavarens namn.';
   }
   if (draft.method === 'swish') {
-    if (!/^(?:07\d{8}|(?:\+46|0046|46)7\d{8})$/.test(clean.phone ?? '')) {
-      errors.phone = 'Ange ett svenskt mobilnummer, exempelvis 070-123 45 67.';
-    }
+    const error = phoneNumberError(clean.phone ?? '', { swish: true, required: true });
+    if (error) errors.phone = error;
     if (!clean.recipient) errors.recipient = 'Ange mottagarens namn.';
   }
   return errors;
@@ -160,10 +164,14 @@ export default function PaymentEditor({
   value,
   legacy,
   customerName,
+  customerPhone,
+  customerKey,
   disabled = false,
   onSave,
   buttonLabel = 'Spara betalningsuppgift',
   allowBalance = true,
+  onDraftChange,
+  hideSaveAction = false,
 }: PaymentEditorProps) {
   const formId = useId();
   const [draft, setDraft] = useState(() => makeDraft(value, customerName));
@@ -171,7 +179,15 @@ export default function PaymentEditor({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [saveError, setSaveError] = useState('');
+  const [copiedCustomerPhone, setCopiedCustomerPhone] = useState(false);
+  const onDraftChangeRef = useRef(onDraftChange);
+  onDraftChangeRef.current = onDraftChange;
   const valueKey = JSON.stringify(value ?? null);
+  const customerSwishPhone = normalizePhoneNumber(customerPhone ?? '', { swish: true });
+  const customerSwishError = phoneNumberError(customerPhone ?? '', { swish: true, required: true });
+
+  useEffect(() => { onDraftChangeRef.current?.(cleanDraft(draft)); }, [draft]);
+  useEffect(() => { setCopiedCustomerPhone(false); }, [customerKey, customerPhone]);
 
   useEffect(() => {
     if (!value) return;
@@ -208,6 +224,7 @@ export default function PaymentEditor({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAttempted(true);
+    if (hideSaveAction) return;
     setMessage('');
     setSaveError('');
     const details = cleanDraft(draft);
@@ -253,6 +270,7 @@ export default function PaymentEditor({
           value={draft[name]}
           onChange={(event) => {
             const next = event.target.value;
+            if (name === 'phone') setCopiedCustomerPhone(false);
             setDraft((current) => ({ ...current, [name]: next }));
             setMessage('');
             setSaveError('');
@@ -359,6 +377,19 @@ export default function PaymentEditor({
               placeholder: '070-123 45 67',
             })}
             {input('recipient', 'Mottagare', { required: true })}
+            {customerPhone && (!value?.phone || copiedCustomerPhone) && (
+              <label className="office-payment-copy-phone office-payment-wide">
+                <input type="checkbox" checked={copiedCustomerPhone} disabled={Boolean(customerSwishError)}
+                  aria-label="Använd kundens telefonnummer"
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setCopiedCustomerPhone(checked);
+                    if (checked) setDraft(current => ({ ...current, phone: customerSwishPhone }));
+                    setMessage(''); setSaveError('');
+                  }} />
+                <span>Använd kundens telefonnummer<small>{customerSwishError ? 'Kundens telefonnummer kan inte användas för Swish.' : customerSwishPhone}</small></span>
+              </label>
+            )}
           </div>
         )}
         {draft.method === 'cash' && (
@@ -382,16 +413,16 @@ export default function PaymentEditor({
             </div>
           </div>
         )}
-        <button
+        {!hideSaveAction && <button
           className="office-btn outline office-payment-save"
           type="submit"
         >
           <Save size={14} aria-hidden="true" />
           {saving ? 'Sparar…' : buttonLabel}
-        </button>
+        </button>}
       </fieldset>
 
-      {value && (
+      {value && !hideSaveAction && (
         <div className="office-payment-current">
           <CheckCircle2 size={13} aria-hidden="true" />
           <span>Sparat: {paymentSummary(value)}</span>

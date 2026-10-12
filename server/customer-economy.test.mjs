@@ -83,6 +83,7 @@ test('customer economy edits reject forged audit and invalid terms and require c
 test('changing a customer to private saves VAT false and prevents rewriting old audit', async () => fixture(async ({ office }) => {
   const base = (await office()).data, next = structuredClone(base);
   next.customers[0].type = 'Privatperson';
+  next.customers[0].number = '';
   next.customers[0].vatRegistered = true;
   const saved = await office({ base, next });
   assert.equal(saved.status, 200, saved.error);
@@ -96,6 +97,7 @@ test('new company and BRF API customers default to VAT while private customers d
   const base = (await office()).data, next = structuredClone(base);
   for (const type of ['Företag', 'BRF', 'Privatperson']) {
     const customer = { ...structuredClone(base.customers[0]), id: `new-${type}`, name: `Ny ${type}`, type, audit: [] };
+    if (type === 'Privatperson') customer.number = '';
     delete customer.paymentProfile;
     delete customer.vatRegistered;
     next.customers.push(customer);

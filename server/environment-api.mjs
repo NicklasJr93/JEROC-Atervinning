@@ -118,6 +118,7 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
             const context = { organisationId: 'jeroc-demo', actorId: principal.actor.id, effectiveUserId: principal.user.id,
               actor: principal.actor, user: principal.user, sessionKey: createHash('sha256').update(token).digest('hex'),
               reauthorize: () => store.authorize(token, 'integrationsRead') };
+            const exportAction = route.match(/^\/visma\/accounting\/exports\/([a-fA-F0-9-]{36})\/(refresh|recreate)$/);
             const run = route.match(/^\/visma\/sandbox\/runs\/([a-fA-F0-9-]{36})$/);
             const prefill = route.match(/^\/visma\/attested-cards\/([1-9]\d{0,11})$/);
             if (read && route === '/visma/status') json(res, 200, await vismaService.status(context), req.method === 'HEAD');
@@ -130,6 +131,13 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
             else if (req.method === 'POST' && route === '/visma/accounting/preview') json(res, 200, await vismaService.preview(await body(req), context));
             else if (read && route === '/visma/accounting/exports') json(res, 200, await vismaService.exports(context), req.method === 'HEAD');
             else if (req.method === 'POST' && route === '/visma/accounting/exports') json(res, 200, await vismaService.sendExport(await body(req), context));
+            else if (req.method === 'POST' && exportAction) {
+              const input = await body(req);
+              if (exportAction[2] === 'refresh') {
+                if (!z.object({}).strict().safeParse(input).success) throw new EnvironmentError('Statuskontrollen tar inga klientuppgifter.', 422, 'visma_invalid');
+                json(res, 200, await vismaService.refreshExport(exportAction[1], context));
+              } else json(res, 200, await vismaService.recreateExport(exportAction[1], input, context));
+            }
             else if (read && route === '/visma/attested-cards') json(res, 200, await vismaService.attestedCards(context), req.method === 'HEAD');
             else if (read && prefill) json(res, 200, await vismaService.prefill(Number(prefill[1]), context), req.method === 'HEAD');
             else if (req.method === 'POST' && route === '/visma/oauth/start') {

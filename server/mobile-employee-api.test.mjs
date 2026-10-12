@@ -41,7 +41,7 @@ async function fixture(run) {
       state.personnelAuth.accounts.push({ personId, username: name, active: true, createdAt: now.toISOString(), updatedAt: now.toISOString(), password: password('Test-Password-2026!') });
     }
   });
-  const api = createMobileEmployeeApi({ getRepository: async () => repository, now: () => now, siteProvider: async () => sites,
+  const api = createMobileEmployeeApi({ getRepository: async () => repository, now: () => now, siteProvider: async () => sites, env,
     readBody: async req => { const chunks = []; for await (const value of req) chunks.push(value); return JSON.parse(Buffer.concat(chunks).toString()); },
     json: (res, status, value) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); } });
   const server = createServer((req, res) => { void api(req, res, new URL(req.url, 'http://localhost')); });
@@ -53,7 +53,7 @@ async function fixture(run) {
     return { status: response.status, cookie: response.headers.get('set-cookie')?.split(';')[0], headers: response.headers, ...await response.json() };
   };
   const login = async (username = 'alice', secret = 'Test-Password-2026!') => { const value = await request('login', { username, password: secret }); assert.equal(value.status, 200, value.error); return value; };
-  try { await run({ repository, openRepository, request, login, now: () => now, clock: value => { now = new Date(value); }, base }); }
+  try { await run({ repository, openRepository, request, login, now: () => now, clock: value => { now = new Date(value); }, base, env }); }
   finally {
     await new Promise(resolve => server.close(resolve));
     for (const value of repositories) await value.close();
@@ -68,10 +68,28 @@ test('employee authentication supports a non-driver, protects origin and has no 
   assert.equal((await request('session')).status, 401);
   assert.equal((await request('session', undefined, 'jeroc_employee=invalid', { 'x-demo-mobile': 'niklas', 'x-demo-actor': 'admin' })).status, 401);
   assert.equal((await request('profile', { phone: '123', email: '' }, result.cookie, { origin: 'https://other.example' })).status, 403);
-  assert.equal((await request('profile', { phone: '123', email: '' }, result.cookie, { origin: base })).status, 200);
+  const updated = await request('profile', { phone: '0722002220', email: '' }, result.cookie, { origin: base });
+  assert.equal(updated.status, 200); assert.equal(updated.person.phone, '+46722002220');
+  assert.equal((await request('profile', { phone: '123', email: '' }, result.cookie, { origin: base })).status, 422);
   assert.equal(hasEmployeeSession({ headers: { cookie: result.cookie } }), true);
   await repository.read(state => { assert.equal(employeeRequestPrincipal(state, { headers: { cookie: result.cookie } }, { now }).user.id, 'test-alice');
     assert.throws(() => employeeRequestPrincipal(state, { headers: { cookie: 'jeroc_employee=invalid', 'x-demo-actor': 'admin' } }, { now }), error => error.status === 401); });
+}));
+
+test('demo login shortcuts expose only availability and stop advertising changed or disabled fixture accounts', async () => fixture(async ({ request, login, repository, env }) => {
+  const first = await request('demo-config');
+  assert.equal(first.status, 200); assert.equal(first.enabled, true);
+  assert.deepEqual(first.accounts, { niklas: true, admin: true });
+  assert.equal(first.headers.get('cache-control'), 'no-store');
+  for (const secret of ['Demo123!', 'JerocDemo2026!', 'digest', 'salt', 'tokenHash']) assert.ok(!JSON.stringify(first.accounts).includes(secret));
+  const niklas = await login('niklas', 'Demo123!');
+  assert.equal((await request('password', { currentPassword: 'Demo123!', password: 'Changed-Demo-Password-2026!' }, niklas.cookie)).status, 200);
+  assert.deepEqual((await request('demo-config')).accounts, { niklas: false, admin: true });
+  await repository.transact(state => { state.personnelAuth.accounts.find(account => account.username === 'admin').active = false; });
+  assert.deepEqual((await request('demo-config')).accounts, { niklas: false, admin: false });
+  env.JEROC_DEMO_AUTO_SESSION = 'false';
+  const disabled = await request('demo-config'); assert.equal(disabled.enabled, false);
+  assert.deepEqual(disabled.accounts, { niklas: false, admin: false });
 }));
 
 test('employee GET views use read snapshots without revising data or pruning persisted auth', async () => fixture(async ({ request, login, repository }) => {

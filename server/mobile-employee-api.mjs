@@ -4,7 +4,7 @@ import { createPricingStore, PricingError } from './pricing.mjs';
 import { ensurePersonnel, refreshStaffingTasks } from './personnel.mjs';
 import { ensureLogistics, driverOrderView, applyDriverAction } from './logistics.mjs';
 import { createTransportOutbox } from './transport-integrations.mjs';
-import { applyTransportChange, personnelPlanIssues } from '../dist-server/domain-models.mjs';
+import { applyTransportChange, personnelPlanIssues, normalizePhoneNumber, phoneNumberError } from '../dist-server/domain-models.mjs';
 import { ensureEmployeeTime, enrollEmployeeTime, employeeTimeProjection, employeeTimeCommand,
   employeeTimeGate, employeeTimeRequirementCommand, employeeTimeLifecycle } from './employee-time.mjs';
 
@@ -130,7 +130,7 @@ function managePeople(state, identity) {
     && (!user.siteIds || value.siteIds.every(id => user.siteIds.includes(id))));
 }
 
-export function createMobileEmployeeApi({ getRepository, readBody, json, siteProvider = async () => [], now = () => new Date() }) {
+export function createMobileEmployeeApi({ getRepository, readBody, json, siteProvider = async () => [], now = () => new Date(), env = process.env }) {
   const cookie = (res, token, req) => res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; Path=/api; SameSite=Strict; Max-Age=${token ? SESSION_HOURS * 3600 : 0}${req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`);
   return async (req, res, url) => {
     if (!url.pathname.startsWith('/api/employee/')) return false;
@@ -143,6 +143,26 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         if (origin.host !== req.headers.host || origin.protocol !== protocol) fail('Anropet måste komma från samma webbplats.', 403);
       }
       const path = url.pathname.slice('/api/employee/'.length), payload = req.method === 'POST' ? await readBody(req) : undefined;
+      if (path === 'demo-config' && req.method === 'GET') {
+        const repository = await getRepository();
+        const config = await repository.read(state => {
+          const enabled = env.JEROC_DEMO_AUTO_SESSION !== 'false' && state.metadata?.mobileEmployeeSeedVersion >= 2
+            && state.metadata?.pricingSeed?.users?.some(user => user.id === 'admin' && user.name === 'Systemadmin');
+          const available = (username, personId, userId, password) => {
+            if (!enabled) return false;
+            const account = state.personnelAuth?.accounts?.find(value => value.username === username && value.personId === personId);
+            const person = state.personnel?.people?.find(value => value.id === personId && value.userId === userId);
+            const user = state.pricing?.users?.find(value => value.id === userId);
+            return Boolean(account?.active && person?.active && user && user.active !== false && passwordValid(password, account.password));
+          };
+          return { enabled: Boolean(enabled), accounts: {
+            niklas: available('niklas', 'person-mobile-demo', 'mobile-demo', 'Demo123!'),
+            admin: available('admin', 'person-mobile-admin', 'admin', 'JerocDemo2026!'),
+          } };
+        }, { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth'] });
+        res.setHeader('Cache-Control', 'no-store');
+        json(res, 200, config); return true;
+      }
       const siteCatalog = await siteProvider();
       const repository = await getRepository();
       const operate = (state, _, audit = []) => {
@@ -189,6 +209,9 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         if (['session', 'bootstrap', 'overview', 'calendar'].includes(path) && req.method === 'GET') return { value: overview(identity) };
         if (path === 'profile' && req.method === 'POST') {
           const input = parse(z.object({ phone: z.string().trim().max(100), email: z.union([z.literal(''), z.string().trim().email().max(200)]) }).strict(), payload);
+          const phoneError = phoneNumberError(input.phone);
+          if (phoneError) fail(phoneError, 422);
+          input.phone = normalizePhoneNumber(input.phone);
           Object.assign(person, input); person.revision += 1; state.personnel.revision += 1;
           audit.push({ action: 'employee.profile.updated', personId: person.id, actualUserId: principal.actor.id, at });
           return { value: overview(identity) };

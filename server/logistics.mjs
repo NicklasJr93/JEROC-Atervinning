@@ -3,7 +3,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { createPricingStore, PricingError } from './pricing.mjs';
 import { ensurePersonnel, refreshStaffingTasks } from './personnel.mjs';
-import { applyTransportChange, personnelPlanIssues, transportSchema } from '../dist-server/domain-models.mjs';
+import { applyTransportChange, personnelPlanIssues, transportSchema, normalizeAddress, addressError,
+  normalizePhoneNumber, phoneNumberError, normalizeOrganisationNumber } from '../dist-server/domain-models.mjs';
 import { ensureWorkOrderWeighing, syncWorkOrderWeighing, workOrderWeighing, startWorkOrderWeighing, saveWorkOrderWeighing, completeWorkOrderWeighing } from './work-order-weighing.mjs';
 
 const copy = value => structuredClone(value);
@@ -22,7 +23,7 @@ const identifier = z.string().trim().min(1).max(200);
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => !Number.isNaN(Date.parse(value)) && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value, 'Ange ett giltigt datum.');
 const time = z.string().regex(/^\d{2}:\d{2}$/).refine(value => Number(value.slice(0, 2)) < 24 && Number(value.slice(3)) < 60);
 const windowSchema = z.object({ date: day, from: time.optional(), to: time.optional() }).strict().refine(value => !value.from || !value.to || value.from < value.to, 'Tidsintervallets slut måste komma efter start.');
-const placeSchema = z.object({ name: txt, address: txt, postalCode: txt, city: txt, number: txt.optional(), contact: txt.optional(), phone: txt.optional() }).strict();
+const placeSchema = z.object({ name: txt, address: txt, postalCode: txt, city: txt, countryCode: txt.optional(), number: txt.optional(), contact: txt.optional(), phone: txt.optional() }).strict();
 const materialSchema = z.object({ articleId: identifier, plannedKg: z.number().finite().min(0).max(1000000000) }).strict();
 const inputSchema = z.object({
   siteId: identifier, action: z.enum(['pickup', 'exchange', 'placement', 'outbound']), customerId: identifier.optional(),
@@ -40,8 +41,19 @@ const vesselSchema = z.object({ id: identifier, name: identifier, type: z.enum([
 const agreementSchema = z.object({ id: identifier, customerId: identifier, siteId: identifier, vesselId: identifier, active: z.boolean(), action: z.enum(['pickup', 'exchange']), intervalDays: z.number().int().min(0).max(366), nextDate: day, notes: txt, kind: z.enum(['rental', 'rolling']).optional(), rentalStart: day.optional(), rentalEnd: day.optional(), allowedActions: z.array(z.enum(['pickup', 'exchange'])).max(2).optional() }).strict();
 const parse = (schema, input) => { const result = schema.safeParse(input); if (!result.success) fail(result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join(' '), 422); return result.data; };
 const emptyPlace = () => ({ name: '', address: '', postalCode: '', city: '' });
-const customerPlace = customer => ({ name: customer.name, address: customer.address ?? '', postalCode: customer.postalCode ?? '', city: customer.city ?? '', number: customer.number ?? '', contact: customer.contactPerson ?? '', phone: customer.phone ?? '' });
-const sitePlace = site => ({ name: `JEROC ${site.name}`, address: site.address ?? '', postalCode: site.postalCode ?? '', city: site.city ?? '', number: site.number ?? '' });
+function normalizePlace(place, previous) {
+  if (!place) return place;
+  if (!previous || ['address','postalCode','city','countryCode'].some(key => place[key]!==previous[key])) {
+    const error=addressError(place);if(error)fail(error,422);
+  }
+  if (!previous || normalizePhoneNumber(place.phone??'')!==normalizePhoneNumber(previous.phone??'')) {
+    const error=phoneNumberError(place.phone??'');if(error)fail(error,422);
+  }
+  return {...place,...normalizeAddress(place),...(place.phone===undefined?{}:{phone:normalizePhoneNumber(place.phone)}),
+    ...(place.number===undefined?{}:{number:normalizeOrganisationNumber(place.number)})};
+}
+const customerPlace = customer => ({ name: customer.name, address: customer.address ?? '', postalCode: customer.postalCode ?? '', city: customer.city ?? '', countryCode: customer.countryCode ?? 'SE', number: customer.number ?? '', contact: customer.contactPerson ?? '', phone: customer.phone ?? '' });
+const sitePlace = site => ({ name: `JEROC ${site.name}`, address: site.address ?? '', postalCode: site.postalCode ?? '', city: site.city ?? '', countryCode: site.countryCode ?? 'SE', number: site.number ?? '' });
 const openOrder = order => !['done', 'cancelled'].includes(order.status);
 function audit(state, actor, action, details = {}, transactionAudit = []) {
   const row = { id: uid('logistics-event'), at: stamp(), action, actorId: actor.actualUserId ?? actor.id, actorName: actor.actor ?? actor.name, ...details };
@@ -139,7 +151,8 @@ function detailFor(state, order, persist = true) {
   if (!site) fail('Arbetsordern behöver en anläggning.', 422);
   const customer = state.office.customers.find(customer => customer.id === order.customerId);
   const driver = state.transport.drivers.find(driver => driver.id === order.driverId);
-  const place = { ...(customer ? customerPlace(customer) : emptyPlace()), name: order.customerName, address: order.address, city: order.city };
+  const place = { ...(customer ? customerPlace(customer) : emptyPlace()), name: order.customerName, address: order.address, city: order.city,
+    ...(order.postalCode===undefined?{}:{postalCode:order.postalCode}),...(order.countryCode===undefined?{}:{countryCode:order.countryCode}) };
   const external = order.operator === 'external' || Boolean(driver?.companyId);
   detail = { orderId: order.id, version: 1, siteId: site.id, operator: external ? 'external' : 'own', carrierId: driver?.companyId,
     source: 'office', from: order.action === 'outbound' ? sitePlace(site) : place, to: order.action === 'outbound' ? place : sitePlace(site), materialRows: [],
@@ -186,6 +199,8 @@ function idempotent(state, actorId, action, key, body, operation) {
 }
 function normalizeInput(state, principal, input, excluding) {
   const value = parse(inputSchema, input); demandSite(state, principal, value.siteId);
+  const previous=excluding && state.logistics.details[excluding];
+  value.from=normalizePlace(value.from,previous?.from);value.to=normalizePlace(value.to,previous?.to);
   if (value.customerId && !state.office.customers.some(customer => customer.id === value.customerId)) fail('Kunden finns inte.', 422);
   if (!value.from.name || !value.from.address || !value.from.city || !value.to.name || !value.to.address || !value.to.city) fail('Ange avsändare och mottagare med adress och ort.', 422);
   if (value.operator === 'external') { if (!state.personnel.companies.some(company => company.id === value.carrierId)) fail('Välj ett registrerat åkeri.', 422); if (value.assignedDriverId || value.assignedVehicleId) fail('Åkeriet väljer förare och fordon när uppdraget accepterats.', 422); }
@@ -213,6 +228,7 @@ function createOrder(state, input, actor, source = 'office', transactionAudit = 
   const numbers = state.transport.orders.map(order => Number(order.id.replace(/^AO-/, ''))).filter(Number.isFinite); const id = `AO-${Math.max(1000, ...numbers) + 1}`; const at = stamp();
   const destination = input.action === 'outbound' || input.action === 'placement' ? input.to : input.from;
   const order = { id, siteId: input.siteId, operator: input.operator, customerId: input.customerId, customerName: destination.name, address: destination.address, city: destination.city,
+    postalCode: destination.postalCode, countryCode: destination.countryCode ?? 'SE',
     contact: destination.contact ?? '', phone: destination.phone ?? '', action: input.action, vesselType: input.vesselType, vesselSize: input.vesselSize ?? '',
     material: input.materialRows.map(row => row.name).join(', '), pickupVessel: input.vesselId ?? '', replacementVessel: input.replacementVesselId ?? '', notes: input.notes ?? '',
     lat: input.lat ?? 59.7578, lng: input.lng ?? 18.7105, durationMinutes: input.durationMinutes ?? 60, status: 'unbooked', requestedDate: input.requestedWindow?.date,
@@ -366,7 +382,7 @@ export function validateLogisticsTransportChange(state, base, next) {
     const bookingChanged = ['date', 'startMinute', 'driverId', 'vehicleId', 'durationMinutes'].some(key => !isDeepStrictEqual(before[key], after[key]));
     if (bookingChanged) { detail.assignedDriverId = after.driverId; detail.assignedVehicleId = after.vehicleId; invalidateDocument(detail); detail.version += 1; detail.updatedAt = stamp(); }
     if (bookingChanged) detail.confirmedWindow = after.date ? { date: after.date, from: `${Math.floor((after.startMinute ?? 0) / 60)}`.padStart(2, '0') + ':' + `${(after.startMinute ?? 0) % 60}`.padStart(2, '0') } : undefined;
-    for (const field of ['siteId', 'operator', 'customerId', 'customerName', 'address', 'city', 'contact', 'phone', 'action', 'vesselType', 'material', 'pickupVessel', 'replacementVessel']) if (!isDeepStrictEqual(before[field], after[field])) fail('Ändra uppdragets underlag i Arbetsordrar.');
+    for (const field of ['siteId', 'operator', 'customerId', 'customerName', 'address', 'postalCode', 'city', 'countryCode', 'contact', 'phone', 'action', 'vesselType', 'material', 'pickupVessel', 'replacementVessel']) if (!isDeepStrictEqual(before[field], after[field])) fail('Ändra uppdragets underlag i Arbetsordrar.');
   }
 }
 
@@ -387,13 +403,15 @@ function respondCustomerRequest(state, principal, command, transactionAudit) {
 function saveVessel(state, principal, command, transactionAudit) {
   demand(principal, 'vesselsWrite'); const previous = state.logistics.vessels.find(vessel => vessel.id === command.vessel?.id);
   const vessel = parse(vesselSchema, { ...previous, ...command.vessel }); demandSite(state, principal, vessel.siteId);
+  if(vessel.place)vessel.place=normalizePlace(vessel.place,previous?.place);
   if (previous) demandSite(state, principal, previous.siteId);
   if ((previous?.version ?? 0) !== command.expectedVersion) fail('Kärlet har ändrats. Hämta den senaste versionen.');
   if (vessel.customerId && !state.office.customers.some(customer => customer.id === vessel.customerId)) fail('Kunden finns inte.', 422);
   if (vessel.status === 'placed' && (!vessel.customerId || !vessel.place?.address || !vessel.place?.city)) fail('Ett utställt kärl behöver kund och plats.', 422);
   if (vessel.materialArticleId) articleOf(state, vessel.materialArticleId);
   if (previous) {
-    const placementChanged = ['customerId', 'place', 'siteId', 'status'].some(field => !isDeepStrictEqual(previous[field], vessel[field]));
+    const placementChanged = ['customerId', 'siteId', 'status'].some(field => !isDeepStrictEqual(previous[field], vessel[field]))
+      || !isDeepStrictEqual(previous.place && normalizePlace(previous.place,previous.place),vessel.place);
     if (placementChanged && (previous.status === 'placed' || previous.customerId || state.transport.orders.some(order => openOrder(order) && [state.logistics.details[order.id]?.vesselId, state.logistics.details[order.id]?.replacementVesselId].includes(vessel.id)))) fail('Kärlets placering eller reservation ändras genom en utförd arbetsorder.');
   }
   vessel.version = (previous?.version ?? 0) + 1;
@@ -497,7 +515,7 @@ function officeCommand(state, principal, command, transactionAudit) {
     if (detail.operator === 'external') detail.carrierRequest = { status: 'draft', version: detail.carrierRequest.version + 1 };
     for (const delivery of state.logistics.deliveryOutbox.filter(delivery => delivery.orderId === order.id && delivery.status === 'prepared')) delivery.status = 'superseded';
     const destination = input.action === 'outbound' || input.action === 'placement' ? input.to : input.from;
-    Object.assign(order, { siteId: input.siteId, operator: input.operator, customerId: input.customerId, action: input.action, customerName: destination.name, address: destination.address, city: destination.city, contact: destination.contact ?? '', phone: destination.phone ?? '', vesselType: input.vesselType, vesselSize: input.vesselSize ?? '', material: input.materialRows.map(row => row.name).join(', '), pickupVessel: input.vesselId ?? '', replacementVessel: input.replacementVesselId ?? '', requestedDate: input.requestedWindow?.date, notes: input.notes, durationMinutes: input.durationMinutes });
+    Object.assign(order, { siteId: input.siteId, operator: input.operator, customerId: input.customerId, action: input.action, customerName: destination.name, address: destination.address, postalCode: destination.postalCode, city: destination.city, countryCode: destination.countryCode ?? 'SE', contact: destination.contact ?? '', phone: destination.phone ?? '', vesselType: input.vesselType, vesselSize: input.vesselSize ?? '', material: input.materialRows.map(row => row.name).join(', '), pickupVessel: input.vesselId ?? '', replacementVessel: input.replacementVesselId ?? '', requestedDate: input.requestedWindow?.date, notes: input.notes, durationMinutes: input.durationMinutes });
     syncWorkOrderWeighing(state, order, detail, articlesOf(state));
     orderAudit(state, order, detail, actor, 'work_order.updated', 'Arbetsorderns underlag ändrat. Tidigare dokument och svar bevaras i historiken.', transactionAudit);
   } else if (command.action === 'order.book') {

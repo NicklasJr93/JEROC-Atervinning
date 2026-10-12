@@ -62,7 +62,7 @@ async function fixture(run, { local = false } = {}) {
     transactIntegration: operation => inspector.transact(operation),
     withLookupTimeout: milliseconds => makeService(undefined, { lookupTimeoutMs: milliseconds }),
     get service() { return service; }, get repository() { return repository; },
-    setProvider: handler => { provider = handler; }, revoke: () => { revoked = true; }, advance: () => { time = new Date(time.getTime() + 120001); },
+    setProvider: handler => { provider = handler; }, revoke: () => { revoked = true; }, advance: (milliseconds = 120001) => { time = new Date(time.getTime() + milliseconds); },
     posts: () => calls.filter(call => call.method === 'POST' && call.url.hostname === 'eaccountingapi.vismaonline.com'),
     async connect() { const started = await service.begin(context); await service.callback({ state: new URL(started.authorizationUrl).searchParams.get('state'), code: 'fixture-code', cookieBinding: started.cookieBinding }); await service.complete(context); },
     async enable(extra = {}) { await f.connect(); await service.lookupChoices(context); return (await service.saveSettings({ expectedRevision: 0, settings: configuration(extra) }, context)).settings; },
@@ -262,8 +262,8 @@ test('private supplier creation never sends a personnummer or matches on it', as
 }));
 
 test('business organisation fallback must be unique and ambiguous matches never dispatch writes', async () => fixture(async f => {
-  await f.enable(); await f.source({ customer: { type: 'Företag', vatRegistered: true, number: '5560000000' } });
-  f.suppliers.push({ Id: supplierId, CorporateIdentityNumber: '556000-0000', IsActive: true }, { Id: randomUUID(), CorporateIdentityNumber: '5560000000', IsActive: true });
+  await f.enable(); await f.source({ customer: { type: 'Företag', vatRegistered: true, number: '5593593626' } });
+  f.suppliers.push({ Id: supplierId, CorporateIdentityNumber: '559359-3626', IsActive: true }, { Id: randomUUID(), CorporateIdentityNumber: '5593593626', IsActive: true });
   const result = await f.service.sendExport({ cardId: 3016 }, context); assert.equal(result.status, 'blocked'); assert.equal(result.error.code, 'visma_supplier_ambiguous'); assert.equal(f.posts().length, 0);
 }));
 
@@ -394,7 +394,7 @@ test('supplier identifiers cannot be truncated, leak personnummer, or contradict
   await assert.rejects(() => f.service.sendExport({ cardId: 3016 }, context), error => error.code === 'visma_supplier_number_invalid');
   await f.source({ cardId: 3017, customer: { customerNumber: '199001011234' } });
   await assert.rejects(() => f.service.sendExport({ cardId: 3017 }, context), error => error.code === 'visma_supplier_number_invalid');
-  await f.source({ cardId: 3018, customer: { type: 'Företag', vatRegistered: true, number: '5560000000' } });
+  await f.source({ cardId: 3018, customer: { type: 'Företag', vatRegistered: true, number: '5593593626' } });
   f.suppliers.push({ Id: supplierId, SupplierNumber: 'K1001', CorporateIdentityNumber: '5570000000', IsActive: true });
   const conflict = await f.service.sendExport({ cardId: 3018 }, context); assert.equal(conflict.error.code, 'visma_supplier_identity_conflict'); assert.equal(f.posts().length, 0);
 }));
@@ -433,7 +433,7 @@ test('Spiris fractional VAT rates and old raw caches normalize to percent for se
 }));
 
 test('company standard VAT exports the approved gross while leaving source economics untouched', async () => fixture(async f => {
-  await f.enable(); const source = await f.source({ customer: { type: 'Företag', vatRegistered: true, number: '5560000000' }, taxCategory: 'standard_25' });
+  await f.enable(); const source = await f.source({ customer: { type: 'Företag', vatRegistered: true, number: '5593593626' }, taxCategory: 'standard_25' });
   const before = structuredClone(source); const exported = await f.service.sendExport({ cardId: 3016 }, context); assert.equal(exported.status, 'accepted');
   const draft = f.posts().find(call => call.url.pathname === '/v2/supplierinvoicedrafts').payload;
   assert.equal(draft.TotalAmount, 1250); assert.equal(draft.Vat, 250); assert.equal(draft.Rows.find(row => row.AccountNumber === 2440).CreditAmount, 1250);
@@ -532,4 +532,146 @@ test('provider calls happen after the integration reservation commits and releas
     return f.normalProvider(call);
   });
   const exported = await f.service.sendExport({ cardId: 3016 }, context); assert.equal(exported.status, 'accepted'); assert.equal(writes, 2);
+}));
+
+const invoiceId = '11111111-4020-4a9c-9fe5-1f8b2fdb0d91', voucherId = '22222222-4020-4a9c-9fe5-1f8b2fdb0d91';
+function trackingProvider(f, mode, { invoice = {}, listing, draft = {}, onGet } = {}) {
+  return async call => {
+    if (['/v2/supplierinvoicedrafts/', '/v2/supplierinvoices'].some(path => call.url.pathname.startsWith(path)) && call.method === 'GET') {
+      await onGet?.(call);
+      const record = { Id: invoiceId, CreatedFromDraftId: draftId, SupplierId: supplierId, InvoiceNumber: 'AV-3016-V1', TotalAmount: 1000,
+        CurrencyCode: 'SEK', Status: 1, VoucherId: voucherId, VoucherNumber: 'A123', ...invoice };
+      if (call.url.pathname === `/v2/supplierinvoicedrafts/${draftId}`) return mode === 'exists'
+        ? body({ Id: draftId, SupplierId: supplierId, InvoiceNumber: 'AV-3016-V1', TotalAmount: 1000, CurrencyCode: 'SEK', ...draft })
+        : body({ message: 'missing' }, mode === 'unavailable' ? 503 : mode === 'denied' ? 403 : 404);
+      if (call.url.pathname === '/v2/supplierinvoices') return listing ? body(listing) : page(mode === 'booked' ? [record] : []);
+      if (call.url.pathname === `/v2/supplierinvoices/${invoiceId}`) return body(record);
+    }
+    return f.normalProvider(call);
+  };
+}
+
+test('automatic prequeue validation blockers are durable and visible on the card without provider writes or repeated events', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' });
+  await f.source({ customer: { type: 'Företag', vatRegistered: true, number: '55935936261' } });
+  await f.service.processQueuedExports();
+  const status = await f.service.cardExportProjection(3016);
+  assert.equal(status.status, 'blocked'); assert.match(status.error.message, /organisationsnummer/);
+  assert.equal(status.events[0].type, 'local_blocked'); assert.ok(status.events[0].id);
+  assert.equal(status.canRefresh, false); assert.equal(status.canRecreate, false); assert.equal(f.posts().length, 0);
+  await f.service.processQueuedExports(); await f.restart(); await f.service.processQueuedExports();
+  assert.equal((await f.service.exports(context)).exports.length, 1);
+  assert.deepEqual((await f.service.cardExportProjection(3016)).events, status.events);
+}));
+
+test('bookkeeping checks are due-only read batches without polling journal spam and stop on verified final invoice', async () => fixture(async f => {
+  await f.enable(); await f.source(); const job = await f.service.sendExport({ cardId: 3016 }, context);
+  f.setProvider(trackingProvider(f, 'exists'));
+  const journalBefore = await f.readIntegration(document => document.tenants['jeroc-demo'].runs.length), before = f.calls.length;
+  assert.equal((await f.service.processAccountingTracking()).checked, 0); assert.equal(f.calls.length, before);
+  f.advance(300001); assert.equal((await f.service.processAccountingTracking()).checked, 1);
+  const pending = await f.service.cardExportProjection(3016); assert.equal(pending.tracking.state, 'pending'); assert.ok(pending.tracking.lastCheckedAt);
+  assert.equal(await f.readIntegration(document => document.tenants['jeroc-demo'].runs.length), journalBefore);
+  assert.equal(pending.events.length, job.events.length, 'No repeated success event for each poll');
+  f.setProvider(trackingProvider(f, 'booked')); f.advance(300001);
+  await f.service.processAccountingTracking(); const booked = await f.service.cardExportProjection(3016);
+  assert.equal(booked.status, 'accepted'); assert.equal(booked.tracking.state, 'booked'); assert.equal(booked.tracking.voucherNumber, 'A123');
+  assert.equal(booked.tracking.invoiceId, invoiceId); assert.equal(booked.canRecreate, false); assert.equal(booked.canRefresh, false);
+  assert.equal(booked.events.filter(event => event.type === 'booked').length, 1);
+  const after = f.calls.length; f.advance(86400000); await f.service.processAccountingTracking(); assert.equal(f.calls.length, after);
+  assert.equal(f.posts().length, 2, 'Tracking cannot book, approve or send payments');
+}));
+
+test('a missing draft alone cannot prove deletion or bookkeeping, incomplete and ambiguous results cannot enable recreation', async () => fixture(async f => {
+  await f.enable(); await f.source(); const job = await f.service.sendExport({ cardId: 3016 }, context);
+  f.setProvider(trackingProvider(f, 'missing', { listing: { Data: [], Meta: { CurrentPage: 1, TotalNumberOfPages: 1, TotalNumberOfResults: 1 } } }));
+  let checked = await f.service.refreshExport(job.id, context); assert.equal(checked.tracking.state, 'pending'); assert.equal(checked.tracking.error.code, 'visma_tracking_incomplete');
+  assert.equal((await f.service.cardExportProjection(3016)).canRecreate, false);
+  f.setProvider(trackingProvider(f, 'booked', { invoice: { CreatedFromDraftId: randomUUID() } }));
+  checked = await f.service.refreshExport(job.id, context); assert.equal(checked.tracking.state, 'attention'); assert.equal(checked.tracking.error.code, 'visma_tracking_ambiguous');
+  assert.equal(f.posts().length, 2);
+}));
+
+test('final invoice needs Normal status, exact draft identity and a real voucher before bookkeeping is confirmed', async () => fixture(async f => {
+  await f.enable(); await f.source(); const job = await f.service.sendExport({ cardId: 3016 }, context);
+  for (const invoice of [{ Status: 0 }, { Status: 2 }, { VoucherId: null }, { VoucherId: '00000000-0000-0000-0000-000000000000' }, { VoucherNumber: '' }, { SupplierId: randomUUID() }, { TotalAmount: 999 }]) {
+    f.setProvider(trackingProvider(f, 'booked', { invoice }));
+    const checked = await f.service.refreshExport(job.id, context);
+    assert.equal(checked.tracking.state, 'attention'); assert.equal((await f.service.cardExportProjection(3016)).canRecreate, false);
+    assert.equal(checked.events.filter(event => event.type === 'booked').length, 0);
+  }
+  assert.equal(f.posts().length, 2);
+}));
+
+test('missing is confirmed twice with separation; active recreation retains the locked data and does not duplicate double clicks or restart', async () => fixture(async f => {
+  await f.enable(); await f.source(); const original = await f.service.sendExport({ cardId: 3016 }, context);
+  f.setProvider(trackingProvider(f, 'missing'));
+  await f.service.refreshExport(original.id, context);
+  await f.service.refreshExport(original.id, context); assert.equal((await f.service.cardExportProjection(3016)).canRecreate, false, 'Immediate repeated click is not a second absence confirmation');
+  f.advance(300001); await f.service.refreshExport(original.id, context);
+  assert.equal((await f.service.cardExportProjection(3016)).canRecreate, true);
+  const newDraftId = randomUUID(), missing = trackingProvider(f, 'missing');
+  f.setProvider(call => call.method === 'POST' && call.url.pathname === '/v2/supplierinvoicedrafts' ? body({ Id: newDraftId }, 201) : missing(call));
+  const requestId = randomUUID();
+  const [a, b] = await Promise.allSettled([f.service.recreateExport(original.id, { requestId }, context), f.service.recreateExport(original.id, { requestId }, context)]);
+  const succeeded = [a, b].find(result => result.status === 'fulfilled' && result.value.status === 'accepted');
+  assert.ok(succeeded, 'Exactly one concurrent request must complete the recreation');
+  for (const result of [a, b]) assert.ok(result.status === 'fulfilled' || result.reason.code === 'visma_tracking_busy');
+  assert.equal(f.posts().filter(call => call.url.pathname === '/v2/supplierinvoicedrafts').length, 2);
+  const posts = f.posts().filter(call => call.url.pathname === '/v2/supplierinvoicedrafts'); assert.deepEqual(posts[1].payload, posts[0].payload);
+  const latest = await f.service.cardExportProjection(3016); assert.equal(latest.draftId, newDraftId); assert.equal(latest.relatedAttemptIds.length, 2);
+  assert.equal(latest.events.filter(event => event.type === 'draft_recreated').length, 1);
+  await f.restart(); const repeated = await f.service.recreateExport(original.id, { requestId }, context); assert.equal(repeated.id, succeeded.value.id);
+  assert.equal(f.posts().filter(call => call.url.pathname === '/v2/supplierinvoicedrafts').length, 2);
+}));
+
+test('recreation is blocked if an invoice reappears or the attested source changes; unknown recreation is never resent', async () => fixture(async f => {
+  await f.enable(); await f.source(); const original = await f.service.sendExport({ cardId: 3016 }, context);
+  f.setProvider(trackingProvider(f, 'missing')); await f.service.refreshExport(original.id, context); f.advance(300001); await f.service.refreshExport(original.id, context);
+  f.setProvider(trackingProvider(f, 'booked'));
+  await assert.rejects(() => f.service.recreateExport(original.id, { requestId: randomUUID() }, context), error => error.code === 'visma_recreate_exists');
+  assert.equal((await f.service.cardExportProjection(3016)).tracking.state, 'booked');
+  await f.transactIntegration(document => { document.tenants['jeroc-demo'].finance.outbox.find(job => job.id === original.id).tracking.state = 'missing'; });
+  f.setProvider(trackingProvider(f, 'missing')); f.approvals[0].snapshot.hash = 'b'.repeat(64);
+  await assert.rejects(() => f.service.recreateExport(original.id, { requestId: randomUUID() }, context), error => ['visma_source_changed', 'visma_source_unattested'].includes(error.code));
+  f.approvals[0].snapshot.hash = 'a'.repeat(64);
+  const missing = trackingProvider(f, 'missing'); f.setProvider(call => call.method === 'POST' && call.url.pathname === '/v2/supplierinvoicedrafts' ? body({ message: 'lost' }, 503) : missing(call));
+  const recreated = await f.service.recreateExport(original.id, { requestId: randomUUID() }, context); assert.equal(recreated.status, 'unknown');
+  await f.restart(); await f.service.processQueuedExports(); assert.equal(f.posts().filter(call => call.url.pathname === '/v2/supplierinvoicedrafts').length, 2);
+}));
+
+test('disconnect pauses tracking, only a verified same-company reconnection resumes, and expiry has finite retention', async () => fixture(async f => {
+  await f.enable({ trackingMaxDays: 2 }); await f.source(); const job = await f.service.sendExport({ cardId: 3016 }, context);
+  f.setProvider(trackingProvider(f, 'exists')); await f.service.disconnect(context);
+  const before = f.calls.length; f.advance(300001); await f.service.processAccountingTracking(); assert.equal(f.calls.length, before);
+  assert.equal((await f.service.cardExportProjection(3016)).tracking.state, 'paused');
+  await f.connect(); await f.service.processAccountingTracking(); assert.equal((await f.service.cardExportProjection(3016)).tracking.state, 'pending');
+  f.env.VISMA_SANDBOX_COMPANY_ID = randomUUID(); const switched = await f.service.cardExportProjection(3016); assert.equal(switched.tracking.state, 'paused'); assert.equal(switched.canRecreate, false);
+  await assert.rejects(() => f.service.refreshExport(job.id, context), error => ['visma_tracking_paused', 'visma_company_mismatch'].includes(error.code));
+  f.env.VISMA_SANDBOX_COMPANY_ID = companyId;
+  f.advance(2 * 86400000); const expiryBefore = f.calls.length; await f.service.processAccountingTracking();
+  const expired = await f.service.cardExportProjection(3016); assert.equal(expired.tracking.state, 'expired'); assert.equal(expired.tracking.nextCheckAt, null);
+  assert.equal(f.calls.length, expiryBefore, 'Expired work stops before provider calls');
+  f.advance(86400000); await f.service.processAccountingTracking(); assert.equal(f.calls.length, expiryBefore);
+}));
+
+test('transient tracking errors back off and access failures require reconnection or an explicit retry', async () => fixture(async f => {
+  await f.enable(); await f.source(); const job = await f.service.sendExport({ cardId: 3016 }, context);
+  f.setProvider(trackingProvider(f, 'unavailable')); let checked = await f.service.refreshExport(job.id, context);
+  assert.equal(checked.status, 'accepted'); assert.equal(checked.tracking.failureCount, 1);
+  checked = await f.service.refreshExport(job.id, context); assert.equal(checked.tracking.failureCount, 2);
+  assert.equal(Date.parse(checked.tracking.nextCheckAt) - Date.parse(checked.tracking.lastAttemptAt), 600000);
+  f.setProvider(trackingProvider(f, 'denied')); checked = await f.service.refreshExport(job.id, context); assert.equal(checked.tracking.state, 'paused');
+  const before = f.calls.length; f.advance(86400000); await f.service.processAccountingTracking(); assert.equal(f.calls.length, before);
+  await f.connect(); f.setProvider(trackingProvider(f, 'exists')); await f.service.processAccountingTracking();
+  assert.equal((await f.service.cardExportProjection(3016)).tracking.state, 'pending');
+}));
+
+
+test('a valid sole-trader identifier is normalized to a business CIN while private identifiers remain absent', async () => fixture(async f => {
+  await f.enable();
+  await f.source({ customer: { type: 'Företag', vatRegistered: true, number: '19930623-6374' } });
+  const first = await f.service.sendExport({ cardId: 3016 }, context); assert.equal(first.status, 'accepted');
+  const supplier = f.posts().find(call => call.url.pathname === '/v2/suppliers'); assert.equal(supplier.payload.CorporateIdentityNumber, '9306236374');
+  assert.equal(JSON.stringify(supplier.payload).includes('19930623'), false);
 }));

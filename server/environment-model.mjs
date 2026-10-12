@@ -9,6 +9,7 @@ import { createNvvSandbox } from './nvv-sandbox.mjs';
 import { createNvvDiagnostics } from './nvv-diagnostics.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { afterDatabaseCommit } from './database-runtime.mjs';
+import { normalizeAddress, addressError } from '../dist-server/domain-models.mjs';
 
 export const ENVIRONMENT_DEMO_PASSWORD = 'JerocDemo2026!';
 export const ENVIRONMENT_SITES = [
@@ -45,6 +46,7 @@ const siteSchema = z.object({
   expectedVersion: z.number().int().nonnegative(), name: short, address: z.string().trim().max(300),
   postalCode: z.string().trim().transform((value) => value.replaceAll(' ', '')).pipe(z.string().regex(/^(?:\d{5})?$/, 'Ange femsiffrigt postnummer eller lämna tomt.')),
   city: z.string().trim().max(300), municipalityCode: z.string().trim().regex(/^(?:\d{4})?$/, 'Ange fyrsiffrig kommunkod eller lämna tomt.'),
+  countryCode: z.string().trim().max(2).optional(),
   active: z.boolean(), permitReference: z.string().trim().max(300), permitNotes: z.string().trim().max(5000),
 }).strict().superRefine((value, context) => {
   if (value.municipalityCode && !ENVIRONMENT_MUNICIPALITIES.some((municipality) => municipality.code === value.municipalityCode))
@@ -558,6 +560,9 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
     saveSite(siteId, payload, token) {
       parse(id, siteId);
       const request = parse(siteSchema, payload);
+      const formatError = addressError(request);
+      if (formatError) throw new EnvironmentError(formatError, 422, 'site_address_invalid');
+      Object.assign(request, normalizeAddress(request));
       return transaction((state, time) => {
         const { principal } = principalFor(state, token, time); demand(principal, 'environmentStorage');
         const current = currentEnvironmentSites(state).find((record) => record.id === siteId);

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type FormEvent,
@@ -47,6 +48,7 @@ import {
   customerLedger,
   customerStats,
   paymentSummary,
+  validPaymentDetails,
 } from './customer-model';
 import {
   pricingRequest,
@@ -56,9 +58,10 @@ import {
   type PricingState,
   type QuoteRow,
 } from './pricing-client';
-import PaymentEditor from './PaymentEditor';
+import PaymentEditor, { PaymentReadOnly } from './PaymentEditor';
 import { safeAuditText } from './workflow';
-import { createCustomerDraft, customerDraftError, customerDraftForSave } from './customer-form';
+import { createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
+import { customerIdentifierError, normalizeOriginAddress, phoneNumberError } from '../data-format';
 import './customer.css';
 
 type CorrectionInput = {
@@ -243,6 +246,8 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
     [refresh, setRefresh] = useState(0);
   const [editing, setEditing] = useState(false),
     [months, setMonths] = useState(12);
+  const [editBusy, setEditBusy] = useState(false);
+  const detailsFormId = useId();
   const [freshCustomer, setFreshCustomer] = useState(() => createCustomerDraft(data, newCustomerDraft));
   useEffect(() => {
     if (isNew) setFreshCustomer(createCustomerDraft(data, newCustomerDraft));
@@ -256,6 +261,7 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
   const principal = `${actualUser.id}/${user.id}`;
   useEffect(() => {
     setEditing(false);
+    setEditBusy(false);
     setMonths(12);
   }, [selectedId]);
   useEffect(() => {
@@ -349,7 +355,15 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
         >
           <ArrowLeft size={15} /> {newCustomerDraft ? 'Till invägningen' : 'Till kundlistan'}
         </button>
-        <h1>Skapa kund</h1>
+        <div className="customer-profile-title">
+          <h1>Skapa kund</h1>
+          {can(user, 'customers') && <div className="customer-heading-actions">
+            <button className="office-btn outline" type="button" disabled={editBusy} onClick={cancelNewCustomer}>Avbryt</button>
+            <button className="office-btn" type="submit" form={detailsFormId} disabled={editBusy}>
+              <ShieldCheck size={15} />{editBusy ? 'Sparar…' : 'Spara kunduppgifter'}
+            </button>
+          </div>}
+        </div>
         <p>
           Kontakt, sparade referenser och betalningsprofil för kommande
           vägningar.
@@ -362,6 +376,8 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
             user={user}
             onSave={save}
             onCancel={cancelNewCustomer}
+            formId={detailsFormId}
+            onBusyChange={setEditBusy}
             fresh
           />
         ) : (
@@ -620,7 +636,17 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
               {customer.number || 'Nummer saknas'}
             </p>
           </div>
-          {can(user, 'customers') && (
+          {(can(user, 'customers') || can(user, 'paymentDetails')) && (editing ? (
+            <div className="customer-heading-actions">
+              <button className="office-btn outline" type="button" disabled={editBusy} onClick={() => {
+                setEditing(false);
+                onNotice('Ändringarna har återställts.');
+              }}>Avbryt</button>
+              <button className="office-btn" type="submit" form={detailsFormId} disabled={editBusy}>
+                <ShieldCheck size={15} />{editBusy ? 'Sparar…' : 'Spara kunduppgifter'}
+              </button>
+            </div>
+          ) : (
             <button
               className="office-btn outline"
               onClick={() => {
@@ -630,7 +656,7 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
             >
               <Pencil size={15} /> Redigera kund
             </button>
-          )}
+          ))}
         </div>
         <nav
           className="customer-tabs"
@@ -645,6 +671,7 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
                 role="tab"
                 aria-selected={tab === id}
                 className={tab === id ? 'active' : ''}
+                disabled={editBusy}
                 onClick={() => goTab(id)}
               >
                 {title}
@@ -675,6 +702,8 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
             onNotice('Ändringarna har återställts.');
           }}
           editing={editing}
+          formId={detailsFormId}
+          onBusyChange={setEditBusy}
         />
       ) : tab === 'weighings' ? (
         <CustomerWeighings
@@ -1199,13 +1228,14 @@ function SavedList({
   const [newValue, setNewValue] = useState(''),
     [editIndex, setEditIndex] = useState<number>();
   function add() {
-    const v = normalize
+    const origin = title === 'Ursprungsadresser';
+    const v = origin ? normalizeOriginAddress(newValue) : normalize
       ? newValue.replace(/\s/g, '').toUpperCase()
       : newValue.trim();
     if (
       !v ||
       values.some(
-        (s, i) => s.toLowerCase() === v.toLowerCase() && i !== editIndex,
+        (s, i) => (origin ? normalizeOriginAddress(s) : s).toLocaleLowerCase('sv') === v.toLocaleLowerCase('sv') && i !== editIndex,
       )
     )
       return;
@@ -1303,6 +1333,8 @@ function CustomerDetails({
   onCancel,
   fresh = false,
   editing = false,
+  formId,
+  onBusyChange,
 }: {
   customer: OfficeCustomer;
   customers: OfficeCustomer[];
@@ -1311,34 +1343,54 @@ function CustomerDetails({
   onCancel: () => void;
   fresh?: boolean;
   editing?: boolean;
+  formId: string;
+  onBusyChange: (busy: boolean) => void;
 }) {
-  const [draft, setDraft] = useState(customer),
+  const navigate = useNavigate();
+  const [draft, setDraft] = useState(() => structuredClone(customer)),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [customPaymentTerm, setCustomPaymentTerm] = useState(
       customer.paymentTermDays !== undefined && ![0, 1, 10, 30].includes(customer.paymentTermDays),
     );
+  const [allowDuplicate, setAllowDuplicate] = useState(false);
+  const [checkedFields, setCheckedFields] = useState<string[]>([]);
   useEffect(() => {
-    setDraft(customer);
-    setCustomPaymentTerm(customer.paymentTermDays !== undefined && ![0, 1, 10, 30].includes(customer.paymentTermDays));
-  }, [customer.id, customer.audit.length]);
-  const edit = can(user, 'customers'),
-    paymentEdit = can(user, 'paymentDetails');
-  const paymentRead = paymentEdit || can(user, 'pay') || can(user, 'attest');
+    if (!fresh && !editing) {
+      setDraft(structuredClone(customer));
+      setCustomPaymentTerm(customer.paymentTermDays !== undefined && ![0, 1, 10, 30].includes(customer.paymentTermDays));
+      setAllowDuplicate(false);
+      setCheckedFields([]);
+      setError('');
+    }
+  }, [customer, fresh, editing]);
+  const edit = can(user, 'customers') && (fresh || editing),
+    paymentEdit = can(user, 'paymentDetails') && (fresh || editing);
+  const paymentRead = can(user, 'paymentDetails') || can(user, 'pay') || can(user, 'attest');
+  const duplicates = customerDraftDuplicates(draft, customers);
+  useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!edit || busy) return;
-    const customer = customerDraftForSave(draft);
-    const validationError = customerDraftError(customer, customers);
+    if ((!edit && !paymentEdit) || busy) return;
+    setCheckedFields(['number', 'phone']);
+    const validationError = customerDraftError(draft, customers, { allowDuplicate, previous: fresh ? undefined : customer });
     if (validationError) {
       setError(validationError);
       return;
     }
+    if (draft.paymentProfile && JSON.stringify(draft.paymentProfile) !== JSON.stringify(customer.paymentProfile) &&
+        !validPaymentDetails(draft.paymentProfile)) {
+      setError('Kontrollera betalningsprofilen. Fyll i kontouppgifterna eller ett giltigt Swish-nummer och mottagare.');
+      return;
+    }
+    const savedCustomer = customerDraftForSave(draft);
     setBusy(true);
     setError('');
     try {
-      if (!(await onSave(customer)))
+      if (!(await onSave(savedCustomer)))
         setError('Kunduppgifterna kunde inte sparas.');
+    } catch {
+      setError('Kunduppgifterna kunde inte sparas. Försök igen.');
     } finally {
       setBusy(false);
     }
@@ -1357,17 +1409,27 @@ function CustomerDetails({
     label: string,
     required = false,
   ) {
+    const validationError = edit && checkedFields.includes(key)
+      ? key === 'number' ? customerIdentifierError(draft.type, draft.number)
+        : key === 'phone' ? phoneNumberError(draft.phone) : null
+      : null;
     return (
       <label>
         {label}
         <input
           aria-label={label}
+          aria-invalid={Boolean(validationError)}
           required={required}
           disabled={!edit || busy || key === 'customerNumber'}
           value={draft[key]}
-          onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
-          type={key === 'email' ? 'email' : 'text'}
+          onChange={(e) => {
+            if (key === 'number') setAllowDuplicate(false);
+            setDraft((d) => ({ ...d, [key]: e.target.value }));
+          }}
+          onBlur={() => setCheckedFields(current => current.includes(key) ? current : [...current, key])}
+          type={key === 'email' ? 'email' : key === 'phone' ? 'tel' : 'text'}
         />
+        {validationError && <small className="customer-field-error">{validationError}</small>}
       </label>
     );
   }
@@ -1378,7 +1440,7 @@ function CustomerDetails({
           <FileText size={16} /> Uppgifter som kan hämtas när kunden väljs på en
           vägning
         </div>
-        <form onSubmit={submit}>
+        <form onSubmit={submit} id={formId}>
           <Section title="Kunduppgifter">
             <div className="customer-form-grid">
               <label>
@@ -1387,12 +1449,13 @@ function CustomerDetails({
                   aria-label="Kundtyp"
                   disabled={!edit || busy}
                   value={draft.type}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setAllowDuplicate(false);
                     setDraft((d) => ({
                       ...d,
                       type: e.target.value as OfficeCustomer['type'],
                     }))
-                  }
+                  }}
                 >
                   {['Företag', 'Privatperson', 'BRF'].map((t) => (
                     <option key={t}>{t}</option>
@@ -1407,6 +1470,20 @@ function CustomerDetails({
               {input('city', 'Ort')}
             </div>
           </Section>
+          {edit && duplicates.length > 0 && (
+            <div className="customer-duplicate" role="status">
+              <strong>En kund med samma nummer finns redan.</strong>
+              {duplicates.map(existing => <div key={existing.id}>
+                <span>{existing.name} · {existing.customerNumber}</span>
+                <button className="office-link" type="button" onClick={() => {
+                  onCancel();
+                  navigate(`/customers/${encodeURIComponent(existing.id)}?tab=details`);
+                }}>Öppna befintlig kund</button>
+              </div>)}
+              <label><input type="checkbox" checked={allowDuplicate} disabled={busy}
+                onChange={event => setAllowDuplicate(event.target.checked)} />Behåll en separat kundpost för samma verksamhet/person</label>
+            </div>
+          )}
           <Section title="Kontakt">
             <div className="customer-form-grid three">
               {input('contactPerson', 'Kontaktperson')}
@@ -1485,60 +1562,31 @@ function CustomerDetails({
               {error}
             </p>
           )}
-          {edit && (
-            <div className="customer-savebar">
-              <button className="office-btn" disabled={busy} type="submit">
-                <ShieldCheck size={15} />
-                {busy ? 'Sparar…' : 'Spara kunduppgifter'}
-              </button>
-              <button
-                className="office-btn outline"
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setDraft(customer);
-                  setError('');
-                  onCancel();
-                }}
-              >
-                Avbryt
-              </button>
-              <span>Ändringar används på kommande viktkort</span>
-            </div>
-          )}
         </form>
         <Section title="Betalningsprofil">
           <p className="customer-note">
             Förvalt betalningssätt när kunden väljs. Låsta viktkort behåller
             sina tidigare uppgifter.
           </p>
-          {paymentRead ? (
+          {paymentEdit ? (
             <PaymentEditor
-              key={customer.id}
+              key={`${customer.id}/${editing}`}
               value={draft.paymentProfile}
               customerName={draft.name}
+              customerPhone={draft.phone}
+              customerKey={customer.id}
               disabled={!paymentEdit || busy}
-              buttonLabel={
-                fresh
-                  ? 'Spara kund med betalningsprofil'
-                  : 'Spara betalningsprofil'
-              }
-              onSave={async (details) => {
-                if (!paymentEdit || !draft.name.trim()) {
-                  setError('Spara kundens namn innan betalningsprofilen.');
-                  return false;
-                }
-                const updated = customerDraftForSave({ ...draft, paymentProfile: details });
-                const validationError = customerDraftError(updated, customers);
-                if (validationError) {
-                  setError(validationError);
-                  return false;
-                }
-                const saved = await onSave(updated);
-                if (saved) setDraft(updated);
-                return saved;
-              }}
+              hideSaveAction
+              onDraftChange={details => setDraft(current => {
+                // Opening an empty editor must not require a bank account on every customer.
+                if (!current.paymentProfile && details.method === 'bank' &&
+                    !details.bank && !details.clearing && !details.account) return current;
+                return { ...current, paymentProfile: details };
+              })}
+              onSave={async () => false}
             />
+          ) : paymentRead ? (
+            <PaymentReadOnly value={customer.paymentProfile} />
           ) : (
             <p>
               {customer.paymentProfile

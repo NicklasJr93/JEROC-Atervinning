@@ -233,20 +233,26 @@ export type Customer = {
   phone: string;
   email: string;
   address?: string;
+  postalCode?: string;
+  city?: string;
+  countryCode?: string;
+  vatRegistered?: boolean;
+  paymentTermDays?: number;
   references: string[];
   origins: string[];
   registrations?: string[];
 };
-// Synthetic format-only identity for local demos; never verified or sent to NVV.
-export const demoPrivateIdentityNumber = '19900101-0000';
+// Synthetic, checksum-valid fixtures for NEW local demos. A checksum is not a
+// registry verification; existing customers and frozen proofs are never reset.
+export const demoPrivateIdentityNumber = '199001010009';
 export const initialCustomers: Customer[] = [
   {
     id: 'customer-build',
     registrations: ['ABC123'],
     name: 'Bygg & Riv AB',
     type: 'Företag',
-    number: '559123-7890',
-    phone: '070-000 12 34',
+    number: '5591237895',
+    phone: '+46700001234',
     email: 'kontakt@byggriv.example',
     references: ['Projekt Solbacken', 'Renovering Centrum'],
     origins: [
@@ -258,8 +264,8 @@ export const initialCustomers: Customer[] = [
     id: 'customer-andersson',
     name: 'Anderssons Entreprenad',
     type: 'Företag',
-    number: '559234-5678',
-    phone: '070-000 23 45',
+    number: '5592345671',
+    phone: '+46700002345',
     email: 'info@andersson.example',
     references: ['Lagerbyggnad'],
     origins: ['Stationsvägen 4, 762 51 Rimbo'],
@@ -268,8 +274,8 @@ export const initialCustomers: Customer[] = [
     id: 'customer-brf',
     name: 'BRF Solbacken',
     type: 'BRF',
-    number: '769999-1234',
-    phone: '070-000 34 56',
+    number: '7699991233',
+    phone: '+46700003456',
     email: 'styrelsen@solbacken.example',
     references: ['Byte av värmesystem'],
     origins: ['Solvägen 12, 761 41 Norrtälje'],
@@ -279,7 +285,7 @@ export const initialCustomers: Customer[] = [
     name: 'Erik Johansson',
     type: 'Privatperson',
     number: demoPrivateIdentityNumber,
-    phone: '070-000 45 67',
+    phone: '+46700004567',
     email: '',
     references: [],
     origins: [],

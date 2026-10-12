@@ -237,6 +237,44 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
       }, { organisationId: context.organisationId, runs: { id: reservation.run.id } });
 
   }
+  // Background bookkeeping checks use only allowlisted GETs. They verify the
+  // actual OAuth company once per batch and never append full responses to the
+  // sandbox journal on every poll. Disconnect/generation changes fence each GET.
+  async function readbackBatch(context, operation, worker = false, scopeKey) {
+    const controller = new AbortController(), pending = new Set();
+    const timer = setTimeout(() => controller.abort(), 45000);
+    const authorizeRead = async () => {
+      if (worker) await finance.assertTrackingAuthorization(context, scopeKey);
+      else { scoped(context); await authorizeContext(context); await finance.assertTrackingAuthorization(context, scopeKey); }
+    };
+    try {
+      await authorizeRead(); const configuration = ready();
+      const generation = await readTenantProjection(tenant => { requireCompany(tenant, configuration); return tenant.generation; }, CONNECTION_PATHS, context.organisationId);
+      const accessToken = await access(context, generation, controller.signal);
+      const check = await checkCompany(context, generation, accessToken, randomUUID(), controller.signal);
+      if (check.result.outcome !== 'accepted' || check.company?.id !== configuration.expectedCompanyId)
+        fail('Bokföringskontrollen kunde inte verifiera rätt Spiris-företag.', 409, 'visma_company_unverified');
+      const sendRead = value => {
+        const result = (async () => {
+          controller.signal.throwIfAborted(); await authorizeRead();
+          const request = parseVismaSandboxInput(value);
+          if (!['draft', 'invoice', 'invoices'].includes(request.operation)) fail('Bokföringskontrollen får endast läsa kopplade fakturauppgifter.', 403, 'forbidden');
+          await readTenantProjection(tenant => {
+            if (tenant.generation !== generation) fail('Anslutningen har ändrats.', 409, 'visma_not_connected');
+            requireCompany(tenant, ready());
+          }, CONNECTION_PATHS, context.organisationId);
+          const response = await client.request({ operation: request.operation, parameters: request.parameters, accessToken, trackingId: request.requestId, signal: controller.signal });
+          controller.signal.throwIfAborted();
+          return { status: response.outcome, response: response.response, httpStatus: response.httpStatus, error: response.error };
+        })(); pending.add(result); result.then(() => pending.delete(result), () => pending.delete(result)); return result;
+      };
+      const result = await operation(sendRead, generation); await authorizeRead();
+      await readTenantProjection(tenant => {
+        if (tenant.generation !== generation) fail('Anslutningen har ändrats.', 409, 'visma_not_connected'); requireCompany(tenant, ready());
+      }, CONNECTION_PATHS, context.organisationId);
+      controller.signal.throwIfAborted(); return result;
+    } finally { clearTimeout(timer); controller.abort(); await Promise.allSettled([...pending]); }
+  }
   async function lookupBatch(context, operation) {
     const controller = new AbortController(), pending = new Set();
     const timer = setTimeout(() => controller.abort(), lookupTimeoutMs);
@@ -364,10 +402,10 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
     },
     send: (value, context) => dispatch(value, context),
   };
-  const connectionFrom = tenant => ({ company: copy(tenant.company), companyVerified: verified(tenant, config()) });
+  const connectionFrom = tenant => ({ generation: tenant.generation, company: copy(tenant.company), companyVerified: verified(tenant, config()) });
   finance = createVismaExports({ readTenantProjection, queryExports: options => storage.queryExports(options), connectionPaths: CONNECTION_PATHS, connectionFrom,
     transact: (operation, options = {}) => storage.transact(operation, { runs: false, finance: true, audit: true, ...options }),
-    tenantFor, scoped, audit, clock, config, sourceProvider, sitesProvider, authorizeContext, lookupBatch,
+    tenantFor, scoped, audit, clock, config, sourceProvider, sitesProvider, authorizeContext, lookupBatch, readbackBatch,
     send: (request, context, worker, scopeKey) => dispatch(request, context, worker ? workerCapability : undefined, scopeKey),
     connection: () => readTenantProjection(connectionFrom, CONNECTION_PATHS),
   });

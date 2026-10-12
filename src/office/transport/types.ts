@@ -28,6 +28,7 @@ export interface TransportVehicle {
 export interface TransportOrder {
   siteId?: string; operator?: 'own' | 'external';
   id: string; customerId?: string; customerName: string; address: string; city: string;
+  postalCode?: string; countryCode?: string;
   contact: string; phone: string; action: TransportAction; vesselType: ContainerType;
   material: string; vesselSize: string; pickupVessel: string; replacementVessel: string;
   notes: string; lat: number; lng: number; durationMinutes: number;

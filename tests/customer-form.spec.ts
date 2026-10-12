@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { officeSchema, seedOffice } from '../src/office/model';
 import { cleanCustomerDraft, createCustomerDraft, customerDraftError, customerDraftForSave } from '../src/office/customer-form';
+import { testOrganisationNumber, testPersonalNumber } from './helpers/customer-identity';
 
 test('kunddubbletter stoppas även när organisationsnumret har olika formatering', () => {
   const data = seedOffice();
@@ -12,7 +13,8 @@ test('kunddubbletter stoppas även när organisationsnumret har olika formaterin
   };
   expect(customerDraftError(duplicate, data.customers)).toContain('finns redan');
   expect(customerDraftError(existing, data.customers)).toBe('');
-  expect(customerDraftError({ ...duplicate, number: '' }, data.customers)).toBe('');
+  expect(customerDraftError(duplicate, data.customers, { allowDuplicate: true })).toBe('');
+  expect(customerDraftError({ ...duplicate, number: '' }, data.customers)).toContain('10 siffror');
 });
 
 test('personnummer på tio och tolv siffror identifierar samma kund utan att läcka i feltext', () => {
@@ -21,18 +23,18 @@ test('personnummer på tio och tolv siffror identifierar samma kund utan att lä
     ...createCustomerDraft(data),
     type: 'Privatperson' as const,
     name: 'Testperson',
-    number: '19800101-1234',
+    number: testPersonalNumber(),
   };
   const duplicate = {
     ...createCustomerDraft(data),
     type: 'Privatperson' as const,
     name: 'Testperson två',
-    number: '8001011234',
+    number: existing.number.slice(2),
   };
   const error = customerDraftError(duplicate, [existing]);
   expect(error).toContain('finns redan');
   expect(error).not.toContain('800101');
-  expect(cleanCustomerDraft(existing).number).toBe('19800101-1234');
+  expect(cleanCustomerDraft(existing).number).toBe(existing.number);
 });
 
 test('grundkundens draft kan flyttas till hela kundformuläret utan att mutera eller tappa uppgifter', () => {
@@ -76,7 +78,7 @@ test('momsval finns på nya företagskunder och äldre kunders saknade uppgift l
 });
 
 test('betalningsdagar valideras som heltal och integrationens standard förblir valfri', () => {
-  const data = seedOffice(), draft = { ...createCustomerDraft(data), name: 'Villkorskund' };
+  const data = seedOffice(), draft = { ...createCustomerDraft(data), name: 'Villkorskund', number: testOrganisationNumber() };
   for (const paymentTermDays of [undefined, 0, 1, 10, 30, 45, 3650]) {
     expect(customerDraftError({ ...draft, paymentTermDays }, [])).toBe('');
     expect(officeSchema.shape.customers.removeDefault().element.safeParse({ ...draft, paymentTermDays }).success).toBe(true);
@@ -85,4 +87,16 @@ test('betalningsdagar valideras som heltal och integrationens standard förblir 
     expect(customerDraftError({ ...draft, paymentTermDays }, [])).toContain('0 och 3650');
     expect(officeSchema.shape.customers.removeDefault().element.safeParse({ ...draft, paymentTermDays }).success).toBe(false);
   }
+});
+
+test('kundsparande använder kanoniskt nummer, telefon och uppdelad adress utan att mutera utkastet', () => {
+  const data = seedOffice(), number = testOrganisationNumber();
+  const draft = { ...createCustomerDraft(data), name: 'Formatkund', number: `${number.slice(0, 6)}-${number.slice(6)}`,
+    phone: '072 200 22 20', address: 'Storgatan 12, 761 41 Norrtälje', postalCode: '', city: '' };
+  expect(customerDraftError(draft, [])).toBe('');
+  expect(customerDraftForSave(draft)).toMatchObject({ number, phone: '+46722002220', address: 'Storgatan 12', postalCode: '76141', city: 'Norrtälje', countryCode: 'SE' });
+  expect(draft.number).toContain('-');
+  expect(draft.address).toContain('761 41');
+  expect(customerDraftError({ ...draft, number: `${number}1` }, [])).toContain('10 siffror');
+  expect(customerDraftError({ ...draft, phone: 'ABC123' }, [])).toContain('telefonnummer');
 });

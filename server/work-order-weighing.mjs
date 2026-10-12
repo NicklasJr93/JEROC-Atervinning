@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { PricingError } from './pricing.mjs';
-import { officeSchema } from '../dist-server/domain-models.mjs';
+import { officeSchema, normalizeOriginAddress, normalizeAddress, formatAddress } from '../dist-server/domain-models.mjs';
 
 const copy = value => structuredClone(value);
 const fail = (message, status = 409) => { throw new PricingError(message, status); };
@@ -27,7 +27,7 @@ export function allocateWeighingNumber(state) {
   return number;
 }
 
-const originOf = detail => [detail.from.address, detail.from.postalCode, detail.from.city].filter(Boolean).join(', ');
+const originOf = detail => formatAddress(detail.from);
 function material(row, articles, actual) {
   const article = articles.find(article => article.id === row.articleId);
   if (!article) fail('Välj en aktiv artikel ur artikelregistret.', 422);
@@ -52,7 +52,7 @@ export function syncWorkOrderWeighing(state, order, detail, articles) {
   if (!existing && (order.status === 'done' || detail.execution.stage !== 'pending')) return;
   const rows = detail.materialRows.map(row => material(row, articles.some(article => article.id === row.articleId) ? articles
     : [...articles, { id: row.articleId, name: row.name, hazardous: row.hazardous, wasteCode: row.wasteCode }]));
-  const values = { siteId: detail.siteId, customerId: order.customerId, origin: originOf(detail), reference: order.id, rows,
+  const values = { siteId: detail.siteId, customerId: order.customerId, origin: originOf(detail), originDetails: normalizeAddress(detail.from), reference: order.id, rows,
     environmentPreparation: environmentalPreparation(rows) };
   if (existing && isDeepStrictEqual(Object.fromEntries(Object.keys(values).map(key => [key, existing[key]])), values)) return existing;
   const at = new Date().toISOString();
@@ -79,7 +79,7 @@ export function saveWorkOrderWeighing(state, orderId, input, articles) {
   if (value.customerId && !state.office.customers.some(customer => customer.id === value.customerId)) fail('Kunden finns inte.', 422);
   const draft = startWorkOrderWeighing(state, orderId);
   const rows = value.rows.map(row => material({ ...row, plannedKg: draft.rows.find(before => before.articleId === row.articleId)?.plannedKg ?? 0 }, articles, row.weight));
-  Object.assign(draft, { rows, customerId: value.customerId, origin: value.origin, reference: value.reference,
+  Object.assign(draft, { rows, customerId: value.customerId, origin: normalizeOriginAddress(value.origin), originDetails: normalizeAddress(value.origin), reference: value.reference,
     environmentPreparation: environmentalPreparation(rows), version: draft.version + 1, updatedAt: new Date().toISOString() });
   return draft;
 }
@@ -97,7 +97,7 @@ export function completeWorkOrderWeighing(state, order, principal, articles) {
   const at = new Date().toISOString(), site = state.logistics.sites.find(site => site.id === draft.siteId);
   const card = officeSchema.shape.cards.element.parse({
     id: allocateWeighingNumber(state), sourceId: draft.id, workOrderId: order.id, siteId: draft.siteId, status: 'new', yard: site?.name ?? 'Norrtälje', weigher: principal.user.name, date: at,
-    customerId: draft.customerId, customerSnapshot: state.office.customers.find(customer => customer.id === draft.customerId), reference: draft.reference, origin: draft.origin,
+    customerId: draft.customerId, customerSnapshot: state.office.customers.find(customer => customer.id === draft.customerId), reference: draft.reference, origin: normalizeOriginAddress(draft.origin), originDetails: normalizeAddress(draft.origin),
     rows: draft.rows.map(row => ({ articleId: row.articleId, articleName: row.name, weight: row.weight, tier: 'C', price: 0, pricePending: true })),
     payment: '', idVerified: false, financialPending: true,
     audit: [{ at, actor: principal.user.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id,

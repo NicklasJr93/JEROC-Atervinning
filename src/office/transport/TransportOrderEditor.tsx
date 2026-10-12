@@ -59,7 +59,9 @@ function newDraft(order?: TransportOrder): TransportDraft {
     customerId: order?.customerId,
     customerName: order?.customerName ?? '',
     address: order?.address ?? '',
+    postalCode: order?.postalCode,
     city: order?.city ?? '',
+    countryCode: order?.countryCode,
     contact: order?.contact ?? '',
     phone: order?.phone ?? '',
     action: order?.action ?? 'pickup',
@@ -146,7 +148,9 @@ export default function TransportOrderEditor({
     locationVersion.current += 1;
     setFinding(false);
     setLocationHelp('');
-    setDraft((current) => ({ ...current, address, city, lat: Number.NaN, lng: Number.NaN }));
+    setDraft((current) => ({ ...current, address, city,
+      ...(address !== current.address || city !== current.city ? { postalCode: undefined } : {}),
+      lat: Number.NaN, lng: Number.NaN }));
     if (error) onError('');
   }
 
@@ -168,7 +172,9 @@ export default function TransportOrderEditor({
       customerId: customer.id,
       customerName: customer.name,
       address: customer.address,
+      postalCode: customer.postalCode,
       city: customer.city,
+      countryCode: customer.countryCode,
       contact: customer.contactPerson,
       phone: customer.phone,
       ...(addressChanged ? { lat: Number.NaN, lng: Number.NaN } : {}),

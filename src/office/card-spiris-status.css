@@ -1,5 +1,5 @@
 .card-spiris-status { grid-column: 1 / -1; }
-.card-spiris-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.card-spiris-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .card-spiris-heading h2 { display: flex; align-items: center; gap: 9px; margin: 0 !important; }
 .card-spiris-refresh, .card-spiris-journal { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; }
 .card-spiris-refresh:disabled { opacity: .5; cursor: default; }
@@ -25,3 +25,13 @@
 .card-spiris-empty { margin: 0; color: #7387a6; font-size: 12px; }
 .card-spiris-journal { margin-top: 15px; }
 @media (max-width: 600px) { .card-spiris-identities { flex-direction: column; gap: 10px; } }
+.card-spiris-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 14px; }
+.card-spiris-details-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
+.card-spiris-details-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.card-spiris-followup { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 0; color: #7387a6; font-size: 11px; line-height: 1.6; }
+.card-spiris-followup span { white-space: normal; }
+.card-spiris-details { margin-top: 14px; padding-top: 14px; border-top: 1px solid #e4edf8; }
+.card-spiris-recreate { margin-top: 12px; }
+.card-spiris-trace-detail { margin: 3px 0 0 !important; }
+.card-spiris-trace-link { margin-top: 4px; font-size: 11px; }
+@media (max-width: 700px) { .card-spiris-heading { align-items: flex-start; } .card-spiris-actions { gap: 8px; } }

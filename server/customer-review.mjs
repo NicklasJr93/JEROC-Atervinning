@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { PricingError, createPricingStore, money } from './pricing.mjs';
-import { officeSchema, validPaymentDetails, settlementPreview } from '../dist-server/domain-models.mjs';
+import { officeSchema, validPaymentDetails, settlementPreview, normalizeCustomerDetails, validateCustomerDetails,
+  normalizePaymentDetails, normalizeOriginAddress, normalizeAddress } from '../dist-server/domain-models.mjs';
 import { freezePurchaseAccounting } from './visma-accounting.mjs';
 
 const fail = (message, status = 409) => { throw new PricingError(message, status); };
@@ -40,9 +41,13 @@ export async function prepareCustomerReview({ state, input, principal, send, run
     const readable = officeView(state, principal).cards.find(value => value.id === card.id);
     if (!isDeepStrictEqual(expectedVersion(expected), expectedVersion(readable))) fail('Kortet ändrades i en annan session. Läs in kortet innan du skickar.');
     if (!['new', 'complement'].includes(card.status) || card.kind === 'correction') fail('Kortet måste vara öppet för komplettering innan en ny kundgranskning kan skickas.');
-    const customer = state.office.customers.find(value => value.id === card.customerId);
-    const payment = card.paymentDetails ?? customer?.paymentProfile;
+    const storedCustomer = state.office.customers.find(value => value.id === card.customerId);
+    const customer = storedCustomer && normalizeCustomerDetails(storedCustomer);
+    const storedPayment = card.paymentDetails ?? customer?.paymentProfile;
+    const payment = storedPayment && normalizePaymentDetails(storedPayment);
     if (!customer || !card.origin?.trim() || !validPaymentDetails(payment)) fail('Komplettera kund, ursprungsadress och betalningsuppgifter före kundgodkännande.', 422);
+    const customerError = validateCustomerDetails(customer);
+    if (customerError) fail(customerError, 422);
     if (accountingSettingsProvider) accountingSettings = await accountingSettingsProvider(customer);
     const older = pricing.snapshots(principal, String(card.id)).at(-1);
     const snapshot = pricing.snapshot({ cardId: String(card.id), customerId: card.customerId, deliveredAt: card.date,
@@ -57,7 +62,7 @@ export async function prepareCustomerReview({ state, input, principal, send, run
     const rows = snapshot.rows.map((row, index) => ({ ...card.rows[index], price: row.price, pricePending: false,
       tier: row.tier === 'Special' ? 'Eget' : row.tier, source: row.source,
       volumeBefore: row.volumeBefore ?? undefined, volumeWithDelivery: row.volumeWithDelivery ?? undefined }));
-    const frozen = { ...card, rows, siteId, pricingSnapshotId: snapshot.id, pricedAt: card.date,
+    const frozen = { ...card, rows, siteId, origin: normalizeOriginAddress(card.origin), originDetails: normalizeAddress(card.origin), pricingSnapshotId: snapshot.id, pricedAt: card.date,
       pricingTotal: snapshot.total, financialPending: false, pricingRowsPending: false,
       preparedBy: principal.user.id, customerSnapshot: copy(customer), paymentDetails: copy(payment) };
     // Rebuild from authoritative prices, customer and article metadata. Browser

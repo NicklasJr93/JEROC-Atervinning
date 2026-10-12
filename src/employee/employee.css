@@ -99,6 +99,12 @@
 .employee-details { align-self: stretch; display: flex; flex-direction: column; gap: 0; margin-top: 6px; text-align: left; }.employee-details > div { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid #e0eaf6; font-size: 12px; }.employee-details span { color: #7488a2; }.employee-details strong { max-width: 60%; text-align: right; overflow-wrap: anywhere; }
 .employee-help { display: flex; align-items: flex-start; gap: 10px; color: #7189a4; line-height: 1.6; font-size: 12px; }.employee-help svg { flex-shrink: 0; margin-top: 2px; }.employee-help strong { display: block; color: #28476b; font-size: 14px; }
 .employee-login { min-height: 100dvh; display: flex; flex-direction: column; gap: 20px; justify-content: center; padding: 38px 25px; background: linear-gradient(160deg, #fbfdff, #f0f8fd); }.employee-login .company-logo { width: 152px; height: auto; margin-bottom: 12px; }.employee-login > p { color: #7188a0; font-size: 13px; }.employee-login h1 { font-size: 26px; }
+.employee-demo-login { border-top: 1px solid #dfe8f0; padding-top: 16px; }
+.employee-demo-login > p { color: #7188a0; font-size: 11px; margin-bottom: 8px; }
+.employee-demo-login > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.employee-demo-login button { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 10px; border: 1px solid #dce8f5; border-radius: 10px; background: #fff; color: #2762a2; font-size: 11px; text-align: left; line-height: 1.4; }
+.employee-demo-login button svg { flex: 0 0 19px; }
+.employee-demo-login button:disabled { opacity: .5; }
 .employee-gate-dialog { border: 1px solid #d7e5f6; border-radius: 20px; padding: 25px 22px; width: min(420px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; color: #173756; background: white; box-shadow: 0 20px 70px #12365a30; }
 .employee-gate-dialog::backdrop { background: #17375677; backdrop-filter: blur(3px); }
 .employee-gate-dialog h2 { font-size: 21px; line-height: 1.3; margin: 16px 0 10px; }.employee-gate-dialog > p { font-size: 13px; color: #73869e; line-height: 1.6; margin-bottom: 18px; }

@@ -18,7 +18,9 @@ import {
 } from '../components';
 import { type Customer } from '../data';
 import { id, type Draft } from '../model';
+import { customerIdentifierError, formatAddress, normalizeAddress, normalizeCustomerDetails, normalizeOriginAddress, phoneNumberError, validateCustomerDetails } from '../data-format';
 import { MissingDraft, useDraft } from './shared';
+import './customer.css';
 
 const returnPage = (draft: Draft) =>
   `/weigh/${draft.id}/${draft.mode === 'vehicle' && (Boolean(draft.vehicleInput) || !draft.rows.some((r) => r.method === 'vehicle' && r.tare != null)) ? 'vehicle' : 'summary'}`;
@@ -46,6 +48,8 @@ export function CustomerPage() {
         customerId: c.id,
         reference: c.id === draft!.customerId ? draft!.reference : '',
         origin: c.id === draft!.customerId ? draft!.origin : '',
+        originDetails: c.id === draft!.customerId ? draft!.originDetails : undefined,
+        customerSelectionsSavedAt: c.id === draft!.customerId ? draft!.customerSelectionsSavedAt : undefined,
       })
     )
       setChoosing(false);
@@ -85,10 +89,10 @@ export function CustomerPage() {
                       <dd>{selected.email}</dd>
                     </div>
                   )}
-                  {selected.address && (
+                  {formatAddress(selected) && (
                     <div>
                       <dt>Adress</dt>
-                      <dd>{selected.address}</dd>
+                      <dd>{formatAddress(selected)}</dd>
                     </div>
                   )}
                 </dl>
@@ -140,6 +144,8 @@ export function CustomerPage() {
                       customerId: undefined,
                       reference: '',
                       origin: '',
+                      originDetails: undefined,
+                      customerSelectionsSavedAt: undefined,
                     })
                   )
                     setChoosing(false);
@@ -216,6 +222,11 @@ export function NewCustomerPage() {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
+  const [postalCode, setPostalCode] = useState('');
+  const [city, setCity] = useState('');
+  const [vatRegistered, setVatRegistered] = useState(true);
+  const [numberError, setNumberError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [error, setError] = useState('');
   if (!draft) return <MissingDraft />;
   function submit(e: FormEvent) {
@@ -228,14 +239,21 @@ export function NewCustomerPage() {
       id: id(),
       type,
       name: name.trim(),
-      number: number.trim() || 'Ej angivet',
+      number: number.trim(),
       phone: phone.trim(),
       email: email.trim(),
       address: address.trim(),
+      postalCode: postalCode.trim(),
+      city: city.trim(),
+      countryCode: 'SE',
+      vatRegistered: type === 'Privatperson' ? false : vatRegistered,
       references: [],
       origins: [],
     };
-    if (addCustomer(customer, draft)) navigate(`/weigh/${draft!.id}/customer`);
+    const invalid = validateCustomerDetails(customer);
+    if (invalid) { setError(invalid); return; }
+    setError('');
+    if (addCustomer(normalizeCustomerDetails(customer), draft)) navigate(`/weigh/${draft!.id}/customer`);
   }
   return (
     <>
@@ -246,7 +264,7 @@ export function NewCustomerPage() {
             <button
               className={type === t ? 'selected' : ''}
               key={t}
-              onClick={() => setType(t)}
+              onClick={() => { setType(t); setNumberError(''); setError(''); }}
             >
               {t}
             </button>
@@ -268,24 +286,43 @@ export function NewCustomerPage() {
           </label>
           <label>
             {type === 'Privatperson'
-              ? 'Personnummer (valfritt i demon)'
-              : 'Organisationsnummer (valfritt)'}
+              ? 'Personnummer (valfritt)'
+              : 'Organisationsnummer'}
             <input
               value={number}
-              onChange={(e) => setNumber(e.target.value)}
-              placeholder="Använd testuppgifter"
+              onChange={(e) => { setNumber(e.target.value); setNumberError(''); setError(''); }}
+              onBlur={() => setNumberError(customerIdentifierError(type, number) || '')}
+              aria-invalid={Boolean(numberError)}
+              aria-label={type === 'Privatperson' ? 'Personnummer (valfritt)' : 'Organisationsnummer'}
+              aria-describedby={numberError ? 'mobile-customer-number-error' : undefined}
+              inputMode="numeric"
+              required={type !== 'Privatperson'}
+              placeholder={type === 'Privatperson' ? 'ÅÅÅÅMMDD-XXXX' : 'XXXXXX-XXXX'}
               maxLength={30}
             />
+            {numberError && <span id="mobile-customer-number-error" className="red-text" role="alert">{numberError}</span>}
           </label>
+          {type !== 'Privatperson' && <label>
+            Momsregistrerad
+            <select aria-label="Momsregistrerad" value={vatRegistered ? 'yes' : 'no'} onChange={event => setVatRegistered(event.target.value === 'yes')}>
+              <option value="yes">Ja</option>
+              <option value="no">Nej</option>
+            </select>
+          </label>}
           <label>
             Telefon (valfritt)
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => { setPhone(e.target.value); setPhoneError(''); setError(''); }}
+              onBlur={() => setPhoneError(phoneNumberError(phone) || '')}
+              aria-invalid={Boolean(phoneError)}
+              aria-label="Telefon (valfritt)"
+              aria-describedby={phoneError ? 'mobile-customer-phone-error' : undefined}
               placeholder="Telefonnummer"
               maxLength={30}
             />
+            {phoneError && <span id="mobile-customer-phone-error" className="red-text" role="alert">{phoneError}</span>}
           </label>
           <label>
             E-post (valfritt)
@@ -298,14 +335,19 @@ export function NewCustomerPage() {
             />
           </label>
           <label>
-            Kundens adress (valfritt)
+            Gatuadress (valfritt)
             <input
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="Gatuadress, postnummer och ort"
+              placeholder="Ex. Storgatan 12"
+              autoComplete="street-address"
               maxLength={180}
             />
           </label>
+          <div className="split">
+            <label>Postnummer (valfritt)<input value={postalCode} onChange={event => setPostalCode(event.target.value)} inputMode="numeric" autoComplete="postal-code" placeholder="761 41" maxLength={10} /></label>
+            <label>Ort (valfritt)<input value={city} onChange={event => setCity(event.target.value)} autoComplete="address-level2" placeholder="Norrtälje" maxLength={100} /></label>
+          </div>
           <p className="field-help">
             Materialets ursprungsadress anges separat efter att kunden är vald.
           </p>
@@ -323,6 +365,7 @@ export function ReferencePage() {
   const navigate = useNavigate();
   const [reference, setReference] = useState(draft?.reference ?? '');
   const [origin, setOrigin] = useState(draft?.origin ?? '');
+  const [useCustomerAddress, setUseCustomerAddress] = useState(false);
   if (!draft) return <MissingDraft />;
   const customer = data.customers.find((c) => c.id === draft.customerId);
   if (!customer)
@@ -345,7 +388,9 @@ export function ReferencePage() {
       saveDraft({
         ...draft!,
         reference: reference.trim(),
-        origin: origin.trim(),
+        origin: normalizeOriginAddress(origin),
+        originDetails: origin.trim() ? normalizeAddress(origin) : undefined,
+        customerSelectionsSavedAt: new Date().toISOString(),
       })
     )
       navigate(returnPage(draft!));
@@ -398,7 +443,7 @@ export function ReferencePage() {
               <input
                 list="saved-origins"
                 value={origin}
-                onChange={(e) => setOrigin(e.target.value)}
+                onChange={(e) => { setOrigin(e.target.value); setUseCustomerAddress(false); }}
                 placeholder="Gatuadress, postnummer och ort"
                 maxLength={180}
               />
@@ -412,13 +457,21 @@ export function ReferencePage() {
           <p className="field-help">
             Gatuadressen där materialet kommer ifrån.
           </p>
+          {formatAddress(customer) && <label className="mobile-origin-copy">
+            <input type="checkbox" checked={useCustomerAddress} onChange={event => {
+              const checked = event.target.checked;
+              setUseCustomerAddress(checked);
+              if (checked) setOrigin(formatAddress(customer));
+            }} />
+            <span>Använd kundens adress som ursprungsadress<small>{formatAddress(customer)}</small></span>
+          </label>}
           {customer.origins.length > 0 && (
             <div className="saved-options">
               {customer.origins.map((o) => (
                 <button
                   type="button"
                   key={o}
-                  onClick={() => setOrigin(o)}
+                  onClick={() => { setOrigin(o); setUseCustomerAddress(false); }}
                   className={origin === o ? 'selected' : ''}
                 >
                   {o}

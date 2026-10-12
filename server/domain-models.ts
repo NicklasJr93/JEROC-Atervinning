@@ -6,3 +6,6 @@ export { storeSchema, isComplete, rowWeight } from '../src/model';
 export { transportSchema, seedTransport, applyTransportChange } from '../src/office/transport/model';
 export { personSchema, companySchema, employmentSchema, salarySchema, scheduleSchema, absenceSchema, competencySchema, personnelPlanIssues } from '../src/office/personnel/model';
 export { articles, initialCustomers } from '../src/data';
+export { normalizeOrganisationNumber, normalizePersonalNumber, customerIdentifierError, customerIdentityKey, validLuhnNumber,
+  normalizePhoneNumber, phoneNumberError, normalizeAddress, addressError, formatAddress, normalizeOriginAddress,
+  normalizePaymentDetails, normalizeCustomerDetails, validateCustomerDetails } from '../src/data-format';

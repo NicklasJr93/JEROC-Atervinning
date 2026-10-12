@@ -47,6 +47,8 @@ async function fixture(run, env = {}) {
     async preview(input, context) { record('preview', context, input); return { rows: [] }; },
     async exports(context) { record('exports', context); return { exports: [] }; },
     async sendExport(input, context) { record('sendExport', context, input); return { id: 'export-example', status: 'accepted' }; },
+    async refreshExport(id, context) { record('refreshExport', context, id); return { id, status: 'accepted' }; },
+    async recreateExport(id, input, context) { record('recreateExport', context, { id, ...input }); return { id, status: 'queued' }; },
     async begin(context) { record('begin', context); return { authorizationUrl: 'https://oauth.fixture.invalid/authorize?state=public-fixture-state', cookieBinding: 'opaque-server-only-binding', expiresAt: '2026-10-11T10:10:00Z' }; },
     async complete(context) { record('complete', context); return status; },
     async disconnect(context) { record('disconnect', context); return { ...status, connected: false }; },
@@ -168,4 +170,25 @@ test('catalog narrows the Visma adapter to the server organisation and removes p
     assert.equal(call.context.canRead, true); assert.equal(Object.hasOwn(call.context, 'sessionKey'), false);
   }
   assert.equal(catalogCalls[0].context.canManage, true); assert.equal(catalogCalls[1].context.canManage, false);
+}));
+
+
+test('bookkeeping refresh and recreation routes require current admin, CSRF and restricted bodies', async () => fixture(async f => {
+  const admin = await f.login(), lars = await f.login('lars'), impersonated = await f.login('admin', 'lars');
+  const id = randomUUID(), requestId = randomUUID();
+  for (const session of [lars, impersonated]) for (const action of ['refresh', 'recreate']) {
+    const response = await fetch(`${f.base}/visma/accounting/exports/${id}/${action}`, { method: 'POST', headers: session.headers, body: JSON.stringify(action === 'refresh' ? {} : { requestId }) });
+    assert.equal(response.status, 403);
+  }
+  const before = f.calls.length;
+  const invalid = await fetch(`${f.base}/visma/accounting/exports/${id}/refresh`, { method: 'POST', headers: admin.headers, body: JSON.stringify({ companyId: 'other' }) });
+  assert.equal(invalid.status, 422); assert.equal(f.calls.length, before);
+  for (const action of ['refresh', 'recreate']) {
+    const response = await fetch(`${f.base}/visma/accounting/exports/${id}/${action}`, { method: 'POST', headers: admin.headers, body: JSON.stringify(action === 'refresh' ? {} : { requestId }) });
+    assert.equal(response.status, 200);
+  }
+  assert.deepEqual(f.calls.slice(before).map(call => call.method), ['refreshExport', 'recreateExport']);
+  assert.equal(f.calls.at(-1).input.requestId, requestId);
+  const noCsrf = { ...admin.headers }; delete noCsrf['X-Environment-CSRF'];
+  assert.equal((await fetch(`${f.base}/visma/accounting/exports/${id}/recreate`, { method: 'POST', headers: noCsrf, body: JSON.stringify({ requestId }) })).status, 403);
 }));

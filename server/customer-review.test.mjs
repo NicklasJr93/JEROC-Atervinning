@@ -86,6 +86,41 @@ test('stale quantities and missing origin are rejected before freezing or reserv
   assert.equal((await f.terminal.projections()).length, 0);
 }));
 
+test('invalid legacy customer identity remains readable but cannot freeze a new review until corrected', async () => fixture(async f => {
+  await f.repository.transact(state => {
+    const customer = state.office.customers.find(value => value.id === 'customer-build');
+    customer.number = '55935936261';
+    customer.phone = '0722002220';
+  });
+  const input = f.command(await f.card());
+  const blocked = await f.api('/api/application/customer-review', input);
+  assert.equal(blocked.status, 422); assert.match(blocked.error, /10 siffror/);
+  assert.equal((await f.api('/api/pricing/snapshots?cardId=2053')).snapshots.length, 0);
+  assert.equal((await f.terminal.projections()).length, 0);
+  const base = (await f.api('/api/application/office')).data, next = structuredClone(base);
+  next.customers.find(value => value.id === 'customer-build').number = '559359-3626';
+  assert.equal((await f.api('/api/application/office', { base, next })).status, 200);
+  const corrected = f.command((await f.api('/api/application/office')).data.cards.find(value => value.id === input.cardId));
+  const review = await f.api('/api/application/customer-review', corrected);
+  assert.equal(review.status, 200, review.error);
+  assert.equal(review.approval.snapshot.customer.number, '5593593626');
+  assert.equal(review.approval.snapshot.customer.phone, '+46722002220');
+  assert.deepEqual(review.approval.snapshot.card.originDetails, { address: 'Testgatan 12', postalCode: '76141', city: 'Norrtälje', countryCode: 'SE' });
+  const original = structuredClone(review.approval.snapshot);
+  await f.repository.transact(state => { state.office.customers.find(value => value.id === 'customer-build').phone = '+46730000000'; });
+  const replay = await f.api('/api/application/customer-review', corrected);
+  assert.equal(replay.status, 200, replay.error); assert.deepEqual(replay.approval.snapshot, original);
+}));
+
+test('private customer without personal number may start a customer review', async () => fixture(async f => {
+  await f.repository.transact(state => {
+    Object.assign(state.office.customers.find(value => value.id === 'customer-build'), { type: 'Privatperson', number: '', vatRegistered: false });
+  });
+  const review = await f.api('/api/application/customer-review', f.command(await f.card()));
+  assert.equal(review.status, 200, review.error);
+  assert.equal(review.approval.snapshot.customer.number, '');
+}));
+
 test('busy terminal rolls back the newly frozen price snapshot and leaves the second card open', async () => fixture(async f => {
   const first = await f.card(), second = await f.card(2052);
   assert.equal((await f.api('/api/application/customer-review', f.command(first))).status, 200);

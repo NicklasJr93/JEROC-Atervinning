@@ -35,6 +35,8 @@ test('kortet visar endast överföringsprojektionen, ordnar händelser och sluta
   await page.goto(`/kontor#/weighings/${cardId}`);
   const panel = page.getByRole('region', { name: 'Spiris-överföring', exact: true });
   await expect(panel).toContainText('Köad');
+  await expect(panel).not.toContainText('supplier-persisted-id');
+  await panel.getByRole('button', { name: 'Visa detaljer', exact: true }).click();
   await expect(panel.getByRole('list', { name: 'Överföringshistorik', exact: true }).locator('li').first()).toContainText('Attesterad version köad.');
   await expect(panel).not.toContainText('BANK-DATA-MUST-NOT-RENDER');
   await expect(panel.getByRole('link', { name: 'Öppna fullständig överföringsjournal', exact: true })).toHaveCount(0);
@@ -107,6 +109,67 @@ test('kortbyte avbryter en pågående statusläsning och visar bara det aktuella
   await cancelled;
   releaseFirst();
   const panel = page.getByRole('region', { name: 'Spiris-överföring', exact: true });
+  await panel.getByRole('button', { name: 'Visa detaljer', exact: true }).click();
   await expect(panel).toContainText(`export-${second.cardId}`);
   await expect(panel).not.toContainText(`export-${first.cardId}`);
+});
+
+test('bekräftad bokföring visas kompakt och i samma tidslinje utan tekniska ID eller fortsatt statuspollning', async ({ page, request }) => {
+  const { cardId } = await createOfficeCard(request);
+  let reads = 0;
+  await page.route('**/api/application/office/accounting/cards/' + cardId, async route => {
+    reads += 1;
+    const body = projection(cardId, 'accepted');
+    await route.fulfill({ json: { export: { ...body.export, tracking: {
+      state: 'booked', invoiceId: 'internal-invoice-id', voucherId: 'internal-voucher-id', voucherNumber: 'A123',
+      lastCheckedAt: '2026-10-11T09:02:00Z', nextCheckAt: null,
+    }, events: [...body.export.events, { id: 'booked-once', type: 'booked', at: '2026-10-11T09:02:00Z',
+      text: 'Bokförd i Spiris', actor: 'Spiris-arbetare', detail: 'Verifikation A123' }] } } });
+  });
+  await login(page, 'Systemadmin');
+  await page.clock.install();
+  await page.goto('/kontor#/weighings/' + cardId);
+  const panel = page.getByRole('region', { name: 'Spiris-överföring', exact: true });
+  await expect(panel).toContainText('Bokförd i Spiris');
+  await expect(panel).toContainText('Verifikation A123');
+  await expect(panel).not.toContainText('internal-invoice-id');
+  await expect(panel).not.toContainText('supplier-persisted-id');
+  const trace = page.locator('.office-card-audit');
+  await expect(trace.getByText('Bokförd i Spiris', { exact: true })).toHaveCount(1);
+  await expect(trace).toContainText('Verifikation A123');
+  const finishedReads = reads;
+  await page.clock.fastForward(65000);
+  expect(reads).toBe(finishedReads);
+  await trace.getByRole('button', { name: 'Visa överföring', exact: true }).first().click();
+  await expect(panel).toContainText('internal-invoice-id');
+});
+
+test('saknat utkast ger aktivt återskapande och status byts efter svar, utan automatisk omsändning', async ({ page, request }) => {
+  const { cardId, approval } = await completedOfficeCard(request, { pay: false });
+  let recreated = false, sends = 0;
+  const jobId = 'ccd49a3a-0069-401c-8b44-d0b857ed3c94';
+  await page.route('**/api/application/office/accounting/cards/' + cardId, async route => {
+    const body = projection(cardId, 'accepted');
+    await route.fulfill({ json: { export: { ...body.export, id: jobId, version: approval.version,
+      canRefresh: true, canRecreate: !recreated, tracking: { state: recreated ? 'pending' : 'missing', intervalMinutes: 5,
+        reason: recreated ? undefined : 'Utkastet och motsvarande bokförda faktura saknas efter förnyad kontroll.' },
+    } } });
+  });
+  await page.route('**/api/environment/visma/accounting/exports/' + jobId + '/recreate', async route => {
+    expect(route.request().method()).toBe('POST');
+    expect(route.request().postDataJSON().requestId).toMatch(/^[0-9a-f-]{36}$/i);
+    sends += 1; recreated = true;
+    await route.fulfill({ json: { id: 'new-explicit-attempt', status: 'accepted' } });
+  });
+  await login(page, 'Systemadmin');
+  await page.goto('/kontor#/weighings/' + cardId);
+  const panel = page.getByRole('region', { name: 'Spiris-överföring', exact: true });
+  await expect(panel).toContainText('Utkast skapat');
+  await expect(panel).toContainText('Underlag saknas i Spiris');
+  expect(sends).toBe(0);
+  await panel.getByRole('button', { name: 'Återskapa utkast i Spiris', exact: true }).click();
+  await expect.poll(() => sends).toBe(1);
+  await expect(panel.getByRole('button', { name: 'Återskapa utkast i Spiris', exact: true })).toHaveCount(0);
+  await expect(panel).toContainText('Bokföringsstatus kontrolleras automatiskt');
+  expect(sends).toBe(1);
 });

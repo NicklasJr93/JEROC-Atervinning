@@ -6,6 +6,7 @@ export interface Person {
   id: string; name: string; kind: 'employee' | 'external'; active: boolean;
   role: string; team: string; siteIds: string[]; managerId?: string; companyId?: string;
   employeeNumber?: string; phone: string; email: string; address: string;
+  addressDetails?: { address: string; postalCode: string; city: string; countryCode: string };
   userId?: string; driverId?: string; vehicleId?: string; canDrive: boolean; revision: number;
 }
 export interface PersonnelCompany { id: string; name: string; number: string; contact: string; phone: string; email: string }

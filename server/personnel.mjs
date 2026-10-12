@@ -5,7 +5,8 @@ import { PricingError, createPricingStore } from './pricing.mjs';
 import { createTransportOutbox } from './transport-integrations.mjs';
 import { ensureLogistics, driverOrderView, applyDriverAction, validateLogisticsTransportChange } from './logistics.mjs';
 import { employeeTimeGate, employeeTimeLifecycle } from './employee-time.mjs';
-import { personSchema, companySchema, employmentSchema, salarySchema, scheduleSchema, absenceSchema, competencySchema, personnelPlanIssues, applyTransportChange, transportSchema } from '../dist-server/domain-models.mjs';
+import { personSchema, companySchema, employmentSchema, salarySchema, scheduleSchema, absenceSchema, competencySchema, personnelPlanIssues, applyTransportChange, transportSchema,
+  normalizePhoneNumber, phoneNumberError, normalizeOriginAddress, normalizeAddress, normalizeOrganisationNumber, customerIdentifierError } from '../dist-server/domain-models.mjs';
 
 export const personnelRights=['personnelRead','personnelWrite','employmentRead','employmentWrite','salaryRead','salaryWrite','absenceRead','absenceWrite','competenciesWrite','staffingWrite','externalAccounts'];
 const privateRights=['salaryRead','salaryWrite','absenceRead','absenceWrite'];
@@ -169,7 +170,7 @@ export function personnelProjection(state,p,planning=false,siteCatalog=[{id:'nor
   if(planning || !personnelCan(p,'absenceRead'))data.absences=data.absences.map(({kind,createdBy,...a})=>a);
   if(planning)data.externalAccounts=[];
   else data.externalAccounts=data.externalAccounts.filter(account=>{const person=data.people.find(person=>person.id===account.personId);return person && personnelCan(p,person.kind==='external'?'externalAccounts':'users');});
-  if(planning){data.audit=[];data.people=data.people.map(person=>({...person,phone:'',email:'',address:'',userId:undefined,employeeNumber:undefined}));data.companies=data.companies.map(c=>({...c,number:'',contact:'',phone:'',email:''}));}
+  if(planning){data.audit=[];data.people=data.people.map(person=>({...person,phone:'',email:'',address:'',addressDetails:undefined,userId:undefined,employeeNumber:undefined}));data.companies=data.companies.map(c=>({...c,number:'',contact:'',phone:'',email:''}));}
   else if(!personnelCan(p,'salaryRead'))data.audit=data.audit.filter(entry=>!entry.action.startsWith('salary.'));
   const transport=clone(state.transport);
   if(p.user.siteIds){const drivers=new Set(data.people.map(person=>person.driverId));transport.orders=transport.orders.filter(order=>drivers.has(order.driverId));transport.drivers=transport.drivers.filter(driver=>drivers.has(driver.id));transport.preliminary={};transport.events=transport.events.filter(e=>transport.orders.some(o=>o.id===e.orderId));}
@@ -195,6 +196,12 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
       if(clearFields.includes('userId') || input.userId!==undefined && input.userId!==old?.userId)demand(p,'users');
       const merged={active:true,role:'',team:'',siteIds:[p.user.siteIds?.[0]??'norrtalje'],phone:'',email:'',address:'',canDrive:false,revision:0,...old,...input,id:old?.id??input.id??uid('person')};for(const field of clearFields)delete merged[field];
       const person=parse(personSchema,merged);
+      if(!old || normalizePhoneNumber(person.phone)!==normalizePhoneNumber(old.phone)) {
+        const error=phoneNumberError(person.phone);if(error)fail(error,422);
+      }
+      person.phone=normalizePhoneNumber(person.phone);
+      person.address=normalizeOriginAddress(person.address);
+      person.addressDetails=normalizeAddress(person.address);
       if(!visible(p,person) || p.user.siteIds && person.siteIds.some(id=>!p.user.siteIds.includes(id)))fail('Välj tillåtna anläggningar.',403);
       if(person.siteIds.some(id=>!siteCatalog.some(site=>site.id===id && site.active!==false)))fail('Välj en registrerad aktiv anläggning.',422);
       if(person.kind==='external' && (!person.companyId || !d.companies.some(c=>c.id===person.companyId)))fail('Extern chaufför måste kopplas till ett åkeri.',422);
@@ -240,7 +247,11 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
       if(!person.active){const a=state.personnelAuth.accounts.find(a=>a.personId===person.id);if(a)a.active=false;state.personnelAuth.sessions=state.personnelAuth.sessions.filter(s=>s.personId!==person.id);}
       audit(state,p,'person.saved',person.id,'Personprofil sparad.',transactionAudit);break;
     }
-    case 'company.save': {demand(p,'personnelWrite');const company=parse(companySchema,{number:'',contact:'',phone:'',email:'',...command.company,id:command.company?.id??uid('carrier')});const index=d.companies.findIndex(c=>c.id===company.id);if(index>=0)d.companies[index]=company;else d.companies.push(company);audit(state,p,'company.saved',undefined,'Åkeri sparat.',transactionAudit);break;}
+    case 'company.save': {demand(p,'personnelWrite');const company=parse(companySchema,{number:'',contact:'',phone:'',email:'',...command.company,id:command.company?.id??uid('carrier')});const index=d.companies.findIndex(c=>c.id===company.id),previous=d.companies[index];
+      if(!previous || normalizePhoneNumber(company.phone)!==normalizePhoneNumber(previous.phone)){const error=phoneNumberError(company.phone);if(error)fail(error,422);}
+      if(company.number && (!previous || normalizeOrganisationNumber(company.number)!==normalizeOrganisationNumber(previous.number))){const error=customerIdentifierError('Företag',company.number);if(error)fail(error,422);}
+      company.phone=normalizePhoneNumber(company.phone);company.number=normalizeOrganisationNumber(company.number);
+      if(index>=0)d.companies[index]=company;else d.companies.push(company);audit(state,p,'company.saved',undefined,'Åkeri sparat.',transactionAudit);break;}
     case 'employment.save': {demand(p,'employmentWrite');const input=parse(employmentSchema,command.employment);employmentPerson(state,p,input.personId);saveRecord(d.employment,input,'personId');audit(state,p,'employment.saved',input.personId,'Anställningsuppgifter sparade.',transactionAudit);break;}
     case 'salary.save': {demand(p,'salaryWrite');const input=parse(salarySchema,command.salary);employmentPerson(state,p,input.personId);saveRecord(d.salaries,input,'personId');audit(state,p,'salary.saved',input.personId,'Löneuppgifter ändrade.',transactionAudit);break;}
     case 'schedule.save': {demand(p,'personnelWrite');const input=parse(scheduleSchema,{...command.schedule,id:command.schedule?.id??uid('schedule'),revision:command.schedule?.revision??0});checkPerson(state,p,input.personId);if(d.schedules.some(old=>old.id!==input.id && old.personId===input.personId && old.weekdays.some(day=>input.weekdays.includes(day)) && old.effectiveFrom<=(input.effectiveTo??'9999-12-31') && (old.effectiveTo??'9999-12-31')>=input.effectiveFrom))fail('Arbetspassen överlappar. Ändra det befintliga passet.',422);saveRecord(d.schedules,input);audit(state,p,'schedule.saved',input.personId,'Arbetspass sparat.',transactionAudit);break;}

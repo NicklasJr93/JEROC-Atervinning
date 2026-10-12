@@ -4,6 +4,7 @@ import { customerStats } from '../src/office/customer-model';
 import type { TerminalApproval } from '../src/office/terminal-demo-types';
 import { approveCustomerCard } from './helpers/customer-approval';
 import { completedOfficeCard, createOfficeCard, readOffice } from './helpers/financial-card';
+import { testOrganisationNumber } from './helpers/customer-identity';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 
@@ -43,12 +44,13 @@ test('kundregistret kan sökas på registreringsnummer och alla fem flikar behå
 
 test('nya kunder och ändrade kontaktuppgifter sparas vid omladdning', async ({ page, request }) => {
   const name = `Regression Återbruk ${randomUUID().slice(0, 8)} AB`;
+  const number = testOrganisationNumber();
   await login(page, 'Kajsa Nilsson');
   await page.goto('/kontor#/customers');
   await page.getByRole('button', { name: 'Skapa kund', exact: true }).click();
   await page.getByLabel('Kundtyp', { exact: true }).selectOption('Företag');
   await page.getByLabel('Namn', { exact: true }).fill(name);
-  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill('559911-8899');
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill(`${number.slice(0, 6)}-${number.slice(6)}`);
   await page.getByLabel('Telefon', { exact: true }).fill('0701234567');
   await page.getByLabel('E-post', { exact: true }).fill('kontor@example.test');
   await page.getByLabel('Adress', { exact: true }).fill('Testgatan 12');
@@ -61,7 +63,8 @@ test('nya kunder och ändrade kontaktuppgifter sparas vid omladdning', async ({ 
   await ready(page);
   await page.getByRole('tab', { name: 'Uppgifter & betalning', exact: true }).click();
   await expect(page.getByLabel('Adress', { exact: true })).toHaveValue('Testgatan 12');
-  await expect(page.getByLabel('Telefon', { exact: true })).toHaveValue('0701234567');
+  await expect(page.getByLabel('Telefon', { exact: true })).toHaveValue('+46701234567');
+  await page.getByRole('button', { name: 'Redigera kund', exact: true }).click();
   await page.getByLabel('Kontaktperson', { exact: true }).fill('Kajsa Test');
   await page.getByRole('button', { name: 'Spara kunduppgifter', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Kunduppgifterna är sparade.' })).toBeVisible();
@@ -70,31 +73,32 @@ test('nya kunder och ändrade kontaktuppgifter sparas vid omladdning', async ({ 
   await ready(page);
   await expect(page.getByLabel('Kontaktperson', { exact: true })).toHaveValue('Kajsa Test');
   const customer = (await readOffice(request)).customers.find(c => c.name === name)!;
-  expect(customer).toMatchObject({ type: 'Företag', number: '559911-8899', contactPerson: 'Kajsa Test' });
+  expect(customer).toMatchObject({ type: 'Företag', number, contactPerson: 'Kajsa Test' });
   expect(customer.audit!.length).toBeGreaterThan(0);
 });
 
 test('sparad Swishprofil fylls på ett nytt kort utan att skriva om redan attesterade kort', async ({ page, request }) => {
   const base = await readOffice(request), source = base.customers.find(c => c.id === 'customer-build')!;
-  const customer = { ...structuredClone(source), id: `swish-${randomUUID()}`, number: `TEST-${randomUUID()}`, customerNumber: `TEST-${randomUUID().slice(0, 8)}`, name: `Swish Kund ${randomUUID().slice(0, 8)}` };
+  const customer = { ...structuredClone(source), id: `swish-${randomUUID()}`, number: testOrganisationNumber(), customerNumber: `TEST-${randomUUID().slice(0, 8)}`, name: `Swish Kund ${randomUUID().slice(0, 8)}` };
   delete customer.paymentProfile;
   const originalFixture = await completedOfficeCard(request, { customer, pay: false });
   const editable = await createOfficeCard(request, { customerId: 'customer-erik' });
   const original = (await readOffice(request)).cards.find(c => c.id === originalFixture.cardId)!;
   await login(page, 'Kajsa Nilsson');
   await page.goto(`/kontor#/customers/${customer.id}?tab=details`);
+  await page.getByRole('button', { name: 'Redigera kund', exact: true }).click();
   await page.getByRole('button', { name: 'Swish', exact: true }).click();
   await page.getByLabel('Telefonnummer', { exact: true }).fill('0701234567');
   await page.getByLabel('Mottagare', { exact: true }).fill(customer.name);
-  await page.getByRole('button', { name: 'Spara betalningsprofil', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Betalningsuppgifterna är sparade.' })).toBeVisible();
+  await page.getByRole('button', { name: 'Spara kunduppgifter', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Kunduppgifterna är sparade.' })).toBeVisible();
   await expect.poll(async () => (await readOffice(request)).customers.find(c => c.id === customer.id)?.paymentProfile?.method).toBe('swish');
   await page.reload();
   await ready(page);
-  await expect(page.getByLabel('Telefonnummer', { exact: true })).toHaveValue('0701234567');
+  await expect(page.locator('.office-payment-readonly')).toContainText('+46701234567');
   await page.goto(`/kontor#/weighings/${editable.cardId}`);
   await page.getByLabel('Kund på vägningen', { exact: true }).selectOption(customer.id);
-  await expect(page.getByLabel('Telefonnummer', { exact: true })).toHaveValue('0701234567');
+  await expect(page.getByLabel('Telefonnummer', { exact: true })).toHaveValue('+46701234567');
   await expect(page.getByLabel('Mottagare', { exact: true })).toHaveValue(customer.name);
   expect((await readOffice(request)).cards.find(c => c.id === originalFixture.cardId)).toEqual(original);
 });

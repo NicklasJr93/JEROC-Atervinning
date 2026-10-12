@@ -218,6 +218,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
                     customerId: customer.id,
                     reference: '',
                     origin: '',
+                    originDetails: undefined,
+                    customerSelectionsSavedAt: undefined,
                     updatedAt: new Date().toISOString(),
                   }
                 : d,

@@ -70,6 +70,7 @@ const eventSchema = z.object({
 const orderSchema = z.object({
   id: requiredText, customerId: requiredText.optional(), customerName: requiredText,
   address: requiredText, city: requiredText, contact: textSchema, phone: textSchema,
+  postalCode: textSchema.optional(), countryCode: textSchema.optional(),
   action: z.enum(['pickup', 'exchange', 'placement', 'outbound']), vesselType: vesselSchema,
   siteId: requiredText.optional(), operator: z.enum(['own', 'external']).optional(),
   material: textSchema, vesselSize: textSchema, pickupVessel: textSchema,
@@ -205,7 +206,7 @@ function nextOrderNumber(data: TransportData): number {
   return Math.max(1000, ...data.orders.map((order) => Number(order.id.match(/^AO-(\d+)$/)?.[1]) || 0)) + 1;
 }
 const fieldLabels: Partial<Record<keyof TransportDraft, string>> = {
-  customerName: 'kund', customerId: 'kundkoppling', address: 'adress', city: 'ort',
+  customerName: 'kund', customerId: 'kundkoppling', address: 'adress', city: 'ort', postalCode: 'postnummer', countryCode: 'land',
   contact: 'kontaktperson', phone: 'telefon', action: 'uppdragstyp', vesselType: 'kärltyp',
   material: 'material', vesselSize: 'kärlstorlek', pickupVessel: 'kärl att hämta',
   replacementVessel: 'ersättningskärl', notes: 'instruktioner', lat: 'kartposition', lng: 'kartposition',

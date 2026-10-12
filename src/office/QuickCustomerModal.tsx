@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Building2, Check, ExternalLink, Info, UserRound, Users, X } from 'lucide-react';
 import { can, type OfficeCustomer, type OfficeData, type OfficeUser } from './model';
-import { cleanCustomerDraft, createCustomerDraft, customerDraftError, customerDraftForSave } from './customer-form';
+import { cleanCustomerDraft, createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
+import { customerIdentifierError, phoneNumberError } from '../data-format';
 import './quick-customer.css';
 
 export type QuickCustomerModalProps = {
@@ -9,6 +10,7 @@ export type QuickCustomerModalProps = {
   user: OfficeUser;
   initialDraft?: OfficeCustomer;
   onSave: (customer: OfficeCustomer) => boolean | Promise<boolean>;
+  onSelectExisting?: (customer: OfficeCustomer) => boolean | Promise<boolean>;
   onOpenFull: (draft: OfficeCustomer) => void;
   onClose: () => void;
 };
@@ -21,12 +23,15 @@ const customerTypes = [
 
 /** Native dialog supplies focus containment and restores focus to its opener. */
 export default function QuickCustomerModal({
-  data, user, initialDraft, onSave, onOpenFull, onClose,
+  data, user, initialDraft, onSave, onSelectExisting, onOpenFull, onClose,
 }: QuickCustomerModalProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const headingId = useId(), descriptionId = useId();
   const [draft, setDraft] = useState(() => createCustomerDraft(data, initialDraft));
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [allowDuplicate, setAllowDuplicate] = useState(false);
+  const [checkedFields, setCheckedFields] = useState<string[]>([]);
+  const duplicates = customerDraftDuplicates(draft, data.customers);
   const allowed = can(user, 'customers');
   useEffect(() => {
     const element = dialog.current;
@@ -42,12 +47,13 @@ export default function QuickCustomerModal({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!allowed || busy) return;
-    const customer = customerDraftForSave(draft);
-    const validationError = customerDraftError(customer, data.customers);
+    setCheckedFields(['number', 'phone']);
+    const validationError = customerDraftError(draft, data.customers, { allowDuplicate });
     if (validationError) {
       setError(validationError);
       return;
     }
+    const customer = customerDraftForSave(draft);
     setError('');
     setBusy(true);
     try {
@@ -65,14 +71,23 @@ export default function QuickCustomerModal({
     placeholder: string,
     autocomplete?: string,
   ) {
+    const validationError = checkedFields.includes(key)
+      ? key === 'number' ? customerIdentifierError(draft.type, draft.number)
+        : key === 'phone' ? phoneNumberError(draft.phone) : null
+      : null;
     return (
       <label className={key === 'contactPerson' ? 'quick-customer-wide' : ''}>
         {label}{key === 'name' && <span className="quick-customer-required"> *</span>}
         <input
           aria-label={label}
+          aria-invalid={Boolean(validationError)}
           required={key === 'name'}
           value={draft[key]}
-          onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
+          onChange={(event) => {
+            if (key === 'number') setAllowDuplicate(false);
+            setDraft((current) => ({ ...current, [key]: event.target.value }));
+          }}
+          onBlur={() => setCheckedFields(current => current.includes(key) ? current : [...current, key])}
           placeholder={placeholder}
           type={key === 'email' ? 'email' : key === 'phone' ? 'tel' : 'text'}
           autoComplete={autocomplete ?? 'off'}
@@ -81,6 +96,7 @@ export default function QuickCustomerModal({
           disabled={busy || !allowed}
           autoFocus={key === 'name'}
         />
+        {validationError && <small className="customer-field-error">{validationError}</small>}
       </label>
     );
   }
@@ -115,7 +131,10 @@ export default function QuickCustomerModal({
               className={draft.type === type ? 'active' : ''}
               aria-pressed={draft.type === type}
               disabled={busy || !allowed}
-              onClick={() => setDraft((current) => ({ ...current, type }))}
+              onClick={() => {
+                setAllowDuplicate(false);
+                setDraft((current) => ({ ...current, type }));
+              }}
             >
               <Icon size={20} aria-hidden="true" /> {type}
             </button>
@@ -153,6 +172,27 @@ export default function QuickCustomerModal({
           </div>
           {draft.type !== 'Privatperson' && field('contactPerson', 'Kontaktperson (valfri)', 'Namn på kontaktperson')}
         </div>
+        {duplicates.length > 0 && (
+          <div className="quick-customer-duplicate" role="status">
+            <strong>En kund med samma nummer finns redan.</strong>
+            {duplicates.map(customer => (
+              <div key={customer.id}>
+                <span>{customer.name} · {customer.customerNumber}</span>
+                {onSelectExisting && <button type="button" className="office-link" disabled={busy || !allowed}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError('');
+                    try {
+                      if (!await onSelectExisting(customer)) setError('Kunden kunde inte väljas. Försök igen.');
+                    } catch { setError('Kunden kunde inte väljas. Försök igen.'); }
+                    finally { setBusy(false); }
+                  }}>Välj befintlig kund</button>}
+              </div>
+            ))}
+            <label><input type="checkbox" checked={allowDuplicate} disabled={busy || !allowed}
+              onChange={event => setAllowDuplicate(event.target.checked)} />Skapa en separat kundpost för samma verksamhet/person</label>
+          </div>
+        )}
         <p className="quick-customer-note"><Info size={17} aria-hidden="true" /> Efter sparande kopplas kunden direkt till denna invägning.</p>
         {error && <p className="quick-customer-error" role="alert">{error}</p>}
         <div className="quick-customer-footer">

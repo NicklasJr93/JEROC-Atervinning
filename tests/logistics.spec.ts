@@ -206,7 +206,7 @@ test('åkeriet tilldelar chaufför och lastad farlig transport kräver aktuella 
   const carrierUsername = `akeri.${suffix}`, driverUsername = `chauffor.${suffix}`, password = `Local-${randomUUID()}`;
   const personnel = (data: PersonnelCommand) => json<PersonnelResponse>(request, '/api/application/personnel', data, admin);
   await personnel({ action: 'company.save', company: { id: carrierId, name: `Åkeri ${suffix}`,
-    number: '559123-7890', contact: 'Testledare', phone: '070-000 00 00', email: `${suffix}@example.invalid` } });
+    number: '559123-7895', contact: 'Testledare', phone: '070-000 00 00', email: `${suffix}@example.invalid` } });
   const createdPerson = await personnel({ action: 'person.save', person: { id: personId, name: `Chaufför ${suffix}`,
     kind: 'external', companyId: carrierId, canDrive: true, vehicleId: 'vehicle-oskar', siteIds: ['norrtalje'] },
     createAccount: { kind: 'external', username: driverUsername, password } });

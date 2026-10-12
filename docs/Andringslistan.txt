@@ -4,9 +4,12 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.5.0. Aktuell kontorsversion: 0.17.2.
+Aktuell mobilwebbversion: 0.6.0. Aktuell kontorsversion: 0.19.0.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
+084–086 och 088–095 är genomförda i bygge 2026-10-12 enligt beställningen
+av de sex första områdena. 087 väntar på Google-uppgifter.
+Byggets innehåll och verifiering: docs/bygge-kunddata-och-spiris-2026-10-12.md.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 
 Arbetssätt
@@ -1748,7 +1751,7 @@ Status: Implementerad 2026-10-12, kontor 0.18.0 och mobilwebb 0.5.1.
 - Samlad beskrivning och verifiering: docs/prestandabygge-2026-10-12.md.
 
 084 – Återanvänd kundens adress som ursprungsadress
-Status: Planerad 2026-10-12. Förslag antecknat; inte implementerat.
+Status: Genomförd 2026-10-12 i kontor 0.19.0 och mobilwebb 0.6.0.
 - På viktkortet visas kryssrutan Samma som kundens adress vid ursprungsadressen.
   Den fungerar både för befintlig kund och kund skapad direkt på viktkortet.
 - Kryssrutan är inte förvald. Vid val fylls kundens gata, postnummer och ort in
@@ -1767,8 +1770,8 @@ Status: Planerad 2026-10-12. Förslag antecknat; inte implementerat.
   ska fortfarande vara sparat innan kundgodkännandet startar.
 
 085 – Kundens momsuppgifter i mobilens Ny kund
-Status: Planerad 2026-10-12. Befintligt flöde granskat; inte implementerat.
-- Nuläge: mobilen visar namn, kundtyp, nummer, kontaktuppgifter och adress.
+Status: Genomförd 2026-10-12 i kontor 0.19.0 och mobilwebb 0.6.0.
+- Före bygget: mobilen visar namn, kundtyp, nummer, kontaktuppgifter och adress.
   Mobilens kundmodell saknar momsregistrering och individuella betalningsvillkor.
   Servern sätter nya Företag/BRF till momsregistrerad Ja och Privatperson till Nej;
   det är ett standardvärde, ingen automatisk kontroll av momsregistrering.
@@ -1792,7 +1795,7 @@ Status: Planerad 2026-10-12. Befintligt flöde granskat; inte implementerat.
   avräkning. Frysta kundgodkända/attesterade ekonomiska versioner ändras inte.
 
 086 – Återanvänd kundens telefonnummer vid Swish
-Status: Planerad 2026-10-12. Inte implementerat.
+Status: Genomförd 2026-10-12 i kontor 0.19.0.
 - När Swish väljs och betalningsnumret saknas, visa kryssrutan Använd kundens
   telefonnummer, även för en kund som nyss skapats från viktkortet.
 - Kryssrutan börjar avmarkerad. Kontoristen väljer aktivt att kopiera numret;
@@ -1833,7 +1836,7 @@ Status: Planerad och inventerad 2026-10-12. Google-kopplingen är inte aktiverad
   adressfält. Låsta dokument och adressuppgifter blir inte redigerbara av detta.
 
 088 – Enhetliga organisationsnummer och kontroll före kundgodkännande
-Status: Planerad 2026-10-12. Inte implementerat.
+Status: Genomförd 2026-10-12 i kontor 0.19.0 och mobilwebb 0.6.0.
 - Samma normalisering och validering används i kontorets kundregister,
   snabbformuläret Ny kund på viktkortet, mobilens Ny kund och serverns API.
   Godta exempelvis 5593593626 och 559359-3626 samt omgivande blanksteg.
@@ -1865,7 +1868,7 @@ Status: Planerad 2026-10-12. Inte implementerat.
   hanteras genom befintligt flöde för ny version eller rättelse.
 
 089 – Gemensamt format för adresser, telefonnummer och Swish
-Status: Planerad 2026-10-12. Inte implementerat.
+Status: Genomförd 2026-10-12 i kontor 0.19.0 och mobilwebb 0.6.0.
 - Kravet gäller gemensam normaliserad lagring i databasen, inte ett visst
   utseende i formulären. Samma uppgift från app, webb eller API ska få samma
   lagrade värde och återanvändas av alla moduler. Servern ansvarar för detta;
@@ -1907,7 +1910,7 @@ Status: Planerad 2026-10-12. Inte implementerat.
   vid införandet; låsta kort, avräkningar och dokument skrivs inte om i efterhand.
 
 090 – Tydligt redigeringsläge på kundkortet i webben
-Status: Planerad 2026-10-12. Inte implementerat.
+Status: Genomförd 2026-10-12 i kontor 0.19.0.
 - Kundkortet öppnas i läsläge. Kunduppgifterna är skrivskyddade och kan inte
   ändras genom att råka klicka eller skriva i ett fält. Användaren måste först
   trycka på Redigera kund i kortets övre högra hörn.
@@ -1925,7 +1928,7 @@ Status: Planerad 2026-10-12. Inte implementerat.
   påverkar inte redan låsta kundgodkännanden, attester eller dokument.
 
 091 – Spara manuellt angivet ursprung och referens på kunden
-Status: Planerad 2026-10-12. Inte implementerat.
+Status: Genomförd 2026-10-12 i kontor 0.19.0 och mobilwebb 0.6.0.
 - När en ny ursprungsadress eller referens skrivs manuellt och sparas på ett
   viktkort med vald kund ska uppgiften även läggas till bland kundens sparade
   ursprungsadresser respektive referenser i den gemensamma databasen.
@@ -1948,8 +1951,8 @@ Status: Planerad 2026-10-12. Inte implementerat.
   kundgodkännanden, miljömottagningar eller dokument.
 
 092 – Automatiska kontorspriser för färdiga mobilvägningar
-Status: Planerad 2026-10-12. Orsak verifierad; inte implementerat.
-- Nuläge: mobileToOffice skapar kontorskortet med pricePending och
+Status: Genomförd 2026-10-12 i kontor 0.19.0 och mobilwebb 0.6.0.
+- Före bygget: mobileToOffice skapar kontorskortet med pricePending och
   financialPending även när kund redan valts i mobilen. På kort 3024 följde
   kund, ursprung och referens med, men 250 kg aluminium stod som Dolt pris.
   Kontorsvyn visar dessutom Behörighet saknas för ännu oberäknade priser.
@@ -1979,7 +1982,7 @@ Status: Planerad 2026-10-12. Orsak verifierad; inte implementerat.
   för behörig kontorist utan att kunden behöver väljas om.
 
 093 – Spiris-händelser i viktkortets spårbarhet och kompakt statuskort
-Status: Planerad 2026-10-12. Inte implementerat.
+Status: Genomförd 2026-10-12 i kontor 0.19.0, inklusive uppföljning enligt 095.
 - Visa viktiga överföringshändelser i viktkortets befintliga lodräta spårbarhet,
   i samma tidsordning som kundgodkännande och attest. Händelsernas titlar:
   Överföring till Spiris köad; Överföring till Spiris påbörjad;
@@ -1998,14 +2001,14 @@ Status: Planerad 2026-10-12. Inte implementerat.
   detaljer. Långa UUID:n och full skickhistorik är dolda tills detaljer öppnas.
   Visa läsbart Spiris-dokumentnummer om det finns; annars avräkningsreferensen.
   Leverantör skapad i Spiris och Befintlig leverantör kopplad hör till detaljerna.
-- Nuläge: kopplingen skapar leverantörsfakturautkast. Den har inte automatisk
-  återläsning av slutlig bokföring; Utkast skapat är därför korrekt slutstatus nu.
-- Framtida Bokförd i Spiris kräver läsning av den kopplade slutliga fakturan
+- Kopplingen skapar leverantörsfakturautkast. Utkast skapat behålls tills
+  återläsningen verifierar ett nytt tillstånd; attest är inte bokföringsbevis.
+- Bokförd i Spiris kräver läsning av den kopplade slutliga fakturan
   via GET /supplierinvoices/{id} och verifierade bokförings-/verifikationsuppgifter,
   exempelvis VoucherId och VoucherNumber. Källunderlag:
   docs/integrationer/spiris-visma/forstudie.md. Sambandet mellan utkast-ID och
   slutligt faktura-ID måste verifieras i sandbox; anta inte att ID:n är samma.
-- Föreslaget återläsningsflöde: servern kontrollerar väntande kopplade underlag
+- Implementerat återläsningsflöde: servern kontrollerar väntande kopplade underlag
   i bakgrunden, exempelvis var femte minut, och vid aktiv Uppdatera. Rätt företag,
   leverantör och avräkningsversion måste matcha före bokföringsbekräftelse.
   Ett borttaget utkast eller HTTP 404 är inte bevis på att fakturan bokförts.
@@ -2014,7 +2017,7 @@ Status: Planerad 2026-10-12. Inte implementerat.
   Behörighetsfiltrering och länkar till full integrationsjournal bevaras.
 
 094 – Snabbval för demoinloggning
-Status: Planerad 2026-10-12. Inte implementerat.
+Status: Genomförd 2026-10-12 i mobilwebb 0.6.0.
 - Lägg två små knappar eller rutor under inloggningsfälten i demot:
   Logga in som Niklas och Logga in som chef/admin.
 - Ett tryck fyller i användarnamn och lösenord för respektive befintligt
@@ -2027,7 +2030,7 @@ Status: Planerad 2026-10-12. Inte implementerat.
   Riktiga användares lösenord ska inte lagras eller förifyllas av funktionen.
 
 095 – Begränsad Spiris-uppföljning och aktivt återskapande av saknat utkast
-Status: Planerad 2026-10-12. Inte implementerat. Kompletterar 093.
+Status: Genomförd 2026-10-12 i kontor 0.19.0. Kompletterar 093.
 - Följ bara våra kopplade underlag som väntar på bokföringsbekräftelse.
   Behåll överföringsresultat och statuskontroll som separata uppgifter:
   en pausad uppföljning får inte radera senast bekräftat resultat eller historik.
@@ -2035,11 +2038,14 @@ Status: Planerad 2026-10-12. Inte implementerat. Kompletterar 093.
   avräkningsversion. Avstängd integration pausar kontrollerna. Återanslutning
   till samma verifierade företag kan återuppta väntande läsningar; byte till
   annat företag eller annan miljö flyttar inte gamla ärenden till ny koppling.
-- Föreslagen takt: var femte minut första dygnet, varje timme därefter och
+- Kontrolltakt: var femte minut första dygnet, varje timme därefter och
   dagligen efter sju dagar. Efter exempelvis 30 dagar pausas uppföljningen
   med Bokföringsbekräftelse saknas – kontrollera. Tidsgränsen är en inställning.
   Bokföringsbekräftelse avslutar kontrollen; anslutningsfel använder begränsade
   försök med väntetid och tydlig felstatus. Betalningsuppföljning är separat.
+- Standardgränsen är 30 dagar och kan ändras till 1–365 under Integrationer.
+  Återskapande blir möjligt först efter två verifierade kontroller minst fem
+  minuter isär, och kräver systemadmin med åtkomst till alla anläggningar.
 - På kortet visas exempelvis Utkast skapat i Spiris, automatisk kontrolltakt,
   Senast kontrollerad och Uppdatera nu. Ändrad kontrolltakt, paus och fel ska
   återges korrekt. Varje vanlig kontroll ska inte skapa en ny spårbarhetsrad.
@@ -2060,3 +2066,6 @@ Status: Planerad 2026-10-12. Inte implementerat. Kompletterar 093.
 - Ändrad vikt, pris eller kunduppgift kräver befintligt rättelse-/versionsflöde.
   Ett redan bokfört underlag går genom ekonomins rättelseflöde. Återskapandet
   ska inte registrera en betalning, skicka pengar eller ändra låsta original.
+- Kod och databasflöde är verifierade med mockade Spiris-svar och isolerad
+  PostgreSQL. Verklig bokföring/radering av ett utkast i sandbox ska provas
+  efter deploy. Läs mer i docs/integrationer/spiris-visma/bokforingsuppfoljning.md.

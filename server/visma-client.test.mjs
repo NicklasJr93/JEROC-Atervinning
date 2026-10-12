@@ -115,7 +115,7 @@ test('Visma operation inventory excludes approval, booking, payments and attachm
   const operations = Array.isArray(VISMA_OPERATIONS)
     ? VISMA_OPERATIONS.map(item => typeof item === 'string' ? item : item.id ?? item.operation)
     : Object.keys(VISMA_OPERATIONS);
-  assert.deepEqual([...operations].sort(), ['company', 'fiscalYears', 'accounts', 'paymentTerms', 'vatCodes', 'costCenters', 'projects', 'suppliers', 'supplier', 'draft', 'createSupplier', 'createDraft'].sort());
+  assert.deepEqual([...operations].sort(), ['company', 'fiscalYears', 'accounts', 'paymentTerms', 'vatCodes', 'costCenters', 'projects', 'suppliers', 'supplier', 'draft', 'invoice', 'invoices', 'createSupplier', 'createDraft'].sort());
 });
 
 test('Visma disabled, incomplete and invalid configuration fails locally before OAuth or API requests', async () => {

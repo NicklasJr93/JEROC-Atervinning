@@ -20,6 +20,8 @@ import {
   type VehicleRow,
 } from '../model';
 import { MissingDraft, useDraft } from './shared';
+import { formatAddress, normalizeAddress, normalizeOriginAddress } from '../data-format';
+import './customer.css';
 
 export function VehiclePage() {
   const { draft, data, saveDraft } = useDraft();
@@ -36,6 +38,7 @@ export function VehiclePage() {
   );
   const [error, setError] = useState('');
   const [deductionOpen, setDeductionOpen] = useState(Boolean(row?.deduction));
+  const [useCustomerAddress, setUseCustomerAddress] = useState(false);
   if (!draft) return <MissingDraft />;
   const exit = Boolean(row?.entryAt);
   const article = row ? articleById(row.articleId) : undefined;
@@ -70,6 +73,7 @@ export function VehiclePage() {
         ),
       );
       if (!customerId || previous?.id === customerId) customerId = match?.id;
+      if (customerId !== draft!.customerId) setUseCustomerAddress(false);
     }
     saveDraft({
       ...draft!,
@@ -77,6 +81,8 @@ export function VehiclePage() {
       customerId,
       reference: customerId === draft!.customerId ? draft!.reference : '',
       origin: customerId === draft!.customerId ? draft!.origin : '',
+      originDetails: customerId === draft!.customerId ? draft!.originDetails : undefined,
+      customerSelectionsSavedAt: customerId === draft!.customerId ? draft!.customerSelectionsSavedAt : undefined,
     });
   }
   function commit(e: FormEvent) {
@@ -143,6 +149,9 @@ export function VehiclePage() {
         ...draft!,
         status: exit ? 'draft' : 'awaiting-exit',
         vehicleInput: undefined,
+        origin: normalizeOriginAddress(draft!.origin),
+        originDetails: draft!.origin.trim() ? normalizeAddress(draft!.origin) : undefined,
+        ...(exit && customer ? { customerSelectionsSavedAt: now } : {}),
         rows: draft!.rows.map((r) => (r.id === row.id ? savedRow : r)),
       })
     )
@@ -230,9 +239,10 @@ export function VehiclePage() {
                       list="vehicle-origins"
                       value={draft.origin}
                       placeholder="Gatuadress, postnummer och ort"
-                      onChange={(e) =>
-                        saveDraft({ ...draft, origin: e.target.value })
-                      }
+                      onChange={(e) => {
+                        setUseCustomerAddress(false);
+                        saveDraft({ ...draft, origin: e.target.value, originDetails: undefined });
+                      }}
                     />
                   </label>
                   <datalist id="vehicle-origins">
@@ -240,6 +250,14 @@ export function VehiclePage() {
                       <option key={o} value={o} />
                     ))}
                   </datalist>
+                  {formatAddress(customer) && <label className="mobile-origin-copy">
+                    <input type="checkbox" checked={useCustomerAddress} onChange={event => {
+                      const checked = event.target.checked;
+                      setUseCustomerAddress(checked);
+                      if (checked) saveDraft({ ...draft, origin: formatAddress(customer), originDetails: normalizeAddress(customer) });
+                    }} />
+                    <span>Använd kundens adress som ursprungsadress<small>{formatAddress(customer)}</small></span>
+                  </label>}
                 </div>
               )}
             </section>

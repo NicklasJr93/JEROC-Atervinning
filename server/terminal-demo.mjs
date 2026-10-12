@@ -6,6 +6,8 @@ import { afterDatabaseCommit } from './database-runtime.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { freezePurchaseAccounting, AccountingError } from './visma-accounting.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { validateCustomerDetails, normalizeCustomerDetails, normalizePaymentDetails, normalizeOriginAddress,
+  normalizeAddress, validPaymentDetails } from '../dist-server/domain-models.mjs';
 
 const expectedStaffIdentity = new AsyncLocalStorage();
 
@@ -458,6 +460,8 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
           if (existingRequest.fingerprint !== fingerprint) throw new TerminalDemoError('Utskickets ID används för ett annat underlag.', 409, 'idempotency_conflict');
           return approvalDTO(state.approvals.find((entry) => entry.id === existingRequest.approvalId), principal,state.revision);
         }
+        const customerError = validateCustomerDetails(request.customer);
+        if (customerError) throw new TerminalDemoError(customerError, 422, 'customer_data_invalid');
         demandActiveSite(principal, request.siteId, catalog);
         const previous = state.approvals.filter((entry) => entry.cardId === request.card.id).at(-1);
         if (previous?.status === 'attested' || ['ready', 'paid', 'balance'].includes(request.card.status)) throw new TerminalDemoError('Ett attesterat eller avslutat kort kan inte ersättas. Använd rättelseflödet.', 409, 'card_locked');
@@ -488,7 +492,7 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         const accountingSource = accountingSourceProvider ? await accountingSourceProvider(request, principal) : null;
         let accounting;
         if (accountingSource?.settings?.enabled) {
-          const customer = accountingSource.customer;
+          const customer = accountingSource.customer && normalizeCustomerDetails(accountingSource.customer);
           if (!customer || customer.id !== request.customer.id || customer.type !== request.customer.type ||
             customer.vatRegistered !== request.customer.vatRegistered || customer.paymentTermDays !== request.customer.paymentTermDays)
             throw new TerminalDemoError('Kundens ekonomiuppgifter har ändrats. Läs in kunden och skapa en ny granskning.', 409, 'accounting_customer_changed');
@@ -507,18 +511,21 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         const payment = request.card.paymentDetails ?? request.customer.paymentProfile;
         if (!payment || (payment.method === 'bank' && (!payment.clearing?.trim() || !payment.account?.trim() || !payment.holder?.trim()))
           || (payment.method === 'swish' && (!payment.phone?.trim() || !payment.recipient?.trim()))) throw new TerminalDemoError('Komplettera betalningsuppgifterna innan kunden granskar avräkningen.', 422, 'payment_details_required');
+        if (!validPaymentDetails(payment)) throw new TerminalDemoError('Kontrollera betalningsuppgifternas format före kundgodkännande.', 422, 'payment_details_invalid');
         const originalCard = copy(request.card);
+        originalCard.origin = normalizeOriginAddress(originalCard.origin);
+        originalCard.originDetails = normalizeAddress(originalCard.origin);
         originalCard.siteId = request.siteId;
         originalCard.yard = selectedSite.name;
         originalCard.preparedBy = principal.user.id;
-        originalCard.customerSnapshot = copy(request.customer);
-        originalCard.paymentDetails = copy(payment);
+        originalCard.customerSnapshot = normalizeCustomerDetails(request.customer);
+        originalCard.paymentDetails = normalizePaymentDetails(payment);
         originalCard.rows = originalCard.rows.map((row, index) => ({ ...row, price: rows[index].price, weight: rows[index].weight }));
         originalCard.pricingTotal = baseTotal;
         if (accounting) originalCard.accounting = copy(accounting); else delete originalCard.accounting;
-        const snapshot = { card: originalCard, customer: copy(request.customer), rows, gross,
+        const snapshot = { card: originalCard, customer: normalizeCustomerDetails(request.customer), rows, gross,
           offset: money(request.offset), net: money(gross - request.offset), paymentMethod: payment.method,
-          reference: request.card.reference, origin: request.card.origin, deliveredAt: request.card.date, termsVersion: TERMS_VERSION };
+          reference: request.card.reference, origin: originalCard.origin, deliveredAt: request.card.date, termsVersion: TERMS_VERSION };
         snapshot.hash = hash(JSON.stringify(snapshot));
         // Cancel the old session only after all validation succeeds. Reservation
         // and supersession happen atomically under the repository's DB lock.

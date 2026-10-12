@@ -1,0 +1,13 @@
+.mobile-origin-copy {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #dfe8f0;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f6faff;
+}
+.mobile-origin-copy input { flex: 0 0 18px; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--blue); }
+.mobile-origin-copy span { line-height: 1.4; }
+.mobile-origin-copy small { display: block; color: #758597; font-size: 11px; font-weight: 400; margin-top: 3px; }

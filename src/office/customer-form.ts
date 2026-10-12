@@ -1,4 +1,5 @@
 import type { OfficeCustomer, OfficeData } from './model';
+import { customerIdentityKey, normalizeCustomerDetails, validateCustomerDetails } from '../data-format';
 
 /** Drafts use the existing office customer model, including the same optional fields. */
 export function createCustomerDraft(
@@ -18,6 +19,7 @@ export function createCustomerDraft(
     address: '',
     postalCode: '',
     city: '',
+    countryCode: 'SE',
     contactPerson: '',
     references: [],
     origins: [],
@@ -36,31 +38,35 @@ export function cleanCustomerDraft(customer: OfficeCustomer): OfficeCustomer {
 
 /** Preserve the hidden business choice while editing; private customers save without VAT. */
 export function customerDraftForSave(customer: OfficeCustomer): OfficeCustomer {
-  const draft = cleanCustomerDraft(customer);
+  const draft = normalizeCustomerDetails(cleanCustomerDraft(customer));
   if (draft.type === 'Privatperson' && draft.vatRegistered !== undefined) draft.vatRegistered = false;
   return draft;
 }
 
 function identityNumber(customer: OfficeCustomer): string {
-  const number = customer.number.replace(/[\s-]/g, '').toLocaleLowerCase('sv');
-  // Both customary lengths identify the same person. Keep the original value in
-  // the draft and never place it in the duplicate error, URL or browser storage.
-  return customer.type === 'Privatperson' && /^\d{12}$/.test(number)
-    ? number.slice(2)
-    : number;
+  return customerIdentityKey(customer.type, customer.number);
+}
+
+/** A separate customer record may share a legal identity; choosing it is explicit. */
+export function customerDraftDuplicates(draft: OfficeCustomer, customers: OfficeCustomer[]): OfficeCustomer[] {
+  const number = identityNumber(draft);
+  return number ? customers.filter(customer => customer.id !== draft.id && identityNumber(customer) === number) : [];
 }
 
 export function customerDraftError(
   draft: OfficeCustomer,
   customers: OfficeCustomer[],
+  options: { allowDuplicate?: boolean; previous?: OfficeCustomer } = {},
 ): string {
   if (!draft.name.trim()) return 'Ange kundens namn.';
+  const previous = options.previous ?? customers.find(customer => customer.id === draft.id);
+  const formatError = validateCustomerDetails(draft, previous);
+  if (formatError) return formatError;
   if (draft.paymentTermDays !== undefined && (
     !Number.isInteger(draft.paymentTermDays) || draft.paymentTermDays < 0 || draft.paymentTermDays > 3650
   )) return 'Ange ett helt antal betalningsdagar mellan 0 och 3650.';
-  const number = identityNumber(draft);
-  if (number && customers.some((customer) =>
-    customer.id !== draft.id && identityNumber(customer) === number,
-  )) return 'En kund med samma organisations- eller personnummer finns redan. Välj den befintliga kunden.';
+  if (!options.allowDuplicate && customerDraftDuplicates(draft, customers).length &&
+      (!previous || identityNumber(previous) !== identityNumber(draft)))
+    return 'En kund med samma organisations- eller personnummer finns redan. Välj den befintliga kunden eller bekräfta att en separat kundpost ska skapas.';
   return '';
 }

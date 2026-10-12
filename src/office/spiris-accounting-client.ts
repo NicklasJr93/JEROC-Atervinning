@@ -50,6 +50,14 @@ export interface SpirisExport {
   runs: { supplierRequestId?: string; draftRequestId?: string };
   settingsRevision: number;
   trigger: 'manual' | 'after_attest';
+  canRefresh?: boolean;
+  canRecreate?: boolean;
+  tracking?: {
+    state: 'pending' | 'booked' | 'paused' | 'missing' | 'expired' | 'attention' | 'replaced';
+    lastCheckedAt?: string | null; nextCheckAt?: string | null; reason?: string;
+    invoiceId?: string; invoiceNumber?: string; voucherId?: string; voucherNumber?: string | number;
+    deadlineAt?: string; intervalMinutes?: number;
+  };
 }
 
 export interface SpirisCardPreview {
@@ -98,4 +106,8 @@ export const spirisAccountingApi = {
   exports: (signal?: AbortSignal, cardId?: number) => environmentRequest<{ exports: SpirisExport[] }>(`/visma/accounting/exports${cardId === undefined ? '' : `?cardId=${cardId}`}`, 'GET', undefined, signal),
   sendExport: (cardId: number, source?: VismaCardReference, signal?: AbortSignal) =>
     environmentRequest<SpirisExport>('/visma/accounting/exports', 'POST', { cardId, ...(source ? { source } : {}) }, signal),
+  refreshExport: (exportId: string, signal?: AbortSignal) =>
+    environmentRequest<SpirisExport>(`/visma/accounting/exports/${encodeURIComponent(exportId)}/refresh`, 'POST', {}, signal),
+  recreateExport: (exportId: string, requestId: string, signal?: AbortSignal) =>
+    environmentRequest<SpirisExport>(`/visma/accounting/exports/${encodeURIComponent(exportId)}/recreate`, 'POST', { requestId }, signal),
 };

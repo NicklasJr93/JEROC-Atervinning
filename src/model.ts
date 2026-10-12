@@ -34,6 +34,8 @@ export const draftSchema = z.object({
   customerId: z.string().optional(),
   reference: z.string(),
   origin: z.string(),
+  originDetails: z.object({ address: z.string(), postalCode: z.string(), city: z.string(), countryCode: z.string() }).optional(),
+  customerSelectionsSavedAt: z.string().optional(),
   pendingWeight: z
     .object({
       articleId: z.string(),
@@ -63,6 +65,11 @@ const customerSchema = z.object({
   phone: z.string(),
   email: z.string(),
   address: z.string().optional(),
+  postalCode: z.string().optional(),
+  city: z.string().optional(),
+  countryCode: z.string().optional(),
+  vatRegistered: z.boolean().optional(),
+  paymentTermDays: z.number().int().min(0).max(3650).optional(),
   references: z.array(z.string()),
   origins: z.array(z.string()),
   registrations: z.array(z.string()).optional(),
@@ -76,7 +83,7 @@ export const storeSchema = z
 ;
 export type DemoData = { version: 1; drafts: Draft[]; customers: Customer[] };
 export const STORE_KEY = 'jeroc.mobile.demo.v1';
-export const APP_VERSION = '0.5.1';
+export const APP_VERSION = '0.6.0';
 export const normalizeRegistration = (value: string) =>
   value.toUpperCase().replace(/[\s-]/g, '');
 export const draftPath = (draft: Draft) =>

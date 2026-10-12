@@ -15,7 +15,9 @@ import { prepareCustomerReview } from './customer-review.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
 import { mobileRecordPayload } from './mobile-records.mjs';
 import { createMobilePricingProjection, mobileBusinessDate } from './mobile-pricing-projection.mjs';
-import { officeSchema, seedOffice, migrateOffice, storeSchema, isComplete, rowWeight, transportSchema, seedTransport, articles, recordPayment, validPaymentDetails } from '../dist-server/domain-models.mjs';
+import { officeSchema, seedOffice, migrateOffice, storeSchema, isComplete, rowWeight, transportSchema, seedTransport, articles, recordPayment, validPaymentDetails,
+  normalizeCustomerDetails, validateCustomerDetails, normalizeOriginAddress, normalizeAddress, addressError,
+  normalizePhoneNumber, normalizePaymentDetails, phoneNumberError } from '../dist-server/domain-models.mjs';
 
 const clone = value => structuredClone(value);
 const equal = (a, b) => isDeepStrictEqual(a === undefined ? a : JSON.parse(JSON.stringify(a)), b === undefined ? b : JSON.parse(JSON.stringify(b)));
@@ -23,7 +25,8 @@ const fail = (message, status = 409) => { throw new PricingError(message, status
 const can = (p, right) => p.user.level !== 'Medarbetare' || p.user.permissions.includes(right);
 const demand = (p, right) => { if (!can(p, right)) fail('Du saknar behörighet för detta moment.', 403); };
 const visible = (p, card) => !p.user.siteIds || p.user.siteIds.includes(card.siteId ?? (card.yard === 'Rimbo' ? 'rimbo' : 'norrtalje'));
-const mobileCustomers = customers => customers.map(({ id, name, type, number, phone, email, address, references, origins, registrations }) => ({ id, name, type, number, phone, email, address, references, origins, registrations }));
+const mobileCustomers = customers => customers.map(({ id, name, type, number, phone, email, address, postalCode, city, countryCode, vatRegistered, paymentTermDays, references, origins, registrations }) =>
+  ({ id, name, type, number, phone, email, address, postalCode, city, countryCode, vatRegistered, paymentTermDays, references, origins, registrations }));
 const mobileDraftSite = (state, draft) => state.metadata.mobileDraftSites?.[draft.id]
   ?? state.office.cards.find(card => card.sourceId === draft.id)?.siteId ?? 'norrtalje';
 const mobileDraftVisible = (state, principal, draft) => !principal.user.siteIds || principal.user.siteIds.includes(mobileDraftSite(state, draft));
@@ -70,21 +73,22 @@ export const initialApplicationState = () => {
 
 // Field-level optimistic merge. Independent fields and independent records can
 // be edited concurrently; a stale change to the same field is never overwritten.
-export function mergeRecord(current, base, next) {
+export function mergeRecord(current, base, next, normalize = value => value) {
+  const canonicalCurrent = current && normalize(current), canonicalBase = base && normalize(base), canonicalNext = normalize(next);
   if (!base) {
-    if (current && !equal(current, next)) fail('Posten finns redan med andra uppgifter. Ladda om och kontrollera.');
-    return clone(current ?? next);
+    if (current && !equal(canonicalCurrent, canonicalNext)) fail('Posten finns redan med andra uppgifter. Ladda om och kontrollera.');
+    return clone(current ?? canonicalNext);
   }
   if (!current) fail('Posten har tagits bort i en annan session.');
   const result = clone(current);
-  for (const field of new Set([...Object.keys(base), ...Object.keys(next)])) {
-    if (equal(base[field], next[field])) continue;
-    if (!equal(current[field], base[field]) && !equal(current[field], next[field])) fail('Uppgiften ändrades i en annan session. Ladda om och kontrollera.');
-    if (next[field] === undefined) delete result[field]; else result[field] = clone(next[field]);
+  for (const field of new Set([...Object.keys(canonicalBase), ...Object.keys(canonicalNext)])) {
+    if (equal(base[field], next[field]) && equal(canonicalBase[field], canonicalNext[field])) continue;
+    if (!equal(canonicalCurrent[field], canonicalBase[field]) && !equal(canonicalCurrent[field], canonicalNext[field])) fail('Uppgiften ändrades i en annan session. Ladda om och kontrollera.');
+    if (canonicalNext[field] === undefined) delete result[field]; else result[field] = clone(canonicalNext[field]);
   }
   return result;
 }
-function changedRecords(current, base, next, key = row => row.id) {
+function changedRecords(current, base, next, key = row => row.id, normalize, merge = mergeRecord) {
   const old = new Map(base.map(row => [key(row), row])), wanted = new Map(next.map(row => [key(row), row]));
   const changes = [];
   for (const id of new Set([...old.keys(), ...wanted.keys()])) if (!equal(old.get(id), wanted.get(id))) {
@@ -92,7 +96,7 @@ function changedRecords(current, base, next, key = row => row.id) {
     if (!wanted.has(id)) {
       if (!equal(record, old.get(id))) fail('Posten ändrades i en annan session.');
       changes.push({ before: record, after: null, index });
-    } else changes.push({ before: record, after: mergeRecord(record, old.get(id), wanted.get(id)), index });
+    } else changes.push({ before: record, after: merge(record, old.get(id), wanted.get(id), normalize), index });
   }
   return changes;
 }
@@ -105,6 +109,48 @@ function applyChanges(current, changes) {
     else if (index < 0) result.push(change.after); else result[index] = change.after;
   }
   return result;
+}
+const selectionKey = value => value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('sv-SE');
+function rememberCustomerSelections(state, previous, saved, principal, { force = false } = {}) {
+  if (!saved.customerId) return;
+  const customer = state.office.customers.find(value => value.id === saved.customerId);
+  if (!customer) return;
+  // Only committed selections belong in the registry, not every partial input
+  // from the vehicle screen. A ready mobile submission is also an explicit save.
+  const changedCustomer = previous?.customerId && previous.customerId !== saved.customerId;
+  const referenceChanged = previous?.reference !== saved.reference || force && !changedCustomer;
+  const originChanged = previous?.origin !== saved.origin || force && !changedCustomer;
+  const selections = [
+    ['references', referenceChanged ? saved.reference.trim().replace(/\s+/g, ' ') : '', 'Referens'],
+    ['origins', originChanged ? normalizeOriginAddress(saved.origin) : '', 'Ursprungsadress'],
+  ];
+  for (const [field, value, title] of selections) {
+    if (!value || customer[field].some(old => selectionKey(field === 'origins' ? normalizeOriginAddress(old) : old) === selectionKey(value))) continue;
+    customer[field].push(value);
+    customer.audit.push({ at: new Date().toISOString(), actor: principal.user.name, actualUserId: principal.actor.id,
+      effectiveUserId: principal.user.id, text: `${title} sparad från invägning #${saved.number ?? saved.id}: ${value}.` });
+  }
+}
+function normalizeSavedOrigin(record) {
+  return { ...record, origin: normalizeOriginAddress(record.origin), originDetails: normalizeAddress(record.origin) };
+}
+function mergeCustomerRecord(current, base, next) {
+  if (current && !base) {
+    // An acknowledged submission can be replayed after the same atomic command
+    // remembered new origin/reference choices. Those derived additions must
+    // survive without making the original create command look like a conflict.
+    const normalizedCurrent = normalizeCustomerDetails(current), normalizedNext = normalizeCustomerDetails(next);
+    if (normalizedNext.vatRegistered === undefined) normalizedNext.vatRegistered = normalizedNext.type !== 'Privatperson';
+    if (normalizedNext.registrations === undefined && normalizedCurrent.registrations?.length === 0) normalizedNext.registrations = [];
+    for (const field of ['origins', 'references']) {
+      if (!normalizedNext[field].every(value => normalizedCurrent[field].some(old => selectionKey(old) === selectionKey(value))))
+        fail('Posten finns redan med andra uppgifter. Ladda om och kontrollera.');
+      delete normalizedCurrent[field]; delete normalizedNext[field];
+    }
+    if (!equal(normalizedCurrent, normalizedNext)) fail('Posten finns redan med andra uppgifter. Ladda om och kontrollera.');
+    return clone(current);
+  }
+  return mergeRecord(current, base, next, normalizeCustomerDetails);
 }
 function reflectApprovals(office, approvals, seedCards = []) {
   const latest = new Map();
@@ -182,7 +228,8 @@ function officeView(state, p) {
   for (const card of result.cards) {
     const moneyVisible = financial(p) || card.rows.every(row => can(p, 'prices') && can(p, 'customerPrices') &&
       (row.tier === 'Eget' || can(p, `price${row.tier}`)));
-    if (!moneyVisible) { card.financialPending = true; delete card.pricingTotal; delete card.accounting; card.rows = card.rows.map(row => ({ ...row, price: 0, pricePending: true })); }
+    if (!moneyVisible) { card.pricingRedacted = true; card.financialPending = true; delete card.pricingPendingReason; delete card.pricingTotal; delete card.accounting; card.rows = card.rows.map(row => ({ ...row, price: 0, pricePending: true })); }
+    else delete card.pricingRedacted;
     if (!can(p, 'paymentDetails') && !financial(p)) { delete card.paymentDetails; card.payment = ''; if (card.customerSnapshot) delete card.customerSnapshot.paymentProfile; }
   }
   if (!can(p, 'paymentDetails') && !financial(p)) for (const customer of result.customers) delete customer.paymentProfile;
@@ -195,7 +242,7 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
   for (const old of base.cards) {
     const original = current.cards.find(card => card.id === old.id), view = readable.cards.find(card => card.id === old.id), target = next.cards.find(card => card.id === old.id);
     if (!original || !view) continue;
-    for (const field of ['financialPending', 'pricingTotal', 'accounting', 'paymentDetails', 'payment', 'customerSnapshot']) if (equal(old[field], view[field]) && !equal(old[field], original[field])) {
+    for (const field of ['financialPending', 'pricingTotal', 'pricingPendingReason', 'pricingRedacted', 'accounting', 'paymentDetails', 'payment', 'customerSnapshot']) if (equal(old[field], view[field]) && !equal(old[field], original[field])) {
       if (target && equal(target[field], old[field])) { if (original[field] === undefined) delete target[field]; else target[field] = clone(original[field]); }
       if (original[field] === undefined) delete old[field]; else old[field] = clone(original[field]);
     }
@@ -209,7 +256,10 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
       }
     });
   }
-  const changes = changedRecords(current.cards, base.cards, next.cards);
+  const normalizeCardInput = card => ({ ...card,
+    ...(card.origin === undefined ? {} : { origin: normalizeOriginAddress(card.origin) }),
+    ...(card.paymentDetails === undefined ? {} : { paymentDetails: normalizePaymentDetails(card.paymentDetails) }) });
+  const changes = changedRecords(current.cards, base.cards, next.cards, row => row.id, normalizeCardInput);
   for (const { before, after } of changes) {
     if (!after) fail('Viktkort och deras historik får inte raderas.');
     if (before && (!equal(after.workOrderId, before.workOrderId) || before.workOrderId && !equal(after.sourceId, before.sourceId))) fail('Arbetsorderkopplingen och dess källidentitet styrs av den färdigställda vägningen.');
@@ -218,6 +268,12 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
       if (!linked || linked.status !== 'completed' || linked.cardId !== after.id || linked.id !== after.sourceId) fail('Ett kopplat invägningskort skapas genom arbetsorderns färdigställda vägning.');
     }
     if (!visible(p, after) || before && !visible(p, before)) fail('Du saknar åtkomst till anläggningen.', 403);
+    delete after.pricingRedacted;
+    if (!before || before.origin !== after.origin || !equal(before.originDetails, after.originDetails)) Object.assign(after, normalizeSavedOrigin(after));
+    if (after.paymentDetails?.method === 'swish' && (!before || !equal(before.paymentDetails, after.paymentDetails))) {
+      const error = phoneNumberError(after.paymentDetails.phone ?? '', { required: true, swish: true });
+      if (error) fail(error, 422);
+    }
     if (!before) {
       demand(p, after.kind === 'correction' ? 'attest' : 'prepare');
       if (after.accounting) fail('Ekonomiunderlaget beräknas och låses av servern.');
@@ -226,11 +282,11 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
       const fields = new Set(Object.keys(after).filter(field => !equal(after[field], before[field])));
       if (!equal(after.accounting, before.accounting)) fail('Den låsta ekonomiversionen får inte ändras från formuläret.');
       const activeApproval=approvals.find(approval=>approval.id===before.customerApproval?.id && approval.cardId===before.id && approval.version===before.customerApproval?.version);
-      if(activeApproval && ['approved','attested'].includes(activeApproval.status) && ['customerId','customerSnapshot','origin','reference','rows','paymentDetails','payment','pricingTotal','pricingSnapshotId'].some(field=>fields.has(field))) fail('Kundens godkända version är låst. Avbryt godkännandet och skapa en ny version före ändring.');
+      if(activeApproval && ['approved','attested'].includes(activeApproval.status) && ['customerId','customerSnapshot','origin','originDetails','reference','rows','paymentDetails','payment','pricingTotal','pricingSnapshotId'].some(field=>fields.has(field))) fail('Kundens godkända version är låst. Avbryt godkännandet och skapa en ny version före ändring.');
       // Server-managed approval fields are accepted only if identical to the projection.
       if (fields.has('customerApproval') && !equal(after.customerApproval, before.customerApproval)) fail('Kundgodkännande styrs av terminalprocessen.');
       if (fields.has('idVerified') && after.idVerified && !approvalValid(after, approvals, 'approved') && !approvalValid(after, approvals, 'attested')) fail('Identiteten måste verifieras i kundgodkännandet.');
-      for (const field of ['customerId', 'customerSnapshot', 'origin', 'reference', 'registration', 'gross', 'tare', 'deduction', 'preparedBy']) if (fields.has(field)) demand(p, 'prepare');
+      for (const field of ['customerId', 'customerSnapshot', 'origin', 'originDetails', 'reference', 'registration', 'gross', 'tare', 'deduction', 'preparedBy']) if (fields.has(field)) demand(p, 'prepare');
       for (const field of ['paymentDetails', 'payment']) if (fields.has(field)) demand(p, 'paymentDetails');
       if (fields.has('rows')) {
         const material = demandMaterialChanges(p, before.rows, after.rows);
@@ -247,8 +303,8 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
             text: `Material och vikt ändrade: ${before.rows.map(row => `${row.articleId} ${row.weight} kg`).join(', ') || 'tomt'} → ${after.rows.map(row => `${row.articleId} ${row.weight} kg`).join(', ') || 'tomt'}.` });
         }
       }
-      if (['ready', 'paid', 'balance'].includes(before.status) && ['customerId', 'origin', 'reference', 'rows', 'pricingTotal', 'pricingSnapshotId'].some(field => fields.has(field))) fail('Attesterade original ändras med en rättelse.');
-      if (['customerId', 'origin', 'reference', 'rows', 'paymentDetails', 'payment', 'pricingTotal', 'pricingSnapshotId'].some(field => fields.has(field))) delete after.accounting;
+      if (['ready', 'paid', 'balance'].includes(before.status) && ['customerId', 'origin', 'originDetails', 'reference', 'rows', 'pricingTotal', 'pricingSnapshotId'].some(field => fields.has(field))) fail('Attesterade original ändras med en rättelse.');
+      if (['customerId', 'origin', 'originDetails', 'reference', 'rows', 'paymentDetails', 'payment', 'pricingTotal', 'pricingSnapshotId'].some(field => fields.has(field))) delete after.accounting;
     }
     if (!before && after.kind === 'correction') {
       const correction = next.corrections.find(row => row.id === after.sourceCorrectionId);
@@ -262,10 +318,11 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
     }
     if (after.status === 'balance' && before?.status !== 'balance') { demand(p, 'attest'); if (after.paymentDetails?.method !== 'balance') fail('Välj Spara på saldo före attest.'); }
     if (after.status === 'paid' && before?.status !== 'paid') demand(p, 'pay');
+    if (!after.financialPending && !after.pricingRowsPending && after.rows.every(row => !row.pricePending)) delete after.pricingPendingReason;
   }
   const customerContact = customer => {
     if (!customer) return undefined;
-    const { audit: _audit, paymentProfile: _profile, ...details } = customer;
+    const { audit: _audit, paymentProfile: _profile, ...details } = normalizeCustomerDetails(customer);
     return details;
   };
   const customerSaveText = (before, after) => {
@@ -292,12 +349,15 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
     if (after.type === 'Privatperson' && (after.vatRegistered !== undefined || !before || before.type !== 'Privatperson'))
       after.vatRegistered = false;
   }
-  const customerChanges = changedRecords(current.customers, base.customers, next.customers);
-  if (customerChanges.length) demand(p, 'customers');
-  if (customerChanges.some(change => !equal(change.before?.paymentProfile, change.after?.paymentProfile))) demand(p, 'paymentDetails');
+  const customerChanges = changedRecords(current.customers, base.customers, next.customers, row => row.id, normalizeCustomerDetails, mergeCustomerRecord);
+  if (customerChanges.some(change => !equal(customerContact(change.before), customerContact(change.after)))) demand(p, 'customers');
+  if (customerChanges.some(change => !equal(change.before && normalizeCustomerDetails(change.before).paymentProfile,
+    change.after && normalizeCustomerDetails(change.after).paymentProfile))) demand(p, 'paymentDetails');
   if (customerChanges.some(change => !change.after)) fail('Kunder med historik får inte raderas.');
   for (const { before, after } of customerChanges) {
     if (equal(before, after)) continue;
+    const error = validateCustomerDetails(after, before);
+    if (error) fail(error, 422);
     const history = before?.audit ?? [];
     const at = new Date().toISOString();
     const event = text => ({ at, actor: p.user.name, actualUserId: p.actor.id, effectiveUserId: p.user.id, text });
@@ -342,20 +402,44 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
   const result = { ...current, cards: applyChanges(current.cards, changes), customers: applyChanges(current.customers, customerChanges), corrections: applyChanges(current.corrections, correctionChanges), payments: applyChanges(current.payments, paymentChanges), users: clone(state.pricing.users) };
   for (const card of result.cards) if (card.status === 'paid' && !result.payments.some(payment => payment.cardId === card.id)) fail('Utbetald status kräver en betalningsjournal.');
   state.office = officeSchema.parse(result);
+  for (const { before, after } of changes) if (after && !['attest', 'ready', 'paid', 'balance'].includes(after.status))
+    rememberCustomerSelections(state, before, after, p);
 }
-function mobileToOffice(state, draft, p) {
+function mobileToOffice(state, draft, p, pricing) {
   if (draft.status !== 'ready') return;
   if (!isComplete(draft) || draft.pendingWeight || draft.vehicleInput) fail('Vägningen är inte färdig.');
   const existing = state.office.cards.find(card => card.sourceId === draft.id);
   if (existing) return; // Stable source ID is the submission idempotency key.
   const vehicle = draft.rows.find(row => row.method === 'vehicle');
+  const customer = state.office.customers.find(value => value.id === draft.customerId);
+  let quote, pendingReason;
+  if (customer) {
+    try {
+      quote = pricing.quoteForOfficeMaterial({ customerId: customer.id, deliveredAt: draft.updatedAt,
+        excludeCardId: String(draft.number), rows: draft.rows.map(row => ({ articleId: row.articleId, weight: rowWeight(row) })) });
+    } catch (error) {
+      // Retain the real weighing when reference prices/old article revisions
+      // are incomplete. Never portray the zero placeholder as a quoted price.
+      if (!(error instanceof PricingError) || error.status !== 422) throw error;
+      pendingReason = error.message;
+    }
+  } else pendingReason = 'Välj kund och beräkna priser innan kundgodkännande.';
+  const pending = !quote;
   state.office.cards.push(officeSchema.shape.cards.element.parse({
     id: draft.number, sourceId: draft.id, siteId: mobileDraftSite(state, draft), status: 'new', yard: mobileDraftSite(state, draft) === 'rimbo' ? 'Rimbo' : 'Norrtälje', weigher: p.user.name, date: draft.updatedAt,
-    customerId: draft.customerId, customerSnapshot: state.office.customers.find(customer => customer.id === draft.customerId),
-    reference: draft.reference, origin: draft.origin, registration: vehicle?.registration, gross: vehicle?.gross, tare: vehicle?.tare, deduction: vehicle?.deduction,
-    rows: draft.rows.map(row => ({ articleId: row.articleId, articleName: articles.find(a => a.id === row.articleId)?.name ?? row.articleId, weight: rowWeight(row), tier: 'C', price: 0, pricePending: true })),
-    payment: '', idVerified: false, financialPending: true,
-    audit: [{ at: new Date().toISOString(), actor: p.user.name, actualUserId: p.actor.id, effectiveUserId: p.user.id, text: 'Färdig vägning mottagen från mobilappen. Ingen attest eller utbetalning gjord.' }],
+    customerId: draft.customerId, customerSnapshot: customer,
+    reference: draft.reference, origin: normalizeOriginAddress(draft.origin), originDetails: normalizeAddress(draft.origin),
+    registration: vehicle?.registration, gross: vehicle?.gross, tare: vehicle?.tare, deduction: vehicle?.deduction,
+    rows: draft.rows.map((row, index) => ({ articleId: row.articleId,
+      articleName: pricing.getArticleForEnvironment(row.articleId)?.name ?? articles.find(a => a.id === row.articleId)?.name ?? row.articleId,
+      weight: rowWeight(row), tier: quote?.rows[index].tier === 'Special' ? 'Eget' : quote?.rows[index].tier ?? 'C',
+      price: quote?.rows[index].price ?? 0, pricePending: pending,
+      ...(quote ? { source: quote.rows[index].source, volumeBefore: quote.rows[index].volumeBefore, volumeWithDelivery: quote.rows[index].volumeWithDelivery } : {}) })),
+    payment: '', idVerified: false, financialPending: pending, pricingRowsPending: pending,
+    ...(quote ? { pricingTotal: quote.total, pricedAt: quote.deliveredAt } : { pricingPendingReason: pendingReason }),
+    audit: [{ at: new Date().toISOString(), actor: p.user.name, actualUserId: p.actor.id, effectiveUserId: p.user.id, text: 'Färdig vägning mottagen från mobilappen. Ingen attest eller utbetalning gjord.' },
+      ...(quote ? [{ at: new Date().toISOString(), actor: p.user.name, actualUserId: p.actor.id, effectiveUserId: p.user.id,
+        text: 'Priser beräknade automatiskt av servern: artikelregler, rullande 12 månader och kundundantag.' }] : [])],
   }));
 }
 const json = (res, status, value) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(value)); };
@@ -648,6 +732,7 @@ export function createApplicationService({ repository, env = process.env, projec
       const repository = await getRepo();
       const operate = async (state, revision, audit = []) => {
         const pricing = createPricingStore({ initialState: state.pricing });
+        const importedMobileDrafts = [];
         let importConflicts = 0;
         let p;
         if (domain === 'mobile' && hasEmployeeSession(req)) {
@@ -689,7 +774,7 @@ export function createApplicationService({ repository, env = process.env, projec
                 demand(p, 'prepare');
                 const copy = clone(draft); copy.number = allocateWeighingNumber(state);
                 state.metadata.mobileDraftSites ??= {}; state.metadata.mobileDraftSites[copy.id] = p.user.siteIds?.[0] ?? 'norrtalje';
-                state.mobile.drafts.push(copy); mobileToOffice(state, copy, p);
+                state.mobile.drafts.push(copy); importedMobileDrafts.push(copy);
               }
             } else if (domain === 'office') {
               if (!can(p, 'prepare')) importConflicts += imported.cards.length;
@@ -714,6 +799,11 @@ export function createApplicationService({ repository, env = process.env, projec
               if (!can(p, 'customers')) { importConflicts++; continue; }
               state.office.customers.push(officeSchema.shape.customers.removeDefault().element.parse({ ...customer, customerNumber: customer.customerNumber ?? customer.id, audit: customer.audit ?? [] }));
             }
+            if (importedMobileDrafts.length) {
+              state.pricing.customers = state.office.customers.map(({ id, name }) => ({ id, name }));
+              const importPricing = createPricingStore({ initialState: state.pricing });
+              for (const draft of importedMobileDrafts) mobileToOffice(state, draft, p, importPricing);
+            }
             audit.push({ action: 'legacy.import.archived', domain, hash, actualUserId: p.actor.id, effectiveUserId: p.user.id });
           }
         }
@@ -725,7 +815,10 @@ export function createApplicationService({ repository, env = process.env, projec
             for (const draft of next.drafts) if (!base.drafts.some(old => old.id === draft.id)) {
               const existing = state.mobile.drafts.find(old => old.id === draft.id); if (existing) draft.number = existing.number;
             }
-            const changes = changedRecords(state.mobile.drafts, base.drafts, next.drafts);
+            const explicitlySaved = new Set(next.drafts.filter(draft => draft.status === 'ready' || draft.customerSelectionsSavedAt &&
+              draft.customerSelectionsSavedAt !== base.drafts.find(old => old.id === draft.id)?.customerSelectionsSavedAt).map(draft => draft.id));
+            const changes = changedRecords(state.mobile.drafts, base.drafts, next.drafts, row => row.id,
+              draft => explicitlySaved.has(draft.id) ? normalizeSavedOrigin(draft) : draft);
             for (const change of changes) {
               if (change.before && !mobileDraftVisible(state, p, change.before)) fail('Vägningen tillhör en annan anläggning.', 403);
               if (change.before?.status === 'ready' && !equal(change.before, change.after)) fail('Färdiga vägningar är låsta.');
@@ -733,18 +826,37 @@ export function createApplicationService({ repository, env = process.env, projec
                 change.after.number = allocateWeighingNumber(state);
                 state.metadata.mobileDraftSites ??= {}; state.metadata.mobileDraftSites[change.after.id] = p.user.siteIds?.[0] ?? 'norrtalje';
               }
+              if (change.after && (change.after.status === 'ready' || change.after.customerSelectionsSavedAt && change.after.customerSelectionsSavedAt !== change.before?.customerSelectionsSavedAt))
+                Object.assign(change.after, normalizeSavedOrigin(change.after));
             }
             state.mobile.drafts = applyChanges(state.mobile.drafts, changes);
-            const customers = changedRecords(mobileCustomers(state.office.customers), base.customers, next.customers);
+            const customers = changedRecords(mobileCustomers(state.office.customers), base.customers, next.customers, row => row.id, normalizeCustomerDetails, mergeCustomerRecord);
             for (const { after } of customers) {
               demand(p, 'customers'); if (!after) fail('Kunder får inte raderas.');
               const index = state.office.customers.findIndex(customer => customer.id === after.id), old = state.office.customers[index];
               const customer = officeSchema.shape.customers.removeDefault().element.parse({ ...old, ...after,
-                ...(!old && { vatRegistered: after.type !== 'Privatperson' }),
+                ...(after.type === 'Privatperson' ? { vatRegistered: false } : !old && after.vatRegistered === undefined ? { vatRegistered: true } : {}),
                 customerNumber: old?.customerNumber ?? after.id, audit: old?.audit ?? [] });
+              const error = validateCustomerDetails(customer, old);
+              if (error) fail(error, 422);
+              if (!equal(old, customer)) {
+                const at = new Date().toISOString(), event = text => ({ at, actor: p.user.name,
+                  actualUserId: p.actor.id, effectiveUserId: p.user.id, text });
+                customer.audit = [...clone(old?.audit ?? []), event(old ? 'Kunduppgifter uppdaterade från mobilappen.' : 'Kund skapad från mobilappen.')];
+                if (old?.vatRegistered !== customer.vatRegistered) {
+                  const vat = value => value === undefined ? 'Ej angivet' : value ? 'Ja' : 'Nej';
+                  customer.audit.push(event(`Momsregistrering ändrad: ${vat(old?.vatRegistered)} → ${vat(customer.vatRegistered)}.`));
+                }
+              }
               if (index < 0) state.office.customers.push(customer); else state.office.customers[index] = customer;
             }
-            for (const { after } of changes) if (after) mobileToOffice(state, after, p);
+            state.pricing.customers = state.office.customers.map(({ id, name }) => ({ id, name }));
+            const submissionPricing = createPricingStore({ initialState: state.pricing });
+            for (const { before, after } of changes) if (after) {
+              if (after.status === 'ready' && before?.status !== 'ready' || after.customerSelectionsSavedAt && after.customerSelectionsSavedAt !== before?.customerSelectionsSavedAt)
+                rememberCustomerSelections(state, before, after, p, { force: true });
+              mobileToOffice(state, after, p, submissionPricing);
+            }
           } else {
             demand(p, 'transportPlan');
             if (Array.isArray(p.user.siteIds)) fail('Transportplanering saknar anläggningsindelning. Använd ett konto med tillgång till alla anläggningar.', 403);
@@ -754,6 +866,25 @@ export function createApplicationService({ repository, env = process.env, projec
             validateLogisticsTransportChange(state,base,next);
             for (const event of next.events.filter(event => !state.transport.events.some(old => old.id === event.id))) if (event.actualUserId !== p.actor.id || event.effectiveUserId !== p.user.id) fail('Transporthändelsens användare stämmer inte med sessionen.', 403);
             for (const old of state.transport.events) if (!next.events.some(event => event.id === old.id && equal(event, old))) fail('Transporthistoriken kan inte skrivas över.');
+            for (const order of next.orders) {
+              const previous = base.orders.find(value => value.id === order.id);
+              if (!previous || ['address', 'postalCode', 'city', 'countryCode'].some(field => order[field] !== previous[field])) {
+                // The legacy editor has one address line and an ort field.
+                // A newly entered complete line replaces a hidden old postcode,
+                // while explicitly changed structured fields are still checked.
+                const parsed = normalizeAddress(order.address);
+                if (previous && order.address !== previous.address && parsed.postalCode) {
+                  if (order.postalCode === previous.postalCode) order.postalCode = parsed.postalCode;
+                  if (order.city === previous.city) order.city = parsed.city;
+                }
+                const error = addressError(order); if (error) fail(error, 422);
+                Object.assign(order, normalizeAddress(order));
+              }
+              if (!previous || order.phone !== previous.phone) {
+                const error = phoneNumberError(order.phone); if (error) fail(error, 422);
+                order.phone = normalizePhoneNumber(order.phone);
+              }
+            }
             state.transport = next;
             refreshStaffingTasks(state);
           }
@@ -814,7 +945,7 @@ export function createApplicationService({ repository, env = process.env, projec
     return true;
   }
   const driverApi = createDriverApi({getRepository:getRepo,readBody:body,json});
-  const employeeApi = createMobileEmployeeApi({getRepository:getRepo,readBody:body,json,siteProvider});
+  const employeeApi = createMobileEmployeeApi({getRepository:getRepo,readBody:body,json,siteProvider,env});
   const logisticsApi = createLogisticsApi({getRepository:getRepo,readBody:body,json,siteProvider,environmentProvider});
   const api = async (req, res, url) => await employeeApi(req,res,url) || await logisticsApi(req,res,url) || await driverApi(req,res,url) || await durableApi(req, res, url) || await businessApi(req, res, url);
   Object.assign(api, { principalStore, withPrincipal, businessApi, durableApi, getRepository: getRepo, close: async () => { if (repoPromise) await (await repoPromise).close(); } });

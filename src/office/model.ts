@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { purchaseAccountingSnapshotSchema } from './accounting-types';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.18.0';
+export const OFFICE_VERSION = '0.19.0';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -117,6 +117,7 @@ const customerSchema = z.object({
   address: z.string().default(''),
   postalCode: z.string().default(''),
   city: z.string().default(''),
+  countryCode: z.string().optional(),
   contactPerson: z.string().default(''),
   references: z.array(z.string()).default([]),
   origins: z.array(z.string()).default([]),
@@ -136,6 +137,7 @@ export function seedOfficeCustomers(): OfficeCustomer[] {
     address: customer.address ?? '',
     postalCode: '',
     city: '',
+    countryCode: 'SE',
     contactPerson: '',
     registrations: [...(customer.registrations ?? [])],
     references: [...customer.references],
@@ -170,6 +172,7 @@ const cardSchema = z.object({
   date: z.string(),
   reference: z.string(),
   origin: z.string(),
+  originDetails: z.object({ address: z.string(), postalCode: z.string(), city: z.string(), countryCode: z.string() }).optional(),
   registration: z.string().optional(),
   gross: z.number().optional(),
   tare: z.number().optional(),
@@ -188,6 +191,8 @@ const cardSchema = z.object({
   pricingTotal: z.number().nonnegative().optional(),
   financialPending: z.boolean().optional(),
   pricingRowsPending: z.boolean().optional(),
+  pricingPendingReason: z.string().optional(),
+  pricingRedacted: z.boolean().optional(),
   audit: z.array(auditSchema),
 });
 export type OfficeCard = z.infer<typeof cardSchema>;

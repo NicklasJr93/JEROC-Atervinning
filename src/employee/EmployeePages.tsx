@@ -40,13 +40,28 @@ export function EmployeeLoginPage() {
   const navigate = useNavigate();
   const [username, setUsername] = useState(''), [password, setPassword] = useState('');
   const [show, setShow] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [demoAccounts, setDemoAccounts] = useState<{ niklas?: boolean; admin?: boolean } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch('/api/employee/demo-config', { credentials: 'same-origin', cache: 'no-store', signal: controller.signal })
+      .then(async response => response.ok ? response.json() : null)
+      .then(result => { if (!controller.signal.aborted && result?.enabled === true) setDemoAccounts(result.accounts); })
+      .catch(() => { /* Optional demo shortcuts never block real authentication. */ });
+    return () => controller.abort();
+  }, []);
+  function chooseDemo(account: 'niklas' | 'admin') {
+    if (busy) return;
+    setUsername(account);
+    setPassword(account === 'niklas' ? 'Demo123!' : 'JerocDemo2026!');
+    setShow(false); setError('');
+  }
   async function submit(event: FormEvent) {
     event.preventDefault(); if (busy) return; setBusy(true); setError('');
     try { await login(username, password); navigate('/', { replace: true }); }
     catch (caught) { setError(employeeError(caught)); }
     finally { setBusy(false); }
   }
-  return <main className="employee-login"><Logo /><h1>Välkommen tillbaka</h1><p>Logga in på ditt JEROC-konto.</p><form onSubmit={submit} className="stack"><label>Användarnamn<div className="input-with-icon"><UserRound size={18} /><input required autoComplete="username" autoCapitalize="none" autoCorrect="off" disabled={busy} value={username} onChange={event => setUsername(event.target.value)} /></div></label><label>Lösenord<div className="input-with-icon"><LockKeyhole size={18} /><input required type={show ? 'text' : 'password'} autoComplete="current-password" disabled={busy} value={password} onChange={event => setPassword(event.target.value)} /><button className="icon-button" type="button" aria-label={show ? 'Dölj lösenord' : 'Visa lösenord'} onClick={() => setShow(value => !value)}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>{(error || loadError) && <Notice tone="red">{error || loadError}</Notice>}<Button type="submit" variant="blue" disabled={busy}>{busy ? 'Loggar in…' : 'Logga in'}</Button></form><p className="employee-help"><HelpCircle size={17} />Behöver du hjälp? Kontakta din chef eller systemadmin.</p></main>;
+  return <main className="employee-login"><Logo /><h1>Välkommen tillbaka</h1><p>Logga in på ditt JEROC-konto.</p><form onSubmit={submit} className="stack"><label>Användarnamn<div className="input-with-icon"><UserRound size={18} /><input required autoComplete="username" autoCapitalize="none" autoCorrect="off" disabled={busy} value={username} onChange={event => setUsername(event.target.value)} /></div></label><label>Lösenord<div className="input-with-icon"><LockKeyhole size={18} /><input required type={show ? 'text' : 'password'} autoComplete="current-password" disabled={busy} value={password} onChange={event => setPassword(event.target.value)} /><button className="icon-button" type="button" aria-label={show ? 'Dölj lösenord' : 'Visa lösenord'} onClick={() => setShow(value => !value)}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>{(error || loadError) && <Notice tone="red">{error || loadError}</Notice>}<Button type="submit" variant="blue" disabled={busy}>{busy ? 'Loggar in…' : 'Logga in'}</Button></form>{(demoAccounts?.niklas || demoAccounts?.admin) && <section className="employee-demo-login" aria-label="Demoinloggning"><p>Prova demon</p><div>{demoAccounts.niklas && <button type="button" disabled={busy} onClick={() => chooseDemo('niklas')}><UserRound size={19} /><span>Logga in som Niklas</span></button>}{demoAccounts.admin && <button type="button" disabled={busy} onClick={() => chooseDemo('admin')}><Settings2 size={19} /><span>Logga in som chef/admin</span></button>}</div></section>}<p className="employee-help"><HelpCircle size={17} />Behöver du hjälp? Kontakta din chef eller systemadmin.</p></main>;
 }
 
 export function EmployeeHomePage() {

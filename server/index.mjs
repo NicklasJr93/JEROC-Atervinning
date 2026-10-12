@@ -313,6 +313,11 @@ await terminalDemoApi.initialize?.();
 const accountingTimer = setInterval(() => { void vismaService.processQueuedExports({ reconcile: false }).catch(() => console.warn('Spiris-kön väntar på nästa kontroll.')); }, 20000);
 accountingTimer.unref();
 void vismaService.processQueuedExports().catch(() => console.warn('Spiris-kön kunde inte kontrolleras vid start.'));
+// Status reads are scheduled from each persisted job's next-check time. This
+// heartbeat never books an invoice, pays a supplier or recreates a draft.
+const accountingTrackingTimer = setInterval(() => { void vismaService.processAccountingTracking().catch(() => console.warn('Spiris-uppföljningen väntar på nästa kontroll.')); }, 60000);
+accountingTrackingTimer.unref();
+void vismaService.processAccountingTracking().catch(() => console.warn('Spiris-uppföljningen kunde inte kontrolleras vid start.'));
 server.listen(port, '0.0.0.0', () => {
   console.log(`JEROC demo lyssnar på port ${server.address().port}`);
 });
@@ -321,6 +326,7 @@ async function stop(code = 0) {
   if (stopping) return;
   stopping = true;
   clearInterval(accountingTimer);
+  clearInterval(accountingTrackingTimer);
   setTimeout(() => process.exit(1), 10000).unref();
   await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close()]);
   await closePdfRenderer();

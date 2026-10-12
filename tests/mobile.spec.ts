@@ -267,6 +267,7 @@ test('ny kund väljs och byte av kund rensar den gamla kundens referens', async 
   await page.getByRole('button', { name: 'Byt kund', exact: true }).click();
   await page.getByRole('button', { name: 'Skapa ny kund' }).click();
   await page.getByLabel('Företagsnamn', { exact: true }).fill('Testbolaget AB');
+  await page.getByLabel('Organisationsnummer', { exact: true }).fill('559359-3626');
   await page.getByRole('button', { name: 'Spara och välj kund' }).click();
   await expect(
     page.getByRole('heading', { name: 'Testbolaget AB' }),
