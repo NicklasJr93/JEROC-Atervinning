@@ -1513,7 +1513,8 @@ Status: Implementerad i kontorsdemo 0.16.0, 2026-10-12.
   provas manuellt i sandbox. Befintliga Render-inställningar används.
 
 075 – Rollanpassade dashboards och mejlinkorg med AI-förslag
-Status: Klickbara mockuper framtagna 2026-10-12. Funktionerna är inte byggda.
+Status: Klickbara mockuper framtagna 2026-10-12. Implementation avvaktar enligt
+användarens beslut; se framtidslistan och ÄL 077. Funktionerna är inte byggda.
 - Åtta arbetsprofiler: kontorist, ekonomi/attest, transportledare,
   gruppledare, VD, systemadmin, gårdsmedarbetare och chaufför.
 - Mitt arbete prioriterar konkreta ärenden och nästa åtgärd. Verksamheten
@@ -1564,3 +1565,16 @@ Status: Implementerad i kontorsdemo 0.17.0 och gårdsapp 0.4.0, 2026-10-12.
   täcker kontorets grupper/bilder/stickyvy, mobilmeny/sökning och terminalens
   ID-popup/återanslutning. Kontrollerna avser testmiljöer, inte aktuell drift.
 - Provflöde och lagringsbeskrivning: docs/article-catalog.md.
+
+077 – Framtidslista: betalningsbuntar, dashboards och mejlinkorg
+Status: Planering sparad 2026-10-12. Alla tre områden avvaktar implementation.
+- Användaren vill pausa betalningsbuntar/betalfil, rollanpassade dashboards
+  och mejlinkorg med AI-förslag och välja en annan ny funktion härnäst.
+- Samlad framtidslista finns i docs/planerade-uppdateringar.md. Den innehåller
+  funktioner, befintliga mockup-/förstudielänkar och förutsättningar.
+- Betalfil: val av attesterade bankutbetalningar, buntreservation, granskning,
+  filhistorik och separat betalningsbekräftelse. Bankavtal/format måste bekräftas.
+- Dashboards: rollstyrda arbetsärenden, nästa åtgärd, chefsvy och verksamhetsdata.
+- Mejlinkorg: flera Outlook-konton/gemensamma brevlådor, åtkomst per brevlåda,
+  ärendekopplingar och svar. AI-stöd kan läggas till efter fungerande mejlflöde.
+- Dokumentationsändring; inga nya funktioner eller externa leveranser aktiveras.

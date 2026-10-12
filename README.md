@@ -4,7 +4,7 @@
 
 Detta är fortfarande en demo med valbara exempelkonton. Använd testuppgifter. NVV:s testmiljö och Spiris sandbox kan anslutas med serverns integrationsinställningar. Utbetalningar registreras manuellt; bankbetalning, SMS, e-post och BankID är ännu inte aktiverade.
 
-[Gemensam databas och säker import](docs/shared-postgres.md) · [Kontorsversionen](docs/office-demo.md) · [Artikelgrupper och bilder](docs/article-catalog.md) · [Personal](docs/personnel-demo.md) · [Terminaler](docs/terminal-demo.md). Backup och återställning är planerade enligt ÄL 045, inte byggda här.
+[Gemensam databas och säker import](docs/shared-postgres.md) · [Kontorsversionen](docs/office-demo.md) · [Artikelgrupper och bilder](docs/article-catalog.md) · [Personal](docs/personnel-demo.md) · [Terminaler](docs/terminal-demo.md) · [Planerade framtida uppdateringar](docs/planerade-uppdateringar.md). Backup och återställning är planerade enligt ÄL 045, inte byggda här.
 
 ## Starta på Windows eller Mac
 
