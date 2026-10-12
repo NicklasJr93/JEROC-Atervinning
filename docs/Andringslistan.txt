@@ -1746,3 +1746,19 @@ Status: Implementerad 2026-10-12, kontor 0.18.0 och mobilwebb 0.5.1.
   Migreringen sker före trafikstart och databasen spärrar äldre journalförfattare
   under rullande deploy. Återgång till äldre kod kräver en kompatibel återställning.
 - Samlad beskrivning och verifiering: docs/prestandabygge-2026-10-12.md.
+
+084 – Återanvänd kundens adress som ursprungsadress
+Status: Planerad 2026-10-12. Förslag antecknat; inte implementerat.
+- På viktkortet visas kryssrutan Samma som kundens adress vid ursprungsadressen.
+  Den fungerar både för befintlig kund och kund skapad direkt på viktkortet.
+- Kryssrutan är inte förvald. Vid val fylls kundens gata, postnummer och ort in
+  som en sammanhängande ursprungsadress. Kundens registrerade adress kan vara
+  en annan plats än byggarbetsplatsen eller platsen där materialet kommer ifrån.
+- Kontoristen kan ange en annan ursprungsadress; manuell redigering avmarkerar
+  kryssrutan. En redan ifylld ursprungsadress ersätts bara genom ett aktivt val.
+- Saknas kundadress kan den inte kopieras. Vid kundbyte följer det befintliga
+  flödet för ny ursprungsadress; ingen tidigare kundadress kopieras automatiskt.
+- Ursprungsadressen sparas som en egen uppgift på viktkortet. Senare ändringar
+  i kundregistret ändrar inte sparade kort, godkända underlag eller miljömottagningar.
+- Befintlig behörighet, adress-/kommunhantering och låsning används. Ursprunget
+  ska fortfarande vara sparat innan kundgodkännandet startar.
