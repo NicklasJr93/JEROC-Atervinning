@@ -47,8 +47,11 @@ export async function renderPdf(snapshot) {
   const receipt = snapshot.type === 'receipt';
   const site = snapshot.site?.name ?? snapshot.site;
   const final = snapshot.status === 'final';
+  const paymentConfirmation = snapshot.paymentConfirmation?.mode === 'mss' && snapshot.paymentConfirmation.simulation === true
+    ? snapshot.paymentConfirmation : null;
+  const pdfVersion = paymentConfirmation?.version ?? snapshot.paymentRevision?.version;
   const title = transport ? 'TRANSPORTDOKUMENT' : receipt ? 'UTBETALNINGSKVITTO' : 'AVRÄKNINGSNOTA';
-  const state = snapshot.status === 'reviewed' ? 'KUNDGODKÄND · EJ ATTESTERAD' : final ? 'UTFÄRDAD · DEMO' : transport ? 'UTKAST · DEMO' : 'PRELIMINÄR · EJ BOKFÖRD';
+  const state = paymentConfirmation ? 'TESTUTBETALNING BEKRÄFTAD · MSS' : snapshot.status === 'reviewed' ? 'KUNDGODKÄND · EJ ATTESTERAD' : final ? 'UTFÄRDAD · DEMO' : transport ? 'UTKAST · DEMO' : 'PRELIMINÄR · EJ BOKFÖRD';
   const font = (size, bold = false, color = C.text) => doc.font(bold ? 'JEROC-Bold' : 'JEROC-Regular').fontSize(size).fillColor(color);
   // Split ourselves instead of relying on PDFKit's implicit text/page flow. A long
   // unbroken address or material name must never escape its column or lose text.
@@ -228,11 +231,16 @@ export async function renderPdf(snapshot) {
     const paymentBody = [
       { text: `Betalningssätt: ${show(paymentLabel)}`, bold: true },
       `Mottagare: ${show(payment.recipient ?? snapshot.customer?.name)}`,
-      payment.maskedAccount ? `Konto / nummer: ${clean(payment.maskedAccount)}` : null,
-      payment.plannedAt ? `Planerat datum: ${date(payment.plannedAt)}` : null,
-      actualPaid ? `Registrerat betald: ${date(payment.paidAt, true)}` : payment.method === 'balance' ? 'Status: sparas på kundsaldo, ingen utbetalning.' : 'Status: inväntar utbetalning.',
+      payment.maskedAccount ? `${payment.method === 'swish' ? 'Swish-nummer' : 'Konto / nummer'}: ${clean(payment.maskedAccount)}` : null,
+      paymentConfirmation?.maskedPersonalNumber ? `Personnummer: ${clean(paymentConfirmation.maskedPersonalNumber)}` : null,
+      !paymentConfirmation && payment.plannedAt ? `Planerat datum: ${date(payment.plannedAt)}` : null,
+      paymentConfirmation ? { text: 'Testutbetalning bekräftad · Swish MSS', bold: true, color: C.green }
+        : actualPaid ? `Registrerat betald: ${date(payment.paidAt, true)}` : payment.method === 'balance' ? 'Status: sparas på kundsaldo, ingen utbetalning.' : 'Status: inväntar utbetalning.',
+      paymentConfirmation ? `Betalningsdatum i simulatorn: ${date(paymentConfirmation.datePaid, true)}` : null,
+      paymentConfirmation?.providerRef ? `Transaktionsreferens: ${clean(paymentConfirmation.providerRef)}` : null,
       receipt && payment.reference ? `Betalningsreferens: ${clean(payment.reference)}` : null,
-      { text: receipt ? 'Demoregistrering; ingen banktransaktion skickad.' : 'Inköpsunderlag, inte kvitto på genomförd betalning.', size: 8, color: C.muted },
+      { text: paymentConfirmation ? 'Swish har bekräftat testutbetalningen. Inga riktiga pengar har flyttats.'
+        : receipt ? 'Demoregistrering; ingen banktransaktion skickad.' : 'Inköpsunderlag, inte kvitto på genomförd betalning.', size: 8, color: C.muted },
     ].filter(Boolean);
     const totals = [
       { text: `Materialbelopp: ${money(materialTotal)} kr`, bold: false },
@@ -242,7 +250,7 @@ export async function renderPdf(snapshot) {
       { text: taxLabel, size: 8, color: tax.mode === 'unverified' ? C.amber : C.muted },
       `Kvittning mot kundsaldo: ${money(-num(snapshot.offset))} kr`,
       snapshot.offsetReference ? { text: clean(snapshot.offsetReference), size: 8, color: C.muted } : null,
-      { text: `${receipt ? 'Registrerad utbetalning' : payment.method === 'balance' ? 'Sparas på saldo' : final ? 'Att utbetala' : 'Beräknat att utbetala'}: ${money(snapshot.net ?? gross - num(snapshot.offset))} SEK`, bold: true, size: 11, color: C.green },
+      { text: `${paymentConfirmation ? 'Bekräftad testutbetalning' : receipt ? 'Registrerad utbetalning' : payment.method === 'balance' ? 'Sparas på saldo' : final ? 'Att utbetala' : 'Beräknat att utbetala'}: ${money(snapshot.net ?? gross - num(snapshot.offset))} SEK`, bold: true, size: 11, color: C.green },
     ].filter(Boolean);
     cards([{ title: 'Utbetalningsuppgifter', body: paymentBody }, { title: 'Avräkning & kundsaldo', body: totals }]);
     const note = tax.mode === 'reverse' ? 'Omvänd betalningsskyldighet. Köparen redovisar moms på inköpet enligt tillämpliga regler.' : tax.mode === 'standard' ? 'Debiterad moms ingår i avräkningsbeloppet och redovisas ovan.' : ['none', 'private'].includes(tax.mode) ? show(tax.label, 'Privatinköp. Ingen moms debiteras av säljaren.') : 'Momsbehandling har inte verifierats. Detta underlag anger inte någon momssats eller något momsbelopp.';
@@ -273,17 +281,21 @@ export async function renderPdf(snapshot) {
       doc.switchToPage(range.start + i);
       const top = H - 43;
       doc.moveTo(M, top).lineTo(W - M, top).lineWidth(.6).strokeColor(C.line).stroke();
-      const stamp = `${show(snapshot.id)} · Underlagsversion ${snapshot.version ?? '—'}${snapshot.paymentRevision ? ` · PDF-version ${snapshot.paymentRevision.version}` : ''}`;
+      const stamp = `${show(snapshot.id)} · Underlagsversion ${snapshot.version ?? '—'}${pdfVersion ? ` · PDF-version ${pdfVersion}` : ''}`;
       // Footer strings have a bounded line box regardless of lengthy external IDs.
       const stampLines = lines(stamp, WIDTH - 100, 7).slice(0, 1);
       text(stampLines.join(''), M, top + 8, WIDTH - 100, 7, false, C.muted);
       text(`Sida ${i + 1} av ${range.count}`, W - M - 98, top + 8, 98, 7, false, C.muted, 'right');
-      text(snapshot.paymentRevision ? 'SWISH MSS · Testmiljö. Inga riktiga pengar flyttas. Denna PDF bekräftar inte genomförd betalning.' : 'DEMO · Inga betalningar, bokföringsposter eller myndighetsrapporter har skickats.', M, top + 23, WIDTH, 7, false, C.muted);
+      text(paymentConfirmation ? 'SWISH MSS · Bekräftad testsimulering. Inga riktiga pengar har flyttats.'
+        : snapshot.paymentRevision ? 'SWISH MSS · Testmiljö. Inga riktiga pengar flyttas. Denna PDF bekräftar inte genomförd betalning.' : 'DEMO · Inga betalningar, bokföringsposter eller myndighetsrapporter har skickats.', M, top + 23, WIDTH, 7, false, C.muted);
     }
   }
   try {
     header();
-    if (snapshot.paymentRevision) {
+    if (paymentConfirmation) {
+      paragraph(`PDF-version ${paymentConfirmation.version} · Betalningsresultat verifierat ${date(paymentConfirmation.verifiedAt, true)}\nSamma avräkningsreferens, material, priser, moms och attest. Denna PDF kompletterar underlaget med Swish bekräftade testresultat. Tidigare PDF-versioner finns kvar i dokumenthistoriken.`,
+        { title: 'Betalningsbekräftelse – ersätter tidigare PDF-version', size: 8 });
+    } else if (snapshot.paymentRevision) {
       const revision = snapshot.paymentRevision;
       paragraph(`PDF-version ${revision.version} · Ändrad av ${show(revision.actor?.name, revision.actor?.effectiveUserId)} · ${date(revision.at, true)}\nOrsak: ${clean(revision.reason)}\nSamma avräkningsreferens och låsta ekonomiska underlag. Endast betalningsuppgifterna har uppdaterats. Originalet finns kvar i dokumenthistoriken.`,
         { title: 'Uppdaterade betalningsuppgifter – ersätter tidigare PDF-version', size: 8 });

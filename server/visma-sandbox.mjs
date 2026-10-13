@@ -43,7 +43,9 @@ const companyFrom = response => response && typeof response.CompanyIdentifier ==
 
 /** OAuth and test runs live in a separate ApplicationRepository domain. All
  * transactions are short; provider calls happen after the reservation commits. */
-export function createVismaSandbox({ getRepository, sourceProvider = async () => [], sitesProvider = async () => [], swishPaymentProvider, authorizeContext = async () => {}, env = process.env, fetchImpl = globalThis.fetch, now = () => new Date(), lookupTimeoutMs = 60000 } = {}) {
+export function createVismaSandbox({ getRepository, sourceProvider = async () => [], sitesProvider = async () => [], swishPaymentProvider, authorizeContext = async () => {},
+  authorizeBookingContext = async () => fail('Behörighet att bokföra i Spiris saknas.', 403, 'forbidden'),
+  env = process.env, fetchImpl = globalThis.fetch, now = () => new Date(), lookupTimeoutMs = 60000 } = {}) {
   if (typeof getRepository !== 'function') throw new TypeError('getRepository krävs.');
   const organisationId = readVismaOrganisationId(env);
   const scoped = (context, requireAdmin = true) => checkScoped(context, requireAdmin, organisationId);
@@ -369,6 +371,33 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
       const result = await operation(send); await authorize(); return result;
     } finally { clearTimeout(timer); controller.abort(); }
   }
+  // Same company fencing as payment bookkeeping, with a separate capability
+  // that can only convert an already verified draft and read its final invoice.
+  async function bookingBatch(scope, authorize, operation) {
+    const context = { organisationId, actorId: 'service:spiris-booking', effectiveUserId: 'service:spiris-booking' };
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 45000);
+    try {
+      await authorize(); const configuration = ready();
+      if (configuration.mode !== 'sandbox' || configuration.expectedCompanyId !== scope.companyId)
+        fail('Bokföringen tillhör en annan Spiris-koppling.', 409, 'visma_booking_connection_changed');
+      const checkGeneration = () => readTenantProjection(tenant => {
+        requireCompany(tenant, ready());
+        if (tenant.generation !== scope.generation) fail('Spiris-kopplingen har ändrats.', 409, 'visma_booking_connection_changed');
+      }, CONNECTION_PATHS);
+      await checkGeneration();
+      const accessToken = await access(context, scope.generation, controller.signal);
+      const check = await checkCompany(context, scope.generation, accessToken, randomUUID(), controller.signal, true);
+      if (check.result.outcome === 'unknown' || check.result.httpStatus === 408 || check.result.httpStatus === 429 || check.result.httpStatus >= 500)
+        fail('Spiris-företaget kunde inte kontrolleras just nu. Ingen ny bokföring har skickats.', 503, 'visma_booking_unavailable');
+      if (check.result.outcome !== 'accepted' || check.company?.id !== scope.companyId)
+        fail('Rätt Spiris-sandboxföretag kunde inte verifieras.', 409, 'visma_booking_connection_changed');
+      const send = async (operation, parameters) => {
+        controller.signal.throwIfAborted(); await authorize(); await checkGeneration();
+        return client.bookingRequest({ operation, parameters, accessToken, signal: controller.signal });
+      };
+      const result = await operation(send); await checkGeneration(); return result;
+    } finally { clearTimeout(timer); controller.abort(); }
+  }
   const service = {
     initialize: () => storage.ready(),
     async integrationStatus(context) {
@@ -471,7 +500,7 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
   const connectionFrom = tenant => ({ generation: tenant.generation, company: copy(tenant.company), companyVerified: verified(tenant, config()) });
   finance = createVismaExports({ organisationId, readTenantProjection, queryExports: options => storage.queryExports(options), connectionPaths: CONNECTION_PATHS, connectionFrom,
     transact: (operation, options = {}) => storage.transact(operation, { organisationId, runs: false, finance: true, audit: true, ...options }),
-    tenantFor, scoped, audit, clock, config, sourceProvider, sitesProvider, authorizeContext, lookupBatch, readbackBatch,
+    tenantFor, scoped, audit, clock, config, sourceProvider, sitesProvider, authorizeContext, authorizeBookingContext, lookupBatch, readbackBatch, bookingBatch,
     send: (request, context, worker, scopeKey) => dispatch(request, context, worker ? workerCapability : undefined, scopeKey),
     connection: () => readTenantProjection(connectionFrom, CONNECTION_PATHS),
   });

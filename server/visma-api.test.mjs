@@ -47,6 +47,10 @@ async function fixture(run, env = {}) {
     async preview(input, context) { record('preview', context, input); return { rows: [] }; },
     async exports(context) { record('exports', context); return { exports: [] }; },
     async sendExport(input, context) { record('sendExport', context, input); return { id: 'export-example', status: 'accepted' }; },
+    async cardBookingStatus(cardId, context) { record('cardBookingStatus', context, cardId); return { status: 'draft', draftId: 'existing-draft' }; },
+    async requestCardBooking(input, context) { record('requestCardBooking', context, input); return { status: 'booking' }; },
+    async refreshCardBooking(cardId, context) { record('refreshCardBooking', context, cardId); return { status: 'booked' }; },
+    async processQueuedExports(input) { calls.push({ method: 'processQueuedExports', input }); },
     async refreshExport(id, context) { record('refreshExport', context, id); return { id, status: 'accepted' }; },
     async recreateExport(id, input, context) { record('recreateExport', context, { id, ...input }); return { id, status: 'queued' }; },
     async begin(context) { record('begin', context); return { authorizationUrl: 'https://oauth.fixture.invalid/authorize?state=public-fixture-state', cookieBinding: 'opaque-server-only-binding', expiresAt: '2026-10-11T10:10:00Z' }; },
@@ -99,6 +103,24 @@ test('attested card listing and prefill are authenticated read-only routes', asy
   for (const id of ['-1', '0', '3016abc', '123456789012345']) assert.equal((await fetch(`${f.base}/visma/attested-cards/${id}`, { headers: admin.headers })).status, 404);
   assert.equal((await fetch(`${f.base}/visma/attested-cards/3016`, { method: 'POST', headers: admin.headers, body: '{}' })).status, 404);
   assert.equal(f.calls.length, 2);
+}));
+
+test('card booking uses a narrow finance permission without granting sandbox administration, and preserves CSRF and identity guards', async () => fixture(async f => {
+  const route = '/visma/accounting/cards/3024/booking';
+  assert.equal((await fetch(f.base + route)).status, 401);
+  const lars = await f.login('lars'), anna = await f.login('anna');
+  assert.equal((await fetch(f.base + route, { headers: lars.headers })).status, 200);
+  assert.equal((await fetch(f.base + '/visma/accounting/settings', { headers: lars.headers })).status, 403);
+  assert.equal((await fetch(f.base + route, { method: 'POST', headers: anna.headers, body: '{}' })).status, 403);
+  assert.equal((await fetch(f.base + route, { method: 'POST', headers: { ...lars.headers, 'X-Environment-CSRF': 'invalid' }, body: '{}' })).status, 403);
+  assert.equal((await fetch(f.base + route, { method: 'POST', headers: { ...lars.headers, 'X-Environment-Actual-User': 'admin' }, body: '{}' })).status, 403);
+  assert.equal((await fetch(f.base + route, { method: 'POST', headers: lars.headers, body: '{"invoiceId":"foreign","amount":100}' })).status, 422);
+  const response = await fetch(f.base + route, { method: 'POST', headers: lars.headers, body: '{}' });
+  assert.equal(response.status, 202); assert.equal((await response.json()).status, 'booking');
+  assert.equal(f.calls.filter(call => call.method === 'requestCardBooking').length, 1);
+  assert.deepEqual(f.calls.find(call => call.method === 'requestCardBooking').input, { cardId: 3024 });
+  const refreshed = await fetch(f.base + route + '/refresh', { method: 'POST', headers: lars.headers, body: '{}' });
+  assert.equal(refreshed.status, 200); assert.equal((await refreshed.json()).status, 'booked');
 }));
 
 test('Visma writes check live CSRF, expected identities and origin before invoking the service', async () => fixture(async f => {

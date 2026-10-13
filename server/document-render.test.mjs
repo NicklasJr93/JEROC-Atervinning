@@ -108,6 +108,23 @@ test('payment PDF revision clearly replaces the earlier PDF while retaining sett
   for (const word of boxes.matchAll(/<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)"/g))
     assert.ok(Number(word[1]) >= 28 && Number(word[3]) <= 567 && Number(word[4]) < 840, 'revision content exceeds A4');
 });
+test('confirmed MSS PDF replaces waiting status with masked Swish confirmation, actual provider date and reference', { skip: !canExtract }, async () => {
+  const s = sample();
+  s.payment = { method: 'swish', label: 'Swish', recipient: 'Testkunden', maskedAccount: '•••• 1132' };
+  s.customer = { ...s.customer, name: 'Testkunden', number: '' };
+  s.paymentConfirmation = { version: 3, mode: 'mss', simulation: true, datePaid: '2026-10-13T08:47:00Z',
+    actualPaidAt: '2026-10-13T08:47:00Z', verifiedAt: '2026-10-13T08:47:01Z', amountCents: 3682900,
+    maskedPhone: '•••• 1132', maskedPersonalNumber: '•••• 6828', providerRef: 'SWISH-MSS-REFERENCE-001' };
+  const pdf = await renderPdf(s), text = await extracted(pdf), boxes = await extracted(pdf, true);
+  for (const expected of ['Betalningsbekräftelse', 'ersätter tidigare PDF-version', 'PDF-version 3', 'Testutbetalning bekräftad',
+    'Swish MSS', 'Swish-nummer', '1132', 'Personnummer', '6828', '2026-10-13', '10:47', 'SWISH-MSS-REFERENCE-001',
+    'Inga riktiga pengar', '36 829,00', '37 329,00', 'AV-2026-00128', 'Omvänd betalningsskyldighet'])
+    assert.ok(text.includes(expected), expected);
+  assert.doesNotMatch(text, /inväntar utbetalning|Att utbetala:|197709306828|46711111132|SENSITIVE-FULL-ACCOUNT|PDF bekräftar inte genomförd/);
+  assert.ok(pages(pdf) <= 2);
+  for (const word of boxes.matchAll(/<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)"/g))
+    assert.ok(Number(word[1]) >= 28 && Number(word[3]) <= 567 && Number(word[4]) < 840, 'confirmation content exceeds A4');
+});
 test('transport document keeps sender, carrier and receiver but omits money and bank details', { skip: !canExtract }, async () => {
   const s = { ...sample(), type: 'transport', status: 'draft', sender: party, receiver: { ...party, name: 'Nordmetall Återvinning AB' }, carrier: { ...party, name: 'Roslagens Transport AB' }, rows: [{ name: 'Blybatterier', weight: 980, price: 99, amount: 97020, wasteCode: '16 06 01*' }], totalWeight: 980, origin: 'Kundverkstaden 3', transport: { direction: 'pickup', driver: 'Oskar Lind', registration: 'ABC123', requestedAt: '2026-10-12T08:00:00Z', handling: 'Skydda mot läckage och kortslutning.', signatures: [] } };
   const text = await extracted(await renderPdf(s));

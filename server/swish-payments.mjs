@@ -79,7 +79,8 @@ function publicJob(job) {
   return copy(Object.fromEntries(['id', 'organisationId', 'kind', 'mode', 'simulation', 'source', 'sourceSnapshotHash', 'sourceSnapshot', 'amount', 'amountCents', 'currency',
     'paymentDetails', 'originalPaymentDetails', 'reason', 'recipient', 'status', 'bookkeepingStatus', 'bookkeeping', 'createdAt', 'updatedAt', 'verifiedAt', 'finishedAt',
     'providerInstructionUUID', 'providerPaymentReference', 'request', 'response', 'events', 'error', 'documentRevision', 'spirisBankAccountId', 'spirisCompanyId', 'retryOf',
-    'reservedBy', 'revisionActor', 'pollSuspended', 'nextCheckAt', 'bookkeepingEnabled']
+    'reservedBy', 'revisionActor', 'pollSuspended', 'nextCheckAt', 'bookkeepingEnabled',
+    'paymentConfirmationDocument', 'paymentDocumentStatus', 'paymentDocumentError', 'bookingProof']
     .filter(key => job[key] !== undefined).map(key => [key, job[key]])));
 }
 
@@ -89,7 +90,9 @@ function publicJob(job) {
  * MSS success stays simulated: this module never creates office.payments and
  * never sets a source card to real or demo paid. */
 export function createSwishPayments({ getRepository, sourceProvider = async () => [], client, env = process.env, now = () => new Date(),
-  authorizeContext = async () => {}, onVerifiedPayment, onPrepared, sitesProvider = async () => [] } = {}) {
+  authorizeContext = async () => {}, onVerifiedPayment, onPrepared, onPaymentConfirmed,
+  assertPaymentReady = async () => fail('Bokför underlaget i Spiris före utbetalning.', 409, 'swish_invoice_unbooked'),
+  sitesProvider = async () => [] } = {}) {
   if (typeof getRepository !== 'function' || !client) throw new TypeError('getRepository och Swish-klient krävs.');
   const organisationId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
   const clock = () => new Date(now());
@@ -106,13 +109,31 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
       : repository.read(state => operation(domain(state)), { domains: [DOMAIN] });
   };
   function indexWork(value) {
-    const active = Object.values(value.jobs).filter(item => !terminal(item) && !item.pollSuspended || item.status === 'simulated_paid' && item.kind === 'card'
-      && item.registerSpirisPayment && !['registered', 'blocked', 'failed', 'paused'].includes(item.bookkeepingStatus));
-    const due = item => item.status === 'simulated_paid' ? item.bookkeepingNextCheckAt ?? item.createdAt
-      : item.lease?.expiresAt ?? item.nextCheckAt ?? item.createdAt;
+    const active = Object.values(value.jobs).filter(item => !terminal(item) && !item.pollSuspended || documentWork(item) || bookkeepingWork(item));
+    const due = item => item.status === 'simulated_paid' ? [
+      ...(documentWork(item) ? [item.paymentDocumentLease?.expiresAt ?? item.paymentDocumentNextCheckAt ?? item.createdAt] : []),
+      ...(bookkeepingWork(item) ? [item.bookkeepingLease?.expiresAt ?? item.bookkeepingNextCheckAt ?? item.createdAt] : []),
+    ].sort()[0] ?? item.createdAt : item.lease?.expiresAt ?? item.nextCheckAt ?? item.createdAt;
     active.sort((a, b) => due(a).localeCompare(due(b)));
     value.workIds = active.map(item => item.id);
     value.nextWorkAt = active.length ? due(active[0]) : null;
+  }
+  function documentWork(item) {
+    return Boolean(onPaymentConfirmed && item.status === 'simulated_paid' && item.kind === 'card'
+      && item.paymentDocumentStatus !== 'archived' && (item.paymentDocumentAttempts ?? 0) < 5);
+  }
+  function bookkeepingWork(item) {
+    return item.status === 'simulated_paid' && item.kind === 'card' && item.registerSpirisPayment
+      && !['registered', 'blocked', 'failed', 'paused'].includes(item.bookkeepingStatus);
+  }
+  async function verifiedBooking(source, { fresh = false, previous } = {}) {
+    const result = await assertPaymentReady(source, { fresh });
+    if (result?.status !== 'booked' || !result.companyId || !result.generation || !result.invoiceId)
+      fail('Bokför underlaget i Spiris före utbetalning.', 409, 'swish_invoice_unbooked');
+    const proof = { companyId: result.companyId, generation: result.generation, invoiceId: result.invoiceId, draftId: result.draftId ?? null };
+    if (previous && !equal(previous, proof))
+      fail('Spiris-fakturan eller kopplingen har ändrats. Utbetalningen behöver granskas.', 409, 'swish_booking_changed');
+    return proof;
   }
   const transaction = async operation => (await getRepository()).transact((state, revision, audit) => {
     const value = domain(state, true), result = operation(value, state, audit); indexWork(value); return result;
@@ -242,13 +263,15 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
     if (!data.settings.enabled) issues.push('Aktivera Swish MSS-test under Integrationer först.');
     if (!config.ready) issues.push(...(config.missing ?? []), ...(config.issues ?? []));
     if (source.customer.type !== 'Privatperson') issues.push('Swish Utbetalning stöder endast privatpersoner. Företagskunder behöver bankutbetalning.');
+    let bookingProof = null;
+    try { bookingProof = await verifiedBooking(source.source); } catch (error) { issues.push(error.message); }
     const canInitiate = issues.length === 0 && !(data.existingJob && blocking(data.existingJob));
     try { validateSwish(source.originalPaymentDetails); } catch (error) { issues.push(error.message); }
     if (data.existingJob && blocking(data.existingJob)) issues.push('Detta kort har redan en reserverad eller genomförd Swish-testutbetalning.');
     return { cardId, source: source.source, sourceSnapshotHash: source.snapshot.hash, amount: source.amountCents / 100, amountCents: source.amountCents,
       currency: 'SEK', originalPaymentDetails: source.originalPaymentDetails, paymentDetails: copy(source.originalPaymentDetails),
       customer: { id: source.customer.id, name: source.customer.name, type: source.customer.type, number: source.customer.number },
-      canStart: issues.length === 0, canInitiate, issues, simulation: true, mode: 'mss', configuration: config, ...data };
+      canStart: issues.length === 0, canInitiate, issues, simulation: true, mode: 'mss', configuration: config, bookingProof, ...data };
   }
   async function start(input, context) {
     const parsed = startSchema.safeParse(input); if (!parsed.success) fail('Kontrollera betalningsinstruktionen.');
@@ -264,6 +287,7 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
       fail('Mottagarens personnummer måste matcha kunden i den attesterade avräkningen. Kundens identitet är låst.', 409, 'swish_recipient_identity_changed');
     const modified = !equal(editableDetails(details), editableDetails(source.originalPaymentDetails));
     if (modified && !request.reason?.trim()) fail('Ange en orsak när betalningssätt eller mottagaruppgifter ändras.', 422, 'swish_override_reason_required');
+    const bookingProof = await verifiedBooking(source.source);
     const config = await configuration();
     if (!config.ready) fail('Swish MSS-testmiljön är inte färdigkonfigurerad.', 409, 'swish_not_configured');
     const result = await transaction((value, state, audit) => {
@@ -278,6 +302,7 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
       const timestamp = clock().toISOString(), id = randomUUID();
       const job = { id, organisationId, kind: 'card', mode: 'mss', simulation: true, source: source.source,
         sourceSnapshotHash: source.snapshot.hash, sourceSnapshot: source.snapshot, amountCents: source.amountCents, amount: source.amountCents / 100,
+        bookingProof, paymentDocumentStatus: 'pending',
         currency: 'SEK', paymentDetails: details, originalPaymentDetails: source.originalPaymentDetails, reason: request.reason ?? '',
         recipient: { name: details.recipient, phone: details.phone, personalNumber: details.personalNumber },
         spirisBankAccountId: value.settings.spirisBankAccountId ?? null,
@@ -415,6 +440,15 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
     }
     // Recheck current authorization in the same short commit that marks the
     // instruction sent. A revoked queued instruction never reaches Swish.
+    if (item.kind === 'card') {
+      try { await verifiedBooking(item.source, { fresh: true, previous: item.bookingProof }); }
+      catch (error) {
+        await updateReserved(item.id, leaseId, saved => { saved.status = 'blocked'; saved.lease = null;
+          saved.error = { code: error.code ?? 'swish_invoice_unbooked', message: text(error.message, 300) };
+          event(saved, 'payment_blocked', undefined, { text: saved.error.message }); });
+        return false;
+      }
+    }
     return transaction((value, state) => {
       const saved = value.jobs[item.id]; if (saved?.lease?.id !== leaseId) return false;
       try { principalIn(state, workerContext(saved), { admin: saved.kind === 'sandbox', siteId: saved.source?.siteId });
@@ -501,8 +535,36 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
       }
       event(saved, result.ok ? 'payment_pending' : 'payment_outcome_unknown', undefined, { text: saved.error?.message ?? 'Swish-testet inväntar ett verifierat slutligt svar.' });
     });
-    if (item?.status === 'simulated_paid') await synchronizeBookkeeping(item.id);
+    if (item?.status === 'simulated_paid') {
+      await synchronizePaymentDocument(item.id);
+      await synchronizeBookkeeping(item.id);
+    }
     return item;
+  }
+  async function synchronizePaymentDocument(id, { force = false } = {}) {
+    if (!onPaymentConfirmed) return;
+    const reservation = await transaction(value => {
+      const saved = value.jobs[id];
+      if (!saved || saved.kind !== 'card' || saved.status !== 'simulated_paid' || saved.providerResult?.status !== 'PAID'
+        || saved.paymentDocumentStatus === 'archived' || saved.paymentDocumentLease && Date.parse(saved.paymentDocumentLease.expiresAt) > clock().getTime()) return null;
+      if (!force && ((saved.paymentDocumentAttempts ?? 0) >= 5 || saved.paymentDocumentNextCheckAt && Date.parse(saved.paymentDocumentNextCheckAt) > clock().getTime())) return null;
+      saved.paymentDocumentLease = { id: randomUUID(), expiresAt: nextAt(clock(), LEASE_MS) };
+      saved.paymentDocumentStatus = 'pending'; saved.paymentDocumentAttempts = (saved.paymentDocumentAttempts ?? 0) + 1;
+      return { job: copy(saved), leaseId: saved.paymentDocumentLease.id };
+    });
+    if (!reservation) return;
+    let result, failure;
+    try { result = await onPaymentConfirmed(copy(reservation.job)); if (!result?.documentId) throw new Error('PDF-bekräftelsen kunde inte arkiveras.'); }
+    catch (error) { failure = text(error.message, 300) || 'Betalningsbekräftelsens PDF behöver följas upp.'; }
+    await transaction(value => {
+      const saved = value.jobs[id]; if (saved?.paymentDocumentLease?.id !== reservation.leaseId) return;
+      saved.paymentDocumentLease = null;
+      saved.paymentDocumentStatus = failure ? 'failed' : 'archived'; saved.paymentDocumentError = failure ?? null;
+      saved.paymentDocumentNextCheckAt = failure && saved.paymentDocumentAttempts < 5 ? nextAt(clock(), 60_000) : null;
+      if (result && !failure) saved.paymentConfirmationDocument = copy(result);
+      event(saved, failure ? 'payment_confirmation_pdf_failed' : 'payment_confirmation_pdf_archived', undefined,
+        { text: failure ?? 'Ny avräknings-PDF med verifierad Swish-testbekräftelse är arkiverad.' });
+    });
   }
   async function synchronizeBookkeeping(id, { force = false } = {}) {
     if (!onVerifiedPayment) return;
@@ -541,7 +603,10 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
   }
   async function refresh(id, context) {
     const existing = await authorizeJob(id, context);
-    if (existing.status === 'simulated_paid') await synchronizeBookkeeping(id, { force: true });
+    if (existing.status === 'simulated_paid') {
+      await synchronizePaymentDocument(id, { force: true });
+      await synchronizeBookkeeping(id, { force: true });
+    }
     else if (!terminal(existing)) await run(id, true);
     return job(id, context);
   }
@@ -552,10 +617,11 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
       if (!index.workIds.length || index.nextWorkAt && Date.parse(index.nextWorkAt) > clock().getTime()) return 0;
       const selected = index.workIds.slice(0, Math.min(50, limit));
       const ids = await read(value => selected.map(id => value.jobs[id]).filter(Boolean)
-        .filter(item => item.status === 'simulated_paid' ? !item.bookkeepingNextCheckAt || Date.parse(item.bookkeepingNextCheckAt) <= clock().getTime()
+        .filter(item => item.status === 'simulated_paid' ? documentWork(item) && (!item.paymentDocumentNextCheckAt || Date.parse(item.paymentDocumentNextCheckAt) <= clock().getTime())
+          || bookkeepingWork(item) && (!item.bookkeepingNextCheckAt || Date.parse(item.bookkeepingNextCheckAt) <= clock().getTime())
           : !item.pollSuspended && (!item.nextCheckAt || Date.parse(item.nextCheckAt) <= clock().getTime()))
         .map(item => ({ id: item.id, paid: item.status === 'simulated_paid' })), [['organisationId'], ...selected.map(id => ['jobs', id])]);
-      for (const item of ids) { if (item.paid) await synchronizeBookkeeping(item.id); else await run(item.id); }
+      for (const item of ids) { if (item.paid) { await synchronizePaymentDocument(item.id); await synchronizeBookkeeping(item.id); } else await run(item.id); }
       return ids.length;
     })();
     try { return await processing; } finally { processing = null; }
@@ -566,5 +632,5 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
     if (existing) fail('Kortet har en reserverad eller genomförd Swish-testutbetalning. Den manuella demoutbetalningen är spärrad.', 409, 'swish_payment_reserved');
   }
   return { initialize, integrationStatus, settings, saveSettings, prepare, start, sandboxSend, job, getCardJobs, refresh, processQueuedPayments,
-    assertNoManagedPayment, readVerifiedPayment, synchronizeBookkeeping };
+    assertNoManagedPayment, readVerifiedPayment, synchronizeBookkeeping, synchronizePaymentDocument };
 }

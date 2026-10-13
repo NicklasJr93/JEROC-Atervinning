@@ -89,6 +89,20 @@ test('Visma configuration is disabled by default and reports missing sandbox req
   assertNoSecrets(complete, [f.env.VISMA_CLIENT_SECRET, f.env.VISMA_TOKEN_ENCRYPTION_KEY]);
 });
 
+test('private booking capability converts one exact draft without a body and is absent from generic sandbox', async () => {
+  const f = fixture({ respond: () => new Response(JSON.stringify({ Id: randomUUID() }), { status: 201 }) });
+  const result = await f.client.bookingRequest({ operation: 'convertDraft', parameters: { resourceId: draftId }, accessToken });
+  assert.equal(result.outcome, 'accepted'); assert.equal(result.httpStatus, 201);
+  assert.equal(f.calls[0].url, `${apiUrl}/supplierinvoicedrafts/${draftId}/convert`);
+  assert.equal(f.calls[0].method, 'POST'); assert.equal(f.calls[0].body, undefined);
+  assert.throws(() => parseVismaSandboxInput({ requestId: randomUUID(), idempotencyKey: 'test', operation: 'convertDraft', parameters: { resourceId: draftId } }));
+  const before = f.calls.length;
+  await assert.rejects(() => f.client.bookingRequest({ operation: 'convertDraft', parameters: { resourceId: draftId }, payload: draftPayload, accessToken }));
+  await assert.rejects(() => f.client.bookingRequest({ operation: 'recordPayment', parameters: { resourceId: draftId }, accessToken }));
+  await assert.rejects(() => f.client.bookingRequest({ operation: 'convertDraft', parameters: { resourceId: '../supplierinvoices' }, accessToken }));
+  assert.equal(f.calls.length, before);
+});
+
 test('Visma sandbox OAuth uses the documented scopes and PKCE S256 at the fixed identity host', () => {
   const f = fixture(), state = randomUUID();
   const url = new URL(f.client.authorizationUrl({ state, verifier }));

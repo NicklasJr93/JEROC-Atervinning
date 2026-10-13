@@ -3,13 +3,14 @@ import { createTerminalDemoApi } from './terminal-demo.mjs';
 import { createEnvironmentApi } from './environment-api.mjs';
 import { createDocumentsApi } from './documents/api.mjs';
 import { renderPdf } from './documents/render-pool.mjs';
-import { PricingError, getArticleMediaReferences } from './pricing.mjs';
+import { PricingError, getArticleMediaReferences, resolvePricingPrincipal } from './pricing.mjs';
 import { createVismaSandbox } from './visma-sandbox.mjs';
 import { canManageVisma } from './visma-client.mjs';
 import { createArticleMediaApi } from './article-media.mjs';
 import { ensureLogistics } from './logistics.mjs';
 import { createSwishMssClient } from './swish-client.mjs';
 import { createSwishPayments } from './swish-payments.mjs';
+import { can } from '../dist-server/domain-models.mjs';
 
 /** All repositories, queues and provider connections belong to one immutable
  * server-selected organisation. A request can never change this bundle's scope. */
@@ -31,7 +32,10 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     environmentProvider: () => environmentApi.getLogisticsSource(),
     accountingSettingsProvider: customer => vismaService.financeSettingsForCompany(customer),
     accountingCardStatusProvider: cardId => vismaService.cardExportProjection(cardId),
-    managedPaymentGuard: (cardId, state) => swishService.assertNoManagedPayment(cardId, state),
+    managedPaymentGuard: async (cardId, state) => {
+      await swishService.assertNoManagedPayment(cardId, state);
+      throw new PricingError('Använd utbetalningskortets verifierade betalningsflöde. Äldre manuell demoregistrering är avstängd.', 409);
+    },
     validateArticleMedia: async (route, input) => {
       const references = getArticleMediaReferences(route, input);
       if (references.length && !await articleMediaApi.hasImages(references))
@@ -49,6 +53,25 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
   const vismaService = createVismaSandbox({ env, getRepository: () => applicationApi.getRepository(),
     sourceProvider: request => terminalDemoApi.documentProjections(request), sitesProvider: () => environmentApi.getSites(),
     swishPaymentProvider: id => swishService.readVerifiedPayment(id),
+    authorizeBookingContext: async (context, { cardId, siteId, write = false } = {}) => {
+      if (context?.organisationId !== organisationId || !context.actorId || !context.effectiveUserId)
+        throw new PricingError('Bokföringsåtgärden tillhör inte detta bolag.', 403);
+      if (typeof context.reauthorize === 'function') {
+        const current = await context.reauthorize();
+        if (current.actor.id !== context.actorId || current.user.id !== context.effectiveUserId)
+          throw new PricingError('Bokföringssessionen har ändrats.', 403);
+      }
+      return (await applicationApi.getRepository()).read(state => {
+        const principal = resolvePricingPrincipal(state.pricing?.users ?? [], context.actorId, context.effectiveUserId);
+        const allowed = write ? ['bookSpiris'] : ['bookSpiris', 'attest', 'pay'];
+        if (!allowed.some(right => can(principal.actor, right) && can(principal.user, right)))
+          throw new PricingError(write ? 'Behörighet att bokföra i Spiris krävs.' : 'Behörighet till attest, bokföring eller utbetalning krävs.', 403);
+        const currentSite = siteId ?? state.office?.cards?.find(card => String(card.id) === String(cardId))?.siteId;
+        if (!currentSite || [principal.actor, principal.user].some(user => Array.isArray(user.siteIds) && !user.siteIds.includes(currentSite)))
+          throw new PricingError('Du saknar åtkomst till underlagets anläggning.', 403);
+        return principal;
+      }, { domains: ['pricing', 'office'] });
+    },
     authorizeContext: async context => {
       if (typeof context.reauthorize !== 'function') throw new PricingError('Den aktiva integrationssessionen saknas.', 403);
       const session = await context.reauthorize();
@@ -69,6 +92,8 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     },
     onPrepared: job => job.kind === 'card' && job.reason
       ? documentsApi.archivePaymentRevision(job) : undefined,
+    assertPaymentReady: (source, options) => vismaService.assertPaymentReady(source, options),
+    onPaymentConfirmed: job => documentsApi.archivePaymentConfirmation(job),
     onVerifiedPayment: (job, options) => vismaService.synchronizeSwishPayment(job.id, options),
   });
   const environmentApi = createEnvironmentApi({ env, initialSites, trustedPrincipalProvider: reauthorizeTrustedPrincipal ?? trustedPrincipalProvider, principalStore,
@@ -88,6 +113,9 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
       return { settings, customer };
     },
     onAttested: approval => vismaService.processQueuedExports({ cardId: approval.cardId, reconcile: false }),
+    attestBookingCheck: (approval, principal) => vismaService.checkAttestBooking(approval, {
+      organisationId, actorId: principal.actor.id, effectiveUserId: principal.user.id,
+    }),
     onApprovalChanged: (approval, job) => job
       ? documentsApi.archiveApprovalJob(approval, { ...job, companySnapshot: structuredClone(documentCompany) })
       : documentsApi.ensureApproval(approval),

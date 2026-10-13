@@ -4,7 +4,9 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.8.1. Aktuell kontorsversion: 0.22.2.
+Aktuell mobilwebbversion: 0.8.1. Aktuell kontorsversion: 0.23.0.
+Delad attestknapp, bokföring i Spiris, utbetalningsspärr, eget utbetalningskort
+och betalningsbekräftad PDF är genomförda i ÄL 103, bygge 2026-10-13.
 Swish MSS-test, utbetalningspopup, PDF-revisioner och Spiris-betalningsbokföring
 i sandbox är genomförda i 102, bygge 2026-10-13.
 096, 097 och 100 är genomförda tillsammans i bygge 2026-10-13.
@@ -2327,3 +2329,36 @@ sandbox; ingen skarp Swish-/bankutbetalning har aktiverats.
   Företagsmottagare, kvittning, saldo, bank och kontant ingår i kommande etapper.
 - Render-inställningar och provflöde:
   docs/integrationer/swish-mss-bygge-2026-10-13.md.
+
+ÄL 103 – Delad attest, bokföring och tydligt utbetalningsflöde
+Status: Implementerad 2026-10-13 i kontor 0.23.0. Spiris sandbox och Swish
+MSS används fortsatt; produktionsbetalningar har inte aktiverats.
+- Attestknappen har två synliga val: Attestera · skapa utkast (standard)
+  och Attestera & bokför. Bokföra i Spiris är en separat behörighet som
+  kontrolleras för både verklig användare och Jobba som-användare.
+- Attesten sparas direkt. Valet och den betrodda Spiris-kopplingen följer
+  attestversionen; bokföring av befintligt utkast körs sedan i bakgrunden.
+  Bokföringsfel tar inte bort attesten och skapar inte en extra faktura.
+- Utbetalning spärras på servern tills samma frysta underlag är bokfört,
+  har en verklig verifikation och fortfarande är obetalt i rätt Spiris-företag.
+  Kontroll sker igen före Swish-sändning. Den äldre manuella demovägen
+  får inte kringgå spärren i det gemensamma bolagsflödet.
+- Nytt fullbrett kort Utbetalning ligger under Attest och visar nästa
+  åtgärd, Spiris-status, betalningsresultat och senaste PDF. Blå elektrisk
+  kant markerar den tillgängliga bokförings-/utbetalningsåtgärden.
+  Betalningsuppgifter överst behåller det kundgodkända underlagets uppgifter.
+- Utbetalningspopupen börjar låst. Redigera öppnar tillåtna betalningsfält;
+  belopp och kundidentitet förblir låsta. Ändringar kräver orsak och historik.
+- Egen Swish-popup visar faktisk status med Swish-symbol och animation.
+  Fel visas i begriplig text. Avancerat öppnar maskerad JSON och Kopiera
+  felsökningsinfo; inga mejl skickas automatiskt. Admins integrationsprov
+  behåller sin detaljerade testpopup.
+- Verifierat PAID skapar en ny oföränderlig PDF-version med verklig
+  provider-tidpunkt, referens och maskerade mottagaruppgifter. I MSS står
+  Testutbetalning bekräftad · Swish MSS. Original och ekonomiskt innehåll
+  bevaras; senaste PDF-versionen visas som standard.
+- PDF och Spiris-betalningsregistrering följs upp oberoende. Ett fel efter
+  verifierad Swish-bekräftelse får aldrig skapa en ny pengainstruktion.
+  Okänt bokföringssvar kontrolleras via läsning; konvertering omsänds inte.
+- Provflöde och verifiering:
+  docs/integrationer/attest-bokfor-utbetalning-2026-10-13.md.

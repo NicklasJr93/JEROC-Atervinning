@@ -228,8 +228,9 @@ export function createVismaStorage({ getRepository, organisationId: defaultOrgan
       WHERE organisation_id=$1 AND collection='runs' ORDER BY sort_at DESC NULLS LAST,sequence DESC LIMIT $2`, [organisationId, limit])).rows.map(row => row.document));
   }
   async function queryExports(options = {}) {
-    const { organisationId = defaultOrganisationId, companyId, id, key, cardId, statuses, trigger, limit, fields, trackingDueAt, trackingGeneration, descending = false } = options;
+    const { organisationId = defaultOrganisationId, companyId, id, key, cardId, statuses, trigger, limit, fields, trackingDueAt, trackingGeneration, bookingDueOnly = false, descending = false } = options;
     if (statuses !== undefined && (!Array.isArray(statuses) || statuses.some(status => typeof status !== 'string')) || fields !== undefined && (!Array.isArray(fields) || fields.some(field => typeof field !== 'string'))
+      || typeof bookingDueOnly !== 'boolean' || bookingDueOnly && typeof trackingDueAt !== 'string'
       || limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 10000)) throw new TypeError('Välj giltiga överföringsfilter.');
     const repo = await ready();
     if (repo.kind !== 'postgresql') return read(document => {
@@ -241,6 +242,9 @@ export function createVismaStorage({ getRepository, organisationId: defaultOrgan
         return !tracking || tracking.state === 'pending' && (!tracking.nextCheckAt || tracking.nextCheckAt <= trackingDueAt)
           || tracking.state === 'paused' && tracking.checkedGeneration !== trackingGeneration;
       });
+      if (bookingDueOnly) jobs = jobs.filter(job => job.status === 'accepted' && ['queued', 'processing', 'unknown'].includes(job.booking?.status)
+        && (!job.booking.lease?.until || job.booking.lease.until <= trackingDueAt)
+        && (!job.booking.nextCheckAt || job.booking.nextCheckAt <= trackingDueAt));
       jobs = jobs.slice().sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') * (descending ? -1 : 1));
       if (limit !== undefined) jobs = jobs.slice(0, limit);
       return fields ? jobs.map(job => Object.fromEntries(fields.filter(field => Object.hasOwn(job, field)).map(field => [field, clone(job[field])]))) : clone(jobs);
@@ -256,8 +260,11 @@ export function createVismaStorage({ getRepository, organisationId: defaultOrgan
             (document->'tracking'->'lease'->>'until' IS NULL OR document->'tracking'->'lease'->>'until'<=$10) AND (
               NOT(document ? 'tracking') OR document->'tracking'->>'state'='pending' AND (document->'tracking'->>'nextCheckAt' IS NULL OR document->'tracking'->>'nextCheckAt'<=$10)
               OR document->'tracking'->>'state'='paused' AND document->'tracking'->>'checkedGeneration' IS DISTINCT FROM $11::text)))
+          AND (NOT $12::boolean OR (status='accepted' AND document->'booking'->>'status' IN ('queued','processing','unknown')
+            AND (document->'booking'->'lease'->>'until' IS NULL OR document->'booking'->'lease'->>'until'<=$10)
+            AND (document->'booking'->>'nextCheckAt' IS NULL OR document->'booking'->>'nextCheckAt'<=$10)))
         ORDER BY sort_at ${ordering} NULLS LAST,sequence ${ordering} LIMIT $8`,
-      [organisationId, companyId ?? null, id ?? null, key ?? null, cardId === undefined ? null : String(cardId), statuses ?? null, trigger ?? null, limit ?? null, fields ?? null, trackingDueAt ?? null, trackingGeneration ?? null])).rows;
+      [organisationId, companyId ?? null, id ?? null, key ?? null, cardId === undefined ? null : String(cardId), statuses ?? null, trigger ?? null, limit ?? null, fields ?? null, trackingDueAt ?? null, trackingGeneration ?? null, bookingDueOnly])).rows;
       return rows.map(row => row.document);
     });
   }

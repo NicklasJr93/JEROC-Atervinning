@@ -61,6 +61,7 @@ export function createDocumentsApi({ env = process.env, repository, sourceProvid
   api.archiveApprovalJob = async (approval, job) => (await service()).archiveApprovalJob(approval, job);
   // Trusted payment-worker hook, deliberately not exposed as an HTTP route.
   api.archivePaymentRevision = async job => (await service()).archivePaymentRevision(job);
+  api.archivePaymentConfirmation = async job => (await service()).archivePaymentConfirmation(job);
   api.close = async () => { if (repositoryPromise) await repositoryPromise.then(repository => repository.close()).catch(() => {}); };
   return api;
 }

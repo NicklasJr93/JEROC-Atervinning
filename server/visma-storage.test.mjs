@@ -11,6 +11,28 @@ import { createVismaStorage } from './visma-storage.mjs';
 
 const postgresUrl = process.env.JEROC_TEST_DATABASE_URL ?? process.env.JEROC_TEST_POSTGRES_URL;
 const tenantId = 'jeroc-demo', companyId = 'company', mappingKey = JSON.stringify([companyId, 'customer']);
+for (const postgres of [false, true]) {
+  test(`${postgres ? 'PostgreSQL' : 'SQLite'}: due booking query bypasses older unrelated drafts and fences leases and tenants`, { skip: postgres && !postgresUrl }, async () => fixture(async ({ storage }) => {
+    await storage.ready();
+    const now = '2026-10-13T10:00:00.000Z';
+    await storage.transact(document => {
+      const outbox = document.tenants[tenantId].finance.outbox;
+      for (let index = 0; index < 60; index++) outbox.push({ id: `old-draft-${index}`, key: `old-draft-${index}`, companyId, status: 'accepted', createdAt: '2026-10-11T09:00:00Z',
+        tracking: { state: 'pending', nextCheckAt: '2026-10-12T09:00:00Z' } });
+      const base = { companyId, status: 'accepted', createdAt: now, tracking: { state: 'pending', nextCheckAt: now } };
+      for (const job of [
+        { id: 'booking-active-lease', booking: { status: 'processing', lease: { until: '2026-10-13T10:05:00.000Z' } } },
+        { id: 'booking-later', booking: { status: 'unknown', nextCheckAt: '2026-10-13T10:05:00.000Z' } },
+        { id: 'booking-failed', booking: { status: 'failed' } },
+        { id: 'booking-other-company', companyId: 'foreign-company', booking: { status: 'queued' } },
+        { id: 'booking-due', booking: { status: 'queued' }, privateFutureAttribute: 'not-returned' },
+      ]) outbox.push({ ...structuredClone(base), ...job, key: job.id });
+    }, { organisationId: tenantId, runs: false, finance: true });
+    const due = await storage.queryExports({ companyId, statuses: ['accepted'], trackingDueAt: now, bookingDueOnly: true, fields: ['id'], limit: 1 });
+    assert.deepEqual(due, [{ id: 'booking-due' }]);
+    await assert.rejects(() => storage.queryExports({ bookingDueOnly: true }), TypeError);
+  }, postgres));
+}
 function seed() {
   return { office: { marker: 'business-untouched' }, vismaIntegration: { version: 1, tenants: {
     [tenantId]: { generation: 'generation-before', tokens: { version: 1, ciphertext: 'encrypted-test-token' }, company: { id: companyId }, companyVerified: true,

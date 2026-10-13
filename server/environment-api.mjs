@@ -9,6 +9,7 @@ import { createNvvClient } from './nvv-client.mjs';
 import { createIntegrationEngine, createNvvIntegrationAdapter } from './integrations.mjs';
 import { getChangeEvents } from './change-events.mjs';
 import { createHash } from 'node:crypto';
+import { can } from '../dist-server/domain-models.mjs';
 
 const COOKIE = 'jeroc_environment_staff';
 const MAX_BODY = 128 * 1024;
@@ -185,6 +186,48 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
               void swishService.refresh(paymentJob[1], context).catch(() => console.warn('Swish-statusen inväntar nästa kontroll.'));
             }
             else throw new EnvironmentError('Betalningsvyn finns inte eller metoden stöds inte.', 404, 'not_found');
+          }
+          else if (route.startsWith('/visma/accounting/cards/')) {
+            if (!vismaService) throw new EnvironmentError('Spiris-kopplingen är inte tillgänglig.', 503, 'visma_unavailable');
+            const booking = route.match(/^\/visma\/accounting\/cards\/([1-9]\d{0,11})\/booking(?:\/(refresh))?$/);
+            if (!booking || !read && req.method !== 'POST') throw new EnvironmentError('Bokföringsvyn finns inte.', 404, 'not_found');
+            const write = req.method === 'POST' && !booking[2];
+            const authorizeBooking = async () => {
+              for (const right of write ? ['bookSpiris'] : ['pay', 'attest', 'bookSpiris']) {
+                let principal;
+                try { principal = await store.authorize(token, right); }
+                catch (error) { if (error.code === 'forbidden') continue; throw error; }
+                if (can(principal.actor, right) && can(principal.user, right)) return principal;
+              }
+              throw new EnvironmentError(write ? 'Behörighet att bokföra i Spiris krävs.' : 'Behörighet till attest, bokföring eller utbetalning krävs.', 403, 'forbidden');
+            };
+            const principal = await authorizeBooking();
+            const context = { organisationId, actorId: principal.actor.id, effectiveUserId: principal.user.id,
+              actor: principal.actor, user: principal.user,
+              sessionKey: createHash('sha256').update(trustedPrincipal
+                ? JSON.stringify([organisationId, trustedPrincipal.actorId, trustedPrincipal.userId, trustedPrincipal.sessionKey ?? trustedPrincipal.csrfToken]) : token).digest('hex'),
+              reauthorize: async () => {
+                if (trustedPrincipal) {
+                  const current = await trustedPrincipalProvider(req);
+                  if (!current || current.actorId !== trustedPrincipal.actorId || current.userId !== trustedPrincipal.userId || current.csrfToken !== trustedPrincipal.csrfToken)
+                    throw new EnvironmentError('Bokföringssessionen har ändrats.', 403, 'forbidden');
+                }
+                const current = await authorizeBooking();
+                if (current.actor.id !== principal.actor.id || current.user.id !== principal.user.id)
+                  throw new EnvironmentError('Bokföringssessionen har ändrats.', 403, 'forbidden');
+                return current;
+              } };
+            const cardId = Number(booking[1]);
+            if (read && !booking[2]) json(res, 200, await vismaService.cardBookingStatus(cardId, context), req.method === 'HEAD');
+            else if (req.method === 'POST') {
+              if (!z.object({}).strict().safeParse(await body(req)).success)
+                throw new EnvironmentError('Bokföringsåtgärden tar inga ekonomiska uppgifter från webbläsaren.', 422, 'visma_invalid');
+              if (booking[2]) json(res, 200, await vismaService.refreshCardBooking(cardId, context));
+              else {
+                json(res, 202, await vismaService.requestCardBooking({ cardId }, context));
+                void vismaService.processQueuedExports({ cardId, reconcile: false }).catch(() => console.warn('Spiris-bokföringen väntar i kön.'));
+              }
+            } else throw new EnvironmentError('Bokföringsvyn finns inte.', 404, 'not_found');
           }
           else if (route.startsWith('/visma/')) {
             if (!vismaService) throw new EnvironmentError('Spiris-testkopplingen är inte tillgänglig.', 503, 'visma_unavailable');

@@ -142,6 +142,19 @@ const paymentRevisionJob = (sources, changes = {}) => ({
   reason: 'Kunden önskar Swish i stället för bankkonto.',
   revisionActor: { actualUserId: 'admin', effectiveUserId: 'anna', name: 'Anna', actualName: 'Systemadmin' }, ...changes,
 });
+const paymentConfirmationJob = sources => {
+  const job = paymentRevisionJob(sources);
+  job.kind = 'card'; job.status = 'simulated_paid'; job.amountCents = 4000;
+  job.source.customerId = sources.approvals[0].snapshot.customer.id;
+  job.paymentDetails.personalNumber = sources.approvals[0].snapshot.customer.number;
+  job.verifiedAt = '2026-10-13T08:47:01.000Z'; job.providerInstructionUUID = randomUUID();
+  job.providerPaymentReference = 'SWISH-MSS-CONFIRMATION-001';
+  job.request = { payload: { payoutInstructionUUID: job.providerInstructionUUID, payerPaymentReference: 'SP-PDF-TEST-001',
+    payerAlias: '1234679304', payeeAlias: job.paymentDetails.phone.slice(1), payeeSSN: job.paymentDetails.personalNumber,
+    amount: '40.00', currency: 'SEK', payoutType: 'PAYOUT', instructionDate: job.createdAt } };
+  job.providerResult = { ...job.request.payload, status: 'PAID', datePaid: '2026-10-13T08:47:00.000Z', paymentReference: job.providerPaymentReference };
+  return job;
+};
 async function serviceFixture(run) {
   return archiveFixture(async ({ repository, instance }) => {
     const sources = businessSources(), rendered = [];
@@ -486,6 +499,90 @@ test('revised payment PDFs retain fresh financial and facility access checks', a
   await assert.rejects(() => service.download(result.documentId, worker(['view'])), expectError(403, 'financial_visibility_required'));
   await assert.rejects(() => service.download(result.documentId, worker(['view', 'pay'], ['rimbo'])), expectError(403, 'site_forbidden'));
   assert.equal((await service.download(result.documentId, worker(['view', 'pay'], ['norrtalje']))).id, result.documentId);
+}));
+
+test('verified Swish confirmation creates immutable PDF after instructions and preserves financial data and all archived originals', async () => serviceFixture(async ({ service, sources, repository }) => {
+  attest(sources.approvals[0]);
+  const job = paymentConfirmationJob(sources), before = structuredClone(sources);
+  const revision = await service.archivePaymentRevision(job);
+  const original = await service.download(revision.originalDocumentId, admin);
+  const instructions = await service.download(revision.documentId, admin);
+  sources.company.name = 'Muterad profil som inte får bli källan';
+  sources.sites[0].address = 'Ny adress efter attest';
+  const confirmed = await service.archivePaymentConfirmation(job);
+  assert.equal(confirmed.version, 3);
+  const record = await service.download(confirmed.documentId, admin), snapshot = record.snapshot;
+  for (const field of ['id', 'company', 'site', 'customer', 'rows', 'gross', 'offset', 'net', 'tax', 'issuedAt', 'receivedAt', 'reference', 'approval', 'attest', 'selfBilling'])
+    assert.deepEqual(snapshot[field], original.snapshot[field], field);
+  assert.deepEqual(snapshot.paymentRevision, instructions.snapshot.paymentRevision);
+  assert.equal(snapshot.paymentConfirmation.replacesDocumentId, instructions.id);
+  assert.equal(snapshot.paymentConfirmation.actualPaidAt, job.providerResult.datePaid);
+  assert.equal(snapshot.paymentConfirmation.verifiedAt, job.verifiedAt);
+  assert.equal(snapshot.paymentConfirmation.providerRef, job.providerPaymentReference);
+  assert.equal(snapshot.paymentConfirmation.maskedPhone, '•••• 1132');
+  assert.equal(snapshot.paymentConfirmation.maskedPersonalNumber, '•••• 1234');
+  assert.equal(snapshot.paymentConfirmation.amountCents, 4000);
+  assert.equal(snapshot.paymentConfirmation.simulation, true);
+  assert.equal(snapshot.paymentConfirmation.mode, 'mss');
+  assert.doesNotMatch(JSON.stringify(snapshot), /198001011234|46711111132/);
+  assert.deepEqual(await service.download(original.id, admin), original);
+  assert.deepEqual(await service.download(instructions.id, admin), instructions);
+  assert.deepEqual(sources.office, before.office, 'No card financial state, invoice or real payment journal is touched.');
+  assert.deepEqual(sources.approvals, before.approvals);
+  assert.equal((await service.generateSettlement(3010, { stage: 'final' }, admin)).document.id, confirmed.documentId);
+  const listed = await service.list({ kind: 'settlement', sourceId: '3010' }, admin);
+  assert.equal(listed.documents.length, 3);
+  const metadata = listed.documents.find(value => value.id === confirmed.documentId);
+  assert.equal(metadata.paymentConfirmation, true);
+  assert.equal(metadata.paymentRevision, undefined);
+  assert.equal(metadata.pdfVersion, 3);
+  assert.match(metadata.title, /betalningsbekräftelse/);
+  assert.equal((await repository.read(db => db.documents('settlement', '3010'))).length, 3);
+}));
+
+test('unchanged payment instructions still get one confirmation PDF under concurrent retries, without Spiris bookkeeping success', async () => serviceFixture(async ({ service, sources }) => {
+  attest(sources.approvals[0]);
+  const details = { method: 'swish', phone: '+46711111132', recipient: 'Testkunden', personalNumber: sources.approvals[0].snapshot.customer.number };
+  sources.approvals[0].snapshot.card.paymentDetails = structuredClone(details);
+  sources.approvals[0].snapshot.paymentMethod = 'swish';
+  const job = paymentConfirmationJob(sources); job.paymentDetails = structuredClone(details);
+  job.bookkeeping = { status: 'waiting_booked' };
+  assert.equal(await service.archivePaymentRevision(job), null);
+  const results = await Promise.all(Array.from({ length: 5 }, () => service.archivePaymentConfirmation(structuredClone(job))));
+  assert.equal(new Set(results.map(value => value.documentId)).size, 1);
+  assert.equal(results[0].version, 2);
+  assert.equal((await service.list({ kind: 'settlement', sourceId: '3010' }, admin)).documents.length, 2);
+  job.bookkeeping = { status: 'failed', error: 'Spiris tillfälligt otillgängligt' };
+  assert.equal((await service.archivePaymentConfirmation(job)).documentId, results[0].documentId);
+  await assert.rejects(() => service.archivePaymentConfirmation({ ...job, verifiedAt: '2026-10-13T08:48:00Z' }), expectError(409, 'payment_confirmation_conflict'));
+}));
+
+test('confirmation rejects pending, mismatched, malformed and non-MSS proof before any source IO, rendering or archive writes', async () => serviceFixture(async ({ sources, options, repository, rendered }) => {
+  attest(sources.approvals[0]);
+  const job = paymentConfirmationJob(sources); let sourceReads = 0;
+  const service = createDocumentService({ ...options, sourceProvider: async () => { sourceReads++; return structuredClone(sources); } });
+  const bad = [
+    { ...job, status: 'pending' }, { ...job, mode: 'production' }, { ...job, kind: 'sandbox' },
+    { ...job, verifiedAt: null }, { ...job, amountCents: 5000 },
+    { ...job, providerResult: { ...job.providerResult, status: 'CREATED' } },
+    { ...job, providerResult: { ...job.providerResult, payeeSSN: '197709306828' } },
+    { ...job, providerResult: { ...job.providerResult, datePaid: 'not-a-date' } },
+    { ...job, providerResult: { ...job.providerResult, datePaid: '2026-10-14T08:47:00Z' } },
+    { ...job, paymentDetails: { ...job.paymentDetails, phone: '+46711111133' } },
+  ];
+  for (const value of bad) await assert.rejects(() => service.archivePaymentConfirmation(value), expectError(409, 'payment_confirmation_unverified'));
+  assert.equal(sourceReads, 0); assert.equal(rendered.length, 0);
+  assert.equal((await repository.read(db => db.documents('settlement', '3010'))).length, 0);
+}));
+
+test('confirmation verifies frozen approval, customer identity, amount and site before rendering', async () => serviceFixture(async ({ service, sources, rendered }) => {
+  attest(sources.approvals[0]); const job = paymentConfirmationJob(sources);
+  for (const source of [{ ...job.source, hash: 'another-hash' }, { ...job.source, siteId: 'other-company-site' }, { ...job.source, customerId: 'other-customer' }])
+    await assert.rejects(() => service.archivePaymentConfirmation({ ...job, source }), error => ['payment_confirmation_source_missing', 'payment_confirmation_source_changed'].includes(error.code));
+  await assert.rejects(() => service.archivePaymentConfirmation({ ...job, sourceSnapshot: { ...job.sourceSnapshot, net: 5000 } }), expectError(409, 'payment_confirmation_source_changed'));
+  sources.approvals[0].snapshot.customer.number = '197709306828';
+  await assert.rejects(() => service.archivePaymentConfirmation(job), expectError(409, 'payment_confirmation_source_changed'));
+  assert.equal(rendered.length, 0);
 }));
 
 test('a stored PDF with a wrong checksum is rejected without rewriting the archived original', async () => serviceFixture(async ({ service, repository }) => {

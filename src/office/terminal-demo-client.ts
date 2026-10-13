@@ -1,3 +1,4 @@
+import type { SpirisAttestAction } from './booking-client';
 import { parseTerminalApproval, parseTerminalDemoState, parseTerminalSession, type ApprovalSend, type CustomerReviewCommand, type CustomerReviewResult, type DemoTerminal, type TerminalApproval, type TerminalDemoState, type TerminalSessionState } from './terminal-demo-types';
 import { tenantPublicHeaders } from '../tenant-public-context';
 
@@ -35,7 +36,7 @@ export const terminalDemoApi = {
   send: (value: ApprovalSend) => terminalRequest<TerminalApproval>('/approvals', 'POST', value),
   cancel: (id: string, expectedStaff?: TerminalStaffIdentity) => terminalRequest<TerminalApproval>(`/approvals/${encodeURIComponent(id)}/cancel`, 'POST', {}, undefined, expectedStaff),
   confirmId: (id: string, expectedStaff?: TerminalStaffIdentity) => terminalRequest<TerminalApproval>(`/approvals/${encodeURIComponent(id)}/confirm-id`, 'POST', {}, undefined, expectedStaff),
-  attest: (id: string, expectedStaff?: TerminalStaffIdentity) => terminalRequest<TerminalApproval>(`/approvals/${encodeURIComponent(id)}/attest`, 'POST', {}, undefined, expectedStaff),
+  attest: (id: string, expectedStaff?: TerminalStaffIdentity, options?: { spirisAction: SpirisAttestAction }) => terminalRequest<TerminalApproval>(`/approvals/${encodeURIComponent(id)}/attest`, 'POST', options ?? {}, undefined, expectedStaff),
   login: async (username: string, password: string) => parseTerminalSession(await terminalRequest<TerminalSessionState>('/login', 'POST', { username, password })),
   session: async (signal?: AbortSignal) => parseTerminalSession(await terminalRequest<TerminalSessionState>('/session', 'GET', undefined, signal)),
   heartbeat: () => terminalRequest<{ alive: boolean; revision: number }>('/heartbeat', 'POST', {}),

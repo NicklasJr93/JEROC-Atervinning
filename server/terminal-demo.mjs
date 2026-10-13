@@ -67,6 +67,8 @@ const materialChangeSchema = z.object({
   operation: z.enum(['add', 'remove', 'weight']), approvalId: id.optional(),
   weight: z.number().finite().nonnegative().max(1e9).optional(),
 }).strict();
+const attestSchema = z.object({ spirisAction: z.enum(['draft', 'book']).optional() }).strict();
+const bookingConnectionSchema = z.object({ companyId: id, generation: id, settingsRevision: z.number().int().positive() }).strict();
 const validate = (schema, payload) => {
   const parsed = schema.safeParse(payload);
   if (!parsed.success) throw new TerminalDemoError('Kontrollera de ifyllda uppgifterna.');
@@ -137,6 +139,7 @@ function terminalDTO(state, terminal, now, sites) {
 
 function approvalDTO(approval, principal, revision) {
   const result = copy(approval);
+  if (approval.status === 'attested') result.spirisAction = approval.spirisAction ?? 'draft';
   if (revision !== undefined) result.revision = revision;
   delete result.expiresAt; delete result.correctionIds; delete result.approvedHash; delete result.approvedMethod; delete result.siteSnapshot;
   // The original persisted review snapshot is never mutated. These OfficeCard
@@ -187,7 +190,7 @@ function publicApproval(approval, revision) {
 /** A shared DEMO service: office identities are deliberately selected demo users,
  * not production authentication. Terminal passwords and sessions are real, and
  * business state always commits to the configured durable database. */
-export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, environmentApprovalCheck, accountingSourceProvider, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
+export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
   if (!repository) throw new Error('A durable terminal repository is required.');
   const presenceTimers = new Map();
   const schedulePresenceExpiry = terminalId => {
@@ -591,14 +594,41 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         return approvalDTO(approval, principal,state.revision);
       });
     },
-    attest(approvalId, staffToken) {
+    attest(approvalId, staffToken, options = {}) {
+      const request = validate(attestSchema, options);
+      const spirisAction = request.spirisAction ?? 'draft';
       return transaction(async (state, time, catalog) => {
         const principal = staff(state, staffToken, time); demand(principal, 'attest');
         const approval = getApproval(state, approvalId, principal, catalog);
-        if (approval.status === 'attested') return approvalDTO(approval, principal,state.revision);
+        if (approval.status === 'attested') {
+          // Attest retries never turn a previous draft decision into a new
+          // accounting write. An omitted legacy option retains the saved mode.
+          if (request.spirisAction && request.spirisAction !== (approval.spirisAction ?? 'draft'))
+            throw new TerminalDemoError('Attestvalet är redan sparat. Bokför det befintliga utkastet separat.', 409, 'attest_action_locked');
+          return approvalDTO(approval, principal,state.revision);
+        }
         if (approval.status !== 'approved' || approval.approvedHash !== approval.snapshot.hash) throw new TerminalDemoError('Aktuell avräkningsversion måste vara kundgodkänd före intern attest.', 409, 'customer_approval_required');
         if (!principal.user.ownAttest && (principal.user.id === approval.effectiveUserId || principal.actor.id === approval.actualUserId)) throw new TerminalDemoError('Du får inte attestera ditt eget underlag.', 403, 'own_attest_forbidden');
         if (approval.snapshot.gross > principal.user.maxAttest) throw new TerminalDemoError('Beloppet överstiger din attestgräns.', 403, 'attest_limit');
+        let bookingConnection;
+        if (spirisAction === 'book') {
+          // This right is explicit even for a VD. Both accounts are resolved
+          // from fresh authoritative pricing users, never request metadata.
+          if ([principal.actor, principal.user].some(user => user.level !== 'Systemadmin' && !user.permissions.includes('bookSpiris')))
+            throw new TerminalDemoError('Du saknar behörighet att bokföra i Spiris.', 403, 'book_spiris_forbidden');
+          demandSite({ user: principal.actor }, approval.siteId, catalog);
+          if (!attestBookingCheck)
+            throw new TerminalDemoError('Bokföring i Spiris är inte konfigurerad. Välj att skapa utkast.', 503, 'spiris_booking_unavailable');
+          try {
+            const checked = bookingConnectionSchema.safeParse(await attestBookingCheck(copy(approval), principal));
+            if (!checked.success) throw new TerminalDemoError('Spiris-kopplingen kunde inte verifieras före bokföring. Välj att skapa utkast.', 409, 'spiris_booking_unavailable');
+            bookingConnection = checked.data;
+          }
+          catch (error) {
+            if (error.status && error.code) throw new TerminalDemoError(error.message, error.status, error.code);
+            throw error;
+          }
+        }
         let receipt;
         if (environmentApprovalCheck) {
           try { receipt = await environmentApprovalCheck(copy(approval)); } catch (error) {
@@ -608,7 +638,14 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         }
         approval.status = 'attested'; approval.attestedBy = principal.user.name; approval.attestedUserId = principal.user.id;
         approval.attestedAt = time.toISOString(); approval.updatedAt = time.toISOString();
-        audit(state, time, 'approval.internally_attested', principal, { approvalId, version: approval.version, hash: approval.snapshot.hash, ...(receipt?.required ? { environmentReceipt: receipt } : {}) });
+        approval.spirisAction = spirisAction;
+        if (spirisAction === 'book') {
+          approval.bookingRequestedBy = { actualUserId: principal.actor.id, effectiveUserId: principal.user.id };
+          approval.bookingConnection = copy(bookingConnection);
+        }
+        audit(state, time, 'approval.internally_attested', principal, { approvalId, version: approval.version, hash: approval.snapshot.hash,
+          spirisAction, ...(approval.bookingRequestedBy ? { bookingRequestedBy: copy(approval.bookingRequestedBy) } : {}),
+          ...(receipt?.required ? { environmentReceipt: receipt } : {}) });
         return approvalDTO(approval, principal,state.revision);
       });
     },
@@ -654,13 +691,13 @@ async function body(req) {
   catch { throw new TerminalDemoError('Ogiltig JSON.'); }
 }
 
-export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, accountingSourceProvider, onAttested, onApprovalChanged, trustedPrincipalProvider, env = process.env, now = () => new Date(), approvalAge } = {}) {
+export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, onAttested, onApprovalChanged, trustedPrincipalProvider, env = process.env, now = () => new Date(), approvalAge } = {}) {
   let repositoryPromise, storePromise, jobsRunning, jobTimer, maintenanceTimer, backgroundStarted = false, closed = false;
   const eventStreams = new Set();
   const getStore = () => {
     if (!storePromise) {
       repositoryPromise = repository ? Promise.resolve(repository) : createTerminalDemoRepository({ env });
-      storePromise = repositoryPromise.then(value => createTerminalDemoStore({ repository: value, principalStore, siteProvider, environmentApprovalCheck, accountingSourceProvider, now, approvalAge }));
+      storePromise = repositoryPromise.then(value => createTerminalDemoStore({ repository: value, principalStore, siteProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, now, approvalAge }));
       const attempt = storePromise;
       attempt.then(() => afterDatabaseCommit(startBackground), () => {
         if (storePromise === attempt) { storePromise = undefined; repositoryPromise = undefined; }
@@ -806,7 +843,7 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
           const result = action === 'respond' ? await store.respond(approval[1], value, deviceToken)
             : action === 'displayed' ? await store.displayed(approval[1],value,deviceToken)
               : action === 'cancel' ? await store.cancel(approval[1], staffToken)
-                : action === 'confirm-id' ? await store.confirmId(approval[1], staffToken) : await store.attest(approval[1], staffToken);
+                : action === 'confirm-id' ? await store.confirmId(approval[1], staffToken) : await store.attest(approval[1], staffToken, value);
           scheduleJobs();
           if (action === 'attest' && onAttested) afterDatabaseCommit(() => setImmediate(() => { void Promise.resolve(onAttested(result)).catch(() => console.warn('Spiris-överföringen väntar i kön.')); }));
           json(res, 200, result);

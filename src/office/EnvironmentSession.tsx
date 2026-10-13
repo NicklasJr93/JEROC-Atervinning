@@ -83,7 +83,7 @@ export function EnvironmentSessionProvider({ user, actualUser, children }: {
   const sourceFlights = useRef(new Map<string, { generation: number; promise: Promise<EnvironmentalSourceProjection | undefined>; controller: AbortController }>());
   const permissionSignature = `${actualUser.level}/${actualUser.permissions.join(',')}/${actualUser.siteIds?.join(',') ?? 'all'}/${user.level}/${user.permissions.join(',')}/${user.siteIds?.join(',') ?? 'all'}`;
   const readable = hasEnvironmentPermission(user, 'environmentRead');
-  const permitted = readable || can(user, 'integrationsRead') || (can(user, 'pay') && can(actualUser, 'pay')) || hasEnvironmentPermission(user, 'environmentWrite') || hasEnvironmentPermission(user, 'environmentClassify') || hasEnvironmentPermission(user, 'environmentStorage');
+  const permitted = readable || can(user, 'integrationsRead') || (['pay', 'attest', 'bookSpiris'] as const).some(right => can(user, right) && can(actualUser, right)) || hasEnvironmentPermission(user, 'environmentWrite') || hasEnvironmentPermission(user, 'environmentClassify') || hasEnvironmentPermission(user, 'environmentStorage');
   const matches = useCallback((value: { actualUserId: string; effectiveUserId: string }) =>
     value.actualUserId === actualUser.id && value.effectiveUserId === user.id, [actualUser.id, user.id]);
 

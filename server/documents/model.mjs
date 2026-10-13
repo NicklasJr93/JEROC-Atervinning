@@ -43,10 +43,14 @@ const companyFor = (sources, site) => {
 const latestApproval = (sources, cardId) => (sources.approvals ?? []).filter(approval => String(approval.cardId) === String(cardId)).sort((left, right) => right.version - left.version)[0];
 const validApproved = approval => ['approved', 'attested'].includes(approval.status) && Boolean(approval.approvedAt && approval.approvedMethod) && approval.approvedHash === approval.snapshot.hash;
 const titleFor = (kind, stage, company) => kind === 'transport' ? stage === 'final' ? 'Transportdokument · registrerad avfärd, demo' : 'Transportdokument · utkast' : kind === 'receipt' ? 'Utbetalningskvitto · demo' : stage === 'final' ? company?.id && company.id !== 'jeroc-demo' ? 'Avräkningsnota · internt attesterad' : 'Avräkningsnota · JEROC-attesterad' : stage === 'reviewed' ? 'Avräkningsnota · kundgodkänd, preliminär' : 'Avräkningsnota · preliminär';
+const pdfRevision = snapshot => snapshot?.paymentConfirmation ?? snapshot?.paymentRevision;
+const pdfVersion = snapshot => pdfRevision(snapshot)?.version ?? 1;
+const financialSourceHash = record => pdfRevision(record.snapshot)?.financialSourceHash ?? record.sourceHash;
 export const documentMetadata = record => Object.fromEntries(Object.entries({ id: record.id, kind: record.kind, sourceId: record.sourceId, sourceVersion: record.sourceVersion, stage: record.stage, siteId: record.siteId, title: record.title, sourceHash: record.sourceHash, pdfHash: record.pdfHash, templateVersion: record.templateVersion, createdAt: record.createdAt, bytes: record.bytes,
-  pdfVersion: record.snapshot?.paymentRevision?.version ?? 1,
-  ...(record.snapshot?.paymentRevision ? { originalDocumentId: record.snapshot.paymentRevision.originalDocumentId,
-    replacesDocumentId: record.snapshot.paymentRevision.replacesDocumentId, paymentRevision: true } : {}),
+  pdfVersion: pdfVersion(record.snapshot),
+  ...(pdfRevision(record.snapshot) ? { originalDocumentId: pdfRevision(record.snapshot).originalDocumentId,
+    replacesDocumentId: pdfRevision(record.snapshot).replacesDocumentId,
+    ...(record.snapshot.paymentConfirmation ? { paymentConfirmation: true } : { paymentRevision: true }) } : {}),
   downloadUrl: `/api/documents/${encodeURIComponent(record.id)}/download` }).filter(([, value]) => value !== undefined));
 
 function approvalSnapshot(approval, sources, stage) {
@@ -114,13 +118,15 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     // the UNIQUE constraint so two processes cannot persist two originals.
     const pdf = Buffer.from(await renderPdf(copy(snapshot)));
     if (!pdf.subarray(0, 5).equals(Buffer.from('%PDF-')) || pdf.length > 20 * 1024 * 1024) fail('PDF-filen kunde inte framställas.', 503, 'pdf_generation_failed');
-    const record = { id: randomUUID(), ...key, siteId, title: `${titleFor(kind, stage, snapshot.company)}${snapshot.paymentRevision ? ' · uppdaterade betalningsuppgifter' : ''}`, createdAt: now().toISOString(), createdBy: principal?.user?.id ?? 'system', actualUserId: principal?.actor?.id ?? 'system', pdfHash: documentHash(pdf), bytes: pdf.length, snapshot: copy(snapshot) };
+    const revision = pdfRevision(snapshot);
+    const record = { id: randomUUID(), ...key, siteId, title: `${titleFor(kind, stage, snapshot.company)}${snapshot.paymentConfirmation ? ' · betalningsbekräftelse, Swish MSS' : snapshot.paymentRevision ? ' · uppdaterade betalningsuppgifter' : ''}`, createdAt: now().toISOString(), createdBy: principal?.user?.id ?? 'system', actualUserId: principal?.actor?.id ?? 'system', pdfHash: documentHash(pdf), bytes: pdf.length, snapshot: copy(snapshot) };
     return repository.transact(async database => {
       const result = await database.insertDocument(record, pdf);
-      if (result.inserted) await database.audit({ id: randomUUID(), at: record.createdAt, action: snapshot.paymentRevision ? 'document.payment_revision_archived' : 'document.archived', documentId: record.id, kind, sourceId: String(sourceId), sourceHash, pdfHash: record.pdfHash, actualUserId: record.actualUserId, effectiveUserId: record.createdBy,
-        ...(snapshot.paymentRevision ? { paymentJobId: snapshot.paymentRevision.jobId, pdfVersion: snapshot.paymentRevision.version,
-          originalDocumentId: snapshot.paymentRevision.originalDocumentId, replacesDocumentId: snapshot.paymentRevision.replacesDocumentId,
-          financialSourceHash: snapshot.paymentRevision.financialSourceHash, reason: snapshot.paymentRevision.reason } : {}) });
+      if (result.inserted) await database.audit({ id: randomUUID(), at: record.createdAt, action: snapshot.paymentConfirmation ? 'document.payment_confirmation_archived' : snapshot.paymentRevision ? 'document.payment_revision_archived' : 'document.archived', documentId: record.id, kind, sourceId: String(sourceId), sourceHash, pdfHash: record.pdfHash, actualUserId: record.actualUserId, effectiveUserId: record.createdBy,
+        ...(revision ? { paymentJobId: revision.jobId, pdfVersion: revision.version,
+          originalDocumentId: revision.originalDocumentId, replacesDocumentId: revision.replacesDocumentId,
+          financialSourceHash: revision.financialSourceHash, ...(revision.reason && { reason: revision.reason }),
+          ...(snapshot.paymentConfirmation && { simulation: true, verifiedAt: revision.verifiedAt, providerRef: revision.providerRef }) } : {}) });
       return documentMetadata(result.record);
     });
   }
@@ -209,7 +215,7 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     if (!job.reason?.trim()) fail('Ange orsak till ändrade betalningsuppgifter.', 422, 'payment_revision_reason_required');
     const principal = { actor: { id: job.revisionActor.actualUserId }, user: { id: job.revisionActor.effectiveUserId } };
     let records = await readArchive(database => database.documents('settlement', source.cardId));
-    const existing = records.find(record => record.snapshot?.paymentRevision?.jobId === job.id);
+    const existing = records.find(record => !record.snapshot?.paymentConfirmation && record.snapshot?.paymentRevision?.jobId === job.id);
     if (existing) {
       if (existing.snapshot.paymentRevision.financialSourceHash !== source.hash ||
         existing.snapshot.paymentRevision.instructionHash !== documentHash(normalizePayment(job.paymentDetails)))
@@ -217,16 +223,16 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
       return { documentId: existing.id, version: existing.snapshot.paymentRevision.version,
         originalDocumentId: existing.snapshot.paymentRevision.originalDocumentId, document: documentMetadata(existing) };
     }
-    let original = records.find(record => record.stage === 'final' && record.sourceVersion === source.version && record.sourceHash === source.hash && !record.snapshot?.paymentRevision);
+    let original = records.find(record => record.stage === 'final' && record.sourceVersion === source.version && record.sourceHash === source.hash && !pdfRevision(record.snapshot));
     if (!original) {
       const archived = await archive(await frozenApprovalDocument(approval, sources, 'final'), 'settlement', source.cardId, source.version, 'final', source.siteId, principal);
       original = await readArchive(database => database.document(archived.id));
       records = await readArchive(database => database.documents('settlement', source.cardId));
     }
     const previous = records.filter(record => record.stage === 'final' && record.sourceVersion === source.version &&
-      (record.sourceHash === source.hash || record.snapshot?.paymentRevision?.financialSourceHash === source.hash))
-      .sort((a, b) => (b.snapshot?.paymentRevision?.version ?? 1) - (a.snapshot?.paymentRevision?.version ?? 1))[0] ?? original;
-    const version = (previous.snapshot?.paymentRevision?.version ?? 1) + 1;
+      financialSourceHash(record) === source.hash)
+      .sort((a, b) => pdfVersion(b.snapshot) - pdfVersion(a.snapshot))[0] ?? original;
+    const version = pdfVersion(previous.snapshot) + 1;
     const details = job.paymentDetails;
     const snapshot = copy(original.snapshot);
     snapshot.payment = { ...snapshot.payment, method: details.method, label: { bank: 'Bankkonto', swish: 'Swish', cash: 'Kontant', balance: 'Spara på saldo' }[details.method],
@@ -241,6 +247,82 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     // Another worker may already have won the immutable INSERT for this job.
     // Return the persisted revision number, never a locally calculated loser.
     return { documentId: document.id, version: document.pdfVersion ?? version, originalDocumentId: document.originalDocumentId ?? original.id, document };
+  }
+  /** A verified payout updates only the document archive. MSS confirmation must
+   * never turn a simulated provider result into a real payment or new invoice.
+   * Validate before rendering or writing, then copy the frozen financial PDF. */
+  async function archivePaymentConfirmation(job) {
+    const source = job?.source, paid = job?.providerResult, sent = job?.request?.payload;
+    const invalidProof = () => fail('Betalningsbekräftelsen saknar ett verifierat Swish-resultat.', 409, 'payment_confirmation_unverified');
+    if (job?.kind !== 'card' || job.mode !== 'mss' || job.status !== 'simulated_paid' || !job.verifiedAt ||
+      paid?.status !== 'PAID' || !sent || !job.providerInstructionUUID || !job.providerPaymentReference ||
+      !Number.isSafeInteger(job.amountCents) || job.amountCents <= 0 || job.paymentDetails?.method !== 'swish') invalidProof();
+    const paidAt = Date.parse(paid.datePaid), verifiedAt = Date.parse(job.verifiedAt);
+    if (!Number.isFinite(paidAt) || !Number.isFinite(verifiedAt) || paidAt > verifiedAt + 5000 ||
+      typeof paid.paymentReference !== 'string' || !paid.paymentReference.trim() ||
+      paid.paymentReference !== job.providerPaymentReference || sent.currency !== 'SEK' ||
+      sent.payoutInstructionUUID !== job.providerInstructionUUID ||
+      sent.payeeAlias !== job.paymentDetails.phone?.replace(/^\+/, '') ||
+      sent.payeeSSN !== job.paymentDetails.personalNumber ||
+      ['payoutInstructionUUID', 'payerPaymentReference', 'payerAlias', 'payeeAlias', 'payeeSSN', 'currency']
+        .some(field => typeof sent[field] !== 'string' || !sent[field] || paid[field] !== sent[field])) invalidProof();
+    const cents = value => {
+      const amount = String(value);
+      if (!/^\d+(?:\.\d{1,2})?$/.test(amount)) return NaN;
+      const [whole, fraction = ''] = amount.split('.');
+      return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+    };
+    if (cents(sent.amount) !== job.amountCents || cents(paid.amount) !== job.amountCents) invalidProof();
+    if (!job.id || !source?.approvalId || !source.cardId || !source.hash || source.hash !== job.sourceSnapshotHash ||
+      !job.sourceSnapshot || !job.revisionActor?.actualUserId || !job.revisionActor?.effectiveUserId)
+      fail('Betalningsbekräftelsen saknar låst attestunderlag.', 409, 'payment_confirmation_source_missing');
+    const sources = await sourceProvider({ kind: 'approval', sourceId: String(source.cardId), approvalId: source.approvalId });
+    const approval = sources.approvals?.find(value => value.id === source.approvalId && String(value.cardId) === String(source.cardId));
+    if (!approval || approval.version !== source.version || approval.siteId !== source.siteId ||
+      approval.snapshot?.hash !== source.hash || approval.status !== 'attested' || !validApproved(approval) || !approval.attestedAt ||
+      documentHash(approval.snapshot) !== documentHash(job.sourceSnapshot) ||
+      source.customerId !== approval.snapshot.customer?.id ||
+      approval.snapshot.card?.customerId !== source.customerId ||
+      approval.snapshot.customer?.number?.replace(/[\s-]/g, '') !== sent.payeeSSN ||
+      cents(approval.snapshot.net) !== job.amountCents)
+      fail('Betalningsbekräftelsen matchar inte låst kund, belopp eller attestversion.', 409, 'payment_confirmation_source_changed');
+    const proofHash = documentHash({ jobId: job.id, sourceHash: source.hash, request: sent,
+      verifiedAt: job.verifiedAt, amountCents: job.amountCents, providerResult: paid });
+    let records = await readArchive(database => database.documents('settlement', source.cardId));
+    const existing = records.find(record => record.snapshot?.paymentConfirmation?.jobId === job.id);
+    if (existing) {
+      if (existing.snapshot.paymentConfirmation.proofHash !== proofHash)
+        fail('Betalningsbekräftelsen används redan för ett annat resultat.', 409, 'payment_confirmation_conflict');
+      return { documentId: existing.id, version: pdfVersion(existing.snapshot),
+        originalDocumentId: existing.snapshot.paymentConfirmation.originalDocumentId, document: documentMetadata(existing) };
+    }
+    if (records.some(record => record.sourceVersion === source.version &&
+      record.snapshot?.paymentConfirmation?.financialSourceHash === source.hash))
+      fail('Avräkningsversionen har redan en betalningsbekräftelse.', 409, 'payment_confirmation_conflict');
+    const principal = { actor: { id: job.revisionActor.actualUserId }, user: { id: job.revisionActor.effectiveUserId } };
+    let original = records.find(record => record.stage === 'final' && record.sourceVersion === source.version &&
+      record.sourceHash === source.hash && !pdfRevision(record.snapshot));
+    if (!original) {
+      const archived = await archive(await frozenApprovalDocument(approval, sources, 'final'), 'settlement', source.cardId, source.version, 'final', source.siteId, principal);
+      original = await readArchive(database => database.document(archived.id));
+      records = await readArchive(database => database.documents('settlement', source.cardId));
+    }
+    const previous = records.filter(record => record.stage === 'final' && record.sourceVersion === source.version &&
+      financialSourceHash(record) === source.hash).sort((a, b) => pdfVersion(b.snapshot) - pdfVersion(a.snapshot))[0] ?? original;
+    const version = pdfVersion(previous.snapshot) + 1, snapshot = copy(previous.snapshot);
+    const masked = value => value ? `•••• ${String(value).replace(/\s/g, '').slice(-4)}` : '';
+    snapshot.payment = { ...snapshot.payment, method: 'swish', label: 'Swish',
+      recipient: job.paymentDetails.recipient ?? snapshot.customer.name, maskedAccount: masked(job.paymentDetails.phone) };
+    snapshot.paymentConfirmation = { version, jobId: job.id, originalDocumentId: original.id, replacesDocumentId: previous.id,
+      financialSourceHash: source.hash, proofHash, actualPaidAt: paid.datePaid, datePaid: paid.datePaid,
+      verifiedAt: job.verifiedAt, providerRef: paid.paymentReference, method: 'swish', simulation: true, mode: 'mss',
+      recipient: snapshot.payment.recipient, maskedPhone: masked(sent.payeeAlias), maskedPersonalNumber: masked(sent.payeeSSN),
+      amountCents: job.amountCents };
+    snapshot.sourceHash = documentHash({ originalDocumentId: original.id, financialSourceHash: source.hash,
+      jobId: job.id, paymentConfirmation: proofHash });
+    const document = await archive(snapshot, 'settlement', source.cardId, source.version, 'final', source.siteId, principal);
+    return { documentId: document.id, version: document.pdfVersion ?? version,
+      originalDocumentId: document.originalDocumentId ?? original.id, document };
   }
   async function list({ kind, sourceId }, principal) {
     if (!['settlement', 'receipt', 'transport'].includes(kind) || !sourceId) fail('Ange dokumenttyp och käll-ID.', 422, 'invalid_input');
@@ -272,8 +354,8 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
       if (approval.status !== 'attested' || !validApproved(approval) || !approval.attestedAt)
         fail('Intern attest krävs före slutlig avräkningsnota.', 409, 'approval_required');
       const revisions = (await readArchive(database => database.documents('settlement', cardId)))
-        .filter(record => record.stage === 'final' && record.sourceVersion === approval.version && record.snapshot?.paymentRevision?.financialSourceHash === approval.snapshot.hash)
-        .sort((a, b) => b.snapshot.paymentRevision.version - a.snapshot.paymentRevision.version);
+        .filter(record => record.stage === 'final' && record.sourceVersion === approval.version && pdfRevision(record.snapshot)?.financialSourceHash === approval.snapshot.hash)
+        .sort((a, b) => pdfVersion(b.snapshot) - pdfVersion(a.snapshot));
       if (revisions[0]) return { document: documentMetadata(revisions[0]), demo: true };
     }
     const snapshot = await frozenApprovalDocument(approval, sources, stage);
@@ -387,5 +469,5 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     if (documentHash(record.pdf) !== record.pdfHash) fail('Dokumentets kontrollsumma stämmer inte. Originalet lämnas orört.', 503, 'file_integrity_error');
     return record;
   }
-  return { list, generateSettlement, generateReceipt, transport, saveTransport, generateTransport, download, ensureApproval, archiveApprovalJob, archivePaymentRevision };
+  return { list, generateSettlement, generateReceipt, transport, saveTransport, generateTransport, download, ensureApproval, archiveApprovalJob, archivePaymentRevision, archivePaymentConfirmation };
 }

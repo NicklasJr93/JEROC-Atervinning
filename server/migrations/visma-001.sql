@@ -66,3 +66,10 @@ CREATE INDEX IF NOT EXISTS jeroc_visma_tracking_due
   ON jeroc_visma_records(organisation_id,company_id,(document->'tracking'->>'nextCheckAt'),sequence)
   WHERE collection='outbox' AND status='accepted' AND
     (NOT(document ? 'tracking') OR document->'tracking'->>'state' IN ('pending','paused'));
+
+-- User-requested booking must not sit behind hundreds of old read-only draft
+-- follow-ups. Complete booking records remain in JSON, with a narrow queue.
+CREATE INDEX IF NOT EXISTS jeroc_visma_booking_due
+  ON jeroc_visma_records(organisation_id,company_id,(document->'booking'->>'nextCheckAt'),sort_at,sequence)
+  WHERE collection='outbox' AND status='accepted'
+    AND document->'booking'->>'status' IN ('queued','processing','unknown');

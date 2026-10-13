@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { purchaseAccountingSnapshotSchema } from './accounting-types';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.22.2';
+export const OFFICE_VERSION = '0.23.0';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -24,6 +24,7 @@ export const permissionNames = {
   paymentDetails: 'Hantera betalningsuppgifter',
   verifyId: 'Verifiera ID',
   attest: 'Attestera',
+  bookSpiris: 'Bokföra attesterade underlag i Spiris',
   pay: 'Genomföra utbetalningar och ändra betalningsinstruktioner',
   corrections: 'Skapa och hantera rättelser',
   reports: 'Se ekonomisk översikt',
@@ -256,11 +257,11 @@ export const statusNames = {
   complement: 'Behöver kompletteras',
   customer: 'Inväntar kundgodkännande',
   attest: 'Väntar på attest',
-  ready: 'Klar för utbetalning',
+  ready: 'Attesterad',
   paid: 'Demoutbetald',
   balance: 'Sparat på saldo',
 };
-export const sensitivePersonnelPermissions: Permission[] = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage'];
+export const sensitivePersonnelPermissions: Permission[] = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage', 'bookSpiris'];
 export const can = (user: OfficeUser, right: Permission) =>
   sensitivePersonnelPermissions.includes(right)
     ? user.level === 'Systemadmin' || user.permissions.includes(right)

@@ -42,6 +42,8 @@ import CustomerWorkspace from './CustomerWorkspace';
 import PaymentEditor from './PaymentEditor';
 import SwishPayoutDialog from './SwishPayoutDialog';
 import SwishPaymentPanel from './SwishPaymentPanel';
+import { CardBookingProvider, CardBookingPayButton } from './CardBookingContext';
+import { spirisBookingChanged, type SpirisAttestAction } from './booking-client';
 import CorrectionsWorkspace from './CorrectionsWorkspace';
 import TerminalWorkspace, { TerminalSelectors } from './TerminalWorkspace';
 import CustomerApprovalsWorkspace, { ApprovalVersionPreview } from './CustomerApprovalsWorkspace';
@@ -678,8 +680,8 @@ export function OfficeApp() {
     void shared.refresh();
   }
 
-  async function attestCard(card: OfficeCard) {
-    if (!user || !actualUser || attestBusy || priceBusy || blocked || !can(user, 'attest')) return;
+  async function attestCard(card: OfficeCard, spirisAction: SpirisAttestAction = 'draft') {
+    if (!user || !actualUser || attestBusy || priceBusy || blocked || !can(user, 'attest') || !can(actualUser, 'attest') || (spirisAction === 'book' && (!can(user, 'bookSpiris') || !can(actualUser, 'bookSpiris')))) return;
     const current = dataRef.current.cards.find(item => item.id === card.id);
     if (!current || current.status !== 'attest') return;
     const principal = principalRef.current;
@@ -688,12 +690,13 @@ export function OfficeApp() {
       if (current.customerApproval) {
         await shared.flush();
         if (principalRef.current !== principal) return;
-        const approval = await terminalDemoApi.attest(current.customerApproval.id, { actualUserId: actualUser.id, effectiveUserId: user.id });
+        const approval = await terminalDemoApi.attest(current.customerApproval.id, { actualUserId: actualUser.id, effectiveUserId: user.id }, { spirisAction });
         if (principalRef.current !== principal) return;
         applyConfirmedApproval(approval);
       } else if (!update({ ...current, status: current.paymentDetails?.method === 'balance' ? 'balance' : 'ready', approvedBy: user.id },
-        current.paymentDetails?.method === 'balance' ? 'Kortet attesterat. Beloppet sparat på kundens saldo.' : 'Kortet attesterat och klart för utbetalning.', 'attest')) return;
-      setMessage(current.paymentDetails?.method === 'balance' ? 'Attesterat. Beloppet ligger på kundens saldo.' : 'Kortet är attesterat och klart för manuell utbetalning.');
+        current.paymentDetails?.method === 'balance' ? 'Kortet attesterat. Beloppet sparat på kundens saldo.' : 'Kortet attesterat. Bokföring i Spiris kontrolleras före utbetalning.', 'attest')) return;
+      setMessage(current.paymentDetails?.method === 'balance' ? 'Attesterat. Beloppet ligger på kundens saldo.' : spirisAction === 'book' ? 'Kortet är attesterat. Bokföringen i Spiris pågår i bakgrunden.' : 'Kortet är attesterat. Följ utkastet och bokföringen i utbetalningskortet.');
+      spirisBookingChanged(current.id, actualUser.id, user.id);
       // Keep the current card and its menu context; the shared queues update independently.
     } catch (failure) {
       if (principalRef.current === principal) setMessage(failure instanceof Error ? failure.message : 'Kortet kunde inte attesteras.');
@@ -1382,7 +1385,7 @@ export function OfficeApp() {
               <p>Ditt konto har inte åtkomst till denna vy.</p>
             </section>
           ) : selected && workflowSections.includes(section) ? (
-            <>
+            <CardBookingProvider card={selected} user={user} actualUser={actualUser!}>
               <OfficePageHeader>
               <button
                 className="office-back"
@@ -1445,13 +1448,7 @@ export function OfficeApp() {
                           </button>
                   )}
                   {selected.status === 'ready' && can(user, 'pay') && actualUser && can(actualUser, 'pay') && selectedSettlement && (
-                            <button
-                              className="office-btn"
-                              disabled={selected.financialPending || priceBusy}
-                              onClick={() => setSwishPayoutOpen(true)}
-                            >
-                              Betala ut
-                            </button>
+                            <CardBookingPayButton disabled={selected.financialPending || priceBusy} onStart={() => setSwishPayoutOpen(true)} />
                   )}
                 </div>
               </div>
@@ -1715,10 +1712,8 @@ export function OfficeApp() {
                   </section>
                   <section className={`office-panel office-card-payment${panelClass('payment')}`}>
                     <ElectricFocusBorder active={focusPanel === 'payment'} />
-                    <h2>Utbetalning</h2>
-                    {selected.status === 'ready' && can(user, 'pay') && actualUser && can(actualUser, 'pay') ? (
-                      <SwishPaymentPanel card={selected} user={user} actualUser={actualUser} onStart={() => setSwishPayoutOpen(true)} />
-                    ) : can(user, 'paymentDetails') ||
+                    <h2>Betalningsuppgifter</h2>
+                    {can(user, 'paymentDetails') ||
                     can(user, 'pay') ||
                     can(user, 'attest') ? (
                       <PaymentEditor
@@ -1797,9 +1792,10 @@ export function OfficeApp() {
                   <OfficeCardAttest card={selected} user={user} actualUser={actualUser!} users={data.users}
                     receiptStatus={receiptStatus}
                     guidance={panelGuidance('attest')} approval={selectedApproval} busy={attestBusy} blocked={blocked || priceBusy}
-                    onAttest={() => attestCard(selected)} onReturn={() => returnCard(selected)} />
+                    onAttest={action => attestCard(selected, action)} onReturn={() => returnCard(selected)} />
+                  {['ready', 'paid', 'balance'].includes(selected.status) && actualUser && <SwishPaymentPanel card={selected} user={user} actualUser={actualUser} onStart={() => setSwishPayoutOpen(true)} onReview={() => setDocumentType('settlement')} />}
                   <section className="office-panel office-card-summary">
-                    <div className="office-summary-info"><Calculator size={28} aria-hidden="true" /><div><h2>Sammanställning</h2><p>{['ready', 'paid', 'balance'].includes(selected.status) ? 'Attesterat underlag. Utbetalningar registreras manuellt.' : 'Efter kundgodkännande och intern attest blir kortet klart för manuell utbetalning.'}</p></div></div>
+                    <div className="office-summary-info"><Calculator size={28} aria-hidden="true" /><div><h2>Sammanställning</h2><p>{['ready', 'paid', 'balance'].includes(selected.status) ? 'Attesterat underlag. Bokföring och utbetalning följs i utbetalningskortet.' : 'Efter kundgodkännande och intern attest går kortet vidare till bokföring och utbetalning.'}</p></div></div>
                     {selected.financialPending && (
                       <p className="office-small">
                         {selected.pricingRedacted
@@ -1931,7 +1927,7 @@ export function OfficeApp() {
                   </section>
                   </CardSpirisTrackingProvider>
               </div>
-            </>
+            </CardBookingProvider>
           ) : section === 'dashboard' ? (
             <>
               <OfficePageHeader>

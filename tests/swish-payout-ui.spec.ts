@@ -36,7 +36,7 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
       job = { id: starts === 1 ? 'test-payout-job' : 'test-payout-job-2', kind: 'card', source, sourceSnapshotHash: source.hash, amount: 125, amountCents: 12500, currency: 'SEK', mode: 'mss', simulation: true,
         status: 'pending', bookkeepingStatus: 'pending', paymentDetails: input.paymentDetails, originalPaymentDetails: card.paymentDetails, reason: input.reason,
         createdAt: '2026-10-13T08:01:00Z', updatedAt: '2026-10-13T08:01:00Z', providerInstructionUUID: 'test-instruction', events: [],
-        request: { method: 'POST', path: '/payouts', payload: { amount: '125.00', payeeAlias: '46701234567' } }, response: { httpStatus: 201, data: { status: 'ACCEPTED' } } };
+        request: { method: 'POST', path: '/payouts', payload: { amount: '125.00', payeeAlias: '46701234567', payeeSSN: customer.number, signature: 'signature-for-test' } }, response: { httpStatus: 201, data: { status: 'ACCEPTED' } } };
       if (options.lostStartResponse) return route.abort('failed');
       body = job;
     } else if (path.includes('/payments/test-payout-job')) body = job;
@@ -45,14 +45,15 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
     else if (path === '/api/terminal-demo/events') return route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': connected\n\n' });
     else if (path === '/api/pricing/state') body = { version: 'test', revision: 1, memoryOnly: true, asOfDate: '2026-10-13', metals: [], articles: [], customers: [] };
     else if (path.endsWith('/summary')) body = { workOrders: 0, warehouse: 0, vessels: 0 };
+    else if (path.includes('/accounting/cards/') && path.endsWith('/booking')) body = { cardId, status: 'booked', invoiceId: 'booked-invoice', voucherNumber: 'A1', canBook: false, canRefresh: true };
     else if (path.includes('/accounting/cards/')) body = { export: null };
     else { status = 503; body = { error: 'Optional service unavailable in payout UI fixture' }; }
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
   return { cardId, starts: () => starts, startsPayload, requests, reject: () => {
     if (job) job = { ...job, status: 'rejected', updatedAt: '2026-10-13T08:02:00Z', response: { httpStatus: 400, data: { errorCode: 'RF07' } } };
-  }, unknown: () => { if (job) job = { ...job, status: 'unknown', updatedAt: '2026-10-13T08:02:00Z' }; }, confirm: () => {
-    if (job) job = { ...job, status: 'simulated_paid', bookkeepingStatus: 'registered', verifiedAt: '2026-10-13T08:02:00Z', updatedAt: '2026-10-13T08:02:00Z', response: { httpStatus: 200, data: { status: 'PAID' } } };
+  }, unknown: () => { if (job) job = { ...job, status: 'unknown', updatedAt: '2026-10-13T08:02:00Z' }; }, confirm: (bookkeepingStatus: SwishPaymentJob['bookkeepingStatus'] = 'registered') => {
+    if (job) job = { ...job, status: 'simulated_paid', bookkeepingStatus, verifiedAt: '2026-10-13T08:02:00Z', updatedAt: '2026-10-13T08:02:00Z', response: { httpStatus: 200, data: { status: 'PAID' } } };
   } };
 }
 
@@ -60,6 +61,8 @@ async function fillPayout(page: Page) {
   await page.getByRole('button', { name: 'Betala ut', exact: true }).first().click();
   const dialog = page.locator('.swish-payout-dialog');
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('Telefonnummer', { exact: true })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Redigera', exact: true }).click();
   await dialog.getByRole('button', { name: 'Swish', exact: true }).click();
   await dialog.getByLabel('Telefonnummer', { exact: true }).fill('0701234567');
   await expect(dialog.getByLabel('Mottagarens personnummer')).toHaveAttribute('readonly', '');
@@ -74,14 +77,21 @@ test('attesterat belopp och kundidentitet låses; ändring kräver orsak och HTT
   const dialog = await fillPayout(page);
   await expect(dialog).toContainText('125,00');
   await dialog.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true }).dblclick();
-  await expect(page.locator('.nvv-check-dialog')).toBeVisible();
-  await expect(page.locator('.nvv-check-dialog')).toContainText('HTTP 201');
-  await expect(page.locator('.nvv-check-dialog')).toHaveClass(/is-running/);
+  const progress = page.locator('.swish-payout-progress-dialog');
+  await expect(progress).toBeVisible();
+  await expect(progress).toHaveClass(/is-running/);
+  await expect(progress.getByRole('heading', { name: 'Väntar på bekräftelse', exact: true })).toBeVisible();
+  await expect(progress.locator('pre')).not.toBeVisible();
+  await progress.getByText('Avancerat', { exact: true }).click();
+  await expect(progress.locator('pre')).toContainText('201');
+  await expect(progress.locator('pre')).not.toContainText('46701234567');
+  await expect(progress.locator('pre')).not.toContainText('199001011239');
+  await expect(progress.locator('pre')).not.toContainText('signature-for-test');
   expect(state.starts()).toBe(1);
   expect(state.startsPayload[0]).toMatchObject({ source: { approvalId: 'payment-approval', version: 1, hash: 'payment-source-hash' }, paymentDetails: { method: 'swish', phone: '+46701234567', personalNumber: '199001011239' }, reason: 'Kunden vill använda Swish i detta test.' });
   state.confirm();
-  await expect(page.locator('.nvv-check-dialog')).toHaveClass(/is-success/);
-  await page.locator('.nvv-check-dialog').getByRole('button', { name: 'Klart', exact: true }).click();
+  await expect(progress).toHaveClass(/is-success/);
+  await progress.getByRole('button', { name: 'Klart', exact: true }).click();
   await expect(page.locator('.swish-payment-panel')).toContainText('Swish MSS har bekräftat testutbetalningen');
   await expect(page.locator('.swish-payment-panel')).toContainText('Betalningen är registrerad i Spiris sandbox');
   expect(state.starts()).toBe(1);
@@ -92,11 +102,13 @@ test('förlorat startsvar ger återläsning av sparat jobb, aldrig automatisk du
   await page.goto(`/kontor#/weighings/${state.cardId}`);
   const dialog = await fillPayout(page);
   await dialog.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true }).click();
-  await expect(dialog).toContainText('Testet kan ha sparats');
-  await expect(dialog.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true })).toHaveCount(0);
+  const progress = page.locator('.swish-payout-progress-dialog');
+  await expect(progress).toContainText('Testet kan ha sparats');
+  await expect(progress.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true })).toHaveCount(0);
   state.unknown();
-  await dialog.getByRole('button', { name: 'Kontrollera sparat test', exact: true }).click();
-  await expect(page.locator('.nvv-check-dialog')).toBeVisible();
+  await progress.getByRole('button', { name: 'Kontrollera sparat test', exact: true }).click();
+  await expect(progress).toBeVisible();
+  await expect(progress).toHaveClass(/is-unknown/);
   await expect(page.getByRole('button', { name: 'Rätta uppgifter och gör nytt test', exact: true })).toHaveCount(0);
   expect(state.starts()).toBe(1);
 });
@@ -109,11 +121,39 @@ test('en definitiv avvisning kan rättas med ett uttryckligt nytt försök koppl
   state.reject();
   await page.getByRole('button', { name: 'Rätta uppgifter och gör nytt test', exact: true }).click();
   await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Redigera', exact: true }).click();
   await dialog.getByLabel('Telefonnummer', { exact: true }).fill('0707654321');
   await dialog.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true }).click();
-  await expect(page.locator('.nvv-check-dialog')).toBeVisible();
+  await expect(page.locator('.swish-payout-progress-dialog')).toBeVisible();
   expect(state.starts()).toBe(2);
   expect(state.startsPayload[1]).toMatchObject({ retryOf: 'test-payout-job', paymentDetails: { phone: '+46707654321' } });
+});
+
+test('uppgifterna börjar låsta och avbruten redigering återställer förberedda uppgifter utan att skicka', async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto(`/kontor#/weighings/${state.cardId}`);
+  const dialog = await fillPayout(page);
+  await dialog.getByRole('button', { name: 'Avbryt redigering', exact: true }).click();
+  await expect(dialog.locator('.swish-payout-locked-details')).toContainText('Testbank');
+  await expect(dialog.locator('.swish-payout-locked-details')).toContainText('1234567890');
+  await expect(dialog.getByRole('button', { name: 'Swish', exact: true })).toHaveCount(0);
+  await expect(dialog.getByLabel('Orsak till ändrade betalningsuppgifter')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true })).toBeDisabled();
+  expect(state.starts()).toBe(0);
+});
+
+test('bekräftad Swish-betalning fortsätter visas som genomförd när separat bokföring behöver åtgärdas', async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto(`/kontor#/weighings/${state.cardId}`);
+  const dialog = await fillPayout(page);
+  await dialog.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true }).click();
+  state.confirm('blocked');
+  const progress = page.locator('.swish-payout-progress-dialog');
+  await expect(progress).toHaveClass(/is-success/);
+  await expect(progress.getByRole('heading', { name: 'Testutbetalning genomförd', exact: true })).toBeVisible();
+  await expect(progress).toContainText('Endast bokföringen behöver följas upp');
+  await expect(progress.getByRole('button', { name: 'Rätta uppgifter och gör nytt test', exact: true })).toHaveCount(0);
+  expect(state.starts()).toBe(1);
 });
 
 test('användare utan utbetalningsbehörighet ser inga betalningsåtgärder eller jobbuppgifter', async ({ page }) => {

@@ -28,6 +28,7 @@ export const permissions = [
   'paymentDetails',
   'verifyId',
   'attest',
+  'bookSpiris',
   'pay',
   'corrections',
   'reports',
@@ -69,7 +70,7 @@ export const permissions = [
   'staffingWrite',
   'externalAccounts',
 ];
-const sensitivePersonnelPermissions = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage'];
+const sensitivePersonnelPermissions = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage', 'bookSpiris'];
 const finite = z.number().finite();
 const nonnegative = finite.min(0).max(1e9);
 const id = z

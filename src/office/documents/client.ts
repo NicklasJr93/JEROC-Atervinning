@@ -5,7 +5,7 @@ export interface ArchivedDocument {
   id: string; kind: DocumentKind; sourceId: string | number; sourceVersion: string | number;
   stage: DocumentStage; siteId: string; title: string; sourceHash: string; pdfHash: string;
   templateVersion: string | number; createdAt: string; downloadUrl: string;
-  pdfVersion?: number; paymentRevision?: boolean; originalDocumentId?: string; replacesDocumentId?: string;
+  pdfVersion?: number; paymentRevision?: boolean; paymentConfirmation?: boolean; originalDocumentId?: string; replacesDocumentId?: string;
 }
 export interface DocumentParty { name: string; number: string; address: string; postalCode: string; city: string }
 export interface TransportDocumentRow { articleId?: string; name: string; wasteCode: string; weight: number | null }

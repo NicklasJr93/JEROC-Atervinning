@@ -17,6 +17,36 @@ const page = values => body({ Data: values, Meta: { CurrentPage: 1, PageSize: 10
 const configuration = (extra = {}) => ({ revision: 0, enabled: true, exportMode: 'manual', companyId, sandbox: true, paymentTermDays: 0, paymentTermsId: termsId,
   accounts: { privatePurchase: 4000, reversePurchase: 4000, standardPurchase: 4000, noVatPurchase: 4000, supplierLiability: 2440, inputVat: 2641, inputReverseVat: 2645, outputReverseVat: 2614 },
   vatCodes: { reverse25: vatId, standard25: vatId }, sites: [{ siteId: 'yard', useDefaults: true }], ...extra });
+
+function bookingProvider(f, { unknown = false, convert = true, tamper = false, paid = false } = {}) {
+  let converted = false;
+  const invoiceId = '587f2341-03d0-45b1-bd39-ff01bd1c2a38', voucherId = '6a3b0f40-6f5f-4071-8c74-2200019ab399';
+  const record = final => {
+    const submitted = f.posts().find(call => call.url.pathname === '/v2/supplierinvoicedrafts').payload;
+    const document = { ...structuredClone(submitted), Id: final ? invoiceId : draftId };
+    if (tamper) document.Rows[0].AccountNumber = 4999;
+    if (final) Object.assign(document, { Status: 1, CreatedFromDraftId: draftId, VoucherId: voucherId, VoucherNumber: 'B124',
+      RemainingAmountInvoiceCurrency: paid ? 0 : submitted.TotalAmount, Number: 24, NumberSeries: 'L',
+      Rows: document.Rows.map(({ DebitAmount, ...row }) => ({ ...row, DebetAmount: DebitAmount })) });
+    return document;
+  };
+  return {
+    invoiceId,
+    setConverted() { converted = true; },
+    provider: async call => {
+      if (call.url.pathname === `/v2/supplierinvoicedrafts/${draftId}/convert`) {
+        assert.equal(call.method, 'POST'); assert.equal(call.payload, null, 'Documented conversion takes no request body');
+        if (convert) converted = true;
+        if (unknown) throw new Error('Fixture lost conversion response');
+        return body(record(true), 201);
+      }
+      if (call.url.pathname === `/v2/supplierinvoicedrafts/${draftId}`) return converted ? body({ ErrorCode: 3000 }, 400) : body(record(false));
+      if (call.url.pathname === '/v2/supplierinvoices') return page(converted ? [record(true)] : []);
+      if (call.url.pathname === `/v2/supplierinvoices/${invoiceId}`) return body(record(true));
+      return f.normalProvider(call);
+    },
+  };
+}
 async function fixture(run, { local = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'jeroc-visma-export-')), filename = join(directory, 'application.sqlite');
   const repositoryEnv = {};
@@ -27,7 +57,7 @@ async function fixture(run, { local = false } = {}) {
     const url = new URL(process.env.JEROC_TEST_DATABASE_URL); url.searchParams.set('options', `-c search_path=${schema}`); repositoryEnv.DATABASE_URL = url.toString();
   }
   let repository = await createApplicationRepository({ env: repositoryEnv, filename, seed: () => ({ office: { sentinel: 'untouched' } }) });
-  let time = new Date('2026-10-11T10:00:00Z'), revoked = false, provider;
+  let time = new Date('2026-10-11T10:00:00Z'), revoked = false, bookingRevoked = false, provider;
   const calls = [], approvals = [], suppliers = [];
   const env = { VISMA_ENVIRONMENT: 'sandbox', VISMA_CLIENT_ID: 'fixture-client', VISMA_CLIENT_SECRET: 'fixture-secret', VISMA_REDIRECT_URI: 'https://app.example/api/integrations/visma/oauth/callback',
     VISMA_TOKEN_ENCRYPTION_KEY: randomBytes(32).toString('base64'), VISMA_SANDBOX_COMPANY_ID: companyId };
@@ -54,6 +84,11 @@ async function fixture(run, { local = false } = {}) {
   const inspector = createVismaStorage({ getRepository: async () => repository });
   const makeService = (selectedRepository, options = {}) => createVismaSandbox({ getRepository: async () => selectedRepository ?? repository, env, fetchImpl, now: () => time, ...options,
     sourceProvider: options.sourceProvider ?? (async () => structuredClone(approvals)), sitesProvider: async () => [{ id: 'yard', name: 'Testanläggning' }],
+    authorizeBookingContext: async (principal, { siteId }) => {
+      if (bookingRevoked || revoked || !principal.actorId || !principal.effectiveUserId || siteId && siteId !== 'yard') {
+        const error = new Error('Bokföringsbehörighet saknas'); error.status = 403; error.code = 'forbidden'; throw error;
+      }
+    },
     authorizeContext: async () => { if (revoked) { const error = new Error('Session revoked'); error.status = 403; error.code = 'session_revoked'; throw error; } } });
   let service = makeService();
   const f = { calls, approvals, suppliers, env, normalProvider, postgres: Boolean(pool),
@@ -62,7 +97,8 @@ async function fixture(run, { local = false } = {}) {
     transactIntegration: operation => inspector.transact(operation),
     withLookupTimeout: milliseconds => makeService(undefined, { lookupTimeoutMs: milliseconds }),
     get service() { return service; }, get repository() { return repository; },
-    setProvider: handler => { provider = handler; }, revoke: () => { revoked = true; }, advance: (milliseconds = 120001) => { time = new Date(time.getTime() + milliseconds); },
+    setProvider: handler => { provider = handler; }, revoke: () => { revoked = true; }, revokeBooking: () => { bookingRevoked = true; },
+    advance: (milliseconds = 120001) => { time = new Date(time.getTime() + milliseconds); },
     posts: () => calls.filter(call => call.method === 'POST' && call.url.hostname === 'eaccountingapi.vismaonline.com'),
     async connect() { const started = await service.begin(context); await service.callback({ state: new URL(started.authorizationUrl).searchParams.get('state'), code: 'fixture-code', cookieBinding: started.cookieBinding }); await service.complete(context); },
     async enable(extra = {}) { await f.connect(); await service.lookupChoices(context); return (await service.saveSettings({ expectedRevision: 0, settings: configuration(extra) }, context)).settings; },
@@ -97,6 +133,99 @@ test('finance settings are company-scoped, revision guarded and select only actu
   await assert.rejects(() => f.service.saveSettings({ expectedRevision: 1, settings: configuration({ companyId: 'other' }) }, context), error => error.code === 'accounting_company_mismatch');
   const before = f.calls.length; const preview = await f.service.preview({ example: 'private', siteId: 'yard', amount: 1000, date: '2026-10-11' }, context);
   assert.equal(preview.draft.TotalAmount, 1000); assert.equal(preview.draft.DueDate, '2026-10-11'); assert.equal(f.calls.length, before);
+}));
+
+test('explicit booking converts the existing frozen draft once and gates payout on verified booked invoice', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' }); const approval = await f.source();
+  const remote = bookingProvider(f); f.setProvider(remote.provider);
+  await f.service.processQueuedExports();
+  const before = await f.service.cardBookingStatus(approval.cardId, context);
+  assert.equal(before.status, 'draft'); assert.equal(before.canBook, true);
+  const source = { cardId: approval.cardId, approvalId: approval.id, version: approval.version, hash: approval.snapshot.hash };
+  await assert.rejects(() => f.service.assertPaymentReady(source), error => error.code === 'visma_payment_not_booked');
+  const queue = await f.service.requestCardBooking({ cardId: approval.cardId }, context);
+  assert.equal(queue.status, 'booking'); assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 0, 'Reservation does no provider I/O');
+  await f.service.processQueuedExports({ reconcile: false });
+  const complete = await f.service.cardBookingStatus(approval.cardId, context);
+  assert.equal(complete.status, 'booked'); assert.equal(complete.invoiceId, remote.invoiceId); assert.equal(complete.voucherNumber, 'B124');
+  const proof = await f.service.assertPaymentReady(source, { fresh: true });
+  assert.equal(proof.status, 'booked'); assert.equal(proof.invoiceId, remote.invoiceId); assert.equal(proof.draftId, draftId);
+  await f.service.requestCardBooking({ cardId: approval.cardId }, context);
+  await f.service.processQueuedExports({ reconcile: false }); await f.service.refreshCardBooking(approval.cardId, context);
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
+  assert.equal(f.posts().filter(call => call.url.pathname === '/v2/supplierinvoicedrafts').length, 1, 'No second invoice draft');
+}));
+
+test('attest booking intent survives restart and uses original actual/effective authorisation', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' }); const approval = await f.source();
+  approval.spirisAction = 'book'; approval.bookingRequestedBy = { actualUserId: 'admin', effectiveUserId: 'admin' };
+  approval.bookingConnection = await f.service.checkAttestBooking(approval, context);
+  const remote = bookingProvider(f); f.setProvider(remote.provider); await f.restart();
+  await f.service.processQueuedExports();
+  assert.equal((await f.service.cardBookingStatus(approval.cardId, context)).status, 'booked');
+  const stored = await f.readIntegration(document => document.tenants['jeroc-demo'].finance.outbox[0]);
+  assert.deepEqual(stored.booking.requestedBy, approval.bookingRequestedBy);
+  assert.equal(stored.booking.scope.generation, approval.bookingConnection.generation);
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
+}));
+
+test('lost conversion response recovers by readback after restart without a second POST', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' }); const approval = await f.source();
+  const remote = bookingProvider(f, { unknown: true }); f.setProvider(remote.provider);
+  await f.service.processQueuedExports(); await f.service.requestCardBooking({ cardId: approval.cardId }, context);
+  await f.service.processQueuedExports({ reconcile: false });
+  assert.equal((await f.service.cardBookingStatus(approval.cardId, context)).status, 'unknown');
+  await f.restart(); f.advance(300001); await f.service.processQueuedExports({ reconcile: false });
+  assert.equal((await f.service.cardBookingStatus(approval.cardId, context)).status, 'booked');
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
+}));
+
+test('simultaneous booking workers reserve one conversion and unknown outcomes stop automatic polling', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' }); const approval = await f.source();
+  const remote = bookingProvider(f, { unknown: true, convert: false }); f.setProvider(remote.provider);
+  await f.service.processQueuedExports(); await f.service.requestCardBooking({ cardId: approval.cardId }, context);
+  const second = f.makeService(f.repository);
+  await Promise.all([f.service.processQueuedExports({ reconcile: false }), second.processQueuedExports({ reconcile: false })]);
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
+  for (let attempt = 0; attempt < 8; attempt++) { f.advance(300001); await f.service.processQueuedExports({ reconcile: false }); }
+  const status = await f.service.cardBookingStatus(approval.cardId, context);
+  assert.equal(status.status, 'failed'); assert.equal(status.canBook, false);
+  const before = f.calls.length; f.advance(300001); await f.service.processQueuedExports({ reconcile: false });
+  await f.service.processAccountingTracking(); assert.equal(f.calls.length, before, 'Uncertain conversion has finite automatic followup');
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
+}));
+
+test('changed accounting rows block conversion; revoked booking rights and connection pin cannot dispatch', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' }); const approval = await f.source();
+  const remote = bookingProvider(f, { tamper: true }); f.setProvider(remote.provider);
+  await f.service.processQueuedExports(); await f.service.requestCardBooking({ cardId: approval.cardId }, context);
+  await f.service.processQueuedExports({ reconcile: false });
+  assert.equal((await f.service.cardBookingStatus(approval.cardId, context)).status, 'failed');
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 0);
+  f.setProvider(bookingProvider(f).provider); await f.service.requestCardBooking({ cardId: approval.cardId }, context); f.revokeBooking();
+  await f.service.processQueuedExports({ reconcile: false });
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 0, 'Both principals must remain authorised at dispatch');
+}));
+
+test('reconnected Spiris generation pauses an automatic booking intent before dispatch', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' }); const approval = await f.source();
+  approval.spirisAction = 'book'; approval.bookingRequestedBy = { actualUserId: 'admin', effectiveUserId: 'admin' };
+  approval.bookingConnection = await f.service.checkAttestBooking(approval, context);
+  const remote = bookingProvider(f); f.setProvider(remote.provider);
+  await f.service.disconnect(context); await f.connect(); await f.service.processQueuedExports();
+  assert.equal((await f.service.cardBookingStatus(approval.cardId, context)).status, 'paused');
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 0);
+}));
+
+test('confirmed booking still blocks a new payout when the supplier invoice is paid externally', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' }); const approval = await f.source();
+  const remote = bookingProvider(f); f.setProvider(remote.provider);
+  await f.service.processQueuedExports(); await f.service.requestCardBooking({ cardId: approval.cardId }, context);
+  await f.service.processQueuedExports({ reconcile: false });
+  const paid = bookingProvider(f, { paid: true }); paid.setConverted(); f.setProvider(paid.provider);
+  await assert.rejects(() => f.service.assertPaymentReady({ cardId: approval.cardId, approvalId: approval.id, version: approval.version, hash: approval.snapshot.hash }),
+    error => error.code === 'visma_payment_already_recorded');
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
 }));
 
 test('status and accounting settings project one tenant snapshot without historical runs, exports or credentials', async () => fixture(async f => {

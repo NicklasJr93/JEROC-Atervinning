@@ -131,7 +131,7 @@ const passwordMatches = (value, record) => {
   const actual = scryptSync(value, record.salt, 64), expected = Buffer.from(record.digest, 'hex');
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 };
-export const environmentCan = (principal, right) => ['environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage'].includes(right)
+export const environmentCan = (principal, right) => ['environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage', 'bookSpiris'].includes(right)
   ? principal.user.level === 'Systemadmin' || principal.user.permissions.includes(right)
   : principal.user.level !== 'Medarbetare' || principal.user.permissions.includes(right);
 const demand = (principal, right) => { if (!environmentCan(principal, right)) throw new EnvironmentError('Du saknar miljöbehörighet för detta moment.', 403, 'forbidden'); };
@@ -452,7 +452,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         let principal;
         try { principal = principalStore.principal(request.userId, request.effectiveUserId ?? request.userId); }
         catch { throw new EnvironmentError('Demokontot eller Jobba som-behörigheten är ogiltig.', 401, 'invalid_credentials'); }
-        if (!['environmentRead', 'environmentWrite', 'environmentClassify', 'environmentStorage', 'integrationsRead', 'pay'].some((right) => environmentCan(principal, right)))
+        if (!['environmentRead', 'environmentWrite', 'environmentClassify', 'environmentStorage', 'integrationsRead', 'pay', 'attest', 'bookSpiris'].some((right) => environmentCan(principal, right)))
           throw new EnvironmentError('Demokontot saknar miljöbehörighet.', 403, 'forbidden');
         const previous = previousToken && state.sessions.find((record) => record.tokenHash === environmentHash(previousToken));
         if (previous?.actualUserId === principal.actor.id && previous?.effectiveUserId === principal.user.id)

@@ -25,6 +25,9 @@ export interface SwishPaymentJob {
   request?: { method: string; path: string; payload?: NvvJsonObject };
   response?: { httpStatus?: number | null; data?: unknown };
   documentRevision?: ArchivedDocument | { id?: string; title?: string; documentId?: string; version?: number; originalDocumentId?: string; document?: ArchivedDocument; status?: string } | null;
+  paymentConfirmationDocument?: ArchivedDocument | { id?: string; title?: string; documentId?: string; version?: number; originalDocumentId?: string; document?: ArchivedDocument } | null;
+  paymentDocumentStatus?: 'pending' | 'archived' | 'failed';
+  paymentDocumentError?: string | null;
 }
 export interface SwishPaymentPreparation {
   cardId: number; source: SwishPaymentSource; sourceSnapshotHash: string;

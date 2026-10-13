@@ -14,7 +14,7 @@ const customer = { id: 'customer-build', name: 'Bygg & Riv AB', type: 'Företag'
   customerNumber: 'K-1001', phone: '0701234567', email: 'kund@example.invalid', address: 'Storgatan 12',
   paymentProfile: { method: 'bank', bank: 'Demobank', clearing: '8327', account: '1234567890', holder: 'Bygg & Riv AB' } };
 
-async function fixture(run, { siteProvider } = {}) {
+async function fixture(run, { siteProvider, attestBookingCheck } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'jeroc-terminal-test-'));
   const filename = join(directory, 'terminals.sqlite');
   let repositoryOptions = { filename, env: {} };
@@ -33,7 +33,7 @@ async function fixture(run, { siteProvider } = {}) {
   let repository = await createTerminalDemoRepository(repositoryOptions);
   const pricing = createPricingStore({ now: () => new Date('2026-10-09T10:00:00Z') });
   let time = new Date('2026-10-09T10:00:00Z');
-  const store = () => createTerminalDemoStore({ repository, principalStore: pricing, siteProvider, now: () => time });
+  const store = () => createTerminalDemoStore({ repository, principalStore: pricing, siteProvider, attestBookingCheck, now: () => time });
   let service = store();
   const staff = async (user = 'admin', actor = user) => (await service.staffSession({ actualUserId: actor, effectiveUserId: user })).token;
   const admin = await staff(), kajsa = await staff('kajsa'), anna = await staff('anna');
@@ -205,6 +205,8 @@ test('a customer click never verifies identity or bypasses internal attest; pric
   assert.equal((await f.service.session(login.token)).approval, null);
   const attested = await f.service.attest(approval.id, f.anna);
   assert.equal(attested.status, 'attested'); assert.equal(attested.snapshot.card.status, 'ready');
+  assert.equal(attested.spirisAction, 'draft');
+  assert.equal(attested.bookingRequestedBy, undefined);
   assert.equal(attested.snapshot.hash, approval.snapshot.hash);
   assert.equal(attested.snapshot.card.approvedBy, 'anna');
   await fail(() => f.service.cancel(approval.id, f.kajsa), 409, 'card_locked');
@@ -212,6 +214,100 @@ test('a customer click never verifies identity or bypasses internal attest; pric
   assert.equal(record.snapshot.card.idVerified, false, 'The original signed review is immutable');
   assert.equal(record.snapshot.card.status, 'complement');
   assert.equal(record.snapshot.hash, approval.snapshot.hash);
+  assert.equal(record.spirisAction, 'draft');
+  assert.equal((await f.service.documentProjections({ approvalId: approval.id }))[0].spirisAction, 'draft');
+}));
+
+test('booking intent survives restart, retains its trusted connection and cannot change through attest retries', async () => {
+  const connection = { companyId: 'sandbox-company-4711', generation: 'connection-epoch-1', settingsRevision: 3 };
+  let checked = 0;
+  await fixture(async f => {
+    const admin = f.pricing.principal('admin');
+    f.pricing.saveUsers({ users: f.pricing.read(admin).users.map(user => user.id === 'anna'
+      ? { ...user, permissions: [...user.permissions, 'bookSpiris'] } : user) }, admin);
+    const terminal = await f.create(), login = await f.service.login({ username: terminal.username, password: 'demolosen123' });
+    const approval = await f.service.send(f.payload(9000, terminal.id), f.kajsa);
+    await f.service.respond(approval.id, { action: 'id_requested', termsAccepted: true }, login.token);
+    await f.service.confirmId(approval.id, f.kajsa);
+    const attested = await f.service.attest(approval.id, f.anna, { spirisAction: 'book' });
+    assert.equal(attested.spirisAction, 'book');
+    assert.deepEqual(attested.bookingRequestedBy, { actualUserId: 'anna', effectiveUserId: 'anna' });
+    assert.deepEqual(attested.bookingConnection, connection);
+    assert.equal(attested.snapshot.hash, approval.snapshot.hash);
+    assert.equal(checked, 1);
+    assert.equal((await f.service.attest(approval.id, f.anna)).spirisAction, 'book', 'Legacy empty-body retry keeps the committed choice');
+    assert.equal((await f.service.attest(approval.id, f.anna, { spirisAction: 'book' })).spirisAction, 'book');
+    await fail(() => f.service.attest(approval.id, f.anna, { spirisAction: 'draft' }), 409, 'attest_action_locked');
+    assert.equal(checked, 1, 'Idempotent retries do not request a second booking');
+    await f.restart();
+    const restored = (await f.service.documentProjections({ approvalId: approval.id }))[0];
+    assert.equal(restored.spirisAction, 'book');
+    assert.deepEqual(restored.bookingRequestedBy, attested.bookingRequestedBy);
+    assert.deepEqual(restored.bookingConnection, connection);
+    const state = await f.service.repository.read(value => value);
+    assert.equal(state.audit.filter(entry => entry.action === 'approval.internally_attested').length, 1);
+    assert.equal(state.audit.at(-1).spirisAction, 'book');
+  }, { attestBookingCheck: async (_approval, principal) => { checked++; assert.equal(principal.user.id, 'anna'); return connection; } });
+});
+
+test('booking needs explicit current permission even for VD and fails safely if accounting preflight is unavailable', async () => {
+  let checked = 0;
+  await fixture(async f => {
+    const admin = f.pricing.principal('admin');
+    const users = f.pricing.read(admin).users.map(user => user.id === 'lars'
+      ? { ...user, permissions: user.permissions.filter(right => right !== 'bookSpiris') } : user);
+    f.pricing.saveUsers({ users }, admin);
+    const lars = await f.staff('lars'), actingAnna = await f.staff('anna', 'admin');
+    const terminal = await f.create(), login = await f.service.login({ username: terminal.username, password: 'demolosen123' });
+    const approval = await f.service.send(f.payload(9000, terminal.id), f.kajsa);
+    await f.service.respond(approval.id, { action: 'id_requested', termsAccepted: true }, login.token);
+    await f.service.confirmId(approval.id, f.kajsa);
+    await fail(() => f.service.attest(approval.id, lars, { spirisAction: 'book' }), 403, 'book_spiris_forbidden');
+    await fail(() => f.service.attest(approval.id, actingAnna, { spirisAction: 'book' }), 403, 'book_spiris_forbidden');
+    assert.equal(checked, 0, 'Delegated systemadmin never overrides the effective user');
+    f.pricing.saveUsers({ users: users.map(user => user.id === 'anna'
+      ? { ...user, permissions: [...user.permissions, 'bookSpiris'] } : user) }, admin);
+    await fail(() => f.service.attest(approval.id, actingAnna, { spirisAction: 'book' }), 409, 'spiris_booking_unavailable');
+    assert.equal(checked, 1);
+    const untouched = (await f.service.documentProjections({ approvalId: approval.id }))[0];
+    assert.equal(untouched.status, 'approved');
+    assert.equal(untouched.spirisAction, undefined);
+    assert.equal(untouched.bookingRequestedBy, undefined);
+    const draft = await f.service.attest(approval.id, f.anna, { spirisAction: 'draft' });
+    assert.equal(draft.spirisAction, 'draft');
+    await fail(() => f.service.attest(approval.id, f.admin, { spirisAction: 'book' }), 409, 'attest_action_locked');
+  }, { attestBookingCheck: async () => { checked++; throw new TerminalDemoError('Spiris saknar verifierad koppling.', 409, 'spiris_booking_unavailable'); } });
+});
+
+test('HTTP attest accepts only the booking choice and maps booking actor from the trusted session', async () => fixture(async f => {
+  const terminal = await f.create(), login = await f.service.login({ username: terminal.username, password: 'demolosen123' });
+  const approval = await f.service.send(f.payload(9000, terminal.id), f.kajsa);
+  await f.service.respond(approval.id, { action: 'id_requested', termsAccepted: true }, login.token);
+  await f.service.confirmId(approval.id, f.kajsa);
+  const connection = { companyId: 'sandbox-company-4711', generation: 'connection-epoch-1', settingsRevision: 3 };
+  const api = createTerminalDemoApi({ principalStore: f.pricing, repository: f.service.repository, env: {},
+    attestBookingCheck: async () => connection,
+    trustedPrincipalProvider: () => ({ actorId: 'admin', userId: 'anna', expiresAt: '2030-01-01T00:00:00Z' }) });
+  const server = createServer(async (req, res) => { await api(req, res, new URL(req.url, 'http://localhost')); });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const send = payload => fetch(`http://127.0.0.1:${server.address().port}/api/terminal-demo/approvals/${approval.id}/attest`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Terminal-Actual-User': 'admin', 'X-Terminal-Effective-User': 'admin' }, body: JSON.stringify(payload) });
+  try {
+    const forbidden = await send({ spirisAction: 'book' });
+    assert.equal(forbidden.status, 403); assert.equal((await forbidden.json()).code, 'book_spiris_forbidden');
+    const admin = f.pricing.principal('admin');
+    f.pricing.saveUsers({ users: f.pricing.read(admin).users.map(user => user.id === 'anna'
+      ? { ...user, permissions: [...user.permissions, 'bookSpiris'] } : user) }, admin);
+    for (const invalid of [{ spirisAction: 'book', bookingRequestedBy: { actualUserId: 'admin', effectiveUserId: 'admin' } }, { spirisAction: 'live' }, { bookingConnection: connection }]) {
+      const response = await send(invalid); assert.equal(response.status, 400);
+    }
+    const response = await send({ spirisAction: 'book' });
+    assert.equal(response.status, 200);
+    const saved = await response.json();
+    assert.deepEqual(saved.bookingRequestedBy, { actualUserId: 'admin', effectiveUserId: 'anna' });
+    assert.deepEqual(saved.bookingConnection, connection);
+    assert.equal(saved.spirisAction, 'book');
+  } finally { server.closeAllConnections(); server.close(); await once(server, 'close'); await api.close(); }
 }));
 
 test('requested changes return the card to completion and old sessions cannot approve a new version', async () => fixture(async (f) => {

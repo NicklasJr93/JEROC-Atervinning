@@ -94,6 +94,13 @@ test('concurrent callbacks reserve exactly one payment POST', async () => fixtur
   assert.equal(f.posts().length, 1); assert.equal((await f.service.projection(f.value.id)).status, 'registered');
 }));
 
+test('a delayed PAID callback retains the original payout connection and invoice rather than adopting a reconnect', async () => fixture(async f => {
+  f.value.bookingProof = { companyId, generation: 'connection-a', invoiceId, draftId };
+  f.changeGeneration();
+  const result = await f.service.synchronize(f.value.id);
+  assert.equal(result.status, 'paused'); assert.equal(f.posts().length, 0);
+}));
+
 test('lost POST response is reconciled only through an exact matched transaction, never a retry', async () => fixture(async f => {
   f.loseResponse(); const result = await f.service.synchronize(f.value.id); assert.equal(result.status, 'registered');
   assert.ok(f.calls.some(call => call.operation === 'matchedTransactions'));

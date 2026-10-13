@@ -205,6 +205,32 @@ export function createVismaClient({ env = process.env, fetchImpl = globalThis.fe
     },
     exchangeCode({ code, verifier }) { return token({ grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: configured().redirectUri }); },
     refreshToken(refreshToken, signal) { return token({ grant_type: 'refresh_token', refresh_token: refreshToken }, refreshToken, signal); },
+    // Narrow server-only conversion capability. The generic sandbox parser
+    // deliberately cannot name this operation or supply an arbitrary body.
+    async bookingRequest({ operation, parameters, payload, accessToken, signal }) {
+      configured();
+      if (payload !== undefined) fail('Bokföring av ett befintligt utkast får inte innehålla ett nytt underlag.', 422);
+      if (typeof accessToken !== 'string' || !accessToken || /[\s\x00-\x1f\x7f]/.test(accessToken)) fail('En giltig serverlagrad åtkomsttoken krävs.', 409);
+      const write = operation === 'convertDraft';
+      let path;
+      if (['convertDraft', 'draft', 'invoice'].includes(operation)) {
+        const parsed = z.object({ resourceId: uuid }).strict().safeParse(parameters);
+        if (!parsed.success) fail('Bokföringen saknar en giltig kopplad resurs.', 422);
+        path = operation === 'invoice' ? `/supplierinvoices/${parsed.data.resourceId}` : `/supplierinvoicedrafts/${parsed.data.resourceId}${write ? '/convert' : ''}`;
+      } else if (operation === 'invoices') path = vismaOperationPath(operation, parameters);
+      else fail('Bokföringen innehåller en otillåten operation.', 422);
+      remember(accessToken);
+      let result;
+      try { result = await transport(`${VISMA_API_BASE}${path}`, { method: write ? 'POST' : 'GET',
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' }, signal }, 2 * 1024 * 1024); }
+      catch { return { outcome: 'unknown', httpStatus: null, response: null, error: { code: 'visma_booking_unknown', message: 'Bokföringssvaret saknas. Samma utkast skickas inte automatiskt igen.' } }; }
+      const response = redact(result.body);
+      if (write && (result.httpStatus === 408 || result.httpStatus >= 500)) return { outcome: 'unknown', httpStatus: result.httpStatus, response,
+        error: { code: 'visma_booking_unknown', message: 'Spiris gav ett osäkert bokföringssvar. Det befintliga underlaget kontrolleras.' } };
+      if (result.httpStatus < 200 || result.httpStatus >= 300) return { outcome: 'rejected', httpStatus: result.httpStatus, response,
+        error: { code: 'visma_booking_rejected', message: 'Spiris avvisade bokföringen av utkastet.' } };
+      return { outcome: 'accepted', httpStatus: result.httpStatus, response };
+    },
     // Never exposed as a sandbox-page operation. Only the private payout
     // bookkeeping batch may use this exact documented subset.
     async paymentRequest({ operation, parameters, payload, accessToken, signal }) {

@@ -18,7 +18,7 @@ const swedishDate = value => {
 };
 const proofIdentity = value => JSON.stringify([value.id, value.organisationId, value.providerInstructionUUID, value.providerPaymentReference,
   value.source?.cardId, value.source?.approvalId, value.source?.version, value.source?.hash, value.amountCents, value.currency, value.spirisCompanyId,
-  value.spirisBankAccountId, value.providerResult?.datePaid]);
+  value.spirisBankAccountId, value.providerResult?.datePaid, ...(value.bookingProof ? [value.bookingProof] : [])]);
 const digest = value => createHash('sha256').update(proofIdentity(value)).digest('hex');
 const publicEntry = entry => ({ paymentId: entry.paymentId, status: entry.status, simulation: true, environment: 'sandbox',
   companyId: entry.companyId, amountCents: entry.amountCents, paymentDate: entry.paymentDate, bankAccountId: entry.bankAccountId,
@@ -96,6 +96,8 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
       || !uuid(value.source.approvalId) || !Number.isInteger(value.source.version) || value.source.version < 1 || !/^[a-f0-9]{64}$/.test(value.source.hash)
       // CompanyIdentifier is opaque text in Spiris; bank account IDs are UUIDs.
       || !uuid(value.spirisBankAccountId) || typeof value.spirisCompanyId !== 'string' || !value.spirisCompanyId.trim()
+      || value.bookingProof && (value.bookingProof.companyId !== value.spirisCompanyId || !value.bookingProof.generation
+        || !uuid(value.bookingProof.invoiceId) || !uuid(value.bookingProof.draftId))
       || !Number.isFinite(Date.parse(value.providerResult.datePaid)) || Date.parse(value.providerResult.datePaid) > clock().getTime() + 5000)
       fail('Betalningsbokföringen kräver en verifierad Swish-simulering, låst kortversion och eget Spiris-bankkonto.', 'visma_payment_proof_missing');
     return value;
@@ -159,7 +161,9 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
     const reserved = await store.mutate(id, previous => {
       if (previous) { if (previous.proofHash !== digest(value)) fail('Samma betalnings-ID har andra uppgifter.', 'idempotency_conflict'); return { value: previous }; }
       const entry = { paymentId: id, organisationId, source: clone(value.source), proofHash: digest(value), companyId: value.spirisCompanyId,
-        generation: connected.generation, bankAccountId: value.spirisBankAccountId, amountCents: value.amountCents,
+        generation: value.bookingProof?.generation ?? connected.generation,
+        ...(value.bookingProof ? { invoiceId: value.bookingProof.invoiceId } : {}),
+        bankAccountId: value.spirisBankAccountId, amountCents: value.amountCents,
         paymentDate: swedishDate(value.providerResult.datePaid), reference: `SP-SWISH-${value.providerInstructionUUID}`, status: 'pending',
         createdAt: clock().toISOString(), updatedAt: clock().toISOString(), events: [] };
       event(entry, 'pending', 'Verifierad Swish-simulering köad för betalningsbokföring i Spiris sandbox.'); return { entry, value: entry };

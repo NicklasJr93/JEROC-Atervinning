@@ -58,6 +58,9 @@ async function fixture(run, hooks = {}) {
     return createSwishPayments({
       getRepository: async () => repository, sourceProvider: async () => [structuredClone(approval)], client, env: {}, now: () => timestamp,
       onPrepared: hooks.onPrepared,
+      onPaymentConfirmed: hooks.onPaymentConfirmed,
+      assertPaymentReady: hooks.assertPaymentReady ?? (async () => ({ status: 'booked', companyId: 'sandbox-company-123',
+        generation: 'connection-a', invoiceId: 'f5b80286-13fb-4dfe-b16d-e885b01aa27e', draftId: '8cba9df5-bd89-4bc4-811c-cdb7a1961fd3' })),
       onVerifiedPayment: async job => {
         bookkeeping.push(structuredClone(job));
         return hooks.onVerifiedPayment ? hooks.onVerifiedPayment(job) : { status: 'registered', paymentId: 'spiris-sandbox-payment' };
@@ -93,6 +96,39 @@ test('Spiris settings preserve opaque company identifiers through a verified pay
   assert.equal(f.bookkeeping[0].spirisCompanyId, companyId);
   assert.equal(f.bookkeeping[0].spirisBankAccountId, bankAccountId);
 }));
+
+test('an unbooked Spiris invoice blocks preparation and direct payout before reserving any Swish instruction', async () => fixture(async f => {
+  const preparation = await f.payments.prepare(CARD_ID, context);
+  assert.equal(preparation.canStart, false); assert.equal(preparation.canInitiate, false);
+  assert.ok(preparation.issues.includes('Bokför underlaget i Spiris före utbetalning.'));
+  await assert.rejects(() => f.payments.start(f.input(), context), error => error.code === 'swish_invoice_unbooked');
+  assert.equal((await f.payments.getCardJobs(CARD_ID, context)).length, 0); assert.equal(f.calls.length, 0);
+}, { assertPaymentReady: async () => { throw Object.assign(new Error('Bokför underlaget i Spiris före utbetalning.'), { code: 'swish_invoice_unbooked', status: 409 }); } }));
+
+test('a changed or disconnected booked invoice is rechecked before dispatch and cannot reach Swish', async () => fixture(async f => {
+  const job = await f.payments.start(f.input(), context);
+  await f.payments.processQueuedPayments();
+  assert.equal((await f.payments.job(job.id, context)).status, 'blocked'); assert.equal(f.calls.length, 0);
+}, { assertPaymentReady: async (_source, { fresh }) => ({ status: 'booked', companyId: 'sandbox-company-123',
+  generation: fresh ? 'reconnected-company' : 'connection-a', invoiceId: 'f5b80286-13fb-4dfe-b16d-e885b01aa27e', draftId: '8cba9df5-bd89-4bc4-811c-cdb7a1961fd3' }) }));
+
+test('a failed paid-PDF archive retries separately without another payout or payment registration', async () => {
+  let attempts = 0;
+  await fixture(async f => {
+    const job = await f.payments.start(f.input(), context); await f.payments.processQueuedPayments(); f.advance(5000); await f.payments.processQueuedPayments();
+    let paid = await f.payments.job(job.id, context);
+    assert.equal(paid.status, 'simulated_paid'); assert.equal(paid.paymentDocumentStatus, 'failed');
+    assert.equal(paid.bookkeepingStatus, 'registered'); assert.equal(f.bookkeeping.length, 1);
+    f.advance(61000); await f.payments.processQueuedPayments(); paid = await f.payments.job(job.id, context);
+    assert.equal(paid.paymentDocumentStatus, 'archived'); assert.equal(paid.paymentConfirmationDocument.documentId, 'paid-pdf');
+    assert.equal(f.calls.filter(call => call.method === 'POST').length, 1); assert.equal(f.bookkeeping.length, 1);
+    await f.payments.refresh(job.id, context); assert.equal(attempts, 2);
+  }, { onPaymentConfirmed: async job => {
+    assert.equal(job.providerResult.status, 'PAID'); assert.ok(job.verifiedAt);
+    if (++attempts === 1) throw new Error('Document archive temporarily unavailable');
+    return { documentId: 'paid-pdf', version: 2, document: { id: 'paid-pdf', paymentConfirmation: true } };
+  } });
+});
 
 test('concurrent reservations and workers send exactly one Swish instruction for one frozen attest version', async () => fixture(async f => {
   const preview = await f.payments.prepare(CARD_ID, context);

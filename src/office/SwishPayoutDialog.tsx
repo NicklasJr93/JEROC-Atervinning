@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { CircleAlert, LoaderCircle, LockKeyhole, Smartphone, X } from 'lucide-react';
+import { Check, CircleAlert, LoaderCircle, LockKeyhole, Pencil, Smartphone, X } from 'lucide-react';
 import { can, type OfficeCard, type OfficeUser, type PaymentDetails } from './model';
 import { EnvironmentApiError } from './environment-client';
 import { useEnvironmentSession } from './EnvironmentSession';
 import PaymentEditor from './PaymentEditor';
-import NvvConnectionCheckDialog, { type NvvCheckProgress } from './NvvConnectionCheckDialog';
+import SwishPayoutProgressDialog from './SwishPayoutProgressDialog';
 import { normalizePhoneNumber } from '../data-format';
 import {
-  swishPaymentsApi, swishPaymentChanged, swishPaymentRunning, swishFailureMessage,
-  swishPaymentStatusNames, swishBookkeepingStatusNames,
+  swishPaymentsApi, swishPaymentChanged, swishPaymentRunning, swishBookkeepingRunning,
   type SwishPaymentDetails, type SwishPaymentJob, type SwishPaymentPreparation,
 } from './swish-payments-client';
 import './swish-payments.css';
@@ -29,6 +28,7 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
   const [reason, setReason] = useState(''), [job, setJob] = useState<SwishPaymentJob>();
   const [loading, setLoading] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [uncertain, setUncertain] = useState(false), [pollPaused, setPollPaused] = useState(false);
+  const [editing, setEditing] = useState(false), [submitting, setSubmitting] = useState(false), [baselineReason, setBaselineReason] = useState('');
   const [retryOf, setRetryOf] = useState<string>();
   const flight = useRef<AbortController | null>(null), mutationInFlight = useRef(false), generation = useRef(0);
   const identity = `${actualUser.id}/${user.id}`;
@@ -51,6 +51,7 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
     flight.current?.abort(); flight.current = null;
     setPreparation(undefined); setDetails(undefined); setReason(''); setJob(undefined); setError('');
     setUncertain(false); setPollPaused(false); setBusy(false); setRetryOf(undefined); mutationInFlight.current = false;
+    setEditing(false); setSubmitting(false); setBaselineReason('');
     if (!open || !permitted || !sessionMatches) { setLoading(false); return; }
     const controller = new AbortController(); flight.current = controller; setLoading(true);
     void swishPaymentsApi.prepare(card.id, controller.signal).then(value => {
@@ -67,15 +68,15 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
   }, [open, card.id, identity, permitted, sessionMatches]);
 
   useEffect(() => {
-    if (!open || !permitted || job) return;
+    if (!open || !permitted || job || submitting || uncertain) return;
     const element = dialog.current, opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     if (element && !element.open) element.showModal();
     if (element) element.scrollTop = 0;
     return () => { if (element?.open) element.close(); if (opener?.isConnected && !opener.matches(':disabled')) opener.focus({ preventScroll: true }); };
-  }, [open, permitted, Boolean(job)]);
+  }, [open, permitted, Boolean(job), submitting, uncertain]);
 
   useEffect(() => {
-    if (!open || !job || !swishPaymentRunning(job) || pollPaused || !sessionMatches || !permitted) return;
+    if (!open || !job || !(swishPaymentRunning(job) || swishBookkeepingRunning(job)) || pollPaused || !sessionMatches || !permitted) return;
     const expected = generation.current, started = Date.now(), controller = new AbortController();
     let timer: number, reading = false;
     const read = async () => {
@@ -85,7 +86,7 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
         const next = await swishPaymentsApi.job(job.id, controller.signal);
         if (controller.signal.aborted || generation.current !== expected) return;
         publish(next);
-        if (!swishPaymentRunning(next)) return;
+        if (!(swishPaymentRunning(next) || swishBookkeepingRunning(next))) return;
       } catch (failure) {
         if (controller.signal.aborted || generation.current !== expected) return;
         setError(failure instanceof Error ? failure.message : 'Slutstatus kunde inte hämtas. Det sparade testet finns kvar.');
@@ -96,7 +97,7 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
     };
     timer = window.setTimeout(() => void read(), 700);
     return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [open, job?.id, job?.status, pollPaused, sessionMatches, permitted, publish]);
+  }, [open, job?.id, job?.status, job?.bookkeepingStatus, pollPaused, sessionMatches, permitted, publish]);
 
   async function recover() {
     if (busy || !sessionMatches || !permitted) return;
@@ -126,7 +127,8 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
       if (value.existingJob && !['rejected', 'failed'].includes(value.existingJob.status)) { publish(value.existingJob); return; }
       const nextDetails = { ...previous.paymentDetails, personalNumber: value.customer.number };
       setPreparation({ ...value, paymentDetails: nextDetails }); setDetails(nextDetails);
-      setReason(previous.reason ?? ''); setRetryOf(previous.id); setJob(undefined); setUncertain(false); setPollPaused(false);
+      setReason(previous.reason ?? ''); setBaselineReason(previous.reason ?? ''); setEditing(false);
+      setRetryOf(previous.id); setJob(undefined); setUncertain(false); setPollPaused(false);
     } catch (failure) {
       if (generation.current === expected) setError(failure instanceof Error ? failure.message : 'Underlaget kunde inte hämtas för ett nytt test.');
     } finally { if (generation.current === expected) setBusy(false); }
@@ -140,13 +142,14 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
 
   async function start() {
     if (mutationInFlight.current || busy || uncertain || !preparation || !details || !sessionMatches || !permitted) return;
+    if (preparation.canInitiate === false) { setError(preparation.issues.join(' ') || 'Underlaget behöver kontrolleras före utbetalning.'); return; }
     if (!methodSupported) { setError('Den här etappen stöder bara Swishs testmiljö. Bank, kontant och saldo ändrar inget underlag här.'); return; }
     if (!isPrivate) { setError('Swish Utbetalning gäller privatpersoner. Företag behöver bankutbetalning.'); return; }
     if (!phoneValid) { setError('Ange mottagarens svenska mobilnummer för Swish.'); return; }
     if (!details.recipient?.trim()) { setError('Ange mottagarens namn.'); return; }
     if (changed && !reason.trim()) { setError('Ange en orsak till ändrade betalningsuppgifter.'); return; }
     const expected = generation.current, expectedIdentity = identityRef.current;
-    mutationInFlight.current = true; setBusy(true); setError('');
+    mutationInFlight.current = true; setBusy(true); setSubmitting(true); setEditing(false); setError('');
     try {
       const next = await swishPaymentsApi.start({ cardId: card.id,
         source: { approvalId: preparation.source.approvalId, version: preparation.source.version, hash: preparation.source.hash },
@@ -163,30 +166,19 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
         setUncertain(true);
         setError('Serverns bekräftelse kunde inte hämtas. Testet kan ha sparats. Kontrollera historiken innan du gör något nytt försök.');
       } else setError(failure.message);
-    } finally { if (generation.current === expected) { mutationInFlight.current = false; setBusy(false); } }
+    } finally { if (generation.current === expected) { mutationInFlight.current = false; setBusy(false); setSubmitting(false); } }
+  }
+
+  function cancelEditing() {
+    if (!preparation || busy || uncertain) return;
+    setDetails({ ...preparation.paymentDetails }); setReason(baselineReason); setEditing(false); setError('');
   }
 
   if (!open || !permitted) return null;
-  if (job && sessionMatches) {
-    const running = swishPaymentRunning(job) && !pollPaused;
-    const successful = job.status === 'simulated_paid';
-    const unknown = job.status === 'unknown' || pollPaused;
-    const progress: NvvCheckProgress = running ? { phase: 'running', mode: 'test' }
-      : successful ? { phase: 'success', mode: 'test', wasteCodes: 0, transportModes: 0 }
-        : { phase: 'error', mode: 'test', message: error || swishFailureMessage(job.error) || (unknown ? 'Slutstatus är ännu inte bekräftad. Kontrollera samma instruktion; skicka ingen ny utbetalning.' : swishPaymentStatusNames[job.status]) };
-    return <NvvConnectionCheckDialog progress={progress} onClose={onClose} onRetry={() => void recover()}
-      additionalActions={['rejected', 'failed'].includes(job.status) ? <button type="button" className="office-btn outline" disabled={busy} onClick={() => void editRejected()}>{busy ? 'Hämtar underlag…' : 'Rätta uppgifter och gör nytt test'}</button> : undefined}
-      externalTest={{
-      provider: 'Swish MSS', environmentLabel: 'MSS · INGA PENGAR FLYTTAS',
-      method: 'POST', path: job.request?.path ?? '/payouts', payload: job.request?.payload,
-      uncertain: unknown,
-      run: { status: running ? 'in_flight' : successful ? 'accepted' : unknown ? 'unknown' : 'rejected',
-        httpStatus: unknown ? null : job.response?.httpStatus,
-        response: { swishStatus: job.status, svar: job.response?.data ?? null,
-          spirisSandbox: { status: job.bookkeepingStatus, meddelande: swishBookkeepingStatusNames[job.bookkeepingStatus] },
-          ...(job.documentRevision ? { avrakningsversion: job.documentRevision } : {}),
-        }, trackingId: job.id, resourceId: job.providerInstructionUUID, finishedAt: job.verifiedAt ?? null },
-    }} />;
+  if ((job || submitting || uncertain) && sessionMatches) {
+    return <SwishPayoutProgressDialog job={job} preparing={submitting && !job} uncertain={uncertain} pollPaused={pollPaused}
+      busy={busy} error={error} onClose={onClose} onRefresh={() => void recover()}
+      onEditRejected={job && ['rejected', 'failed'].includes(job.status) ? () => void editRejected() : undefined} />;
   }
   return <dialog ref={dialog} className="swish-payout-dialog" aria-labelledby={heading} aria-describedby={description}
     onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
@@ -197,16 +189,25 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
     {!sessionLoading && !sessionMatches && <p className="swish-payment-error" role="alert">En giltig inloggning behövs för att hämta utbetalningsuppgifterna.</p>}
     {preparation && sessionMatches && <>
       <div className="swish-payout-frozen"><div><span>Attesterat belopp <LockKeyhole size={13} /></span><strong>{preparation.amount.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK' })}</strong></div><div><span>Mottagare</span><strong>{preparation.customer.name}</strong><small>{preparation.customer.type} · {preparation.customer.number}</small></div></div>
-      <p className="swish-payment-muted">Belopp och kundidentitet är låsta. Betalningsuppgifter kan ändras med motivering och historik.</p>
+      <div className="swish-payout-details-heading"><strong>{editing ? 'Redigerar utbetalningsuppgifter' : 'Utbetalningsuppgifter'} {!editing && <LockKeyhole size={13} />}</strong>
+        {!editing ? <button type="button" className="office-btn outline" disabled={busy || uncertain} onClick={() => setEditing(true)}><Pencil size={14} />Redigera</button>
+          : <div><button type="button" className="office-btn text" disabled={busy} onClick={cancelEditing}>Avbryt redigering</button><button type="button" className="office-btn outline" disabled={busy} onClick={() => setEditing(false)}><Check size={14} />Klar</button></div>}
+      </div>
+      <p className="swish-payment-muted">Kontrollera uppgifterna före utbetalning. Belopp och kundidentitet är alltid låsta.</p>
       <fieldset className="swish-payout-fields" disabled={busy || uncertain}>
-        <PaymentEditor value={preparation.paymentDetails} customerName={preparation.customer.name} hideSaveAction onSave={() => false}
+        {editing ? <PaymentEditor value={details} customerName={preparation.customer.name} hideSaveAction onSave={() => false}
           onDraftChange={value => setDetails({ ...value, personalNumber: preparation.paymentDetails.personalNumber ?? preparation.customer.number })} />
+          : <dl className="swish-payout-locked-details" aria-label="Låsta utbetalningsuppgifter"><div><dt>Betalsätt</dt><dd>{({ swish: 'Swish', bank: 'Bankkonto', cash: 'Kontant', balance: 'Spara på saldo' })[details?.method ?? 'bank']}</dd></div>
+            {details?.method === 'swish' && <><div><dt>Telefonnummer</dt><dd>{details.phone || '–'}</dd></div><div><dt>Mottagare</dt><dd>{details.recipient || '–'}</dd></div></>}
+            {details?.method === 'bank' && <><div><dt>Bank</dt><dd>{details.bank || '–'}</dd></div><div><dt>Clearingnummer</dt><dd>{details.clearing || '–'}</dd></div><div><dt>Kontonummer</dt><dd>{details.account || '–'}</dd></div><div><dt>Kontohavare</dt><dd>{details.holder || '–'}</dd></div></>}
+          </dl>}
         {methodSupported && <label className="swish-payout-identity">Mottagarens personnummer<input aria-label="Mottagarens personnummer" value={preparation.paymentDetails.personalNumber ?? preparation.customer.number} readOnly /><small>Identiteten följer den attesterade kunden och kan inte bytas i utbetalningen.</small></label>}
         {!methodSupported && <p className="swish-payout-warning"><CircleAlert size={16} />Bank, kontant och saldo är planerade. Välj Swish för att provköra den här testmiljön.</p>}
         {!isPrivate && <p className="swish-payout-warning"><CircleAlert size={16} />Swish Utbetalning gäller privatpersoner. Företag behöver bankutbetalning.</p>}
-        {changed && <label className="swish-payout-reason">Orsak till ändrade betalningsuppgifter<textarea aria-label="Orsak till ändrade betalningsuppgifter" value={reason} onChange={event => setReason(event.target.value)} maxLength={1000} rows={2} required /><small>En ny PDF-version arkiveras med ändrade betalningsuppgifter. Material, belopp och det attesterade originalet bevaras.</small></label>}
+        {changed && (editing ? <label className="swish-payout-reason">Orsak till ändrade betalningsuppgifter<textarea aria-label="Orsak till ändrade betalningsuppgifter" value={reason} onChange={event => setReason(event.target.value)} maxLength={1000} rows={2} required /><small>En ny PDF-version arkiveras med ändrade betalningsuppgifter. Material, belopp och det attesterade originalet bevaras.</small></label>
+          : <div className="swish-payout-reason-summary"><strong>Orsak till ändringen</strong><p>{reason || 'Ange en orsak via Redigera innan utbetalningen kan startas.'}</p></div>)}
       </fieldset>
-      {!!preparation.issues.length && <details className="swish-payment-history"><summary>Kontroller före utbetalning</summary><ul>{preparation.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul></details>}
+      {!!preparation.issues.length && preparation.canInitiate === false && <div className="swish-payout-warning" role="status"><CircleAlert size={16} /><div>{preparation.issues.map((issue, index) => <p key={index}>{issue}</p>)}</div></div>}
     </>}
     {error && <p role="alert" className="swish-payment-error">{error}</p>}
     <div className="swish-payout-actions"><button type="button" className="office-btn outline" disabled={busy} onClick={onClose}>Avbryt</button>
