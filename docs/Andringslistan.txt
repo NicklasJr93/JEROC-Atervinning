@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.9.0. Aktuell kontorsversion: 0.26.0.
+Aktuell mobilwebbversion: 0.9.1. Aktuell kontorsversion: 0.27.0.
 Banköverföring/Open Payments sandbox och bankmottagare är genomförda i ÄL 109,
 bygge 2026-10-13: docs/integrationer/openpayments-bygge-2026-10-13.md.
 Delad attestknapp, bokföring i Spiris, utbetalningsspärr, eget utbetalningskort
@@ -1674,6 +1674,29 @@ Aktivering sker per anställd; befintliga konton behåller tidigare tidskälla.
   för båda aktörerna och personens anläggningar. Separata frånvaro-/transport-
   behörigheter styr vilka detaljer kontorets tidvy får lämna ut.
 - Guide: docs/personal-utrustning-stampelklocka.md. Inga nya Render-variabler.
+
+ÄL 114 – Personalens närvaro och gemensam stämpelstatus
+Status: Implementerad 2026-10-13 i kontor 0.27.0 och mobilwebb 0.9.1.
+- Personal → Närvaro visar instämplade, rast, utstämplade och behov av
+  kontroll med person/team, anläggning, starttid, arbetstid och rasttid.
+  Sökning och filter för status/anläggning. Personraden öppnar personalkortet;
+  tidsdetaljen visas direkt om läsaren har anställningsbehörigheten.
+- Automatisk avläsning var 20:e sekund när sidan är synlig, manuell uppdatering
+  och lokala sekundräknare utan nätverksanrop varje sekund. Närvarosidan hämtar
+  en egen begränsad projektion, inte hela personalregistret eller månadshistorik.
+- Gemensamma beräknade attribut för instämplad, rast, observerat arbete,
+  schema, frånvaro, pågående arbetsorder, rättelsebehov och tillgänglighet.
+  Samma egenstatus följer med den inloggade medarbetarens mobilpaket.
+  Utan klocka eller annan säker närvarokälla är tillgängligheten okänd.
+- Rast behåller instämplingen men betyder inte tillgänglig. Pågående jobb,
+  registrerad frånvaro, inaktivt konto och osäkra pass påverkar tillgänglighet.
+  Befintliga roller/rättigheter och arbetsflöden ändras inte av statusen.
+- Anläggningen vid instämpling sparas från serverns valda, behöriga anläggning.
+  Rättelser behåller den historiska platsen; den är ingen liveposition.
+- Separat läsrätt personnelPresenceRead för både faktisk och effektiv användare.
+  Läsaren ser endast personal inom bådas anläggningsåtkomst. Medicinska orsaker,
+  kontaktuppgifter, lön och rå historik lämnas inte ut i närvaroöversikten.
+- Guide och attribut: docs/personal-narvaro.md. Inga nya Render-variabler.
 
 080 – Spiris-inställningarnas hämtning fastnar
 Status: Implementerad i kontor 0.17.1, 2026-10-12.

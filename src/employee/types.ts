@@ -1,6 +1,7 @@
 import type { TransportOrder } from '../office/transport/types';
 import type { LogisticsOrderDetail } from '../office/logistics/types';
 import type { WorkSchedule, Absence } from '../office/personnel/types';
+import type { PresencePerson } from '../office/personnel/presence-types';
 
 export interface EmployeePerson {
   id: string; name: string; kind?: 'employee' | 'external'; role: string; team: string;
@@ -20,6 +21,7 @@ export interface EmployeeRequirement {
 export interface EmployeeClockBreak { startedAt: string; endedAt: string | null }
 export interface EmployeeClockSession {
   id: string; revision: number; startedAt: string; endedAt: string | null;
+  siteId?: string;
   breaks: EmployeeClockBreak[]; workSeconds: number; breakSeconds: number;
   dayWorkSeconds?: number; dayBreakSeconds?: number; correctedAt?: string; correctionReason?: string;
   provisional?: boolean; requiresCorrection?: boolean;
@@ -76,6 +78,7 @@ export interface EmployeeOverview extends EmployeeSession {
   requirement: EmployeeRequirement; gate: EmployeeTimeGate; days: EmployeeDay[];
   selectedDay: EmployeeDay & { entries: EmployeeTimeEntry[]; schedules: WorkSchedule[]; absences: Absence[]; orders: EmployeeOrder[]; clockSessions?: EmployeeClockSession[] };
   clock?: EmployeeClock;
+  presence?: PresencePerson;
   orders: EmployeeOrder[]; activeWork?: { id: string; orderId: string; startedAt: string; personId: string } | null;
   leaveRequests: EmployeeLeaveRequest[];
   summary: { expectedMinutes: number; recordedMinutes: number; missingMinutes: number };

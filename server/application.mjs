@@ -11,6 +11,7 @@ import { createLogisticsApi, validateLogisticsTransportChange, synchronizeLogist
 import { createMobileEmployeeApi, ensureMobileEmployeeAccounts, hasEmployeeSession, employeeRequestPrincipal } from './mobile-employee-api.mjs';
 import { ensureEmployeeTime, refreshEmployeeTimeNorms, employeeTimeProjection, employeeTimeRequirementCommand, employeeClockCommand } from './employee-time.mjs';
 import { equipmentProjection, equipmentCommand } from './equipment.mjs';
+import { employeePresenceProjection } from './employee-presence.mjs';
 import { allocateWeighingNumber } from './work-order-weighing.mjs';
 import { prepareCustomerReview } from './customer-review.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
@@ -701,6 +702,20 @@ export function createApplicationService({ repository, env = process.env, seed =
           `db_pool;dur=${metrics.poolWaitMs.toFixed(1)}`, `db_sql;dur=${metrics.sqlMs.toFixed(1)}`,
           `db_lock_query;dur=${metrics.lockQueryMs.toFixed(1)}`, `db_commit;dur=${metrics.commitMs.toFixed(1)}`,
           `db_queries;desc="${metrics.sqlCount}"`].join(', '));
+        json(res, 200, result); return true;
+      }
+      if (domain === 'personnel-presence') {
+        if (req.method !== 'GET') fail('Närvaroöversikten är endast läsbar.', 405);
+        if ([...url.searchParams.keys()].some(key => key !== 'siteId')) fail('Ogiltigt närvarofilter.', 422);
+        const siteId = url.searchParams.get('siteId') || undefined;
+        if (siteId && (siteId.length > 100 || !/^[a-zA-Z0-9_-]+$/.test(siteId))) fail('Välj en giltig anläggning.', 422);
+        const sites = await siteProvider(), repository = await getRepo();
+        const result = await repository.read(state => {
+          const p = requestPrincipal({ principal: (actor, user) => resolvePricingPrincipal(state.pricing.users, actor, user) }, req);
+          if (siteId && ![p.actor, p.user].every(user => !Array.isArray(user.siteIds) || user.siteIds.includes(siteId))) fail('Du saknar åtkomst till anläggningen.', 403);
+          if (siteId && !sites.some(site => site.id === siteId)) fail('Anläggningen finns inte.', 404);
+          return employeePresenceProjection(state, p, { siteCatalog: sites, siteId });
+        }, { domains: ['pricing', 'personnel', 'employeeTime', 'transport', 'logistics'] });
         json(res, 200, result); return true;
       }
       if (domain === 'equipment') {

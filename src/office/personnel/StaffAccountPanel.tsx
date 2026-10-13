@@ -14,6 +14,7 @@ const permissionPrerequisites: Partial<Record<Permission, Permission[]>> = {
   integrationsRead: ['environmentRead'],
   integrationsManage: ['environmentRead', 'integrationsRead'],
   personnelWrite: ['personnelRead'],
+  personnelPresenceRead: ['personnelRead'],
   equipmentWrite: ['equipmentRead'],
   employmentRead: ['personnelRead'],
   employmentWrite: ['personnelRead', 'employmentRead'],

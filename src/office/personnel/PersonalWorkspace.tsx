@@ -10,6 +10,8 @@ import SchedulePanel from './components/SchedulePanel';
 import StaffingPanel from './components/StaffingPanel';
 import EquipmentWorkspace from './EquipmentWorkspace';
 import TimeSettingsPanel from './TimeSettingsPanel';
+import PresenceOverview from './PresenceOverview';
+import { mayReadPersonnelPresence } from './presence-client';
 import './personal.css';
 
 export interface PersonalWorkspaceProps {
@@ -28,7 +30,13 @@ const toneForCompetency = (competency: Competency) => competencyStatus(competenc
 const labelForCompetency = (competency: Competency) => ({ expired: 'Utgången', unverified: 'Inväntar kontroll', future: 'Gäller senare', soon: 'Förnyas snart', valid: 'Giltig' })[competencyStatus(competency)];
 function Metric({ label, value, note, icon }: { label: string; value: ReactNode; note: ReactNode; icon: ReactNode }) { return <div className="hr-metric"><span className="hr-metric-icon">{icon}</span><div><small>{label}</small><strong>{value}</strong><small>{note}</small></div></div>; }
 
-export default function PersonalWorkspace({ user, actualUser, selectedSiteId = 'all', users = [], onNotice, onOpenUser, renderStaffAccount, onAccountsChanged }: PersonalWorkspaceProps) {
+export default function PersonalWorkspace(props: PersonalWorkspaceProps) {
+  const location = useLocation();
+  if (location.pathname.replace(/\/$/, '') === '/personnel/presence') return <PresenceOverview user={props.user} actualUser={props.actualUser} selectedSiteId={props.selectedSiteId} onNotice={props.onNotice} />;
+  return <PersonnelRegistryWorkspace {...props} />;
+}
+
+function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', users = [], onNotice, onOpenUser, renderStaffAccount, onAccountsChanged }: PersonalWorkspaceProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [response, setResponse] = useState<PersonnelResponse>();
@@ -96,7 +104,7 @@ export default function PersonalWorkspace({ user, actualUser, selectedSiteId = '
   const canReadTimeSettings = [user, actualUser].every(person => person.level === 'Systemadmin' || person.permissions.includes('employmentRead') || person.permissions.includes('employmentWrite'));
   const listedPeople = visiblePeople.filter(value => (showInactive || value.active) && (kindFilter === 'all' || kindFilter === value.kind) && (teamFilter === 'all' || value.team === teamFilter) && (siteFilter === 'all' || value.siteIds.includes(siteFilter)) && [value.name, value.role, value.team, companyName(value), ...data.competencies.filter(c => c.personId === value.id).flatMap(c => [c.name, c.scope, ...c.codes])].join(' ').toLocaleLowerCase('sv-SE').includes(query.toLocaleLowerCase('sv-SE')));
 
-  const sectionNav = <nav className="hr-section-nav" aria-label="Personal"><button className={!isTasks ? 'active' : ''} onClick={() => navigate('/personnel')}>Alla personer</button><button className={isTasks ? 'active' : ''} onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa{activeTasks.length > 0 && <span className="hr-count">{activeTasks.length}</span>}</button>{can(user, 'users') && <button onClick={() => navigate('/personnel/accounts')}>Konton</button>}</nav>;
+  const sectionNav = <nav className="hr-section-nav" aria-label="Personal"><button className={!isTasks ? 'active' : ''} onClick={() => navigate('/personnel')}>Alla personer</button>{mayReadPersonnelPresence(user, actualUser) && <button onClick={() => navigate('/personnel/presence')}>Närvaro</button>}<button className={isTasks ? 'active' : ''} onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa{activeTasks.length > 0 && <span className="hr-count">{activeTasks.length}</span>}</button>{can(user, 'users') && <button onClick={() => navigate('/personnel/accounts')}>Konton</button>}</nav>;
 
   return <div className="hr-workspace">
     {personId && !person && sectionNav}

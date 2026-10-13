@@ -60,6 +60,7 @@ export const permissions = [
   'environmentStorage',
   'environmentReceiveException',
   'personnelRead',
+  'personnelPresenceRead',
   'personnelWrite',
   'equipmentRead',
   'equipmentWrite',
@@ -73,7 +74,7 @@ export const permissions = [
   'staffingWrite',
   'externalAccounts',
 ];
-const sensitivePersonnelPermissions = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage', 'bookSpiris', 'mailRead', 'equipmentRead', 'equipmentWrite'];
+const sensitivePersonnelPermissions = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage', 'bookSpiris', 'mailRead', 'equipmentRead', 'equipmentWrite', 'personnelPresenceRead'];
 const finite = z.number().finite();
 const nonnegative = finite.min(0).max(1e9);
 const id = z
@@ -1632,6 +1633,7 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
       integrationsRead: ['environmentRead'],
       integrationsManage: ['environmentRead', 'integrationsRead'],
       personnelWrite: ['personnelRead'],
+      personnelPresenceRead: ['personnelRead'],
       equipmentWrite: ['equipmentRead'],
       employmentRead: ['personnelRead'],
       employmentWrite: ['personnelRead', 'employmentRead'],

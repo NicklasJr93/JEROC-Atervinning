@@ -8,6 +8,7 @@ import { applyTransportChange, personnelPlanIssues, normalizePhoneNumber, phoneN
 import { ensureEmployeeTime, enrollEmployeeTime, employeeTimeProjection, employeeTimeCommand,
   employeeTimeGate, employeeTimeRequirementCommand, employeeTimeLifecycle, employeeClockCommand } from './employee-time.mjs';
 import { employeeEquipmentProjection } from './equipment.mjs';
+import { employeePresenceForPerson } from './employee-presence.mjs';
 import { employeeSites, employeeCompanyId, employeeActiveSite, saveEmployeeActiveSite } from './mobile-sites.mjs';
 
 const COOKIE = 'jeroc_employee';
@@ -188,6 +189,8 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           const companyId = employeeCompanyId(env, state);
           return { ...projection, companyId, companyName: state.metadata?.organisation?.name ?? (companyId === 'jeroc-demo' ? 'JEROC Återvinning AB' : ''), person: safePerson(scopedPerson, account), sites: sites.map(({ id, name, active }) => ({ id, name, active })),
             activeSiteId: employeeActiveSite(state, companyId, person.id, sites),
+            presence: employeePresenceForPerson(state, scopedPerson, { now, siteCatalog: sites,
+              actualUserId: principal.actor.id, effectiveUserId: principal.user.id, allowedSiteIds: principal.user.siteIds }),
             capabilities: { yardWork: principal.user.level !== 'Medarbetare' || principal.user.permissions.includes('prepare'), assignedOrders: Boolean(person.canDrive && person.driverId),
               paymentDetails: [principal.actor, principal.user].every(user => user.level !== 'Medarbetare' || user.permissions.includes('paymentDetails')),
               employeeTime: true, manageTimeRequirements: managePeople(state, identity).length > 0,
@@ -216,8 +219,10 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         if (!identity) fail('Logga in för att använda appen.', 401);
         const { person, account, principal, session } = identity;
         const scopedPerson = { ...person, siteIds: principal.user.siteIds };
+        const allowedSites = employeeSites(siteCatalog, person, principal.user);
         const timeContext = { now, actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
-          allowedSiteIds: principal.user.siteIds, siteCatalog: employeeSites(siteCatalog, person, principal.user) };
+          allowedSiteIds: principal.user.siteIds, siteCatalog: allowedSites,
+          activeSiteId: employeeActiveSite(state, employeeCompanyId(env, state), person.id, allowedSites) };
         if (path === 'logout' && req.method === 'POST') { auth.sessions = auth.sessions.filter(value => value !== session); return { token: '', value: { ok: true } }; }
         if (['session', 'bootstrap', 'overview', 'calendar'].includes(path) && req.method === 'GET') return { value: overview(identity) };
         if (path === 'equipment' && req.method === 'GET') {

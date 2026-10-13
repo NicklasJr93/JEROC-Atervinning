@@ -1,0 +1,45 @@
+.hr-presence-workspace .office-page-title { align-items: center; }
+.hr-presence-workspace .hr-presence-heading-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.hr-presence-freshness { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; color: #8295af; }
+.hr-presence-freshness i { width: 6px; height: 6px; border-radius: 50%; background: #25a16c; }
+.hr-presence-freshness.stale i { background: #d7953d; }
+.hr-presence-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.hr-presence-controls .hr-search { flex: 1 1 240px; }
+.hr-presence-controls > select { margin: 0 !important; width: auto !important; min-width: 160px; max-width: 230px; font-size: 11px !important; }
+.hr-presence-workspace .hr-presence-metrics .hr-metric { padding: 17px 20px; }
+.hr-presence-metrics .hr-metric-icon.green { color: #158755; background: #eaf8ef; }
+.hr-presence-metrics .hr-metric-icon.orange { color: #b97823; background: #fff4e5; }
+.hr-presence-metrics .hr-metric-icon.grey { color: #7b8fa9; background: #eff3f8; }
+.hr-presence-metrics .hr-metric-icon.red { color: #be514d; background: #ffefed; }
+.hr-presence-workspace .hr-presence-table-panel { padding: 14px !important; }
+.hr-presence-table-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 3px 13px; }
+.hr-presence-table-heading h2 { font-size: 13px; margin: 0; }
+.hr-presence-table-heading span { font-size: 10px; color: #879ab3; }
+.hr-presence-table { min-width: 950px; }
+.hr-presence-table td { padding-top: 13px; padding-bottom: 13px; }
+.hr-presence-table tbody tr { cursor: pointer; transition: background .12s ease; }
+.hr-presence-table tbody tr:hover, .hr-presence-table tbody tr:focus-visible { background: #f6faff; }
+.hr-presence-table tbody tr:focus-visible { outline: 2px solid #2378eb; outline-offset: -2px; }
+.hr-presence-table .hr-pill { white-space: nowrap; }
+.hr-presence-status { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.hr-presence-status small { margin-top: 0; }
+.hr-presence-person { display: flex; align-items: center; gap: 10px; min-width: 160px; }
+.hr-presence-person .hr-avatar { height: 32px; width: 32px; font-size: 10px; }
+.hr-presence-person strong { display: block; }
+.hr-presence-person small { margin-top: 2px; }
+.hr-presence-duration { color: #1b385d; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hr-presence-table td:last-child { text-align: right; }
+.hr-presence-table td:last-child svg { color: #93a8c3; }
+.hr-presence-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 40px 20px; text-align: center; color: #7f94b0; font-size: 12px; }
+.hr-presence-empty strong { color: #344f71; font-size: 13px; }
+.hr-presence-help { color: #8597b0; font-size: 10px; margin: 12px 2px 0; }
+.hr-presence-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.hr-presence-spin { animation: hr-presence-spin 1s linear infinite; }
+@keyframes hr-presence-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .hr-presence-spin { animation: none; } }
+@media (max-width: 760px) {
+  .hr-presence-heading-actions { width: 100%; justify-content: space-between; }
+  .hr-presence-controls > select { flex: 1 1 140px; min-width: 0; max-width: none; }
+  .hr-presence-workspace .hr-presence-table-panel { padding: 10px !important; }
+  .hr-presence-workspace .hr-presence-metrics .hr-metric { padding: 14px; }
+}

@@ -2191,6 +2191,7 @@ export function OfficeApp() {
                 navigation={<nav className="office-personnel-nav" aria-label="Personal">
                 {can(user, 'personnelRead') && <button onClick={() => navigate('/personnel')}>Alla personer</button>}
                 {can(user, 'personnelRead') && <button onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa</button>}
+                {[actualUser!, user].every(account => can(account, 'personnelRead') && can(account, 'personnelPresenceRead')) && <button onClick={() => navigate('/personnel/presence')}>Närvaro</button>}
                 <button className="active" onClick={() => navigate('/personnel/accounts')}>Konton</button>
               </nav>} />
           ) : section === 'personnel' ? (

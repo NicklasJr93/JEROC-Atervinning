@@ -266,12 +266,13 @@ function clockIntervals(session, now) {
   ]));
   return { work: subtractIntervals([[start, end]], breaks), breaks };
 }
-function clockSessionView(session, now, date) {
+function clockSessionView(session, now, date, allowedSiteIds) {
   const intervals = clockIntervals(session, now);
   const bounds = date ? [[localInstant(date, 0), localInstant(addDays(date, 1), 0)]] : null;
   const fields = ['id', 'startedAt', 'endedAt', 'breaks', 'revision', 'correctedAt', 'correctionReason'];
   return {
     ...copy(Object.fromEntries(fields.filter(key => session[key] !== undefined).map(key => [key, session[key]]))),
+    ...(session.siteId && (!allowedSiteIds || allowedSiteIds.includes(session.siteId)) ? { siteId: session.siteId } : {}),
     endedAt: session.endedAt ?? null, provisional: !session.endedAt,
     requiresCorrection: clockNeedsCorrection(session, now),
     workSeconds: intervalSeconds(intervals.work), breakSeconds: intervalSeconds(intervals.breaks),
@@ -294,7 +295,7 @@ function clockDay(state, person, date, context) {
   const breaks = mergeIntervals(intervals.flatMap(item => intersectIntervals(item.breaks, bounds)));
   return {
     work, clockMinutes: Math.floor(intervalSeconds(work) / 60), breakMinutes: Math.floor(intervalSeconds(breaks) / 60),
-    clockSessions: sessions.map(item => clockSessionView(item, now, date)),
+    clockSessions: sessions.map(item => clockSessionView(item, now, date, person.siteIds)),
   };
 }
 function sourceChangeInfo(state, person, context) {
@@ -319,7 +320,7 @@ export function employeeClockProjection(state, personOrId, context = {}) {
     enabled: source === 'clock' || Boolean(active), source,
     revision: state.employeeTime?.clockStates?.find(item => item.personId === person.id)?.revision ?? 0,
     status: active ? onBreak ? 'break' : 'working' : expected.expectedMinutes === 0 ? 'off' : 'out',
-    serverNow: clock(context).toISOString(), activeSession: active ? clockSessionView(active, now) : null,
+    serverNow: clock(context).toISOString(), activeSession: active ? clockSessionView(active, now, undefined, person.siteIds) : null,
     requiresCorrection: ownSessions.some(item => clockNeedsCorrection(item, now)),
     workSeconds: active ? intervalSeconds(intervals.work) : day.clockSessions.filter(item => !item.requiresCorrection).reduce((sum, item) => sum + item.dayWorkSeconds, 0),
     breakSeconds: active ? intervalSeconds(intervals.breaks) : day.clockSessions.filter(item => !item.requiresCorrection).reduce((sum, item) => sum + item.dayBreakSeconds, 0),
@@ -342,6 +343,13 @@ function dayData(state, person, date, sites, orders = ownOrders(state, person), 
   return result;
 }
 function publicDay({ entries, schedules, absences, orders, clockSessions,...day }) { return day; }
+function clockAuditView(row, allowedSiteIds) {
+  const value = copy(row);
+  for (const key of ['before', 'after']) {
+    if (value[key]?.siteId && !allowedSiteIds.includes(value[key].siteId)) delete value[key].siteId;
+  }
+  return value;
+}
 
 export function employeeTimeGate(state, personOrId, context = {}) {
   const person = ownPerson(state, personOrId, context), today = employeeTimeToday(context);
@@ -384,7 +392,7 @@ export function employeeTimeProjection(state, personOrId, context = {}) {
   return { revision: state.employeeTime?.revision ?? 0, today, month, date, person: Object.fromEntries(['id', 'name', 'role', 'team', 'phone', 'email', 'employeeNumber', 'siteIds'].filter(key => person[key] !== undefined).map(key => [key, copy(person[key])])),
     requirement: requirementAt(state, person, today), configuredRequirement:configured?{...copy(configured),timeSource:configured.timeSource??'workorder'}:requirementAt(state,person,today),
     timeSourceChange:sourceChangeInfo(state,person,context),clock:employeeClockProjection(state,person,context),
-    clockHistory:copy((state.employeeTime?.audit??[]).filter(item=>item.personId===person.id&&item.action.startsWith('clock.')).slice(-50).reverse()),
+    clockHistory:(state.employeeTime?.audit??[]).filter(item=>item.personId===person.id&&item.action.startsWith('clock.')).slice(-50).reverse().map(item => clockAuditView(item, person.siteIds)),
     gate: employeeTimeGate(state, person, context), days, selectedDay, orders, ...(activeWork ? { activeWork: copy(activeWork) } : {}), leaveRequests: copy((state.employeeTime?.leaveRequests ?? []).filter(value => value.personId === person.id)), sites, summary, balances: { available: false } };
 }
 
@@ -428,7 +436,7 @@ export function employeeClockCommand(state, personOrId, command, transactionAudi
     }
     const saved = domain.clockSessions.find(item => item.id === previous.sessionId && item.personId === person.id);
     return {
-      session: saved ? clockSessionView(saved, clock(context).getTime()) : null,
+      session: saved ? clockSessionView(saved, clock(context).getTime(), undefined, person.siteIds) : null,
       clock: employeeClockProjection(state, person, context), gate: employeeTimeGate(state, person, context),
     };
   }
@@ -467,6 +475,7 @@ export function employeeClockCommand(state, personOrId, command, transactionAudi
     before = old ? copy(old) : null;
     saved = {
       ...candidate, id: old?.id ?? uid('clock-session'), personId: person.id, revision: (old?.revision ?? 0) + 1,
+      ...(old?.siteId ? { siteId: old.siteId } : {}),
       createdAt: old?.createdAt ?? at, updatedAt: at, correctedAt: at, correctionReason: input.reason,
     };
     if (old) domain.clockSessions[domain.clockSessions.indexOf(old)] = saved;
@@ -482,7 +491,13 @@ export function employeeClockCommand(state, personOrId, command, transactionAudi
       if (domain.clockSessions.some(item => item.personId === person.id && item.endedAt && Date.parse(item.endedAt) > now.getTime())) {
         fail('Senaste passets tid ligger efter systemets klocka. Rätta passet först.', 409);
       }
-      saved = { id: uid('clock-session'), personId: person.id, startedAt: at, endedAt: null, breaks: [], revision: 1, createdAt: at, updatedAt: at };
+      const siteId = context.activeSiteId;
+      if (siteId !== undefined && (typeof siteId !== 'string' || !person.siteIds.includes(siteId)
+        || Array.isArray(context.siteCatalog) && !context.siteCatalog.some(site => site.id === siteId && site.active !== false))) {
+        fail('Den aktiva anläggningen ligger utanför din åtkomst. Välj anläggning igen.', 403);
+      }
+      saved = { id: uid('clock-session'), personId: person.id, startedAt: at, endedAt: null, breaks: [], revision: 1,
+        ...(siteId ? { siteId } : {}), createdAt: at, updatedAt: at };
       domain.clockSessions.push(saved);
     } else {
       // An existing overnight pass can always be stopped, including when a
@@ -516,7 +531,7 @@ export function employeeClockCommand(state, personOrId, command, transactionAudi
     sessionId: saved.id, requestId: input.requestId, reason: input.reason ?? '', before, after: copy(saved),
     text: input.action === 'clock.correct' ? 'Verkliga stämplingar rättade med anledning.' : 'Stämpling sparad med serverns tid.',
   }, transactionAudit, { ...context, actualUserId, effectiveUserId });
-  return { session: clockSessionView(saved, now.getTime()), clock: employeeClockProjection(state, person, context), gate: employeeTimeGate(state, person, context) };
+  return { session: clockSessionView(saved, now.getTime(), undefined, person.siteIds), clock: employeeClockProjection(state, person, context), gate: employeeTimeGate(state, person, context) };
 }
 
 const entrySchema = z.object({ id: identifier.optional(), revision: revision.optional(), date: dateSchema, startMinute: minute, endMinute: minute, breakMinutes: z.number().int().min(0).max(720).default(0), activity: z.string().trim().min(1).max(120), note: text.default(''), orderId: identifier.optional(), siteId: identifier.optional() }).strict().refine(value => value.endMinute > value.startMinute && value.breakMinutes < value.endMinute - value.startMinute, 'Slut måste vara efter start och rasten kortare än passet.');
