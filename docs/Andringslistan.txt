@@ -2362,3 +2362,26 @@ MSS används fortsatt; produktionsbetalningar har inte aktiverats.
   Okänt bokföringssvar kontrolleras via läsning; konvertering omsänds inte.
 - Provflöde och verifiering:
   docs/integrationer/attest-bokfor-utbetalning-2026-10-13.md.
+
+ÄL 104 – Plattformsöversikt, lämna bolag och kundsupportkonton
+Status: Statiska mockuper framtagna 2026-10-13. Implementation planerad;
+ingen appkod ändrad i denna leverans.
+- Systemadmin får en enkel startsida före bolagsval: bolagslista med status,
+  VD-konto och anläggningar samt Skapa nytt bolag och Kundsupport.
+- Lämna bolag återgår till plattformsöversikten och rensar aktuell Jobba
+  som-kontext; Logga ut avslutar hela inloggningen. Rätta det rapporterade
+  problemet att systemadmin inte kan lämna JEROC:s bolagsvy.
+- Skapa nytt bolag blir en egen sida med bolagsnamn, organisationsnummer,
+  första VD:s namn och e-post. Kontaktadress, status, första anläggning
+  och logga är kompletteringar; bolaget kan ställa in resten senare.
+  Tillfälligt lösenord genereras, visas en gång och måste bytas vid första
+  inloggningen. Inget automatiskt mejlutskick ingår här.
+- Systemadmin kan skapa personliga kundsupportkonton, välja tillåtna bolag
+  och ge operativa rättigheter för exempelvis kunder, viktkort och transporter.
+  Ekonomi, attest, integrationer och kontohantering får separata rättigheter
+  som är avstängda från början. Befintliga låsningar av underlag gäller.
+- Support får ingen plattformsadministration eller åtkomst till hemligheter.
+  Bolagsurval och rättigheter kontrolleras på servern; Jobba som får inte
+  höja dem. Verkligt supportkonto, bolag och ändringar sparas i historiken.
+- Tre bilder och förklaringar:
+  docs/mockups/plattformsadmin/README.md.
