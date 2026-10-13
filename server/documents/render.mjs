@@ -273,16 +273,21 @@ export async function renderPdf(snapshot) {
       doc.switchToPage(range.start + i);
       const top = H - 43;
       doc.moveTo(M, top).lineTo(W - M, top).lineWidth(.6).strokeColor(C.line).stroke();
-      const stamp = `${show(snapshot.id)} · Version ${snapshot.version ?? '—'}`;
+      const stamp = `${show(snapshot.id)} · Underlagsversion ${snapshot.version ?? '—'}${snapshot.paymentRevision ? ` · PDF-version ${snapshot.paymentRevision.version}` : ''}`;
       // Footer strings have a bounded line box regardless of lengthy external IDs.
       const stampLines = lines(stamp, WIDTH - 100, 7).slice(0, 1);
       text(stampLines.join(''), M, top + 8, WIDTH - 100, 7, false, C.muted);
       text(`Sida ${i + 1} av ${range.count}`, W - M - 98, top + 8, 98, 7, false, C.muted, 'right');
-      text('DEMO · Inga betalningar, bokföringsposter eller myndighetsrapporter har skickats.', M, top + 23, WIDTH, 7, false, C.muted);
+      text(snapshot.paymentRevision ? 'SWISH MSS · Testmiljö. Inga riktiga pengar flyttas. Denna PDF bekräftar inte genomförd betalning.' : 'DEMO · Inga betalningar, bokföringsposter eller myndighetsrapporter har skickats.', M, top + 23, WIDTH, 7, false, C.muted);
     }
   }
   try {
     header();
+    if (snapshot.paymentRevision) {
+      const revision = snapshot.paymentRevision;
+      paragraph(`PDF-version ${revision.version} · Ändrad av ${show(revision.actor?.name, revision.actor?.effectiveUserId)} · ${date(revision.at, true)}\nOrsak: ${clean(revision.reason)}\nSamma avräkningsreferens och låsta ekonomiska underlag. Endast betalningsuppgifterna har uppdaterats. Originalet finns kvar i dokumenthistoriken.`,
+        { title: 'Uppdaterade betalningsuppgifter – ersätter tidigare PDF-version', size: 8 });
+    }
     const fields = transport
       ? [['Transportdokument', snapshot.id], ['Arbetsorder / underlag', snapshot.sourceId], ['Dokumentdatum', date(snapshot.issuedAt)], ['Transporttyp', snapshot.transport?.direction === 'pickup' ? 'Upphämtning' : 'Utleverans'], ['Anläggning', site], ['Status', state]]
       : [['Avräkningsreferens', snapshot.id], [snapshot.selfBilling?.agreed ? 'Självfakturanummer' : 'Dokumentversion', snapshot.selfBilling?.agreed ? final && snapshot.selfBilling.number ? snapshot.selfBilling.number : 'Utfärdas efter attest' : `Version ${snapshot.version}`], ['Invägningsunderlag', snapshot.sourceId], [final ? 'Utfärdandedatum' : 'Förhandsvisningsdatum', date(snapshot.issuedAt)], ['Mottagningsdatum', date(snapshot.receivedAt ?? snapshot.deliveredAt)], ['Status', state]];

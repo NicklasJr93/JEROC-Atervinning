@@ -5,6 +5,7 @@ export interface ArchivedDocument {
   id: string; kind: DocumentKind; sourceId: string | number; sourceVersion: string | number;
   stage: DocumentStage; siteId: string; title: string; sourceHash: string; pdfHash: string;
   templateVersion: string | number; createdAt: string; downloadUrl: string;
+  pdfVersion?: number; paymentRevision?: boolean; originalDocumentId?: string; replacesDocumentId?: string;
 }
 export interface DocumentParty { name: string; number: string; address: string; postalCode: string; city: string }
 export interface TransportDocumentRow { articleId?: string; name: string; wasteCode: string; weight: number | null }
@@ -19,7 +20,13 @@ export interface DocumentSite { id: string; name: string; party?: DocumentParty 
 export interface TransportDocumentResponse { sites?: DocumentSite[]; draft: TransportDocumentDraft; documents: ArchivedDocument[]; demo: true }
 export type TransportDocumentChanges = Pick<TransportDocumentDraft, 'siteId' | 'direction' | 'sender' | 'receiver' | 'carrier' | 'driver' | 'registration' | 'startAt' | 'requestedAt' | 'handling' | 'rows' | 'reference'>;
 export const documentStageNames: Record<DocumentStage, string> = { preliminary: 'Preliminär', reviewed: 'Kundgodkänd', final: 'Slutlig', draft: 'Utkast' };
-export const documentsNewestFirst = (documents: ArchivedDocument[]) => [...documents].sort((left, right) => right.createdAt.localeCompare(left.createdAt) || String(right.id).localeCompare(String(left.id)));
+export const documentsNewestFirst = (documents: ArchivedDocument[]) => [...documents].sort((left, right) => {
+  // A payment revision may share a timestamp with its original. Display it as
+  // the current PDF for that signing version, without hiding any original.
+  if (left.kind === 'settlement' && right.kind === 'settlement' && left.sourceId === right.sourceId && left.sourceVersion === right.sourceVersion && left.stage === right.stage)
+    return (right.pdfVersion ?? 1) - (left.pdfVersion ?? 1) || right.createdAt.localeCompare(left.createdAt) || String(right.id).localeCompare(String(left.id));
+  return right.createdAt.localeCompare(left.createdAt) || String(right.id).localeCompare(String(left.id));
+});
 const headers = (identity: DocumentIdentity) => ({ 'X-Demo-Actor': identity.actualUserId, 'X-Demo-User': identity.userId });
 async function request<T>(path: string, identity: DocumentIdentity, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`/api/documents${path}`, { method, credentials: 'same-origin', signal,

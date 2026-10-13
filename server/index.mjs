@@ -90,7 +90,7 @@ async function handle(req, res) {
     reply(res, 404, 'Not found');
     return;
   }
-  const staticPath = ['/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
+  const staticPath = ['/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/kontor/integration/systemadminswishtest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
   const file = resolve(dist, `.${staticPath}`);
   const within = relative(dist, file);
   if (within.startsWith('..') || isAbsolute(within)) {
@@ -163,6 +163,11 @@ const accountingTrackingTimer = setInterval(() => { void tenantGateway.runWorker
 accountingTrackingTimer.unref();
 void tenantGateway.runWorkers('processQueuedExports');
 void tenantGateway.runWorkers('processAccountingTracking');
+const paymentTimer = setInterval(() => {
+  void tenantGateway.runWorkers('processQueuedPayments').catch(() => console.warn('Swish-testkön väntar på nästa kontroll.'));
+}, 3000);
+paymentTimer.unref();
+void tenantGateway.runWorkers('processQueuedPayments');
 server.listen(port, '0.0.0.0', () => {
   console.log(`ScrapPilot lyssnar på port ${server.address().port}`);
 });
@@ -172,6 +177,7 @@ async function stop(code = 0) {
   stopping = true;
   clearInterval(accountingTimer);
   clearInterval(accountingTrackingTimer);
+  clearInterval(paymentTimer);
   setTimeout(() => process.exit(1), 10000).unref();
   await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), tenantGateway.close()]);
   await closePdfRenderer();

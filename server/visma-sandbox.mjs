@@ -4,6 +4,7 @@ import { afterDatabaseCommit } from './database-runtime.mjs';
 import { EnvironmentError } from './environment-storage.mjs';
 import { createVismaClient, parseVismaSandboxInput, readVismaConfiguration, VISMA_OPERATIONS, VISMA_SCOPES, vismaOperationPath, readVismaOrganisationId, canManageVisma } from './visma-client.mjs';
 import { createVismaExports } from './visma-export.mjs';
+import { createVismaPayments } from './visma-payments.mjs';
 import { createVismaStorage } from './visma-storage.mjs';
 import { latestAttestedVismaCards, attestedVismaSummary, attestedVismaPrefill } from './visma-weightcard.mjs';
 
@@ -42,7 +43,7 @@ const companyFrom = response => response && typeof response.CompanyIdentifier ==
 
 /** OAuth and test runs live in a separate ApplicationRepository domain. All
  * transactions are short; provider calls happen after the reservation commits. */
-export function createVismaSandbox({ getRepository, sourceProvider = async () => [], sitesProvider = async () => [], authorizeContext = async () => {}, env = process.env, fetchImpl = globalThis.fetch, now = () => new Date(), lookupTimeoutMs = 60000 } = {}) {
+export function createVismaSandbox({ getRepository, sourceProvider = async () => [], sitesProvider = async () => [], swishPaymentProvider, authorizeContext = async () => {}, env = process.env, fetchImpl = globalThis.fetch, now = () => new Date(), lookupTimeoutMs = 60000 } = {}) {
   if (typeof getRepository !== 'function') throw new TypeError('getRepository krävs.');
   const organisationId = readVismaOrganisationId(env);
   const scoped = (context, requireAdmin = true) => checkScoped(context, requireAdmin, organisationId);
@@ -172,7 +173,7 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
       });
     }
   }
-  async function checkCompany(context, generation, accessToken, trackingId, signal) {
+  async function checkCompany(context, generation, accessToken, trackingId, signal, preserveUnavailable = false) {
     const result = await client.request({ operation: 'company', accessToken, trackingId, signal });
     const company = result.outcome === 'accepted' ? companyFrom(result.response) : null;
     const configuration = ready();
@@ -181,7 +182,12 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
       if (tenant.generation !== generation) fail('Anslutningen har ändrats under testförsöket.', 409, 'visma_not_connected');
       tenant.lastCheckedAt = clock().toISOString();
       if (result.outcome === 'accepted') tenant.company = company;
-      tenant.companyVerified = Boolean(company && configuration.expectedCompanyId && company.id === configuration.expectedCompanyId);
+      // The private payment worker may retain its last verified pin on a
+      // temporary GET outage. It still refuses this attempt and verifies the
+      // provider afresh before a later POST. Identity/auth errors never retain
+      // permission, and ordinary sandbox/export checks keep their behavior.
+      const unavailable = result.outcome === 'unknown' || result.httpStatus === 408 || result.httpStatus === 429 || result.httpStatus >= 500;
+      if (!(preserveUnavailable && unavailable)) tenant.companyVerified = Boolean(company && configuration.expectedCompanyId && company.id === configuration.expectedCompanyId);
       tenant.lastError = tenant.companyVerified ? null : 'visma_company_unverified';
     });
     return { result, company };
@@ -333,6 +339,36 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
       throw error;
     } finally { clearTimeout(timer); controller.abort(); }
   }
+  // Separate server-only capability: neither the generic sandbox send method
+  // nor a forged Systemadmin JSON object can request payment bookkeeping.
+  async function paymentBatch(scope, authorize, operation) {
+    const context = { organisationId, actorId: 'service:spiris-payments', effectiveUserId: 'service:spiris-payments' };
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 45000);
+    try {
+      await authorize(); const configuration = ready();
+      if (configuration.mode !== 'sandbox' || configuration.expectedCompanyId !== scope.companyId)
+        fail('Simulerade betalningar får endast registreras i rätt Spiris sandbox.', 409, 'visma_payment_connection_changed');
+      await readTenantProjection(tenant => {
+        requireCompany(tenant, configuration);
+        if (tenant.generation !== scope.generation) fail('Spiris-kopplingen har ändrats.', 409, 'visma_payment_connection_changed');
+      }, CONNECTION_PATHS);
+      const accessToken = await access(context, scope.generation, controller.signal);
+      const check = await checkCompany(context, scope.generation, accessToken, randomUUID(), controller.signal, true);
+      if (check.result.outcome === 'unknown' || check.result.httpStatus === 408 || check.result.httpStatus === 429 || check.result.httpStatus >= 500)
+        fail('Spiris-företaget kunde inte kontrolleras just nu. Bokföringen väntar på ett nytt anslutningsprov.', 503, 'visma_payment_provider_unavailable');
+      if (check.result.outcome !== 'accepted' || check.company?.id !== scope.companyId)
+        fail('Rätt Spiris-sandboxföretag kunde inte verifieras.', 409, 'visma_payment_connection_changed');
+      const send = async (operation, parameters, payload) => {
+        controller.signal.throwIfAborted(); await authorize();
+        await readTenantProjection(tenant => {
+          if (tenant.generation !== scope.generation) fail('Spiris-kopplingen har ändrats.', 409, 'visma_payment_connection_changed');
+          requireCompany(tenant, ready());
+        }, CONNECTION_PATHS);
+        return client.paymentRequest({ operation, parameters, payload, accessToken, signal: controller.signal });
+      };
+      const result = await operation(send); await authorize(); return result;
+    } finally { clearTimeout(timer); controller.abort(); }
+  }
   const service = {
     initialize: () => storage.ready(),
     async integrationStatus(context) {
@@ -439,7 +475,37 @@ export function createVismaSandbox({ getRepository, sourceProvider = async () =>
     send: (request, context, worker, scopeKey) => dispatch(request, context, worker ? workerCapability : undefined, scopeKey),
     connection: () => readTenantProjection(connectionFrom, CONNECTION_PATHS),
   });
-  const methods = { ...service, ...finance.publicMethods };
+  const payments = createVismaPayments({ organisationId, getRepository, proofProvider: swishPaymentProvider, config, clock,
+    connection: () => readTenantProjection(connectionFrom, CONNECTION_PATHS), target: source => finance.paymentTarget(source), batch: paymentBatch });
+  const paymentMethods = {
+    synchronizeSwishPayment: (id, options) => payments.synchronize(id, options),
+    processSpirisPayments: () => payments.processQueue(),
+    // Routes must apply their usual payout/site permission checks before
+    // exposing this projection. It never contains OAuth or recipient secrets.
+    swishPaymentBookkeeping: id => payments.projection(id),
+    async paymentChoices(context) {
+      scoped(context); await authorizeContext(context);
+      const configuration = ready(), connected = await readTenantProjection(connectionFrom, CONNECTION_PATHS);
+      const bankAccounts = await paymentBatch({ companyId: configuration.expectedCompanyId, generation: connected.generation },
+        async () => { scoped(context); await authorizeContext(context); }, async send => {
+          const records = [];
+          for (let page = 1; page <= 100; page++) {
+            const result = await send('bankAccounts', { page, pageSize: 1000 });
+            if (result.outcome !== 'accepted' || !Array.isArray(result.response?.Data) || result.response.Meta?.CurrentPage !== page
+              || !Number.isInteger(result.response.Meta?.TotalNumberOfPages) || result.response.Meta.TotalNumberOfPages > 100)
+              fail('Egna Spiris-bankkonton kunde inte hämtas.', 409, 'visma_payment_bank_unverified');
+            records.push(...result.response.Data);
+            if (result.response.Meta.TotalNumberOfPages <= page) return records;
+          }
+          fail('Bankkontolistan överstiger verifieringsgränsen.', 409, 'visma_payment_bank_unverified');
+        });
+      return { environment: 'sandbox', companyId: configuration.expectedCompanyId, generation: connected.generation, bankAccounts: bankAccounts
+        .filter(account => typeof account.Id === 'string' && account.IsActive === true && (!account.CurrencyCode || account.CurrencyCode === 'SEK') && [1, 3, 5, 6].includes(account.BankAccountType))
+        .map(account => ({ id: account.Id, name: String(account.Name ?? '').slice(0, 200), ledgerAccountNumber: account.LedgerAccountNumber,
+          currency: account.CurrencyCode ?? 'SEK', type: account.BankAccountType, active: true })) };
+    },
+  };
+  const methods = { ...service, ...finance.publicMethods, ...paymentMethods };
   return Object.assign({ organisationId, async initialize() { await storage.ready(); await ensureBinding(); } },
     Object.fromEntries(Object.entries(methods).map(([name, method]) => [name, async (...args) => { await ensureBinding(); return method(...args); }])));
 

@@ -49,7 +49,7 @@ async function body(req) {
 /** Cookie-authenticated façade over the durable environment/reporting service.
  * Staff sessions remain explicit demo sessions. The integration registry uses
  * a server-owned organisation scope, not browser-supplied tenant identifiers. */
-export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, nvvClient, vismaService, initialSites, trustedPrincipalProvider, addressResolver = createEnvironmentAddressResolver() } = {}) {
+export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, nvvClient, vismaService, swishService, initialSites, trustedPrincipalProvider, addressResolver = createEnvironmentAddressResolver() } = {}) {
   const organisationId = readVismaOrganisationId(env);
   let repositoryPromise, storePromise;
   const changes = getChangeEvents(env);
@@ -119,8 +119,72 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
             const integrations = createIntegrationEngine({ adapters: [createNvvIntegrationAdapter({
               organisationId, status: () => store.nvvStatus(token), check: () => store.nvvCheck(token),
             }), ...(vismaService ? [{ providerId: 'visma', allowedOrganisationIds: [organisationId],
-              status: scope => vismaService.integrationStatus(scope) }] : [])] });
+              status: scope => vismaService.integrationStatus(scope) }] : []),
+              ...(swishService ? [{ providerId: 'swish', allowedOrganisationIds: [organisationId],
+                status: () => swishService.integrationStatus() }] : [])] });
             json(res, 200, await integrations.catalog(context), req.method === 'HEAD');
+          }
+          else if (route.startsWith('/swish/') || route === '/payments' || route.startsWith('/payments/')) {
+            if (!swishService) throw new EnvironmentError('Swish-testkopplingen är inte tillgänglig.', 503, 'swish_unavailable');
+            const administration = route.startsWith('/swish/');
+            const permission = administration ? 'integrationsManage' : 'pay';
+            const principal = await store.authorize(token, permission);
+            if (administration && (!canManageVisma(principal.actor) || !canManageVisma(principal.user) ||
+              Array.isArray(principal.actor.siteIds) || Array.isArray(principal.user.siteIds)))
+              throw new EnvironmentError('Integrationsbehörighet med åtkomst till bolagets alla anläggningar krävs.', 403, 'integration_admin_required');
+            const context = { organisationId, actorId: principal.actor.id, effectiveUserId: principal.user.id,
+              actor: principal.actor, user: principal.user,
+              sessionKey: createHash('sha256').update(trustedPrincipal
+                ? JSON.stringify([organisationId, trustedPrincipal.actorId, trustedPrincipal.userId, trustedPrincipal.sessionKey ?? trustedPrincipal.csrfToken]) : token).digest('hex'),
+              reauthorize: async () => {
+                if (trustedPrincipal) {
+                  const current = await trustedPrincipalProvider(req);
+                  if (!current || current.actorId !== trustedPrincipal.actorId || current.userId !== trustedPrincipal.userId || current.csrfToken !== trustedPrincipal.csrfToken)
+                    throw new EnvironmentError('Betalningssessionen har ändrats.', 403, 'forbidden');
+                }
+                return store.authorize(token, permission);
+              } };
+            const card = route.match(/^\/payments\/cards\/([1-9]\d{0,11})(?:\/(prepare))?$/);
+            const paymentJob = route.match(/^\/(?:payments|swish\/jobs)\/([a-fA-F0-9-]{36})(?:\/(refresh))?$/);
+            const kick = () => { void swishService.processQueuedPayments().catch(() => console.warn('Swish-testets jobb väntar på nästa kontroll.')); };
+            if (read && route === '/swish/settings') json(res, 200, await swishService.settings(context), req.method === 'HEAD');
+            else if (req.method === 'POST' && route === '/swish/settings') {
+              const input = await body(req);
+              if (!input || typeof input !== 'object' || Array.isArray(input)) throw new EnvironmentError('Kontrollera Swish-inställningarna.', 422, 'swish_invalid');
+              const enabled = input.bookkeepingEnabled ?? input.registerSpirisPayment ?? false;
+              if (enabled) {
+                if (!vismaService) throw new EnvironmentError('Anslut Spiris sandbox före betalningsbokföring.', 409, 'visma_unavailable');
+                const choices = await vismaService.paymentChoices(context);
+                if (choices.environment !== 'sandbox' || !choices.bankAccounts.some(account => account.id === input.spirisBankAccountId && account.active && account.currency === 'SEK'))
+                  throw new EnvironmentError('Välj ett aktivt eget SEK-bankkonto från det anslutna Spiris-sandboxföretaget.', 422, 'swish_bank_account_invalid');
+                if (input.spirisCompanyId && input.spirisCompanyId !== choices.companyId)
+                  throw new EnvironmentError('Spiris-kontot tillhör ett annat företag.', 409, 'swish_company_mismatch');
+                input.spirisCompanyId = choices.companyId;
+              } else { delete input.spirisCompanyId; input.spirisBankAccountId = null; }
+              json(res, 200, await swishService.saveSettings(input, context));
+            }
+            else if (read && route === '/swish/choices') {
+              if (!vismaService) throw new EnvironmentError('Spiris-testkopplingen är inte tillgänglig.', 503, 'visma_unavailable');
+              json(res, 200, await vismaService.paymentChoices(context), req.method === 'HEAD');
+            }
+            else if (req.method === 'POST' && route === '/swish/sandbox') {
+              const job = await swishService.sandboxSend(await body(req), context);
+              json(res, 202, job); kick();
+            }
+            else if (read && card) json(res, 200, await (card[2] === 'prepare'
+              ? swishService.prepare(Number(card[1]), context) : swishService.getCardJobs(Number(card[1]), context)), req.method === 'HEAD');
+            else if (req.method === 'POST' && route === '/payments') {
+              const job = await swishService.start(await body(req), context);
+              json(res, 202, job); kick();
+            }
+            else if (read && paymentJob && !paymentJob[2]) json(res, 200, await swishService.job(paymentJob[1], context), req.method === 'HEAD');
+            else if (req.method === 'POST' && paymentJob?.[2] === 'refresh') {
+              if (!z.object({}).strict().safeParse(await body(req)).success) throw new EnvironmentError('Statuskontrollen tar inga betalningsuppgifter.', 422, 'swish_invalid');
+              const job = await swishService.job(paymentJob[1], context);
+              json(res, 202, job);
+              void swishService.refresh(paymentJob[1], context).catch(() => console.warn('Swish-statusen inväntar nästa kontroll.'));
+            }
+            else throw new EnvironmentError('Betalningsvyn finns inte eller metoden stöds inte.', 404, 'not_found');
           }
           else if (route.startsWith('/visma/')) {
             if (!vismaService) throw new EnvironmentError('Spiris-testkopplingen är inte tillgänglig.', 503, 'visma_unavailable');

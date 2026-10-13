@@ -259,7 +259,7 @@ function officeView(state, p) {
   if (!can(p, 'paymentDetails') && !financial(p)) for (const customer of result.customers) delete customer.paymentProfile;
   return result;
 }
-async function validateOffice(state, base, next, p, approvals, guardMaterialChange) {
+async function validateOffice(state, base, next, p, approvals, guardMaterialChange, managedPaymentGuard) {
   demand(p, 'view');
   const current = state.office;
   const readable = officeView(state, p);
@@ -419,6 +419,7 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
     if (!card || !visible(p, card)) fail('Utbetalningen saknar tillåtet underlag.', 403);
     if (current.payments.some(existing => existing.cardId === pay.cardId && existing.id !== pay.id)) fail('Viktkortet har redan en registrerad utbetalning.');
     if (!change.before) {
+      if (managedPaymentGuard) await managedPaymentGuard(pay.cardId, state);
       const expected = recordPayment(current, pay.cardId, { actualUser: p.actor, user: p.user }, pay.paymentDetails, pay.reference).payments.at(-1);
       if (expected.amount !== pay.amount || expected.offset !== pay.offset || expected.customerId !== pay.customerId || expected.method !== pay.method) fail('Utbetalningens belopp eller betalningssätt stämmer inte med underlaget.');
     }
@@ -486,7 +487,7 @@ function requestPrincipal(store, req) {
 
 export function createApplicationService({ repository, env = process.env, seed = initialApplicationState, projections, approvalProvider = async () => [], sendCustomerReview,
   withMaterialChangeApproval, guardMaterialChange, siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider,
-  accountingSettingsProvider, accountingCardStatusProvider, validateArticleMedia } = {}) {
+  accountingSettingsProvider, accountingCardStatusProvider, validateArticleMedia, managedPaymentGuard } = {}) {
   projections ??= approvalProvider;
   const mobilePricingProjection = createMobilePricingProjection();
   const context = new AsyncLocalStorage(); let fallback = createPricingStore(); let repoPromise;
@@ -842,7 +843,7 @@ export function createApplicationService({ repository, env = process.env, seed =
           }
         }
         if (payload?.base && payload?.next) {
-          if (domain === 'office') await validateOffice(state, officeSchema.parse(payload.base), officeSchema.parse(payload.next), p, approvals, guardMaterialChange);
+          if (domain === 'office') await validateOffice(state, officeSchema.parse(payload.base), officeSchema.parse(payload.next), p, approvals, guardMaterialChange, managedPaymentGuard);
           else if (domain === 'mobile') {
             demand(p, 'prepare');
             const base = storeSchema.parse(payload.base), next = storeSchema.parse(payload.next);

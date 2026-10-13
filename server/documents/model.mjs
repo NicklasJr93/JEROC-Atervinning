@@ -43,7 +43,11 @@ const companyFor = (sources, site) => {
 const latestApproval = (sources, cardId) => (sources.approvals ?? []).filter(approval => String(approval.cardId) === String(cardId)).sort((left, right) => right.version - left.version)[0];
 const validApproved = approval => ['approved', 'attested'].includes(approval.status) && Boolean(approval.approvedAt && approval.approvedMethod) && approval.approvedHash === approval.snapshot.hash;
 const titleFor = (kind, stage, company) => kind === 'transport' ? stage === 'final' ? 'Transportdokument · registrerad avfärd, demo' : 'Transportdokument · utkast' : kind === 'receipt' ? 'Utbetalningskvitto · demo' : stage === 'final' ? company?.id && company.id !== 'jeroc-demo' ? 'Avräkningsnota · internt attesterad' : 'Avräkningsnota · JEROC-attesterad' : stage === 'reviewed' ? 'Avräkningsnota · kundgodkänd, preliminär' : 'Avräkningsnota · preliminär';
-export const documentMetadata = record => Object.fromEntries(Object.entries({ id: record.id, kind: record.kind, sourceId: record.sourceId, sourceVersion: record.sourceVersion, stage: record.stage, siteId: record.siteId, title: record.title, sourceHash: record.sourceHash, pdfHash: record.pdfHash, templateVersion: record.templateVersion, createdAt: record.createdAt, bytes: record.bytes, downloadUrl: `/api/documents/${encodeURIComponent(record.id)}/download` }).filter(([, value]) => value !== undefined));
+export const documentMetadata = record => Object.fromEntries(Object.entries({ id: record.id, kind: record.kind, sourceId: record.sourceId, sourceVersion: record.sourceVersion, stage: record.stage, siteId: record.siteId, title: record.title, sourceHash: record.sourceHash, pdfHash: record.pdfHash, templateVersion: record.templateVersion, createdAt: record.createdAt, bytes: record.bytes,
+  pdfVersion: record.snapshot?.paymentRevision?.version ?? 1,
+  ...(record.snapshot?.paymentRevision ? { originalDocumentId: record.snapshot.paymentRevision.originalDocumentId,
+    replacesDocumentId: record.snapshot.paymentRevision.replacesDocumentId, paymentRevision: true } : {}),
+  downloadUrl: `/api/documents/${encodeURIComponent(record.id)}/download` }).filter(([, value]) => value !== undefined));
 
 function approvalSnapshot(approval, sources, stage) {
   const value = approval.snapshot, card = value.card, customer = value.customer;
@@ -110,10 +114,13 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     // the UNIQUE constraint so two processes cannot persist two originals.
     const pdf = Buffer.from(await renderPdf(copy(snapshot)));
     if (!pdf.subarray(0, 5).equals(Buffer.from('%PDF-')) || pdf.length > 20 * 1024 * 1024) fail('PDF-filen kunde inte framställas.', 503, 'pdf_generation_failed');
-    const record = { id: randomUUID(), ...key, siteId, title: titleFor(kind, stage, snapshot.company), createdAt: now().toISOString(), createdBy: principal?.user?.id ?? 'system', actualUserId: principal?.actor?.id ?? 'system', pdfHash: documentHash(pdf), bytes: pdf.length, snapshot: copy(snapshot) };
+    const record = { id: randomUUID(), ...key, siteId, title: `${titleFor(kind, stage, snapshot.company)}${snapshot.paymentRevision ? ' · uppdaterade betalningsuppgifter' : ''}`, createdAt: now().toISOString(), createdBy: principal?.user?.id ?? 'system', actualUserId: principal?.actor?.id ?? 'system', pdfHash: documentHash(pdf), bytes: pdf.length, snapshot: copy(snapshot) };
     return repository.transact(async database => {
       const result = await database.insertDocument(record, pdf);
-      if (result.inserted) await database.audit({ id: randomUUID(), at: record.createdAt, action: 'document.archived', documentId: record.id, kind, sourceId: String(sourceId), sourceHash, pdfHash: record.pdfHash, actualUserId: record.actualUserId, effectiveUserId: record.createdBy });
+      if (result.inserted) await database.audit({ id: randomUUID(), at: record.createdAt, action: snapshot.paymentRevision ? 'document.payment_revision_archived' : 'document.archived', documentId: record.id, kind, sourceId: String(sourceId), sourceHash, pdfHash: record.pdfHash, actualUserId: record.actualUserId, effectiveUserId: record.createdBy,
+        ...(snapshot.paymentRevision ? { paymentJobId: snapshot.paymentRevision.jobId, pdfVersion: snapshot.paymentRevision.version,
+          originalDocumentId: snapshot.paymentRevision.originalDocumentId, replacesDocumentId: snapshot.paymentRevision.replacesDocumentId,
+          financialSourceHash: snapshot.paymentRevision.financialSourceHash, reason: snapshot.paymentRevision.reason } : {}) });
       return documentMetadata(result.record);
     });
   }
@@ -178,6 +185,63 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     const snapshot = await frozenApprovalDocument(copy(approval), sources, job.stage);
     return archive(snapshot, 'settlement', approval.cardId, approval.version, job.stage, approval.siteId, actor);
   }
+  /** A payment override is a new immutable PDF, never a new settlement or
+   * invoice. Only the trusted, committed payment reservation calls this hook.
+   * Re-read the signing proof and copy an archived original, so job/caller
+   * fields cannot alter any customer, material, price, date or tax information. */
+  async function archivePaymentRevision(job) {
+    const source = job?.source;
+    if (!job?.id || !source?.approvalId || !source.cardId || !source.hash || !job.paymentDetails ||
+      source.hash !== job.sourceSnapshotHash || !job.sourceSnapshot ||
+      !job.revisionActor?.actualUserId || !job.revisionActor?.effectiveUserId)
+      fail('Betalningsrevisionen saknar en låst betalningsinstruktion.', 409, 'payment_revision_source_missing');
+    const sources = await sourceProvider({ kind: 'approval', sourceId: String(source.cardId), approvalId: source.approvalId });
+    const approval = sources.approvals?.find(value => value.id === source.approvalId && String(value.cardId) === String(source.cardId));
+    if (!approval || approval.version !== source.version || approval.siteId !== source.siteId ||
+      approval.snapshot.hash !== source.hash || approval.status !== 'attested' || !validApproved(approval) || !approval.attestedAt ||
+      documentHash(approval.snapshot) !== documentHash(job.sourceSnapshot))
+      fail('Betalningsrevisionens attestversion stämmer inte.', 409, 'payment_revision_source_changed');
+    if (!['swish', 'bank', 'cash', 'balance'].includes(job.paymentDetails.method))
+      fail('Betalningsrevisionens betalningssätt stöds inte.', 422, 'payment_revision_method_invalid');
+    const normalizePayment = details => Object.fromEntries(['method', 'phone', 'recipient', 'personalNumber', 'bank', 'clearing', 'account', 'holder']
+      .filter(key => details?.[key] !== undefined && details[key] !== '').map(key => [key, details[key]]));
+    if (documentHash(normalizePayment(job.paymentDetails)) === documentHash(normalizePayment(job.originalPaymentDetails))) return null;
+    if (!job.reason?.trim()) fail('Ange orsak till ändrade betalningsuppgifter.', 422, 'payment_revision_reason_required');
+    const principal = { actor: { id: job.revisionActor.actualUserId }, user: { id: job.revisionActor.effectiveUserId } };
+    let records = await readArchive(database => database.documents('settlement', source.cardId));
+    const existing = records.find(record => record.snapshot?.paymentRevision?.jobId === job.id);
+    if (existing) {
+      if (existing.snapshot.paymentRevision.financialSourceHash !== source.hash ||
+        existing.snapshot.paymentRevision.instructionHash !== documentHash(normalizePayment(job.paymentDetails)))
+        fail('Betalningsjobbet används redan för andra uppgifter.', 409, 'payment_revision_conflict');
+      return { documentId: existing.id, version: existing.snapshot.paymentRevision.version,
+        originalDocumentId: existing.snapshot.paymentRevision.originalDocumentId, document: documentMetadata(existing) };
+    }
+    let original = records.find(record => record.stage === 'final' && record.sourceVersion === source.version && record.sourceHash === source.hash && !record.snapshot?.paymentRevision);
+    if (!original) {
+      const archived = await archive(await frozenApprovalDocument(approval, sources, 'final'), 'settlement', source.cardId, source.version, 'final', source.siteId, principal);
+      original = await readArchive(database => database.document(archived.id));
+      records = await readArchive(database => database.documents('settlement', source.cardId));
+    }
+    const previous = records.filter(record => record.stage === 'final' && record.sourceVersion === source.version &&
+      (record.sourceHash === source.hash || record.snapshot?.paymentRevision?.financialSourceHash === source.hash))
+      .sort((a, b) => (b.snapshot?.paymentRevision?.version ?? 1) - (a.snapshot?.paymentRevision?.version ?? 1))[0] ?? original;
+    const version = (previous.snapshot?.paymentRevision?.version ?? 1) + 1;
+    const details = job.paymentDetails;
+    const snapshot = copy(original.snapshot);
+    snapshot.payment = { ...snapshot.payment, method: details.method, label: { bank: 'Bankkonto', swish: 'Swish', cash: 'Kontant', balance: 'Spara på saldo' }[details.method],
+      recipient: details.recipient ?? details.holder ?? snapshot.customer.name,
+      maskedAccount: details.method === 'swish' && details.phone ? `•••• ${details.phone.slice(-4)}` : details.account ? `•••• ${details.account.replace(/\s/g, '').slice(-4)}` : '' };
+    snapshot.paymentRevision = { version, jobId: job.id, originalDocumentId: original.id, replacesDocumentId: previous.id,
+      financialSourceHash: source.hash, instructionHash: documentHash(normalizePayment(details)), at: job.createdAt,
+      actor: copy(job.revisionActor), reason: job.reason.trim(), mode: job.mode === 'mss' ? 'mss' : 'test', simulation: true };
+    snapshot.sourceHash = documentHash({ originalDocumentId: original.id, financialSourceHash: source.hash, jobId: job.id,
+      instructionHash: snapshot.paymentRevision.instructionHash });
+    const document = await archive(snapshot, 'settlement', source.cardId, source.version, 'final', source.siteId, principal);
+    // Another worker may already have won the immutable INSERT for this job.
+    // Return the persisted revision number, never a locally calculated loser.
+    return { documentId: document.id, version: document.pdfVersion ?? version, originalDocumentId: document.originalDocumentId ?? original.id, document };
+  }
   async function list({ kind, sourceId }, principal) {
     if (!['settlement', 'receipt', 'transport'].includes(kind) || !sourceId) fail('Ange dokumenttyp och käll-ID.', 422, 'invalid_input');
     let expected = [];
@@ -204,6 +268,14 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     const approval = useDraft ? currentDraft(card, sources, principal, existing) : existing;
     if (!approval) fail('Kundgodkännande och intern attest behövs före denna dokumentversion.', 409, 'approval_required');
     demandSettlement(principal, approval.siteId);
+    if (stage === 'final') {
+      if (approval.status !== 'attested' || !validApproved(approval) || !approval.attestedAt)
+        fail('Intern attest krävs före slutlig avräkningsnota.', 409, 'approval_required');
+      const revisions = (await readArchive(database => database.documents('settlement', cardId)))
+        .filter(record => record.stage === 'final' && record.sourceVersion === approval.version && record.snapshot?.paymentRevision?.financialSourceHash === approval.snapshot.hash)
+        .sort((a, b) => b.snapshot.paymentRevision.version - a.snapshot.paymentRevision.version);
+      if (revisions[0]) return { document: documentMetadata(revisions[0]), demo: true };
+    }
     const snapshot = await frozenApprovalDocument(approval, sources, stage);
     return { document: await archive(snapshot, 'settlement', cardId, approval.version, stage, approval.siteId, principal), demo: true };
   }
@@ -315,5 +387,5 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     if (documentHash(record.pdf) !== record.pdfHash) fail('Dokumentets kontrollsumma stämmer inte. Originalet lämnas orört.', 503, 'file_integrity_error');
     return record;
   }
-  return { list, generateSettlement, generateReceipt, transport, saveTransport, generateTransport, download, ensureApproval, archiveApprovalJob };
+  return { list, generateSettlement, generateReceipt, transport, saveTransport, generateTransport, download, ensureApproval, archiveApprovalJob, archivePaymentRevision };
 }

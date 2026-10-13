@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { ArrowRight, Check, CircleAlert, Database, FileText, Leaf, LoaderCircle, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import type { NvvCheckDiagnostic, NvvIntegrationStatus, NvvJsonObject, NvvSandboxRun } from './environment-types';
 import './nvv-connection-check.css';
@@ -39,11 +39,12 @@ export type ExternalConnectionTest = {
 };
 
 /** Native modal focus containment; closing only delegates visibility to the caller. */
-export default function NvvConnectionCheckDialog({ progress, onClose, onRetry, returnFocus, submission, externalTest }: {
+export default function NvvConnectionCheckDialog({ progress, onClose, onRetry, returnFocus, submission, externalTest, additionalActions }: {
   progress: NvvCheckProgress; onClose: () => void; onRetry: () => void;
   returnFocus?: RefObject<HTMLButtonElement | null>;
   submission?: { payload: NvvJsonObject; run?: NvvSandboxRun; uncertain?: boolean };
   externalTest?: ExternalConnectionTest;
+  additionalActions?: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const headingId = useId(), descriptionId = useId();
@@ -155,6 +156,7 @@ export default function NvvConnectionCheckDialog({ progress, onClose, onRetry, r
       </section>}
       {simulated && <div className="nvv-check-simulation-note"><ShieldCheck size={14} /><span>Simulering · ingen kontakt med Naturvårdsverket.</span></div>}
       <div className="nvv-check-actions">
+        {additionalActions}
         {progress.phase === 'error' ? <><button type="button" className="office-btn outline" onClick={onClose}>Stäng</button><button type="button" className="office-btn" onClick={onRetry}><RefreshCw size={14} />{externalTest ? 'Kontrollera historik' : submission ? 'Kontrollera testhistorik' : 'Försök igen'}</button></>
           : <button type="button" className={`office-btn ${running ? 'outline' : ''}`} onClick={onClose}>{running ? 'Kör i bakgrunden' : 'Klart'}{successful && <Check size={14} />}</button>}
       </div>

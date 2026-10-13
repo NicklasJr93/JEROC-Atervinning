@@ -7,8 +7,8 @@ const error = (status) => failure => failure.status === status;
 
 test('catalog exposes stable planned cards and no fabricated connection, token or OAuth URL', async () => {
   const engine = createIntegrationEngine(), catalog = await engine.catalog(context());
-  assert.deepEqual(catalog.providers.map(p => p.id), ['nvv', 'visma', 'fortnox', 'microsoft365', 'bankid', 'messaging', 'google-maps', 'lme']);
-  assert.equal(new Set(integrationProviders.map(p => p.id)).size, 8);
+  assert.deepEqual(catalog.providers.map(p => p.id), ['nvv', 'visma', 'swish', 'fortnox', 'microsoft365', 'bankid', 'messaging', 'google-maps', 'lme']);
+  assert.equal(new Set(integrationProviders.map(p => p.id)).size, 9);
   for (const provider of catalog.providers) { assert.equal(provider.status, 'planned'); assert.equal(provider.connected, false); assert.equal(provider.implemented, false); assert.equal(provider.capabilities.canConnect, false); assert.equal(provider.capabilities.canConfigure, false); assert.deepEqual(provider.links, {}); }
   assert.throws(() => engine.prepareEvent('visma', { type: 'settlement.attested' }, context()), error(501));
   await assert.rejects(engine.check('visma', context()), error(501));

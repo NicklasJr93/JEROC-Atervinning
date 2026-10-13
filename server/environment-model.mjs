@@ -452,7 +452,7 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         let principal;
         try { principal = principalStore.principal(request.userId, request.effectiveUserId ?? request.userId); }
         catch { throw new EnvironmentError('Demokontot eller Jobba som-behörigheten är ogiltig.', 401, 'invalid_credentials'); }
-        if (!['environmentRead', 'environmentWrite', 'environmentClassify', 'environmentStorage'].some((right) => environmentCan(principal, right)))
+        if (!['environmentRead', 'environmentWrite', 'environmentClassify', 'environmentStorage', 'integrationsRead', 'pay'].some((right) => environmentCan(principal, right)))
           throw new EnvironmentError('Demokontot saknar miljöbehörighet.', 403, 'forbidden');
         const previous = previousToken && state.sessions.find((record) => record.tokenHash === environmentHash(previousToken));
         if (previous?.actualUserId === principal.actor.id && previous?.effectiveUserId === principal.user.id)

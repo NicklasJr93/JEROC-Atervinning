@@ -1,0 +1,59 @@
+.swish-payment-panel { min-width: 0; color: #29415e; }
+.swish-payment-panel-heading, .swish-payment-panel-heading > div { display: flex; align-items: center; gap: 9px; }
+.swish-payment-panel-heading { justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.swish-payment-panel-heading button { display: inline-flex; align-items: center; gap: 5px; }
+.swish-payment-test-badge { display: inline-flex; align-items: center; padding: 5px 9px; background: #edf4ff; border-radius: 7px; color: #1869df; font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+.swish-payment-test-note { margin: 10px 0 16px; color: #7386a1; font-size: 12px; line-height: 1.5; }
+.swish-payment-muted { display: flex; align-items: flex-start; gap: 8px; color: #7386a1; font-size: 12px; line-height: 1.55; }
+.swish-payment-result { display: flex; align-items: flex-start; gap: 8px; padding: 11px; background: #eef4ff; border: 1px solid #d9e6ff; border-radius: 9px; color: #246bd5; }
+.swish-payment-result svg { flex: 0 0 auto; }
+.swish-payment-result strong { display: block; font-size: 12px; line-height: 1.45; }
+.swish-payment-result small { display: block; margin-top: 3px; font-size: 10px; font-weight: 400; color: #6d83a2; }
+.swish-payment-result.is-rejected, .swish-payment-result.is-failed, .swish-payment-result.is-blocked, .swish-payment-result.is-unknown { background: #fff8ed; border-color: #f5deb5; color: #aa721d; }
+.swish-payment-result.is-simulated_paid { background: #edf9f2; border-color: #cdeada; color: #238452; }
+.swish-payment-summary { display: grid; gap: 8px; margin: 13px 0; font-size: 12px; }
+.swish-payment-summary > div { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 1.7fr); gap: 12px; }
+.swish-payment-summary dt { color: #8193ad; }
+.swish-payment-summary dd { margin: 0; text-align: right; overflow-wrap: anywhere; line-height: 1.4; }
+.swish-payment-error { border: 1px solid #ffd3d0; background: #fff4f2; color: #bc5148; border-radius: 8px; padding: 10px 12px; margin: 12px 0; line-height: 1.5; font-size: 12px; overflow-wrap: anywhere; }
+.swish-payment-document { display: flex; align-items: flex-start; gap: 8px; border: 1px solid #dfe9f7; background: #f7faff; padding: 10px; border-radius: 8px; margin-top: 12px; }
+.swish-payment-document > svg { flex: 0 0 auto; margin-top: 2px; color: #3778db; }
+.swish-payment-document strong { font-size: 12px; line-height: 1.4; }
+.swish-payment-document small { display: block; margin: 4px 0; font-size: 11px; line-height: 1.4; color: #7a8ea9; }
+.swish-payment-document button { padding: 0; margin-top: 3px; font-size: 11px; }
+.swish-payment-history { margin: 14px 0; font-size: 12px; overflow-wrap: anywhere; }
+.swish-payment-history summary { color: #527395; cursor: pointer; }
+.swish-payment-history > div { border-top: 1px solid #e5edf7; padding: 12px 0; margin-top: 8px; }
+.swish-payment-history small { display: block; color: #8496ae; font-size: 10px; margin: 4px 0; }
+.swish-payment-history ol, .swish-payment-history ul { padding-left: 20px; line-height: 1.65; }
+.swish-payment-panel-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+.swish-payment-panel-actions small { color: #8496ae; font-size: 10px; }
+.swish-payment-spin { animation: swish-payment-spin 1.2s linear infinite; }
+@keyframes swish-payment-spin { to { transform: rotate(360deg); } }
+.swish-payout-dialog { box-sizing: border-box; width: min(620px, calc(100vw - 28px)); max-height: calc(100dvh - 32px); margin: auto; border: 1px solid #dfe9f7; padding: 25px; border-radius: 18px; background: #fff; color: #29415e; overflow: auto; box-shadow: 0 20px 90px #20364f33; }
+.swish-payout-dialog::backdrop { background: #20364f75; }
+.swish-payout-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; }
+.swish-payout-heading h2 { font-size: 23px; margin: 10px 0 4px; color: #213954; }
+.swish-payout-heading p { margin: 0 0 20px; color: #7a8ea9; font-size: 13px; }
+.swish-payout-close { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #8197b4; cursor: pointer; flex: 0 0 auto; }
+.swish-payout-close:hover { background: #edf4ff; color: #3279dd; }
+.swish-payout-close:disabled { cursor: default; opacity: .5; }
+.swish-payout-frozen { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 15px; background: #f3f8ff; border: 1px solid #dce9fb; border-radius: 11px; padding: 14px; margin-bottom: 10px; }
+.swish-payout-frozen span { display: flex; align-items: center; gap: 5px; color: #7f93af; font-size: 11px; }
+.swish-payout-frozen strong { display: block; color: #29415e; margin-top: 5px; font-size: 17px; overflow-wrap: anywhere; }
+.swish-payout-frozen small { display: block; color: #7f93af; margin-top: 4px; font-size: 11px; overflow-wrap: anywhere; }
+.swish-payout-fields { min-width: 0; border: 0; margin: 17px 0 0; padding: 0; }
+.swish-payout-fields:disabled { opacity: .7; }
+.swish-payout-identity, .swish-payout-reason { display: grid; gap: 6px; margin-top: 15px; font-size: 12px; font-weight: 700; color: #7289aa; }
+.swish-payout-identity input, .swish-payout-reason textarea { box-sizing: border-box; width: 100%; border: 1px solid #d9e5f7; border-radius: 8px; padding: 11px; font: inherit; color: #29415e; background: #fff; }
+.swish-payout-identity input { background: #f7faff; color: #6e829e; }
+.swish-payout-reason textarea { resize: vertical; min-height: 72px; font-weight: 400; }
+.swish-payout-reason textarea:focus-visible { outline: 2px solid #4b91ff; outline-offset: 2px; }
+.swish-payout-identity small, .swish-payout-reason small { font-size: 11px; font-weight: 400; line-height: 1.55; color: #8295b0; }
+.swish-payout-warning { display: flex; align-items: flex-start; gap: 8px; padding: 11px; color: #a77930; background: #fff8ec; border: 1px solid #f5e1ba; border-radius: 8px; font-size: 12px; line-height: 1.5; }
+.swish-payout-warning svg { flex: 0 0 auto; }
+.swish-payout-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.nvv-check-actions:has(> :nth-child(3)) { flex-wrap: wrap; }
+@media(max-width: 520px) { .swish-payout-dialog { padding: 18px; width: calc(100vw - 20px); max-height: calc(100dvh - 20px); border-radius: 13px; } .swish-payout-frozen { grid-template-columns: minmax(0, 1fr); gap: 12px; } .swish-payout-actions { flex-wrap: wrap; } .swish-payout-actions .office-btn { flex: 1 1 auto; justify-content: center; } }
+@media(prefers-reduced-motion: reduce) { .swish-payment-spin { animation: none; } }
+@media print { .swish-payout-dialog, .swish-payment-panel { display: none !important; } }

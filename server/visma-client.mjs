@@ -9,7 +9,8 @@ export const VISMA_AUTHORIZATION_URL = 'https://identity.vismaonline.com/connect
 export const VISMA_TOKEN_URL = 'https://identity.vismaonline.com/connect/token';
 export const VISMA_LOCAL_CALLBACK_URI = 'https://localhost:44300/callback';
 // These are the scopes granted to the user's registered sandbox client. The
-// local operation allowlist still prevents posting invoices or payments.
+// The public sandbox allowlist prevents posting invoices or payments. Payment
+// bookkeeping has a separate server-only, verified-payout transport below.
 export const VISMA_SCOPES = Object.freeze(['ea:api', 'offline_access', 'ea:purchase', 'ea:accounting', 'ea:sales']);
 export const VISMA_OPERATIONS = Object.freeze([
   { id: 'company', label: 'Företagsinställningar', method: 'GET', path: '/companysettings', write: false },
@@ -204,6 +205,41 @@ export function createVismaClient({ env = process.env, fetchImpl = globalThis.fe
     },
     exchangeCode({ code, verifier }) { return token({ grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: configured().redirectUri }); },
     refreshToken(refreshToken, signal) { return token({ grant_type: 'refresh_token', refresh_token: refreshToken }, refreshToken, signal); },
+    // Never exposed as a sandbox-page operation. Only the private payout
+    // bookkeeping batch may use this exact documented subset.
+    async paymentRequest({ operation, parameters, payload, accessToken, signal }) {
+      configured();
+      if (typeof accessToken !== 'string' || !accessToken || /[\s\x00-\x1f\x7f]/.test(accessToken)) fail('En giltig serverlagrad åtkomsttoken krävs.', 409);
+      const definitions = {
+        bankAccounts: { method: 'GET', schema: z.object({ page: z.number().int().min(1).max(100), pageSize: z.number().int().min(1).max(1000) }).strict(), path: p => `/bankaccounts?$page=${p.page}&$pagesize=${p.pageSize}` },
+        invoice: { method: 'GET', schema: z.object({ resourceId: uuid }).strict(), path: p => `/supplierinvoices/${p.resourceId}` },
+        bankTransaction: { method: 'GET', schema: z.object({ bankAccountId: uuid, bankTransactionId: uuid }).strict(), path: p => `/banktransactions/${p.bankAccountId}/${p.bankTransactionId}` },
+        matchedTransactions: { method: 'GET', schema: z.object({ bankAccountId: uuid, fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), page: z.number().int().min(1).max(100), pageSize: z.number().int().min(1).max(1000) }).strict(),
+          path: p => `/banktransactions/${p.bankAccountId}/matched?${new URLSearchParams({ fromDate: p.fromDate, toDate: p.toDate, $page: String(p.page), $pagesize: String(p.pageSize) })}` },
+        recordPayment: { method: 'POST', schema: z.object({ resourceId: uuid }).strict(), path: p => `/supplierinvoices/${p.resourceId}/payments` },
+      };
+      const definition = definitions[operation];
+      if (!definition || !definition.schema.safeParse(parameters).success) fail('Betalningsbokföringen innehåller en otillåten operation eller resurs.', 422);
+      const write = definition.method === 'POST';
+      if (write) {
+        const parsed = z.object({ CompanyBankAccountId: uuid, PaymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          PaymentAmount: amount.refine(value => value > 0), PaymentCurrency: z.literal('SEK'), PaymentType: z.union([z.literal(1), z.literal(2)]), Reference: z.string().min(1).max(100) }).strict().safeParse(payload);
+        if (!parsed.success) fail('Betalningsbokföringen innehåller okända eller felaktiga fält.', 422);
+        payload = parsed.data;
+      } else if (payload !== undefined) fail('En läsoperation får inte innehålla ett underlag.', 422);
+      remember(accessToken);
+      let result;
+      try { result = await transport(`${VISMA_API_BASE}${definition.path(parameters)}`, { method: definition.method,
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json', ...(write ? { 'Content-Type': 'application/json' } : {}) },
+        ...(write ? { body: JSON.stringify(payload) } : {}), signal }, write ? 256 * 1024 : 2 * 1024 * 1024); }
+      catch { return { outcome: 'unknown', httpStatus: null, response: null, error: { code: 'VISMA_PAYMENT_UNKNOWN', message: 'Spiris-svaret saknas. Ingen automatisk omsändning av betalningsbokföringen sker.' } }; }
+      const response = redact(result.body);
+      if (write && (result.httpStatus === 408 || result.httpStatus >= 500)) return { outcome: 'unknown', httpStatus: result.httpStatus, response,
+        error: { code: 'VISMA_PAYMENT_UNKNOWN', message: 'Spiris gav ett osäkert svar. Bokföringen kontrolleras före fortsatt arbete.' } };
+      if (result.httpStatus < 200 || result.httpStatus >= 300) return { outcome: 'rejected', httpStatus: result.httpStatus, response,
+        error: { code: 'VISMA_PAYMENT_REJECTED', message: 'Spiris avvisade betalningsbokföringen.' } };
+      return { outcome: 'accepted', httpStatus: result.httpStatus, response };
+    },
     async request({ operation, parameters, payload, accessToken, trackingId, signal }) {
       configured(); const descriptor = byOperation.get(operation);
       if (!descriptor) fail('Operationen är inte tillåten.');

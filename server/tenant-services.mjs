@@ -8,6 +8,8 @@ import { createVismaSandbox } from './visma-sandbox.mjs';
 import { canManageVisma } from './visma-client.mjs';
 import { createArticleMediaApi } from './article-media.mjs';
 import { ensureLogistics } from './logistics.mjs';
+import { createSwishMssClient } from './swish-client.mjs';
+import { createSwishPayments } from './swish-payments.mjs';
 
 /** All repositories, queues and provider connections belong to one immutable
  * server-selected organisation. A request can never change this bundle's scope. */
@@ -29,6 +31,7 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     environmentProvider: () => environmentApi.getLogisticsSource(),
     accountingSettingsProvider: customer => vismaService.financeSettingsForCompany(customer),
     accountingCardStatusProvider: cardId => vismaService.cardExportProjection(cardId),
+    managedPaymentGuard: (cardId, state) => swishService.assertNoManagedPayment(cardId, state),
     validateArticleMedia: async (route, input) => {
       const references = getArticleMediaReferences(route, input);
       if (references.length && !await articleMediaApi.hasImages(references))
@@ -45,6 +48,7 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
   }) });
   const vismaService = createVismaSandbox({ env, getRepository: () => applicationApi.getRepository(),
     sourceProvider: request => terminalDemoApi.documentProjections(request), sitesProvider: () => environmentApi.getSites(),
+    swishPaymentProvider: id => swishService.readVerifiedPayment(id),
     authorizeContext: async context => {
       if (typeof context.reauthorize !== 'function') throw new PricingError('Den aktiva integrationssessionen saknas.', 403);
       const session = await context.reauthorize();
@@ -53,8 +57,22 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
         throw new PricingError('Behörighet att hantera integrationer med åtkomst till företagets samtliga anläggningar krävs.', 403);
     },
   });
+  const swishService = createSwishPayments({ env, getRepository: () => applicationApi.getRepository(),
+    client: createSwishMssClient({ env }),
+    sourceProvider: request => terminalDemoApi.documentProjections(request),
+    sitesProvider: () => environmentApi.getSites(),
+    authorizeContext: async context => {
+      if (typeof context.reauthorize !== 'function') throw new PricingError('En aktiv betalningssession krävs.', 403);
+      const principal = await context.reauthorize();
+      if (principal.actor.id !== context.actorId || principal.user.id !== context.effectiveUserId)
+        throw new PricingError('Betalningssessionen har ändrats.', 403);
+    },
+    onPrepared: job => job.kind === 'card' && job.reason
+      ? documentsApi.archivePaymentRevision(job) : undefined,
+    onVerifiedPayment: (job, options) => vismaService.synchronizeSwishPayment(job.id, options),
+  });
   const environmentApi = createEnvironmentApi({ env, initialSites, trustedPrincipalProvider: reauthorizeTrustedPrincipal ?? trustedPrincipalProvider, principalStore,
-    vismaService,
+    vismaService, swishService,
     approvalGuard: (input, operation) => terminalDemoApi.withApprovedCard(input, operation),
     outboundProvider: async () => (await applicationApi.getRepository()).read(state =>
       (state.logistics?.inventoryMovements ?? []).filter(row => row.kind === 'outbound' && row.hazardous)
@@ -147,11 +165,12 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
         }
       });
       await terminalDemoApi.initialize();
+      await swishService.initialize();
     } catch (error) { await close(); throw error; }
     async function close() {
       await Promise.allSettled([terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close()]);
     }
-    return { applicationApi, articleMediaApi, vismaService, environmentApi, terminalDemoApi, documentsApi, close,
+    return { applicationApi, articleMediaApi, vismaService, swishService, environmentApi, terminalDemoApi, documentsApi, close,
       async handle(req, res, url) {
         if (await articleMediaApi(req, res, url)) return true;
         if (await applicationApi(req, res, url)) return true;

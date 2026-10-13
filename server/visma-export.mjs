@@ -663,6 +663,18 @@ export function createVismaExports({ organisationId = 'jeroc-demo', readTenantPr
     assertWorkerAuthorization,
     assertExportAuthorization,
     assertTrackingAuthorization,
+    // Private payout worker projection. Browser API methods cannot choose a
+    // different invoice, customer or approval version for a paid instruction.
+    async paymentTarget(source) {
+      const settings = await currentSettings(), connected = await connection();
+      const matches = (await exportJobs({ companyId: companyId(), cardId: source.cardId, statuses: ['accepted'], limit: 100 }))
+        .filter(job => job.source.approvalId === source.approvalId && job.source.version === source.version && job.source.hash === source.hash
+          && (job.environment ?? 'sandbox') === 'sandbox' && job.tracking?.state !== 'replaced');
+      const booked = matches.filter(job => job.tracking?.state === 'booked');
+      if (booked.length > 1) fail('Flera bokförda fakturor matchar utbetalningen. Kopplingen måste granskas.', 409, 'visma_payment_ambiguous');
+      const job = booked[0] ?? matches.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+      return { settings: clone(settings), connected, job: job ? clone(job) : null };
+    },
     publicMethods: {
       async settings(context) { await authorize(context); return dto(); },
       async saveSettings(input, context) {

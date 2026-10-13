@@ -132,6 +132,16 @@ function businessSources() {
 const approve = approval => Object.assign(approval, { status: 'approved', approvedHash: approval.snapshot.hash, approvedAt: '2026-10-10T09:15:00.000Z', approvedMethod: 'manual_id_demo', approvedBy: 'Kajsa' });
 const attest = approval => Object.assign(approve(approval), { status: 'attested', attestedAt: '2026-10-10T09:30:00.000Z', attestedBy: 'Anna', attestedUserId: 'anna' });
 const expectError = (status, code) => error => error instanceof DocumentError && error.status === status && error.code === code;
+const paymentRevisionJob = (sources, changes = {}) => ({
+  id: randomUUID(), mode: 'mss', simulation: true, createdAt: '2026-10-13T08:45:00.000Z',
+  source: { cardId: sources.approvals[0].cardId, approvalId: sources.approvals[0].id, version: sources.approvals[0].version,
+    siteId: sources.approvals[0].siteId, hash: sources.approvals[0].snapshot.hash },
+  sourceSnapshotHash: sources.approvals[0].snapshot.hash, sourceSnapshot: structuredClone(sources.approvals[0].snapshot),
+  originalPaymentDetails: structuredClone(sources.approvals[0].snapshot.card.paymentDetails),
+  paymentDetails: { method: 'swish', phone: '+46711111132', recipient: 'Testkunden', personalNumber: '197709306828' },
+  reason: 'Kunden önskar Swish i stället för bankkonto.',
+  revisionActor: { actualUserId: 'admin', effectiveUserId: 'anna', name: 'Anna', actualName: 'Systemadmin' }, ...changes,
+});
 async function serviceFixture(run) {
   return archiveFixture(async ({ repository, instance }) => {
     const sources = businessSources(), rendered = [];
@@ -408,6 +418,74 @@ test('payment receipts require a recorded journal entry and an attested source; 
   assert.equal(record.snapshot.payment.reference, 'MANUAL-001');
   assert.equal(record.snapshot.payment.amount, 40);
   assert.deepEqual(sources, before);
+}));
+
+test('payment PDF revision preserves the original settlement, financial snapshot and company and becomes the default PDF', async () => serviceFixture(async ({ service, sources, repository }) => {
+  attest(sources.approvals[0]);
+  const originalDocument = (await service.generateSettlement(3010, { stage: 'final' }, admin)).document;
+  const originalRecord = await service.download(originalDocument.id, admin);
+  sources.company.name = 'Ny profil som inte får ändra originalet';
+  sources.sites[0].address = 'En senare anläggningsadress';
+  const job = paymentRevisionJob(sources), before = structuredClone(sources);
+  const revised = await service.archivePaymentRevision(job);
+  assert.equal(revised.version, 2);
+  assert.equal(revised.originalDocumentId, originalDocument.id);
+  const record = await service.download(revised.documentId, admin);
+  assert.equal(record.snapshot.id, originalRecord.snapshot.id);
+  assert.equal(record.sourceVersion, originalRecord.sourceVersion);
+  for (const field of ['company', 'site', 'customer', 'rows', 'gross', 'offset', 'net', 'tax', 'issuedAt', 'receivedAt', 'reference', 'approval', 'attest', 'selfBilling'])
+    assert.deepEqual(record.snapshot[field], originalRecord.snapshot[field], field);
+  assert.equal(record.snapshot.payment.method, 'swish');
+  assert.equal(record.snapshot.payment.maskedAccount, '•••• 1132');
+  assert.equal(record.snapshot.payment.recipient, 'Testkunden');
+  assert.equal(record.snapshot.paymentRevision.actor.name, 'Anna');
+  assert.equal(record.snapshot.paymentRevision.replacesDocumentId, originalDocument.id);
+  assert.equal(record.snapshot.paymentRevision.simulation, true);
+  assert.equal('paidAt' in record.snapshot.payment, false);
+  assert.equal('personalNumber' in record.snapshot.payment, false);
+  assert.deepEqual(await service.download(originalDocument.id, admin), originalRecord);
+  assert.deepEqual(sources, before, 'No invoice, payment or frozen business record is mutated.');
+  assert.equal((await service.generateSettlement(3010, { stage: 'final' }, admin)).document.id, revised.documentId);
+  const listed = await service.list({ kind: 'settlement', sourceId: '3010' }, admin);
+  assert.equal(listed.documents.length, 2);
+  assert.equal(listed.documents.find(doc => doc.id === revised.documentId).pdfVersion, 2);
+  assert.equal((await repository.read(db => db.documents('settlement', '3010'))).length, 2);
+}));
+
+test('one committed payment job archives one PDF under repeated concurrent delivery; later changed instructions retain revision history', async () => serviceFixture(async ({ service, sources }) => {
+  attest(sources.approvals[0]);
+  const job = paymentRevisionJob(sources);
+  const revisions = await Promise.all(Array.from({ length: 5 }, () => service.archivePaymentRevision(structuredClone(job))));
+  assert.equal(new Set(revisions.map(revision => revision.documentId)).size, 1);
+  assert.equal(revisions[0].version, 2);
+  const another = await service.archivePaymentRevision(paymentRevisionJob(sources, { paymentDetails: { ...job.paymentDetails, phone: '+46711111134' }, reason: 'Rättat Swish-nummer.' }));
+  assert.equal(another.version, 3);
+  assert.equal(another.originalDocumentId, revisions[0].originalDocumentId);
+  assert.equal((await service.download(another.documentId, admin)).snapshot.paymentRevision.replacesDocumentId, revisions[0].documentId);
+  assert.equal((await service.list({ kind: 'settlement', sourceId: '3010' }, admin)).documents.length, 3);
+  await assert.rejects(() => service.archivePaymentRevision({ ...job, paymentDetails: { ...job.paymentDetails, phone: '+46711111135' } }), expectError(409, 'payment_revision_conflict'));
+}));
+
+test('payment PDF revisions require a matching attested snapshot and an override reason; unchanged payment creates no revision', async () => serviceFixture(async ({ service, sources, rendered }) => {
+  attest(sources.approvals[0]);
+  const job = paymentRevisionJob(sources);
+  assert.equal(await service.archivePaymentRevision({ ...job, paymentDetails: job.originalPaymentDetails }), null);
+  assert.equal(rendered.length, 0);
+  await assert.rejects(() => service.archivePaymentRevision({ ...job, reason: '' }), expectError(422, 'payment_revision_reason_required'));
+  await assert.rejects(() => service.archivePaymentRevision({ ...job, sourceSnapshot: { ...job.sourceSnapshot, net: 4000 } }), expectError(409, 'payment_revision_source_changed'));
+  await assert.rejects(() => service.archivePaymentRevision({ ...job, source: { ...job.source, siteId: 'other-tenant-site' } }), expectError(409, 'payment_revision_source_changed'));
+  await assert.rejects(() => service.archivePaymentRevision({ ...job, revisionActor: undefined }), expectError(409, 'payment_revision_source_missing'));
+  sources.approvals[0].status = 'cancelled';
+  await assert.rejects(() => service.archivePaymentRevision(job), expectError(409, 'payment_revision_source_changed'));
+  assert.equal(rendered.length, 0);
+}));
+
+test('revised payment PDFs retain fresh financial and facility access checks', async () => serviceFixture(async ({ service, sources }) => {
+  attest(sources.approvals[0]);
+  const result = await service.archivePaymentRevision(paymentRevisionJob(sources));
+  await assert.rejects(() => service.download(result.documentId, worker(['view'])), expectError(403, 'financial_visibility_required'));
+  await assert.rejects(() => service.download(result.documentId, worker(['view', 'pay'], ['rimbo'])), expectError(403, 'site_forbidden'));
+  assert.equal((await service.download(result.documentId, worker(['view', 'pay'], ['norrtalje']))).id, result.documentId);
 }));
 
 test('a stored PDF with a wrong checksum is rejected without rewriting the archived original', async () => serviceFixture(async ({ service, repository }) => {

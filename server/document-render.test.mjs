@@ -92,6 +92,22 @@ test('manual ID checks show the customer and checking employee without inventing
     assert.equal((text.match(/Anna Berg/g) ?? []).length, 1);
   }
 });
+test('payment PDF revision clearly replaces the earlier PDF while retaining settlement number, dates, tax and totals', { skip: !canExtract }, async () => {
+  const s = sample();
+  s.payment = { method: 'swish', label: 'Swish', recipient: 'Hasses Rör AB', maskedAccount: '•••• 1132' };
+  s.paymentRevision = { version: 2, mode: 'mss', simulation: true, actor: { name: 'Anna Berg' }, at: '2026-10-13T08:45:00Z',
+    reason: 'Kunden önskar ändrat betalningssätt.', originalDocumentId: 'original-uuid', replacesDocumentId: 'original-uuid' };
+  const pdf = await renderPdf(s), text = await extracted(pdf), boxes = await extracted(pdf, true);
+  assert.match(text, /Uppdaterade betalningsuppgifter/);
+  assert.match(text, /ersätter tidigare PDF-version/);
+  assert.match(text, /PDF-version 2/);
+  for (const expected of ['AV-2026-00128', 'HR-2026-001', '37 329,00', '36 829,00', 'Anna Berg', '2026-10-10', '2026-10-09', 'Swish', '1132', 'SWISH MSS', 'Omvänd betalningsskyldighet'])
+    assert.ok(text.includes(expected), expected);
+  assert.doesNotMatch(text, /Registrerat betald|SENSITIVE-FULL-ACCOUNT/);
+  assert.ok(pages(pdf) <= 2);
+  for (const word of boxes.matchAll(/<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)"/g))
+    assert.ok(Number(word[1]) >= 28 && Number(word[3]) <= 567 && Number(word[4]) < 840, 'revision content exceeds A4');
+});
 test('transport document keeps sender, carrier and receiver but omits money and bank details', { skip: !canExtract }, async () => {
   const s = { ...sample(), type: 'transport', status: 'draft', sender: party, receiver: { ...party, name: 'Nordmetall Återvinning AB' }, carrier: { ...party, name: 'Roslagens Transport AB' }, rows: [{ name: 'Blybatterier', weight: 980, price: 99, amount: 97020, wasteCode: '16 06 01*' }], totalWeight: 980, origin: 'Kundverkstaden 3', transport: { direction: 'pickup', driver: 'Oskar Lind', registration: 'ABC123', requestedAt: '2026-10-12T08:00:00Z', handling: 'Skydda mot läckage och kortslutning.', signatures: [] } };
   const text = await extracted(await renderPdf(s));

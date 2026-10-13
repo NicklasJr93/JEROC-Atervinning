@@ -13,9 +13,10 @@ const CarrierApp = React.lazy(() => import('./carrier/CarrierApp'));
 const pagePath = window.location.pathname.replace(/\/$/, '');
 const nvvTestPage = pagePath === '/kontor/integration/systemadminintegrationtest.html';
 const vismaTestPage = pagePath === '/kontor/integration/systemadminvismatest.html';
-if (pagePath === '/kontor' || nvvTestPage || vismaTestPage) installPlatformFetchGuard();
-if ((nvvTestPage || vismaTestPage) && !window.location.hash) {
-  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/integrations/${vismaTestPage ? 'visma-test' : 'nvv-test'}`);
+const swishTestPage = pagePath === '/kontor/integration/systemadminswishtest.html';
+if (pagePath === '/kontor' || nvvTestPage || vismaTestPage || swishTestPage) installPlatformFetchGuard();
+if ((nvvTestPage || vismaTestPage || swishTestPage) && !window.location.hash) {
+  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/integrations/${swishTestPage ? 'swish-test' : vismaTestPage ? 'visma-test' : 'nvv-test'}`);
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -29,7 +30,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <React.Suspense fallback={<div role="status">Öppnar kundportalen…</div>}><CustomerApp /></React.Suspense>
       ) : pagePath === '/akeri' ? (
         <React.Suspense fallback={<div role="status">Öppnar åkeriportalen…</div>}><CarrierApp /></React.Suspense>
-      ) : pagePath === '/kontor' || nvvTestPage || vismaTestPage ? (
+      ) : pagePath === '/kontor' || nvvTestPage || vismaTestPage || swishTestPage ? (
         <React.Suspense fallback={<div role="status">Öppnar kontoret…</div>}><PlatformGate><OfficeApp /></PlatformGate></React.Suspense>
       ) : (
         <React.Suspense fallback={<div role="status">Öppnar appen…</div>}><MobileApp /></React.Suspense>

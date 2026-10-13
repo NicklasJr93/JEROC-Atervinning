@@ -12,6 +12,7 @@ import { environmentFailure, useEnvironmentSession } from './EnvironmentSession'
 import type { NvvIntegrationStatus } from './environment-types';
 import NvvIntegrationPanel from './NvvIntegrationPanel';
 import SpirisAccountingPanel from './SpirisAccountingPanel';
+import SwishIntegrationPanel from './SwishIntegrationPanel';
 import { cacheIntegrationRead, cachedIntegrationRead, clearIntegrationReadCache, integrationReadScope } from './integration-read-cache';
 import './environment.css';
 import './integrations.css';
@@ -57,6 +58,11 @@ const providerPresentation: Record<string, { icon: LucideIcon; functions: string
     functions: ['Ekonomiinställningar och konton från ert svenska testföretag', 'Fakturautkast från kundgodkända och attesterade avräkningar', 'Skickat underlag, API-svar och överföringshistorik'],
     preparation: 'Behörig VD eller systemadmin ansluter bolagets sandboxföretag på testsidan. Anslutningen sparas separat för bolaget.',
   },
+  swish: {
+    icon: Wallet,
+    functions: ['Swish-utbetalningar till privatpersoner i MSS', 'Signerade testinstruktioner och återläst betalningsstatus', 'Spårbar betalningsjournal och koppling till Spiris sandbox'],
+    preparation: 'Bolagets MSS-test aktiveras i inställningarna. Inga riktiga pengar flyttas.',
+  },
   fortnox: {
     icon: Wallet,
     functions: ['Leverantörsunderlag från färdiga avräkningar', 'Kontomappning och exporthistorik', 'Återkoppling av bekräftade bokföringsreferenser'],
@@ -91,7 +97,7 @@ const providerPresentation: Record<string, { icon: LucideIcon; functions: string
 
 const categoryLabels: Record<string, string> = {
   environment: 'Miljö & myndigheter', accounting: 'Ekonomi', productivity: 'Kontor & kalender',
-  identity: 'Identifiering', messaging: 'Meddelanden', maps: 'Kartor & adresser', market: 'Marknadspriser',
+  identity: 'Identifiering', messaging: 'Meddelanden', maps: 'Kartor & adresser', market: 'Marknadspriser', payments: 'Betalningar',
 };
 const categoryLabel = (category: string) => categoryLabels[category] ?? category;
 
@@ -194,6 +200,7 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
   // The known settings endpoint authorizes this service itself. Do not put a
   // catalog read in front of it when opening a direct Spiris settings link.
   const parallelSpiris = selectedId === 'visma' && (!catalog || !!selected?.implemented);
+  const parallelSwish = selectedId === 'swish' && (!catalog || !!selected?.implemented);
   const selectedPresentation = selected && providerPresentation[selected.id];
   const SelectedIcon = selectedPresentation?.icon ?? PlugZap;
 
@@ -215,9 +222,9 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
 
   return <section className="integrations-workspace">
     <OfficePageHeader>
-      {(parallelSpiris || selected) && <button type="button" className="office-link integration-back" onClick={() => setSearch({})}><ArrowLeft size={15} />Alla integrationer</button>}
+      {(parallelSpiris || parallelSwish || selected) && <button type="button" className="office-link integration-back" onClick={() => setSearch({})}><ArrowLeft size={15} />Alla integrationer</button>}
     <div className="office-title integration-page-title">
-      <div><span className="office-eyebrow">BOLAGETS ANSLUTNINGAR</span><h1>{selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : 'Integrationer'}</h1><p>{selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : 'Koppla bolaget till myndigheter, ekonomi och andra tjänster.'}</p></div>
+      <div><span className="office-eyebrow">BOLAGETS ANSLUTNINGAR</span><h1>{selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : selectedId === 'swish' ? 'Swish Utbetalning' : 'Integrationer'}</h1><p>{selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : selectedId === 'swish' ? 'Testutbetalningar och bokföringskoppling för bolaget.' : 'Koppla bolaget till myndigheter, ekonomi och andra tjänster.'}</p></div>
       <button type="button" className="office-btn outline" onClick={() => void update()} disabled={catalogLoading || sessionLoading || nvvLoading}><RefreshCw size={14} />Uppdatera</button>
     </div>
     </OfficePageHeader>
@@ -228,12 +235,13 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
       {!sessionLoading && <button type="button" className="office-btn outline" onClick={() => void refreshSession().catch(() => undefined)}>Försök igen</button>}
     </div>}
     {matchingSession && catalogError && <div className="office-panel integration-message error" role="alert"><CircleAlert size={19} /><span>{catalogError}</span><button type="button" className="office-btn outline" onClick={() => void loadCatalog(undefined, true)} disabled={catalogLoading}>Försök igen</button></div>}
-    {matchingSession && !catalog && !catalogError && !parallelSpiris && <div className="office-panel integration-message" role="status"><RefreshCw size={19} /><span>Hämtar integrationer…</span></div>}
+    {matchingSession && !catalog && !catalogError && !parallelSpiris && !parallelSwish && <div className="office-panel integration-message" role="status"><RefreshCw size={19} /><span>Hämtar integrationer…</span></div>}
     {matchingSession && parallelSpiris && <>
       <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} />
     </>}
+    {matchingSession && parallelSwish && <SwishIntegrationPanel user={user} actualUser={actualUser} onNotice={onNotice} />}
 
-    {!!catalog && matchingSession && !parallelSpiris && <>
+    {!!catalog && matchingSession && !parallelSpiris && !parallelSwish && <>
       {selected ? <>
         {selected.id === 'visma' && selected.implemented ? <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} /> : <article className="office-panel integration-detail">
           <div className="integration-detail-heading"><span className={`integration-icon ${selected.id}`}><SelectedIcon size={25} /></span><div><small>{categoryLabel(selected.category)}</small><h2 ref={detailHeading} tabIndex={-1}>{selected.name}</h2><p>{selected.description}</p></div><IntegrationStatus provider={selected} /></div>

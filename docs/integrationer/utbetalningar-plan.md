@@ -1,6 +1,9 @@
 # Planerat utbetalningsflöde
 
-Godkänt flöde 2026-10-12, ÄL 098. Dokumentet är planering. JEROC har ännu ingen ansluten bank-/Swish-utbetalningsadapter eller automatisk betalningsbokföring i Spiris.
+Godkänt flöde 2026-10-12, ÄL 098. Produktionsflödet är fortfarande planering.
+ÄL 102, kontor 0.22.0, bygger Swish MSS-adaptern och efterföljande betalningsbokföring
+i Spiris sandbox. Ingen skarp Swish- eller bankutbetalning är aktiverad.
+Aktuellt bygge och provsteg: [Swish MSS](swish-mss-bygge-2026-10-13.md).
 
 ## Ordning och användarflöde
 
@@ -78,7 +81,13 @@ Planerat kundflöde under Integrationer -> Swish:
 4. Admin väljer det egna Spiris-bankkonto där utbetalningarna ska bokföras och vilka användare som får betala ut.
 5. Systemet verifierar konfiguration och anslutning, visar giltighet/utgångsdatum och låter admin uttryckligen aktivera rätt miljö. Ett anslutningstest initierar inte automatiskt en riktig utbetalning.
 
-Flerföretagsdrift kräver riktig bolagsisolering och personliga serversessioner i hela systemet. Dagens demo har en organisation. Kundens betalningar, nummer, signeringsbehörighet, Spiris-företag, konto, journal och roller måste bindas till organisationen på servern. En central teknisk TLS-identitet ersätter inte den isoleringen eller kundens egna utbetalningsbehörigheter. Avstängning eller certifikatsbyte ska stoppa nya sändningar och bevara journal/status för redan skickade instruktioner.
+Bolagsgrunden i ÄL 099 använder servervalda bolagsbundna databasscheman och
+personliga sessioner. MSS-inställningar och betalningsjournaler är bolagsbundna;
+varje bolag måste själv aktivera sitt test. Kundens produktionsbetalningar, nummer,
+signeringsbehörighet, Spiris-företag, konto, journal och roller måste fortsatt
+bindas till organisationen på servern. En central teknisk TLS-identitet ersätter
+inte kundens egna utbetalningsbehörigheter. Avstängning eller certifikatsbyte ska
+stoppa nya sändningar och bevara journal/status för redan skickade instruktioner.
 
 ## Förutsättningar och källor
 

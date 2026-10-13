@@ -230,11 +230,22 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
     return true;
   };
   api.auth = auth; api.repository = repository; api.bundle = bundle;
-  api.runWorkers = async method => {
-    for (const [id, pending] of bundles) {
-      const company = await auth.getCompany(id); if (company?.status !== 'active') continue;
-      try { const service = await pending; await service.vismaService[method]({ reconcile: false }); } catch { console.warn('En bolagsspecifik integrationskö väntar på nästa kontroll.'); }
-    }
+  const workerFlights = new Map();
+  api.runWorkers = method => {
+    if (workerFlights.has(method)) return workerFlights.get(method);
+    const operation = (async () => {
+      for (const [id, pending] of bundles) {
+        const company = await auth.getCompany(id); if (company?.status !== 'active') continue;
+        try {
+          const service = await pending;
+          const worker = method === 'processQueuedPayments' ? service.swishService : service.vismaService;
+          if (typeof worker?.[method] === 'function') await worker[method]({ reconcile: false });
+        } catch { console.warn('En bolagsspecifik integrationskö väntar på nästa kontroll.'); }
+      }
+    })();
+    workerFlights.set(method, operation);
+    operation.finally(() => { if (workerFlights.get(method) === operation) workerFlights.delete(method); }).catch(() => {});
+    return operation;
   };
   api.close = async () => {
     stopping = true; for (const res of streams) res.end();

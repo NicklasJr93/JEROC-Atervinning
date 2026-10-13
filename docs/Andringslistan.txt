@@ -4,7 +4,9 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.8.0. Aktuell kontorsversion: 0.21.0.
+Aktuell mobilwebbversion: 0.8.0. Aktuell kontorsversion: 0.22.0.
+Swish MSS-test, utbetalningspopup, PDF-revisioner och Spiris-betalningsbokföring
+i sandbox är genomförda i 102, bygge 2026-10-13.
 096, 097 och 100 är genomförda tillsammans i bygge 2026-10-13.
 Byggets innehåll: docs/sticky-viktkort-anlaggningsval-2026-10-13.md.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
@@ -2148,7 +2150,8 @@ hoverrutan följer godkänd utformning efter användarens återkoppling.
 
 098 – Utbetalning via bank/Swish först, betalningsbokföring i Spiris därefter
 Status: Godkänt flöde för framtida bygge 2026-10-12. Planering sparad;
-bank-/Swish-sändning och Spiris-betalningsregistrering är inte implementerade.
+bank-/Swish-utbetalning i produktion återstår. Swish MSS-test och efterföljande
+Spiris-betalningsregistrering i sandbox är byggda enligt 102.
 - Ekonomiansvarig använder Betala ut och en förifylld bekräftelsepopup.
   Belopp och mottagaruppgifter hämtas från låst avräkning; betalsätt och
   nödvändiga uppgifter ska vara kompletta före attest. JEROC:s betalningskonto
@@ -2279,3 +2282,40 @@ byte av appens installerade logga återstår till nästa beställda koduppdateri
 - Kundbolagens egna loggor och företagsuppgifter, exempelvis JEROC:s,
   hanteras fortsatt separat från ScrapPilots produktlogga.
 - Färgreferens och original: docs/branding/recycling-green-preview.md.
+
+ÄL 102 – Swish-test från attesterat viktkort och reviderade betalningsuppgifter
+Status: Implementerad 2026-10-13 i kontor 0.22.0. Endast Swish MSS och Spiris
+sandbox; ingen skarp Swish-/bankutbetalning har aktiverats.
+- Ersätt Registrera demoutbetalning med Betala ut i viktkortets överdel
+  och i utbetalningskortet. Båda öppnar samma förifyllda bekräftelsepopup.
+  Den slutliga knappen heter Testa Swish-utbetalning och märker testmiljön.
+- Alla med utbetalningsbehörighet får ändra betalsätt och mottagaruppgifter
+  med obligatorisk orsak och historik. Kundidentitet, material och fryst
+  belopp förblir låsta. Ändringarna skriver inte över kundens betalningsprofil.
+- Ändrade betalningsuppgifter får en ny PDF-version av samma avräkning,
+  märkt Uppdaterade betalningsuppgifter – ersätter tidigare PDF-version.
+  Samma avräkningsnummer, ekonomiska uppgifter och attest behålls.
+  Originalet finns kvar i historiken; senaste PDF-versionen visas som standard.
+- Swishs offentliga MSS-certifikat hämtas och verifieras på servern.
+  Bolagets testinställningar aktiveras under Integrationer -> Swish.
+  Fristående testsida har syntetiska uppgifter och återanvänder den animerade
+  integrationspopupen med skickat underlag, faktiska svar och historik.
+- Beständig bolagsisolerad journal reserverar samma instruktion före sändning.
+  HTTP 201 betyder skapad instruktion. Endast återläst PAID med matchande
+  belopp, mottagare, referens och ID bekräftar simuleringen. Timeout eller
+  oklart svar får endast kontrolleras med GET av samma Swish-ID.
+- Definitivt avvisade försök kan rättas och uttryckligen provas igen med
+  spårbar koppling till tidigare försök. Oklart resultat får inte omsändas.
+- Efter verifierat PAID kan en uttryckligt aktiverad inställning registrera
+  betalningen i samma anslutna Spiris-sandboxföretag, mot dess egna valda
+  SEK-bankkonto. Registreringen väntar på rätt bokförda leverantörsfaktura.
+  Ändrade betalningsuppgifter skapar ingen ny Spiris-faktura.
+- Spiris-bekräftelse kräver matchande banktransaktion och betalningsverifikation.
+  Ett oklart POST-svar återläses utan ny POST. Pengatest och bokföringsstatus
+  hålls åtskilda; tillfälliga läsfel kan återhämtas och manuellt Uppdatera
+  gör en aktiv kontroll utan att starta en ny betalning.
+- MSS flyttar inga pengar och markeras inte som verklig eller manuell
+  demoutbetalning på originalkortet. Testresultatet visas separat på kortet.
+  Företagsmottagare, kvittning, saldo, bank och kontant ingår i kommande etapper.
+- Render-inställningar och provflöde:
+  docs/integrationer/swish-mss-bygge-2026-10-13.md.

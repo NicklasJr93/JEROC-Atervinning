@@ -40,6 +40,8 @@ import { useWeightCardListNavigation } from './useWeightCardListNavigation';
 import { OfficePageHeader, OfficeStickyShell } from './OfficePageHeader';
 import CustomerWorkspace from './CustomerWorkspace';
 import PaymentEditor from './PaymentEditor';
+import SwishPayoutDialog from './SwishPayoutDialog';
+import SwishPaymentPanel from './SwishPaymentPanel';
 import CorrectionsWorkspace from './CorrectionsWorkspace';
 import TerminalWorkspace, { TerminalSelectors } from './TerminalWorkspace';
 import CustomerApprovalsWorkspace, { ApprovalVersionPreview } from './CustomerApprovalsWorkspace';
@@ -68,6 +70,7 @@ const VesselsWorkspace = lazy(() => import('./logistics/VesselsWorkspace'));
 const IntegrationsWorkspace = lazy(() => import('./IntegrationsWorkspace'));
 const NvvSandboxWorkspace = lazy(() => import('./NvvSandboxWorkspace'));
 const VismaSandboxWorkspace = lazy(() => import('./VismaSandboxWorkspace'));
+const SwishSandboxWorkspace = lazy(() => import('./SwishSandboxWorkspace'));
 import { logisticsSummaryRequest, type LogisticsSummary } from './logistics/client';
 import type { WorkOrderPrefill } from './logistics/WorkOrderForm';
 import {
@@ -81,7 +84,6 @@ import {
   createCorrectionDraft,
   submitCorrection,
   approveCorrection,
-  recordPayment,
   settlementPreview,
   paymentSummary,
   validPaymentDetails,
@@ -102,7 +104,6 @@ import {
   type OfficeCard,
   type Permission,
   type OfficeCustomer,
-  type PaymentDetails,
 } from './model';
 import PricingWorkspace from './PricingWorkspace';
 import {
@@ -306,6 +307,7 @@ export function OfficeApp() {
   }, [section, navigate]);
   const nvvSandboxView = location.pathname === '/integrations/nvv-test';
   const vismaSandboxView = location.pathname === '/integrations/visma-test';
+  const swishSandboxView = location.pathname === '/integrations/swish-test';
   const selectedId = Number(location.pathname.split('/')[2]);
   const selected = workflowSections.includes(section)
     ? data.cards.find((c) => c.id === selectedId)
@@ -357,7 +359,7 @@ export function OfficeApp() {
     ? { user, actualUser, office: platform ? companyName : 'Kontor Norrtälje', actor: auditActor }
     : undefined;
   const [documentType, setDocumentType] = useState<'settlement' | 'receipt'>();
-  const [payBalance, setPayBalance] = useState(false);
+  const [swishPayoutOpen, setSwishPayoutOpen] = useState(false);
   const [attestBusy, setAttestBusy] = useState(false);
   const [quickCustomerOpen, setQuickCustomerOpen] = useState(false);
   const [customerCreation, setCustomerCreation] = useState<{ cardId: number; returnRoute: string; draft: OfficeCustomer; principal: string }>();
@@ -372,7 +374,7 @@ export function OfficeApp() {
     setEditMaterial(undefined);
   }, [principalIdentity]);
   useEffect(() => {
-    setPayBalance(false);
+    setSwishPayoutOpen(false);
     setDocumentType(undefined);
     setQuickCustomerOpen(false);
     setAddArticleCardId(undefined);
@@ -426,7 +428,7 @@ export function OfficeApp() {
       sessionStorage.removeItem('jeroc.office.acting');
       setActingId('');
       setUserId(id);
-      navigate(vismaSandboxView ? '/integrations/visma-test' : nvvSandboxView ? '/integrations/nvv-test' : '/dashboard');
+      navigate(swishSandboxView ? '/integrations/swish-test' : vismaSandboxView ? '/integrations/visma-test' : nvvSandboxView ? '/integrations/nvv-test' : '/dashboard');
     } catch {
       setError('Tillåt sessionslagring för att öppna demokontot.');
     }
@@ -1085,41 +1087,6 @@ export function OfficeApp() {
       setPriceBusy(false);
     }
   }
-  function payCard(card: OfficeCard, details?: PaymentDetails) {
-    if (!actorContext || blocked) return false;
-    try {
-      const preview = settlementPreview(dataRef.current, card.id);
-      if (card.customerApproval) {
-        const review = terminalDemo.state?.approvals.find(item => item.id === card.customerApproval?.id);
-        if (!review || review.status !== 'attested') throw new Error('Läs in attesten från terminaltjänsten innan demoutbetalningen registreras.');
-        if (preview.gross !== review.snapshot.gross || preview.offset !== review.snapshot.offset || preview.net !== review.snapshot.net)
-          throw new Error('Saldot har ändrats sedan kundgodkännandet. Ingen demoutbetalning registrerades. Skillnaden behöver hanteras genom rättelse.');
-      }
-      if (
-        !window.confirm(
-          `Registrera en DEMOutbetalning på ${money(preview.net)} kr? Kvittning ${money(preview.offset)} kr. Ingen betalning skickas.`,
-        )
-      )
-        return false;
-      if (
-        !persist(recordPayment(dataRef.current, card.id, actorContext, details))
-      )
-        return false;
-      setMessage(
-        'Demoutbetalningen är registrerad med underlag. Ingen betalning skickades.',
-      );
-      navigate(`/payments/${card.id}?tab=history`);
-      setPayBalance(false);
-      return true;
-    } catch (e) {
-      setMessage(
-        e instanceof Error
-          ? e.message
-          : 'Utbetalningen kunde inte registreras.',
-      );
-      return false;
-    }
-  }
   const pricingAccess =
     user &&
     (can(user, 'prices') ||
@@ -1131,7 +1098,7 @@ export function OfficeApp() {
       can(user, 'customerPriceEdit'));
   const terminalAdminDenied = section === 'terminals' && user?.level !== 'Systemadmin';
   const nvvSandboxDenied = nvvSandboxView && (user?.level !== 'Systemadmin' || actualUser?.level !== 'Systemadmin' || !!user?.siteIds || !!actualUser?.siteIds || !can(user, 'environmentIntegration'));
-  const vismaSandboxDenied = vismaSandboxView && !mayManageSpiris(user, actualUser);
+  const vismaSandboxDenied = (vismaSandboxView || swishSandboxView) && !mayManageSpiris(user, actualUser);
   const accountsView = section === 'users' ||
     (section === 'personnel' && location.pathname.split('/')[2] === 'accounts') ||
     (section === 'personnel' && user && !can(user, 'personnelRead') && can(user, 'users'));
@@ -1325,6 +1292,7 @@ export function OfficeApp() {
             {section === 'users' ? 'Personal' : nav.find((n) => n.id === section)?.name ?? 'Vägning'}
             {nvvSandboxView && <><ChevronRight size={14} />NVV-test</>}
             {vismaSandboxView && <><ChevronRight size={14} />Spiris-test</>}
+            {swishSandboxView && <><ChevronRight size={14} />Swish-test</>}
             {section === 'work-orders' && location.pathname.endsWith('/new') && <><ChevronRight size={14} />Ny arbetsorder</>}
             {section === 'work-orders' && location.pathname.endsWith('/edit') && <><ChevronRight size={14} />Redigera arbetsorder</>}
           </span>
@@ -1476,13 +1444,13 @@ export function OfficeApp() {
                             Utbetalningskvitto
                           </button>
                   )}
-                  {selected.status === 'ready' && can(user, 'pay') && selectedSettlement && (
+                  {selected.status === 'ready' && can(user, 'pay') && actualUser && can(actualUser, 'pay') && selectedSettlement && (
                             <button
                               className="office-btn"
                               disabled={selected.financialPending || priceBusy}
-                              onClick={() => payCard(selected)}
+                              onClick={() => setSwishPayoutOpen(true)}
                             >
-                              Registrera demoutbetalning
+                              Betala ut
                             </button>
                   )}
                 </div>
@@ -1748,7 +1716,9 @@ export function OfficeApp() {
                   <section className={`office-panel office-card-payment${panelClass('payment')}`}>
                     <ElectricFocusBorder active={focusPanel === 'payment'} />
                     <h2>Utbetalning</h2>
-                    {can(user, 'paymentDetails') ||
+                    {selected.status === 'ready' && can(user, 'pay') && actualUser && can(actualUser, 'pay') ? (
+                      <SwishPaymentPanel card={selected} user={user} actualUser={actualUser} onStart={() => setSwishPayoutOpen(true)} />
+                    ) : can(user, 'paymentDetails') ||
                     can(user, 'pay') ||
                     can(user, 'attest') ? (
                       <PaymentEditor
@@ -1886,30 +1856,9 @@ export function OfficeApp() {
                           </div>
 
 
-                          {selected.status === 'balance' && !payBalance && (
-                            <button
-                              className="office-btn"
-                              onClick={() => setPayBalance(true)}
-                            >
-                              Betala ut från saldo
-                            </button>
-                          )}
-                          {selected.status === 'balance' && payBalance && (
-                            <PaymentEditor
-                              allowBalance={false}
-                              customerName={selectedCustomer?.name}
-                              value={
-                                data.customers.find(
-                                  (c) => c.id === selected.customerId,
-                                )?.paymentProfile
-                              }
-                              buttonLabel="Registrera utbetalning"
-                              onSave={(details) => payCard(selected, details)}
-                            />
-                          )}
                         </>
                       )}
-                    {['ready', 'paid', 'balance'].includes(selected.status) && <p className="office-lock"><ShieldCheck size={16} />Låst underlag · ändringar kräver rättelsekort</p>}
+                    {['ready', 'paid', 'balance'].includes(selected.status) && <p className="office-lock"><ShieldCheck size={16} />Låst ekonomiskt underlag · material och belopp ändras genom rättelse</p>}
                   </section>
                   {['ready', 'paid', 'balance'].includes(selected.status) &&
                     can(user, 'corrections') && (
@@ -2245,7 +2194,7 @@ export function OfficeApp() {
             <EnvironmentWorkspace user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} onOpenCard={open} />
           ) : section === 'integrations' ? (
             <Suspense fallback={<div className="office-panel" role="status">Hämtar integrationer…</div>}>
-              {vismaSandboxView ? <VismaSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : nvvSandboxView ? <NvvSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : <IntegrationsWorkspace
+              {swishSandboxView ? <SwishSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} onNotice={setMessage} /> : vismaSandboxView ? <VismaSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : nvvSandboxView ? <NvvSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : <IntegrationsWorkspace
                 key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} />}
             </Suspense>
           ) : section === 'facilities' ? (
@@ -2324,6 +2273,9 @@ export function OfficeApp() {
                 Till översikten
               </button>
             </section>
+          )}
+          {swishPayoutOpen && actualUser && selected && can(user, 'pay') && can(actualUser, 'pay') && (
+            <SwishPayoutDialog card={selected} user={user} actualUser={actualUser} open={swishPayoutOpen} onClose={() => setSwishPayoutOpen(false)} onNotice={setMessage} onChanged={() => void shared.refresh()} />
           )}
           {documentType && actualUser && selected && cardMoneyVisible(user, selected) && (
             <OfficeDocument
