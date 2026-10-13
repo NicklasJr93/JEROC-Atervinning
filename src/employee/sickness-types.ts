@@ -32,6 +32,7 @@ export interface SicknessCase {
   id: string; personId: string; personName?: string; revision: number;
   status: 'open' | 'recovered'; fromDate: string; startMinute?: number;
   lastSickDate?: string; recoveredAt?: string; recoveryMinute?: number;
+  recoveryPlan?: { healthyFromDate: string; registeredAt: string };
   extent: SicknessExtent; forecast: SicknessForecast;
   declared: boolean; declaredAt?: string; reportedAt: string;
   cycleId: string; relapse: boolean; lastContactDate: string;
@@ -86,7 +87,9 @@ export type EmployeeSicknessCommand =
   | { action: 'sickness.confirm'; requestId: string; id: string; revision: number; extent: SicknessExtent; forecast?: SicknessForecast }
   | { action: 'sickness.forecast'; requestId: string; id: string; revision: number; forecast: SicknessForecast }
   | { action: 'sickness.declare'; requestId: string; id: string; revision: number; declared: true }
-  | { action: 'sickness.recover'; requestId: string; id: string; revision: number; lastSickDate: string; recoveryMinute?: number };
+  | { action: 'sickness.recover'; requestId: string; id: string; revision: number; lastSickDate: string; recoveryMinute?: number }
+  | { action: 'sickness.recovery.schedule'; requestId: string; id: string; revision: number; healthyFromDate: string }
+  | { action: 'sickness.recovery.cancel'; requestId: string; id: string; revision: number };
 export type SicknessManagementCommand =
   | (EmployeeSicknessCommand & { personId: string; reason?: string })
   | { action: 'sickness.correct'; requestId: string; personId: string; id: string; revision: number;

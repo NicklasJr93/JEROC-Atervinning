@@ -197,7 +197,7 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         // use a snapshot and never take a write lock or prune authentication.
         if (req.method === 'POST') { ensureMobileEmployeeAccounts(state); ensureLogistics(state); }
         else ensureEmployeeTime(state);
-        refreshSicknessAbsences(state, { now, siteCatalog });
+        refreshSicknessAbsences(state, { now, siteCatalog }, audit);
         syncPersonnelFacilityAccess(state,{siteCatalog});
         const at = timestamp(now), auth = state.personnelAuth;
         if (req.method === 'POST') {

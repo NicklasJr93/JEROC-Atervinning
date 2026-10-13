@@ -14,7 +14,7 @@ async function homeFixture(page: Page, minimal = false) {
   const controls = { yardWork: !minimal, assignedOrders: !minimal, activeSiteId: 'norrtalje',
     activity: minimal ? undefined : { date: today, siteId: 'norrtalje', completedWeighings: 4, weighedKg: 1285 },
     clockEnabled: !minimal, clockStatus: (minimal ? 'off' : 'working') as 'working' | 'break' | 'out' | 'off',
-    clockError: false, gateBlocked: false, noSites: false, futureOnly: false, sicknessError: false,
+    clockError: false, gateBlocked: false, noSites: false, futureOnly: false, sicknessError: false, sicknessCommitError: false,
     holdSickness: undefined as { ready: () => void; gate: Promise<void> } | undefined,
     holdClock: undefined as { ready: () => void; gate: Promise<void> } | undefined };
   const reads: string[] = [], clockWrites: { command: EmployeeClockAction; company?: string }[] = [], siteWrites: string[] = [], errors: string[] = [];
@@ -105,6 +105,11 @@ async function homeFixture(page: Page, minimal = false) {
         } else if (command.action === 'sickness.recover' && sickness.activeCase) {
           sickness.activeCase.status = 'recovered'; sickness.activeCase.lastSickDate = command.lastSickDate;
           sickness.activeCase = null; sickness.canReport = true;
+        } else if (command.action === 'sickness.recovery.schedule' && sickness.activeCase) {
+          sickness.activeCase.recoveryPlan = { healthyFromDate: command.healthyFromDate, registeredAt: new Date().toISOString() };
+          sickness.activeCase.revision++;
+        } else if (command.action === 'sickness.recovery.cancel' && sickness.activeCase) {
+          delete sickness.activeCase.recoveryPlan; sickness.activeCase.revision++;
         } else if (command.action === 'sickness.forecast' && sickness.activeCase) {
           sickness.activeCase.forecast = command.forecast; sickness.activeCase.revision++;
         } else if (command.action === 'sickness.confirm' && sickness.activeCase) {
@@ -113,6 +118,7 @@ async function homeFixture(page: Page, minimal = false) {
           sickness.activeCase.revision++;
         }
       }
+      if (controls.sicknessCommitError) return send({ error: 'Tillfälligt okänt sparutfall' }, 503);
       return send(sickness);
     }
     if (url.pathname === '/api/employee/clock') {
@@ -382,4 +388,65 @@ test('prognos, fortsatt sjukfrånvaro, privat intyg och faktisk friskanmälan ä
   expect(fixture.sickness.activeCase).toBeNull(); expect(fixture.clockWrites).toHaveLength(0);
   expect(fixture.sicknessWrites.map(item => item.command.action)).toEqual(['sickness.report', 'sickness.forecast', 'sickness.confirm', 'sickness.recover']);
   expect(fixture.errors).toEqual([]);
+});
+
+test('framtida friskanmälan kan ändras över helgen och återkallas utan att avsluta dagens sjukfrånvaro', async ({ page }) => {
+  const fixture = await homeFixture(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sjukanmälan', exact: true }).click();
+  await page.getByRole('dialog').getByRole('checkbox').check();
+  await page.getByRole('dialog').getByRole('button', { name: 'Registrera sjukanmälan', exact: true }).click();
+  await page.getByRole('button', { name: 'Friskanmäl mig', exact: true }).click();
+  await page.getByRole('dialog').getByRole('combobox', { name: 'När är du frisk?', exact: true }).selectOption('tomorrow');
+  await expect(page.getByRole('dialog').getByText('Datumet gäller när du är frisk', { exact: false })).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Registrera friskanmälan', exact: true }).click();
+  const next = new Date(`${fixture.today}T12:00:00Z`); next.setUTCDate(next.getUTCDate() + 1);
+  await expect(page.getByText('Du är fortfarande sjukanmäld fram till dess.', { exact: false })).toBeVisible();
+  expect(fixture.sicknessWrites.at(-1)!.command).toMatchObject({ action: 'sickness.recovery.schedule', healthyFromDate: next.toISOString().slice(0, 10), id: 'own-sickness-case' });
+  expect(fixture.sickness.activeCase?.status).toBe('open'); expect(fixture.sickness.activeCase?.lastSickDate).toBeUndefined();
+  await page.getByRole('button', { name: 'Ändra friskanmälan', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('combobox', { name: 'När är du frisk?', exact: true })).toHaveValue('date');
+  const saturday = new Date(next); saturday.setUTCDate(saturday.getUTCDate() + (6 - saturday.getUTCDay() + 7) % 7);
+  const healthyDate = saturday.toISOString().slice(0, 10);
+  await page.getByRole('dialog').getByLabel('Frisk från datum', { exact: true }).fill(healthyDate);
+  await page.getByRole('dialog').getByRole('button', { name: 'Registrera friskanmälan', exact: true }).click();
+  await expect(page.getByText('Friskanmälan registrerad – frisk från lördag', { exact: false })).toBeVisible();
+  expect(fixture.sickness.activeCase?.recoveryPlan?.healthyFromDate).toBe(healthyDate);
+  await page.getByRole('button', { name: 'Jag är fortfarande sjuk', exact: true }).click();
+  await expect(page.getByRole('dialog').getByText('behålls.', { exact: false })).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Spara', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(fixture.sickness.activeCase?.recoveryPlan?.healthyFromDate).toBe(healthyDate);
+  await page.getByRole('button', { name: 'Återkalla friskanmälan', exact: true }).click();
+  await expect(page.getByRole('dialog').getByText('Din sjukfrånvaro fortsätter', { exact: false })).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Återkalla friskanmälan', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Friskanmäl mig', exact: true })).toBeVisible();
+  expect(fixture.sickness.activeCase?.status).toBe('open'); expect(fixture.sickness.activeCase?.recoveryPlan).toBeUndefined();
+  expect(fixture.clockWrites).toHaveLength(0); expect(fixture.errors).toEqual([]);
+});
+
+test('osäkert framtida friskdatum bekräftas bara när serverns datum matchar och skickas inte på nytt', async ({ page }) => {
+  const fixture = await homeFixture(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sjukanmälan', exact: true }).click();
+  await page.getByRole('dialog').getByRole('checkbox').check();
+  await page.getByRole('dialog').getByRole('button', { name: 'Registrera sjukanmälan', exact: true }).click();
+  fixture.controls.sicknessCommitError = true;
+  await page.getByRole('button', { name: 'Friskanmäl mig', exact: true }).click();
+  await page.getByRole('dialog').getByRole('combobox', { name: 'När är du frisk?', exact: true }).selectOption('tomorrow');
+  await page.getByRole('dialog').getByRole('button', { name: 'Registrera friskanmälan', exact: true }).click();
+  await expect(page.getByRole('dialog').getByText('Svaret kunde inte bekräftas.', { exact: false })).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Stäng', exact: true }).click();
+  const confirmedPlan = structuredClone(fixture.sickness.activeCase!.recoveryPlan!);
+  const different = new Date(`${confirmedPlan.healthyFromDate}T12:00:00Z`); different.setUTCDate(different.getUTCDate() + 1);
+  fixture.sickness.activeCase!.recoveryPlan!.healthyFromDate = different.toISOString().slice(0, 10);
+  fixture.controls.sicknessCommitError = false;
+  await page.getByRole('button', { name: 'Kontrollera registreringen', exact: true }).click();
+  await expect(page.getByText('Utfallet är ännu inte bekräftat.', { exact: false })).toBeVisible();
+  expect(fixture.sicknessWrites).toHaveLength(2);
+  fixture.sickness.activeCase!.recoveryPlan = confirmedPlan;
+  await page.getByRole('button', { name: 'Kontrollera registreringen', exact: true }).click();
+  await expect(page.getByText('Serverns registrering har bekräftats.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Kontrollera registreringen', exact: true })).toHaveCount(0);
+  expect(fixture.sicknessWrites).toHaveLength(2); expect(fixture.clockWrites).toHaveLength(0); expect(fixture.errors).toEqual([]);
 });

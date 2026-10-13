@@ -7,7 +7,8 @@ export function assertSicknessWorkAllowed(state, personOrId, context = {}) {
   const now = new Date(typeof context.now === 'function' ? context.now() : context.now ?? Date.now());
   const fields = Object.fromEntries(new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
   const today = `${fields.year}-${fields.month}-${fields.day}`, minute = Number(fields.hour) * 60 + Number(fields.minute);
-  const active = state.employeeSickness?.cases?.find(item => item.personId === personId && item.status === 'open' && item.fromDate <= today);
+  const active = state.employeeSickness?.cases?.find(item => item.personId === personId && item.status === 'open' && item.fromDate <= today &&
+    (!item.recoveryPlan || item.recoveryPlan.healthyFromDate > today));
   const extent = active?.dayChanges?.filter(item => item.date <= today).sort((a, b) => b.date.localeCompare(a.date) || b.revision - a.revision)[0]?.extent ?? active?.extent;
   if (extent === 100 && (active.fromDate < today || (active.startMinute ?? 0) <= minute))
     throw Object.assign(new PricingError('Du är sjukanmäld på heltid. Friskanmäl dig innan du påbörjar arbete.', 409), { code: 'SICKNESS_ACTIVE' });

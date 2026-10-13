@@ -4,6 +4,7 @@ import { ensureEmployeeSickness, employeeSicknessCommand, employeeSicknessProjec
   sicknessManagementCommand, sicknessManagementProjection, sicknessPayUnderlay, refreshSicknessAbsences,
   calculateSicknessLedger, assertSicknessWorkAllowed, recordSicknessPayUnderlay } from './employee-sickness.mjs';
 import { ensureEmployeeTime, employeeClockCommand, employeeTimeCommand, employeeTimeGate, enrollEmployeeTime } from './employee-time.mjs';
+import { employeeTimeReviewSourceStamp, assertEmployeeTimeReviewSourceStamp } from './employee-time-review.mjs';
 
 const personId = 'person-niklas', userId = 'niklas';
 const adminUser = { id: 'admin', name: 'Admin', level: 'Systemadmin', permissions: [], active: true };
@@ -229,4 +230,148 @@ test('qualified hourly employment has an explicit accountable approval path; one
   assert.throws(() => sicknessManagementCommand(state, { actor: scoped, user: scoped }, { action: 'policy.save', requestId: requestId(), policy: state.employeeSickness.policy }, [], allSitesContext), /samtliga/);
   const projected = sicknessManagementProjection(state, { actor: scoped, user: scoped }, {}, allSitesContext);
   assert.ok(!projected.capabilities.includes('policyWrite'));
+});
+
+const scheduleRecovery = (state, healthyFromDate, day = '2026-10-12', overrides = {}) => {
+  const item = state.employeeSickness.cases.find(c => c.status === 'open');
+  const command = { action: 'sickness.recovery.schedule', requestId: requestId(), id: item.id, revision: item.revision, healthyFromDate, ...overrides };
+  return { command, response: employeeSicknessCommand(state, personId, command, [], ctx(day, '17:00:00')) };
+};
+
+test('future recovery remains open until Stockholm midnight, has no future absence/pay rows and never clocks in', () => {
+  const { state, person } = fixture(); report(state, '2026-10-12');
+  const { response } = scheduleRecovery(state, '2026-10-13');
+  assert.equal(response.activeCase.status, 'open'); assert.equal(response.canReport, false);
+  assert.deepEqual(Object.keys(response.activeCase.recoveryPlan).sort(), ['healthyFromDate', 'registeredAt']);
+  assert.equal(response.activeCase.recoveryPlan.healthyFromDate, '2026-10-13');
+  assert.deepEqual(state.personnel.absences.map(a => a.fromDate), ['2026-10-12']);
+  assert.deepEqual(sicknessPayUnderlay(state, personId, ctx()).rows.map(r => r.date), ['2026-10-12']);
+  assert.throws(() => assertSicknessWorkAllowed(state, person, ctx('2026-10-12', '21:59:59')), /sjukanmäld/);
+  assert.doesNotThrow(() => assertSicknessWorkAllowed(state, person, ctx('2026-10-12', '22:00:00')));
+  assert.equal(state.employeeSickness.cases[0].status, 'open', 'work guard itself does not mutate a read snapshot');
+  const audit = []; refreshSicknessAbsences(state, ctx('2026-10-12', '22:00:00'), audit);
+  const item = state.employeeSickness.cases[0];
+  assert.equal(item.status, 'recovered'); assert.equal(item.lastSickDate, '2026-10-12');
+  assert.equal(item.recoveredAt, '2026-10-12T22:00:00.000Z'); assert.equal(item.recoveryPlan, undefined);
+  assert.equal(audit[0].action, 'sickness.recovery.effective');
+  assert.deepEqual(state.employeeTime.clockSessions, []); assert.deepEqual(state.employeeTime.clockStates, []);
+});
+
+test('due read projections resolve explicit recovery on a copy, with stable events and effective time', () => {
+  const { state } = fixture(); report(state, '2026-10-12'); scheduleRecovery(state, '2026-10-13');
+  const original = structuredClone(state), first = employeeSicknessProjection(state, personId, ctx('2026-10-15'));
+  const later = employeeSicknessProjection(state, personId, ctx('2026-10-16'));
+  assert.deepEqual(state, original); assert.equal(first.activeCase, null); assert.equal(first.canReport, true);
+  assert.equal(first.cases[0].lastSickDate, '2026-10-12');
+  const one = first.events.find(e => e.action === 'sickness.recovery.effective'), two = later.events.find(e => e.action === 'sickness.recovery.effective');
+  assert.deepEqual(one, two); assert.equal(one.at, '2026-10-12T22:00:00.000Z');
+  const managementView = sicknessManagementProjection(state, admin, { personId }, ctx('2026-10-16'));
+  assert.equal(managementView.cases[0].status, 'recovered'); assert.deepEqual(state, original);
+  const underlay = sicknessPayUnderlay(state, personId, ctx('2026-10-16'));
+  assert.deepEqual(underlay.rows.map(r => r.date), ['2026-10-12']); assert.deepEqual(state, original);
+  refreshSicknessAbsences(state, ctx('2026-10-16')); refreshSicknessAbsences(state, ctx('2026-10-17'));
+  assert.equal(state.employeeSickness.events.filter(e => e.action === 'sickness.recovery.effective').length, 1);
+  assert.equal(state.employeeSickness.events.find(e => e.action === 'sickness.recovery.effective').id, one.id);
+});
+
+test('healthy Saturday is distinct from next work on Monday and does not count weekend illness', () => {
+  const { state } = fixture(); report(state, '2026-10-16'); scheduleRecovery(state, '2026-10-17', '2026-10-16');
+  refreshSicknessAbsences(state, ctx('2026-10-19'));
+  assert.equal(state.employeeSickness.cases[0].lastSickDate, '2026-10-16');
+  assert.deepEqual(state.personnel.absences.map(a => a.fromDate), ['2026-10-16']);
+  assert.deepEqual(sicknessPayUnderlay(state, personId, ctx('2026-10-19')).rows.map(r => r.date), ['2026-10-16']);
+  assert.doesNotThrow(() => assertSicknessWorkAllowed(state, personId, ctx('2026-10-19')));
+});
+
+test('future recovery validates actual versus future dates, calendar validity, a bounded date and CAS', () => {
+  const { state } = fixture(); report(state, '2026-10-12');
+  for (const date of ['2026-10-11', '2026-10-12', '2027-10-14', '2026-02-30'])
+    assert.throws(() => scheduleRecovery(state, date), /framtida datum|giltigt datum/);
+  assert.throws(() => scheduleRecovery(state, '2026-10-13', '2026-10-12', { revision: 0 }), /annan session/);
+  assert.equal(state.employeeSickness.cases[0].recoveryPlan, undefined);
+  scheduleRecovery(state, '2026-10-13');
+  assert.throws(() => employeeSicknessCommand(state, personId, { action: 'sickness.recovery.cancel', requestId: requestId(),
+    id: state.employeeSickness.cases[0].id, revision: 1 }, [], ctx()), /annan session/);
+  assert.throws(() => recover(state, '2026-10-12', '2026-10-13'), /Sista faktiska sjukdag/);
+});
+
+test('future recovery can be replayed, rescheduled and cancelled before effective, retaining ordinary daily contact', () => {
+  const { state } = fixture(); report(state, '2026-10-12');
+  const { command } = scheduleRecovery(state, '2026-10-13');
+  employeeSicknessCommand(state, personId, command, [], ctx('2026-10-12', '18:00:00'));
+  assert.equal(state.employeeSickness.events.filter(e => e.action === command.action).length, 1);
+  assert.throws(() => employeeSicknessCommand(state, personId, { ...command, healthyFromDate: '2026-10-14' }, [], ctx()), /redan använts/);
+  let item = state.employeeSickness.cases[0];
+  employeeSicknessCommand(state, personId, { action: 'sickness.confirm', requestId: requestId(), id: item.id, revision: item.revision, extent: 100 }, [], ctx());
+  assert.equal(item.recoveryPlan.healthyFromDate, '2026-10-13', 'sick today is compatible with healthy tomorrow');
+  scheduleRecovery(state, '2026-10-14'); assert.equal(item.recoveryPlan.healthyFromDate, '2026-10-14');
+  const cancel = { action: 'sickness.recovery.cancel', requestId: requestId(), id: item.id, revision: item.revision };
+  employeeSicknessCommand(state, personId, cancel, [], ctx()); employeeSicknessCommand(state, personId, cancel, [], ctx());
+  assert.equal(item.recoveryPlan, undefined); assert.equal(state.employeeSickness.events.filter(e => e.action === cancel.action).length, 1);
+  refreshSicknessAbsences(state, ctx('2026-10-15'));
+  assert.equal(item.status, 'open'); assert.equal(state.personnel.absences.at(-1).fromDate, '2026-10-15');
+});
+
+test('future recovery boundaries remain correct over Stockholm spring and autumn DST', () => {
+  for (const [day, healthyFromDate, effective] of [
+    ['2026-03-28', '2026-03-29', '2026-03-28T23:00:00.000Z'],
+    ['2026-03-29', '2026-03-30', '2026-03-29T22:00:00.000Z'],
+    ['2026-10-24', '2026-10-25', '2026-10-24T22:00:00.000Z'],
+    ['2026-10-25', '2026-10-26', '2026-10-25T23:00:00.000Z']]) {
+    const { state } = fixture(); report(state, day); scheduleRecovery(state, healthyFromDate, day);
+    const before = { ...ctx(), now: new Date(Date.parse(effective) - 1) };
+    assert.throws(() => assertSicknessWorkAllowed(state, personId, before), /sjukanmäld/);
+    const at = { ...ctx(), now: effective }; assert.doesNotThrow(() => assertSicknessWorkAllowed(state, personId, at));
+    refreshSicknessAbsences(state, at); assert.equal(state.employeeSickness.cases[0].recoveredAt, effective);
+  }
+});
+
+test('delayed future recovery fills only actual missed days, preserving a frozen prior month and its source stamp', () => {
+  const { state } = fixture(); report(state, '2026-09-30'); scheduleRecovery(state, '2026-10-02', '2026-09-30');
+  state.employeeTime.reviews = [{ personId, month: '2026-09', status: 'approved' }];
+  const september = structuredClone(state.personnel.absences), stamp = employeeTimeReviewSourceStamp(state, [personId], ctx('2026-10-10'));
+  refreshSicknessAbsences(state, ctx('2026-10-10'));
+  assert.equal(state.employeeSickness.cases[0].lastSickDate, '2026-10-01');
+  assert.deepEqual(state.personnel.absences.filter(a => a.fromDate.startsWith('2026-09')), september);
+  assert.deepEqual(state.personnel.absences.map(a => a.fromDate), ['2026-09-30', '2026-10-01']);
+  assert.doesNotThrow(() => assertEmployeeTimeReviewSourceStamp(state, stamp, ctx('2026-10-10')));
+  assert.deepEqual(sicknessPayUnderlay(state, personId, ctx('2026-10-10')).rows.map(r => r.date), ['2026-09-30', '2026-10-01']);
+});
+
+test('relapse after a future recovery uses actual last sick day, not next shift, and rejects backdated overlap', () => {
+  for (const [day, sameCycle] of [['2026-10-21', true], ['2026-10-22', false]]) {
+    const { state } = fixture(); report(state, '2026-10-16'); scheduleRecovery(state, '2026-10-17', '2026-10-16');
+    report(state, day);
+    assert.equal(state.employeeSickness.cases[0].lastSickDate, '2026-10-16');
+    assert.equal(state.employeeSickness.cases[1].relapse, sameCycle);
+    assert.equal(state.employeeSickness.cases[0].cycleId === state.employeeSickness.cases[1].cycleId, sameCycle);
+  }
+  const { state } = fixture(); report(state, '2026-10-16'); scheduleRecovery(state, '2026-10-17', '2026-10-16');
+  assert.throws(() => report(state, '2026-10-19', { fromDate: '2026-10-15' }), /överlappar/);
+});
+
+test('actual recovery and authorised corrections explicitly replace a pending future plan', () => {
+  const { state } = fixture(); report(state, '2026-10-12'); scheduleRecovery(state, '2026-10-14');
+  recover(state, '2026-10-12', '2026-10-12', 600);
+  assert.equal(state.employeeSickness.cases[0].recoveryPlan, undefined);
+  const other = fixture().state; report(other, '2026-10-12'); scheduleRecovery(other, '2026-10-14');
+  const item = other.employeeSickness.cases[0];
+  management(other, { action: 'sickness.correct', personId, id: item.id, revision: item.revision,
+    fromDate: item.fromDate, extent: 50, reason: 'Korrigerar faktisk nedsättning och avbokar framtida friskanmälan' });
+  assert.equal(item.recoveryPlan, undefined); refreshSicknessAbsences(other, ctx('2026-10-15'));
+  assert.equal(item.status, 'open'); assert.equal(item.extent, 50);
+});
+
+test('scheduling and cancelling future recovery counts as real daily contact without altering sickness extent', () => {
+  const { state } = fixture(); report(state, '2026-10-12', { extent: 50 });
+  let summary = employeeSicknessProjection(state, personId, ctx('2026-10-13', '17:00:00'));
+  assert.equal(summary.activeCase.followup.contactOverdue, true);
+  scheduleRecovery(state, '2026-10-15', '2026-10-13');
+  summary = employeeSicknessProjection(state, personId, ctx('2026-10-13', '18:00:00'));
+  assert.equal(summary.activeCase.followup.contactOverdue, false); assert.equal(summary.activeCase.extent, 50);
+  const item = state.employeeSickness.cases[0];
+  employeeSicknessCommand(state, personId, { action: 'sickness.recovery.cancel', requestId: requestId(), id: item.id, revision: item.revision }, [], ctx('2026-10-14', '17:00:00'));
+  summary = employeeSicknessProjection(state, personId, ctx('2026-10-14', '18:00:00'));
+  assert.equal(summary.activeCase.followup.contactOverdue, false); assert.equal(summary.activeCase.extent, 50);
+  assert.equal(state.employeeSickness.cycles.length, 1);
 });

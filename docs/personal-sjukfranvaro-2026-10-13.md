@@ -3,6 +3,9 @@
 Bygge 2026-10-13: ÄL 119–122, mobilwebb **0.12.0**, kontor **0.29.0**.
 Beställningens 129 tolkades som 120. Inga nya Render-inställningar behövs.
 
+Uppföljning samma dag: mobilwebb **0.12.1**, kontor **0.29.1**, med daterad
+friskanmälan från imorgon eller ett valt framtida datum.
+
 ## Anläggningar och mobilens Hem
 
 Välj anläggningsåtkomst en gång under **Personal → person → Inloggning &
@@ -50,6 +53,20 @@ fordon och befintliga kompetenskontroller; historiska tilldelningar bevaras.
    Heltidssjukfrånvaro hindrar ny arbetsstart tills återkomsten är registrerad.
    Deltidssjukfrånvaro tillåter arbete och hanteras som procentandel utan ett
    påhittat frånvarointervall i slutet av passet.
+
+Friskanmälan kan också registreras **från imorgon** eller med **valt datum**.
+Det är en uttrycklig registrering, skild från uppskattad återkomst. Fram till
+datumet visas den som registrerad men ännu inte gällande. Den kan ändras eller
+återkallas före giltighetsdatumet. Bekräftelse av fortsatt sjukfrånvaro idag
+hindrar inte en friskanmälan från imorgon.
+
+Vid valt datum gäller friskanmälan från midnatt i Europe/Stockholm och sista
+sjukdagen är föregående kalenderdag. Frisk från lördag innebär därför att helgen
+är frisk även om nästa arbetspass börjar på måndag. Ingen instämpling skapas.
+Schema, arbetsstart och HR-vyer använder serverns datumgräns; ingen öppen app
+eller särskild bakgrundspoll krävs. Framtida frånvarodagar/lönebelopp beräknas
+inte i förväg. Gamla attesterade underlag behålls, och nya återinsjuknanden
+prövas mot sista sjukdagen i stället för nästa schemalagda pass.
 
 Sjukanmälan och friskanmälan nås även när gammal tid saknas. Det gör inte den
 gamla tidsspärren ogiltig. Frysta månader behöver befintlig återöppning/rättelse.
@@ -118,3 +135,7 @@ Verifieringen omfattar produktionsbygge, riktade serverprov för karensmatematik
 fordon, privata filer och riktiga HTTP-rutter samt isolerade mobil-/kontorsprov.
 Proven använder fiktiva lokala uppgifter och skickar inga externa betalningar,
 myndighetsanmälningar eller mejl.
+
+Uppföljningen med framtida friskdatum har 31 sjukmotortester och totalt 98
+riktade serverprov som passerar, samt tre nya isolerade browserprov för
+datumval, ändring/återkallelse och osäkert sparutfall. Produktionsbygget passerar.

@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.12.0. Aktuell kontorsversion: 0.29.0.
+Aktuell mobilwebbversion: 0.12.1. Aktuell kontorsversion: 0.29.1.
 119–122 är genomförda i bygge 2026-10-13. Beställningens ”129” tolkades
 som 120 enligt de fyra senast planerade punkterna.
 Guide och avgränsningar: docs/personal-sjukfranvaro-2026-10-13.md.
@@ -2856,6 +2856,13 @@ Status: Implementerad 2026-10-13 i mobilwebb 0.12.0 / kontor 0.29.0.
 - Uppskattad återkomst kan vara datum eller Vet inte. Den avslutar aldrig
   ärendet. Daglig bekräftelse är en inställbar arbetsplatsrutin, inte ett
   generellt lagkrav; utebliven kontakt ger uppföljning, inte automatisk friskhet.
+- Uppföljning 2026-10-13 i mobilwebb 0.12.1 / kontor 0.29.1: Friskanmälan
+  kan registreras från imorgon eller valt framtida datum. Den är uttrycklig,
+  skild från prognos, visas som registrerad med giltighetsdatum och börjar
+  gälla vid midnatt i Stockholm på valt datum. Före datumet kan personen
+  ändra eller återkalla den. Sista sjukdag är dagen före friskdatumet;
+  nästa arbetspass och instämpling hanteras separat. Framtida sjuklön
+  skapas inte och femdagarsregeln använder den verkliga sjukperiodsgränsen.
 - Pågående sjukanmälan visas som Du är sjukanmäld med Friskanmälan. Perioden
   pågår tills friskanmälan fastställer sluttid. Därefter kan personen stämpla
   in igen. Partiell sjukfrånvaro 25/50/75 % tillåter arbete och kräver inget

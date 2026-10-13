@@ -561,8 +561,8 @@ export function createApplicationService({ repository, env = process.env, seed =
         return untouched;
       });
       const sites = await siteProvider();
-      await value.transact(state => {
-        migratePersonnelFacilityAccess(state, { siteCatalog: sites }); syncPersonnelFacilityAccess(state, { siteCatalog: sites }); refreshSicknessAbsences(state);
+      await value.transact((state, _, audit = []) => {
+        migratePersonnelFacilityAccess(state, { siteCatalog: sites }); syncPersonnelFacilityAccess(state, { siteCatalog: sites }); refreshSicknessAbsences(state, {}, audit);
         // Apply the baseline only after both startup stages. The trusted site
         // catalog can change derived legacy account scopes in the second stage.
         // A registry already edited by a human retains the original import guard.
@@ -821,7 +821,7 @@ export function createApplicationService({ repository, env = process.env, seed =
           if (siteId && ![principal.actor, principal.user].every(user => !Array.isArray(user.siteIds) || user.siteIds.includes(siteId))) fail('Du saknar åtkomst till anläggningen.', 403);
           if (siteId && !sites.some(site => site.id === siteId)) fail('Anläggningen finns inte.', 404);
           const reviewContext = { month, siteId, siteCatalog: sites };
-          refreshSicknessAbsences(state, reviewContext);
+          refreshSicknessAbsences(state, reviewContext, audit);
           if (format === 'csv') return employeeTimeReviewApproved(state, principal, { ...reviewContext,
             ...(personId ? { personIds: [personId] } : {}), ...(versionValue ? { version: Number(versionValue) } : {}) });
           if (command) {
@@ -862,7 +862,7 @@ export function createApplicationService({ repository, env = process.env, seed =
           const scopedPerson = { ...person, siteIds };
           const timeContext = { actualUserId: p.actor.id, effectiveUserId: p.user.id, allowedSiteIds: siteIds,
             date: url.searchParams.get('date') ?? undefined, month: url.searchParams.get('month') ?? undefined, siteCatalog: sites, management: true };
-          refreshSicknessAbsences(state, timeContext);
+          refreshSicknessAbsences(state, timeContext, audit);
           if (command) {
             if (!permitted('employmentWrite')) fail('Du saknar behörighet att ändra tidrapporteringen.', 403);
             if (command.action === 'requirement.save') {
@@ -902,7 +902,7 @@ export function createApplicationService({ repository, env = process.env, seed =
         const repository = await getRepo();
         const operate = (state,_,audit=[])=>{
           syncPersonnelFacilityAccess(state, { siteCatalog: sites });
-          refreshSicknessAbsences(state, { siteCatalog: sites });
+          refreshSicknessAbsences(state, { siteCatalog: sites }, audit);
           const pricing=createPricingStore({initialState:state.pricing}),p=requestPrincipal(pricing,req);
           if(p.actor.id==='mobile-demo')fail('Mobilkontot saknar åtkomst till personal.',403);
           if(!personnelCan(p,planning?'transportRead':'personnelRead'))fail('Du saknar behörighet att läsa personal.',403);
@@ -1244,7 +1244,7 @@ export function createApplicationService({ repository, env = process.env, seed =
       const operate = (state, _, audit = []) => {
         syncPersonnelFacilityAccess(state, { siteCatalog: sites });
         const principal = officePrincipal(state, req), options = { siteCatalog: sites, now: new Date() };
-        refreshSicknessAbsences(state, options);
+        refreshSicknessAbsences(state, options, audit);
         if (command) { sicknessManagementCommand(state, principal, command, audit, options); refreshStaffingTasks(state); }
         const result = sicknessManagementProjection(state, principal, filters, options);
         if (format === 'csv') {

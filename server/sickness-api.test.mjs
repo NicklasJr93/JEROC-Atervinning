@@ -57,8 +57,18 @@ test('real application routes commit own sickness, preserve identity boundaries,
     const report = await posted.json(); assert.equal(report.activeCase.extent, 50);
     assert.equal((await request('/api/employee/sickness', command, headers)).status, 200);
     assert.equal((await repository.read(state => state.employeeSickness.cases)).length, 1);
+    const nextDate = new Date(`${own.today}T12:00:00Z`); nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+    const healthyFromDate = nextDate.toISOString().slice(0, 10);
+    const plannedCommand = { action: 'sickness.recovery.schedule', requestId: randomUUID(), id: report.activeCase.id, revision: report.activeCase.revision, healthyFromDate };
+    const planned = await request('/api/employee/sickness', plannedCommand, headers);
+    assert.equal(planned.status, 200, await planned.clone().text()); const plannedReport = await planned.json();
+    assert.equal(plannedReport.activeCase.status, 'open'); assert.equal(plannedReport.activeCase.recoveryPlan.healthyFromDate, healthyFromDate);
+    assert.ok(plannedReport.activeCase.days.every(day => day.date <= own.today), 'no future payroll or absence facts are generated');
+    const planRetry = await request('/api/employee/sickness', plannedCommand, headers); assert.equal(planRetry.status, 200);
+    assert.equal((await planRetry.json()).activeCase.revision, plannedReport.activeCase.revision);
     const office = await request(`/api/personnel/sickness?personId=${own.person.id}`, undefined, adminHeaders); assert.equal(office.status, 200);
     const view = await office.json(); assert.equal(view.cases.length, 1); assert.equal(view.underlay.calculationStatus, 'missing_basis');
+    assert.equal(view.cases[0].recoveryPlan.healthyFromDate, healthyFromDate);
     const policy = { ...view.policy, agreement: 'statutory', calculationConfirmed: true };
     assert.equal((await request('/api/personnel/sickness', { action: 'policy.save', requestId: randomUUID(), policy }, adminHeaders)).status, 200);
     const profile = { personId: own.person.id, revision: 0, effectiveFrom: own.today, hourlyBase: 200, averageWeeklyHours: 40, sickPayRate: 0.8, confirmed: true, source: 'Fiktivt verifierat löneunderlag för isolerat test' };
@@ -69,13 +79,16 @@ test('real application routes commit own sickness, preserve identity boundaries,
     assert.equal((await repository.read(state => state.employeeSickness.ledgerSnapshots)).length, 1);
     assert.equal((await request(`/api/personnel/sickness?personId=${own.person.id}&format=csv`, undefined, adminHeaders)).status, 200);
     assert.equal((await repository.read(state => state.employeeSickness.ledgerSnapshots)).length, 1, 'identical export reuses the durable receipt');
+    const cancelled = await request('/api/employee/sickness', { action: 'sickness.recovery.cancel', requestId: randomUUID(), id: report.activeCase.id, revision: plannedReport.activeCase.revision }, headers);
+    assert.equal(cancelled.status, 200, await cancelled.clone().text()); const cancelledReport = await cancelled.json();
+    assert.equal(cancelledReport.activeCase.status, 'open'); assert.equal(cancelledReport.activeCase.recoveryPlan, undefined);
     const file = await fetch(`${base}/api/employee/sickness/files?caseId=${report.activeCase.id}`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/pdf', 'X-File-Name': 'fiktivt-intyg.pdf' }, body: '%PDF-1.4\nFiktivt intyg\n%%EOF' });
     assert.equal(file.status, 201, await file.clone().text()); const uploaded = await file.json();
     const downloaded = await request(`/api/personnel/sickness/files/${uploaded.file.id}`, undefined, adminHeaders); assert.equal(downloaded.status, 200); assert.match(downloaded.headers.get('cache-control'), /no-store/);
     const generic = await request('/api/application/personnel?view=planning', undefined, adminHeaders); assert.equal(generic.status, 200);
     const plain = await generic.text(); assert.equal(plain.includes('fiktivt-intyg.pdf'), false); assert.equal(plain.includes('ledgerSnapshots'), false);
     const time = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()).split(':').map(Number), recoveryMinute = time[0] * 60 + time[1];
-    const recovered = await request('/api/employee/sickness', { action: 'sickness.recover', requestId: randomUUID(), id: report.activeCase.id, revision: report.activeCase.revision, lastSickDate: own.today, ...(recoveryMinute ? { recoveryMinute } : {}) }, headers);
+    const recovered = await request('/api/employee/sickness', { action: 'sickness.recover', requestId: randomUUID(), id: report.activeCase.id, revision: cancelledReport.activeCase.revision, lastSickDate: own.today, ...(recoveryMinute ? { recoveryMinute } : {}) }, headers);
     assert.equal(recovered.status, 200, await recovered.clone().text()); assert.equal((await recovered.json()).activeCase, null);
   } finally { await new Promise(resolve => server.close(resolve)); await application.close(); await rm(directory, { recursive: true, force: true }); }
 });

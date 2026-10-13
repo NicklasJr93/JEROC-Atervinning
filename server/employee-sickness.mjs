@@ -39,6 +39,8 @@ const selfSchemas = [
   z.object({ action: z.literal('sickness.forecast'), ...request, id, revision, forecast }).strict(),
   z.object({ action: z.literal('sickness.declare'), ...request, id, revision, declared: z.literal(true) }).strict(),
   z.object({ action: z.literal('sickness.recover'), ...request, id, revision, lastSickDate: date, recoveryMinute: minute.optional() }).strict(),
+  z.object({ action: z.literal('sickness.recovery.schedule'), ...request, id, revision, healthyFromDate: date }).strict(),
+  z.object({ action: z.literal('sickness.recovery.cancel'), ...request, id, revision }).strict(),
 ];
 const selfSchema = z.discriminatedUnion('action', selfSchemas);
 const managementSchema = z.discriminatedUnion('action', [
@@ -68,6 +70,12 @@ const formatter = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm
 const localMinute = instant => { const parts = Object.fromEntries(formatter.formatToParts(new Date(instant)).map(p => [p.type, p.value])); return Number(parts.hour) * 60 + Number(parts.minute); };
 const addDays = (day, count) => { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + count); return d.toISOString().slice(0, 10); };
 const dayDifference = (from, to) => Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400000);
+// Swedish midnight is unambiguous even across the spring/autumn DST change.
+// Derive its offset from Stockholm rather than assuming UTC+1/UTC+2.
+const stockholmMidnight = day => {
+  const midnightUtc = new Date(`${day}T00:00:00Z`);
+  return new Date(midnightUtc.getTime() - localMinute(midnightUtc) * 60000).toISOString();
+};
 function endOfFirstEmploymentMonth(start) {
   const d = new Date(`${start}T12:00:00Z`), originalDay = d.getUTCDate();
   d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + 1);
@@ -121,9 +129,9 @@ export function ensureEmployeeSickness(state, context = {}) {
     fail('Sjukregistret har ett format som inte stöds.', 503);
   return domain;
 }
-function event(state, principal, action, personId, caseId, text, transactionAudit, context, reasonText) {
-  const domain = ensureEmployeeSickness(state, context), at = nowOf(context).toISOString();
-  const entry = { id: uid('sickness-event'), action, personId, caseId, at,
+function event(state, principal, action, personId, caseId, text, transactionAudit, context, reasonText, fixed = {}) {
+  const domain = ensureEmployeeSickness(state, context), at = fixed.at ?? nowOf(context).toISOString();
+  const entry = { id: fixed.id ?? uid('sickness-event'), action, personId, caseId, at,
     actualUserId: principal.actor.id, effectiveUserId: principal.user.id, text, ...(reasonText ? { reason: reasonText } : {}) };
   domain.events.push(entry); domain.revision++;
   transactionAudit.push({ id: entry.id, domain: 'employeeSickness', action, at, actualUserId: entry.actualUserId,
@@ -224,15 +232,46 @@ function materialDay(state, item, day, context) {
 function lockedDay(state, personId, day) {
   return (state.employeeTime?.reviews ?? []).some(r => r.personId === personId && r.month === day.slice(0, 7) && ['submitted', 'approved'].includes(r.status));
 }
+function effectiveScheduledRecoveries(state, context, transactionAudit) {
+  const domain = ensureEmployeeSickness(state, context), today = employeeTimeToday(context);
+  for (const item of domain.cases) {
+    const plan = item.recoveryPlan;
+    if (item.status !== 'open' || !plan || plan.healthyFromDate > today) continue;
+    item.status = 'recovered'; item.lastSickDate = addDays(plan.healthyFromDate, -1);
+    item.recoveredAt = stockholmMidnight(plan.healthyFromDate); delete item.recoveryMinute;
+    item.revision++; delete item.recoveryPlan;
+    // A delayed refresh must not insert illness on or after the explicitly
+    // declared healthy date. Previously frozen time facts remain untouched.
+    const editable = new Set(dates(plan.healthyFromDate, today).filter(day => !lockedDay(state, item.personId, day)));
+    if (item.days.some(day => day.date >= plan.healthyFromDate && lockedDay(state, item.personId, day.date)) ||
+        state.personnel.absences.some(row => row.sicknessCaseId === item.id && row.fromDate >= plan.healthyFromDate && lockedDay(state, item.personId, row.fromDate))) item.timeIssue = true;
+    const before = state.personnel.absences.length;
+    state.personnel.absences = state.personnel.absences.filter(row => row.sicknessCaseId !== item.id || !editable.has(row.fromDate));
+    if (before !== state.personnel.absences.length) state.personnel.revision = (state.personnel.revision ?? 0) + 1;
+    item.days = item.days.filter(day => !editable.has(day.date));
+    const principal = { actor: { id: plan.actualUserId }, user: { id: plan.effectiveUserId } };
+    event(state, principal, 'sickness.recovery.effective', item.personId, item.id,
+      `Registrerad friskanmälan gäller från ${plan.healthyFromDate}. Sista sjukdag är ${item.lastSickDate}; instämpling görs separat.`, transactionAudit, context, undefined,
+      { id: `sickness-event-${hash([item.id, plan.requestId ?? plan.registeredAt, plan.healthyFromDate, 'effective']).slice(0, 32)}`, at: item.recoveredAt });
+  }
+}
+function projectedRecoveryState(state, context) {
+  const today = employeeTimeToday(context);
+  if (!state.employeeSickness?.cases?.some(item => item.status === 'open' && item.recoveryPlan?.healthyFromDate <= today)) return state;
+  const projected = copy(state);
+  refreshSicknessAbsences(projected, context);
+  return projected;
+}
 /** Materializes actual ongoing sickness through today's Stockholm date only.
  * Caller persists in the same transaction as time commands/review submissions.
  * Frozen time months never receive a newly discovered or revised absence row. */
-export function refreshSicknessAbsences(state, context = {}) {
+export function refreshSicknessAbsences(state, context = {}, transactionAudit = []) {
   if (!state.employeeSickness) return [];
   const domain = ensureEmployeeSickness(state, context), today = employeeTimeToday(context), added = [];
   state.personnel.absences ??= [];
+  effectiveScheduledRecoveries(state, context, transactionAudit);
   for (const item of domain.cases) {
-    const through = item.status === 'recovered' ? item.lastSickDate : today;
+    const through = item.status === 'recovered' ? item.lastSickDate : item.recoveryPlan ? addDays(item.recoveryPlan.healthyFromDate, -1) : today;
     if (!through || through < item.fromDate) continue;
     const existingDates = new Set(item.days.map(d => d.date));
     for (const day of dates(item.fromDate, through < today ? through : today)) {
@@ -282,7 +321,8 @@ function commandCase(state, person, command, principal, transactionAudit, contex
     reconcileSicknessOccasions(state, context);
     const previous = domain.cases.filter(c => c.personId === person.id && c.status === 'recovered' && c.lastSickDate <= command.fromDate)
       .sort((a, b) => b.lastSickDate.localeCompare(a.lastSickDate))[0];
-    if (previous && previous.lastSickDate >= command.fromDate) fail('Sjukfrånvaron överlappar ett tidigare sjukärende.', 409);
+    if (domain.cases.some(c => c.personId === person.id && c.status === 'recovered' && c.fromDate <= today && c.lastSickDate >= command.fromDate))
+      fail('Sjukfrånvaron överlappar ett tidigare sjukärende.', 409);
     const relapse = previous && dayDifference(previous.lastSickDate, command.fromDate) <= 5;
     const cycle = relapse ? domain.cycles.find(c => c.id === previous.cycleId) : createCycle(domain, person, command.fromDate);
     if (!relapse) cycle.employmentSnapshot = copy(state.personnel.employment?.find(e => e.personId === person.id) ?? null);
@@ -329,11 +369,27 @@ function commandCase(state, person, command, principal, transactionAudit, contex
   } else if (command.action === 'sickness.declare') {
     item.declared = true; item.declaredAt = at;
     event(state, principal, command.action, person.id, item.id, management ? 'Skriftlig försäkran om sjukfrånvaron registrerad av ansvarig.' : 'Skriftlig försäkran om sjukdom och nedsatt arbetsförmåga lämnad.', transactionAudit, context, command.reason);
+  } else if (command.action === 'sickness.recovery.schedule') {
+    const ahead = dayDifference(today, command.healthyFromDate);
+    if (ahead < 1 || ahead > 366) fail('Välj frisk från imorgon eller ett framtida datum högst ett år framåt. Faktisk friskanmälan idag görs separat.');
+    item.recoveryPlan = { healthyFromDate: command.healthyFromDate, registeredAt: at, requestId: command.requestId,
+      actualUserId: principal.actor.id, effectiveUserId: principal.user.id };
+    item.lastContactDate = today; item.contacts.push({ date: today, at, extent: selectExtent(item, today) });
+    event(state, principal, command.action, person.id, item.id,
+      `Friskanmälan registrerad från ${command.healthyFromDate}. Sjukfrånvaron fortsätter till och med ${addDays(command.healthyFromDate, -1)}. Datumet gäller när du är frisk, inte nästa arbetspass.`, transactionAudit, context, command.reason);
+  } else if (command.action === 'sickness.recovery.cancel') {
+    if (!item.recoveryPlan) fail('Det finns ingen framtida friskanmälan att ta bort. Uppdatera sjukärendet.', 409);
+    const date = item.recoveryPlan.healthyFromDate;
+    delete item.recoveryPlan;
+    item.lastContactDate = today; item.contacts.push({ date: today, at, extent: selectExtent(item, today) });
+    event(state, principal, command.action, person.id, item.id,
+      `Framtida friskanmälan från ${date} borttagen. Sjukärendet fortsätter tills en friskanmälan registreras.`, transactionAudit, context, command.reason);
   } else if (command.action === 'sickness.recover') {
     if (command.lastSickDate < item.fromDate || command.lastSickDate > today) fail('Sista faktiska sjukdag måste ligga mellan sjukanmälan och idag.');
     if (command.lastSickDate === today && command.recoveryMinute !== undefined && command.recoveryMinute > localMinute(at)) fail('Friskanmälan kan inte skapa en framtida återkomsttid.');
     if (command.lastSickDate === item.fromDate && command.recoveryMinute !== undefined && command.recoveryMinute <= (item.startMinute ?? 0)) fail('Faktisk återkomsttid måste vara efter sjukfrånvarons start.');
     item.status = 'recovered'; item.lastSickDate = command.lastSickDate; item.recoveryMinute = command.recoveryMinute;
+    delete item.recoveryPlan;
     item.recoveredAt = at; item.lastContactDate = today; item.revision++;
     // Actual recovery may be reported after a payroll period has been frozen.
     // Close the operational case without changing any locked absence facts;
@@ -352,6 +408,7 @@ function commandCase(state, person, command, principal, transactionAudit, contex
 export function employeeSicknessCommand(state, personOrId, value, transactionAudit = [], context = {}) {
   context = { ...context, now: nowOf(context) };
   const person = ownPerson(state, personOrId, context), command = parse(selfSchema, value), principal = selfPrincipal(person, context);
+  refreshSicknessAbsences(state, context, transactionAudit);
   const domain = ensureEmployeeSickness(state, context), scope = `employee:${person.id}`;
   if (!replay(domain, principal, command, scope)) {
     commandCase(state, person, command, principal, transactionAudit, context); recordRequest(domain, principal, command, scope, context);
@@ -361,7 +418,10 @@ export function employeeSicknessCommand(state, personOrId, value, transactionAud
 }
 function actualSpans(domain, cycle, today) {
   return cycle.caseIds.map(id => domain.cases.find(c => c.id === id)).filter(Boolean).sort((a, b) => a.fromDate.localeCompare(b.fromDate))
-    .flatMap(item => dates(item.fromDate, item.status === 'recovered' ? item.lastSickDate : today).map(day => ({ item, day })));
+    .flatMap(item => {
+      const through = item.status === 'recovered' ? item.lastSickDate : item.recoveryPlan ? addDays(item.recoveryPlan.healthyFromDate, -1) : today;
+      return dates(item.fromDate, through < today ? through : today).map(day => ({ item, day }));
+    });
 }
 /** All arithmetic is rounded to öre. Carries a partially consumed deduction to
  * later eligible days in the same cycle, never below zero sick pay. This pure
@@ -434,6 +494,7 @@ function reconcileSicknessOccasions(state, context) {
   }
 }
 export function sicknessPayUnderlay(state, personOrId, context = {}) {
+  state = projectedRecoveryState(state, context);
   const person = personOf(state, typeof personOrId === 'string' ? personOrId : personOrId?.id), domain = ensureEmployeeSickness(state, context);
   const projected = domain.cycles.filter(c => c.personId === person.id).map(c => cycleUnderlay(state, c, context));
   // Carry/eligibility are calculated over the entire cycle first; only the
@@ -454,6 +515,7 @@ export function sicknessPayUnderlay(state, personOrId, context = {}) {
 export function recordSicknessPayUnderlay(state, principal, personId, filters = {}, transactionAudit = [], context = {}) {
   demand(principal, 'absenceRead'); demand(principal, 'salaryRead');
   managementPerson(state, principal, personId);
+  refreshSicknessAbsences(state, context, transactionAudit);
   const parsed = parse(z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() }).strict(), filters);
   const domain = ensureEmployeeSickness(state, context), underlay = sicknessPayUnderlay(state, personId, { ...context, ...parsed });
   const { generatedAt, ...content } = underlay;
@@ -494,6 +556,7 @@ function publicCase(state, item, context) {
   const keys = ['id', 'personId', 'revision', 'status', 'fromDate', 'startMinute', 'lastSickDate', 'recoveredAt', 'recoveryMinute',
     'extent', 'forecast', 'declared', 'declaredAt', 'reportedAt', 'cycleId', 'relapse', 'lastContactDate', 'contacts', 'certificate', 'timeIssue', 'days'];
   const result = Object.fromEntries(keys.filter(k => item[k] !== undefined).map(k => [k, copy(item[k])]));
+  if (item.recoveryPlan) result.recoveryPlan = { healthyFromDate: item.recoveryPlan.healthyFromDate, registeredAt: item.recoveryPlan.registeredAt };
   if (context.bootstrap) { result.days = result.days.slice(-7); result.contacts = result.contacts.slice(-10); }
   result.days = result.days.map(d => ({ ...d, timeLocked: lockedDay(state, item.personId, d.date) }));
   return { ...result, personName: state.personnel.people.find(p => p.id === item.personId)?.name ?? '', followup: {
@@ -503,6 +566,7 @@ function publicCase(state, item, context) {
     contactOverdue, reviewRequired: messages.length > 0, messages } };
 }
 export function employeeSicknessProjection(state, personOrId, context = {}) {
+  state = projectedRecoveryState(state, context);
   const person = ownPerson(state, personOrId, context), domain = ensureEmployeeSickness(state, context), today = employeeTimeToday(context);
   const cases = domain.cases.filter(c => c.personId === person.id).sort((a, b) => b.reportedAt.localeCompare(a.reportedAt));
   const active = cases.find(c => c.status === 'open'), visible = context.bootstrap ? cases.slice(0, 5) : cases;
@@ -511,10 +575,11 @@ export function employeeSicknessProjection(state, personOrId, context = {}) {
   return { revision: domain.revision, today, policy: copy(domain.policy), activeCase: active ? publicCase(state, active, context) : null,
     cases: visible.map(c => publicCase(state, c, context)), events: copy(domain.events.filter(e => e.personId === person.id).slice(context.bootstrap ? -10 : -100).reverse()),
     canReport: !active, activeClock, activeWork,
-    notification: active ? 'Sjukfrånvaron är registrerad tills du friskanmäler dig. Prognosen avslutar inte ärendet.' : 'Sjukanmälan registreras direkt. Ange faktisk frånvaro; diagnos efterfrågas inte.' };
+    notification: active?.recoveryPlan ? `Friskanmälan registrerad från ${active.recoveryPlan.healthyFromDate}. Instämpling görs separat när du börjar arbeta.` : active ? 'Sjukfrånvaron är registrerad tills du friskanmäler dig. Prognosen avslutar inte ärendet.' : 'Sjukanmälan registreras direkt. Ange faktisk frånvaro; diagnos efterfrågas inte.' };
 }
 export function sicknessManagementProjection(state, principal, filters = {}, context = {}) {
   demand(principal, 'absenceRead');
+  state = projectedRecoveryState(state, context);
   const domain = ensureEmployeeSickness(state, context), input = parse(z.object({ personId: id.optional(), siteId: id.optional(),
     month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() }).strict(), filters);
   if (input.siteId && !visibleSite(principal, input.siteId)) fail('Anläggningen ligger utanför din behörighet.', 403);
@@ -545,6 +610,7 @@ export function sicknessManagementCommand(state, principal, value, transactionAu
   const personId = command.personId ?? command.profile?.personId ?? command.decision?.personId;
   const person = personId ? managementPerson(state, principal, personId) : null;
   if (command.action === 'policy.save' || command.action === 'payprofile.save' || command.action === 'deduction.import') demand(principal, 'salaryWrite');
+  refreshSicknessAbsences(state, context, transactionAudit);
   if (replay(domain, principal, command, scope)) return sicknessManagementProjection(state, principal, personId ? { personId } : {}, context);
   if (selfSchemas.some(s => s.shape.action.value === command.action)) {
     if (command.action === 'sickness.declare' && !command.reason) fail('Ange hur personens skriftliga försäkran har mottagits.');
@@ -633,6 +699,7 @@ export function sicknessManagementCommand(state, principal, value, transactionAu
       Object.assign(item, { fromDate: command.fromDate, startMinute: command.startMinute ?? 0, extent: command.extent,
         status: command.lastSickDate ? 'recovered' : 'open', lastSickDate: command.lastSickDate, recoveryMinute: command.recoveryMinute,
         dayChanges: [{ date: command.fromDate, extent: command.extent, revision: item.revision + 1 }] });
+      delete item.recoveryPlan;
       rematerialize(state, item, earliest, latest, context);
       event(state, principal, command.action, person.id, item.id, 'Faktisk sjukfrånvaro rättad med orsak. Arbetade timmar har behållits.', transactionAudit, context, command.reason);
     }

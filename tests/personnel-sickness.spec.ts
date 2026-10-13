@@ -40,6 +40,8 @@ async function setup(page: Page, options: { actualNoRead?: boolean; noSalary?: b
         if (command.action === 'sickness.forecast') { illness.forecast = command.forecast; illness.revision++; }
         if (command.action === 'certificate.save') { illness.certificate = command.certificate; illness.revision++; }
         if (command.action === 'sickness.recover') { illness.status = 'recovered'; illness.lastSickDate = command.lastSickDate; illness.recoveryMinute = command.recoveryMinute; illness.revision++; }
+        if (command.action === 'sickness.recovery.schedule') { illness.recoveryPlan = { healthyFromDate: command.healthyFromDate, registeredAt: `${today}T16:00:00Z` }; illness.revision++; }
+        if (command.action === 'sickness.recovery.cancel') { delete illness.recoveryPlan; illness.revision++; }
         if (command.action === 'payprofile.save') state.sickness.profiles = [{ ...command.profile, revision: 1 }];
       } else state.reads++;
       if (state.denyRead) return route.fulfill({ status: 403, json: { error: 'Åtkomst till sjukfrånvaron har återkallats.' } });
@@ -154,4 +156,30 @@ test('återkallad läsrätt tar bort tidigare hämtade privata ärenden', async 
   await expect(page.getByText('Åtkomst till sjukfrånvaron har återkallats.', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Sjukärendet', exact: true })).toHaveCount(0);
   await expect(page.getByText('Lovisa Sjuktest', { exact: true })).toHaveCount(0);
+});
+
+test('HR kan registrera och återkalla framtida friskanmälan med bibehållen dagens frånvaro', async ({ page }) => {
+  const state = await setup(page); await openCase(page);
+  await page.getByRole('button', { name: 'Friskanmäl', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Registrera friskanmälan', exact: true });
+  await dialog.getByRole('combobox', { name: 'När är personen frisk?', exact: true }).selectOption('date');
+  await dialog.getByLabel('Frisk från datum', { exact: true }).fill('2026-10-17');
+  await expect(dialog.getByLabel('Sista faktiska sjukdag', { exact: true })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Spara', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(state.commands[0].command).toMatchObject({ action: 'sickness.recovery.schedule', personId, id: 'sick-case-1', revision: 3, healthyFromDate: '2026-10-17' });
+  expect(state.sickness.cases[0].status).toBe('open'); expect(state.sickness.cases[0].lastSickDate).toBeUndefined();
+  await expect(page.getByText('Friskanmälan registrerad – frisk från', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Ändra friskanmälan', exact: true }).click();
+  await expect(dialog.getByLabel('Frisk från datum', { exact: true })).toHaveValue('2026-10-17');
+  await dialog.getByRole('button', { name: 'Avbryt', exact: true }).click();
+  await page.getByRole('button', { name: 'Återkalla friskanmälan', exact: true }).click();
+  const cancel = page.getByRole('dialog', { name: 'Återkalla friskanmälan', exact: true });
+  await expect(cancel.getByText('Sjukfrånvaron fortsätter', { exact: false })).toBeVisible();
+  await cancel.getByRole('button', { name: 'Spara', exact: true }).click();
+  await expect(cancel).toHaveCount(0); expect(state.commands).toHaveLength(2);
+  expect(state.commands[1].command).toMatchObject({ action: 'sickness.recovery.cancel', personId, id: 'sick-case-1', revision: 4 });
+  expect(state.sickness.cases[0].status).toBe('open'); expect(state.sickness.cases[0].recoveryPlan).toBeUndefined();
+  expect(state.commands[1].headers).toMatchObject({ 'x-platform-csrf': 'sickness-fixture', 'x-platform-generation': '9', 'x-platform-organisation-id': 'jeroc-demo' });
+  await expect(page.getByRole('button', { name: 'Friskanmäl', exact: true })).toBeVisible();
 });
