@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { EmployeeAccountPerson, EmployeeLeaveDraft, EmployeeOverview, EmployeeRequirement, EmployeeRequirementPerson, EmployeeSession, EmployeeTimeDraft, EmployeeTimeGate } from './types';
+import type { EmployeeAccountPerson, EmployeeClockAction, EmployeeClockCorrection, EmployeeLeaveDraft, EmployeeOverview, EmployeeRequirement, EmployeeRequirementPerson, EmployeeSession, EmployeeTimeDraft, EmployeeTimeGate } from './types';
 import { employeeCompanyId } from './cache';
 
 let requestCompanyId: string | undefined;
@@ -7,12 +7,12 @@ let requestCompanyId: string | undefined;
 export class EmployeeError extends Error {
   constructor(message: string, public status: number, public code?: string, public gate?: EmployeeTimeGate) { super(message); }
 }
-export async function employeeRequest<T>(path: string, body?: unknown): Promise<T> {
+export async function employeeRequest<T>(path: string, body?: unknown, options?: { signal?: AbortSignal }): Promise<T> {
   // Capture the initiating company. A cookie changed in another tab must not
   // silently redirect an existing form or pending command to another company.
   const expectedCompany = requestCompanyId;
   const response = await fetch(`/api/employee${path}`, {
-    credentials: 'same-origin', cache: 'no-store',
+    credentials: 'same-origin', cache: 'no-store', signal: options?.signal,
     headers: { ...(expectedCompany ? { 'X-Employee-Company': expectedCompany } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }),
   });
@@ -41,6 +41,8 @@ interface EmployeeContextValue {
   loadAccounts: () => Promise<EmployeeAccountPerson[]>;
   saveAccount: (account: { personId: string; username: string; active: boolean; password?: string }) => Promise<void>;
   commandOrder: (orderId: string, command: 'start' | 'stop' | 'logistics' | 'status', body?: unknown) => Promise<void>;
+  clockBusy: boolean;
+  commandClock: (command: EmployeeClockAction | EmployeeClockCorrection) => Promise<void>;
 }
 const EmployeeContext = createContext<EmployeeContextValue | null>(null);
 
@@ -50,18 +52,23 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [clockBusy, setClockBusy] = useState(false);
+  const clockBusyRef = useRef(false), overviewRef = useRef<EmployeeOverview | null>(null);
   const generation = useRef(0);
   const sequence = useRef(0);
   const focus = useRef({ month: stockholmDay().slice(0, 7), date: stockholmDay() });
   const sessionRef = useRef<EmployeeSession | null>(null);
   const apply = useCallback((result: EmployeeOverview) => {
+    const previous = overviewRef.current;
+    if (previous && previous.companyId === result.companyId && previous.person.id === result.person.id && result.revision < previous.revision) return;
     requestCompanyId = employeeCompanyId(result.companyId);
+    overviewRef.current = result;
     setOverview(result); setSession(result); sessionRef.current = result; setError(''); setRefreshing(false);
   }, []);
   const clearSession = useCallback(() => {
     requestCompanyId = undefined;
     generation.current += 1; sequence.current += 1;
-    setSession(null); sessionRef.current = null; setOverview(null); setRefreshing(false);
+    setSession(null); sessionRef.current = null; overviewRef.current = null; setOverview(null); setRefreshing(false); clockBusyRef.current = false; setClockBusy(false);
   }, []);
   const refresh = useCallback(async (next?: { month?: string; date?: string }) => {
     if (next) focus.current = { ...focus.current, ...next };
@@ -153,6 +160,15 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
     if (navigator.onLine === false) throw new EmployeeError('Anläggningen kan inte bytas utan anslutning. Försök igen när du är online.', 0);
     await mutate('/active-site', { siteId });
   }, [mutate]);
+  const commandClock = useCallback(async (command: EmployeeClockAction | EmployeeClockCorrection) => {
+    if (clockBusyRef.current) throw new EmployeeError('En stämpling sparas redan. Vänta ett ögonblick.', 409);
+    if (!overviewRef.current?.clock || (command.action !== 'clock.correct' && !overviewRef.current.clock.enabled)) throw new EmployeeError('Stämpelklockan är inte aktiverad för ditt konto.', 403);
+    if (navigator.onLine === false) throw new EmployeeError('Stämpling kräver anslutning. Försök igen när du är online.', 0);
+    const current = generation.current; clockBusyRef.current = true; setClockBusy(true);
+    try { await mutate('/clock', command); }
+    catch (caught) { if (current === generation.current && caught instanceof EmployeeError && caught.status === 409) void refresh().catch(() => undefined); throw caught; }
+    finally { if (current === generation.current) { clockBusyRef.current = false; setClockBusy(false); } }
+  }, [mutate, refresh]);
   return <EmployeeContext.Provider value={{ session, overview, loading, refreshing, error, login, logout, refresh,
     setActiveSite,
     saveTime: entry => mutate('/time/save', entry, entry.date),
@@ -162,10 +178,11 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
     updateProfile: profile => mutate('/profile', profile),
     changePassword: (currentPassword, password) => mutate('/password', { currentPassword, password }),
     loadRequirements: async () => (await employeeRequest<{ people: EmployeeRequirementPerson[] }>('/requirements')).people,
-    saveRequirement: (personId, requirement) => mutate('/requirements', { personId, requirement: { enabled: requirement.enabled, mode: requirement.mode, revision: requirement.revision, ...(requirement.mode === 'fixed' ? { dailyMinutes: requirement.dailyMinutes } : {}), ...(requirement.weekdays ? { weekdays: requirement.weekdays } : {}) } }),
+    saveRequirement: (personId, requirement) => mutate('/requirements', { personId, requirement: { enabled: requirement.enabled, mode: requirement.mode, revision: requirement.revision, timeSource: requirement.timeSource ?? 'workorder', effectiveFrom: requirement.effectiveFrom < stockholmDay() ? stockholmDay() : requirement.effectiveFrom, ...(requirement.mode === 'fixed' ? { dailyMinutes: requirement.dailyMinutes } : {}), ...(requirement.weekdays ? { weekdays: requirement.weekdays } : {}) } }),
     loadAccounts: async () => (await employeeRequest<{ people: EmployeeAccountPerson[] }>('/accounts')).people,
     saveAccount: account => mutate('/accounts/save', account),
     commandOrder: (orderId, command, body = {}) => mutate(`/orders/${encodeURIComponent(orderId)}/${command}`, body),
+    clockBusy, commandClock,
   }}>{children}</EmployeeContext.Provider>;
 }
 

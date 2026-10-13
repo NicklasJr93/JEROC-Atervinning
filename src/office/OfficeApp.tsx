@@ -33,6 +33,7 @@ import {
   Pencil,
   Trash2,
   Mail,
+  Wrench,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
@@ -69,6 +70,7 @@ import type { TerminalApproval } from './terminal-demo-types';
 const TransportWorkspace = lazy(() => import('./transport/TransportWorkspace'));
 const FacilitiesWorkspace = lazy(() => import('./FacilitiesWorkspace'));
 const PersonalWorkspace = lazy(() => import('./personnel/PersonalWorkspace'));
+const EquipmentWorkspace = lazy(() => import('./personnel/EquipmentWorkspace'));
 const WorkOrdersWorkspace = lazy(() => import('./logistics/WorkOrdersWorkspace'));
 const WarehouseWorkspace = lazy(() => import('./logistics/WarehouseWorkspace'));
 const VesselsWorkspace = lazy(() => import('./logistics/VesselsWorkspace'));
@@ -768,6 +770,7 @@ export function OfficeApp() {
     { id: 'vessels', name: 'Kärl & containrar', icon: Container, right: 'vesselsRead' },
     { id: 'transport', name: 'Transportplanering', icon: Truck, right: 'transportRead' },
     { id: 'personnel', name: 'Personal', icon: Users, right: 'personnelRead' },
+    { id: 'equipment', name: 'Utrustning', icon: Wrench, right: 'equipmentRead' },
     {
       id: 'prices',
       name: 'Artiklar & priser',
@@ -2199,6 +2202,10 @@ export function OfficeApp() {
                 key={`${user.id}:${id}`} embedded users={data.users} initialUserId={id}
                 actor={user} sites={terminalDemo.state?.sites} save={saveStaffUsers} /> : <p role="status">Hämtar det kopplade kontot…</p>}
               onOpenUser={id => navigate(`/personnel/accounts?user=${encodeURIComponent(id)}`)} /></Suspense>
+          ) : section === 'equipment' ? (
+            <Suspense fallback={<div className="office-panel" role="status">Hämtar utrustningen…</div>}>
+              <EquipmentWorkspace key={`${principalIdentity}`} user={user} actualUser={actualUser!} selectedSiteId={siteFilter} onNotice={setMessage} />
+            </Suspense>
           ) : section === 'environment' ? (
             <EnvironmentWorkspace user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} onOpenCard={open} />
           ) : section === 'mail' ? (

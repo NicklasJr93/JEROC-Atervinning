@@ -1,0 +1,57 @@
+.hr-time-workspace { min-width:0; }
+.hr-time-toolbar { display:flex; gap:16px; align-items:flex-end; justify-content:space-between; margin-bottom:18px; }
+.hr-time-toolbar h2 { margin:0 0 5px; font-size:18px; }
+.hr-time-toolbar p { margin:0; color:#7a90ad; font-size:11px; }
+.hr-time-controls { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+.hr-time-controls .hr-field { margin:0!important; }
+.hr-time-controls input { min-height:38px; padding:8px 10px; }
+.hr-time-controls .office-btn { min-height:38px; }
+.hr-time-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; margin-bottom:16px; }
+.hr-time-grid>.hr-panel { margin-bottom:0!important; }
+.hr-time-settings-fields { border:0; padding:0; margin:0; min-width:0; }
+.hr-time-rule-summary { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:16px; color:#7289a7; font-size:11px; }
+.hr-time-workspace .hr-time-requirement-toggle { margin:0 0 14px!important; }
+.hr-time-weekdays { border:0; margin:14px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:10px; }
+.hr-time-weekdays legend { color:#7187a4; font-size:11px; font-weight:600; margin-bottom:8px; }
+.hr-time-workspace .hr-time-weekdays label { display:flex!important; flex-direction:row; align-items:center; gap:5px; margin:0!important; color:#526c8c; font-size:11px; }
+.hr-time-weekdays input { width:auto!important; margin:0!important; accent-color:#0866ed; }
+.hr-time-form-footer { border-top:1px solid #e8eef6; margin-top:15px; padding-top:14px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.hr-time-form-footer>span { color:#8296b0; font-size:10px; display:flex; align-items:center; gap:5px; }
+.hr-time-clock-state { display:flex; align-items:center; gap:14px; border:1px solid #e0eaf7; background:#f3f8fe; padding:17px; border-radius:9px; color:#0866ed; }
+.hr-time-clock-state.is-working { border-color:#d9eee3; background:#eff9f4; color:#16814f; }
+.hr-time-clock-state.is-break { border-color:#f8e4c1; background:#fff8ed; color:#b87523; }
+.hr-time-clock-state.is-out,.hr-time-clock-state.is-off { color:#7089aa; }
+.hr-time-clock-state strong { display:block; font-size:16px; }
+.hr-time-clock-state small { display:block; font-size:10px; margin-top:5px; }
+.hr-time-clock-totals,.hr-time-month-stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:18px; }
+.hr-time-clock-totals span,.hr-time-month-stats span { display:block; color:#8094af; font-size:11px; margin-bottom:5px; }
+.hr-time-clock-totals strong,.hr-time-month-stats strong { display:block; color:#203b60; font-size:20px; }
+.hr-time-day-stats { display:grid; gap:10px; border-top:1px solid #e9eff7; padding-top:15px; margin-top:14px; }
+.hr-time-day-stats>div { display:flex; gap:12px; justify-content:space-between; font-size:11px; }
+.hr-time-day-stats span { color:#8297b2; }
+.hr-time-sessions article { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:14px 0; border-bottom:1px solid #e8eef6; font-size:12px; }
+.hr-time-sessions article:last-child { border-bottom:0; }
+.hr-time-sessions small,.hr-time-break-line { display:block; font-size:10px; color:#8397b2; margin-top:5px; }
+.hr-time-sessions p { color:#a77232; font-size:11px; margin:7px 0 0; }
+.hr-time-session-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; flex-shrink:0; }
+.hr-time-month-stats { grid-template-columns:repeat(3,minmax(0,1fr)); margin:0 0 16px; }
+.hr-time-days { min-width:390px; }
+.hr-time-days tr.selected { background:#f1f7ff; }
+.hr-time-history { list-style:none; margin:0; padding:0; max-height:460px; overflow:auto; }
+.hr-time-history li { position:relative; display:flex; gap:12px; padding:0 0 20px; font-size:11px; }
+.hr-time-history li:not(:last-child)::before { content:''; position:absolute; left:3px; top:8px; bottom:0; width:1px; background:#d8e4f4; }
+.hr-time-history li>i { width:7px; height:7px; margin-top:4px; border-radius:50%; background:#0866ed; flex-shrink:0; }
+.hr-time-history li>div { min-width:0; }
+.hr-time-history time { display:block; font-size:10px; color:#8ca0ba; margin-top:4px; }
+.hr-time-history p { margin:6px 0 0; color:#6b82a2; }
+.hr-time-history-change { display:grid; gap:4px; color:#899cb6; font-size:10px; margin-top:8px; }
+.hr-time-correction-breaks { margin:18px 0; border-top:1px solid #e6edf7; padding-top:14px; }
+.hr-time-correction-breaks h3 { font-size:13px; margin:0 0 12px; }
+.hr-time-correction-break { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; align-items:end; gap:12px; margin-bottom:12px; }
+.hr-time-instant { min-width:0; }
+.hr-time-instant .hr-field { margin:0!important; }
+.hr-time-instant .hr-field+.hr-field { margin-top:8px!important; }
+.hr-time-protected { text-align:center; color:#8296b1; padding:28px!important; }
+.hr-time-protected h2 { font-size:16px; color:#385474; }
+@media(max-width:1000px) { .hr-time-toolbar { align-items:flex-start; flex-direction:column; }.hr-time-grid { grid-template-columns:1fr; } }
+@media(max-width:600px) { .hr-time-controls { width:100%; }.hr-time-controls .hr-field { flex:1 1 140px; }.hr-time-controls .office-btn { width:100%; }.hr-time-workspace .hr-form-grid { grid-template-columns:1fr; }.hr-time-form-footer { align-items:flex-start; flex-direction:column; }.hr-time-sessions article { flex-direction:column; }.hr-time-month-stats strong { font-size:16px; }.hr-time-correction-break { grid-template-columns:minmax(0,1fr); }.hr-time-correction-break>button { justify-self:end; }.hr-time-day-stats>div { flex-wrap:wrap; } }

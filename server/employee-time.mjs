@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { PricingError } from './pricing.mjs';
@@ -22,7 +22,8 @@ const projectionIndex = Symbol('employee-time-projection-index');
 function indexedPersonState(state, person) {
   if (state[projectionIndex]?.personId === person.id) return state;
   const domain = state.employeeTime ?? {}, entries = (domain.entries ?? []).filter(value => value.personId === person.id),
-    sessions = (domain.orderSessions ?? []).filter(value => value.personId === person.id);
+    sessions = (domain.orderSessions ?? []).filter(value => value.personId === person.id),
+    clocks = (domain.clockSessions ?? []).filter(value => value.personId === person.id);
   const manualByDate = new Map(), sessionsByDate = new Map();
   for (const entry of entries) {
     if (!manualByDate.has(entry.date)) manualByDate.set(entry.date, []);
@@ -36,7 +37,7 @@ function indexedPersonState(state, person) {
       sessionsByDate.get(date).push(session);
     }
   }
-  return { ...state, employeeTime: { ...domain, entries, orderSessions: sessions,
+  return { ...state, employeeTime: { ...domain, entries, orderSessions: sessions, clockSessions: clocks,
     settings: (domain.settings ?? []).filter(value => value.personId === person.id),
     requirementHistory: (domain.requirementHistory ?? []).filter(value => value.personId === person.id),
     normativeHistory: (domain.normativeHistory ?? []).filter(value => value.personId === person.id) },
@@ -108,7 +109,7 @@ const elapsedMinutes = intervals => Math.round(intervalMinutes(intervals) / 6000
 
 export function ensureEmployeeTime(state) {
   state.employeeTime ??= { version: 1, revision: 0, settings: [], requirementHistory: [], normativeHistory: [], entries: [], orderSessions: [], leaveRequests: [], audit: [] };
-  for (const key of ['settings', 'requirementHistory', 'normativeHistory', 'entries', 'orderSessions', 'leaveRequests', 'audit']) state.employeeTime[key] ??= [];
+  for (const key of ['settings', 'requirementHistory', 'normativeHistory', 'entries', 'orderSessions', 'clockSessions', 'clockStates', 'clockRequests', 'leaveRequests', 'audit']) state.employeeTime[key] ??= [];
   return state.employeeTime;
 }
 function ownPerson(state, personOrId, context = {}) {
@@ -120,7 +121,8 @@ function ownPerson(state, personOrId, context = {}) {
     ? { ...person, siteIds: person.siteIds.filter(id => context.allowedSiteIds.includes(id)) } : person;
 }
 function audit(state, person, action, details, transactionAudit, context, actorId = person.userId ?? person.id) {
-  const row = { id: uid('time-event'), action, at: clock(context).toISOString(), personId: person.id, actorId, ...details };
+  const row = { id: uid('time-event'), action, at: clock(context).toISOString(), personId: person.id,
+    actorId:context.effectiveUserId ?? actorId, actualUserId:context.actualUserId ?? actorId, effectiveUserId:context.effectiveUserId ?? actorId, ...details };
   state.employeeTime.audit.push(row); state.employeeTime.revision += 1; transactionAudit.push({ ...row, domain: 'employeeTime' });
 }
 
@@ -131,7 +133,7 @@ export function enrollEmployeeTime(state, personOrId, context = {}) {
   let setting = domain.settings.find(value => value.personId === person.id);
   if (!setting) {
     const today = employeeTimeToday(context);
-    setting = { personId: person.id, enabled: context.enabled ?? true, mode: 'schedule', effectiveFrom: today, enforcementFrom: today, revision: 1 };
+    setting = { personId: person.id, enabled: context.enabled ?? true, mode: 'schedule', timeSource:'workorder', effectiveFrom: today, enforcementFrom: today, revision: 1 };
     domain.settings.push(setting); domain.requirementHistory.push(copy(setting)); domain.revision += 1;
   }
   refreshEmployeeTimeNorms(state, context);
@@ -160,8 +162,16 @@ function normAt(state, person, date) {
 }
 function requirementAt(state, person, date) {
   const current = state.employeeTime?.settings.find(value => value.personId === person.id);
-  const history = state.employeeTime?.requirementHistory.filter(value => value.personId === person.id && value.effectiveFrom <= date).sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom) || b.revision - a.revision);
-  return copy(history?.[0] ?? (current && current.effectiveFrom <= date ? current : { personId: person.id, enabled: false, mode: 'schedule', effectiveFrom: date, enforcementFrom: date, revision: 0 }));
+  const allHistory = (state.employeeTime?.requirementHistory ?? []).filter(value => value.personId === person.id);
+  const superseded = new Set(allHistory.filter(value => value.supersedesRevision !== undefined).map(value => value.supersedesRevision));
+  const history = allHistory.filter(value => value.effectiveFrom <= date && !superseded.has(value.revision))
+    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom) || b.revision - a.revision);
+  const value = copy(history[0] ?? (current && current.effectiveFrom <= date ? current : {
+    personId: person.id, enabled: false, mode: 'schedule', effectiveFrom: date, enforcementFrom: date, revision: 0,
+  }));
+  delete value.supersedesRevision;
+  value.timeSource ??= 'workorder';
+  return value;
 }
 function personSchedules(state, person, date) {
   return normAt(state, person, date).schedules.filter(value => value.weekdays.includes(weekday(date)) && value.effectiveFrom <= date && (!value.effectiveTo || value.effectiveTo >= date));
@@ -239,19 +249,99 @@ function datedEntries(state, person, date, sites) {
   });
   return [...manual, ...automatic].map(entry => ({ ...entry, minutes: elapsedMinutes(entry.intervals), orderName: state.transport?.orders?.find(value => value.id === entry.orderId)?.customerName, siteName: sites.find(value => value.id === entry.siteId)?.name })).sort((a, b) => a.startMinute - b.startMinute || a.id.localeCompare(b.id));
 }
-function dayData(state, person, date, sites, orders = ownOrders(state, person)) {
+const MAX_CLOCK_SPAN_MS = 48 * 60 * 60 * 1000;
+const intervalSeconds = intervals => Math.floor(mergeIntervals(intervals).reduce((sum, [a, b]) => sum + b - a, 0) / 1000);
+function intersectIntervals(intervals, allowed) {
+  return mergeIntervals(intervals.flatMap(([a, b]) => allowed.map(([c, d]) => [Math.max(a, c), Math.min(b, d)])
+    .filter(([start, end]) => end > start)));
+}
+function clockNeedsCorrection(session, now) {
+  return session.requiresCorrection === true || (session.endedAt ? Date.parse(session.endedAt) : now) - Date.parse(session.startedAt) > MAX_CLOCK_SPAN_MS;
+}
+function clockIntervals(session, now) {
+  const start = Date.parse(session.startedAt), end = session.endedAt ? Date.parse(session.endedAt) : now;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return { work: [], breaks: [] };
+  const breaks = mergeIntervals((session.breaks ?? []).map(item => [
+    Math.max(start, Date.parse(item.startedAt)), Math.min(end, item.endedAt ? Date.parse(item.endedAt) : end),
+  ]));
+  return { work: subtractIntervals([[start, end]], breaks), breaks };
+}
+function clockSessionView(session, now, date) {
+  const intervals = clockIntervals(session, now);
+  const bounds = date ? [[localInstant(date, 0), localInstant(addDays(date, 1), 0)]] : null;
+  const fields = ['id', 'startedAt', 'endedAt', 'breaks', 'revision', 'correctedAt', 'correctionReason'];
+  return {
+    ...copy(Object.fromEntries(fields.filter(key => session[key] !== undefined).map(key => [key, session[key]]))),
+    endedAt: session.endedAt ?? null, provisional: !session.endedAt,
+    requiresCorrection: clockNeedsCorrection(session, now),
+    workSeconds: intervalSeconds(intervals.work), breakSeconds: intervalSeconds(intervals.breaks),
+    ...(bounds ? {
+      dayWorkSeconds: intervalSeconds(intersectIntervals(intervals.work, bounds)),
+      dayBreakSeconds: intervalSeconds(intersectIntervals(intervals.breaks, bounds)),
+    } : {}),
+  };
+}
+function clockDay(state, person, date, context) {
+  const now = clock(context).getTime(), today = employeeTimeToday(context);
+  const dayStart = localInstant(date, 0), dayEnd = localInstant(addDays(date, 1), 0), bounds = [[dayStart, dayEnd]];
+  const sessions = (state.employeeTime?.clockSessions ?? []).filter(item => item.personId === person.id
+    && Date.parse(item.startedAt) < dayEnd && (item.endedAt ? Date.parse(item.endedAt) : now) > dayStart);
+  // Today's elapsed time is provisional. Yesterday's missing out-stamp may
+  // never manufacture a completed workday or release the previous-day gate.
+  const reliable = sessions.filter(item => !clockNeedsCorrection(item, now) && (item.endedAt || date === today));
+  const intervals = reliable.map(item => clockIntervals(item, now));
+  const work = mergeIntervals(intervals.flatMap(item => intersectIntervals(item.work, bounds)));
+  const breaks = mergeIntervals(intervals.flatMap(item => intersectIntervals(item.breaks, bounds)));
+  return {
+    work, clockMinutes: Math.floor(intervalSeconds(work) / 60), breakMinutes: Math.floor(intervalSeconds(breaks) / 60),
+    clockSessions: sessions.map(item => clockSessionView(item, now, date)),
+  };
+}
+function sourceChangeInfo(state, person, context) {
+  const today = employeeTimeToday(context), start = localInstant(today, 0), end = localInstant(addDays(today, 1), 0);
+  const intersectsToday = item => item.personId === person.id && Date.parse(item.startedAt) < end
+    && (!item.endedAt || Date.parse(item.endedAt) > start);
+  const hasRecordedToday = (state.employeeTime?.entries ?? []).some(item => item.personId === person.id && item.date === today && !item.deletedAt)
+    || (state.employeeTime?.orderSessions ?? []).some(intersectsToday)
+    || (state.employeeTime?.clockSessions ?? []).some(intersectsToday);
+  return { hasRecordedToday, earliestEffectiveFrom: hasRecordedToday ? addDays(today, 1) : today };
+}
+export function employeeClockProjection(state, personOrId, context = {}) {
+  context = { ...context, now: clock(context) };
+  const person = ownPerson(state, personOrId, context), today = employeeTimeToday(context);
+  const source = requirementAt(state, person, today).timeSource, now = clock(context).getTime();
+  const ownSessions = (state.employeeTime?.clockSessions ?? []).filter(item => item.personId === person.id);
+  const active = ownSessions.find(item => !item.endedAt);
+  const intervals = active ? clockIntervals(active, now) : { work: [], breaks: [] };
+  const day = clockDay(state, person, today, context), expected = expectedDay(state, person, today);
+  const onBreak = active?.breaks?.some(item => !item.endedAt);
+  return {
+    enabled: source === 'clock' || Boolean(active), source,
+    revision: state.employeeTime?.clockStates?.find(item => item.personId === person.id)?.revision ?? 0,
+    status: active ? onBreak ? 'break' : 'working' : expected.expectedMinutes === 0 ? 'off' : 'out',
+    serverNow: clock(context).toISOString(), activeSession: active ? clockSessionView(active, now) : null,
+    requiresCorrection: ownSessions.some(item => clockNeedsCorrection(item, now)),
+    workSeconds: active ? intervalSeconds(intervals.work) : day.clockSessions.filter(item => !item.requiresCorrection).reduce((sum, item) => sum + item.dayWorkSeconds, 0),
+    breakSeconds: active ? intervalSeconds(intervals.breaks) : day.clockSessions.filter(item => !item.requiresCorrection).reduce((sum, item) => sum + item.dayBreakSeconds, 0),
+  };
+}
+function dayData(state, person, date, sites, orders = ownOrders(state, person), context = {}) {
   const cached = state[projectionIndex]?.days.get(date);
   if (cached) return cached;
   const expected = expectedDay(state, person, date), entries = datedEntries(state, person, date, sites);
-  const recordedMinutes = elapsedMinutes(entries.flatMap(entry => entry.intervals));
-  const automaticMinutes = elapsedMinutes(entries.filter(entry => entry.source === 'order').flatMap(entry => entry.intervals));
-  const manualMinutes = recordedMinutes - automaticMinutes;
+  const timeSource=expected.requirement.timeSource,clocks=clockDay(state,person,date,context),allocations=entries.flatMap(entry=>entry.intervals);
+  const allocated= timeSource==='clock'?intersectIntervals(allocations,clocks.work):mergeIntervals(allocations);
+  const recordedMinutes = timeSource==='clock'?clocks.clockMinutes:elapsedMinutes(allocations);
+  const automatic=entries.filter(entry=>entry.source==='order').flatMap(entry=>entry.intervals);
+  const automaticMinutes = timeSource==='clock'?Math.floor(intervalSeconds(intersectIntervals(automatic,clocks.work))/60):elapsedMinutes(automatic);
+  const allocatedMinutes=timeSource==='clock'?Math.floor(intervalSeconds(allocated)/60):recordedMinutes,manualMinutes=allocatedMinutes-automaticMinutes;
   const expectedMinutes = expected.expectedMinutes, missingMinutes = Math.max(0, expectedMinutes - recordedMinutes);
-  const result = { date, expectedMinutes, recordedMinutes, missingMinutes, automaticMinutes, manualMinutes, absenceMinutes: expected.absenceMinutes, jobsCount: orders.filter(order => order.date === date && order.status !== 'cancelled').length, status: expectedMinutes === 0 ? 'not_required' : recordedMinutes === 0 ? 'empty' : missingMinutes > 0 ? 'partial' : 'complete', entries, schedules: expected.schedules, absences: expected.absences, orders: orders.filter(order => order.date === date) };
+  const result = { date, timeSource,expectedMinutes, recordedMinutes, missingMinutes, automaticMinutes, manualMinutes,clockMinutes:clocks.clockMinutes,breakMinutes:clocks.breakMinutes,allocatedMinutes,unallocatedMinutes:timeSource==='clock'?Math.max(0,recordedMinutes-allocatedMinutes):0,clockSessions:clocks.clockSessions,
+    absenceMinutes: expected.absenceMinutes, jobsCount: orders.filter(order => order.date === date && order.status !== 'cancelled').length, status: expectedMinutes === 0 ? 'not_required' : recordedMinutes === 0 ? 'empty' : missingMinutes > 0 ? 'partial' : 'complete', entries, schedules: expected.schedules, absences: expected.absences, orders: orders.filter(order => order.date === date) };
   state[projectionIndex]?.days.set(date, result);
   return result;
 }
-function publicDay({ entries, schedules, absences, orders, ...day }) { return day; }
+function publicDay({ entries, schedules, absences, orders, clockSessions,...day }) { return day; }
 
 export function employeeTimeGate(state, personOrId, context = {}) {
   const person = ownPerson(state, personOrId, context), today = employeeTimeToday(context);
@@ -261,12 +351,13 @@ export function employeeTimeGate(state, personOrId, context = {}) {
   const sites = siteList(state, person, context), orders = ownOrders(state, person);
   for (const date of datesBetween(setting.enforcementFrom, addDays(today, -1))) {
     if (!requirementAt(state, person, date).enabled) continue;
-    const day = dayData(state, person, date, sites, orders);
-    if (day.missingMinutes > 0) return { blocked: true, date, expectedMinutes: day.expectedMinutes, recordedMinutes: day.recordedMinutes, missingMinutes: day.missingMinutes };
+    const day = dayData(state, person, date, sites, orders,context);
+    if (day.missingMinutes > 0) return { blocked: true, date, expectedMinutes: day.expectedMinutes, recordedMinutes: day.recordedMinutes, missingMinutes: day.missingMinutes,...(day.timeSource==='clock'?{timeSource:'clock'}:{}) };
   }
   return empty;
 }
 export function employeeTimeProjection(state, personOrId, context = {}) {
+  context={...context,now:clock(context)};
   const person = ownPerson(state, personOrId, context), today = employeeTimeToday(context);
   state = indexedPersonState(state, person);
   const month = context.month ?? today.slice(0, 7);
@@ -274,8 +365,8 @@ export function employeeTimeProjection(state, personOrId, context = {}) {
   const date = parse(dateSchema, context.date ?? (today.startsWith(month) ? today : `${month}-01`));
   const sites = siteList(state, person, context), orders = ownOrders(state, person), last = new Date(`${month}-01T12:00:00Z`);
   last.setUTCMonth(last.getUTCMonth() + 1); last.setUTCDate(last.getUTCDate() - 1);
-  const days = datesBetween(`${month}-01`, last.toISOString().slice(0, 10)).map(day => publicDay(dayData(state, person, day, sites, orders)));
-  const selected = dayData(state, person, date, sites, orders);
+  const days = datesBetween(`${month}-01`, last.toISOString().slice(0, 10)).map(day => publicDay(dayData(state, person, day, sites, orders,context)));
+  const selected = dayData(state, person, date, sites, orders,context);
   const selectedDay = { ...selected, entries: selected.entries.map(({ intervals, personId, ...entry }) => {
     const siteId = timeRecordSite(state, entry);
     if (allowedPersonSite(person, siteId)) return entry;
@@ -289,7 +380,143 @@ export function employeeTimeProjection(state, personOrId, context = {}) {
     return { expectedMinutes: sum.expectedMinutes + day.expectedMinutes, recordedMinutes: sum.recordedMinutes + day.recordedMinutes, missingMinutes: sum.missingMinutes + (day.date < today && requirement.enabled && day.date >= requirement.enforcementFrom ? day.missingMinutes : 0) };
   }, { expectedMinutes: 0, recordedMinutes: 0, missingMinutes: 0 });
   const activeWork = state.employeeTime?.orderSessions.find(value => value.personId === person.id && !value.endedAt && allowedPersonSite(person, timeRecordSite(state, value)));
-  return { revision: state.employeeTime?.revision ?? 0, today, month, date, person: Object.fromEntries(['id', 'name', 'role', 'team', 'phone', 'email', 'employeeNumber', 'siteIds'].filter(key => person[key] !== undefined).map(key => [key, copy(person[key])])), requirement: requirementAt(state, person, today), gate: employeeTimeGate(state, person, context), days, selectedDay, orders, ...(activeWork ? { activeWork: copy(activeWork) } : {}), leaveRequests: copy((state.employeeTime?.leaveRequests ?? []).filter(value => value.personId === person.id)), sites, summary, balances: { available: false } };
+  const configured=state.employeeTime?.settings.find(value=>value.personId===person.id);
+  return { revision: state.employeeTime?.revision ?? 0, today, month, date, person: Object.fromEntries(['id', 'name', 'role', 'team', 'phone', 'email', 'employeeNumber', 'siteIds'].filter(key => person[key] !== undefined).map(key => [key, copy(person[key])])),
+    requirement: requirementAt(state, person, today), configuredRequirement:configured?{...copy(configured),timeSource:configured.timeSource??'workorder'}:requirementAt(state,person,today),
+    timeSourceChange:sourceChangeInfo(state,person,context),clock:employeeClockProjection(state,person,context),
+    clockHistory:copy((state.employeeTime?.audit??[]).filter(item=>item.personId===person.id&&item.action.startsWith('clock.')).slice(-50).reverse()),
+    gate: employeeTimeGate(state, person, context), days, selectedDay, orders, ...(activeWork ? { activeWork: copy(activeWork) } : {}), leaveRequests: copy((state.employeeTime?.leaveRequests ?? []).filter(value => value.personId === person.id)), sites, summary, balances: { available: false } };
+}
+
+const instantSchema = z.string().datetime({ offset: true }).max(64).refine(value =>
+  Number.isFinite(Date.parse(value)) && validDay(localParts(value).date), 'Ange ett verkligt datum och klockslag.');
+const breakSchema = z.object({ startedAt: instantSchema, endedAt: instantSchema }).strict();
+const clockCommandSchema = z.object({
+  action: z.enum(['clock.in', 'clock.pause', 'clock.resume', 'clock.out', 'clock.correct']),
+  requestId: identifier, revision, sessionId: identifier.optional(),
+  startedAt: instantSchema.optional(), endedAt: instantSchema.optional(),
+  breaks: z.array(breakSchema).max(100).optional(), reason: text.optional(),
+}).strict();
+function validateClockSpan(candidate, now) {
+  const start = Date.parse(candidate.startedAt), end = Date.parse(candidate.endedAt);
+  if (end <= start || end > now || start > now) fail('Ange verkliga arbetade tider före nu, med slut efter start.');
+  if (end - start > MAX_CLOCK_SPAN_MS) fail('Ett rättat pass får vara högst 48 timmar. Registrera de verkliga passen separat.');
+  let previous = start;
+  for (const pause of candidate.breaks) {
+    const a = Date.parse(pause.startedAt), b = Date.parse(pause.endedAt);
+    if (a < previous || b <= a || b > end) fail('Raster ska ligga inom passet i ordning och får inte överlappa.');
+    previous = b;
+  }
+}
+/** Atomic caller transaction + per-person revision is the write authority.
+ * requestId retries are bound to the exact command and both principals; no
+ * browser timer creates hours, and activity allocations never add attendance. */
+export function employeeClockCommand(state, personOrId, command, transactionAudit = [], context = {}) {
+  context = { ...context, now: clock(context) };
+  const person = ownPerson(state, personOrId, context), domain = ensureEmployeeTime(state);
+  const input = parse(clockCommandSchema, command);
+  const effectiveUserId = context.effectiveUserId ?? person.userId ?? person.id;
+  const actualUserId = context.actualUserId ?? effectiveUserId;
+  if (effectiveUserId !== (person.userId ?? person.id) && !(context.management && input.action === 'clock.correct')) {
+    fail('Du kan bara stämpla din egen tid.', 403);
+  }
+  const payloadHash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+  const previous = domain.clockRequests.find(item => item.personId === person.id && item.requestId === input.requestId);
+  if (previous) {
+    if (previous.payloadHash !== payloadHash || previous.actualUserId !== actualUserId || previous.effectiveUserId !== effectiveUserId) {
+      fail('Samma stämplingsförsök innehåller andra uppgifter eller utfördes av en annan användare. Uppdatera sidan.', 409);
+    }
+    const saved = domain.clockSessions.find(item => item.id === previous.sessionId && item.personId === person.id);
+    return {
+      session: saved ? clockSessionView(saved, clock(context).getTime()) : null,
+      clock: employeeClockProjection(state, person, context), gate: employeeTimeGate(state, person, context),
+    };
+  }
+  const clockState = domain.clockStates.find(item => item.personId === person.id), currentRevision = clockState?.revision ?? 0;
+  if (currentRevision !== input.revision) fail('Stämpelklockan ändrades i en annan session. Uppdatera och försök igen.', 409);
+  const now = clock(context), at = now.toISOString();
+  const active = domain.clockSessions.find(item => item.personId === person.id && !item.endedAt);
+  let saved, before = null;
+  if (input.action === 'clock.correct') {
+    if (!input.startedAt || !input.endedAt || !input.reason?.trim()) fail('Ange verklig in- och utstämpling samt en anledning till rättelsen.');
+    const old = input.sessionId ? domain.clockSessions.find(item => item.id === input.sessionId) : null;
+    if (input.sessionId && !old) fail('Passet finns inte.', 404);
+    if (old && old.personId !== person.id) fail('Du kan bara rätta den valda personens tid.', 403);
+    const candidate = {
+      startedAt: new Date(input.startedAt).toISOString(), endedAt: new Date(input.endedAt).toISOString(),
+      breaks: (input.breaks ?? []).map(item => ({ startedAt: new Date(item.startedAt).toISOString(), endedAt: new Date(item.endedAt).toISOString() })),
+    };
+    // Bound the duration before enumerating Stockholm dates. Malformed or
+    // years-long spans never become unbounded date work or invented hours.
+    validateClockSpan(candidate, now.getTime());
+    const first = localParts(candidate.startedAt).date, last = localParts(Date.parse(candidate.endedAt) - 1).date;
+    const oldFirst = old ? localParts(old.startedAt).date : null;
+    const oldLast = old ? localParts((old.endedAt ? Date.parse(old.endedAt) : now.getTime()) - 1).date : null;
+    // An already recorded overnight pass may straddle a scheduled source
+    // switch. Correct it without creating attendance on workorder-only days.
+    const correctsExistingBoundary = old && requirementAt(state, person, oldFirst).timeSource === 'clock';
+    if (requirementAt(state, person, first).timeSource !== 'clock' || datesBetween(first, last).some(day =>
+      requirementAt(state, person, day).timeSource !== 'clock' && !(correctsExistingBoundary && day >= oldFirst && day <= oldLast))) {
+      fail('Rättelsen måste avse dagar då stämpelklockan var personens tidskälla.');
+    }
+    const start = Date.parse(candidate.startedAt), end = Date.parse(candidate.endedAt);
+    if (domain.clockSessions.some(item => item.personId === person.id && item.id !== old?.id
+      && start < (item.endedAt ? Date.parse(item.endedAt) : now.getTime()) && end > Date.parse(item.startedAt))) {
+      fail('Passet överlappar en annan in- eller utstämpling.');
+    }
+    before = old ? copy(old) : null;
+    saved = {
+      ...candidate, id: old?.id ?? uid('clock-session'), personId: person.id, revision: (old?.revision ?? 0) + 1,
+      createdAt: old?.createdAt ?? at, updatedAt: at, correctedAt: at, correctionReason: input.reason,
+    };
+    if (old) domain.clockSessions[domain.clockSessions.indexOf(old)] = saved;
+    else domain.clockSessions.push(saved);
+  } else {
+    if (input.startedAt !== undefined || input.endedAt !== undefined || input.breaks !== undefined || input.reason !== undefined) {
+      fail('Stämpling använder serverns klocka. Använd rättelse för tidigare tider.');
+    }
+    if (input.sessionId && active?.id !== input.sessionId) fail('Det aktiva passet ändrades. Uppdatera sidan.', 409);
+    if (input.action === 'clock.in') {
+      if (requirementAt(state, person, employeeTimeToday(context)).timeSource !== 'clock') fail('Stämpelklockan är inte vald för denna person.', 409);
+      if (active) fail('Du är redan instämplad.', 409);
+      if (domain.clockSessions.some(item => item.personId === person.id && item.endedAt && Date.parse(item.endedAt) > now.getTime())) {
+        fail('Senaste passets tid ligger efter systemets klocka. Rätta passet först.', 409);
+      }
+      saved = { id: uid('clock-session'), personId: person.id, startedAt: at, endedAt: null, breaks: [], revision: 1, createdAt: at, updatedAt: at };
+      domain.clockSessions.push(saved);
+    } else {
+      // An existing overnight pass can always be stopped, including when a
+      // previously scheduled source change becomes effective at midnight.
+      if (!active) fail('Du är inte instämplad.', 409);
+      const pause = active.breaks.at(-1), last = pause?.endedAt ?? pause?.startedAt ?? active.startedAt;
+      if (now.getTime() < Date.parse(last)) fail('Systemets klocka ligger före den senaste stämplingen. Försök igen.');
+      before = copy(active); saved = active;
+      if (input.action === 'clock.pause') {
+        if (pause && !pause.endedAt) fail('Rasten är redan startad.', 409);
+        if (active.breaks.length >= 100) fail('Avsluta och kontrollera passets raster först.');
+        active.breaks.push({ startedAt: at, endedAt: null });
+      }
+      if (input.action === 'clock.resume') {
+        if (!pause || pause.endedAt) fail('Du har ingen pågående rast.', 409);
+        pause.endedAt = at;
+      }
+      if (input.action === 'clock.out') {
+        if (pause && !pause.endedAt) pause.endedAt = at;
+        active.endedAt = at;
+        if (clockNeedsCorrection(active, now.getTime())) active.requiresCorrection = true;
+      }
+      active.revision += 1; active.updatedAt = at;
+    }
+  }
+  if (clockState) clockState.revision += 1;
+  else domain.clockStates.push({ personId: person.id, revision: 1 });
+  domain.clockRequests.push({ personId: person.id, requestId: input.requestId, payloadHash,
+    actualUserId, effectiveUserId, sessionId: saved.id, action: input.action, at });
+  audit(state, person, input.action, {
+    sessionId: saved.id, requestId: input.requestId, reason: input.reason ?? '', before, after: copy(saved),
+    text: input.action === 'clock.correct' ? 'Verkliga stämplingar rättade med anledning.' : 'Stämpling sparad med serverns tid.',
+  }, transactionAudit, { ...context, actualUserId, effectiveUserId });
+  return { session: clockSessionView(saved, now.getTime()), clock: employeeClockProjection(state, person, context), gate: employeeTimeGate(state, person, context) };
 }
 
 const entrySchema = z.object({ id: identifier.optional(), revision: revision.optional(), date: dateSchema, startMinute: minute, endMinute: minute, breakMinutes: z.number().int().min(0).max(720).default(0), activity: z.string().trim().min(1).max(120), note: text.default(''), orderId: identifier.optional(), siteId: identifier.optional() }).strict().refine(value => value.endMinute > value.startMinute && value.breakMinutes < value.endMinute - value.startMinute, 'Slut måste vara efter start och rasten kortare än passet.');
@@ -376,6 +603,7 @@ function requestLeave(state, person, value, transactionAudit, context) {
 export function employeeTimeCommand(state, personOrId, command, transactionAudit = [], context = {}) {
   const person = ownPerson(state, personOrId, context); ensureEmployeeTime(state);
   if (!command || typeof command.action !== 'string') fail('Välj en tidrapporteringsåtgärd.');
+  if(command.action.startsWith('clock.'))return employeeClockCommand(state,person,command,transactionAudit,context);
   if (command.action === 'time.save') return saveEntry(state, person, command.entry, transactionAudit, context);
   if (command.action === 'time.remove') return removeEntry(state, person, command, transactionAudit, context);
   if (command.action === 'order.start' || command.action === 'order.stop') {
@@ -395,11 +623,25 @@ export function employeeTimeCommand(state, personOrId, command, transactionAudit
   fail('Åtgärden stöds inte.');
 }
 
-const requirementSchema = z.object({ enabled: z.boolean(), mode: z.enum(['schedule', 'fixed']), dailyMinutes: z.number().int().min(0).max(1440).optional(), weekdays: z.array(z.number().int().min(1).max(7)).min(1).max(7).optional(), effectiveFrom: dateSchema.optional(), revision: revision.optional() }).strict().refine(value => value.mode !== 'fixed' || value.dailyMinutes !== undefined, 'Ange timkravet för en arbetsdag.');
+const requirementSchema = z.object({
+  enabled: z.boolean(), mode: z.enum(['schedule', 'fixed']),
+  dailyMinutes: z.number().int().min(0).max(1440).optional(),
+  weekdays: z.array(z.number().int().min(1).max(7)).min(1).max(7).optional(),
+  timeSource: z.enum(['workorder', 'clock']).optional(),
+  effectiveFrom: dateSchema.optional(), revision: revision.optional(),
+}).strict().refine(value => value.mode !== 'fixed' || value.dailyMinutes !== undefined, 'Ange timkravet för en arbetsdag.');
 function managementAccess(state, principal, person, right) {
-  const user = principal?.user, actor = principal?.actor ?? user;
-  if (!user || actor?.id !== user.id || user.level !== 'Systemadmin' && !(user.permissions ?? []).includes(right)) fail('Du saknar behörighet att ändra dessa personaluppgifter.', 403);
-  if (user.siteIds && !person.siteIds.some(id => user.siteIds.includes(id))) fail('Du saknar åtkomst till personens anläggning.', 403);
+  const user = principal?.user;
+  // Legacy same-user callers may carry only actor.id. A different actor must
+  // be an explicitly resolved system administrator, never an arbitrary ID.
+  const actor = !principal?.actor || principal.actor.id === user?.id ? { ...user, ...principal?.actor } : principal.actor;
+  if (!user || !actor?.id || actor.id !== user.id && actor.level !== 'Systemadmin'
+    || [actor, user].some(value => value.active === false || value.level !== 'Systemadmin' && !(value.permissions ?? []).includes(right))) {
+    fail('Du saknar behörighet att ändra dessa personaluppgifter.', 403);
+  }
+  if ([actor, user].some(value => value.siteIds && !person.siteIds.every(id => value.siteIds.includes(id)))) {
+    fail('Du saknar åtkomst till personens anläggning.', 403);
+  }
   return user;
 }
 export function employeeTimeRequirementCommand(state, principal, command, transactionAudit = [], context = {}) {
@@ -409,11 +651,32 @@ export function employeeTimeRequirementCommand(state, principal, command, transa
   const old = domain.settings.find(value => value.personId === person.id);
   if (old && input.revision !== old.revision) fail('Timkravet ändrades i en annan session. Ladda om.', 409);
   if (input.effectiveFrom && input.effectiveFrom < today) fail('Nya timkrav gäller tidigast från idag. Tidigare dagar behåller sina regler.');
-  const setting = { ...input, personId: person.id, effectiveFrom: input.effectiveFrom ?? today, enforcementFrom: old?.enforcementFrom ?? today, revision: (old?.revision ?? 0) + 1 };
+  const active = requirementAt(state, person, today);
+  const timeSource = input.timeSource ?? old?.timeSource ?? active.timeSource;
+  const changesSource = timeSource !== active.timeSource, sourceChange = sourceChangeInfo(state, person, context);
+  const effectiveFrom = input.effectiveFrom ?? (old?.effectiveFrom > today ? old.effectiveFrom
+    : changesSource ? sourceChange.earliestEffectiveFrom : today);
+  if (changesSource && effectiveFrom === today && sourceChange.hasRecordedToday) {
+    fail('Tid har redan registrerats idag. Byt tidskälla tidigast imorgon så att dagens timmar behålls.');
+  }
+  if (timeSource !== 'clock' && domain.clockSessions.some(value => value.personId === person.id && !value.endedAt)) {
+    fail('Stämpla ut det pågående passet innan du byter bort stämpelklockan.');
+  }
+  const setting = {
+    ...input, timeSource, personId: person.id, effectiveFrom,
+    enforcementFrom: old?.enforcementFrom ?? today, revision: (old?.revision ?? 0) + 1,
+  };
   if (old) domain.settings[domain.settings.indexOf(old)] = setting; else domain.settings.push(setting);
-  domain.requirementHistory.push(copy(setting));
+  // Replacing a not-yet-active plan must not leave a ghost future switch.
+  // Append a supersession marker; versions already used by past/today dates
+  // are preserved and never retrospectively invalidated.
+  domain.requirementHistory.push({ ...copy(setting), ...(old?.effectiveFrom > today ? { supersedesRevision: old.revision } : {}) });
   refreshEmployeeTimeNorms(state, context);
-  audit(state, person, 'requirement.saved', { text: 'Personens timkrav uppdaterat utan retroaktiv ändring av tidigare arbetsdagar.' }, transactionAudit, context, user.id);
+  const actorId = principal.actor?.id ?? user.id;
+  audit(state, person, 'requirement.saved', {
+    before: old ? copy(old) : null, after: copy(setting),
+    text: 'Personens timkrav och tidskälla uppdaterade utan retroaktiv ändring av tidigare arbetsdagar.',
+  }, transactionAudit, { ...context, actualUserId: actorId, effectiveUserId: user.id }, user.id);
   return { requirement: copy(setting), gate: employeeTimeGate(state, person, context) };
 }
 

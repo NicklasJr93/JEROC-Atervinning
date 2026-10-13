@@ -9,7 +9,8 @@ import { createTransportOutbox, createTransportIntegrationsApi } from './transpo
 import { ensurePersonnel, personnelCommand, personnelProjection, personnelCan, validatePersonnelTransportChange, refreshStaffingTasks, createDriverApi } from './personnel.mjs';
 import { createLogisticsApi, validateLogisticsTransportChange, synchronizeLogisticsIncomingStock } from './logistics.mjs';
 import { createMobileEmployeeApi, ensureMobileEmployeeAccounts, hasEmployeeSession, employeeRequestPrincipal } from './mobile-employee-api.mjs';
-import { ensureEmployeeTime, refreshEmployeeTimeNorms } from './employee-time.mjs';
+import { ensureEmployeeTime, refreshEmployeeTimeNorms, employeeTimeProjection, employeeTimeRequirementCommand, employeeClockCommand } from './employee-time.mjs';
+import { equipmentProjection, equipmentCommand } from './equipment.mjs';
 import { allocateWeighingNumber } from './work-order-weighing.mjs';
 import { prepareCustomerReview } from './customer-review.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
@@ -700,6 +701,72 @@ export function createApplicationService({ repository, env = process.env, seed =
           `db_pool;dur=${metrics.poolWaitMs.toFixed(1)}`, `db_sql;dur=${metrics.sqlMs.toFixed(1)}`,
           `db_lock_query;dur=${metrics.lockQueryMs.toFixed(1)}`, `db_commit;dur=${metrics.commitMs.toFixed(1)}`,
           `db_queries;desc="${metrics.sqlCount}"`].join(', '));
+        json(res, 200, result); return true;
+      }
+      if (domain === 'equipment') {
+        if (!['GET', 'POST'].includes(req.method)) fail('Metoden stöds inte.', 405);
+        if ([...url.searchParams.keys()].some(key => !['personId', 'siteId'].includes(key))) fail('Ogiltigt utrustningsfilter.', 422);
+        const command = req.method === 'POST' ? await body(req) : null;
+        if (req.method === 'POST' && (!command || typeof command !== 'object' || Array.isArray(command))) fail('Välj en giltig utrustningsåtgärd.', 422);
+        const sites = await siteProvider(), repository = await getRepo();
+        const options = { personId: url.searchParams.get('personId') || undefined, siteId: url.searchParams.get('siteId') || undefined };
+        const operate = (state, _, audit = []) => {
+          const principal = requestPrincipal({ principal: (actor, user) => resolvePricingPrincipal(state.pricing.users, actor, user) }, req);
+          if (command) equipmentCommand(state, principal, command, audit, sites);
+          return equipmentProjection(state, principal, options, sites);
+        };
+        const result = req.method === 'GET' && repository.read
+          ? await repository.read(operate, { domains: ['pricing', 'personnel', 'equipment'] })
+          : await repository.transact(operate);
+        json(res, 200, result); return true;
+      }
+      if (domain === 'personnel-time') {
+        if (!['GET', 'POST'].includes(req.method)) fail('Metoden stöds inte.', 405);
+        if ([...url.searchParams.keys()].some(key => !['personId', 'date', 'month'].includes(key))) fail('Ogiltigt tidrapporteringsfilter.', 422);
+        const command = req.method === 'POST' ? await body(req) : null;
+        if (req.method === 'POST' && (!command || typeof command !== 'object' || Array.isArray(command))) fail('Välj en giltig tidåtgärd.', 422);
+        const sites = await siteProvider(), repository = await getRepo();
+        const operate = (state, _, audit = []) => {
+          const p = requestPrincipal({ principal: (actor, user) => resolvePricingPrincipal(state.pricing.users, actor, user) }, req);
+          const permitted = (right) => [p.actor, p.user].every(user => user.level === 'Systemadmin' || (user.permissions ?? []).includes(right));
+          if (!permitted('employmentRead') && !permitted('employmentWrite')) fail('Du saknar behörighet att läsa tidrapporteringsinställningar.', 403);
+          const requestedId = command?.personId ?? url.searchParams.get('personId');
+          if (!requestedId || typeof requestedId !== 'string' || requestedId.length > 120) fail('Välj en person för tidrapporteringen.', 422);
+          if (command && url.searchParams.has('personId') && url.searchParams.get('personId') !== requestedId) fail('Personvalet har ändrats. Öppna tidrapporteringen igen.', 409);
+          const person = state.personnel?.people.find(value => value.id === requestedId);
+          if (!person || person.kind !== 'employee') fail('Tidrapporteringen gäller en anställd i bolaget.', 404);
+          if (![p.actor, p.user].every(user => !Array.isArray(user.siteIds) || person.siteIds.length > 0 && person.siteIds.every(id => user.siteIds.includes(id))))
+            fail('Du saknar åtkomst till personens samtliga anläggningar.', 403);
+          const siteIds = person.siteIds.filter(id => sites.some(site => site.id === id));
+          const scopedPerson = { ...person, siteIds };
+          const timeContext = { actualUserId: p.actor.id, effectiveUserId: p.user.id, allowedSiteIds: siteIds,
+            date: url.searchParams.get('date') ?? undefined, month: url.searchParams.get('month') ?? undefined, siteCatalog: sites, management: true };
+          if (command) {
+            if (!permitted('employmentWrite')) fail('Du saknar behörighet att ändra tidrapporteringen.', 403);
+            if (command.action === 'requirement.save') {
+              if (Object.keys(command).some(key => !['action', 'personId', 'requirement'].includes(key))) fail('Tidinställningen innehåller okända uppgifter.', 422);
+              employeeTimeRequirementCommand(state, p, { personId: requestedId, requirement: command.requirement }, audit, timeContext);
+            } else if (command.action === 'clock.correct') {
+              const { personId: _, ...clockCommand } = command;
+              employeeClockCommand(state, scopedPerson, clockCommand, audit, timeContext);
+            } else fail('Tidåtgärden stöds inte.', 422);
+          }
+          // A manager's time view is narrower than the employee's own mobile
+          // overview. Employment access does not grant leave reasons or jobs.
+          const projected = employeeTimeProjection(state, scopedPerson, timeContext);
+          const { orders: _orders, activeWork: _activeWork, leaveRequests: _leaveRequests, selectedDay, ...timeSummary } = projected;
+          const readTransport = permitted('transportRead');
+          const absences = permitted('absenceRead') ? selectedDay.absences : selectedDay.absences.map(({ kind: _kind, createdBy: _createdBy, ...absence }) => absence);
+          const entries = readTransport ? selectedDay.entries : selectedDay.entries.map(entry => {
+            const { orderId: _orderId, orderName: _orderName, ...safeEntry } = entry;
+            return entry.source === 'order' || entry.orderId ? { ...safeEntry, activity: 'Uppdrag', note: '' } : safeEntry;
+          });
+          return { ...timeSummary, selectedDay: { ...selectedDay, entries, absences, orders: [] }, orders: [], activeWork: null, leaveRequests: [], person: { id: person.id, name: person.name },
+            capabilities: { manageTimeSettings: permitted('employmentWrite') && (person.userId !== p.user.id || p.user.level === 'Systemadmin'), correctClock: permitted('employmentWrite') } };
+        };
+        const result = req.method === 'GET' && repository.read
+          ? await repository.read(operate, { domains: ['pricing', 'personnel', 'employeeTime', 'transport', 'logistics'] })
+          : await repository.transact(operate);
         json(res, 200, result); return true;
       }
       if (domain === 'personnel') {

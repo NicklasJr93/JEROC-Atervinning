@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.8.2. Aktuell kontorsversion: 0.25.0.
+Aktuell mobilwebbversion: 0.9.0. Aktuell kontorsversion: 0.26.0.
 Banköverföring/Open Payments sandbox och bankmottagare är genomförda i ÄL 109,
 bygge 2026-10-13: docs/integrationer/openpayments-bygge-2026-10-13.md.
 Delad attestknapp, bokföring i Spiris, utbetalningsspärr, eget utbetalningskort
@@ -1640,7 +1640,8 @@ på kontoret och saldo-/ersättningsregler byggs senare. Kontor fortsatt 0.17.0.
   den etappen. Personaldokument, utrustning, lönekörning och integrationer ingår inte.
 
 079 – Stämpelklocka parallellt med arbetsordertid
-Status: Planerad 2026-10-12. Flödet godkänt; ingen implementation aktiverad.
+Status: Implementerad 2026-10-13 i mobilwebb 0.9.0 och kontor 0.26.0.
+Aktivering sker per anställd; befintliga konton behåller tidigare tidskälla.
 - Admin väljer under personens tidrapporteringsinställningar på kontoret
   Stämpelklocka eller Arbetsorder + manuell tid som källa till arbetade timmar.
   Stämpelkort och statusrad visas bara för personer med stämpelklockan påslagen.
@@ -1659,6 +1660,20 @@ Status: Planerad 2026-10-12. Flödet godkänt; ingen implementation aktiverad.
   under Tid utan ytterligare spärr.
 - Befintligt timkrav och spärr för tidigare ofullständig arbetsdag använder
   vald tidskälla. En rättelse häver spärren först när giltig tid sparats på servern.
+- Tidrapportering på personalkortet får inställningar, valt datum/månad,
+  stämplingshistorik och rättelse med verkliga tider och anledning. Historik
+  sparar båda användaridentiteterna och före/efter-värden.
+- Registrerad tid idag flyttar nytt byte av tidskälla till tidigast nästa dag.
+  Äldre dagar behåller sin källa; ersatta framtida planer återaktiveras inte.
+  Ett aktivt nattpass kan avslutas även efter ett schemalagt byte vid midnatt.
+- Klockan använder serverns tid, personrevision och aktörsbundet anrops-ID.
+  Raster räknas separat. Sekundvisningen i mobilen gör inga nätanrop.
+  Tid från ett oavslutat tidigare pass används inte för att häva timkravsspärren.
+  Pass över 48 timmar kan avslutas men kräver rättelse före slutlig tidberäkning.
+- Läsning/ändring av kontorets tiduppgifter kräver explicita anställningsrättigheter
+  för båda aktörerna och personens anläggningar. Separata frånvaro-/transport-
+  behörigheter styr vilka detaljer kontorets tidvy får lämna ut.
+- Guide: docs/personal-utrustning-stampelklocka.md. Inga nya Render-variabler.
 
 080 – Spiris-inställningarnas hämtning fastnar
 Status: Implementerad i kontor 0.17.1, 2026-10-12.
@@ -2601,3 +2616,27 @@ inväntar Entra-klientuppgifter och användarens inloggning/godkännande.
 - Verifierat: API-/protokoll-/isoleringstester, riktig lokal gateway med
   plattformscookie/callback och riktade browsertester med kontrollerade svar.
   Riktig Graph-anslutning har inte provats utan Entra-uppgifterna.
+
+ÄL 113 – Utrustning för personalen med utlämning och tidsstämplad historik
+Status: Implementerad 2026-10-13 i kontor 0.26.0 och mobilwebb 0.9.0.
+- Utrustning i kontorets vänstermeny: fysiska prylar med unikt inventarienummer,
+  namn, kategori, anläggning, valfritt serienummer/beskrivning och status.
+  Sökning och filter för kategori, status och anläggning. Ingen demoutrustning skapas.
+- Lämna ut till en aktiv anställd på samma anläggning. Återlämning anger om
+  prylen kan lämnas ut igen eller behöver service/kontroll. Samma pryl kan
+  bara ha en aktiv tilldelning; revision och anrops-ID skyddar konkurrerande tryck.
+- Personalkortet får fliken Utrustning med personens prylar och historik.
+  Mobilens Profil → Min utrustning visar endast den egna tilldelningen och
+  lånehistoriken. En senare innehavares uppgifter visas inte för en tidigare.
+- Servern sparar datum, faktisk/effektiv ansvarig och notering vid utlämning
+  och retur. Historiska tilldelningar behåller ursprunglig anläggning även
+  efter flytt. Utlämnad utrustning måste återlämnas innan anläggningen ändras.
+- Separata utrustningsrättigheter för läsning och hantering. Skrivrätt kräver
+  läsrätt. Båda aktörernas aktuella rättigheter/anläggningar kontrolleras.
+- Privat equipment-domän sparas i bolagets befintliga PostgreSQL-lagring och
+  följer med databasdump. Generella kontors-, mobil- och personalpaket får
+  inte utrustningsregister eller privata utlämningsnoter.
+- Första versionen gäller personalprylar: telefon, verktyg, skyddsutrustning,
+  nyckel och övrigt. Dokument/foton, kvittenssignering, fordonsservice och
+  förbrukningslager ingår inte i denna etapp.
+- Guide: docs/personal-utrustning-stampelklocka.md. Inga nya Render-variabler.

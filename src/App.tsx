@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useDemo } from './store';
 import { Notice, Nav } from './components';
 import { useEmployee } from './employee/EmployeeProvider';
+import { EmployeeClockStatus, isEmployeeClockDay } from './employee/EmployeeClock';
 import {
   EmployeeLoginPage, EmployeeHomePage, EmployeeSchedulePage, EmployeeTimePage,
   EmployeeProfilePage, EmployeeAssignmentsPage, EmployeeRequirementPage, EmployeeTimeGate,
@@ -42,12 +43,13 @@ export function App() {
   const yardPage = (page: React.ReactNode) => !employee.session?.capabilities.yardWork
     ? <Navigate to="/" replace />
     : employee.overview?.gate.blocked
-      ? <Navigate to={`/time?date=${employee.overview.gate.date ?? employee.overview.today}&register=1`} replace />
+      ? <Navigate to={`/time?date=${employee.overview.gate.date ?? employee.overview.today}${isEmployeeClockDay(employee.overview, employee.overview.gate.date) ? '' : '&register=1'}`} replace />
       : !sharedReady
         ? <><main className="employee-page" role="status"><h1>Gårdsarbete</h1><p>Hämtar aktuella vägningar…</p></main><Nav /></>
         : page;
   return (
     <div className={`app-shell employee-app ${fixed ? 'fixed-screen' : ''}`}>
+      {loggedIn && !employee.loading && <EmployeeClockStatus />}
       {storageError && yardRoute && loggedIn && (
         <div className="storage-error">
           <Notice tone="red">{storageError}</Notice>
@@ -75,6 +77,7 @@ export function App() {
           <Route path="/profile/password" element={<EmployeeProfilePage />} />
           <Route path="/profile/requirements" element={<EmployeeRequirementPage />} />
           <Route path="/profile/accounts" element={<EmployeeProfilePage />} />
+          <Route path="/profile/equipment" element={<EmployeeProfilePage />} />
           <Route path="/password" element={<PasswordPage />} />
           <Route path="/new" element={yardPage(<ModePage />)} />
           <Route path="/pending" element={<Navigate to="/yard" replace />} />

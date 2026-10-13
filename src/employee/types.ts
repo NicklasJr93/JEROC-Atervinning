@@ -15,9 +15,32 @@ export interface EmployeeCapabilities {
 export interface EmployeeRequirement {
   enabled: boolean; mode: 'schedule' | 'fixed'; dailyMinutes?: number;
   effectiveFrom: string; enforcementFrom: string; revision: number; weekdays?: number[];
+  timeSource?: 'workorder' | 'clock';
+}
+export interface EmployeeClockBreak { startedAt: string; endedAt: string | null }
+export interface EmployeeClockSession {
+  id: string; revision: number; startedAt: string; endedAt: string | null;
+  breaks: EmployeeClockBreak[]; workSeconds: number; breakSeconds: number;
+  dayWorkSeconds?: number; dayBreakSeconds?: number; correctedAt?: string; correctionReason?: string;
+  provisional?: boolean; requiresCorrection?: boolean;
+}
+export interface EmployeeClock {
+  enabled: boolean; source: 'workorder' | 'clock'; revision: number;
+  status: 'working' | 'break' | 'out' | 'off'; serverNow: string;
+  activeSession: EmployeeClockSession | null; workSeconds: number; breakSeconds: number;
+  requiresCorrection?: boolean;
+}
+export interface EmployeeClockAction {
+  action: 'clock.in' | 'clock.pause' | 'clock.resume' | 'clock.out';
+  requestId: string; revision: number; sessionId?: string;
+}
+export interface EmployeeClockCorrection {
+  action: 'clock.correct'; requestId: string; revision: number; sessionId?: string;
+  startedAt: string; endedAt: string; breaks: { startedAt: string; endedAt: string }[]; reason: string;
 }
 export interface EmployeeTimeGate {
   blocked: boolean; date?: string; expectedMinutes: number; recordedMinutes: number; missingMinutes: number;
+  timeSource?: 'workorder' | 'clock';
 }
 export interface EmployeeTimeEntry {
   id: string; revision: number; source: 'manual' | 'order'; date: string;
@@ -33,6 +56,8 @@ export interface EmployeeDay {
   date: string; expectedMinutes: number; recordedMinutes: number; missingMinutes: number;
   automaticMinutes: number; manualMinutes: number; absenceMinutes: number; jobsCount: number;
   status: 'empty' | 'partial' | 'complete' | 'not_required';
+  timeSource?: 'workorder' | 'clock'; clockMinutes?: number; breakMinutes?: number;
+  allocatedMinutes?: number; unallocatedMinutes?: number;
 }
 export type EmployeeOrder = TransportOrder & { detail?: LogisticsOrderDetail };
 export interface EmployeeLeaveRequest {
@@ -49,7 +74,8 @@ export interface EmployeeSession {
 export interface EmployeeOverview extends EmployeeSession {
   revision: number; today: string; month: string; date: string;
   requirement: EmployeeRequirement; gate: EmployeeTimeGate; days: EmployeeDay[];
-  selectedDay: EmployeeDay & { entries: EmployeeTimeEntry[]; schedules: WorkSchedule[]; absences: Absence[]; orders: EmployeeOrder[] };
+  selectedDay: EmployeeDay & { entries: EmployeeTimeEntry[]; schedules: WorkSchedule[]; absences: Absence[]; orders: EmployeeOrder[]; clockSessions?: EmployeeClockSession[] };
+  clock?: EmployeeClock;
   orders: EmployeeOrder[]; activeWork?: { id: string; orderId: string; startedAt: string; personId: string } | null;
   leaveRequests: EmployeeLeaveRequest[];
   summary: { expectedMinutes: number; recordedMinutes: number; missingMinutes: number };

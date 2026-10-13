@@ -6,7 +6,8 @@ import { ensureLogistics, driverOrderView, applyDriverAction } from './logistics
 import { createTransportOutbox } from './transport-integrations.mjs';
 import { applyTransportChange, personnelPlanIssues, normalizePhoneNumber, phoneNumberError } from '../dist-server/domain-models.mjs';
 import { ensureEmployeeTime, enrollEmployeeTime, employeeTimeProjection, employeeTimeCommand,
-  employeeTimeGate, employeeTimeRequirementCommand, employeeTimeLifecycle } from './employee-time.mjs';
+  employeeTimeGate, employeeTimeRequirementCommand, employeeTimeLifecycle, employeeClockCommand } from './employee-time.mjs';
+import { employeeEquipmentProjection } from './equipment.mjs';
 import { employeeSites, employeeCompanyId, employeeActiveSite, saveEmployeeActiveSite } from './mobile-sites.mjs';
 
 const COOKIE = 'jeroc_employee';
@@ -215,9 +216,19 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         if (!identity) fail('Logga in för att använda appen.', 401);
         const { person, account, principal, session } = identity;
         const scopedPerson = { ...person, siteIds: principal.user.siteIds };
-        const timeContext = { now, allowedSiteIds: principal.user.siteIds, siteCatalog: employeeSites(siteCatalog, person, principal.user) };
+        const timeContext = { now, actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
+          allowedSiteIds: principal.user.siteIds, siteCatalog: employeeSites(siteCatalog, person, principal.user) };
         if (path === 'logout' && req.method === 'POST') { auth.sessions = auth.sessions.filter(value => value !== session); return { token: '', value: { ok: true } }; }
         if (['session', 'bootstrap', 'overview', 'calendar'].includes(path) && req.method === 'GET') return { value: overview(identity) };
+        if (path === 'equipment' && req.method === 'GET') {
+          if ([...url.searchParams.keys()].some(key => !['date', 'month'].includes(key))) fail('Utrustningen hämtas för ditt eget konto.', 422);
+          return { value: employeeEquipmentProjection(state, scopedPerson, { actor: principal.actor, user: principal.user }) };
+        }
+        if (path === 'clock' && req.method === 'POST') {
+          if (payload?.action === 'clock.in') demandTimeComplete(state, scopedPerson, now, principal.user.siteIds);
+          employeeClockCommand(state, scopedPerson, payload, audit, timeContext);
+          return { value: overview(identity) };
+        }
         if (path === 'active-site' && req.method === 'POST') {
           const input = parse(z.object({ siteId: z.string().trim().min(1).max(100) }).strict(), payload);
           if (!employeeSites(siteCatalog, person, principal.user).some(site => site.id === input.siteId))
@@ -251,7 +262,10 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
             if (!people.some(value => value.id === payload?.personId)) fail('Personen ligger utanför ditt personalansvar.', 403);
             employeeTimeRequirementCommand(state, principal, payload, audit, timeContext);
           }
-          return { value: { ...overview(identity), people: people.map(value => ({ id: value.id, name: value.name, role: value.role, requirement: employeeTimeProjection(state, value, timeContext).requirement, canEdit: true })) } };
+          return { value: { ...overview(identity), people: people.map(value => {
+            const projected = employeeTimeProjection(state, value, timeContext);
+            return { id: value.id, name: value.name, role: value.role, requirement: projected.configuredRequirement ?? projected.requirement, canEdit: true };
+          }) } };
         }
         if (['accounts', 'accounts/save'].includes(path)) {
           if (principal.user.level !== 'Systemadmin' && principal.user.level !== 'VD') fail('Du saknar behörighet att administrera personalkonton.', 403);
@@ -336,7 +350,7 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         fail('Mobilsidan finns inte.', 404);
       };
       const result = req.method === 'GET' && repository.read
-        ? await repository.read(operate, { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth', 'employeeTime', 'transport', 'logistics'] })
+        ? await repository.read(operate, { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth', 'employeeTime', 'transport', 'logistics', ...(path === 'equipment' ? ['equipment'] : [])] })
         : await repository.transact(operate);
       if (result.failure) json(res, 401, { error: result.failure });
       else { if (result.token !== undefined) cookie(res, result.token, req); json(res, 200, result.value); }

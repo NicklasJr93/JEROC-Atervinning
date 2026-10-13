@@ -131,6 +131,7 @@ test('facility-scoped personnel rights cannot read or mutate another site or pri
 test('HR write grants require matching reads without implicitly granting sensitive VD rights',()=>{
   const store=createPricingStore(),admin=store.principal('admin'),users=store.exportState().users;
   assert.throws(()=>store.saveUsers({users:users.map(u=>u.id==='lars'?{...u,permissions:['salaryWrite']}:u)},admin),/salaryRead/);
+  assert.throws(()=>store.saveUsers({users:users.map(u=>u.id==='lars'?{...u,permissions:['equipmentWrite']}:u)},admin),/equipmentRead/);
   assert.throws(()=>store.saveUsers({users:users.map(u=>u.id==='kajsa'?{...u,permissions:['salaryRead','salaryWrite']}:u)},admin),/personnelRead/);
   store.saveUsers({users:users.map(u=>u.id==='kajsa'?{...u,permissions:['personnelRead','salaryRead','salaryWrite']}:u.id==='lars'?{...u,permissions:[]}:u)},admin);
   const saved=store.exportState().users;assert.deepEqual(saved.find(u=>u.id==='kajsa').permissions,['personnelRead','salaryRead','salaryWrite']);assert.ok(!saved.find(u=>u.id==='lars').permissions.some(p=>['salaryRead','salaryWrite','absenceRead','absenceWrite'].includes(p)));

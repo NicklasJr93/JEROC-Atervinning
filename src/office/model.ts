@@ -4,7 +4,7 @@ import { initialCustomers } from '../data';
 import { paymentDetailsSchema } from '../payment-details';
 export { paymentDetailsSchema } from '../payment-details';
 export type { PaymentDetails } from '../payment-details';
-export const OFFICE_VERSION = '0.25.0';
+export const OFFICE_VERSION = '0.26.0';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -55,6 +55,8 @@ export const permissionNames = {
   mailRead: 'Läsa inkomna mejl i tilldelade inkorgar',
   personnelRead: 'Läsa personalregistret',
   personnelWrite: 'Skapa och ändra personalprofiler',
+  equipmentRead: 'Läsa utrustning och utlämningshistorik',
+  equipmentWrite: 'Registrera, lämna ut och återlämna utrustning',
   employmentRead: 'Läsa anställningsuppgifter',
   employmentWrite: 'Ändra anställningsuppgifter',
   salaryRead: 'Läsa löneuppgifter',
@@ -255,7 +257,7 @@ export const statusNames = {
   paid: 'Demoutbetald',
   balance: 'Sparat på saldo',
 };
-export const sensitivePersonnelPermissions: Permission[] = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage', 'bookSpiris', 'mailRead'];
+export const sensitivePersonnelPermissions: Permission[] = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage', 'bookSpiris', 'mailRead', 'equipmentRead', 'equipmentWrite'];
 export const can = (user: OfficeUser, right: Permission) =>
   sensitivePersonnelPermissions.includes(right)
     ? user.level === 'Systemadmin' || user.permissions.includes(right)
