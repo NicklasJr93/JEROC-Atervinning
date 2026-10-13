@@ -5,6 +5,7 @@ test('demoknappar fyller bara formuläret och döljs när servern stänger demon
   let enabled = true, logins = 0;
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;
+    if (path === '/api/platform/tenant-context') return route.fulfill({ json: { companyId: 'jeroc-demo', companyName: 'JEROC Återvinning AB' } });
     if (path === '/api/employee/demo-config') return route.fulfill({ json: { enabled, accounts: { niklas: enabled, admin: enabled } } });
     if (path === '/api/employee/login') logins++;
     return route.fulfill({ status: 401, json: { error: 'Logga in igen.' } });
@@ -23,9 +24,9 @@ test('demoknappar fyller bara formuläret och döljs när servern stänger demon
   await expect(page.getByRole('region', { name: 'Demoinloggning' })).toHaveCount(0);
 });
 
-async function customerFixture(page: Page) {
+async function customerFixture(page: Page, paymentDetails = false) {
   let data: DemoData = { ...seedDemo(), customers: [], drafts: [{
-    id: 'mobile-settings-build', number: 9001, createdAt: '2026-10-12T10:00:00.000Z', updatedAt: '2026-10-12T10:00:00.000Z',
+    id: 'mobile-settings-build', number: 9001, siteId: 'norrtalje', createdAt: '2026-10-12T10:00:00.000Z', updatedAt: '2026-10-12T10:00:00.000Z',
     mode: 'direct', status: 'draft', rows: [], reference: '', origin: '',
   }] };
   let posts = 0;
@@ -39,7 +40,7 @@ async function customerFixture(page: Page) {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path.startsWith('/api/employee/')) return route.fulfill({ json: {
       person: { id: personId, name: 'Testmedarbetare', role: 'Invägare', team: 'Gårdsplan', siteIds: ['norrtalje'] },
-      capabilities: { yardWork: true, employeeTime: true, assignedOrders: false }, sites: [],
+      capabilities: { yardWork: true, employeeTime: true, assignedOrders: false, paymentDetails }, activeSiteId: 'norrtalje', sites: [{ id: 'norrtalje', name: 'Norrtälje', active: true }],
       today: '2026-10-12', month: '2026-10', date: '2026-10-12', gate: { blocked: false },
       days: [], orders: [], selectedDay: { schedules: [], absences: [], entries: [], orders: [] },
     } });
@@ -102,4 +103,26 @@ test('privatkund kan skapas utan personnummer och är alltid utan momsregistreri
   await page.getByRole('button', { name: 'Spara och välj kund' }).click();
   await expect.poll(() => fixture.data().customers.length).toBe(1);
   expect(fixture.data().customers[0]).toMatchObject({ type: 'Privatperson', number: '', vatRegistered: false });
+});
+
+test('mobilkund med betalningsbehörighet kan spara en girprofil medan kontofält rensas vid typbyte', async ({ page }) => {
+  const fixture = await customerFixture(page, true);
+  await page.getByLabel('Företagsnamn', { exact: true }).fill('Bankgirokund UI');
+  await page.getByLabel('Organisationsnummer', { exact: true }).fill('559359-3626');
+  await page.getByLabel('Lägg till betalningsuppgifter', { exact: true }).check();
+  await page.getByLabel('Clearingnummer', { exact: true }).fill('8327');
+  await page.getByLabel('Kontonummer', { exact: true }).fill('00123456789');
+  await page.getByLabel('Mottagartyp', { exact: true }).selectOption('bankgiro');
+  await page.getByLabel('Bankgironummer', { exact: true }).fill('123-4566');
+  await expect(page.getByLabel('Kontonummer', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Spara och välj kund' }).click();
+  await expect.poll(() => fixture.data().customers.length).toBe(1);
+  const profile = fixture.data().customers[0].paymentProfile;
+  expect(profile).toMatchObject({ method: 'bank', bankType: 'bankgiro', bankgiro: '1234566', holder: 'Bankgirokund UI' });
+  expect(profile).not.toHaveProperty('clearing'); expect(profile).not.toHaveProperty('account');
+});
+
+test('mobilens betalningsfält visas bara med betalningsbehörighet', async ({ page }) => {
+  await customerFixture(page);
+  await expect(page.getByLabel('Lägg till betalningsuppgifter', { exact: true })).toHaveCount(0);
 });

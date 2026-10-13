@@ -19,17 +19,21 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
   const source = { cardId, approvalId: 'payment-approval', version: 1, hash: 'payment-source-hash', siteId: 'norrtalje', customerId: customer.id, customerName: customer.name, customerType: customer.type };
   let job: SwishPaymentJob | undefined, starts = 0, resumes = 0;
   let previousJobs: SwishPaymentJob[] = [], spirisTrace = false;
-  const paymentWrites: string[] = [];
+  const paymentWrites: string[] = [], bankWrites: string[] = [];
   const requests: string[] = [], startsPayload: Record<string, unknown>[] = [];
   await page.context().route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     requests.push(path);
     if (request.method() === 'POST' && path.startsWith('/api/environment/payments')) paymentWrites.push(path);
+    if (request.method() === 'POST' && path.startsWith('/api/environment/bank/payments')) bankWrites.push(path);
     let body: unknown = {}, status = 200;
     if (path === '/api/platform/session') body = auth;
     else if (path === '/api/application/office') body = { data: office, revision: 1 };
     else if (path === '/api/environment/session' || path === '/api/environment/demo-session') body = { csrfToken: 'env-csrf', actualUserId: user.id, effectiveUserId: user.id };
     else if (path.includes('/environment/sources/')) body = { sourceId: String(cardId), revision: 1, sites: [], classifications: [], storagePolicies: [], reports: [], reportHistory: [], inventory: [] };
+    else if (path.endsWith(`/bank/payments/cards/${cardId}/prepare`)) body = { cardId, source, amount: 125, amountCents: 12500, currency: 'SEK', originalPaymentDetails: card.paymentDetails,
+      paymentDetails: card.paymentDetails, customer, canStart: false, canInitiate: false, issues: ['Bankkopplingen är inte aktiverad.'], simulation: true, mode: 'sandbox', existingJob: null, settings: { enabled: false }, configuration: { ready: false } };
+    else if (path.startsWith('/api/environment/bank/payments')) body = [];
     else if (path.endsWith(`/payments/cards/${cardId}/prepare`)) body = { cardId, source, sourceSnapshotHash: source.hash, amount: 125, amountCents: 12500, currency: 'SEK', originalPaymentDetails: card.paymentDetails,
       paymentDetails: { ...card.paymentDetails, personalNumber: customer.number }, customer, canStart: false, canInitiate: true, issues: ['Välj Swish för testet.'], simulation: true, mode: 'mss', existingJob: job ?? null, settings: { enabled: true }, configuration: { ready: true, mode: 'mss' } };
     else if (path.endsWith(`/payments/cards/${cardId}`)) body = job ? [job, ...previousJobs] : [];
@@ -69,7 +73,8 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
     else { status = 503; body = { error: 'Optional service unavailable in payout UI fixture' }; }
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
-  return { cardId, starts: () => starts, resumes: () => resumes, startsPayload, requests, paymentWrites,
+  return { cardId, starts: () => starts, resumes: () => resumes, startsPayload, requests, paymentWrites, bankWrites,
+    originalPayment: () => structuredClone(card.paymentDetails),
     seedPaymentHistory: () => {
       spirisTrace = true;
       const saved: SwishPaymentJob = { id: 'trace-latest', kind: 'card', source, amount: 125, amountCents: 12500,
@@ -104,6 +109,8 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
 
 async function fillPayout(page: Page) {
   await page.getByRole('button', { name: 'Betala ut', exact: true }).first().click();
+  await expect(page.locator('.bank-payout-dialog')).toBeVisible();
+  await page.locator('.bank-payout-dialog').getByRole('button', { name: 'Byt till Swish', exact: true }).click();
   const dialog = page.locator('.swish-payout-dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel('Telefonnummer', { exact: true })).toHaveCount(0);
@@ -115,6 +122,31 @@ async function fillPayout(page: Page) {
   await dialog.getByLabel('Orsak till ändrade betalningsuppgifter').fill('Kunden vill använda Swish i detta test.');
   return dialog;
 }
+
+test('ett bankvalt attestoriginal kan uttryckligen betalas med Swish med orsak utan att bankinstruktion eller attestoriginal ändras', async ({ page }) => {
+  const state = await fixture(page), original = state.originalPayment();
+  await page.goto(`/kontor#/weighings/${state.cardId}`);
+  await page.getByRole('button', { name: 'Betala ut', exact: true }).first().click();
+  const bankDialog = page.locator('.bank-payout-dialog');
+  await expect(bankDialog).toBeVisible();
+  await expect(bankDialog).toContainText('Bankkopplingen är inte aktiverad.');
+  await bankDialog.getByRole('button', { name: 'Byt till Swish', exact: true }).click();
+  const dialog = page.locator('.swish-payout-dialog'); await expect(dialog).toBeVisible();
+  await expect(dialog.locator('.swish-payout-locked-details')).toContainText('1234567890');
+  await expect(dialog.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Redigera', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Swish', exact: true }).click();
+  await dialog.getByLabel('Telefonnummer', { exact: true }).fill('0701234567');
+  await expect(dialog.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true })).toBeDisabled();
+  expect(state.starts()).toBe(0); expect(state.bankWrites).toEqual([]); expect(state.originalPayment()).toEqual(original);
+  await dialog.getByLabel('Orsak till ändrade betalningsuppgifter').fill('Kunden önskar Swish istället för banköverföring.');
+  await dialog.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true }).click();
+  const progress = page.locator('.swish-payout-progress-dialog'); await expect(progress).toBeVisible();
+  await expect(progress.getByRole('button', { name: 'Byt till banköverföring', exact: true })).toHaveCount(0);
+  expect(state.starts()).toBe(1); expect(state.bankWrites).toEqual([]); expect(state.originalPayment()).toEqual(original);
+  expect(state.startsPayload[0]).toMatchObject({ source: { approvalId: 'payment-approval', version: 1, hash: 'payment-source-hash' },
+    paymentDetails: { method: 'swish', phone: '+46701234567' }, reason: 'Kunden önskar Swish istället för banköverföring.' });
+});
 
 test('attesterat belopp och kundidentitet låses; ändring kräver orsak och HTTP 201 blir inte betaldstatus', async ({ page }) => {
   const state = await fixture(page);

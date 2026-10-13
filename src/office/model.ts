@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { purchaseAccountingSnapshotSchema } from './accounting-types';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.23.4';
+import { paymentDetailsSchema } from '../payment-details';
+export { paymentDetailsSchema } from '../payment-details';
+export type { PaymentDetails } from '../payment-details';
+export const OFFICE_VERSION = '0.24.0';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
@@ -97,16 +100,6 @@ const auditSchema = z.object({
   effectiveUserId: z.string().optional(),
 });
 export type OfficeAudit = z.infer<typeof auditSchema>;
-export const paymentDetailsSchema = z.object({
-  method: z.enum(['bank', 'swish', 'cash', 'balance']),
-  bank: z.string().optional(),
-  clearing: z.string().optional(),
-  account: z.string().optional(),
-  holder: z.string().optional(),
-  phone: z.string().optional(),
-  recipient: z.string().optional(),
-});
-export type PaymentDetails = z.infer<typeof paymentDetailsSchema>;
 const customerSchema = z.object({
   id: z.string(),
   name: z.string().min(1),

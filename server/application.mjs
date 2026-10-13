@@ -17,7 +17,7 @@ import { mobileRecordPayload } from './mobile-records.mjs';
 import { createMobilePricingProjection, mobileBusinessDate } from './mobile-pricing-projection.mjs';
 import { officeSchema, seedOffice, migrateOffice, storeSchema, isComplete, rowWeight, transportSchema, seedTransport, articles, recordPayment, validPaymentDetails,
   normalizeCustomerDetails, validateCustomerDetails, normalizeOriginAddress, normalizeAddress, addressError,
-  normalizePhoneNumber, normalizePaymentDetails, phoneNumberError } from '../dist-server/domain-models.mjs';
+  normalizePhoneNumber, normalizePaymentDetails, phoneNumberError, bankRecipientError } from '../dist-server/domain-models.mjs';
 
 const clone = value => structuredClone(value);
 const equal = (a, b) => isDeepStrictEqual(a === undefined ? a : JSON.parse(JSON.stringify(a)), b === undefined ? b : JSON.parse(JSON.stringify(b)));
@@ -296,6 +296,10 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
     if (!before || before.origin !== after.origin || !equal(before.originDetails, after.originDetails)) Object.assign(after, normalizeSavedOrigin(after));
     if (after.paymentDetails?.method === 'swish' && (!before || !equal(before.paymentDetails, after.paymentDetails))) {
       const error = phoneNumberError(after.paymentDetails.phone ?? '', { required: true, swish: true });
+      if (error) fail(error, 422);
+    }
+    if (after.paymentDetails?.method === 'bank' && (!before || !equal(before.paymentDetails, after.paymentDetails))) {
+      const error = bankRecipientError(after.paymentDetails);
       if (error) fail(error, 422);
     }
     if (!before) {
@@ -832,7 +836,11 @@ export function createApplicationService({ repository, env = process.env, seed =
             }
             if (domain !== 'transport') for (const customer of imported.customers) if (!state.office.customers.some(old => old.id === customer.id)) {
               if (!can(p, 'customers')) { importConflicts++; continue; }
-              state.office.customers.push(officeSchema.shape.customers.removeDefault().element.parse({ ...customer, customerNumber: customer.customerNumber ?? customer.id, audit: customer.audit ?? [] }));
+              if (customer.paymentProfile && (!can(p, 'paymentDetails') || !can({ user: p.actor }, 'paymentDetails') ||
+                  customer.paymentProfile.method === 'bank' && bankRecipientError(customer.paymentProfile))) { importConflicts++; continue; }
+              state.office.customers.push(officeSchema.shape.customers.removeDefault().element.parse({ ...customer,
+                ...(customer.paymentProfile ? { paymentProfile: normalizePaymentDetails(customer.paymentProfile) } : {}),
+                customerNumber: customer.customerNumber ?? customer.id, audit: customer.audit ?? [] }));
             }
             if (importedMobileDrafts.length) {
               state.pricing.customers = state.office.customers.map(({ id, name }) => ({ id, name }));
@@ -882,10 +890,23 @@ export function createApplicationService({ repository, env = process.env, seed =
                 Object.assign(change.after, normalizeSavedOrigin(change.after));
             }
             state.mobile.drafts = applyChanges(state.mobile.drafts, changes);
-            const customers = changedRecords(mobileCustomers(state.office.customers), base.customers, next.customers, row => row.id, normalizeCustomerDetails, mergeCustomerRecord);
+            // Include a stored profile only inside this write-side comparison
+            // when that exact customer explicitly submitted one. This makes a
+            // retried create idempotent without exposing profiles on mobile reads.
+            const submittedProfiles = new Set(next.customers.filter(customer => customer.paymentProfile !== undefined).map(customer => customer.id));
+            const writeCustomers = mobileCustomers(state.office.customers).map(customer => submittedProfiles.has(customer.id)
+              ? { ...customer, paymentProfile: state.office.customers.find(value => value.id === customer.id)?.paymentProfile } : customer);
+            const customers = changedRecords(writeCustomers, base.customers, next.customers, row => row.id, normalizeCustomerDetails, mergeCustomerRecord);
             for (const { after } of customers) {
               demand(p, 'customers'); if (!after) fail('Kunder får inte raderas.');
               const index = state.office.customers.findIndex(customer => customer.id === after.id), old = state.office.customers[index];
+              // General mobile projections deliberately omit stored payment
+              // profiles. An explicitly submitted profile is a separate write,
+              // never an implicit permission granted by editing a customer.
+              if (after.paymentProfile !== undefined && !equal(old?.paymentProfile, after.paymentProfile)) {
+                demand(p, 'paymentDetails');
+                if (!can({ user: p.actor }, 'paymentDetails')) fail('Du saknar behörighet att ändra betalningsuppgifter.', 403);
+              }
               const customer = officeSchema.shape.customers.removeDefault().element.parse({ ...old, ...after,
                 ...(after.type === 'Privatperson' ? { vatRegistered: false } : !old && after.vatRegistered === undefined ? { vatRegistered: true } : {}),
                 customerNumber: old?.customerNumber ?? after.id, audit: old?.audit ?? [] });

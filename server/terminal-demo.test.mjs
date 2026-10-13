@@ -86,6 +86,24 @@ test('registered facilities are shared dynamically, scoped by ID and retain froz
   }, { siteProvider: async () => sites });
 });
 
+test('typed bank recipients survive customer-review freezing and an invalid IBAN cannot reserve the terminal', async () => fixture(async f => {
+  const terminal = await f.create();
+  await f.service.login({ username: terminal.username, password: 'demolosen123' });
+  const request = f.payload(9915, terminal.id);
+  request.card.paymentDetails = { method: 'bank', bankType: 'bankgiro', bankgiro: '123-4566', holder: 'Testmottagare', clearing: '8327', account: '00001234567' };
+  const approval = await f.service.send(request, f.admin);
+  assert.deepEqual(approval.snapshot.card.paymentDetails, { method: 'bank', bankType: 'bankgiro', bankgiro: '1234566', holder: 'Testmottagare' });
+  const frozenHash = approval.snapshot.hash;
+  await f.restart();
+  const reopened = (await f.service.read(f.admin)).approvals.find(value => value.id === approval.id);
+  assert.equal(reopened.snapshot.hash, frozenHash); assert.deepEqual(reopened.snapshot.card.paymentDetails, approval.snapshot.card.paymentDetails);
+  await f.service.cancel(approval.id, f.admin);
+  const invalid = f.payload(9916, terminal.id);
+  invalid.card.paymentDetails = { method: 'bank', bankType: 'iban', iban: 'SE4550000000058398257467', holder: 'Testmottagare' };
+  await fail(() => f.service.send(invalid, f.admin), 422, 'payment_details_invalid');
+  assert.ok(!(await f.service.read(f.admin)).approvals.some(value => value.cardId === 9916));
+}));
+
 test('inactive facilities retain history but reject terminal creation, logins and new customer sessions', async () => {
   let sites = [{ id: 'norrtalje', name: 'Norrtälje', active: true }];
   await fixture(async (f) => {

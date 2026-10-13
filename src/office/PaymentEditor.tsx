@@ -10,8 +10,9 @@ import {
   Wallet,
 } from 'lucide-react';
 import type { PaymentDetails } from './model';
+import { bankRecipientLabels } from '../payment-details';
 import { paymentSummary, validPaymentDetails } from './customer-model';
-import { normalizePhoneNumber, phoneNumberError } from '../data-format';
+import { bankRecipientError, bankRecipientType, normalizePaymentDetails, normalizePhoneNumber, phoneNumberError } from '../data-format';
 import './payment.css';
 
 type PaymentMethod = PaymentDetails['method'];
@@ -22,6 +23,14 @@ type PaymentDraft = PaymentDetails & {
   holder: string;
   phone: string;
   recipient: string;
+  bankType: 'account' | 'bankgiro' | 'plusgiro' | 'iban';
+  bankgiro: string;
+  plusgiro: string;
+  iban: string;
+  bic: string;
+  bankCountry: string;
+  beneficiaryAddress: string;
+  ocr: string;
 };
 
 export type PaymentEditorProps = {
@@ -36,10 +45,11 @@ export type PaymentEditorProps = {
   allowBalance?: boolean;
   onDraftChange?: (details: PaymentDetails) => void;
   hideSaveAction?: boolean;
+  bankOnly?: boolean;
 };
 
 const methods = [
-  { id: 'bank', label: 'Bankkonto', icon: Landmark },
+  { id: 'bank', label: 'Banköverföring', icon: Landmark },
   { id: 'swish', label: 'Swish', icon: Smartphone },
   { id: 'cash', label: 'Kontant', icon: Banknote },
   { id: 'balance', label: 'Spara på saldo', icon: Wallet },
@@ -54,18 +64,34 @@ function makeDraft(value?: PaymentDetails, customerName = ''): PaymentDraft {
     holder: value?.holder ?? customerName,
     phone: value?.phone ?? '',
     recipient: value?.recipient ?? customerName,
+    bankType: bankRecipientType(value ?? {}),
+    bankgiro: value?.bankgiro ?? '',
+    plusgiro: value?.plusgiro ?? '',
+    iban: value?.iban ?? '',
+    bic: value?.bic ?? '',
+    bankCountry: value?.bankCountry ?? '',
+    beneficiaryAddress: value?.beneficiaryAddress ?? '',
+    ocr: value?.ocr ?? '',
   };
 }
 
 function cleanDraft(draft: PaymentDraft): PaymentDetails {
   if (draft.method === 'bank') {
-    return {
+    return normalizePaymentDetails({
       method: 'bank',
+      bankType: draft.bankType,
       bank: draft.bank.trim(),
       clearing: draft.clearing.replace(/[\s-]/g, ''),
       account: draft.account.replace(/[\s-]/g, ''),
       holder: draft.holder.trim(),
-    };
+      bankgiro: draft.bankgiro,
+      plusgiro: draft.plusgiro,
+      iban: draft.iban,
+      bic: draft.bic,
+      bankCountry: draft.bankCountry,
+      beneficiaryAddress: draft.beneficiaryAddress,
+      ocr: draft.ocr,
+    });
   }
   if (draft.method === 'swish') {
     return {
@@ -81,13 +107,13 @@ function fieldErrors(draft: PaymentDraft) {
   const errors: Partial<Record<keyof PaymentDraft, string>> = {};
   const clean = cleanDraft(draft);
   if (draft.method === 'bank') {
-    if (!/^\d{4,5}$/.test(clean.clearing ?? '')) {
+    if (draft.bankType === 'account' && !/^\d{4,5}$/.test(clean.clearing ?? '')) {
       errors.clearing = 'Ange 4 eller 5 siffror.';
     }
-    if (!/^\d{4,15}$/.test(clean.account ?? '')) {
+    if (draft.bankType === 'account' && !/^\d{4,15}$/.test(clean.account ?? '')) {
       errors.account = 'Ange kontonumret med 4–15 siffror.';
     }
-    if (!clean.holder) errors.holder = 'Ange kontohavarens namn.';
+    if (!clean.holder) errors.holder = 'Ange mottagarens namn.';
   }
   if (draft.method === 'swish') {
     const error = phoneNumberError(clean.phone ?? '', { swish: true, required: true });
@@ -126,12 +152,17 @@ export function PaymentReadOnly({
               <dd>{value.bank}</dd>
             </>
           )}
-          <dt>Clearingnummer</dt>
-          <dd>{value.clearing || '–'}</dd>
-          <dt>Kontonummer</dt>
-          <dd>{value.account || '–'}</dd>
-          <dt>Kontohavare</dt>
+          <dt>Mottagartyp</dt>
+          <dd>{bankRecipientLabels[bankRecipientType(value)]}</dd>
+          {bankRecipientType(value) === 'account' && <><dt>Clearingnummer</dt><dd>{value.clearing || '–'}</dd><dt>Kontonummer</dt><dd>{value.account || '–'}</dd></>}
+          {bankRecipientType(value) === 'bankgiro' && <><dt>Bankgiro</dt><dd>{value.bankgiro || '–'}</dd></>}
+          {bankRecipientType(value) === 'plusgiro' && <><dt>Plusgiro</dt><dd>{value.plusgiro || '–'}</dd></>}
+          {bankRecipientType(value) === 'iban' && <><dt>IBAN</dt><dd>{value.iban || '–'}</dd>{value.bic && <><dt>BIC / SWIFT</dt><dd>{value.bic}</dd></>}</>}
+          <dt>{bankRecipientType(value) === 'account' ? 'Kontohavare' : 'Mottagare'}</dt>
           <dd>{value.holder || '–'}</dd>
+          {value.bankCountry && <><dt>Bankland</dt><dd>{value.bankCountry}</dd></>}
+          {value.beneficiaryAddress && <><dt>Mottagaradress</dt><dd>{value.beneficiaryAddress}</dd></>}
+          {value.ocr && <><dt>OCR</dt><dd>{value.ocr}</dd></>}
         </dl>
       )}
       {value?.method === 'swish' && (
@@ -172,9 +203,10 @@ export default function PaymentEditor({
   allowBalance = true,
   onDraftChange,
   hideSaveAction = false,
+  bankOnly = false,
 }: PaymentEditorProps) {
   const formId = useId();
-  const [draft, setDraft] = useState(() => makeDraft(value, customerName));
+  const [draft, setDraft] = useState(() => ({ ...makeDraft(value, customerName), ...(bankOnly ? { method: 'bank' as const } : {}) }));
   const [attempted, setAttempted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -191,7 +223,14 @@ export default function PaymentEditor({
 
   useEffect(() => {
     if (!value) return;
-    setDraft((current) => ({ ...current, ...value }));
+    setDraft((current) => {
+      const next = makeDraft(value, customerName);
+      return { ...current, ...value,
+        ...(value.method === 'bank' ? { bank: next.bank, clearing: next.clearing, account: next.account, holder: next.holder,
+          bankgiro: next.bankgiro, plusgiro: next.plusgiro, iban: next.iban, bic: next.bic,
+          bankCountry: next.bankCountry, beneficiaryAddress: next.beneficiaryAddress, ocr: next.ocr } : {}),
+        bankType: bankRecipientType(value), ...(bankOnly ? { method: 'bank' as const } : {}) };
+    });
     setAttempted(false);
   }, [valueKey]); // Keep drafts for the other methods when the selected one is saved.
 
@@ -213,6 +252,7 @@ export default function PaymentEditor({
   }, [allowBalance, valueKey]);
 
   const errors = attempted ? fieldErrors(draft) : {};
+  const bankError = attempted && draft.method === 'bank' ? bankRecipientError(cleanDraft(draft)) : null;
 
   function selectMethod(method: PaymentMethod) {
     setDraft((current) => ({ ...current, method }));
@@ -245,7 +285,7 @@ export default function PaymentEditor({
   }
 
   function input(
-    name: 'bank' | 'clearing' | 'account' | 'holder' | 'phone' | 'recipient',
+    name: 'bank' | 'clearing' | 'account' | 'holder' | 'phone' | 'recipient' | 'bankgiro' | 'plusgiro' | 'iban' | 'bic' | 'bankCountry' | 'beneficiaryAddress' | 'ocr',
     label: string,
     options: {
       required?: boolean;
@@ -305,7 +345,7 @@ export default function PaymentEditor({
           aria-label="Betalningssätt"
         >
           {methods
-            .filter((method) => allowBalance || method.id !== 'balance')
+            .filter((method) => (!bankOnly || method.id === 'bank') && (allowBalance || method.id !== 'balance'))
             .map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -338,6 +378,13 @@ export default function PaymentEditor({
 
         {draft.method === 'bank' && (
           <div className="office-payment-fields">
+            <label className="office-payment-wide">Mottagartyp
+              <select aria-label="Mottagartyp" value={draft.bankType} onChange={event => {
+                const bankType = event.target.value as PaymentDraft['bankType'];
+                setDraft(current => ({ ...current, bankType, clearing: '', account: '', bankgiro: '', plusgiro: '', iban: '', bic: '', bankCountry: '', beneficiaryAddress: '', ocr: '' }));
+                setAttempted(false); setMessage(''); setSaveError('');
+              }}>{Object.entries(bankRecipientLabels).map(([type, label]) => <option key={type} value={type}>{label}</option>)}</select>
+            </label>
             {input('bank', 'Bank', {
               placeholder: 'Välj eller skriv bank',
               wide: true,
@@ -357,7 +404,7 @@ export default function PaymentEditor({
                 <option key={bank} value={bank} />
               ))}
             </datalist>
-            {input('clearing', 'Clearingnummer', {
+            {draft.bankType === 'account' && <>{input('clearing', 'Clearingnummer', {
               required: true,
               numeric: true,
               placeholder: '8327',
@@ -366,8 +413,18 @@ export default function PaymentEditor({
               required: true,
               numeric: true,
               placeholder: '1234567890',
-            })}
-            {input('holder', 'Kontohavare', { required: true, wide: true })}
+            })}</>}
+            {draft.bankType === 'bankgiro' && input('bankgiro', 'Bankgironummer', { required: true, numeric: true, placeholder: '123-4567', wide: true })}
+            {draft.bankType === 'plusgiro' && input('plusgiro', 'Plusgironummer', { required: true, numeric: true, placeholder: '123456-7', wide: true })}
+            {draft.bankType === 'iban' && input('iban', 'IBAN', { required: true, placeholder: 'SE45 5000 0000 0583 9825 7466', wide: true })}
+            {input('holder', draft.bankType === 'account' ? 'Kontohavare' : 'Mottagare', { required: true, wide: true })}
+            <details className="office-payment-bank-extra office-payment-wide"><summary>Fler mottagaruppgifter</summary><div className="office-payment-fields">
+              {draft.bankType === 'iban' && input('bic', 'BIC / SWIFT (vid behov)', { placeholder: 'SWEDSESS', wide: true })}
+              {input('bankCountry', 'Bankland (vid behov)', { placeholder: 'SE' })}
+              {input('ocr', 'OCR (om mottagaren kräver det)', { numeric: true })}
+              {input('beneficiaryAddress', 'Mottagaradress (vid behov)', { wide: true, placeholder: 'Gata, postnummer och ort' })}
+            </div></details>
+            {bankError && <p className="office-payment-field-error office-payment-wide" role="alert">{bankError}</p>}
           </div>
         )}
         {draft.method === 'swish' && (

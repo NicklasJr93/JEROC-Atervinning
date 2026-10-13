@@ -33,3 +33,6 @@
   .office .office-payout-heading .swish-payment-test-badge { font-size: 9px; }
   .office .office-payout-booking-actions { width: 100%; justify-content: flex-end; }
 }
+
+.office-payout-method-choice { display:flex; align-items:flex-start; flex-direction:column; gap:5px; margin:12px 0 18px; padding:10px 12px; border-radius:10px; background:#f4f8ff; }
+.office-payout-method-choice small { color:#758aa8; line-height:1.5; }

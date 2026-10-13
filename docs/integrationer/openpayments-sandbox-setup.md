@@ -1,8 +1,8 @@
 # Open Payments sandbox – förberedelser
 
 Verifierad mot officiell dokumentation 2026-10-13. Bankadaptern och dess
-återkopplingsrutt är ännu inte implementerade. ÄL 109 samlar mottagarfälten
-som ska byggas med bankmotorn. Ingen skarp bankkoppling aktiveras här.
+återkopplingsrutt är implementerade i ÄL 109, kontor 0.24.0.
+[Aktuella provsteg och begränsningar](openpayments-bygge-2026-10-13.md). Ingen skarp bankkoppling aktiveras här.
 
 ## Portal och Render
 
@@ -18,8 +18,7 @@ Förbered två separata rader under Render → Environment:
 | `OPENPAYMENTS_CLIENT_ID` | Client Id från den skapade sandboxappen. |
 | `OPENPAYMENTS_CLIENT_SECRET` | Exakt originalvärde för Client Secret. |
 
-Nyckelnamnen ovan är valda för den kommande adaptern och läses ännu inte av
-appen. Kopiera värdena från portalen; lägg inga nyckelvärden i GitHub, frontend,
+Nyckelnamnen ovan läses endast av serverns sandboxadapter. Kopiera värdena från portalen; lägg inga nyckelvärden i GitHub, frontend,
 mockuper eller felsökningsjournaler. Om hemligheten inte sparades när appen
 skapades används portalens Reset för att generera en ny.
 
@@ -43,9 +42,10 @@ redirect-adressen löser inte det felet. Kontrollera exakt nyckelpar och miljö.
 ## Senare bankgodkännande
 
 Portalens nuvarande `https://localhost:8080/` är en lokal återkopplingsadress.
-Den behöver ersättas eller kompletteras med ScrapPilots HTTPS-rutt innan
-godkännande via redirect provas. En Render-startsida eller Visma-callback är
-inte ett färdigt bankgodkännandeflöde. Ruttens slutliga adress ges vid bygget.
+Den behöver kompletteras med
+`https://jeroc-atervinning.onrender.com/api/integrations/openpayments/callback`
+innan godkännande via redirect provas. En Render-startsida eller Visma-callback är
+inte ett färdigt bankgodkännandeflöde. Använd den levererade bankruttens exakta adress ovan.
 
 Servern ska binda godkännandet till rätt bolag och resurs, verifiera `state`,
 växla den returnerade koden enligt kontraktet med exakt samma `redirect_uri`

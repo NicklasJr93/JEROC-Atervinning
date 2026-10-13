@@ -1,3 +1,4 @@
+import { bankRequestContext } from './bank-http.mjs';
 import { createEnvironmentRepository, EnvironmentError } from './environment-storage.mjs';
 import { createEnvironmentStore } from './environment-model.mjs';
 import { createPricingStore, PricingError } from './pricing.mjs';
@@ -50,7 +51,7 @@ async function body(req) {
 /** Cookie-authenticated façade over the durable environment/reporting service.
  * Staff sessions remain explicit demo sessions. The integration registry uses
  * a server-owned organisation scope, not browser-supplied tenant identifiers. */
-export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, nvvClient, vismaService, swishService, initialSites, trustedPrincipalProvider, addressResolver = createEnvironmentAddressResolver() } = {}) {
+export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, nvvClient, vismaService, swishService, bankService, initialSites, trustedPrincipalProvider, addressResolver = createEnvironmentAddressResolver() } = {}) {
   const organisationId = readVismaOrganisationId(env);
   let repositoryPromise, storePromise;
   const changes = getChangeEvents(env);
@@ -122,8 +123,67 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
             }), ...(vismaService ? [{ providerId: 'visma', allowedOrganisationIds: [organisationId],
               status: scope => vismaService.integrationStatus(scope) }] : []),
               ...(swishService ? [{ providerId: 'swish', allowedOrganisationIds: [organisationId],
-                status: () => swishService.integrationStatus() }] : [])] });
+                status: () => swishService.integrationStatus() }] : []),
+              ...(bankService ? [{ providerId: 'bank', allowedOrganisationIds: [organisationId],
+                status: () => bankService.integrationStatus() }] : [])] });
             json(res, 200, await integrations.catalog(context), req.method === 'HEAD');
+          }
+          else if (route.startsWith('/bank/')) {
+            if (!bankService) throw new EnvironmentError('Banktestkopplingen är inte tillgänglig.', 503, 'bank_unavailable');
+            const administration = !route.startsWith('/bank/payments');
+            const permission = administration ? 'integrationsManage' : 'pay';
+            const principal = await store.authorize(token, permission);
+            if (administration && (!canManageVisma(principal.actor) || !canManageVisma(principal.user) ||
+              Array.isArray(principal.actor.siteIds) || Array.isArray(principal.user.siteIds)))
+              throw new EnvironmentError('Integrationsbehörighet med åtkomst till alla anläggningar krävs.', 403, 'integration_admin_required');
+            const context = bankRequestContext({ req, env, organisationId, principal, trustedPrincipal, token,
+              reauthorize: async () => {
+                if (trustedPrincipal) {
+                  const current = await trustedPrincipalProvider(req);
+                  if (!current || current.actorId !== trustedPrincipal.actorId || current.userId !== trustedPrincipal.userId || current.csrfToken !== trustedPrincipal.csrfToken)
+                    throw new EnvironmentError('Betalningssessionen har ändrats.', 403, 'forbidden');
+                }
+                return store.authorize(token, permission);
+              } });
+            const card = route.match(/^\/bank\/payments\/cards\/([1-9]\d{0,11})(?:\/(prepare))?$/);
+            const paymentJob = route.match(/^\/bank\/payments\/([a-fA-F0-9-]{36})(?:\/(refresh|resume|authorise))?$/);
+            const kick = () => { void bankService.processQueuedPayments().catch(() => console.warn('Banktestets jobb väntar på nästa kontroll.')); };
+            const empty = async () => {
+              if (!z.object({}).strict().safeParse(await body(req)).success)
+                throw new EnvironmentError('Åtgärden tar inga betalningsuppgifter.', 422, 'bank_invalid');
+            };
+            if (read && route === '/bank/settings') json(res, 200, await bankService.settings(context), req.method === 'HEAD');
+            else if (req.method === 'POST' && route === '/bank/settings') {
+              const input = await body(req);
+              if (!input || typeof input !== 'object' || Array.isArray(input)) throw new EnvironmentError('Kontrollera bankinställningarna.', 422, 'bank_invalid');
+              const bookkeepingEnabled = input.bookkeepingEnabled ?? input.registerSpirisPayment ?? false;
+              if (bookkeepingEnabled) {
+                if (!vismaService) throw new EnvironmentError('Anslut Spiris sandbox först.', 409, 'visma_unavailable');
+                const choices = await vismaService.paymentChoices(context);
+                if (choices.environment !== 'sandbox' || !choices.bankAccounts.some(account => account.id === input.spirisBankAccountId && account.active && account.currency === 'SEK'))
+                  throw new EnvironmentError('Välj ett aktivt eget SEK-konto från Spiris sandbox.', 422, 'bank_account_invalid');
+                if (input.spirisCompanyId && input.spirisCompanyId !== choices.companyId)
+                  throw new EnvironmentError('Spiris-kontot tillhör ett annat företag.', 409, 'bank_company_mismatch');
+                input.spirisCompanyId = choices.companyId;
+              } else { input.spirisCompanyId = null; input.spirisBankAccountId = null; }
+              json(res, 200, await bankService.saveSettings(input, context));
+            }
+            else if (read && route === '/bank/choices') {
+              if (!vismaService) throw new EnvironmentError('Spiris-kopplingen saknas.', 503, 'visma_unavailable');
+              json(res, 200, await vismaService.paymentChoices(context), req.method === 'HEAD');
+            }
+            else if (read && route === '/bank/banks') json(res, 200, await bankService.banks(context), req.method === 'HEAD');
+            else if (req.method === 'POST' && route === '/bank/test') { await empty(); json(res, 200, await bankService.testConnection(context)); }
+            else if (req.method === 'POST' && route === '/bank/consent') json(res, 200, await bankService.connectConsent(await body(req), context));
+            else if (read && route === '/bank/accounts') json(res, 200, await bankService.getAccounts(context), req.method === 'HEAD');
+            else if (read && route === '/bank/balances') json(res, 200, await bankService.balances(context), req.method === 'HEAD');
+            else if (read && card) json(res, 200, await (card[2] === 'prepare' ? bankService.prepare(Number(card[1]), context) : bankService.getCardJobs(Number(card[1]), context)), req.method === 'HEAD');
+            else if (req.method === 'POST' && route === '/bank/payments') { json(res, 202, await bankService.start(await body(req), context)); kick(); }
+            else if (read && paymentJob && !paymentJob[2]) json(res, 200, await bankService.job(paymentJob[1], context), req.method === 'HEAD');
+            else if (req.method === 'POST' && paymentJob?.[2] === 'refresh') { await empty(); json(res, 200, await bankService.refresh(paymentJob[1], context)); }
+            else if (req.method === 'POST' && paymentJob?.[2] === 'resume') { await empty(); json(res, 202, await bankService.resume(paymentJob[1], context)); kick(); }
+            else if (req.method === 'POST' && paymentJob?.[2] === 'authorise') { await empty(); json(res, 200, await bankService.beginAuthorisation(paymentJob[1], {}, context)); }
+            else throw new EnvironmentError('Bankvyn finns inte eller metoden stöds inte.', 404, 'not_found');
           }
           else if (route.startsWith('/swish/') || route === '/payments' || route.startsWith('/payments/')) {
             if (!swishService) throw new EnvironmentError('Swish-testkopplingen är inte tillgänglig.', 503, 'swish_unavailable');

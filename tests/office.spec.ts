@@ -83,7 +83,7 @@ test('granskning och prishistorik följs av kundgodkännande, intern attest och 
     await page.getByLabel('Kund på vägningen').selectOption('customer-build');
     await expect.poll(async () => (await officeData(request)).cards.find(value => value.id === cardId)?.customerId).toBe('customer-build');
     await saved(page);
-    await page.getByRole('button', { name: 'Bankkonto', exact: true }).click();
+    await page.getByRole('button', { name: 'Banköverföring', exact: true }).click();
     await page.getByLabel('Clearingnummer', { exact: true }).fill('8327');
     await page.getByLabel('Kontonummer', { exact: true }).fill('1234567890');
     await page.getByLabel('Kontohavare', { exact: true }).fill('Bygg & Riv AB');

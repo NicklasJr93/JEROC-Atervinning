@@ -238,6 +238,7 @@ export type Customer = {
   countryCode?: string;
   vatRegistered?: boolean;
   paymentTermDays?: number;
+  paymentProfile?: import('./payment-details').PaymentDetails;
   references: string[];
   origins: string[];
   registrations?: string[];

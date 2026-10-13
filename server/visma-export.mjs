@@ -1,3 +1,4 @@
+import { bankRecipientToSpiris } from './bank-recipient.mjs';
 import { randomUUID } from 'node:crypto';
 import { addSpirisEvent, initialTracking, publicSpirisEvents, observeSpirisDraft, trackingInterval } from './visma-tracking.mjs';
 import { z } from 'zod';
@@ -246,7 +247,7 @@ export function createVismaExports({ organisationId = 'jeroc-demo', readTenantPr
     add('EmailAddress', customer.email, 255); add('Telephone', customer.phone, 50); add('ContactPersonName', customer.contactPerson, 50);
     const payment = snapshot.card.paymentDetails ?? customer.paymentProfile;
     if (snapshot.paymentMethod === 'bank' && payment?.method === 'bank') {
-      add('Clearing', payment.clearing?.replace(/\D/g, ''), 5); add('BankAccountNumber', payment.account?.replace(/[\s-]/g, ''), 50); add('BankName', payment.bank, 50); supplier.BankCountryCode = 'SE';
+      Object.assign(supplier, bankRecipientToSpiris(payment));
     }
     const invoiceNumber = `AV-${approval.cardId}-V${approval.version}`;
     const draft = buildAccountingDraft({ accounting, attestedAt: approval.attestedAt, invoiceNumber });

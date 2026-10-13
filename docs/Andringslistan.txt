@@ -4,7 +4,9 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.8.1. Aktuell kontorsversion: 0.23.4.
+Aktuell mobilwebbversion: 0.8.2. Aktuell kontorsversion: 0.24.0.
+Banköverföring/Open Payments sandbox och bankmottagare är genomförda i ÄL 109,
+bygge 2026-10-13: docs/integrationer/openpayments-bygge-2026-10-13.md.
 Delad attestknapp, bokföring i Spiris, utbetalningsspärr, eget utbetalningskort
 och betalningsbekräftad PDF är genomförda i ÄL 103, bygge 2026-10-13.
 Swish MSS-test, utbetalningspopup, PDF-revisioner och Spiris-betalningsbokföring
@@ -2469,8 +2471,8 @@ Status: Implementerad 2026-10-13 i kontor 0.23.4.
   attest/bokföring/utbetalningsspärr samt produktionsbygget passerar.
 
 ÄL 109 – Banköverföring med svenskt konto, bankgiro, plusgiro och IBAN
-Status: Planerad 2026-10-13. Byggs senare tillsammans med bankmotorn;
-ingen implementation eller ny betalningsfunktion ingår i denna planering.
+Status: Implementerad 2026-10-13 i kontor 0.24.0 och mobilwebb 0.8.2.
+Open Payments sandbox, SEK; produktionsaktivering och utlandsbetalningar ingår inte.
 - Huvudvalet Banköverföring får undervalet Svenskt bankkonto, Bankgiro,
   Plusgiro eller IBAN. Samma val och fält används i kundregister, mobil,
   kontor, utbetalningspopup, avräkning/PDF och integrationernas underlag.
@@ -2507,14 +2509,19 @@ ingen implementation eller ny betalningsfunktion ingår i denna planering.
   inte bankmotorns interna stabila betalnings-/instruktions-ID.
 - Bankmotorn kontrollerar stöd för mottagartyp, land, valuta och bankprodukt
   innan en instruktion kan skickas. Open Payments sandbox med registrerad
-  AIS/PIS är ett planerat provspår, inte verifierat stöd för alla girotyper,
+  AIS/PIS används för sandboxprov; det innebär inte verifierat stöd för alla girotyper,
   länder eller produktionsbetalningar. AIS-kontosaldo är en separat möjlig
-  läsfunktion och ingen bekräftelse på utförd betalning.
+  läsfunktion under Integrationer och ingen bekräftelse på utförd betalning.
 - Bolagets anslutning, eget konto och betalningens miljö binds på servern.
   En aktiv eller oklar instruktion reserverar avräkningen även mellan olika
   betalmetoder, så Swish och bank inte kan betala samma underlag parallellt.
 - Byggkontroller ska täcka typbyte, felaktiga nummer, servervalidering,
   gamla svenska bankposter, oförändrade frysta hashvärden, PDF-maskering
   och korrekta Spiris-/providerunderlag för varje verifierad mottagartyp.
-- Samlad planering: docs/planerade-uppdateringar.md. Sandboxförberedelser:
-  docs/integrationer/openpayments-sandbox-setup.md.
+- Samlad planering: docs/planerade-uppdateringar.md. Bygge, provsteg och
+  begränsningar: docs/integrationer/openpayments-bygge-2026-10-13.md.
+- GIRO-svar måste återge tillräckligt mottagar-/referensbevis. Den officiella
+  dokumentationen är inkonsekvent om fullständigt BG/PG-svar; saknas bevis
+  hålls instruktionen oklart reserverad utan betalnings-PDF eller Spiris-post.
+  Faktiskt BG/PG-sandboxprov återstår; auth/banklista/Swedbankkapabiliteter
+  är provade mot riktig sandbox med HTTP 200.

@@ -1,3 +1,4 @@
+import { verifiedBankPaymentProof } from './bank-payment-proof.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { afterDatabaseCommit } from './database-runtime.mjs';
 import { EnvironmentError } from './environment-storage.mjs';
@@ -14,12 +15,15 @@ const requireRead = (result, message, code) => {
 const cents = value => typeof value === 'number' && Number.isFinite(value) && Math.abs(value * 100 - Math.round(value * 100)) < 0.00001 ? Math.round(value * 100) : null;
 const swedishDate = value => {
   const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) fail('Swish saknar ett verifierat faktiskt betalningsdatum.', 'visma_payment_date_missing');
+  if (!Number.isFinite(date.getTime())) fail('Betalningen saknar ett verifierat datum.', 'visma_payment_date_missing');
   return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 };
+const canonicalBankEvidence = value => Array.isArray(value) ? value.map(canonicalBankEvidence) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalBankEvidence(value[key])])) : value;
 const proofIdentity = value => JSON.stringify([value.id, value.organisationId, value.providerInstructionUUID, value.providerPaymentReference,
   value.source?.cardId, value.source?.approvalId, value.source?.version, value.source?.hash, value.amountCents, value.currency, value.spirisCompanyId,
-  value.spirisBankAccountId, value.providerResult?.datePaid, ...(value.bookingProof ? [value.bookingProof] : [])]);
+  value.spirisBankAccountId, value.providerResult?.datePaid, ...(value.bookingProof ? [value.bookingProof] : []),
+  ...(value.provider === 'openpayments' ? [value.provider, value.mode, value.providerPaymentId, value.providerProduct, canonicalBankEvidence({ paymentDetails: value.paymentDetails, payload: value.request?.payload, providerResult: value.providerResult, verifiedAt: value.verifiedAt })] : [])]);
 const digest = value => createHash('sha256').update(proofIdentity(value)).digest('hex');
 const publicEntry = entry => ({ paymentId: entry.paymentId, status: entry.status, simulation: true, environment: 'sandbox',
   companyId: entry.companyId, amountCents: entry.amountCents, paymentDate: entry.paymentDate, bankAccountId: entry.bankAccountId,
@@ -91,8 +95,10 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
     entry.nextCheckAt = ['waiting_booked', 'pending', 'unknown'].includes(status) ? new Date(clock().getTime() + RETRY_MS).toISOString() : null; event(entry, status, reason ?? status); };
   async function proof(id) {
     const value = typeof proofProvider === 'function' ? await proofProvider(id) : null;
-    if (!value || value.id !== id || value.organisationId !== organisationId || value.kind !== 'card' || value.mode !== 'mss' || value.simulation !== true
-      || value.status !== 'simulated_paid' || value.providerResult?.status !== 'PAID' || value.currency !== 'SEK'
+    const bank = value?.provider === 'openpayments';
+    const providerVerified = bank ? verifiedBankPaymentProof(value) : value?.mode === 'mss' && value?.providerResult?.status === 'PAID';
+    if (!value || value.id !== id || value.organisationId !== organisationId || value.kind !== 'card' || !providerVerified || value.simulation !== true
+      || value.status !== 'simulated_paid' || value.currency !== 'SEK'
       || !Number.isSafeInteger(value.amountCents) || value.amountCents <= 0 || !value.source || !Number.isSafeInteger(value.source.cardId)
       || !uuid(value.source.approvalId) || !Number.isInteger(value.source.version) || value.source.version < 1 || !/^[a-f0-9]{64}$/.test(value.source.hash)
       // CompanyIdentifier is opaque text in Spiris; bank account IDs are UUIDs.
@@ -100,7 +106,7 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
       || value.bookingProof && (value.bookingProof.companyId !== value.spirisCompanyId || !value.bookingProof.generation
         || !uuid(value.bookingProof.invoiceId) || !uuid(value.bookingProof.draftId))
       || !Number.isFinite(Date.parse(value.providerResult.datePaid)) || Date.parse(value.providerResult.datePaid) > clock().getTime() + 5000)
-      fail('Betalningsbokföringen kräver en verifierad Swish-simulering, låst kortversion och eget Spiris-bankkonto.', 'visma_payment_proof_missing');
+      fail('Betalningsbokföringen kräver en verifierad testutbetalning, låst kortversion och eget Spiris-bankkonto.', 'visma_payment_proof_missing');
     return value;
   }
   async function authorized(entry) {
@@ -165,13 +171,13 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
     const value = await proof(id), connected = await connection();
     const reserved = await store.mutate(id, previous => {
       if (previous) { if (previous.proofHash !== digest(value)) fail('Samma betalnings-ID har andra uppgifter.', 'idempotency_conflict'); return { value: previous }; }
-      const entry = { paymentId: id, organisationId, source: clone(value.source), proofHash: digest(value), companyId: value.spirisCompanyId,
+      const entry = { paymentId: id, organisationId, ...(value.provider === 'openpayments' ? { provider: 'openpayments', datePaidSource: 'sandbox_confirmation' } : {}), source: clone(value.source), proofHash: digest(value), companyId: value.spirisCompanyId,
         generation: value.bookingProof?.generation ?? connected.generation,
         ...(value.bookingProof ? { invoiceId: value.bookingProof.invoiceId } : {}),
         bankAccountId: value.spirisBankAccountId, amountCents: value.amountCents,
-        paymentDate: swedishDate(value.providerResult.datePaid), reference: `SP-SWISH-${value.providerInstructionUUID}`, status: 'pending',
+        paymentDate: swedishDate(value.providerResult.datePaid), reference: `${value.provider === 'openpayments' ? 'SP-BANK' : 'SP-SWISH'}-${value.providerInstructionUUID}`, status: 'pending',
         createdAt: clock().toISOString(), updatedAt: clock().toISOString(), events: [] };
-      event(entry, 'pending', 'Verifierad Swish-simulering köad för betalningsbokföring i Spiris sandbox.'); return { entry, value: entry };
+      event(entry, 'pending', value.provider === 'openpayments' ? 'Verifierad banktestbetalning köad för betalningsbokföring i Spiris sandbox.' : 'Verifierad Swish-simulering köad för betalningsbokföring i Spiris sandbox.'); return { entry, value: entry };
     });
     if (force !== true && reserved.nextCheckAt && reserved.nextCheckAt > clock().toISOString() || ['registered', 'blocked', 'failed', 'paused'].includes(reserved.status)) return publicEntry(reserved);
     return process(id);
@@ -193,13 +199,13 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
       if (clock().getTime() - Date.parse(entry.createdAt) >= FOLLOWUP_MS) fail('Betalningsbokföringen saknar bekräftelse efter 30 dagar. Kontrollera och stäm av i Spiris.', 'visma_payment_followup_expired');
       const latest = await authorized(entry), exportJob = latest.job;
       if (!exportJob || exportJob.tracking?.state !== 'booked' || !uuid(exportJob.tracking.invoiceId)) {
-        setStatus(entry, 'waiting_booked', 'Swish-simuleringen är klar. Betalningsbokföringen väntar på att samma fakturautkast bokförs i Spiris.');
+        setStatus(entry, 'waiting_booked', entry.provider === 'openpayments' ? 'Banktestet är bekräftat. Betalningsbokföringen väntar på att samma faktura bokförs i Spiris.' : 'Swish-simuleringen är klar. Betalningsbokföringen väntar på att samma fakturautkast bokförs i Spiris.');
       } else {
         if (entry.invoiceId && entry.invoiceId !== exportJob.tracking.invoiceId) fail('Den slutliga fakturakopplingen har ändrats.', 'visma_payment_invoice_mismatch');
         entry.invoiceId = exportJob.tracking.invoiceId;
         await batch({ companyId: entry.companyId, generation: entry.generation }, () => authorized(entry), async send => {
           if (entry.postReserved) {
-            if (await confirm(entry, send, exportJob)) setStatus(entry, 'registered', 'Simulerad Swish-utbetalning registrerad och återläst i Spiris sandbox.');
+            if (await confirm(entry, send, exportJob)) setStatus(entry, 'registered', entry.provider === 'openpayments' ? 'Banktestbetalning registrerad och återläst i Spiris sandbox.' : 'Simulerad Swish-utbetalning registrerad och återläst i Spiris sandbox.');
             else setStatus(entry, 'unknown', 'Bokföringsförsöket kunde inte verifieras. Ingen automatisk omsändning sker; kontrollera Spiris.');
             return;
           }
@@ -234,7 +240,7 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
           entry.providerHttpStatus = result.httpStatus; entry.response = clone(result.response);
           if (uuid(result.response?.BankTransactionId)) entry.bankTransactionId = result.response.BankTransactionId;
           if (result.outcome === 'rejected') setStatus(entry, 'failed', result.error?.message ?? 'Spiris avvisade betalningsregistreringen.');
-          else if (await confirm(entry, send, exportJob)) setStatus(entry, 'registered', 'Simulerad Swish-utbetalning registrerad och återläst i Spiris sandbox.');
+          else if (await confirm(entry, send, exportJob)) setStatus(entry, 'registered', entry.provider === 'openpayments' ? 'Banktestbetalning registrerad och återläst i Spiris sandbox.' : 'Simulerad Swish-utbetalning registrerad och återläst i Spiris sandbox.');
           else setStatus(entry, 'unknown', 'Svaret eller betalningsverifikationen behöver kontrolleras. Ingen automatisk omsändning sker.');
         });
       }

@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { EnvironmentError } from './environment-storage.mjs';
 import { resolvePricingPrincipal } from './pricing.mjs';
 import { latestAttestedVismaCards } from './visma-weightcard.mjs';
-import { can, normalizePhoneNumber, normalizePersonalNumber, customerIdentifierError } from '../dist-server/domain-models.mjs';
+import { assertNoCrossManagedPayment } from './managed-payment-guard.mjs';
+import { can, normalizePhoneNumber, normalizePersonalNumber, customerIdentifierError, normalizePaymentDetails } from '../dist-server/domain-models.mjs';
 
 const DOMAIN = 'swishPayments', LEASE_MS = 45_000, POLL_MS = 3_000;
 const copy = value => structuredClone(value);
@@ -20,7 +21,10 @@ const uuid = z.string().uuid();
 const spirisCompanyId = z.string().refine(value => Boolean(value.trim()));
 const paymentSchema = z.object({ method: z.enum(['swish', 'bank', 'cash', 'balance']), phone: z.string().max(100).optional(),
   recipient: z.string().max(200).optional(), personalNumber: z.string().max(30).optional(), bank: z.string().max(100).optional(),
-  clearing: z.string().max(20).optional(), account: z.string().max(100).optional(), holder: z.string().max(200).optional() }).strict();
+  clearing: z.string().max(20).optional(), account: z.string().max(100).optional(), holder: z.string().max(200).optional(),
+  bankType: z.enum(['account', 'bankgiro', 'plusgiro', 'iban']).optional(), bankgiro: z.string().max(30).optional(),
+  plusgiro: z.string().max(30).optional(), iban: z.string().max(50).optional(), bic: z.string().max(20).optional(),
+  bankCountry: z.string().max(10).optional(), beneficiaryAddress: z.string().max(500).optional(), ocr: z.string().max(100).optional() }).strict();
 const sourceSchema = z.object({ approvalId: z.string().min(1).max(100), version: z.number().int().positive(), hash: z.string().min(1).max(128) }).strict();
 const startSchema = z.object({ cardId: z.number().int().positive(), source: sourceSchema.optional(), paymentDetails: paymentSchema.optional(),
   reason: z.string().trim().max(1000).optional(), retryOf: uuid.optional() }).strict();
@@ -64,7 +68,11 @@ export function swishMoneyToCents(value) {
 const amountString = cents => `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;
 
 function normalizeDetails(details = {}, customer = {}) {
-  return Object.fromEntries(Object.entries({ ...details,
+  // Typed bank instructions use the shared ÄL 109 canonical recipient model.
+  // Keep pre-109 bank snapshots byte-compatible: changing their normalization
+  // would invalidate already reserved Swish jobs and immutable revision proofs.
+  const normalized = details.method === 'bank' && details.bankType ? normalizePaymentDetails(details) : details;
+  return Object.fromEntries(Object.entries({ ...normalized,
     ...(details.method === 'swish' ? { phone: normalizePhoneNumber(details.phone ?? ''), recipient: text(details.recipient || customer.name),
       personalNumber: normalizePersonalNumber(details.personalNumber ?? customer.number ?? '') } : {}),
   }).filter(([, value]) => value !== undefined));
@@ -79,7 +87,8 @@ function validateSwish(details) {
   if (!details.recipient?.trim()) fail('Ange mottagarens namn.', 422, 'swish_recipient_missing');
 }
 function editableDetails(details) {
-  return Object.fromEntries(Object.entries(details).filter(([key]) => ['method', 'phone', 'recipient', 'personalNumber', 'bank', 'clearing', 'account', 'holder'].includes(key)));
+  return Object.fromEntries(Object.entries(details).filter(([key]) => ['method', 'phone', 'recipient', 'personalNumber', 'bank', 'clearing', 'account', 'holder',
+    'bankType', 'bankgiro', 'plusgiro', 'iban', 'bic', 'bankCountry', 'beneficiaryAddress', 'ocr'].includes(key)));
 }
 function safeProviderData(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return data == null ? null : String(data).slice(0, 200);
@@ -204,6 +213,7 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
       snapshot: copy(snapshot), customer: copy(customer), amountCents, originalPaymentDetails: normalizeDetails(card.paymentDetails ?? customer.paymentProfile, customer) };
   }
   function assertOffice(state, source) {
+    assertNoCrossManagedPayment(state, source.source.cardId, DOMAIN);
     const card = state.office?.cards?.find(value => String(value.id) === String(source.source.cardId));
     if (!card || card.kind === 'correction') fail('Det ursprungliga viktkortet saknas.', 409, 'swish_source_missing');
     if (state.office.payments?.some(value => String(value.cardId) === String(card.id)) || card.status === 'paid' || card.status === 'balance')
@@ -274,7 +284,7 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
       const value = domain(state), existingJob = Object.values(value.jobs).filter(job => job.source?.cardId === source.source.cardId)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
       return { settings: copy(value.settings), existingJob: publicJob(existingJob) };
-    }, { domains: ['pricing', 'office', DOMAIN] });
+    }, { domains: ['pricing', 'office', DOMAIN, 'bankPayments'] });
     const config = await configuration(), issues = [];
     if (!data.settings.enabled) issues.push('Aktivera Swish MSS-test under Integrationer först.');
     if (!config.ready) issues.push(...(config.missing ?? []), ...(config.issues ?? []));
@@ -438,7 +448,7 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
     const source = sourceFrom(approval);
     await authorize(context, { siteId: source.source.siteId });
     await (await getRepository()).read(state => assertRecoveryState(domain(state), state, item, context, source),
-      { domains: [DOMAIN, 'pricing', 'office'] });
+      { domains: [DOMAIN, 'pricing', 'office', 'bankPayments'] });
     await verifiedBooking(item.source, { fresh: true, previous: item.bookingProof });
     const config = await configuration();
     if (!config.ready || config.merchantAlias !== item.request.payload.payerAlias)

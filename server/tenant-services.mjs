@@ -10,6 +10,8 @@ import { createArticleMediaApi } from './article-media.mjs';
 import { ensureLogistics } from './logistics.mjs';
 import { createSwishMssClient } from './swish-client.mjs';
 import { createSwishPayments } from './swish-payments.mjs';
+import { createBankPayments } from './bank-payments.mjs';
+import { createOpenPaymentsClient } from './openpayments-client.mjs';
 import { can } from '../dist-server/domain-models.mjs';
 
 /** All repositories, queues and provider connections belong to one immutable
@@ -34,6 +36,7 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     accountingCardStatusProvider: cardId => vismaService.cardExportProjection(cardId),
     managedPaymentGuard: async (cardId, state) => {
       await swishService.assertNoManagedPayment(cardId, state);
+      await bankService.assertNoManagedPayment(cardId, state);
       throw new PricingError('Använd utbetalningskortets verifierade betalningsflöde. Äldre manuell demoregistrering är avstängd.', 409);
     },
     validateArticleMedia: async (route, input) => {
@@ -52,7 +55,7 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
   }) });
   const vismaService = createVismaSandbox({ env, getRepository: () => applicationApi.getRepository(),
     sourceProvider: request => terminalDemoApi.documentProjections(request), sitesProvider: () => environmentApi.getSites(),
-    swishPaymentProvider: id => swishService.readVerifiedPayment(id),
+    swishPaymentProvider: async id => (await swishService.readVerifiedPayment(id)) ?? bankService.readVerifiedPayment(id),
     authorizeBookingContext: async (context, { cardId, siteId, write = false } = {}) => {
       if (context?.organisationId !== organisationId || !context.actorId || !context.effectiveUserId)
         throw new PricingError('Bokföringsåtgärden tillhör inte detta bolag.', 403);
@@ -96,8 +99,23 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     onPaymentConfirmed: job => documentsApi.archivePaymentConfirmation(job),
     onVerifiedPayment: (job, options) => vismaService.synchronizeSwishPayment(job.id, options),
   });
+  const bankService = createBankPayments({ env, getRepository: () => applicationApi.getRepository(),
+    client: createOpenPaymentsClient({ env }),
+    sourceProvider: request => terminalDemoApi.documentProjections(request),
+    sitesProvider: () => environmentApi.getSites(),
+    authorizeContext: async context => {
+      if (typeof context.reauthorize !== 'function') throw new PricingError('En aktiv betalningssession krävs.', 403);
+      const principal = await context.reauthorize();
+      if (principal.actor.id !== context.actorId || principal.user.id !== context.effectiveUserId)
+        throw new PricingError('Betalningssessionen har ändrats.', 403);
+    },
+    onPrepared: job => job.kind === 'card' && job.reason ? documentsApi.archivePaymentRevision(job) : undefined,
+    assertPaymentReady: (source, options) => vismaService.assertPaymentReady(source, options),
+    onPaymentConfirmed: job => documentsApi.archivePaymentConfirmation(job),
+    onVerifiedPayment: (job, options) => vismaService.synchronizeSwishPayment(job.id, options),
+  });
   const environmentApi = createEnvironmentApi({ env, initialSites, trustedPrincipalProvider: reauthorizeTrustedPrincipal ?? trustedPrincipalProvider, principalStore,
-    vismaService, swishService,
+    vismaService, swishService, bankService,
     approvalGuard: (input, operation) => terminalDemoApi.withApprovedCard(input, operation),
     outboundProvider: async () => (await applicationApi.getRepository()).read(state =>
       (state.logistics?.inventoryMovements ?? []).filter(row => row.kind === 'outbound' && row.hazardous)
@@ -194,11 +212,12 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
       });
       await terminalDemoApi.initialize();
       await swishService.initialize();
+      await bankService.initialize();
     } catch (error) { await close(); throw error; }
     async function close() {
       await Promise.allSettled([terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close()]);
     }
-    return { applicationApi, articleMediaApi, vismaService, swishService, environmentApi, terminalDemoApi, documentsApi, close,
+    return { applicationApi, articleMediaApi, vismaService, swishService, bankService, environmentApi, terminalDemoApi, documentsApi, close,
       async handle(req, res, url) {
         if (await articleMediaApi(req, res, url)) return true;
         if (await applicationApi(req, res, url)) return true;

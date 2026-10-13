@@ -8,4 +8,6 @@ export { personSchema, companySchema, employmentSchema, salarySchema, scheduleSc
 export { articles, initialCustomers } from '../src/data';
 export { normalizeOrganisationNumber, normalizePersonalNumber, customerIdentifierError, customerIdentityKey, validLuhnNumber,
   normalizePhoneNumber, phoneNumberError, normalizeAddress, addressError, formatAddress, normalizeOriginAddress,
-  normalizePaymentDetails, normalizeCustomerDetails, validateCustomerDetails } from '../src/data-format';
+  normalizePaymentDetails, normalizeCustomerDetails, validateCustomerDetails, bankRecipientType, bankRecipientError,
+  ibanNumberError, ocrNumberError } from '../src/data-format';
+export { paymentDetailsSchema } from '../src/payment-details';

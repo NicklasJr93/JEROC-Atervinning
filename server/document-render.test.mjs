@@ -125,6 +125,17 @@ test('confirmed MSS PDF replaces waiting status with masked Swish confirmation, 
   for (const word of boxes.matchAll(/<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)"/g))
     assert.ok(Number(word[1]) >= 28 && Number(word[3]) <= 567 && Number(word[4]) < 840, 'confirmation content exceeds A4');
 });
+test('bank sandbox confirmation shows its own provider and masked giro without claiming a Swish result', { skip: !canExtract }, async () => {
+  const s = sample();
+  s.payment = { method: 'bank', bankType: 'bankgiro', label: 'Bankgiro', recipient: 'Hasses Rör AB', maskedAccount: '•••• 4566' };
+  s.paymentConfirmation = { version: 2, mode: 'openpayments_sandbox', simulation: true, providerName: 'Open Payments sandbox',
+    label: 'Testutbetalning bekräftad · Open Payments sandbox', datePaid: '2026-10-13T08:47:00Z',
+    verifiedAt: '2026-10-13T08:47:01Z', amountCents: 3682900, providerRef: 'BANK-SANDBOX-REFERENCE-001' };
+  const text = await extracted(await renderPdf(s));
+  for (const expected of ['Open Payments sandbox', 'Bankgiro', '4566', 'BANK-SANDBOX-REFERENCE-001', 'Inga riktiga pengar', '36 829,00']) assert.ok(text.includes(expected), expected);
+  assert.doesNotMatch(text, /Swish|SWISH|inväntar utbetalning|SENSITIVE-FULL-ACCOUNT/);
+});
+
 test('transport document keeps sender, carrier and receiver but omits money and bank details', { skip: !canExtract }, async () => {
   const s = { ...sample(), type: 'transport', status: 'draft', sender: party, receiver: { ...party, name: 'Nordmetall Återvinning AB' }, carrier: { ...party, name: 'Roslagens Transport AB' }, rows: [{ name: 'Blybatterier', weight: 980, price: 99, amount: 97020, wasteCode: '16 06 01*' }], totalWeight: 980, origin: 'Kundverkstaden 3', transport: { direction: 'pickup', driver: 'Oskar Lind', registration: 'ABC123', requestedAt: '2026-10-12T08:00:00Z', handling: 'Skydda mot läckage och kortslutning.', signatures: [] } };
   const text = await extracted(await renderPdf(s));

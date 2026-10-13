@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { initialCustomers, type Customer } from './data';
+import { paymentDetailsSchema } from './payment-details';
 
 const weight = z.number().finite().nonnegative();
 const rowSchema = z.discriminatedUnion('method', [
@@ -73,6 +74,7 @@ const customerSchema = z.object({
   countryCode: z.string().optional(),
   vatRegistered: z.boolean().optional(),
   paymentTermDays: z.number().int().min(0).max(3650).optional(),
+  paymentProfile: paymentDetailsSchema.optional(),
   references: z.array(z.string()),
   origins: z.array(z.string()),
   registrations: z.array(z.string()).optional(),
@@ -86,7 +88,7 @@ export const storeSchema = z
 ;
 export type DemoData = { version: 1; drafts: Draft[]; customers: Customer[] };
 export const STORE_KEY = 'jeroc.mobile.demo.v1';
-export const APP_VERSION = '0.8.1';
+export const APP_VERSION = '0.8.2';
 export const normalizeRegistration = (value: string) =>
   value.toUpperCase().replace(/[\s-]/g, '');
 export const draftPath = (draft: Draft) =>

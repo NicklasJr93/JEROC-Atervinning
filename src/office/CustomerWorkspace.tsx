@@ -1589,7 +1589,9 @@ function CustomerDetails({
               onDraftChange={details => setDraft(current => {
                 // Opening an empty editor must not require a bank account on every customer.
                 if (!current.paymentProfile && details.method === 'bank' &&
-                    !details.bank && !details.clearing && !details.account) return current;
+                    !details.bank && !details.clearing && !details.account &&
+                    !details.bankgiro && !details.plusgiro && !details.iban &&
+                    !details.ocr && !details.bic && !details.bankCountry && !details.beneficiaryAddress) return current;
                 return { ...current, paymentProfile: details };
               })}
               onSave={async () => false}

@@ -1,5 +1,5 @@
 import { demoPrivateIdentityNumber } from '../data';
-import { phoneNumberError } from '../data-format';
+import { bankRecipientError, bankRecipientType, phoneNumberError } from '../data-format';
 import {
   amount,
   can,
@@ -29,7 +29,6 @@ const money = (value: number) => {
 const credited = (card: OfficeCard) =>
   ['ready', 'paid', 'balance'].includes(card.status);
 const originalDelivery = (card: OfficeCard) => card.kind !== 'correction';
-const digits = (value = '') => value.replace(/[\s-]/g, '');
 const actorName = (context: ActorContext) =>
   context.actor ??
   (context.actualUser && context.actualUser.id !== context.user.id
@@ -64,10 +63,11 @@ export function paymentSummary(details?: PaymentDetails): string {
   switch (details.method) {
     case 'bank':
       return [
-        'Bankkonto',
+        { account: 'Bankkonto', bankgiro: 'Bankgiro', plusgiro: 'Plusgiro', iban: 'IBAN' }[bankRecipientType(details)],
         details.bank,
-        details.clearing,
-        details.account,
+        ...(bankRecipientType(details) === 'account' ? [details.clearing, details.account]
+          : bankRecipientType(details) === 'bankgiro' ? [details.bankgiro]
+            : bankRecipientType(details) === 'plusgiro' ? [details.plusgiro] : [details.iban]),
         details.holder,
       ]
         .filter(Boolean)
@@ -86,11 +86,7 @@ export function validPaymentDetails(details?: PaymentDetails): boolean {
   if (!details) return false;
   if (details.method === 'cash' || details.method === 'balance') return true;
   if (details.method === 'bank') {
-    return (
-      /^\d{4,5}$/.test(digits(details.clearing)) &&
-      /^\d{4,15}$/.test(digits(details.account)) &&
-      Boolean(details.holder?.trim())
-    );
+    return bankRecipientError(details) === null;
   }
   return (
     phoneNumberError(details.phone ?? '', { required: true, swish: true }) === null &&

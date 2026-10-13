@@ -1,3 +1,4 @@
+import { bankRequestContext } from './bank-http.mjs';
 import pg from 'pg';
 import { createPlatformStorage } from './platform-storage.mjs';
 import { createPlatformAuth, getPlatformContext, platformCookieToken, PlatformError, PLATFORM_TENANT_COOKIE, platformPasswordHash } from './platform-auth.mjs';
@@ -41,7 +42,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const defaultCompany = { id: legacyId, name: 'JEROC Återvinning AB', organisationNumber: '5593593626', status: 'active', storageSchema: 'public' };
   const trustedPrincipalProvider = req => {
     const context = getPlatformContext(req);
-    return context && { actorId: context.actualUser.id, userId: context.user.id, csrfToken: context.csrfToken, expiresAt: context.expiresAt };
+    return context && { actorId: context.actualUser.id, userId: context.user.id, csrfToken: context.csrfToken, expiresAt: context.expiresAt, sessionKey: context.sessionKey };
   };
   const reauthorizeTrustedPrincipal = async req => {
     const current = await auth.resolveContext(req, { writes: false });
@@ -183,7 +184,8 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
     }
     if (await platformApi(req, res, url)) return true;
     try {
-      const callback = url.pathname === '/api/integrations/visma/oauth/callback';
+      const bankCallback = url.pathname === '/api/integrations/openpayments/callback';
+      const callback = bankCallback || url.pathname === '/api/integrations/visma/oauth/callback';
       if (!callback || req.method !== 'GET') sameOrigin(req);
       const mediaRead = url.pathname.startsWith('/api/article-media/') && ['GET', 'HEAD'].includes(req.method);
       const office = callback || !employeeRoute(url) && !deviceRoute(url) && !mediaRead;
@@ -213,6 +215,26 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
           return writeHead.apply(this, args);
         };
       }
+      if (bankCallback) {
+        if (req.method !== 'GET') throw new PlatformError('Metoden stöds inte.', 405);
+        const organisationId = company.id;
+        const bankContext = bankRequestContext({ req, env, organisationId,
+          principal: { actor: context.actualUser, user: context.user },
+          trustedPrincipal: { actorId: context.actualUser.id, userId: context.user.id, sessionKey: context.sessionKey, csrfToken: context.csrfToken },
+          reauthorize: async () => {
+            const current = await auth.resolveContext(req, { writes: false });
+            if (current.company.id !== organisationId || current.actualUser.id !== context.actualUser.id || current.user.id !== context.user.id || current.sessionKey !== context.sessionKey)
+              throw new PlatformError('Bankgodkännandets session eller bolag har ändrats.', 403, 'bank_session_changed');
+            return { actor: current.actualUser, user: current.user };
+          } });
+        let outcome = 'error';
+        try {
+          await service.bankService.completeAuthorisation({ state: url.searchParams.get('state'), code: url.searchParams.get('code'), error: url.searchParams.get('error') }, bankContext);
+          outcome = 'ok';
+        } catch {}
+        res.writeHead(303, { Location: `/kontor/integration/systemadminbanktest.html?bankAuth=${outcome}#/integrations/bank-test`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+        res.end(); return true;
+      }
       if (callback) {
         if (req.method !== 'GET') throw new PlatformError('Metoden stöds inte.', 405);
         const binding = req.headers.cookie?.split(';').map(value => value.trim()).find(value => value.startsWith('jeroc_visma_oauth='));
@@ -238,8 +260,8 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
         const company = await auth.getCompany(id); if (company?.status !== 'active') continue;
         try {
           const service = await pending;
-          const worker = method === 'processQueuedPayments' ? service.swishService : service.vismaService;
-          if (typeof worker?.[method] === 'function') await worker[method]({ reconcile: false });
+          const workers = method === 'processQueuedPayments' ? [service.swishService, service.bankService] : [service.vismaService];
+          for (const worker of workers) if (typeof worker?.[method] === 'function') await worker[method]({ reconcile: false });
         } catch { console.warn('En bolagsspecifik integrationskö väntar på nästa kontroll.'); }
       }
     })();

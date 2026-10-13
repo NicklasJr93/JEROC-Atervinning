@@ -3,6 +3,7 @@ import { can, type OfficeCard, type OfficeUser } from './model';
 import { useEnvironmentSession } from './EnvironmentSession';
 import { spirisBookingApi, type SpirisCardBooking } from './booking-client';
 import type { SwishPaymentJob } from './swish-payments-client';
+import type { BankPaymentJob } from './bank-payments-client';
 
 interface BookingContext {
   booking?: SpirisCardBooking;
@@ -13,6 +14,7 @@ interface BookingContext {
   canPay: boolean;
   hasPayment: boolean;
   reportPayment: (payment: SwishPaymentJob | undefined) => void;
+  reportBankPayment: (payment: BankPaymentJob | undefined) => void;
   book: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -27,12 +29,14 @@ export function CardBookingProvider({ card, user, actualUser, children }: {
 }) {
   const { session } = useEnvironmentSession();
   const [booking, setBooking] = useState<SpirisCardBooking>(), [payment, setPayment] = useState<SwishPaymentJob>(), [loading, setLoading] = useState(false), [error, setError] = useState('');
+  const [bankPayment, setBankPayment] = useState<BankPaymentJob>();
   const identity = `${actualUser.id}/${user.id}`;
   const matches = session?.actualUserId === actualUser.id && session?.effectiveUserId === user.id;
   const readAllowed = (can(user, 'pay') && can(actualUser, 'pay')) || (can(user, 'attest') && can(actualUser, 'attest')) || (can(user, 'bookSpiris') && can(actualUser, 'bookSpiris'));
   const allowed = Boolean(matches && readAllowed), eligible = ['ready', 'paid', 'balance'].includes(card.status);
   const epoch = useRef(0), flight = useRef<AbortController | null>(null);
   const reportPayment = useCallback((value: SwishPaymentJob | undefined) => setPayment(value), []);
+  const reportBankPayment = useCallback((value: BankPaymentJob | undefined) => setBankPayment(value), []);
   const load = useCallback(async (action: 'read' | 'refresh' | 'book' = 'read') => {
     if (!allowed || !eligible || flight.current) return;
     const expected = epoch.current, controller = new AbortController(); flight.current = controller;
@@ -48,7 +52,7 @@ export function CardBookingProvider({ card, user, actualUser, children }: {
     }
   }, [card.id, identity, eligible, allowed]);
   useEffect(() => {
-    epoch.current += 1; flight.current?.abort(); flight.current = null; setBooking(undefined); setPayment(undefined); setLoading(false); setError('');
+    epoch.current += 1; flight.current?.abort(); flight.current = null; setBooking(undefined); setPayment(undefined); setBankPayment(undefined); setLoading(false); setError('');
     void load();
     return () => { epoch.current += 1; flight.current?.abort(); flight.current = null; };
   }, [load]);
@@ -69,8 +73,8 @@ export function CardBookingProvider({ card, user, actualUser, children }: {
     return () => window.clearInterval(timer);
   }, [allowed, eligible, booking?.status, load]);
   const canBook = Boolean(allowed && booking?.canBook && can(user, 'bookSpiris') && can(actualUser, 'bookSpiris'));
-  const canPay = Boolean(allowed && card.status === 'ready' && !payment && booking?.status === 'booked' && !card.financialPending && can(user, 'pay') && can(actualUser, 'pay'));
-  return <Context.Provider value={{ booking, loading, error, permitted: readAllowed, canBook, canPay, hasPayment: Boolean(payment), reportPayment,
+  const canPay = Boolean(allowed && card.status === 'ready' && !payment && !bankPayment && booking?.status === 'booked' && !card.financialPending && can(user, 'pay') && can(actualUser, 'pay'));
+  return <Context.Provider value={{ booking, loading, error, permitted: readAllowed, canBook, canPay, hasPayment: Boolean(payment || bankPayment), reportPayment, reportBankPayment,
     book: () => canBook ? load('book') : Promise.resolve(), refresh: () => load('refresh') }}>{children}</Context.Provider>;
 }
 export function CardBookingPayButton({ onStart, disabled = false }: { onStart: () => void; disabled?: boolean }) {

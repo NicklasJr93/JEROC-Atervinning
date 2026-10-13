@@ -20,6 +20,9 @@ import { type Customer } from '../data';
 import { id, type Draft } from '../model';
 import { customerIdentifierError, formatAddress, normalizeAddress, normalizeCustomerDetails, normalizeOriginAddress, phoneNumberError, validateCustomerDetails } from '../data-format';
 import { MissingDraft, useDraft } from './shared';
+import { useEmployee } from '../employee/EmployeeProvider';
+import type { PaymentDetails } from '../payment-details';
+import MobilePaymentFields from './MobilePaymentFields';
 import './customer.css';
 
 const returnPage = (draft: Draft) =>
@@ -215,6 +218,7 @@ export function CustomerPage() {
 }
 export function NewCustomerPage() {
   const { draft, addCustomer } = useDraft();
+  const { session } = useEmployee();
   const navigate = useNavigate();
   const [type, setType] = useState<Customer['type']>('Företag');
   const [name, setName] = useState('');
@@ -228,6 +232,8 @@ export function NewCustomerPage() {
   const [numberError, setNumberError] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [error, setError] = useState('');
+  const [includePayment, setIncludePayment] = useState(false);
+  const [paymentProfile, setPaymentProfile] = useState<PaymentDetails>({ method: 'bank', bankType: 'account' });
   if (!draft) return <MissingDraft />;
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -249,6 +255,9 @@ export function NewCustomerPage() {
       vatRegistered: type === 'Privatperson' ? false : vatRegistered,
       references: [],
       origins: [],
+      ...(includePayment && session?.capabilities.paymentDetails ? { paymentProfile: { ...paymentProfile,
+        ...(paymentProfile.method === 'bank' ? { holder: paymentProfile.holder?.trim() || name.trim() }
+          : paymentProfile.method === 'swish' ? { recipient: paymentProfile.recipient?.trim() || name.trim() } : {}) } } : {}),
     };
     const invalid = validateCustomerDetails(customer);
     if (invalid) { setError(invalid); return; }
@@ -351,6 +360,15 @@ export function NewCustomerPage() {
           <p className="field-help">
             Materialets ursprungsadress anges separat efter att kunden är vald.
           </p>
+          {session?.capabilities.paymentDetails && <section className="mobile-payment-profile">
+            <label className="mobile-origin-copy"><input type="checkbox" checked={includePayment}
+              aria-label="Lägg till betalningsuppgifter" onChange={event => {
+                setIncludePayment(event.target.checked);
+                if (event.target.checked) setPaymentProfile(current => ({ ...current,
+                  ...(current.method === 'bank' && !current.holder ? { holder: name.trim() } : {}) }));
+              }} /><span>Lägg till betalningsuppgifter<small>Valfritt. Används som förval på nya viktkort.</small></span></label>
+            {includePayment && <MobilePaymentFields value={paymentProfile} onChange={setPaymentProfile} />}
+          </section>}
           {error && <Notice tone="red">{error}</Notice>}
           <Button type="submit" icon={Check}>
             Spara och välj kund

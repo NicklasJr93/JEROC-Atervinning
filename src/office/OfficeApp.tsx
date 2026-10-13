@@ -40,8 +40,9 @@ import { useWeightCardListNavigation } from './useWeightCardListNavigation';
 import { OfficePageHeader, OfficeStickyShell } from './OfficePageHeader';
 import CustomerWorkspace from './CustomerWorkspace';
 import PaymentEditor from './PaymentEditor';
-import SwishPayoutDialog from './SwishPayoutDialog';
-import SwishPaymentPanel, { CardSwishTrackingProvider } from './SwishPaymentPanel';
+import CardPaymentWorkspace from './CardPaymentWorkspace';
+import { CardBankTrackingProvider } from './BankPaymentPanel';
+import { CardSwishTrackingProvider } from './SwishPaymentPanel';
 import { CardBookingProvider, CardBookingPayButton } from './CardBookingContext';
 import { spirisBookingChanged, type SpirisAttestAction } from './booking-client';
 import CorrectionsWorkspace from './CorrectionsWorkspace';
@@ -73,6 +74,7 @@ const IntegrationsWorkspace = lazy(() => import('./IntegrationsWorkspace'));
 const NvvSandboxWorkspace = lazy(() => import('./NvvSandboxWorkspace'));
 const VismaSandboxWorkspace = lazy(() => import('./VismaSandboxWorkspace'));
 const SwishSandboxWorkspace = lazy(() => import('./SwishSandboxWorkspace'));
+const BankSandboxWorkspace = lazy(() => import('./BankSandboxWorkspace'));
 import { logisticsSummaryRequest, type LogisticsSummary } from './logistics/client';
 import type { WorkOrderPrefill } from './logistics/WorkOrderForm';
 import {
@@ -310,6 +312,7 @@ export function OfficeApp() {
   const nvvSandboxView = location.pathname === '/integrations/nvv-test';
   const vismaSandboxView = location.pathname === '/integrations/visma-test';
   const swishSandboxView = location.pathname === '/integrations/swish-test';
+  const bankSandboxView = location.pathname === '/integrations/bank-test';
   const selectedId = Number(location.pathname.split('/')[2]);
   const selected = workflowSections.includes(section)
     ? data.cards.find((c) => c.id === selectedId)
@@ -430,7 +433,7 @@ export function OfficeApp() {
       sessionStorage.removeItem('jeroc.office.acting');
       setActingId('');
       setUserId(id);
-      navigate(swishSandboxView ? '/integrations/swish-test' : vismaSandboxView ? '/integrations/visma-test' : nvvSandboxView ? '/integrations/nvv-test' : '/dashboard');
+      navigate(bankSandboxView ? '/integrations/bank-test' : swishSandboxView ? '/integrations/swish-test' : vismaSandboxView ? '/integrations/visma-test' : nvvSandboxView ? '/integrations/nvv-test' : '/dashboard');
     } catch {
       setError('Tillåt sessionslagring för att öppna demokontot.');
     }
@@ -1101,7 +1104,7 @@ export function OfficeApp() {
       can(user, 'customerPriceEdit'));
   const terminalAdminDenied = section === 'terminals' && user?.level !== 'Systemadmin';
   const nvvSandboxDenied = nvvSandboxView && (user?.level !== 'Systemadmin' || actualUser?.level !== 'Systemadmin' || !!user?.siteIds || !!actualUser?.siteIds || !can(user, 'environmentIntegration'));
-  const vismaSandboxDenied = (vismaSandboxView || swishSandboxView) && !mayManageSpiris(user, actualUser);
+  const vismaSandboxDenied = (vismaSandboxView || swishSandboxView || bankSandboxView) && !mayManageSpiris(user, actualUser);
   const accountsView = section === 'users' ||
     (section === 'personnel' && location.pathname.split('/')[2] === 'accounts') ||
     (section === 'personnel' && user && !can(user, 'personnelRead') && can(user, 'users'));
@@ -1296,6 +1299,7 @@ export function OfficeApp() {
             {nvvSandboxView && <><ChevronRight size={14} />NVV-test</>}
             {vismaSandboxView && <><ChevronRight size={14} />Spiris-test</>}
             {swishSandboxView && <><ChevronRight size={14} />Swish-test</>}
+            {bankSandboxView && <><ChevronRight size={14} />Banktest</>}
             {section === 'work-orders' && location.pathname.endsWith('/new') && <><ChevronRight size={14} />Ny arbetsorder</>}
             {section === 'work-orders' && location.pathname.endsWith('/edit') && <><ChevronRight size={14} />Redigera arbetsorder</>}
           </span>
@@ -1387,6 +1391,7 @@ export function OfficeApp() {
           ) : selected && workflowSections.includes(section) ? (
             <CardBookingProvider card={selected} user={user} actualUser={actualUser!}>
             <CardSwishTrackingProvider card={selected} user={user} actualUser={actualUser!}>
+            <CardBankTrackingProvider card={selected} user={user} actualUser={actualUser!}>
               <OfficePageHeader>
               <button
                 className="office-back"
@@ -1794,7 +1799,7 @@ export function OfficeApp() {
                     receiptStatus={receiptStatus}
                     guidance={panelGuidance('attest')} approval={selectedApproval} busy={attestBusy} blocked={blocked || priceBusy}
                     onAttest={action => attestCard(selected, action)} onReturn={() => returnCard(selected)} />
-                  {['ready', 'paid', 'balance'].includes(selected.status) && actualUser && <SwishPaymentPanel card={selected} user={user} actualUser={actualUser} onStart={() => setSwishPayoutOpen(true)} onReview={() => setDocumentType('settlement')} />}
+                  {['ready', 'paid', 'balance'].includes(selected.status) && actualUser && <CardPaymentWorkspace card={selected} user={user} actualUser={actualUser} onStart={() => setSwishPayoutOpen(true)} onReview={() => setDocumentType('settlement')} open={swishPayoutOpen} onClose={() => setSwishPayoutOpen(false)} onNotice={setMessage} onChanged={() => void shared.refresh()} />}
                   <section className="office-panel office-card-summary">
                     <div className="office-summary-info"><Calculator size={28} aria-hidden="true" /><div><h2>Sammanställning</h2><p>{['ready', 'paid', 'balance'].includes(selected.status) ? 'Attesterat underlag. Bokföring och utbetalning följs i utbetalningskortet.' : 'Efter kundgodkännande och intern attest går kortet vidare till bokföring och utbetalning.'}</p></div></div>
                     {selected.financialPending && (
@@ -1928,6 +1933,7 @@ export function OfficeApp() {
                   </section>
                   </CardSpirisTrackingProvider>
               </div>
+            </CardBankTrackingProvider>
             </CardSwishTrackingProvider>
             </CardBookingProvider>
           ) : section === 'dashboard' ? (
@@ -2192,7 +2198,7 @@ export function OfficeApp() {
             <EnvironmentWorkspace user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} onOpenCard={open} />
           ) : section === 'integrations' ? (
             <Suspense fallback={<div className="office-panel" role="status">Hämtar integrationer…</div>}>
-              {swishSandboxView ? <SwishSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} onNotice={setMessage} /> : vismaSandboxView ? <VismaSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : nvvSandboxView ? <NvvSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : <IntegrationsWorkspace
+              {bankSandboxView ? <BankSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} onNotice={setMessage} /> : swishSandboxView ? <SwishSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} onNotice={setMessage} /> : vismaSandboxView ? <VismaSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : nvvSandboxView ? <NvvSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : <IntegrationsWorkspace
                 key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} />}
             </Suspense>
           ) : section === 'facilities' ? (
@@ -2271,9 +2277,6 @@ export function OfficeApp() {
                 Till översikten
               </button>
             </section>
-          )}
-          {swishPayoutOpen && actualUser && selected && can(user, 'pay') && can(actualUser, 'pay') && (
-            <SwishPayoutDialog card={selected} user={user} actualUser={actualUser} open={swishPayoutOpen} onClose={() => setSwishPayoutOpen(false)} onNotice={setMessage} onChanged={() => void shared.refresh()} />
           )}
           {documentType && actualUser && selected && cardMoneyVisible(user, selected) && (
             <OfficeDocument

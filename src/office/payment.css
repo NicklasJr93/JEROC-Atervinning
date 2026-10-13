@@ -80,10 +80,24 @@
 .office-payment-wide {
   grid-column: 1 / -1;
 }
-.office .office-payment-fields input {
+.office .office-payment-fields input,
+.office .office-payment-fields select {
   margin-top: 5px;
   padding: 8px 9px;
   font-size: 11px;
+}
+.office-payment-bank-extra {
+  border-top: 1px solid #e9eff7;
+  margin-top: 4px;
+  padding-top: 10px;
+}
+.office-payment-bank-extra summary {
+  cursor: pointer;
+  color: #527498;
+  font-size: 11px;
+}
+.office-payment-bank-extra > .office-payment-fields {
+  margin-top: 10px;
 }
 .office-payment-required {
   color: #bd6345;

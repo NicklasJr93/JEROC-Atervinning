@@ -10,6 +10,7 @@ export interface EmployeePerson {
 export interface EmployeeCapabilities {
   yardWork: boolean; assignedOrders: boolean; employeeTime: boolean; manageTimeRequirements: boolean;
   manageEmployeeAccounts?: boolean;
+  paymentDetails?: boolean;
 }
 export interface EmployeeRequirement {
   enabled: boolean; mode: 'schedule' | 'fixed'; dailyMinutes?: number;

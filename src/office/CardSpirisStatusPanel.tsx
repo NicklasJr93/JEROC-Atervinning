@@ -8,6 +8,8 @@ import { useEnvironmentSession } from './EnvironmentSession';
 import { spirisAccountingApi } from './spiris-accounting-client';
 import { useCardSwishTracking } from './SwishPaymentPanel';
 import { swishPaymentTrace } from './swish-payment-trace';
+import { useCardBankTracking } from './BankPaymentPanel';
+import { bankPaymentTrace } from './bank-payment-trace';
 import './card-spiris-status.css';
 
 const exportSchema = z.object({
@@ -242,6 +244,7 @@ export function CardAuditTimeline({ card, user, users = [], renderText }: {
 }) {
   const context = useContext(TrackingContext);
   const swish = useCardSwishTracking();
+  const bank = useCardBankTracking();
   const job = context?.allowed ? context.current.job : null;
   const audit = card.audit.filter(event => !event.text.startsWith('Pris för') || can(user, 'changePrice'))
     .map((event, index) => ({ ...event, key: 'card-' + index, order: index, integration: false, payment: false, detail: '' }));
@@ -254,8 +257,10 @@ export function CardAuditTimeline({ card, user, users = [], renderText }: {
       detail: 'Avräkning AV-' + card.id + '-V' + job!.version + (event.detail ? ' · ' + event.detail : '') }];
   });
   const payments = swishPaymentTrace(swish.permitted && swish.sessionMatches ? swish.jobs : [], users)
-    .map(event => ({ ...event, order: card.audit.length + integrations.length + event.order, integration: false, payment: true }));
-  const items = [...audit, ...integrations, ...payments].sort((first, second) =>
+    .map(event => ({ ...event, order: card.audit.length + integrations.length + event.order, integration: false, payment: true, bank: false }));
+  const bankPayments = bankPaymentTrace(bank.permitted && bank.sessionMatches ? bank.jobs : [], users)
+    .map(event => ({ ...event, order: card.audit.length + integrations.length + payments.length + event.order, integration: false, payment: true, bank: true }));
+  const items = [...audit, ...integrations, ...payments, ...bankPayments].sort((first, second) =>
     (Date.parse(second.at) || 0) - (Date.parse(first.at) || 0) || second.order - first.order);
   return <ol className="office-audit">{items.map(event => <li key={event.key}>
     <i /><div><strong>{renderText(event.text)}</strong>
@@ -265,8 +270,9 @@ export function CardAuditTimeline({ card, user, users = [], renderText }: {
         context?.setDetails(true); document.getElementById('card-spiris-status')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }}>Visa överföring</button>}
       {event.payment && <button type="button" className="office-link card-spiris-trace-link" onClick={() => {
-        const panel = document.getElementById('card-swish-payment');
-        const history = panel?.querySelector<HTMLDetailsElement>('.swish-payment-history');
+        const bankEvent = 'bank' in event && event.bank;
+        const panel = document.getElementById(bankEvent ? 'card-bank-payment' : 'card-swish-payment');
+        const history = panel?.querySelector<HTMLDetailsElement>(bankEvent ? '.bank-payment-history' : '.swish-payment-history');
         if (history) history.open = true;
         panel?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }}>Visa utbetalningshistorik</button>}

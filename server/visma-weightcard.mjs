@@ -1,3 +1,4 @@
+import { bankRecipientToSpiris } from './bank-recipient.mjs';
 import { EnvironmentError } from './environment-storage.mjs';
 
 const money = value => Math.round(value * 100) / 100;
@@ -53,9 +54,7 @@ export function attestedVismaPrefill(approval) {
   add('EmailAddress', customer.email, 255); add('Telephone', customer.phone, 50); add('ContactPersonName', customer.contactPerson, 50);
   const payment = card.paymentDetails ?? customer.paymentProfile;
   if (snapshot.paymentMethod === 'bank' && payment?.method === 'bank') {
-    add('Clearing', payment.clearing?.replace(/\D/g, ''), 5);
-    add('BankAccountNumber', payment.account?.replace(/[\s-]/g, ''), 50);
-    add('BankName', payment.bank, 50); supplier.BankCountryCode = 'SE';
+    Object.assign(supplier, bankRecipientToSpiris(payment));
   }
   const purchaseRows = rows.length <= 99 ? rows.map((row, index) => ({ DebitAmount: row.amount, CreditAmount: 0, LineNumber: index + 1,
     TransactionText: text(`${row.name} · ${row.weight} kg × ${row.price} kr`, 100) }))

@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { freezePurchaseAccounting, AccountingError } from './visma-accounting.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { validateCustomerDetails, normalizeCustomerDetails, normalizePaymentDetails, normalizeOriginAddress,
-  normalizeAddress, validPaymentDetails } from '../dist-server/domain-models.mjs';
+  normalizeAddress, validPaymentDetails, bankRecipientError, paymentDetailsSchema } from '../dist-server/domain-models.mjs';
 
 const expectedStaffIdentity = new AsyncLocalStorage();
 
@@ -28,11 +28,7 @@ const id = z.string().min(1).max(100);
 const siteId = id.regex(/^[a-zA-Z0-9_-]+$/);
 const password = z.string().min(8).max(128);
 const username = z.string().trim().min(2).max(80).regex(/^[a-zA-Z0-9_.-]+$/).transform((value) => value.toLowerCase());
-const paymentSchema = z.object({
-  method: z.enum(['bank', 'swish', 'cash', 'balance']), bank: z.string().max(100).optional(),
-  clearing: z.string().max(20).optional(), account: z.string().max(100).optional(),
-  holder: z.string().max(200).optional(), phone: z.string().max(40).optional(), recipient: z.string().max(200).optional(),
-});
+const paymentSchema = paymentDetailsSchema.strict();
 const inputRow = z.object({
   articleId: id, weight: z.number().finite().positive().max(1e9), price: z.number().finite().nonnegative().max(1e9),
   tier: z.enum(['A', 'B', 'C', 'Eget']),
@@ -517,8 +513,12 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
           throw new TerminalDemoError('Detta rättelsesaldo används redan av en annan kundavräkning.', 409, 'offset_reserved');
         }
         const payment = request.card.paymentDetails ?? request.customer.paymentProfile;
-        if (!payment || (payment.method === 'bank' && (!payment.clearing?.trim() || !payment.account?.trim() || !payment.holder?.trim()))
+        if (!payment || (payment.method === 'bank' && !payment.holder?.trim())
           || (payment.method === 'swish' && (!payment.phone?.trim() || !payment.recipient?.trim()))) throw new TerminalDemoError('Komplettera betalningsuppgifterna innan kunden granskar avräkningen.', 422, 'payment_details_required');
+        if (payment.method === 'bank') {
+          const error = bankRecipientError(payment);
+          if (error) throw new TerminalDemoError(error, 422, 'payment_details_invalid');
+        }
         if (!validPaymentDetails(payment)) throw new TerminalDemoError('Kontrollera betalningsuppgifternas format före kundgodkännande.', 422, 'payment_details_invalid');
         const originalCard = copy(request.card);
         originalCard.origin = normalizeOriginAddress(originalCard.origin);
@@ -608,6 +608,8 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
           return approvalDTO(approval, principal,state.revision);
         }
         if (approval.status !== 'approved' || approval.approvedHash !== approval.snapshot.hash) throw new TerminalDemoError('Aktuell avräkningsversion måste vara kundgodkänd före intern attest.', 409, 'customer_approval_required');
+        const frozenPayment = approval.snapshot.card.paymentDetails ?? approval.snapshot.customer.paymentProfile;
+        if (!validPaymentDetails(frozenPayment)) throw new TerminalDemoError('Den kundgodkända betalningsinstruktionen har ogiltigt format. Skapa en ny granskningsversion före attest.', 422, 'payment_details_invalid');
         if (!principal.user.ownAttest && (principal.user.id === approval.effectiveUserId || principal.actor.id === approval.actualUserId)) throw new TerminalDemoError('Du får inte attestera ditt eget underlag.', 403, 'own_attest_forbidden');
         if (approval.snapshot.gross > principal.user.maxAttest) throw new TerminalDemoError('Beloppet överstiger din attestgräns.', 403, 'attest_limit');
         let bookingConnection;

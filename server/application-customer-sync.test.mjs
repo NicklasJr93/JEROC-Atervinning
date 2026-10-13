@@ -39,6 +39,47 @@ const draft = (patch = {}) => ({ id: randomUUID(), siteId: 'norrtalje', number: 
   rows: [{ id: randomUUID(), articleId: 'lead-battery', method: 'direct', weight: 70 }], ...patch });
 const records = (draftChanges = [], customerChanges = []) => ({ kind: 'records', version: 1, drafts: draftChanges, customers: customerChanges });
 
+test('new mobile bank profile is canonical, retries once and stays out of general customer projections', async () => fixture(async ({ api }) => {
+  const value = customer({ paymentProfile: { method: 'bank', bankType: 'bankgiro', holder: 'Testmottagare', bankgiro: '123-4566', clearing: '8327', account: '00001234567' } });
+  const input = records([], [{ id: value.id, next: value }]);
+  const created = await api(mobile, input); assert.equal(created.status, 200, created.error);
+  assert.equal(created.data.customers.find(row => row.id === value.id).paymentProfile, undefined);
+  const saved = (await api(office)).data.customers.find(row => row.id === value.id);
+  assert.deepEqual(saved.paymentProfile, { method: 'bank', bankType: 'bankgiro', holder: 'Testmottagare', bankgiro: '1234566' });
+  const retry = await api(mobile, input); assert.equal(retry.status, 200, retry.error);
+  assert.deepEqual((await api(office)).data.customers.find(row => row.id === value.id).audit, saved.audit);
+}));
+
+test('mobile bank profiles require their own permission and wrong checksum rolls back a new customer', async () => fixture(async ({ app, api }) => {
+  await api(mobile); const repo = await app.getRepository();
+  await repo.transact(state => {
+    state.pricing.users.find(user => user.id === 'kajsa').permissions = ['view', 'prepare', 'customers'];
+  });
+  const value = customer({ paymentProfile: { method: 'bank', bankType: 'plusgiro', holder: 'Testmottagare', plusgiro: '123455' } });
+  const forbidden = await api(mobile, records([], [{ id: value.id, next: value }]), 'kajsa');
+  assert.equal(forbidden.status, 403, forbidden.error);
+  assert.ok(!(await api(office)).data.customers.some(row => row.id === value.id));
+  const imported = await api(mobile, { kind: 'import', data: { version: 1, drafts: [], customers: [value] } }, 'kajsa');
+  assert.equal(imported.status, 200, imported.error); assert.ok(imported.importConflicts > 0);
+  assert.ok(!(await api(office)).data.customers.some(row => row.id === value.id));
+  const invalid = customer({ paymentProfile: { method: 'bank', bankType: 'bankgiro', holder: 'Testmottagare', bankgiro: '1234567' } });
+  const rejected = await api(mobile, records([], [{ id: invalid.id, next: invalid }]));
+  assert.equal(rejected.status, 422, rejected.error); assert.match(rejected.error, /kontrollsiffra/);
+  assert.ok(!(await api(office)).data.customers.some(row => row.id === invalid.id));
+}));
+
+test('office card bank fields normalize only changed instructions and reject invalid recipients atomically', async () => fixture(async ({ api }) => {
+  const base = (await api(office)).data, next = structuredClone(base);
+  next.cards[0].paymentDetails = { method: 'bank', bankType: 'iban', holder: 'Testmottagare', iban: 'se45 5000 0000 0583 9825 7466',
+    bic: 'swedsess', clearing: '8327', account: '00001234567' };
+  const saved = await api(office, { base, next }); assert.equal(saved.status, 200, saved.error);
+  const stored = saved.data.cards[0].paymentDetails;
+  assert.deepEqual(stored, { method: 'bank', bankType: 'iban', holder: 'Testmottagare', iban: 'SE4550000000058398257466', bic: 'SWEDSESS' });
+  const invalid = structuredClone(saved.data); invalid.cards[0].paymentDetails.iban = 'SE4550000000058398257467';
+  const rejected = await api(office, { base: saved.data, next: invalid }); assert.equal(rejected.status, 422);
+  assert.deepEqual((await api(office)).data.cards[0].paymentDetails, stored);
+}));
+
 test('mobile customer save canonicalizes identity/address/phone and preserves explicit VAT false and office-only economy', async () => fixture(async ({ app, api }) => {
   const value = customer();
   const created = await api(mobile, records([], [{ id: value.id, next: value }]));

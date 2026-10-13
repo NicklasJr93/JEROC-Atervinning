@@ -450,3 +450,41 @@ test('the worker rechecks a resumed instruction before dispatch after another se
     assert.equal(saved.status, 'blocked'); assert.equal(saved.error.code, 'swish_settings_changed'); assert.equal(f.calls.length, 0);
   }, { assertPaymentReady: async (_source, { fresh }) => { if (fresh && !corrected) throw amountFailure(); return booked(); } });
 });
+
+for (const bankOriginal of [
+  { method: 'bank', bankType: 'iban', iban: 'SE45 5000 0000 0583 9825 7466', bic: 'essessex', bankCountry: 'se', holder: 'Erik Johansson' },
+  { method: 'bank', bankType: 'bankgiro', bankgiro: '123-4566', holder: 'Erik Johansson' },
+  { method: 'bank', bankType: 'plusgiro', plusgiro: '12345-5', holder: 'Erik Johansson' },
+]) test(`typed ${bankOriginal.bankType} original survives a reasoned Swish override without changing the frozen source`, async () => fixture(async f => {
+  f.approval.snapshot.card.paymentDetails = structuredClone(bankOriginal);
+  await f.repository.transact(state => { state.office.cards.find(card => card.id === CARD_ID).paymentDetails = structuredClone(bankOriginal); });
+  const originalSnapshot = structuredClone(f.approval.snapshot);
+  const preparation = await f.payments.prepare(CARD_ID, context);
+  assert.equal(preparation.originalPaymentDetails.bankType, bankOriginal.bankType);
+  assert.equal(preparation.canInitiate, true); assert.equal(preparation.canStart, false);
+  await assert.rejects(() => f.payments.start(f.input(), context), error => error.code === 'swish_override_reason_required');
+  const item = await f.payments.start(f.input({ reason: 'Kunden bekräftade Swish istället.' }), context);
+  assert.equal(item.originalPaymentDetails.bankType, bankOriginal.bankType);
+  if (bankOriginal.bankType === 'iban') {
+    assert.equal(item.originalPaymentDetails.iban, 'SE4550000000058398257466'); assert.equal(item.originalPaymentDetails.bic, 'ESSESSEX');
+  } else assert.equal(item.originalPaymentDetails[bankOriginal.bankType], bankOriginal[bankOriginal.bankType].replaceAll('-', ''));
+  assert.equal(item.paymentDetails.method, 'swish'); assert.equal(item.sourceSnapshotHash, originalSnapshot.hash);
+  assert.deepEqual(item.sourceSnapshot, originalSnapshot);
+  assert.deepEqual(await f.repository.read(state => state.office.cards.find(card => card.id === CARD_ID).paymentDetails), bankOriginal);
+  await f.payments.processQueuedPayments(); f.advance(5000); await f.payments.processQueuedPayments();
+  assert.equal((await f.payments.job(item.id, context)).status, 'simulated_paid');
+}));
+
+test('pre-109 bank originals keep exactly their old normalization and frozen source bytes', async () => fixture(async f => {
+  const legacy = { method: 'bank', bank: '  Demobank  ', clearing: '83-27', account: '123 4567 890', holder: 'Erik Johansson' };
+  f.approval.snapshot.card.paymentDetails = structuredClone(legacy);
+  await f.repository.transact(state => { state.office.cards.find(card => card.id === CARD_ID).paymentDetails = structuredClone(legacy); });
+  const frozen = structuredClone(f.approval.snapshot);
+  const item = await f.payments.start(f.input({ reason: 'Kunden valde Swish.' }), context);
+  assert.deepEqual(item.originalPaymentDetails, legacy); assert.deepEqual(item.sourceSnapshot, frozen);
+  const before = await f.repository.read(state => structuredClone(state.swishPayments.jobs[item.id]));
+  await f.payments.refresh(item.id, context);
+  const after = await f.repository.read(state => structuredClone(state.swishPayments.jobs[item.id]));
+  assert.equal(after.instructionHash, before.instructionHash);
+  assert.deepEqual(after.originalPaymentDetails, before.originalPaymentDetails); assert.deepEqual(after.sourceSnapshot, before.sourceSnapshot);
+}));

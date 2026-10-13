@@ -260,6 +260,25 @@ test('preliminary settlement uses the frozen review rather than mutable customer
   assert.equal(archived.snapshot.attest, undefined);
 }));
 
+test('new bank recipient PDFs mask the frozen subtype number and leave older originals intact', async () => {
+  for (const [bankType, field, number, label] of [['bankgiro', 'bankgiro', '1234566', 'Bankgiro'], ['plusgiro', 'plusgiro', '123455', 'Plusgiro'], ['iban', 'iban', 'SE4550000000058398257466', 'IBAN']]) {
+    await serviceFixture(async ({ service, sources, repository }) => {
+      const original = (await service.generateSettlement(3010, {}, admin)).document;
+      const savedOriginal = await repository.read(database => database.document(original.id, true));
+      const approval = sources.approvals[0];
+      approval.version = 2; approval.snapshot.card.paymentDetails = { method: 'bank', bankType, [field]: number, holder: 'Fryst mottagare' };
+      approval.snapshot.hash = digest(`recipient-${bankType}`);
+      sources.office.cards[0].paymentDetails = { method: 'bank', bankType: 'account', account: '9999999999', holder: 'Ändrad levande mottagare' };
+      const next = (await service.generateSettlement(3010, {}, admin)).document;
+      const archived = await service.download(next.id, admin);
+      assert.deepEqual(archived.snapshot.payment, { method: 'bank', bankType, label, maskedAccount: `•••• ${number.slice(-4)}`, recipient: 'Fryst mottagare' });
+      assert.equal(JSON.stringify(archived.snapshot.payment).includes(number), false);
+      assert.deepEqual(await repository.read(database => database.document(original.id, true)), savedOriginal);
+      assert.equal(Object.hasOwn(savedOriginal.snapshot.payment, 'bankType'), false);
+    });
+  }
+});
+
 test('customer approval and internal attest are distinct, server-enforced PDF stages', async () => serviceFixture(async ({ service, sources }) => {
   await assert.rejects(() => service.generateSettlement(3010, { stage: 'reviewed' }, admin), expectError(409, 'approval_required'));
   await assert.rejects(() => service.generateSettlement(3010, { stage: 'final' }, admin), expectError(409, 'approval_required'));

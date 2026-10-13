@@ -90,7 +90,7 @@ async function handle(req, res) {
     reply(res, 404, 'Not found');
     return;
   }
-  const staticPath = ['/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/kontor/integration/systemadminswishtest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
+  const staticPath = ['/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/kontor/integration/systemadminswishtest.html', '/kontor/integration/systemadminbanktest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
   const file = resolve(dist, `.${staticPath}`);
   const within = relative(dist, file);
   if (within.startsWith('..') || isAbsolute(within)) {
@@ -164,7 +164,7 @@ accountingTrackingTimer.unref();
 void tenantGateway.runWorkers('processQueuedExports');
 void tenantGateway.runWorkers('processAccountingTracking');
 const paymentTimer = setInterval(() => {
-  void tenantGateway.runWorkers('processQueuedPayments').catch(() => console.warn('Swish-testkön väntar på nästa kontroll.'));
+  void tenantGateway.runWorkers('processQueuedPayments').catch(() => console.warn('Betalningskön väntar på nästa kontroll.'));
 }, 3000);
 paymentTimer.unref();
 void tenantGateway.runWorkers('processQueuedPayments');

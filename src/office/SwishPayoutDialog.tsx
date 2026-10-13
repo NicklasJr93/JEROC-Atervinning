@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Check, CircleAlert, LoaderCircle, LockKeyhole, Pencil, Smartphone, X } from 'lucide-react';
 import { can, type OfficeCard, type OfficeUser, type PaymentDetails } from './model';
 import { EnvironmentApiError } from './environment-client';
 import { useEnvironmentSession } from './EnvironmentSession';
-import PaymentEditor from './PaymentEditor';
+import PaymentEditor, { PaymentReadOnly } from './PaymentEditor';
 import SwishPayoutProgressDialog from './SwishPayoutProgressDialog';
-import { normalizePhoneNumber } from '../data-format';
+import { normalizePaymentDetails, normalizePhoneNumber } from '../data-format';
 import {
   swishPaymentsApi, swishPaymentChanged, swishPaymentRunning, swishBookkeepingRunning,
   type SwishPaymentDetails, type SwishPaymentJob, type SwishPaymentPreparation,
@@ -15,12 +15,17 @@ import './swish-payments.css';
 function comparable(value?: PaymentDetails) {
   if (!value) return '';
   if (value.method === 'swish') return JSON.stringify({ method: value.method, phone: normalizePhoneNumber(value.phone ?? '', { swish: true }), recipient: value.recipient?.trim() ?? '' });
-  if (value.method === 'bank') return JSON.stringify({ method: value.method, bank: value.bank?.trim() ?? '', clearing: value.clearing?.replace(/[\s-]/g, '') ?? '', account: value.account?.replace(/[\s-]/g, '') ?? '', holder: value.holder?.trim() ?? '' });
+  if (value.method === 'bank') {
+    const normalized = normalizePaymentDetails(value);
+    return JSON.stringify(Object.fromEntries(['method', 'bankType', 'bank', 'clearing', 'account', 'holder', 'bankgiro', 'plusgiro', 'iban', 'bic', 'bankCountry', 'beneficiaryAddress', 'ocr']
+      .filter(key => normalized[key as keyof PaymentDetails] !== undefined && normalized[key as keyof PaymentDetails] !== '' && !(key === 'bankType' && normalized.bankType === 'account'))
+      .map(key => [key, normalized[key as keyof PaymentDetails]])));
+  }
   return value.method;
 }
-export default function SwishPayoutDialog({ card, user, actualUser, open, onClose, onNotice, onChanged }: {
+export default function SwishPayoutDialog({ card, user, actualUser, open, onClose, onNotice, onChanged, methodSelector }: {
   card: OfficeCard; user: OfficeUser; actualUser: OfficeUser; open: boolean; onClose: () => void;
-  onNotice?: (message: string) => void; onChanged?: () => void;
+  onNotice?: (message: string) => void; onChanged?: () => void; methodSelector?: ReactNode;
 }) {
   const { session, loading: sessionLoading } = useEnvironmentSession();
   const dialog = useRef<HTMLDialogElement>(null), heading = useId(), description = useId();
@@ -202,6 +207,7 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
     <div className="swish-payout-heading"><div><span className="swish-payment-test-badge">SWISH · MSS</span><h2 id={heading}>Betala ut</h2><p id={description}>Testmiljö · inga pengar flyttas.</p></div>
       <button type="button" className="swish-payout-close" aria-label="Stäng utbetalning" onClick={onClose} disabled={busy}><X size={21} /></button>
     </div>
+    {methodSelector}
     {(loading || sessionLoading) && <p className="swish-payment-muted" role="status"><LoaderCircle size={18} className="swish-payment-spin" />Hämtar det attesterade underlaget…</p>}
     {!sessionLoading && !sessionMatches && <p className="swish-payment-error" role="alert">En giltig inloggning behövs för att hämta utbetalningsuppgifterna.</p>}
     {preparation && sessionMatches && <>
@@ -216,7 +222,7 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
           onDraftChange={value => setDetails({ ...value, personalNumber: preparation.paymentDetails.personalNumber ?? preparation.customer.number })} />
           : <dl className="swish-payout-locked-details" aria-label="Låsta utbetalningsuppgifter"><div><dt>Betalsätt</dt><dd>{({ swish: 'Swish', bank: 'Bankkonto', cash: 'Kontant', balance: 'Spara på saldo' })[details?.method ?? 'bank']}</dd></div>
             {details?.method === 'swish' && <><div><dt>Telefonnummer</dt><dd>{details.phone || '–'}</dd></div><div><dt>Mottagare</dt><dd>{details.recipient || '–'}</dd></div></>}
-            {details?.method === 'bank' && <><div><dt>Bank</dt><dd>{details.bank || '–'}</dd></div><div><dt>Clearingnummer</dt><dd>{details.clearing || '–'}</dd></div><div><dt>Kontonummer</dt><dd>{details.account || '–'}</dd></div><div><dt>Kontohavare</dt><dd>{details.holder || '–'}</dd></div></>}
+            {details?.method === 'bank' && <div><PaymentReadOnly value={details} /></div>}
           </dl>}
         {methodSupported && <label className="swish-payout-identity">Mottagarens personnummer<input aria-label="Mottagarens personnummer" value={preparation.paymentDetails.personalNumber ?? preparation.customer.number} readOnly /><small>Identiteten följer den attesterade kunden och kan inte bytas i utbetalningen.</small></label>}
         {!methodSupported && <p className="swish-payout-warning"><CircleAlert size={16} />Bank, kontant och saldo är planerade. Välj Swish för att provköra den här testmiljön.</p>}

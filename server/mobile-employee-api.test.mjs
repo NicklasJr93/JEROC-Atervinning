@@ -77,6 +77,15 @@ test('employee authentication supports a non-driver, protects origin and has no 
     assert.throws(() => employeeRequestPrincipal(state, { headers: { cookie: 'jeroc_employee=invalid', 'x-demo-actor': 'admin' } }, { now }), error => error.status === 401); });
 }));
 
+test('payment-profile capability follows current employee permission and does not follow customer editing alone', async () => fixture(async ({ request, login, repository }) => {
+  const employee = await login();
+  assert.equal(employee.capabilities.paymentDetails, false);
+  await repository.transact(state => state.pricing.users.find(user => user.id === 'test-alice').permissions.push('paymentDetails'));
+  assert.equal((await request('session', undefined, employee.cookie)).capabilities.paymentDetails, true);
+  await repository.transact(state => { state.pricing.users.find(user => user.id === 'test-alice').permissions = ['view', 'prepare', 'customers']; });
+  assert.equal((await request('session', undefined, employee.cookie)).capabilities.paymentDetails, false);
+}));
+
 test('active facility persists per tenant and person, rejects forged choices and remains available through the time gate', async () => fixture(async ({ request, login, repository, openRepository, clock, base, env }) => {
   await repository.transact(state => {
     const person = state.personnel.people.find(value => value.userId === 'test-alice'); person.siteIds = ['norrtalje', 'rimbo'];

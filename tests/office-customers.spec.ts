@@ -107,7 +107,7 @@ test('betalningsmetoder bevarar inmatning och validerar bara den valda metoden',
   const { cardId } = await createOfficeCard(request);
   await login(page, 'Kajsa Nilsson');
   await page.goto(`/kontor#/weighings/${cardId}`);
-  await page.getByRole('button', { name: 'Bankkonto', exact: true }).click();
+  await page.getByRole('button', { name: 'Banköverföring', exact: true }).click();
   await page.getByLabel('Clearingnummer', { exact: true }).fill('8327');
   await page.getByLabel('Kontonummer', { exact: true }).fill('1234567890');
   await page.getByLabel('Kontohavare', { exact: true }).fill('Testkund');
@@ -116,7 +116,7 @@ test('betalningsmetoder bevarar inmatning och validerar bara den valda metoden',
   await page.getByLabel('Mottagare', { exact: true }).fill('Testkund');
   await page.getByRole('button', { name: 'Spara betalningsuppgift', exact: true }).click();
   await expect(page.getByLabel('Telefonnummer', { exact: true })).toHaveAttribute('aria-invalid', 'true');
-  await page.getByRole('button', { name: 'Bankkonto', exact: true }).click();
+  await page.getByRole('button', { name: 'Banköverföring', exact: true }).click();
   await expect(page.getByLabel('Clearingnummer', { exact: true })).toHaveValue('8327');
   await expect(page.getByLabel('Kontonummer', { exact: true })).toHaveValue('1234567890');
   await page.getByRole('button', { name: 'Spara betalningsuppgift', exact: true }).click();

@@ -188,6 +188,7 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           return { ...projection, companyId, companyName: state.metadata?.organisation?.name ?? (companyId === 'jeroc-demo' ? 'JEROC Återvinning AB' : ''), person: safePerson(scopedPerson, account), sites: sites.map(({ id, name, active }) => ({ id, name, active })),
             activeSiteId: employeeActiveSite(state, companyId, person.id, sites),
             capabilities: { yardWork: principal.user.level !== 'Medarbetare' || principal.user.permissions.includes('prepare'), assignedOrders: Boolean(person.canDrive && person.driverId),
+              paymentDetails: [principal.actor, principal.user].every(user => user.level !== 'Medarbetare' || user.permissions.includes('paymentDetails')),
               employeeTime: true, manageTimeRequirements: managePeople(state, identity).length > 0,
               manageEmployeeAccounts: principal.user.level === 'Systemadmin' || principal.user.level === 'VD' } };
         };

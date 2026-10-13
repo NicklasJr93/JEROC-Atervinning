@@ -1,3 +1,4 @@
+import { verifiedBankPaymentProof } from '../bank-payment-proof.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { DocumentError } from './storage.mjs';
@@ -33,6 +34,16 @@ export const transportDocumentInputSchema = z.object({
 }).strict();
 function parse(schema, input) { const value = schema.safeParse(input); if (!value.success) fail(value.error.issues.map(issue => issue.message).join(' '), 422, 'invalid_input'); return value.data; }
 const party = source => ({ name: source?.name ?? '', number: source?.number ?? '', address: source?.address ?? '', postalCode: source?.postalCode ?? '', city: source?.city ?? '' });
+function documentPaymentDetails(details, paymentMethod, customerName) {
+  const method = details?.method ?? paymentMethod;
+  const type = details?.bankType ?? 'account';
+  const number = method === 'bank' ? ({ account: details?.account, bankgiro: details?.bankgiro, plusgiro: details?.plusgiro, iban: details?.iban })[type] : details?.account;
+  // No new defaults are written into older frozen document snapshots.
+  return { method, label: method === 'bank' && details?.bankType ? ({ account: 'Bankkonto', bankgiro: 'Bankgiro', plusgiro: 'Plusgiro', iban: 'IBAN' })[type]
+    : { bank: 'Bankkonto', swish: 'Swish', cash: 'Kontant', balance: 'Spara på saldo' }[paymentMethod],
+    maskedAccount: number ? `•••• ${number.replace(/\s/g, '').slice(-4)}` : '', recipient: details?.holder ?? details?.recipient ?? customerName,
+    ...(method === 'bank' && details?.bankType ? { bankType: type } : {}) };
+}
 const siteFor = (sources, card) => (sources.sites ?? []).find(site => site.id === card?.siteId || !card?.siteId && site.name === card?.yard);
 const companyFor = (sources, site) => {
   const company = sources.company;
@@ -73,7 +84,7 @@ function approvalSnapshot(approval, sources, stage) {
     termsVersion: value.termsVersion,
     ...(stage !== 'preliminary' && validApproved(approval) ? { approval: { method: approval.approvedMethod ?? 'staff_checked_id_demo', person: approval.approvedBy, verifiedBy: approval.approvedBy, at: approval.approvedAt, version: approval.version } } : {}),
     ...(stage === 'final' ? { attest: { name: approval.attestedBy, at: approval.attestedAt } } : {}),
-    payment: { method: payment?.method ?? value.paymentMethod, label: { bank: 'Bankkonto', swish: 'Swish', cash: 'Kontant', balance: 'Spara på saldo' }[value.paymentMethod], maskedAccount: payment?.account ? `•••• ${payment.account.replace(/\s/g, '').slice(-4)}` : '', recipient: payment?.holder ?? payment?.recipient ?? customer.name },
+    payment: documentPaymentDetails(payment, value.paymentMethod, customer.name),
     tax: accounting ? {
       mode: accounting.sellerVat > 0 ? 'standard' : accounting.lines.some(line => line.treatment === 'reverse25') ? 'reverse' : privateSeller ? 'private' : 'none',
       label: accounting.sellerVat > 0 ? 'Moms debiteras enligt avräkningens materialrader' : accounting.lines.some(line => line.treatment === 'reverse25') ? 'Omvänd betalningsskyldighet' : 'Ingen moms debiteras',
@@ -209,8 +220,8 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
       fail('Betalningsrevisionens attestversion stämmer inte.', 409, 'payment_revision_source_changed');
     if (!['swish', 'bank', 'cash', 'balance'].includes(job.paymentDetails.method))
       fail('Betalningsrevisionens betalningssätt stöds inte.', 422, 'payment_revision_method_invalid');
-    const normalizePayment = details => Object.fromEntries(['method', 'phone', 'recipient', 'personalNumber', 'bank', 'clearing', 'account', 'holder']
-      .filter(key => details?.[key] !== undefined && details[key] !== '').map(key => [key, details[key]]));
+    const normalizePayment = details => Object.fromEntries(['method', 'phone', 'recipient', 'personalNumber', 'bank', 'clearing', 'account', 'holder', 'bankType', 'bankgiro', 'plusgiro', 'iban', 'bic', 'bankCountry', 'beneficiaryAddress', 'ocr']
+      .filter(key => details?.[key] !== undefined && details[key] !== '' && !(key === 'bankType' && details[key] === 'account')).map(key => [key, details[key]]));
     if (documentHash(normalizePayment(job.paymentDetails)) === documentHash(normalizePayment(job.originalPaymentDetails))) return null;
     if (!job.reason?.trim()) fail('Ange orsak till ändrade betalningsuppgifter.', 422, 'payment_revision_reason_required');
     const principal = { actor: { id: job.revisionActor.actualUserId }, user: { id: job.revisionActor.effectiveUserId } };
@@ -235,12 +246,12 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
     const version = pdfVersion(previous.snapshot) + 1;
     const details = job.paymentDetails;
     const snapshot = copy(original.snapshot);
-    snapshot.payment = { ...snapshot.payment, method: details.method, label: { bank: 'Bankkonto', swish: 'Swish', cash: 'Kontant', balance: 'Spara på saldo' }[details.method],
-      recipient: details.recipient ?? details.holder ?? snapshot.customer.name,
-      maskedAccount: details.method === 'swish' && details.phone ? `•••• ${details.phone.slice(-4)}` : details.account ? `•••• ${details.account.replace(/\s/g, '').slice(-4)}` : '' };
+    snapshot.payment = { ...snapshot.payment, ...documentPaymentDetails(details, details.method, snapshot.customer.name),
+      ...(details.method === 'swish' && details.phone ? { maskedAccount: `•••• ${details.phone.slice(-4)}` } : {}) };
     snapshot.paymentRevision = { version, jobId: job.id, originalDocumentId: original.id, replacesDocumentId: previous.id,
       financialSourceHash: source.hash, instructionHash: documentHash(normalizePayment(details)), at: job.createdAt,
-      actor: copy(job.revisionActor), reason: job.reason.trim(), mode: job.mode === 'mss' ? 'mss' : 'test', simulation: true };
+      actor: copy(job.revisionActor), reason: job.reason.trim(), mode: job.mode === 'mss' ? 'mss' : job.provider === 'openpayments' ? 'openpayments_sandbox' : 'test', simulation: true,
+      ...(job.provider === 'openpayments' ? { providerName: 'Open Payments sandbox' } : {}) };
     snapshot.sourceHash = documentHash({ originalDocumentId: original.id, financialSourceHash: source.hash, jobId: job.id,
       instructionHash: snapshot.paymentRevision.instructionHash });
     const document = await archive(snapshot, 'settlement', source.cardId, source.version, 'final', source.siteId, principal);
@@ -253,26 +264,28 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
    * Validate before rendering or writing, then copy the frozen financial PDF. */
   async function archivePaymentConfirmation(job) {
     const source = job?.source, paid = job?.providerResult, sent = job?.request?.payload;
-    const invalidProof = () => fail('Betalningsbekräftelsen saknar ett verifierat Swish-resultat.', 409, 'payment_confirmation_unverified');
-    if (job?.kind !== 'card' || job.mode !== 'mss' || job.status !== 'simulated_paid' || !job.verifiedAt ||
+    const bank = job?.provider === 'openpayments';
+    const invalidProof = () => fail('Betalningsbekräftelsen saknar ett verifierat betalningsresultat.', 409, 'payment_confirmation_unverified');
+    if (bank && !verifiedBankPaymentProof(job)) invalidProof();
+    if (!bank && (job?.kind !== 'card' || job.mode !== 'mss' || job.status !== 'simulated_paid' || !job.verifiedAt ||
       paid?.status !== 'PAID' || !sent || !job.providerInstructionUUID || !job.providerPaymentReference ||
-      !Number.isSafeInteger(job.amountCents) || job.amountCents <= 0 || job.paymentDetails?.method !== 'swish') invalidProof();
+      !Number.isSafeInteger(job.amountCents) || job.amountCents <= 0 || job.paymentDetails?.method !== 'swish')) invalidProof();
     const paidAt = Date.parse(paid.datePaid), verifiedAt = Date.parse(job.verifiedAt);
-    if (!Number.isFinite(paidAt) || !Number.isFinite(verifiedAt) || paidAt > verifiedAt + 5000 ||
+    if (!bank && (!Number.isFinite(paidAt) || !Number.isFinite(verifiedAt) || paidAt > verifiedAt + 5000 ||
       typeof paid.paymentReference !== 'string' || !paid.paymentReference.trim() ||
       paid.paymentReference !== job.providerPaymentReference || sent.currency !== 'SEK' ||
       sent.payoutInstructionUUID !== job.providerInstructionUUID ||
       sent.payeeAlias !== job.paymentDetails.phone?.replace(/^\+/, '') ||
       sent.payeeSSN !== job.paymentDetails.personalNumber ||
       ['payoutInstructionUUID', 'payerPaymentReference', 'payerAlias', 'payeeAlias', 'payeeSSN', 'currency']
-        .some(field => typeof sent[field] !== 'string' || !sent[field] || paid[field] !== sent[field])) invalidProof();
+        .some(field => typeof sent[field] !== 'string' || !sent[field] || paid[field] !== sent[field]))) invalidProof();
     const cents = value => {
       const amount = String(value);
       if (!/^\d+(?:\.\d{1,2})?$/.test(amount)) return NaN;
       const [whole, fraction = ''] = amount.split('.');
       return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
     };
-    if (cents(sent.amount) !== job.amountCents || cents(paid.amount) !== job.amountCents) invalidProof();
+    if (!bank && (cents(sent.amount) !== job.amountCents || cents(paid.amount) !== job.amountCents)) invalidProof();
     if (!job.id || !source?.approvalId || !source.cardId || !source.hash || source.hash !== job.sourceSnapshotHash ||
       !job.sourceSnapshot || !job.revisionActor?.actualUserId || !job.revisionActor?.effectiveUserId)
       fail('Betalningsbekräftelsen saknar låst attestunderlag.', 409, 'payment_confirmation_source_missing');
@@ -283,7 +296,7 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
       documentHash(approval.snapshot) !== documentHash(job.sourceSnapshot) ||
       source.customerId !== approval.snapshot.customer?.id ||
       approval.snapshot.card?.customerId !== source.customerId ||
-      approval.snapshot.customer?.number?.replace(/[\s-]/g, '') !== sent.payeeSSN ||
+      !bank && approval.snapshot.customer?.number?.replace(/[\s-]/g, '') !== sent.payeeSSN ||
       cents(approval.snapshot.net) !== job.amountCents)
       fail('Betalningsbekräftelsen matchar inte låst kund, belopp eller attestversion.', 409, 'payment_confirmation_source_changed');
     const proofHash = documentHash({ jobId: job.id, sourceHash: source.hash, request: sent,
@@ -311,11 +324,12 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
       financialSourceHash(record) === source.hash).sort((a, b) => pdfVersion(b.snapshot) - pdfVersion(a.snapshot))[0] ?? original;
     const version = pdfVersion(previous.snapshot) + 1, snapshot = copy(previous.snapshot);
     const masked = value => value ? `•••• ${String(value).replace(/\s/g, '').slice(-4)}` : '';
-    snapshot.payment = { ...snapshot.payment, method: 'swish', label: 'Swish',
-      recipient: job.paymentDetails.recipient ?? snapshot.customer.name, maskedAccount: masked(job.paymentDetails.phone) };
+    snapshot.payment = bank ? { ...snapshot.payment, ...documentPaymentDetails(job.paymentDetails, 'bank', snapshot.customer.name) }
+      : { ...snapshot.payment, method: 'swish', label: 'Swish', recipient: job.paymentDetails.recipient ?? snapshot.customer.name, maskedAccount: masked(job.paymentDetails.phone) };
     snapshot.paymentConfirmation = { version, jobId: job.id, originalDocumentId: original.id, replacesDocumentId: previous.id,
       financialSourceHash: source.hash, proofHash, actualPaidAt: paid.datePaid, datePaid: paid.datePaid,
-      verifiedAt: job.verifiedAt, providerRef: paid.paymentReference, method: 'swish', simulation: true, mode: 'mss',
+      verifiedAt: job.verifiedAt, providerRef: bank ? job.providerPaymentReference : paid.paymentReference, method: bank ? 'bank' : 'swish', simulation: true, mode: bank ? 'openpayments_sandbox' : 'mss',
+      ...(bank ? { providerName: 'Open Payments sandbox', label: 'Testutbetalning bekräftad · Open Payments sandbox', datePaidSource: 'sandbox_confirmation' } : {}),
       recipient: snapshot.payment.recipient, maskedPhone: masked(sent.payeeAlias), maskedPersonalNumber: masked(sent.payeeSSN),
       amountCents: job.amountCents };
     snapshot.sourceHash = documentHash({ originalDocumentId: original.id, financialSourceHash: source.hash,

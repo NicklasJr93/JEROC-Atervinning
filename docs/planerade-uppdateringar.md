@@ -3,13 +3,14 @@
 Senast uppdaterad: 2026-10-13.
 
 Utbetalningsbuntar/betalfil, dashboards och mejlinkorg avvaktar fortsatt enligt
-användarens beslut. Bankmottagare och bankmotor är planerade för ett senare
-gemensamt bygge; ingen bankimplementation startas genom denna planering.
+användarens beslut. Bankmottagare och Open Payments-bankmotor
+är levererade i sandbox enligt ÄL 109; produktionsanslutning återstår.
 Ordningen är inte en prioritering.
 
 ## Bankmottagare: svenskt konto, bankgiro, plusgiro och IBAN
 
-Status: Planerad, ÄL 109, 2026-10-13. Byggs senare tillsammans med bankmotorn.
+Status: Implementerad i ÄL 109, 2026-10-13. Kontor 0.24.0, mobilwebb 0.8.2.
+[Bygge och provsteg](integrationer/openpayments-bygge-2026-10-13.md).
 
 - **Banköverföring** får undervalet **Svenskt bankkonto / Bankgiro / Plusgiro / IBAN**
   med respektive nummerfält och obligatoriskt mottagarnamn. Banknamn, BIC/SWIFT,
@@ -33,9 +34,11 @@ Underlag: [Ändringslistan, ÄL 109](Andringslistan.txt),
 
 ## Bankmotor och Open Payments sandbox
 
-Status: Separat planerad integration. Användaren har registrerat Open Payments
-sandbox för AIS/PIS; faktiskt API-/bankstöd och anslutning återstår att verifiera.
-Byggs senare med mottagarfälten i ÄL 109. Ingen produktionsaktivering ingår här.
+Status: Implementerad sandboxintegration i ÄL 109, kontor 0.24.0.
+Token, banklista och Swedbank-kapabiliteter är provade mot riktig sandbox.
+Kundens medgivande och ett faktiskt BG/PG-svar ska provas i appen; bankens
+slutstatus behöver alltid matchande mottagar-/referensbevis. Produktionsbank
+och andra valutor ingår inte. [Provsteg](integrationer/openpayments-bygge-2026-10-13.md).
 
 - Börja med en isolerad sandboxadapter för betalningsinitiering (PIS), syntetiska
   testmottagare och verifierad statusåterläsning. Fastställ tjänstens aktuella
@@ -52,14 +55,14 @@ Byggs senare med mottagarfälten i ÄL 109. Ingen produktionsaktivering ingår h
   måste återläsas. Oklart resultat kontrolleras utan ny pengainstruktion.
 - Bekräftad betalning följs av separat PDF-revision och Spiris-betalningsbokföring
   mot rätt eget konto. Fel i dessa steg får inte skicka betalningen igen.
-- **AIS som möjligt tillval:** läsa anslutna egna konton och kontosaldo efter
+- **AIS under Integrationer:** läsa anslutna egna konton och kontosaldo efter
   rätt kontobehörighet/samtycke. Visa källa och uppdateringstid; tillgängligt och
-  bokfört saldo skiljs åt om API:t lämnar båda. Saldovisning planeras separat
-  från betalningsinitieringen; ett saldo är ingen betalningsbekräftelse eller
+  bokfört saldo skiljs åt om API:t lämnar båda. Saldoläsning och betalning
+  är separata funktioner; ett saldo är ingen betalningsbekräftelse eller
   garanti för betalning.
 - Anslutningsuppgifter hanteras på servern. Sandboxens klientuppgifter kan
-  förberedas i Render enligt guiden nedan; ingen adapter läser dem ännu.
-  Återkopplingsadressen fastställs när bankens godkännandeflöde implementeras.
+  sparas i Render enligt guiden nedan och läses bara på servern.
+  Den levererade HTTPS-returadressen registreras i Open Payments-portalen.
 
 Underlag: [Ändringslistan, ÄL 109](Andringslistan.txt),
 [Planerat utbetalningsflöde](integrationer/utbetalningar-plan.md),
