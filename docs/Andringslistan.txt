@@ -2833,3 +2833,32 @@ Status: Planerad 2026-10-13; inte implementerad.
 - Ordinarie fordon är ett förslag vid planering. Det ersätter inte faktiskt
   fordon på en arbetsorder eller kontroller av körkompetens och tillgänglighet.
   Tidigare uppdrag behåller sina historiska fordonsuppgifter.
+
+ÄL 122 – Sjukanmälan och friskanmälan i mobilen
+Status: Planerat flödesförslag 2026-10-13; inte implementerad.
+- Samma stora röda Sjukanmälan-knapp på Hem och Tid. Visa den när personen
+  är utstämplad eller saknar aktiverad stämpelklocka. Under arbete eller rast
+  måste passet först stämplas ut. Aktiv arbetsordertid måste också avslutas;
+  ett nattpass eller rättelsekrävande öppet pass är inte ett avslutat pass.
+- Knappen öppnar en kort bekräftelseruta med första sjukdag, förvalt idag,
+  och heldag eller från ett klockslag. Vid sjukdom efter påbörjat arbete
+  föreslås sista relevanta verkliga utstämpling/avslut samma arbetsdag.
+  Arbetade timmar behålls och får inte räknas bort genom heldagsfrånvaro.
+- Sjukanmälan registrerar sjukfrånvaro direkt, inte en ledighetsansökan
+  som väntar på godkännande. Ingen diagnos krävs. Chefens kontorsvy får en
+  behörighetsstyrd avisering och bemanningsuppföljning för berörda uppdrag.
+  Uppdrag flyttas eller avbokas inte automatiskt; övrig bemanning ser den
+  frånvaroinformation som behövs för planeringen.
+- Pågående sjukanmälan visas som Du är sjukanmäld med Friskanmälan. Perioden
+  pågår tills friskanmälan fastställer sluttid. Därefter kan personen stämpla
+  in igen. Frånvaron används av schema, närvaro och timkrav; den är inte
+  arbetad tid eller en automatisk beräkning av sjuklön/löneutbetalning.
+- Registrering och friskanmälan ska kunna nås även om äldre tid saknas,
+  utan att dölja den kvarvarande tidsspärren. Frysta/attesterade månader
+  ändras endast genom befintlig återöppning/rättelse. En öppen sjukperiod
+  över månadsskiftet får inte ändra historiska frysta timmar i efterhand.
+- Servern kontrollerar aktuell stämpling/uppdragstid och egen person inom
+  rätt bolag. Samtidig instämpling och sjukanmälan får inte accepteras båda.
+  Dubbeltryck skapar en period; oklart nätutfall återläses och offline visas
+  inte som registrerad sjukanmälan. Chef kan hjälpa till med spårbar rättelse
+  enligt befintliga behörigheter och månadslås.
