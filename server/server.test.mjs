@@ -98,7 +98,7 @@ test('rejects writes and malformed URLs', async () => {
 });
 test('web demo stays available while Expo Go waits for account setup', async () => {
   const status = await fetch(`${base}/expo/status`);
-  assert.deepEqual(await status.json(), { enabled: false, ready: false, state: 'disabled', compilingPlatform: null, warmedPlatforms: [] });
+  assert.deepEqual(await status.json(), { enabled: false, ready: false, state: 'disabled', compilingPlatform: null, warmedPlatforms: [], retryable: false });
   const manifest = await fetch(`${base}/expo`, { headers: { 'Expo-Platform': 'ios' } });
   assert.equal(manifest.status, 503);
   const nativeRoot = await fetch(base, { headers: { 'Expo-Platform': 'android' } });
@@ -109,6 +109,7 @@ test('web demo stays available while Expo Go waits for account setup', async () 
   const qr = await fetch(`${base}/expo-go-qr.svg`);
   assert.equal(qr.status, 200);
   assert.equal(qr.headers.get('content-type'), 'image/svg+xml');
+  assert.equal((await fetch(`${base}/expo/retry`, { method: 'POST', headers: { Origin: 'https://untrusted.example' } })).status, 403);
 });
 
 test('serves office, terminal and mobile aliases without exposing other routes', async () => {

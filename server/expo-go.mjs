@@ -29,14 +29,24 @@ export function expoProxyPath(url) {
   return path + '?' + params;
 }
 
-export function proxyExpo(req, res, { port, publicUrl }) {
+function expoRequest(req) {
   const path = expoProxyPath(req.url);
-  const platform = req.headers['expo-platform'] ?? req.headers['exponent-platform'];
-  if (!path || (platform && platform !== 'ios' && platform !== 'android') || (req.method !== 'GET' && req.method !== 'HEAD')) {
+  const headerPlatform = req.headers['expo-platform'] ?? req.headers['exponent-platform'];
+  if (!path || (headerPlatform && headerPlatform !== 'ios' && headerPlatform !== 'android') || !['GET', 'HEAD'].includes(req.method)) return null;
+  const queryPlatform = new URL(path, 'http://localhost').searchParams.get('platform');
+  // The readiness check and Metro must resolve the same platform.
+  if (headerPlatform && queryPlatform && headerPlatform !== queryPlatform) return null;
+  return { path, platform: queryPlatform ?? headerPlatform };
+}
+
+export function proxyExpo(req, res, { port, publicUrl }) {
+  const selected = expoRequest(req);
+  if (!selected) {
     res.writeHead(404, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
     res.end('Not found');
     return;
   }
+  const { path } = selected;
   const url = new URL(publicUrl);
   const upstream = request({
     hostname: '127.0.0.1', port, method: req.method, path,
@@ -64,7 +74,56 @@ export function expoBundlePath(platform) {
   return expoProxyPath(`/index.ts.bundle?platform=${platform}`);
 }
 
-/** Drain Metro's bytecode into its existing cache, without retaining a bundle
+export function expoStatus(control) {
+  return { enabled: control.enabled, ready: control.ready, state: control.state,
+    compilingPlatform: control.compilingPlatform, warmedPlatforms: control.warmedPlatforms,
+    retryable: Boolean(control.retryable), ...(control.retryAt ? { retryAt: control.retryAt } : {}),
+    ...(control.errorCode ? { errorCode: control.errorCode } : {}) };
+}
+
+export function retryExpo(req, res, control) {
+  // This public demo bundle is independent of company data. Only its own page
+  // may request preparation; the controller enforces single-flight/cooldown.
+  if (req.method !== 'POST' || !control.publicUrl || req.headers.origin !== new URL(control.publicUrl).origin) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end('Expo-förberedelsen kan bara startas från den egna Expo-sidan.');
+    return;
+  }
+  if (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) !== 0) {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end('Expo-förberedelsen tar inga uppgifter.');
+    return;
+  }
+  const accepted = control.retry?.() ?? false;
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify({ accepted, ...expoStatus(control) }));
+}
+
+/** A finished iPhone bundle remains usable while Android is being prepared. */
+export function serveExpo(req, res, control) {
+  const selected = expoRequest(req);
+  if (!selected) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : 'Not found');
+    return;
+  }
+  const { platform } = selected;
+  const ready = control.ready || (control.listening && control.warmedPlatforms.includes(platform));
+  if (!control.enabled || !ready) {
+    // Coalesced and cooled down inside the controller. Repeated native retries
+    // cannot spawn another Metro or compile a concurrent second bundle.
+    if (control.enabled && control.retryable) control.retry?.();
+    res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '3' });
+    const message = !control.enabled ? 'Expo Go är inte aktiverat. Se /expo-go för instruktioner.'
+      : control.state === 'error' && !control.retryable ? 'Expo Go kunde inte förberedas. Kontrollera /expo-go.'
+      : 'Appaketet förbereds fortfarande. Följ starten på /expo-go och försök igen när din mobil är klar.';
+    res.end(req.method === 'HEAD' ? undefined : message);
+    return;
+  }
+  proxyExpo(req, res, control);
+}
+
+/** Drain Metro's native bundle into its existing cache, without retaining it
  * in the business server. The total deadline also covers a server that keeps
  * its socket alive but never finishes a response. */
 function warmBundle({ port, publicUrl, platform, httpRequest, timeoutMs, maxBytes, signal }) {
@@ -107,8 +166,9 @@ function warmBundle({ port, publicUrl, platform, httpRequest, timeoutMs, maxByte
   });
 }
 
-/** Readiness means both native bundles finished compiling. Injectable process,
- * socket and HTTP boundaries keep lifecycle tests off real Expo and accounts. */
+/** Readiness means both native bundles finished compiling; warmedPlatforms also
+ * permits each finished platform independently. A warmup failure must never
+ * kill a healthy Metro. Injectable boundaries keep tests off real accounts. */
 export function startExpoGo({ onFailure = () => {}, env = process.env, spawnProcess = spawn,
   fileExists = existsSync, connectSocket = connect, httpRequest = request, timing = {} } = {}) {
   const enabled = env.EXPO_GO_ENABLED !== 'false' && Boolean(env.EXPO_TOKEN);
@@ -124,9 +184,11 @@ export function startExpoGo({ onFailure = () => {}, env = process.env, spawnProc
     throw new Error('EXPO_INTERNAL_PORT måste vara en egen port mellan 1 och 65535.');
   }
   const bounds = { probeIntervalMs: 500, socketTimeoutMs: 500, startupTimeoutMs: 60_000,
-    warmupTimeoutMs: 120_000, overallTimeoutMs: 300_000, stopTimeoutMs: 5_000, maxBundleBytes: 64 * 1024 * 1024, ...timing };
+    warmupTimeoutMs: 600_000, retryDelayMs: 30_000, maxWarmupAttempts: 3,
+    stopTimeoutMs: 5_000, maxBundleBytes: 64 * 1024 * 1024, ...timing };
   if (Object.values(bounds).some(value => !Number.isSafeInteger(value) || value <= 0)) throw new TypeError('Expo-startens gränser måste vara positiva heltal.');
-  const control = { enabled: true, ready: false, state: 'starting', compilingPlatform: null, warmedPlatforms: [], port, publicUrl };
+  const control = { enabled: true, ready: false, state: 'starting', listening: false, retryable: false,
+    compilingPlatform: null, warmedPlatforms: [], port, publicUrl };
   const child = spawnProcess(process.execPath, [cli, 'start', '--lan', '--go', '--port', String(port), '--max-workers', '1', '--no-dev', '--minify'], {
     cwd: expoRoot,
     stdio: ['ignore', 'inherit', 'inherit'],
@@ -137,11 +199,13 @@ export function startExpoGo({ onFailure = () => {}, env = process.env, spawnProc
       EXPO_PUBLIC_WEB_APP_URL: publicUrl.replace(/\/$/, ''),
     },
   });
-  let stopping = false, failed = false, probe, startupDeadline, overallDeadline, killDeadline, stopPromise;
+  let stopping = false, failed = false, compiling = false, attempts = 0, probe, startupDeadline, retryTimer, killDeadline, stopPromise;
+  const platformErrors = new Map();
+  const transientErrors = new Set(['EXPO_COMPILE_TIMEOUT', 'EXPO_COMPILE_HTTP', 'EXPO_COMPILE_INTERRUPTED', 'EXPO_COMPILE_CONNECTION']);
   const sockets = new Set(), abort = new AbortController();
   const alive = () => child.exitCode == null && child.signalCode == null;
   const clearStartup = () => {
-    clearInterval(probe); clearTimeout(startupDeadline); clearTimeout(overallDeadline);
+    clearInterval(probe); clearTimeout(startupDeadline); clearTimeout(retryTimer);
     for (const socket of sockets) socket.destroy();
     sockets.clear();
   };
@@ -153,30 +217,67 @@ export function startExpoGo({ onFailure = () => {}, env = process.env, spawnProc
   };
   const fail = code => {
     if (stopping || failed) return;
-    failed = true; control.ready = false; control.state = 'error'; control.errorCode = code;
+    failed = true; control.ready = false; control.listening = false; control.retryable = false;
+    control.state = 'error'; control.errorCode = code; control.compilingPlatform = null;
+    control.warmedPlatforms = [];
+    delete control.retryAt;
     clearStartup(); abort.abort(); terminate();
     // The owning HTTP server reports this optional subsystem failure. It must
     // remain available for business APIs when Metro exits or runs out of heap.
     try { onFailure(control); } catch { console.error('Expo Go-starten misslyckades.'); }
   };
   const compile = async () => {
-    if (stopping || failed || control.state !== 'starting') return;
-    control.state = 'compiling'; clearInterval(probe); clearTimeout(startupDeadline);
+    if (stopping || failed || compiling || !control.listening) return;
+    compiling = true; attempts += 1;
+    control.state = 'compiling'; delete control.retryAt;
+    clearInterval(probe); clearTimeout(startupDeadline); clearTimeout(retryTimer);
     for (const socket of sockets) socket.destroy();
     sockets.clear();
     try {
       for (const platform of ['ios', 'android']) {
         if (stopping || failed) return;
+        if (control.warmedPlatforms.includes(platform)) continue;
+        if (platformErrors.has(platform) && !transientErrors.has(platformErrors.get(platform))) continue;
         control.compilingPlatform = platform;
-        await warmBundle({ port, publicUrl, platform, httpRequest, timeoutMs: bounds.warmupTimeoutMs,
-          maxBytes: bounds.maxBundleBytes, signal: abort.signal });
-        if (stopping || failed) return;
-        control.warmedPlatforms.push(platform);
+        try {
+          await warmBundle({ port, publicUrl, platform, httpRequest, timeoutMs: bounds.warmupTimeoutMs,
+            maxBytes: bounds.maxBundleBytes, signal: abort.signal });
+          if (stopping || failed) return;
+          control.warmedPlatforms.push(platform);
+          platformErrors.delete(platform);
+        } catch (error) {
+          if (stopping || failed) return;
+          const code = error.code ?? 'EXPO_COMPILE_CONNECTION';
+          platformErrors.set(platform, code);
+          console.warn(`Expo-förberedelse ${platform}: ${code}. Metro behålls för återhämtning.`);
+        }
+        control.errorCode = platformErrors.values().next().value;
       }
-      control.compilingPlatform = null; control.state = 'ready'; control.ready = true;
-      clearTimeout(overallDeadline);
-      console.log('Expo Go-paketen är förberedda. Öppna /expo-go för QR-koden.');
-    } catch (error) { if (!stopping && !failed) fail(error.code ?? 'EXPO_COMPILE_CONNECTION'); }
+      if (stopping || failed) return;
+      control.compilingPlatform = null;
+      control.ready = control.warmedPlatforms.length === 2;
+      if (control.ready) {
+        control.state = 'ready'; control.retryable = false; delete control.errorCode;
+        console.log('Expo Go-paketen är förberedda. Öppna /expo-go för QR-koden.');
+      } else {
+        control.retryable = [...platformErrors.values()].some(code => transientErrors.has(code));
+        control.state = control.retryable && attempts < bounds.maxWarmupAttempts ? 'retrying' : 'error';
+        if (control.retryable) control.retryAt = new Date(Date.now() + bounds.retryDelayMs).toISOString();
+        if (control.state === 'retrying') {
+          retryTimer = setTimeout(() => { void compile(); }, bounds.retryDelayMs);
+          retryTimer.unref?.();
+        } else {
+          try { onFailure(control); } catch { console.error('Expo Go-förberedelsen väntar.'); }
+        }
+      }
+    } finally { compiling = false; }
+  };
+  control.retry = () => {
+    if (stopping || failed || compiling || !control.listening || !control.retryable || control.state !== 'error') return false;
+    if (control.retryAt && Date.parse(control.retryAt) > Date.now()) return false;
+    attempts = 0;
+    void compile();
+    return true;
   };
   probe = setInterval(() => {
     if (stopping || failed || control.state !== 'starting' || sockets.size) return;
@@ -186,12 +287,15 @@ export function startExpoGo({ onFailure = () => {}, env = process.env, spawnProc
     socket.setTimeout(bounds.socketTimeoutMs, () => socket.destroy());
     socket.once('close', () => sockets.delete(socket));
     socket.on('error', () => { sockets.delete(socket); socket.destroy(); });
-    socket.once('connect', () => { sockets.delete(socket); socket.destroy(); void compile(); });
+    socket.once('connect', () => {
+      sockets.delete(socket); socket.destroy();
+      if (stopping || failed) return;
+      control.listening = true; void compile();
+    });
   }, bounds.probeIntervalMs);
   probe.unref();
   startupDeadline = setTimeout(() => fail('EXPO_STARTUP_TIMEOUT'), bounds.startupTimeoutMs);
-  overallDeadline = setTimeout(() => fail('EXPO_STARTUP_TIMEOUT'), bounds.overallTimeoutMs);
-  startupDeadline.unref?.(); overallDeadline.unref?.();
+  startupDeadline.unref?.();
   child.on('error', () => {
     fail('EXPO_PROCESS_ERROR');
   });
@@ -201,7 +305,9 @@ export function startExpoGo({ onFailure = () => {}, env = process.env, spawnProc
   });
   control.stop = () => {
     if (stopPromise) return stopPromise;
-    stopping = true; control.ready = false; clearStartup(); abort.abort();
+    stopping = true; control.ready = false; control.listening = false; control.retryable = false;
+    control.warmedPlatforms = [];
+    delete control.retryAt; clearStartup(); abort.abort();
     stopPromise = alive() ? new Promise(done => {
       let settled = false;
       const finish = () => { if (!settled) { settled = true; clearTimeout(finishDeadline); clearTimeout(killDeadline); done(); } };

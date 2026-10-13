@@ -13,11 +13,32 @@ finns i [brandpaketet](../docs/branding/README.md).
 
 Webbdemon finns på Render. Expo-servern kan aktiveras i samma tjänst med en personlig Expo-token och det nya byggkommandot. [Följ Render-instruktionerna](../docs/render.md#öppna-i-expo-go-utan-datorn), och öppna sedan [QR-sidan](https://jeroc-atervinning.onrender.com/expo-go). Den blir användbar när servern har byggts om och token har lagts i Render. Att bara koppla GitHub till Expo publicerar inte en fungerande Expo Go-länk.
 
-Servern förbereder iOS- och Android-paketen innan QR-länken blir klar. Sidan
-visar vilket paket som förbereds. Därefter återstår mobilens nedladdning och
-webbanslutning, medan kompileringen redan är gjord. Ett Expo-fel påverkar inte
-kontoret eller webbappens API. Mobilen hämtar dagens egenvy vid start; full
-månadsdata hämtas när Schema eller Tid öppnas.
+`npm run build:render` inkluderar `expo:prebuild`, som förbereder driftens exakta
+paketprofil i offline-läge utan Expo-kontoanrop. Projektcachen ligger i
+`expo/.expo/metro-cache` och kan återanvändas vid serverstart. Förbygget hoppas
+över om Expo Go inte är aktiverat eller den publika appadressen saknas under
+bygget. Ett annat förbyggesfel ger en varning med felkod och lämnar förberedelsen
+åt driftens återförsök; webbbygget och Expo-typkontrollen måste fortfarande
+lyckas. Befintliga Render-variabler och byggkommandot i guiden räcker.
+
+Servern förbereder iOS- och Android-paketen sekventiellt. Sidan visar vilket
+paket som förbereds och vilka som är färdiga. På iPhone kan appen öppnas när
+iOS är klart även om Android fortfarande förbereds; motsvarande gäller på
+Android. Datorns QR-sida anger vilka plattformar som kan använda länken.
+Därefter återstår mobilens nedladdning och webbanslutning. Mobilen hämtar
+dagens egenvy vid start; full månadsdata hämtas när Schema eller Tid öppnas.
+
+En långsam förberedelse får högst tio minuter per paket och försök. Övergående
+fel tillåter högst tre försök totalt med 30 sekunders paus. Metro och redan
+färdiga paket behålls. Om försöken tar slut visas **Försök förbereda igen**;
+knappen kan användas efter pausen utan att starta en extra Metro-process.
+Ett verkligt processfel kräver kontroll i Render-loggen. Kontoret, webbappens
+API och `/healthz` fortsätter fungera vid Expo-fel. Befintliga Render-variabler
+räcker. [Felorsak, startflöde och lokala mätvärden](../docs/mobilstart-2026-10-13.md).
+
+`/expo/status` betyder mer än att processen startat: `ready: true` kräver två
+färdiga nativepaket och `warmedPlatforms` listar varje färdig plattform.
+Det verifierar inte Expo-inloggningen eller att appen öppnats i din telefon.
 
 ### Med utvecklingsserver på din dator
 

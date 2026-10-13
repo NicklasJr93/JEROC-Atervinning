@@ -39,9 +39,40 @@ Expo Go-stödet körs i samma Render-tjänst. Det aktiveras när du lägger till
 
 Datorn kan sedan vara avstängd. Render kör både webbdemon och Expo-servern. Expo Go visar appen i sin egen WebView utan Safari/Chrome-adressfält. Inuti JEROC används fortfarande demokontot **niklas / Demo123!**; det är separat från Expo-inloggningen.
 
-Servern förbereder iOS- och Android-paketen innan QR-länken blir klar. Expo-sidan visar start och kompilering; vänta tills öppningsknappen visas, även om Render redan anger Live. Mobilen behöver därefter ladda ner paketet och kontakta webbappen. Expo använder en enda byggarbetare och som standard en JavaScript-heap på högst 256 MB; processens totala minne är större. Förberedelsen har provats lokalt med dessa gränser. Om Expo misslyckas fortsätter kontoret och webbappens API fungera. [Startflöde och mätvärden](mobilstart-2026-10-13.md).
+Det befintliga `npm run build:render` förbereder nu också de paket som Expo Go
+begär, med samma inställningar som driftens proxy. Förbygget kör offline utan
+Expo-kontoanrop. Metros cache ligger i `expo/.expo/metro-cache` och följer det
+aktuella projektbygget, så driften kan återanvända arbetet. Ingen ny miljövariabel
+eller beständig disk behövs. Om Expo inte är aktiverat eller publik appadress
+saknas under bygget hoppas förbygget över. Andra förbyggesfel ger en varning
+i loggen och hindrar inte webbappens publicering; driftens förberedelse finns
+kvar. Webbbygget och Expo-typkontrollen måste fortfarande lyckas.
 
-`/expo/status` visar bara om Expo är aktiverat och om processen har startat, inte att Expo-inloggningen eller mobiltestet har lyckats. Mobiltestet och den privata kontoinloggningen måste slutföras på din telefon/Render. Miljön som förbereder koden saknar Render-/Expo-inloggning och kan inte nå deras externa tjänster för att kontrollera dem åt dig.
+Servern förbereder iOS- och Android-paketen sekventiellt. Expo-sidan visar start,
+kompilering och eventuella återförsök. Vänta tills öppningsknappen visas för din
+mobil, även om Render redan anger Live. En färdig iPhone behöver inte vänta på
+Android och vice versa; datorns QR-sida anger vilka plattformar som är klara.
+Mobilen behöver därefter ladda ner paketet och kontakta webbappen. Expo använder
+en enda byggarbetare i driften och som standard en JavaScript-heap på högst
+256 MB; processens totala minne är större.
+
+En långsam intern förberedelse får högst tio minuter per paket och försök.
+Övergående fel tillåter högst tre försök totalt med 30 sekunders paus. Metro behålls
+vid sådana fel, liksom redan färdiga paket. Efter uttömda försök kan knappen
+**Försök förbereda igen** starta ett nytt försök efter pausen. Den använder
+tjänstens egen `POST /expo/retry` och sammanför upprepade tryck. Vid verkligt
+process-/konfigurationsfel behöver Render-loggen kontrolleras. Kontoret,
+webbappens API och `/healthz` fortsätter fungera även om Expo inte är klart.
+Fixen behöver inga nya Render-variabler. [Startflöde, felorsak och lokala
+mätvärden](mobilstart-2026-10-13.md).
+
+`/expo/status` visar även vilka nativepaket som faktiskt har förberetts:
+`ready: true` betyder att både iOS och Android är klara, medan `warmedPlatforms`
+anger varje färdig plattform. Tillståndet kan vara `starting`, `compiling`,
+`retrying`, `ready`, `error` eller `disabled`; `retryable` och `retryAt` anger
+om och när ett nytt försök kan begäras. Statusen verifierar inte Expo-kontots
+inloggning eller start i telefonen. Det mobiltestet måste slutföras på din
+telefon med rätt Expo-konto.
 
 För att stänga av Expo Go men behålla webbdemon, ta bort `EXPO_TOKEN` från Render eller sätt `EXPO_GO_ENABLED=false` och starta om tjänsten. Expos interna port och debugger exponeras inte direkt; proxy tillåter bara manifest och projektets iOS-/Android-paket.
 

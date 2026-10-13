@@ -2693,16 +2693,38 @@ Status: Implementerad 2026-10-13 i kontor 0.28.0 och mobilwebb 0.10.0.
   gissas och inga lönebetalningar genomförs.
 - Guide: docs/personal-manadsgranskning.md. Inga nya Render-variabler.
 
-ÄL 116 – Snabbare mobilstart och förberedda Expo Go-paket
-Status: Implementerad 2026-10-13 i mobilwebb 0.10.0 och kontor 0.28.0.
+ÄL 116 – Snabbare mobilstart och återhämtning av Expo Go-paket
+Status: Implementerad 2026-10-13 i mobilwebb 0.10.0 och kontor 0.28.0;
+uppföljande Expo-fix samma dag utan nytt versionsnummer.
 - Inloggning/start hämtar egen dagsvy, klocka och tidsspärr utan full månad,
   stämplingshistorik eller ledighetslistor. Hem gör ingen extra månadshämtning.
   Schema/Tid hämtar full vy vid inträde och visar laddning tills den är klar.
 - Läsningar har 15 sekunders tidsgräns och avbrytning; gamla svar kan inte
   återställa en utloggad/bytt medarbetares vy. Bolagsval binds till anropet.
-- Render förbereder iOS/Android sekventiellt innan Expo-länken visas klar.
-  QR-sidan visar start/kompilering/klar/fel. Expo-fel stoppar bara Expo;
-  webbapp, kontor, betalningsköer och hälsokontroll fortsätter fungera.
-- Lokal verklig förberedelse tog 26,6 sekunder; efteråt hämtades paketen på
-  215–272 ms. Det är lokala mätvärden, inte garanterad Render-/mobilstarttid.
+- build:render förbereder samma nativepaketprofil som driftens proxy genom
+  expo:prebuild i offline-läge utan Expo-kontoanrop. Moduler/filindex sparas i
+  projektets expo/.expo/metro-cache för återanvändning vid driftstart. Det är
+  byggcache, ingen ny beständig kundlagring eller Render-disk. Förbygget hoppas
+  över när Expo är avstängt eller offentlig byggadress saknas; andra fel ger
+  varning och lämnar förberedelsen åt driften utan att blockera webbdeploy.
+  Webbbygget och Expo-typkontrollen måste fortfarande lyckas. Den vanliga
+  statiska Expo-exporten ersätter inte denna paketprofil.
+- Render förbereder iOS/Android sekventiellt. En färdig plattform kan öppnas
+  direkt: iPhone väntar inte på Android. QR-sidan visar start, kompilering,
+  återförsök och vilka plattformar som är klara.
+- Live-felet EXPO_COMPILE_TIMEOUT för iOS berodde på den tidigare tvåminuters-
+  gränsen som avslutade Metro. Nu tillåts tio minuter per paket och försök,
+  högst tre försök totalt och 30 sekunders paus. En fungerande Metro
+  och färdiga plattformar behålls; nästa försök bygger bara återstående paket.
+- Efter uttömda övergående fel finns Försök förbereda igen via egen-origin
+  POST /expo/retry. Paus och sammanförda anrop hindrar parallella försök eller
+  en extra Metro-process. Verkliga process-/startfel redovisas separat.
+- /expo/status anger ready först när båda paketen är klara. warmedPlatforms
+  anger användbar plattform, retryable/retryAt beskriver återhämtningsläge.
+  Paketstatus bevisar inte Expo-inloggning eller lyckad start på telefonen.
+- Webbapp, kontor, betalningsköer och hälsokontroll fortsätter fungera vid
+  Expo-fel. Inga nya Render-variabler eller behörighetsändringar behövs.
+- Tidigare lokal förberedelse tog 26,6 sekunder och efterföljande hämtning
+  215–272 ms. Den temporära Metro-cachen var inte rensad; resultaten belägger
+  inte helt kall Render-start eller effekten av denna fix i drift.
 - Guide: docs/mobilstart-2026-10-13.md. Befintliga Expo-variabler används.

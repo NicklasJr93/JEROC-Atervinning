@@ -4,7 +4,7 @@ import { stat } from 'node:fs/promises';
 import { extname, isAbsolute, relative, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
-import { proxyExpo, startExpoGo } from './expo-go.mjs';
+import { expoStatus, retryExpo, serveExpo, startExpoGo } from './expo-go.mjs';
 import { closePdfRenderer } from './documents/render-pool.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
 import { createTenantGateway } from './tenant-gateway.mjs';
@@ -57,6 +57,10 @@ async function handle(req, res) {
   }
   if (await tenantGateway.selectPage(req, res, url)) return;
   if (await tenantGateway(req, res, url)) return;
+  if (pathname === '/expo/retry' && req.method === 'POST') {
+    retryExpo(req, res, expoGo);
+    return;
+  }
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.setHeader('Allow', 'GET, HEAD');
     reply(res, 405, 'Method not allowed');
@@ -74,22 +78,12 @@ async function handle(req, res) {
   }
   if (pathname === '/expo/status') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ enabled: expoGo.enabled, ready: expoGo.ready, state: expoGo.state,
-      compilingPlatform: expoGo.compilingPlatform, warmedPlatforms: expoGo.warmedPlatforms, ...(expoGo.errorCode ? { errorCode: expoGo.errorCode } : {}) }));
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify(expoStatus(expoGo)));
     return;
   }
   const nativeManifest = pathname === '/' && (req.headers['expo-platform'] || req.headers['exponent-platform'] || req.headers.accept?.includes('application/expo+json'));
   if (nativeManifest || ['/manifest', '/index.exp', '/index.bundle', '/index.ts.bundle'].includes(pathname) || pathname === '/expo' || pathname.startsWith('/expo/')) {
-    if (!expoGo.enabled) {
-      reply(res, 503, 'Expo Go är inte aktiverat. Se /expo-go för instruktioner.');
-      return;
-    }
-    if (!expoGo.ready) {
-      res.setHeader('Retry-After', '3');
-      reply(res, 503, expoGo.state === 'error' ? 'Expo Go kunde inte förberedas. Kontrollera /expo-go.' : 'Expo-paketen förbereds. Vänta tills länken på /expo-go är klar.');
-      return;
-    }
-    proxyExpo(req, res, expoGo);
+    serveExpo(req, res, expoGo);
     return;
   }
   // Serve only the build directory. Future API routes belong before this block.
@@ -156,7 +150,7 @@ const server = createServer((req, res) => {
 const tenantGateway = await createTenantGateway();
 let expoGo;
 try {
-  expoGo = startExpoGo({ onFailure: () => { console.error('Expo Go kunde inte förberedas. Webbappen och dess API fortsätter fungera.'); } });
+  expoGo = startExpoGo({ onFailure: state => { console.error('Expo Go kunde inte förberedas:', state.errorCode, 'Webbappen och dess API fortsätter fungera.'); } });
 } catch {
   console.error('Expo Go-inställningarna kunde inte användas. Kontrollera Expo-konfigurationen i Render.');
   expoGo = { enabled: true, ready: false, state: 'error', compilingPlatform: null, warmedPlatforms: [], errorCode: 'EXPO_CONFIGURATION_ERROR', stop: async () => {} };
