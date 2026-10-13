@@ -4,7 +4,7 @@ import { migrateOffice } from '../src/office/customer-model';
 import type { SwishPaymentJob } from '../src/office/swish-payments-client';
 
 test.use({ viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false });
-async function fixture(page: Page, options: { lostStartResponse?: boolean; restricted?: boolean } = {}) {
+async function fixture(page: Page, options: { lostStartResponse?: boolean; restricted?: boolean; blockedStart?: boolean } = {}) {
   const office = migrateOffice(seedOffice()), cardId = 61200;
   const baseUser = office.users.find(user => user.id === 'admin')!;
   const user: OfficeUser = options.restricted ? { ...baseUser, level: 'Medarbetare', permissions: ['view'], maxAttest: 0 } : baseUser;
@@ -17,7 +17,7 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
   const auth = { enabled: true, authenticated: true, actor: { id: 'payment-actor', name: user.name, username: user.id, platformAdmin: false }, actualUser: user, user,
     company, organisationId: company.id, isSupportSession: false, mustChangePassword: false, csrfToken: 'payment-csrf', generation: 1, companies: [company] };
   const source = { cardId, approvalId: 'payment-approval', version: 1, hash: 'payment-source-hash', siteId: 'norrtalje', customerId: customer.id, customerName: customer.name, customerType: customer.type };
-  let job: SwishPaymentJob | undefined, starts = 0;
+  let job: SwishPaymentJob | undefined, starts = 0, resumes = 0;
   const requests: string[] = [], startsPayload: Record<string, unknown>[] = [];
   await page.context().route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
@@ -38,6 +38,17 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
         createdAt: '2026-10-13T08:01:00Z', updatedAt: '2026-10-13T08:01:00Z', providerInstructionUUID: 'test-instruction', events: [],
         request: { method: 'POST', path: '/payouts', payload: { amount: '125.00', payeeAlias: '46701234567', payeeSSN: customer.number, signature: 'signature-for-test' } }, response: { httpStatus: 201, data: { status: 'ACCEPTED' } } };
       if (options.lostStartResponse) return route.abort('failed');
+      if (options.blockedStart) job = { ...job, status: 'blocked', canResume: false, response: undefined,
+        error: { code: 'accounting_amount_invalid', message: 'Beloppsfältet Rows[1].CreditAmount i Spiris kunde inte kontrolleras.',
+          details: { provider: 'spiris', field: 'Rows[1].CreditAmount', valueType: 'number' } } };
+      body = job;
+    } else if (path.endsWith('/payments/test-payout-job/refresh') && request.method() === 'POST') {
+      if (job?.status === 'blocked') job = { ...job, canResume: true, preflightStatus: 'ready', error: undefined,
+        preflightCheckedAt: '2026-10-13T08:02:00Z', updatedAt: '2026-10-13T08:02:00Z' };
+      body = job;
+    } else if (path.endsWith('/payments/test-payout-job/resume') && request.method() === 'POST') {
+      resumes += 1;
+      if (job) job = { ...job, status: 'pending', canResume: false, preflightStatus: undefined, updatedAt: '2026-10-13T08:03:00Z' };
       body = job;
     } else if (path.includes('/payments/test-payout-job')) body = job;
     else if (path === '/api/terminal-demo/state') body = { configured: true, revision: 1, actualUserId: user.id, effectiveUserId: user.id, sites: [{ id: 'norrtalje', name: 'Norrtälje' }], terminals: [], approvals: [], defaults: [] };
@@ -50,7 +61,7 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
     else { status = 503; body = { error: 'Optional service unavailable in payout UI fixture' }; }
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
-  return { cardId, starts: () => starts, startsPayload, requests, reject: () => {
+  return { cardId, starts: () => starts, resumes: () => resumes, startsPayload, requests, reject: () => {
     if (job) job = { ...job, status: 'rejected', updatedAt: '2026-10-13T08:02:00Z', response: { httpStatus: 400, data: { errorCode: 'RF07' } } };
   }, unknown: () => { if (job) job = { ...job, status: 'unknown', updatedAt: '2026-10-13T08:02:00Z' }; }, confirm: (bookkeepingStatus: SwishPaymentJob['bookkeepingStatus'] = 'registered') => {
     if (job) job = { ...job, status: 'simulated_paid', bookkeepingStatus, verifiedAt: '2026-10-13T08:02:00Z', updatedAt: '2026-10-13T08:02:00Z', response: { httpStatus: 200, data: { status: 'PAID' } } };
@@ -140,6 +151,25 @@ test('uppgifterna börjar låsta och avbruten redigering återställer förbered
   await expect(dialog.getByLabel('Orsak till ändrade betalningsuppgifter')).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true })).toBeDisabled();
   expect(state.starts()).toBe(0);
+});
+
+test('blockerat test får detaljerad diagnos och statuskontroll kräver separat fortsättknapp', async ({ page }) => {
+  const state = await fixture(page, { blockedStart: true });
+  await page.goto(`/kontor#/weighings/${state.cardId}`);
+  const dialog = await fillPayout(page);
+  await dialog.getByRole('button', { name: 'Testa Swish-utbetalning', exact: true }).click();
+  const progress = page.locator('.swish-payout-progress-dialog');
+  await expect(progress).toContainText('Rows[1].CreditAmount');
+  await progress.getByText('Avancerat', { exact: true }).click();
+  await expect(progress.locator('pre')).toContainText('"provider": "spiris"');
+  await expect(progress.getByRole('button', { name: 'Fortsätt testutbetalning', exact: true })).toHaveCount(0);
+  await progress.getByRole('button', { name: 'Kontrollera status', exact: true }).click();
+  await expect(progress.getByRole('heading', { name: 'Kontrollen är godkänd', exact: true })).toBeVisible();
+  expect(state.resumes()).toBe(0); expect(state.starts()).toBe(1);
+  await progress.getByRole('button', { name: 'Fortsätt testutbetalning', exact: true }).dblclick();
+  await expect(progress.getByRole('heading', { name: 'Väntar på bekräftelse', exact: true })).toBeVisible();
+  expect(state.resumes()).toBe(1); expect(state.starts()).toBe(1);
+  await expect(progress.locator('pre')).toContainText('"paymentId": "test-payout-job"');
 });
 
 test('bekräftad Swish-betalning fortsätter visas som genomförd när separat bokföring behöver åtgärdas', async ({ page }) => {

@@ -8,6 +8,7 @@ import { createApplicationRepository } from './application-storage.mjs';
 import { createVismaSandbox } from './visma-sandbox.mjs';
 import { createVismaStorage } from './visma-storage.mjs';
 import { freezePurchaseAccounting } from './visma-accounting.mjs';
+import { verifySpirisBookingRecord } from './visma-export.mjs';
 
 const companyId = '55c5ec9b-4e91-4d10-b41e-c58f7ab0a0d2', supplierId = '1831c176-4020-4a9c-9fe5-1f8b2fdb0d91', draftId = '9841366b-4020-4a9c-9fe5-1f8b2fdb0d91';
 const fiscalYearId = '6a767af7-43b7-42e8-9d10-cc3e1c02f7db', termsId = 'fe2a84d6-8f5b-4f4d-a606-69d57b73a2f6', vatId = 'ab0a0d20-4e91-4d10-b41e-c58f7ab0a0d2';
@@ -23,7 +24,7 @@ function bookingProvider(f, { unknown = false, convert = true, tamper = false, p
   const invoiceId = '587f2341-03d0-45b1-bd39-ff01bd1c2a38', voucherId = '6a3b0f40-6f5f-4071-8c74-2200019ab399';
   const record = final => {
     const submitted = f.posts().find(call => call.url.pathname === '/v2/supplierinvoicedrafts').payload;
-    const document = { ...structuredClone(submitted), Id: final ? invoiceId : draftId };
+    const document = { ...structuredClone(submitted), VatHigh: 0, VatMedium: 0, VatLow: 0, Id: final ? invoiceId : draftId };
     if (tamper) document.Rows[0].AccountNumber = 4999;
     if (final) Object.assign(document, { Status: 1, CreatedFromDraftId: draftId, VoucherId: voucherId, VoucherNumber: 'B124',
       RemainingAmountInvoiceCurrency: paid ? 0 : submitted.TotalAmount, Number: 24, NumberSeries: 'L',
@@ -104,7 +105,7 @@ async function fixture(run, { local = false } = {}) {
     async enable(extra = {}) { await f.connect(); await service.lookupChoices(context); return (await service.saveSettings({ expectedRevision: 0, settings: configuration(extra) }, context)).settings; },
     async source(extra = {}) {
       const customer = { id: 'customer-1', customerNumber: 'K1001', name: 'Fixture seller', type: 'Privatperson', number: '199001011234', ...extra.customer }, settings = await service.financeSettingsForCompany(customer);
-      const rows = [{ articleId: 'copper', name: 'Koppar', taxCategory: extra.taxCategory ?? 'scrap_reverse', weight: 10, price: 100, amount: 1000 }];
+      const rows = extra.rows ?? [{ articleId: 'copper', name: 'Koppar', taxCategory: extra.taxCategory ?? 'scrap_reverse', weight: 10, price: 100, amount: 1000 }];
       const accounting = freezePurchaseAccounting({ settings, customer, rows, siteId: 'yard', offset: extra.offset ?? 0 });
       const approval = { id: randomUUID(), cardId: extra.cardId ?? 3016, version: 1, status: 'attested', approvedAt: time.toISOString(), approvedMethod: 'staff_checked_id_demo',
         approvedHash: 'a'.repeat(64), attestedAt: time.toISOString(), attestedBy: 'Fixture staff', attestedById: 'staff-1',
@@ -154,6 +155,83 @@ test('explicit booking converts the existing frozen draft once and gates payout 
   await f.service.processQueuedExports({ reconcile: false }); await f.service.refreshCardBooking(approval.cardId, context);
   assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
   assert.equal(f.posts().filter(call => call.url.pathname === '/v2/supplierinvoicedrafts').length, 1, 'No second invoice draft');
+}));
+
+test('a positive 240 SEK draft and booked DebetAmount invoice retain strict payment readiness', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' });
+  const approval = await f.source({ rows: [{ articleId: 'copper', name: 'Koppar', taxCategory: 'scrap_reverse', weight: 10, price: 24, amount: 240 }] });
+  const remote = bookingProvider(f); f.setProvider(remote.provider);
+  await f.service.processQueuedExports(); await f.service.requestCardBooking({ cardId: approval.cardId }, context);
+  await f.service.processQueuedExports({ reconcile: false });
+  assert.equal((await f.service.cardBookingStatus(approval.cardId, context)).status, 'booked');
+  assert.equal(f.posts().find(call => call.url.pathname === '/v2/supplierinvoicedrafts').payload.TotalAmount, 240);
+  const source = { cardId: approval.cardId, approvalId: approval.id, version: approval.version, hash: approval.snapshot.hash };
+  assert.equal((await f.service.assertPaymentReady(source, { fresh: true })).status, 'booked');
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
+}));
+
+function amountBookingRecord() {
+  const draft = { InvoiceNumber: 'AV-3016-V1', CurrencyCode: 'SEK', TotalAmount: 240, Vat: 0, IsCreditInvoice: false, SkipSendToBank: true,
+    InvoiceDate: '2026-10-11', DueDate: '2026-10-11', Rows: [{ AccountNumber: 4000, DebitAmount: 240, CreditAmount: 0 },
+      { AccountNumber: 2440, DebitAmount: 0, CreditAmount: 240 }] };
+  const invoiceId = '587f2341-03d0-45b1-bd39-ff01bd1c2a38';
+  return { job: { draft, draftId, supplierId, tracking: { invoiceId } }, record: { ...structuredClone(draft), Id: invoiceId, SupplierId: supplierId,
+    VatHigh: 0, VatMedium: 0, VatLow: 0, CreatedFromDraftId: draftId, Status: 1, VoucherId: '6a3b0f40-6f5f-4071-8c74-2200019ab399', VoucherNumber: 'B124',
+    Rows: draft.Rows.map(({ DebitAmount, ...row }) => ({ ...row, DebetAmount: DebitAmount })) } };
+}
+
+test('malformed provider totals, VAT and row amounts identify the original field without exposing values', () => {
+  const fields = ['TotalAmount', 'Vat', 'VatHigh', 'VatMedium', 'VatLow', 'Rows[0].DebitAmount', 'Rows[0].DebetAmount', 'Rows[1].CreditAmount'];
+  for (const field of fields) for (const value of [-240, '', '240,00', 'private-provider-text', Infinity, true, { privateValue: 'secret' }]) {
+    const { job, record } = amountBookingRecord();
+    const row = /^Rows\[(\d+)\]\.(\w+)$/.exec(field);
+    if (row) record.Rows[Number(row[1])][row[2]] = value;
+    else record[field] = value;
+    assert.throws(() => verifySpirisBookingRecord(record, job, true), error => {
+      assert.equal(error.code, 'accounting_amount_invalid'); assert.equal(error.status, 409); assert.ok(error.message.includes(field));
+      assert.deepEqual(error.details, { provider: 'spiris', field, valueType: typeof value });
+      assert.equal(error.message.includes('private-provider-text'), false); assert.equal(JSON.stringify(error.details).includes('secret'), false);
+      return true;
+    }, field);
+  }
+  for (const value of [null, undefined, []]) {
+    const { job, record } = amountBookingRecord(); record.TotalAmount = value;
+    assert.throws(() => verifySpirisBookingRecord(record, job, true), error => {
+      assert.equal(error.code, 'accounting_amount_invalid');
+      assert.deepEqual(error.details, { provider: 'spiris', field: 'TotalAmount', valueType: value === null ? 'null' : Array.isArray(value) ? 'array' : 'undefined' });
+      return true;
+    });
+  }
+});
+
+test('provider amount diagnostics preserve row alias priority, nullish zero defaults and accounting identity gates', () => {
+  const { job, record } = amountBookingRecord();
+  record.Rows[0].DebitAmount = 240; record.Rows[0].DebetAmount = -240;
+  record.Rows[1].DebetAmount = null; record.Rows[0].CreditAmount = null; record.Vat = null; delete record.VatHigh;
+  assert.equal(verifySpirisBookingRecord(record, job, true), record);
+  for (const mutate of [value => { value.SupplierId = randomUUID(); }, value => { value.TotalAmount = 239; },
+    value => { value.Rows[0].AccountNumber = 4999; }, value => { value.Rows[0].ProjectId = randomUUID(); },
+    value => { value.Rows.pop(); }, value => { value.CreatedFromDraftId = randomUUID(); }, value => { value.Status = 0; },
+    value => { value.VoucherId = null; }]) {
+    const candidate = structuredClone(record); mutate(candidate);
+    assert.throws(() => verifySpirisBookingRecord(candidate, job, true), error => ['visma_booking_identity_conflict', 'visma_booking_unverified'].includes(error.code));
+  }
+});
+
+test('malformed draft amounts remain blocked before conversion with durable field diagnostics', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' }); const approval = await f.source();
+  const remote = bookingProvider(f);
+  f.setProvider(async call => {
+    const response = await remote.provider(call);
+    if (call.url.pathname !== `/v2/supplierinvoicedrafts/${draftId}`) return response;
+    const document = await response.json(); document.Rows[0].DebitAmount = -1000; return body(document);
+  });
+  await f.service.processQueuedExports(); await f.service.requestCardBooking({ cardId: approval.cardId }, context);
+  await f.service.processQueuedExports({ reconcile: false });
+  const status = await f.service.cardBookingStatus(approval.cardId, context);
+  assert.equal(status.status, 'failed'); assert.equal(status.error.code, 'accounting_amount_invalid');
+  assert.deepEqual(status.error.details, { provider: 'spiris', field: 'Rows[0].DebitAmount', valueType: 'number' });
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 0);
 }));
 
 test('attest booking intent survives restart and uses original actual/effective authorisation', async () => fixture(async f => {
@@ -226,6 +304,53 @@ test('confirmed booking still blocks a new payout when the supplier invoice is p
   await assert.rejects(() => f.service.assertPaymentReady({ cardId: approval.cardId, approvalId: approval.id, version: approval.version, hash: approval.snapshot.hash }),
     error => error.code === 'visma_payment_already_recorded');
   assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
+}));
+
+test('fresh payment readbacks identify invalid amounts and still require exact unpaid balances', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' }); const approval = await f.source();
+  const remote = bookingProvider(f); f.setProvider(remote.provider);
+  await f.service.processQueuedExports(); await f.service.requestCardBooking({ cardId: approval.cardId }, context);
+  await f.service.processQueuedExports({ reconcile: false });
+  const source = { cardId: approval.cardId, approvalId: approval.id, version: approval.version, hash: approval.snapshot.hash };
+  const cases = [
+    ['TotalAmount', -1000, 'accounting_amount_invalid'], ['VatLow', 'provider-private-text', 'accounting_amount_invalid'],
+    ['Rows[0].DebetAmount', -1000, 'accounting_amount_invalid'], ['Rows[1].CreditAmount', '', 'accounting_amount_invalid'],
+    ['RemainingAmountInvoiceCurrency', -1000, 'accounting_amount_invalid'], ['RemainingAmount', -1000, 'accounting_amount_invalid'],
+    ['RemainingAmountInvoiceCurrency', undefined, 'visma_payment_already_recorded'], ['RemainingAmountInvoiceCurrency', null, 'visma_payment_already_recorded'],
+    ['RemainingAmountInvoiceCurrency', '1000.00', 'visma_payment_already_recorded'], ['RemainingAmount', null, 'visma_payment_already_recorded'],
+    ['RemainingAmount', '1000.00', 'visma_payment_already_recorded'], ['RemainingAmount', '', 'visma_payment_already_recorded'],
+    ['RemainingAmountInvoiceCurrency', 0, 'visma_payment_already_recorded'], ['RemainingAmountInvoiceCurrency', 999, 'visma_payment_already_recorded'],
+    ['RemainingAmount', 0, 'visma_payment_already_recorded'], ['RemainingAmount', 999, 'visma_payment_already_recorded'],
+  ];
+  for (const [field, value, code] of cases) {
+    f.setProvider(async call => {
+      const response = await remote.provider(call);
+      if (call.url.pathname !== `/v2/supplierinvoices/${remote.invoiceId}`) return response;
+      const document = await response.json(), row = /^Rows\[(\d+)\]\.(\w+)$/.exec(field);
+      if (row) document.Rows[Number(row[1])][row[2]] = value;
+      else document[field] = value;
+      return body(document);
+    });
+    await assert.rejects(() => f.service.assertPaymentReady(source, { fresh: true }), error => {
+      assert.equal(error.code, code); assert.equal(error.status, 409); assert.ok(error.message.includes(field));
+      assert.deepEqual(error.details, { provider: 'spiris', field, valueType: value === null ? 'null' : typeof value });
+      assert.equal(error.message.includes('provider-private-text'), false); return true;
+    }, field);
+  }
+  f.setProvider(async call => {
+    const response = await remote.provider(call);
+    if (call.url.pathname !== `/v2/supplierinvoices/${remote.invoiceId}`) return response;
+    const document = await response.json(); document.RemainingAmount = 1000; document.PaymentStatus = 3; return body(document);
+  });
+  assert.equal((await f.service.assertPaymentReady(source, { fresh: true })).status, 'booked');
+  f.setProvider(async call => {
+    const response = await remote.provider(call);
+    if (call.url.pathname !== `/v2/supplierinvoices/${remote.invoiceId}`) return response;
+    const document = await response.json(); document.PaymentStatus = 2; return body(document);
+  });
+  await assert.rejects(() => f.service.assertPaymentReady(source, { fresh: true }), error => error.code === 'visma_payment_already_recorded');
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
+  assert.equal(f.posts().filter(call => call.url.pathname === '/v2/supplierinvoicedrafts').length, 1);
 }));
 
 test('status and accounting settings project one tenant snapshot without historical runs, exports or credentials', async () => fixture(async f => {

@@ -27,9 +27,9 @@ function sanitizeDiagnostic(value: unknown, key = '', depth = 0): unknown {
 }
 
 export default function SwishPayoutProgressDialog({ job, preparing = false, uncertain = false, pollPaused = false, busy = false,
-  error = '', onClose, onRefresh, onEditRejected }: {
+  error = '', onClose, onRefresh, onEditRejected, onResume }: {
   job?: SwishPaymentJob; preparing?: boolean; uncertain?: boolean; pollPaused?: boolean; busy?: boolean; error?: string;
-  onClose: () => void; onRefresh: () => void; onEditRejected?: () => void;
+  onClose: () => void; onRefresh: () => void; onEditRejected?: () => void; onResume?: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null), headingId = useId(), descriptionId = useId();
   const [copied, setCopied] = useState(false), [copyError, setCopyError] = useState(false);
@@ -37,12 +37,14 @@ export default function SwishPayoutProgressDialog({ job, preparing = false, unce
   const unknown = !success && (uncertain || job?.status === 'unknown' || pollPaused);
   const running = !unknown && !success && (preparing || Boolean(job && swishPaymentRunning(job)));
   const rejected = job?.status === 'rejected';
+  const resumable = job?.status === 'blocked' && job.canResume === true && !error;
   const closeDisabled = preparing && busy && !job && !uncertain;
-  const outcome = success ? 'success' : unknown ? 'unknown' : running ? 'running' : 'error';
+  const outcome = success ? 'success' : resumable ? 'ready' : unknown ? 'unknown' : running ? 'running' : 'error';
   const activeStep = success ? 3 : !job || job.status === 'queued' || job.status === 'blocked' ? 0 : job.status === 'in_flight' ? 1 : 2;
-  const title = success ? 'Testutbetalning genomförd' : unknown ? 'Inväntar bekräftelse' : running ? steps[activeStep]
+  const title = success ? 'Testutbetalning genomförd' : resumable ? 'Kontrollen är godkänd' : unknown ? 'Inväntar bekräftelse' : running ? steps[activeStep]
     : rejected ? 'Swish avvisade testutbetalningen' : 'Testutbetalningen kan inte genomföras';
   const description = success ? 'Swish MSS har bekräftat resultatet. Inga riktiga pengar har flyttats.'
+    : resumable ? 'Det sparade testet är redo att fortsätta. Ingen utbetalning har skickats av statuskontrollen.'
     : unknown ? 'Slutresultatet är inte bekräftat. Vi kontrollerar samma betalning; ingen ny utbetalning skickas.'
       : preparing ? 'Förbereder testutbetalningen och sparar betalningsinstruktionen.'
         : running ? 'Utbetalningen provas i Swishs testmiljö. Du kan stänga den här rutan och följa resultatet på kortet.'
@@ -52,6 +54,7 @@ export default function SwishPayoutProgressDialog({ job, preparing = false, unce
     paymentId: job?.id ?? null, instructionId: job?.providerInstructionUUID ?? null,
     code: typeof job?.error === 'object' ? job.error.code ?? null : null,
     serverStatus: job?.status ?? (uncertain ? 'unknown' : 'preparing'), httpStatus: job?.response?.httpStatus ?? null,
+    preflightStatus: job?.preflightStatus ?? null, preflightCheckedAt: job?.preflightCheckedAt ?? null,
     request: job?.request ?? null, response: job?.response?.data ?? null, error: job?.error ?? (error || null),
   }), null, 2), [job, uncertain, error]);
 
@@ -75,14 +78,14 @@ export default function SwishPayoutProgressDialog({ job, preparing = false, unce
     <button type="button" className="swish-payout-close swish-payout-progress-close" aria-label="Stäng Swish-utbetalning" disabled={closeDisabled} onClick={onClose}><X size={20} /></button>
     <span className="swish-payment-test-badge">SWISH · TESTMILJÖ</span>
     <div className="swish-payout-progress-brand" aria-hidden="true"><span className="swish-payout-progress-ring" /><img src="/images/swish-symbol.svg" alt="" /><strong>Swish</strong>
-      <span className="swish-payout-progress-outcome">{success ? <CheckCircle2 size={25} /> : unknown || !running ? <CircleAlert size={25} /> : <LoaderCircle size={24} />}</span>
+      <span className="swish-payout-progress-outcome">{success || resumable ? <CheckCircle2 size={25} /> : unknown || !running ? <CircleAlert size={25} /> : <LoaderCircle size={24} />}</span>
     </div>
     <div className="swish-payout-progress-status" role="status" aria-live="polite"><h2 id={headingId}>{title}</h2><p id={descriptionId}>{description}</p></div>
     {job && <div className="swish-payout-progress-amount"><strong>{job.amount.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK' })}</strong><span>{job.paymentDetails.recipient || job.source?.customerName}</span></div>}
     <ol className="swish-payout-progress-steps" aria-label="Utbetalningens steg">{steps.map((step, index) => <li key={step}
       className={index < activeStep || success ? 'is-complete' : index === activeStep ? `is-current${unknown ? ' is-waiting' : ''}` : ''}
       aria-current={index === activeStep ? 'step' : undefined}><span aria-hidden="true">{index < activeStep || success ? <Check size={13} /> : index + 1}</span>{step}</li>)}</ol>
-    {!running && !success && <div className={`swish-payout-progress-info ${unknown ? 'is-waiting' : ''}`} role={unknown ? 'status' : 'alert'}><CircleAlert size={18} /><div><strong>{unknown ? 'Kontrollera samma betalning' : 'Varför gick det inte?'}</strong><p>{unknown && !error ? 'Betalningen finns kvar i historiken. Kontrollera status innan du gör något nytt försök.' : failure}</p></div></div>}
+    {!running && !success && <div className={`swish-payout-progress-info ${unknown || resumable ? 'is-waiting' : ''}`} role={unknown || resumable ? 'status' : 'alert'}>{resumable ? <CheckCircle2 size={18} /> : <CircleAlert size={18} />}<div><strong>{resumable ? 'Fortsätt samma sparade test' : unknown ? 'Kontrollera samma betalning' : 'Varför gick det inte?'}</strong><p>{resumable ? 'Tryck på Fortsätt testutbetalning när du vill starta. Samma belopp, mottagare och instruktion används.' : unknown && !error ? 'Betalningen finns kvar i historiken. Kontrollera status innan du gör något nytt försök.' : failure}</p></div></div>}
     {success && job?.bookkeepingStatus && <div className={`swish-payout-progress-bookkeeping${['failed', 'blocked', 'unknown', 'paused'].includes(job.bookkeepingStatus) ? ' needs-attention' : ''}`}>
       <strong>Registrering i Spiris</strong><p>{swishBookkeepingStatusNames[job.bookkeepingStatus]}</p>
       {['failed', 'blocked', 'unknown', 'paused'].includes(job.bookkeepingStatus) && <small>Swish-testet är genomfört. Endast bokföringen behöver följas upp; betalningen skickas inte igen.</small>}
@@ -92,6 +95,7 @@ export default function SwishPayoutProgressDialog({ job, preparing = false, unce
       {copyError && <p role="alert">Kopieringen fungerade inte. Markera och kopiera informationen ovan.</p>}
     </details>
     <div className="swish-payout-progress-actions">
+      {resumable && onResume && <button type="button" className="office-btn" disabled={busy} onClick={onResume}>Fortsätt testutbetalning</button>}
       {onEditRejected && !unknown && !running && !success && <button type="button" className="office-btn outline" disabled={busy} onClick={onEditRejected}>Rätta uppgifter och gör nytt test</button>}
       {(unknown || !running || Boolean(error)) && job && <button type="button" className="office-btn outline" disabled={busy} onClick={onRefresh}><RefreshCw size={15} />{busy ? 'Kontrollerar…' : 'Kontrollera status'}</button>}
       {unknown && !job && <button type="button" className="office-btn outline" disabled={busy} onClick={onRefresh}><RefreshCw size={15} />{busy ? 'Kontrollerar…' : 'Kontrollera sparat test'}</button>}

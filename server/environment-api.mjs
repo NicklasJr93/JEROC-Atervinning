@@ -146,7 +146,7 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
                 return store.authorize(token, permission);
               } };
             const card = route.match(/^\/payments\/cards\/([1-9]\d{0,11})(?:\/(prepare))?$/);
-            const paymentJob = route.match(/^\/(?:payments|swish\/jobs)\/([a-fA-F0-9-]{36})(?:\/(refresh))?$/);
+            const paymentJob = route.match(/^\/(?:payments|swish\/jobs)\/([a-fA-F0-9-]{36})(?:\/(refresh|resume))?$/);
             const kick = () => { void swishService.processQueuedPayments().catch(() => console.warn('Swish-testets jobb väntar på nästa kontroll.')); };
             if (read && route === '/swish/settings') json(res, 200, await swishService.settings(context), req.method === 'HEAD');
             else if (req.method === 'POST' && route === '/swish/settings') {
@@ -182,8 +182,15 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
             else if (req.method === 'POST' && paymentJob?.[2] === 'refresh') {
               if (!z.object({}).strict().safeParse(await body(req)).success) throw new EnvironmentError('Statuskontrollen tar inga betalningsuppgifter.', 422, 'swish_invalid');
               const job = await swishService.job(paymentJob[1], context);
-              json(res, 202, job);
-              void swishService.refresh(paymentJob[1], context).catch(() => console.warn('Swish-statusen inväntar nästa kontroll.'));
+              if (job.status === 'blocked') json(res, 200, await swishService.refresh(paymentJob[1], context));
+              else {
+                json(res, 202, job);
+                void swishService.refresh(paymentJob[1], context).catch(() => console.warn('Swish-statusen inväntar nästa kontroll.'));
+              }
+            }
+            else if (req.method === 'POST' && paymentJob?.[2] === 'resume' && !administration) {
+              if (!z.object({}).strict().safeParse(await body(req)).success) throw new EnvironmentError('Fortsätt det sparade testet utan att ändra betalningsuppgifter.', 422, 'swish_invalid');
+              json(res, 202, await swishService.resume(paymentJob[1], context)); kick();
             }
             else throw new EnvironmentError('Betalningsvyn finns inte eller metoden stöds inte.', 404, 'not_found');
           }

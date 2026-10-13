@@ -56,6 +56,19 @@ const accountingCall = (operation, ...args) => { try { return operation(...args)
 const normalizeAccountingSettings = (...args) => accountingCall(normalize, ...args);
 const buildAccountingDraft = input => accountingCall(buildDraft, input);
 const previewAccountingExample = input => accountingCall(examplePreview, input);
+function spirisAmountError(value, field, message, status = 409, code = 'accounting_amount_invalid') {
+  const error = new EnvironmentError(`Spiris-fältet ${field}: ${message}`, status, code);
+  // Name the failing field without persisting provider values or invoice data.
+  error.details = { provider: 'spiris', field, valueType: value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value };
+  return error;
+}
+function spirisMoneyToCents(value, field) {
+  try { return moneyToCents(value); } catch (error) {
+    if (error instanceof AccountingError && error.code === 'accounting_amount_invalid')
+      throw spirisAmountError(value, field, error.message, error.status, error.code);
+    throw error;
+  }
+}
 
 // An unchanged total is insufficient: a human could have edited accounts or
 // dimensions in the draft. Convert only the exact frozen accounting rows.
@@ -63,19 +76,22 @@ export function verifySpirisBookingRecord(record, job, booked = false) {
   const expected = job.draft;
   if (!record || record.Id !== (booked ? job.tracking?.invoiceId ?? record.Id : job.draftId) || !uuid(record.Id)
     || record.SupplierId !== job.supplierId || record.InvoiceNumber !== expected.InvoiceNumber
-    || record.CurrencyCode !== expected.CurrencyCode || moneyToCents(record.TotalAmount) !== moneyToCents(expected.TotalAmount)
+    || record.CurrencyCode !== expected.CurrencyCode || spirisMoneyToCents(record.TotalAmount, 'TotalAmount') !== moneyToCents(expected.TotalAmount)
     || record.IsCreditInvoice !== expected.IsCreditInvoice || record.SkipSendToBank !== true
     || typeof record.InvoiceDate !== 'string' || record.InvoiceDate.slice(0, 10) !== expected.InvoiceDate.slice(0, 10)
     || typeof record.DueDate !== 'string' || record.DueDate.slice(0, 10) !== expected.DueDate.slice(0, 10)
     || !Array.isArray(record.Rows) || record.Rows.length !== expected.Rows.length)
     fail('Spiris-underlaget har ändrats jämfört med den attesterade avräkningen. Granska det före bokföring eller utbetalning.', 409, 'visma_booking_identity_conflict');
   for (const field of ['Vat', 'VatHigh', 'VatMedium', 'VatLow']) {
-    if (moneyToCents(record[field] ?? 0) !== moneyToCents(expected[field] ?? 0)) fail('Momsen i Spiris stämmer inte med den låsta avräkningen.', 409, 'visma_booking_identity_conflict');
+    if (spirisMoneyToCents(record[field] ?? 0, field) !== moneyToCents(expected[field] ?? 0)) fail('Momsen i Spiris stämmer inte med den låsta avräkningen.', 409, 'visma_booking_identity_conflict');
   }
-  const projectRow = row => ({ account: row.AccountNumber, debit: moneyToCents(row.DebitAmount ?? row.DebetAmount ?? 0), credit: moneyToCents(row.CreditAmount ?? 0),
+  const projectRow = (row, index, provider = false) => ({ account: row.AccountNumber,
+    debit: provider ? spirisMoneyToCents(row.DebitAmount ?? row.DebetAmount ?? 0, `Rows[${index}].${row.DebitAmount != null ? 'DebitAmount' : 'DebetAmount'}`)
+      : moneyToCents(row.DebitAmount ?? row.DebetAmount ?? 0),
+    credit: provider ? spirisMoneyToCents(row.CreditAmount ?? 0, `Rows[${index}].CreditAmount`) : moneyToCents(row.CreditAmount ?? 0),
     ...Object.fromEntries(['VatCodeId', 'CostCenterItemId1', 'CostCenterItemId2', 'CostCenterItemId3', 'ProjectId'].map(field => [field, row[field] || null])) });
-  const actualRows = record.Rows.map(projectRow).map(row => JSON.stringify(row)).sort();
-  const expectedRows = expected.Rows.map(projectRow).map(row => JSON.stringify(row)).sort();
+  const actualRows = record.Rows.map((row, index) => projectRow(row, index, true)).map(row => JSON.stringify(row)).sort();
+  const expectedRows = expected.Rows.map((row, index) => projectRow(row, index)).map(row => JSON.stringify(row)).sort();
   if (JSON.stringify(actualRows) !== JSON.stringify(expectedRows)) fail('Konton eller konteringsrader i Spiris stämmer inte med den låsta avräkningen.', 409, 'visma_booking_identity_conflict');
   if (booked && (record.CreatedFromDraftId !== job.draftId || record.Status !== 1 || !uuid(record.VoucherId)
     || typeof record.VoucherNumber !== 'string' || !record.VoucherNumber.trim()))
@@ -655,7 +671,8 @@ export function createVismaExports({ organisationId = 'jeroc-demo', readTenantPr
         const booking = entry.booking; booking.failureCount = (booking.failureCount ?? 0) + 1; booking.checkedAt = clock().toISOString();
         booking.status = ['visma_booking_connection_changed', 'visma_company_mismatch', 'visma_not_connected'].includes(error.code) ? 'paused'
           : booking.postReserved && booking.failureCount < 8 ? 'unknown' : error.status === 503 && booking.failureCount < 8 ? 'queued' : 'failed';
-        booking.error = { code: error.code ?? 'visma_booking_unavailable', message: error.message ?? 'Bokföringen kunde inte kontrolleras.' };
+        booking.error = { code: error.code ?? 'visma_booking_unavailable', message: error.message ?? 'Bokföringen kunde inte kontrolleras.',
+          ...(error.code === 'accounting_amount_invalid' && error.details?.provider === 'spiris' ? { details: clone(error.details) } : {}) };
         booking.nextCheckAt = ['unknown', 'queued'].includes(booking.status) ? new Date(clock().getTime() + Math.min(1440, 5 * 2 ** (booking.failureCount - 1)) * 60000).toISOString() : null;
         entry.tracking.state = booking.status === 'paused' ? 'paused' : booking.status === 'failed' ? 'attention' : 'pending';
         entry.tracking.checkedGeneration = checkedGeneration; entry.tracking.reason = booking.error.message;
@@ -705,9 +722,13 @@ export function createVismaExports({ organisationId = 'jeroc-demo', readTenantPr
       if (!active.enabled || companyId() !== job.companyId) fail('Spiris-kopplingen är avstängd eller ändrad.', 409, 'visma_booking_connection_changed');
     }, async send => { const verified = await confirmInvoice(job, send, { kind: 'booked', invoiceId: job.tracking.invoiceId });
       const record = verified.invoice;
-      if (!Number.isFinite(record.RemainingAmountInvoiceCurrency) || moneyToCents(record.RemainingAmountInvoiceCurrency) !== moneyToCents(job.draft.TotalAmount)
-        || record.RemainingAmount !== undefined && (!Number.isFinite(record.RemainingAmount) || moneyToCents(record.RemainingAmount) !== moneyToCents(job.draft.TotalAmount))
-        || record.PaymentStatus !== undefined && ![3, 7, 8, 10, 13, 14].includes(record.PaymentStatus))
+      for (const field of ['RemainingAmountInvoiceCurrency', ...(record.RemainingAmount !== undefined ? ['RemainingAmount'] : [])]) {
+        if (!Number.isFinite(record[field]))
+          throw spirisAmountError(record[field], field, 'Det återstående beloppet måste vara ett ändligt tal. Kontrollera fakturan före utbetalning.', 409, 'visma_payment_already_recorded');
+        if (spirisMoneyToCents(record[field], field) !== moneyToCents(job.draft.TotalAmount))
+          throw spirisAmountError(record[field], field, 'Spiris-fakturan är redan helt eller delvis betald. Kontrollera betalningen före utbetalning.', 409, 'visma_payment_already_recorded');
+      }
+      if (record.PaymentStatus !== undefined && ![3, 7, 8, 10, 13, 14].includes(record.PaymentStatus))
         fail('Spiris-fakturan är redan helt eller delvis betald. Kontrollera betalningen före utbetalning.', 409, 'visma_payment_already_recorded');
       return { source: clone(job.source), companyId: job.companyId, generation: connected.generation, invoiceId: record.Id,
         draftId: job.draftId, status: 'booked', voucherNumber: record.VoucherNumber }; });

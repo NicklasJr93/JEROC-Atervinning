@@ -33,6 +33,21 @@ const initial = organisationId => ({ version: 1, organisationId, settings: initi
 const blocking = job => !['rejected', 'failed', 'cancelled'].includes(job.status);
 const terminal = job => ['simulated_paid', 'rejected', 'failed', 'blocked', 'cancelled'].includes(job.status);
 const nextAt = (clock, delay = POLL_MS) => new Date(clock.getTime() + delay).toISOString();
+const neverDispatched = job => !job.sentAt && !job.response && !job.verifiedAt && !job.providerResult
+  && !job.providerPaymentReference && !job.events?.some(item => item.action === 'payment_sent');
+const recoveryCandidate = job => job.kind === 'card' && job.status === 'blocked' && neverDispatched(job);
+
+function safeError(error, fallbackCode = 'swish_preflight_failed', fallbackMessage = 'Utbetalningen behöver granskas innan den kan fortsätta.') {
+  const supplied = error?.details ?? {}, details = {};
+  if (supplied.provider === 'spiris') details.provider = 'spiris';
+  if (typeof supplied.field === 'string' && supplied.field.length <= 100
+    && /^(TotalAmount|Vat|VatHigh|VatMedium|VatLow|RemainingAmountInvoiceCurrency|RemainingAmount|Rows\[\d+\]\.(DebitAmount|DebetAmount|CreditAmount))$/.test(supplied.field))
+    details.field = supplied.field;
+  if (['null', 'array', 'number', 'string', 'undefined', 'boolean', 'object', 'bigint', 'function', 'symbol'].includes(supplied.valueType))
+    details.valueType = supplied.valueType;
+  return { code: text(error?.code, 100) || fallbackCode, message: text(error?.message, 300) || fallbackMessage,
+    ...(Object.keys(details).length ? { details } : {}) };
+}
 
 /** Convert exact decimal kronor to integer öre without silently rounding input.
  * JS numbers originate from a signed server snapshot; strings support sandbox
@@ -76,12 +91,13 @@ function safeProviderData(data) {
 }
 function publicJob(job) {
   if (!job) return null;
-  return copy(Object.fromEntries(['id', 'organisationId', 'kind', 'mode', 'simulation', 'source', 'sourceSnapshotHash', 'sourceSnapshot', 'amount', 'amountCents', 'currency',
+  return copy({ ...Object.fromEntries(['id', 'organisationId', 'kind', 'mode', 'simulation', 'source', 'sourceSnapshotHash', 'sourceSnapshot', 'amount', 'amountCents', 'currency',
     'paymentDetails', 'originalPaymentDetails', 'reason', 'recipient', 'status', 'bookkeepingStatus', 'bookkeeping', 'createdAt', 'updatedAt', 'verifiedAt', 'finishedAt',
     'providerInstructionUUID', 'providerPaymentReference', 'request', 'response', 'events', 'error', 'documentRevision', 'spirisBankAccountId', 'spirisCompanyId', 'retryOf',
     'reservedBy', 'revisionActor', 'pollSuspended', 'nextCheckAt', 'bookkeepingEnabled',
-    'paymentConfirmationDocument', 'paymentDocumentStatus', 'paymentDocumentError', 'bookingProof']
-    .filter(key => job[key] !== undefined).map(key => [key, job[key]])));
+    'paymentConfirmationDocument', 'paymentDocumentStatus', 'paymentDocumentError', 'bookingProof', 'preflightStatus', 'preflightCheckedAt']
+    .filter(key => job[key] !== undefined).map(key => [key, job[key]])),
+    canResume: Boolean(recoveryCandidate(job) && job.preflightStatus === 'ready' && !job.lease) });
 }
 
 /** Tenant-bound durable MSS journal. A signed approval is the only amount
@@ -382,6 +398,125 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
     return { organisationId, actorId: job.authorization.actorId, effectiveUserId: job.authorization.effectiveUserId,
       sessionKey: 'durable-swish-instruction' };
   }
+  const activeLease = item => Boolean(item.lease && Date.parse(item.lease.expiresAt) > clock().getTime());
+  const resumedQueued = item => item.status === 'queued' && neverDispatched(item)
+    && item.events?.some(entry => entry.action === 'payment_resumed');
+  const recoveryFingerprint = item => hash([item.source, item.sourceSnapshotHash, item.sourceSnapshot, item.amount, item.amountCents, item.currency,
+    item.paymentDetails, item.originalPaymentDetails, item.recipient, item.bookingProof, item.authorization, item.request,
+    item.instructionHash, item.providerInstructionUUID, item.spirisCompanyId, item.spirisBankAccountId,
+    item.bookkeepingEnabled, item.registerSpirisPayment]);
+  function assertRecoveryState(value, state, item, context, source) {
+    // The caller cannot elevate the original payment instruction's authority.
+    principalIn(state, context, { siteId: source.source.siteId });
+    principalIn(state, workerContext(item), { siteId: source.source.siteId });
+    assertOffice(state, source);
+    if (!value.settings.enabled) fail('Swish MSS-test är inte aktiverat.', 409, 'swish_disabled');
+    if ((value.settings.spirisCompanyId ?? null) !== (item.spirisCompanyId ?? null)
+      || (value.settings.spirisBankAccountId ?? null) !== (item.spirisBankAccountId ?? null)
+      || Boolean(value.settings.bookkeepingEnabled) !== Boolean(item.bookkeepingEnabled))
+      fail('Spiris-inställningarna har ändrats sedan utbetalningen reserverades.', 409, 'swish_settings_changed');
+    if (!equal(source.source, item.source) || !equal(source.snapshot, item.sourceSnapshot)
+      || source.snapshot.hash !== item.sourceSnapshotHash || source.amountCents !== item.amountCents
+      || item.amount !== item.amountCents / 100 || item.currency !== 'SEK'
+      || !equal(source.originalPaymentDetails, item.originalPaymentDetails))
+      fail('Den låsta avräkningen har ändrats. Utbetalningen behöver granskas.', 409, 'swish_source_changed');
+    validateSwish(item.paymentDetails);
+    if (item.paymentDetails.personalNumber !== normalizePersonalNumber(source.customer.number ?? '')
+      || !equal(item.recipient, { name: item.paymentDetails.recipient, phone: item.paymentDetails.phone, personalNumber: item.paymentDetails.personalNumber }))
+      fail('Den låsta mottagarinstruktionen har ändrats.', 409, 'swish_instruction_changed');
+    const payload = item.request?.payload;
+    if (!payload || item.request.method !== 'POST' || item.request.path !== '/swish-cpcapi/api/v1/payouts'
+      || hash(payload) !== item.instructionHash || payload.payoutInstructionUUID !== item.providerInstructionUUID
+      || payload.amount !== amountString(item.amountCents) || payload.currency !== item.currency
+      || payload.payeeAlias !== item.paymentDetails.phone.slice(1) || payload.payeeSSN !== item.paymentDetails.personalNumber
+      || !item.bookingProof?.companyId || !item.bookingProof?.generation || !item.bookingProof?.invoiceId)
+      fail('Den sparade betalningsinstruktionen har ändrats.', 409, 'swish_instruction_changed');
+  }
+  async function inspectRecovery(item, context) {
+    const approval = await currentApproval(item.source.cardId);
+    if (!approval) fail('Kortet saknar sin ursprungliga attest.', 409, 'swish_source_changed');
+    const source = sourceFrom(approval);
+    await authorize(context, { siteId: source.source.siteId });
+    await (await getRepository()).read(state => assertRecoveryState(domain(state), state, item, context, source),
+      { domains: [DOMAIN, 'pricing', 'office'] });
+    await verifiedBooking(item.source, { fresh: true, previous: item.bookingProof });
+    const config = await configuration();
+    if (!config.ready || config.merchantAlias !== item.request.payload.payerAlias)
+      fail('Swish-testanslutningen har ändrats. Instruktionen skickas inte.', 409, 'swish_configuration_changed');
+    return { source, fingerprint: recoveryFingerprint(item) };
+  }
+  function recordPreflight(item, error, context, audit) {
+    item.lease = null;
+    item.preflightStatus = error ? 'blocked' : 'ready';
+    item.preflightCheckedAt = clock().toISOString();
+    item.error = error ? safeError(error) : null;
+    const action = error ? 'payment_preflight_blocked' : 'payment_preflight_ready';
+    event(item, action, context, { text: error ? item.error.message : 'Förkontrollen är klar. Utbetalningen är fortfarande spärrad och måste fortsättas uttryckligen.',
+      ...(error ? { error: copy(item.error) } : {}) });
+    audit?.push({ action: `swish_${action}`, paymentId: item.id, cardId: item.source.cardId,
+      actualUserId: context.actorId, effectiveUserId: context.effectiveUserId, at: item.preflightCheckedAt,
+      ...(error ? { error: copy(item.error) } : {}) });
+  }
+  async function refreshBlocked(item, context) {
+    if (!recoveryCandidate(item) || activeLease(item)) return publicJob(item);
+    let inspection, failure;
+    try { inspection = await inspectRecovery(item, context); } catch (error) { failure = error; }
+    return transaction((value, state, audit) => {
+      const saved = value.jobs[item.id];
+      if (!saved) fail('Betalningsförsöket saknas.', 404, 'swish_job_missing');
+      principalIn(state, context, { siteId: saved.source?.siteId });
+      if (!recoveryCandidate(saved) || activeLease(saved)) return publicJob(saved);
+      if (!failure) {
+        try {
+          if (recoveryFingerprint(saved) !== inspection.fingerprint)
+            fail('Den sparade betalningsinstruktionen har ändrats.', 409, 'swish_instruction_changed');
+          assertRecoveryState(value, state, saved, context, inspection.source);
+        } catch (error) { failure = error; }
+      }
+      recordPreflight(saved, failure, context, audit);
+      return publicJob(saved);
+    });
+  }
+  async function resume(id, context) {
+    const item = await authorizeJob(id, context);
+    if (activeLease(item) || !(recoveryCandidate(item) && item.preflightStatus === 'ready' || resumedQueued(item)))
+      fail('Kontrollera den spärrade utbetalningen först. Endast en verifierad instruktion som aldrig skickats kan fortsätta.', 409, 'swish_resume_forbidden');
+    let inspection;
+    try { inspection = await inspectRecovery(item, context); }
+    catch (error) {
+      await transaction((value, state, audit) => {
+        const saved = value.jobs[id];
+        principalIn(state, context, { siteId: saved?.source?.siteId });
+        if (saved && recoveryCandidate(saved) && !activeLease(saved)) recordPreflight(saved, error, context, audit);
+      });
+      throw error;
+    }
+    const result = await transaction((value, state, audit) => {
+      const saved = value.jobs[id];
+      if (!saved) fail('Betalningsförsöket saknas.', 404, 'swish_job_missing');
+      principalIn(state, context, { siteId: saved.source?.siteId });
+      if (activeLease(saved) || !(recoveryCandidate(saved) && saved.preflightStatus === 'ready' || resumedQueued(saved)))
+        fail('Utbetalningen kan inte fortsätta i sitt nuvarande läge.', 409, 'swish_resume_forbidden');
+      try {
+        if (recoveryFingerprint(saved) !== inspection.fingerprint)
+          fail('Den sparade betalningsinstruktionen har ändrats.', 409, 'swish_instruction_changed');
+        assertRecoveryState(value, state, saved, context, inspection.source);
+      } catch (error) {
+        if (recoveryCandidate(saved)) recordPreflight(saved, error, context, audit);
+        return { error };
+      }
+      if (resumedQueued(saved)) return { job: publicJob(saved) };
+      saved.status = 'queued'; saved.lease = null; saved.error = null;
+      delete saved.preflightStatus; delete saved.preflightCheckedAt;
+      saved.nextCheckAt = null; saved.pollSuspended = false;
+      event(saved, 'payment_resumed', context, { text: 'Den ursprungliga Swish-testinstruktionen köades igen efter verifierad förkontroll. Inget skickades av denna åtgärd.' });
+      audit?.push({ action: 'swish_payment_resumed', paymentId: id, cardId: saved.source.cardId,
+        actualUserId: context.actorId, effectiveUserId: context.effectiveUserId, at: saved.updatedAt });
+      return { job: publicJob(saved) };
+    });
+    if (result.error) throw result.error;
+    return result.job;
+  }
   async function reserveWork(id, force = false) {
     return transaction((value, state) => {
       const item = value.jobs[id]; if (!item || terminal(item)) return null;
@@ -392,6 +527,10 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
         event(item, 'payment_outcome_unknown', undefined, { text: item.error.message });
       }
       if (!force && item.nextCheckAt && Date.parse(item.nextCheckAt) > clock().getTime()) return null;
+      if (item.status === 'queued' && !neverDispatched(item)) {
+        item.status = 'blocked'; item.error = { code: 'swish_resume_forbidden', message: 'Instruktionen har redan skickats eller fått ett providersvar. Den skickas inte igen.' };
+        event(item, 'payment_blocked', undefined, { text: item.error.message }); return null;
+      }
       const dispatch = item.status === 'queued' && !item.sentAt;
       if (dispatch) {
         try { principalIn(state, workerContext(item), { admin: item.kind === 'sandbox', siteId: item.source?.siteId }); }
@@ -411,11 +550,17 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
   }
   async function beforeDispatch(reservation) {
     const { job: item, leaseId } = reservation;
+    let currentSource;
     if (item.kind === 'card') {
       const current = await currentApproval(item.source.cardId);
       if (!current || current.id !== item.source.approvalId || current.version !== item.source.version || current.snapshot.hash !== item.source.hash) {
         await updateReserved(item.id, leaseId, saved => { saved.status = 'blocked'; saved.lease = null; saved.error = { code: 'swish_source_changed', message: 'Attestversionen har ändrats innan betalningen skickades.' }; event(saved, 'payment_blocked', undefined, { text: saved.error.message }); });
         return false;
+      }
+      try { currentSource = sourceFrom(current); }
+      catch (error) {
+        await updateReserved(item.id, leaseId, saved => { saved.status = 'blocked'; saved.lease = null; saved.error = safeError(error);
+          event(saved, 'payment_blocked', undefined, { text: saved.error.message, error: copy(saved.error) }); }); return false;
       }
     }
     try {
@@ -437,6 +582,11 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
           event(saved, 'payment_blocked', undefined, { text: saved.error.message }); });
         return false;
       }
+      try { currentSource = sourceFrom(current); }
+      catch (error) {
+        await updateReserved(item.id, leaseId, saved => { saved.status = 'blocked'; saved.lease = null; saved.error = safeError(error);
+          event(saved, 'payment_blocked', undefined, { text: saved.error.message, error: copy(saved.error) }); }); return false;
+      }
     }
     // Recheck current authorization in the same short commit that marks the
     // instruction sent. A revoked queued instruction never reaches Swish.
@@ -444,8 +594,8 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
       try { await verifiedBooking(item.source, { fresh: true, previous: item.bookingProof }); }
       catch (error) {
         await updateReserved(item.id, leaseId, saved => { saved.status = 'blocked'; saved.lease = null;
-          saved.error = { code: error.code ?? 'swish_invoice_unbooked', message: text(error.message, 300) };
-          event(saved, 'payment_blocked', undefined, { text: saved.error.message }); });
+          saved.error = safeError(error, 'swish_invoice_unbooked');
+          event(saved, 'payment_blocked', undefined, { text: saved.error.message, error: copy(saved.error) }); });
         return false;
       }
     }
@@ -453,8 +603,9 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
       const saved = value.jobs[item.id]; if (saved?.lease?.id !== leaseId) return false;
       try { principalIn(state, workerContext(saved), { admin: saved.kind === 'sandbox', siteId: saved.source?.siteId });
         if (!value.settings.enabled) fail('Swish-test har stängts av.', 409, 'swish_disabled');
-        if (saved.kind === 'card') assertOffice(state, { source: saved.source, snapshot: saved.sourceSnapshot });
-      } catch (error) { saved.status = 'blocked'; saved.lease = null; saved.error = { code: error.code ?? 'swish_forbidden', message: error.message }; return false; }
+        if (saved.kind === 'card') assertRecoveryState(value, state, saved, workerContext(saved), currentSource);
+      } catch (error) { saved.status = 'blocked'; saved.lease = null; saved.error = safeError(error, 'swish_forbidden');
+        event(saved, 'payment_blocked', undefined, { text: saved.error.message, error: copy(saved.error) }); return false; }
       if (hash(saved.request.payload) !== saved.instructionHash) fail('Den sparade betalningsinstruktionen har ändrats.', 409, 'swish_instruction_changed');
       saved.status = 'in_flight'; saved.sentAt = clock().toISOString(); event(saved, 'payment_sent', undefined, { text: 'Instruktionen skickas till Swish MSS. Inga riktiga pengar flyttas.' }); return true;
     });
@@ -607,7 +758,8 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
       await synchronizePaymentDocument(id, { force: true });
       await synchronizeBookkeeping(id, { force: true });
     }
-    else if (!terminal(existing)) await run(id, true);
+    else if (existing.status === 'blocked') await refreshBlocked(existing, context);
+    else if (!terminal(existing) && existing.status !== 'queued') await run(id, true);
     return job(id, context);
   }
   async function processQueuedPayments({ limit = 10 } = {}) {
@@ -631,6 +783,6 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
     const existing = state ? lookup(domain(state)) : await read(lookup);
     if (existing) fail('Kortet har en reserverad eller genomförd Swish-testutbetalning. Den manuella demoutbetalningen är spärrad.', 409, 'swish_payment_reserved');
   }
-  return { initialize, integrationStatus, settings, saveSettings, prepare, start, sandboxSend, job, getCardJobs, refresh, processQueuedPayments,
+  return { initialize, integrationStatus, settings, saveSettings, prepare, start, sandboxSend, job, getCardJobs, refresh, resume, processQueuedPayments,
     assertNoManagedPayment, readVerifiedPayment, synchronizeBookkeeping, synchronizePaymentDocument };
 }

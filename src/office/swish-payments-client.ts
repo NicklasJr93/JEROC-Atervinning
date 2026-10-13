@@ -16,7 +16,10 @@ export interface SwishPaymentJob {
   paymentDetails: SwishPaymentDetails; originalPaymentDetails?: PaymentDetails;
   reason?: string; recipient?: unknown; status: SwishPaymentStatus; bookkeepingStatus: SwishBookkeepingStatus;
   providerInstructionUUID?: string; createdAt: string; updatedAt: string; verifiedAt?: string;
-  error?: { code?: string; message?: string } | string;
+  error?: { code?: string; message?: string; details?: { provider?: string; field?: string; valueType?: string } } | string;
+  canResume?: boolean;
+  preflightStatus?: 'ready' | 'blocked';
+  preflightCheckedAt?: string;
   bookkeepingError?: { code?: string; message?: string } | string;
   bookkeeping?: { status?: string; reason?: string | null; paymentId?: string; voucherId?: string; invoiceId?: string | null; bankTransactionId?: string | null;
     paymentVoucherId?: string | null; paymentVoucherNumber?: string | null; paymentDate?: string; updatedAt?: string };
@@ -49,6 +52,7 @@ export const swishPaymentsApi = {
   start: (value: SwishPaymentStart) => environmentRequest<SwishPaymentJob>('/payments', 'POST', value),
   job: (jobId: string, signal?: AbortSignal) => environmentRequest<SwishPaymentJob>(`/payments/${encodeURIComponent(jobId)}`, 'GET', undefined, signal),
   refresh: (jobId: string, signal?: AbortSignal) => environmentRequest<SwishPaymentJob>(`/payments/${encodeURIComponent(jobId)}/refresh`, 'POST', {}, signal),
+  resume: (jobId: string, signal?: AbortSignal) => environmentRequest<SwishPaymentJob>(`/payments/${encodeURIComponent(jobId)}/resume`, 'POST', {}, signal),
 };
 export const swishPaymentStatusNames: Record<SwishPaymentStatus, string> = {
   queued: 'Testet är köat', in_flight: 'Kontaktar Swish MSS', pending: 'Inväntar Swishs slutstatus',

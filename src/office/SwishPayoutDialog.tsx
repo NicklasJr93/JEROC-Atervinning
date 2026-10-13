@@ -133,6 +133,22 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
       if (generation.current === expected) setError(failure instanceof Error ? failure.message : 'Underlaget kunde inte hämtas för ett nytt test.');
     } finally { if (generation.current === expected) setBusy(false); }
   }
+  async function resume() {
+    if (mutationInFlight.current || busy || !job?.canResume || !sessionMatches || !permitted) return;
+    const expected = generation.current, expectedIdentity = identityRef.current;
+    mutationInFlight.current = true; setBusy(true); setError('');
+    try {
+      const next = await swishPaymentsApi.resume(job.id);
+      if (generation.current !== expected || identityRef.current !== expectedIdentity) return;
+      publish(next); setPollPaused(false);
+      onNotice?.('Samma sparade Swish-test fortsätter. Ingen ny betalningsinstruktion skapas.');
+    } catch (failure) {
+      if (generation.current === expected && identityRef.current === expectedIdentity)
+        setError(failure instanceof Error ? failure.message : 'Det sparade testet kunde inte fortsätta. Kontrollera status igen.');
+    } finally {
+      if (generation.current === expected) { mutationInFlight.current = false; setBusy(false); }
+    }
+  }
   const changed = Boolean(preparation && comparable(details) !== comparable(preparation.originalPaymentDetails));
   const isPrivate = preparation?.customer.type === 'Privatperson';
   const swishNumber = normalizePhoneNumber(details?.phone ?? '', { swish: true });
@@ -178,6 +194,7 @@ export default function SwishPayoutDialog({ card, user, actualUser, open, onClos
   if ((job || submitting || uncertain) && sessionMatches) {
     return <SwishPayoutProgressDialog job={job} preparing={submitting && !job} uncertain={uncertain} pollPaused={pollPaused}
       busy={busy} error={error} onClose={onClose} onRefresh={() => void recover()}
+      onResume={() => void resume()}
       onEditRejected={job && ['rejected', 'failed'].includes(job.status) ? () => void editRejected() : undefined} />;
   }
   return <dialog ref={dialog} className="swish-payout-dialog" aria-labelledby={heading} aria-describedby={description}

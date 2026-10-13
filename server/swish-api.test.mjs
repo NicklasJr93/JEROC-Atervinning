@@ -40,6 +40,7 @@ async function fixture(run) {
     async job(id, context) { record('job', id, context); return job; },
     async getCardJobs(id, context) { record('getCardJobs', id, context); return []; },
     async refresh(id, context) { record('refresh', id, context); return job; },
+    async resume(id, context) { record('resume', id, context); return job; },
     async processQueuedPayments() { record('worker'); },
     async integrationStatus() { record('catalog'); return { mode: 'test', configured: true, connected: false }; },
   };
@@ -106,6 +107,24 @@ test('sandbox jobs and status refresh preserve the ID and never create a second 
   assert.equal(f.calls.filter(call => call.name === 'sandboxSend').length, 1);
   assert.equal(f.calls.filter(call => call.name === 'start').length, 0);
   assert.equal(f.calls.find(call => call.name === 'refresh').input, f.job.id);
+}));
+
+test('blocked status refresh is read back and explicit resume has its own protected empty-body action', async () => fixture(async f => {
+  const headers = await f.login(), path = f.base + '/payments/' + f.job.id;
+  f.job.status = 'blocked';
+  const refreshed = await fetch(path + '/refresh', { method: 'POST', headers, body: '{}' });
+  assert.equal(refreshed.status, 200);
+  assert.equal(f.calls.filter(call => call.name === 'refresh').length, 1);
+  assert.equal(f.calls.filter(call => call.name === 'resume' || call.name === 'worker').length, 0);
+  assert.equal((await fetch(path + '/resume', { method: 'POST', headers: { ...headers, 'X-Environment-CSRF': 'wrong' }, body: '{}' })).status, 403);
+  assert.equal((await fetch(path + '/resume', { method: 'POST', headers, body: '{"amount":999}' })).status, 422);
+  assert.equal((await fetch(f.base + '/swish/jobs/' + f.job.id + '/resume', { method: 'POST', headers, body: '{}' })).status, 404);
+  assert.equal(f.calls.filter(call => call.name === 'resume').length, 0);
+  const resumed = await fetch(path + '/resume', { method: 'POST', headers, body: '{}' });
+  assert.equal(resumed.status, 202); assert.equal((await resumed.json()).id, f.job.id);
+  assert.equal(f.calls.find(call => call.name === 'resume').input, f.job.id);
+  assert.equal(f.calls.find(call => call.name === 'resume').organisationId, 'jeroc-demo');
+  assert.equal(f.calls.filter(call => call.name === 'start' || call.name === 'sandboxSend').length, 0);
 }));
 
 test('the integration catalog exposes the Swish test adapter without sending or provisioning a payout', async () => fixture(async f => {

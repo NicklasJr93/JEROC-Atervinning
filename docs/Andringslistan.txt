@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.8.1. Aktuell kontorsversion: 0.23.0.
+Aktuell mobilwebbversion: 0.8.1. Aktuell kontorsversion: 0.23.1.
 Delad attestknapp, bokföring i Spiris, utbetalningsspärr, eget utbetalningskort
 och betalningsbekräftad PDF är genomförda i ÄL 103, bygge 2026-10-13.
 Swish MSS-test, utbetalningspopup, PDF-revisioner och Spiris-betalningsbokföring
@@ -2385,3 +2385,23 @@ ingen appkod ändrad i denna leverans.
   höja dem. Verkligt supportkonto, bolag och ändringar sparas i historiken.
 - Tre bilder och förklaringar:
   docs/mockups/plattformsadmin/README.md.
+
+ÄL 105 – Tydlig Spiris-beloppsdiagnos och säker kontroll av blockerade Swish-test
+Status: Implementerad 2026-10-13 i kontor 0.23.1. Ingen skarp betalning.
+- Bakgrund: 3026 stoppades före Swish-sändning med accounting_amount_invalid.
+  Begäran innehöll korrekt 240.00. Det delade fakturautkastet hade giltiga
+  belopp; vilket fält i den senare fakturakontrollen som felar måste verifieras
+  genom en ny kontroll. Detta bygge påstår inte att grundorsaken är fastställd.
+- Beloppsfel vid återläsning från Spiris anger exakt fält, leverantör och
+  värdetyp utan att exponera hela fakturan, personuppgifter eller hemligheter.
+  Kontroll av frysta belopp, kontering, fakturaidentitet och obetald skuld
+  behålls. JSON-talet 240 är giltigt och behöver inte skrivas 240.00.
+- Kontrollera status gör en aktiv läskontroll för blockerade, aldrig skickade
+  korttest och sparar uppdaterad diagnos på samma jobb. Den skickar ingen
+  betalning och fortsätter inte testet automatiskt.
+- När kontrollen är godkänd visas en separat Fortsätt testutbetalning-knapp.
+  Den återanvänder samma sparade instruktion efter nya behörighets-, käll-,
+  kopplings- och fakturakontroller. Okända, tidigare skickade eller bekräftade
+  försök får inte återköas genom denna väg.
+- Provflöde och verifiering:
+  docs/integrationer/swish-blockerad-kontroll-2026-10-13.md.
