@@ -10,13 +10,14 @@ import { createDocumentService } from './documents/model.mjs';
 import { renderPdf } from './documents/render.mjs';
 import { createApplicationRepository } from './application-storage.mjs';
 import { createVismaPayments } from './visma-payments.mjs';
+import { bankPaymentCreditorAccount } from './openpayments-client.mjs';
 
 const copy = value => structuredClone(value);
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const admin = { actor: { id: 'admin', active: true }, user: { id: 'admin', name: 'Systemadmin', level: 'Systemadmin', permissions: [], active: true } };
 
-function bankFixture() {
-  const paymentDetails = { method: 'bank', bankType: 'account', holder: 'Testmottagare', clearing: '8327', account: '00123456789' };
+function bankFixture({ payloadVersion } = {}) {
+  const paymentDetails = { method: 'bank', bankType: 'account', holder: 'Testmottagare', clearing: payloadVersion === 2 ? '83279' : '8327', account: '00123456789' };
   const customer = { id: 'customer-a', name: 'Testmottagare', type: 'Privatperson', number: '199001010009', address: 'Testgatan 1', postalCode: '76141', city: 'Norrtälje' };
   const card = { id: 3040, siteId: 'norrtalje', yard: 'Norrtälje', customerId: customer.id, status: 'ready',
     origin: 'Testgatan 1, 76141 Norrtälje', reference: 'Projekt A', date: '2026-10-13T07:00:00Z', paymentDetails: copy(paymentDetails),
@@ -27,10 +28,12 @@ function bankFixture() {
     createdAt: '2026-10-13T07:15:00Z', approvedAt: '2026-10-13T07:20:00Z', approvedMethod: 'staff_checked_id_demo', approvedHash: snapshot.hash,
     approvedBy: 'Kajsa', attestedAt: '2026-10-13T07:30:00Z', attestedBy: 'Anna', actualUserId: 'admin', effectiveUserId: 'anna' };
   const source = { cardId: card.id, approvalId: approval.id, version: 1, siteId: card.siteId, customerId: customer.id, hash: snapshot.hash };
-  const payload = { creditorName: paymentDetails.holder, creditorAccount: { clearingNumber: paymentDetails.clearing, accountNumber: paymentDetails.account, currency: 'SEK' },
+  const payload = { creditorName: paymentDetails.holder, creditorAccount: payloadVersion === 2 ? { bban: '8327900123456789', currency: 'SEK' }
+    : { clearingNumber: paymentDetails.clearing, accountNumber: paymentDetails.account, currency: 'SEK' },
     debtorAccount: { iban: 'SE4550000000058398257466', currency: 'SEK' }, instructedAmount: { amount: '40.00', currency: 'SEK' }, remittanceInformationUnstructured: 'AV-3040-V1' };
   const providerPaymentId = randomUUID();
   const value = { id: randomUUID(), organisationId: 'tenant-a', provider: 'openpayments', kind: 'card', mode: 'sandbox', simulation: true, status: 'simulated_paid',
+    ...(payloadVersion !== undefined ? { payloadVersion } : {}),
     source, sourceSnapshot: copy(snapshot), sourceSnapshotHash: snapshot.hash, originalPaymentDetails: copy(paymentDetails), paymentDetails: copy(paymentDetails),
     revisionActor: { actualUserId: 'admin', effectiveUserId: 'anna' }, amountCents: 4000, currency: 'SEK',
     spirisCompanyId: 'sandbox-company-a', spirisBankAccountId: randomUUID(), providerInstructionUUID: randomUUID(), providerProduct: 'domestic',
@@ -41,10 +44,10 @@ function bankFixture() {
   return { value, sources };
 }
 
-async function withDocuments(run, { realPdf = false } = {}) {
+async function withDocuments(run, { realPdf = false, payloadVersion } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'bank-pdf-followup-'));
   const repository = await createDocumentRepository({ env: {}, filename: join(directory, 'documents.sqlite') });
-  const { value, sources } = bankFixture(), rendered = [];
+  const { value, sources } = bankFixture({ payloadVersion }), rendered = [];
   let reads = 0;
   const service = createDocumentService({ repository, sourceProvider: async () => { reads++; return copy(sources); },
     renderPdf: async snapshot => { rendered.push(copy(snapshot)); return realPdf ? renderPdf(snapshot) : Buffer.from('%PDF-1.4\nBank test\n%%EOF'); },
@@ -99,6 +102,38 @@ test('bank pending, altered recipient, amount, currency, debtor and provider sta
   assert.equal((await f.repository.read(db => db.documents('settlement', f.value.source.cardId))).length, 0);
 }));
 
+test('historic account-pair proofs stay verifiable as implicit or explicit v1 but unknown or contradictory versions fail closed', () => {
+  const { value } = bankFixture();
+  assert.equal(Object.hasOwn(value, 'payloadVersion'), false);
+  assert.equal(verifiedBankPaymentProof(value), true, 'Legacy records without a profile retain their original v1 contract.');
+  assert.equal(verifiedBankPaymentProof({ ...value, payloadVersion: 1 }), true);
+  for (const payloadVersion of [2, 3, 0, '1', null])
+    assert.equal(verifiedBankPaymentProof({ ...value, payloadVersion }), false, `Incompatible profile ${String(payloadVersion)}`);
+});
+
+test('v2 Swedish BBAN preserves leading zeroes and only its matched ACSC archives a payment confirmation', async () => withDocuments(async f => {
+  assert.deepEqual(bankPaymentCreditorAccount(f.value.paymentDetails, 2), { bban: '8327900123456789', currency: 'SEK' });
+  assert.equal(verifiedBankPaymentProof(f.value), true);
+  for (const change of [
+    value => { value.providerResult.creditorAccount.bban = '8327900123456788'; },
+    value => { value.request.payload.creditorAccount.bban = '8327900123456788'; value.providerResult.creditorAccount.bban = '8327900123456788'; },
+    value => { value.status = 'unknown'; },
+    value => { value.payloadVersion = 99; },
+    value => { delete value.payloadVersion; },
+  ]) {
+    const invalid = copy(f.value); change(invalid);
+    assert.equal(verifiedBankPaymentProof(invalid), false);
+    await assert.rejects(() => f.service.archivePaymentConfirmation(invalid), error => error.code === 'payment_confirmation_unverified');
+  }
+  assert.equal(f.reads(), 0); assert.equal(f.rendered.length, 0);
+  const archived = await f.service.archivePaymentConfirmation(copy(f.value));
+  const document = await f.service.download(archived.documentId, admin);
+  assert.equal(document.snapshot.paymentConfirmation.providerRef, f.value.providerPaymentId);
+  assert.equal(document.snapshot.payment.maskedAccount, '•••• 6789');
+  assert.equal(f.rendered.length, 2, 'Only the valid ACSC produces the financial original and confirmation PDF.');
+  assert.equal((await f.service.archivePaymentConfirmation(copy(f.value))).documentId, archived.documentId);
+}, { payloadVersion: 2 }));
+
 test('giro proof follows the exact typed route while harmless bank echo metadata is accepted', () => {
   for (const [type, number, giroType] of [['bankgiro', '1234566', 'BANKGIRO'], ['plusgiro', '123455', 'PLUSGIRO']]) {
     const { value } = bankFixture();
@@ -108,6 +143,7 @@ test('giro proof follows the exact typed route while harmless bank echo metadata
     value.request.payload.creditorGiro = { giroNumber: number, giroType };
     value.providerResult.creditorGiro = { giroNumber: number, giroType, bankName: 'Sandbox girobank' };
     assert.equal(verifiedBankPaymentProof(value), true, type);
+    assert.equal(verifiedBankPaymentProof({ ...value, payloadVersion: 99 }), false, 'An unknown profile is rejected on giro routes too.');
     const altered = copy(value); altered.providerResult.creditorGiro.giroNumber = '9999999'; assert.equal(verifiedBankPaymentProof(altered), false);
     const wrongType = copy(value); wrongType.providerResult.creditorGiro.giroType = giroType === 'BANKGIRO' ? 'PLUSGIRO' : 'BANKGIRO'; assert.equal(verifiedBankPaymentProof(wrongType), false);
     const contradictory = copy(value); contradictory.request.payload.creditorAccount = { iban: 'SE4550000000058398257466', currency: 'SEK' };
@@ -115,10 +151,10 @@ test('giro proof follows the exact typed route while harmless bank echo metadata
   }
 });
 
-async function withAccounting(run) {
+async function withAccounting(run, { payloadVersion } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'bank-spiris-followup-'));
   let repository = await createApplicationRepository({ env: {}, filename: join(directory, 'application.sqlite'), seed: () => ({}) });
-  const { value } = bankFixture(), invoiceId = randomUUID(), draftId = randomUUID(), supplierId = randomUUID(), voucherId = randomUUID(), transactionId = randomUUID(), paymentVoucherId = randomUUID();
+  const { value } = bankFixture({ payloadVersion }), invoiceId = randomUUID(), draftId = randomUUID(), supplierId = randomUUID(), voucherId = randomUUID(), transactionId = randomUUID(), paymentVoucherId = randomUUID();
   let booked = true, posted = false, now = new Date('2026-10-13T12:00:00Z');
   const calls = [];
   const invoice = { Id: invoiceId, CreatedFromDraftId: draftId, SupplierId: supplierId, InvoiceNumber: 'AV-3040-V1', CurrencyCode: 'SEK', TotalAmount: 40,
@@ -158,6 +194,25 @@ test('only verified bank ACSC registers a positive Spiris payment with SP-BANK r
     PaymentCurrency: 'SEK', PaymentType: 2, Reference: `SP-BANK-${f.value.providerInstructionUUID}` });
   await f.restart(); await f.service.synchronize(f.value.id, { force: true }); assert.equal(f.posts().length, 1);
 }));
+
+test('v2 BBAN requires matching ACSC and known profile before any Spiris registration, then registers once', async () => withAccounting(async f => {
+  const original = copy(f.value);
+  for (const change of [
+    value => { value.providerResult.transactionStatus = 'ACSP'; },
+    value => { value.providerResult.creditorAccount.bban = '8327900123456788'; },
+    value => { value.payloadVersion = 99; },
+    value => { delete value.payloadVersion; },
+  ]) {
+    Object.assign(f.value, copy(original)); change(f.value);
+    await assert.rejects(() => f.service.synchronize(f.value.id), error => error.code === 'visma_payment_proof_missing');
+    assert.equal(f.posts().length, 0);
+  }
+  Object.assign(f.value, copy(original));
+  const registered = await f.service.synchronize(f.value.id);
+  assert.equal(registered.status, 'registered'); assert.equal(f.posts().length, 1);
+  assert.equal(f.posts()[0].payload.Reference, `SP-BANK-${f.value.providerInstructionUUID}`);
+  await f.restart(); await f.service.synchronize(f.value.id, { force: true }); assert.equal(f.posts().length, 1);
+}, { payloadVersion: 2 }));
 
 test('altered bank proof cannot queue Spiris payment and a consistent recipient replacement changes the sealed proof', async () => withAccounting(async f => {
   const original = copy(f.value);

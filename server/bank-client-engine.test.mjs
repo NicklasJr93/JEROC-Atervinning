@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { createApplicationRepository } from './application-storage.mjs';
 import { initialApplicationState } from './application.mjs';
 import { createBankPayments } from './bank-payments.mjs';
@@ -10,7 +11,7 @@ import { createOpenPaymentsClient, OPENPAYMENTS_SANDBOX_API, OPENPAYMENTS_SANDBO
 const cardId = 2053, bankId = 'SWEDSESS', iban = 'SE4550000000058398257466';
 const context = { organisationId: 'jeroc-demo', actorId: 'admin', effectiveUserId: 'admin', sessionKey: 'bank-http-contract-fixture',
   psuIp: '127.0.0.1', userAgent: 'ScrapPilot bank contract tests' };
-const bankRecipient = { method: 'bank', bankType: 'account', clearing: '8327', account: '1234567890', holder: 'Erik Johansson' };
+const bankRecipient = { method: 'bank', bankType: 'account', clearing: '83279', account: '1234567890', holder: 'Erik Johansson' };
 const environment = () => ({ OPENPAYMENTS_CLIENT_ID: 'bank-contract-client', OPENPAYMENTS_CLIENT_SECRET: 'fixture-only-no-live-credential',
   OPENPAYMENTS_REDIRECT_URI: 'https://scrappilot.example/api/integrations/openpayments/callback' });
 const response = (value, status = 200, headers = {}) => new Response(JSON.stringify(value), { status, headers });
@@ -70,7 +71,16 @@ async function fixture(run, { recipient = bankRecipient, readTransform } = {}) {
       return response({ accounts: [{ resourceId: 'debtor-http', iban, currency: 'SEK', name: 'Företagskonto', status: 'enabled' }] });
     }
     if (/^\/psd2\/paymentinitiation\/v1\/payments\/(domestic|swedish-giro)$/.test(path) && init.method === 'POST') {
-      payloads.set('payment-http', JSON.parse(init.body));
+      const payload = JSON.parse(init.body);
+      if (path.endsWith('/domestic')) {
+        const account = payload.creditorAccount;
+        // Model the provider's actual writable contract independently of our
+        // client's permissive historic account-reference read schema.
+        if (!account || Object.keys(account).some(key => !['iban', 'bban', 'currency'].includes(key))
+          || Number(typeof account.iban === 'string') + Number(typeof account.bban === 'string') !== 1)
+          return response({ tppMessages: [{ code: 'FORMAT_ERROR', text: 'creditorAccount requires iban or bban' }] }, 400);
+      }
+      payloads.set('payment-http', payload);
       return response({ paymentId: 'payment-http', transactionStatus: 'RCVD' }, 201);
     }
     if (/^\/psd2\/paymentinitiation\/v1\/payments\/(domestic|swedish-giro)\/payment-http$/.test(path) && init.method === 'GET') {
@@ -122,7 +132,8 @@ test('real adapter + engine domestic flow reserves once and only matched resourc
   assert.equal(activated.job.status, 'simulated_paid'); assert.equal(activated.job.paymentDocumentStatus, 'archived'); assert.equal(activated.job.bookkeepingStatus, 'registered');
   assert.equal(f.receipts.length, 1); assert.equal(f.bookkeeping.length, 1); assert.equal(f.receipts[0].providerResult.transactionStatus, 'ACSC');
   assert.equal(f.receipts[0].providerResult.datePaidSource, 'sandbox_confirmation');
-  assert.deepEqual(f.payloads.get('payment-http').creditorAccount, { clearingNumber: '8327', accountNumber: '1234567890', currency: 'SEK' });
+  assert.equal(await f.repository.read(state => state.bankPayments.jobs[reserved.id].payloadVersion, { domains: ['bankPayments'] }), 2);
+  assert.deepEqual(f.payloads.get('payment-http').creditorAccount, { bban: '832791234567890', currency: 'SEK' });
   const verified = await f.payments.readVerifiedPayment(reserved.id); assert.ok(verified);
   await f.payments.refresh(reserved.id, context); await f.payments.completeAuthorisation({ state, code: 'payment-code' }, context);
   assert.equal(f.calls.filter(call => call.method === 'POST' && /^\/psd2\/paymentinitiation\/v1\/payments\/domestic$/.test(call.path)).length, 1);
@@ -132,6 +143,40 @@ test('real adapter + engine domestic flow reserves once and only matched resourc
   assert.equal(JSON.stringify(saved.response).includes('fixture-private-bearer-token'), false);
   const traceIds = f.calls.filter(call => call.url.startsWith(OPENPAYMENTS_SANDBOX_API)).map(call => call.headers['X-Request-ID']);
   assert.equal(new Set(traceIds).size, traceIds.length, 'Each provider HTTP request needs its own trace ID; durable payment identity remains unchanged');
+}));
+
+test('explicit retry of a confirmed legacy FORMAT_ERROR reserves one new v2 instruction and preserves the rejected attempt', () => fixture(async f => {
+  await f.connect();
+  const preparation = await f.payments.prepare(cardId, context), legacyId = randomUUID();
+  const legacy = { id: legacyId, organisationId: context.organisationId, provider: 'openpayments', kind: 'card', mode: 'sandbox', simulation: true,
+    source: structuredClone(preparation.source), paymentDetails: structuredClone(bankRecipient), amount: 240, amountCents: 24000, currency: 'SEK',
+    providerInstructionUUID: randomUUID(), providerPaymentId: null, providerProduct: 'domestic', status: 'rejected',
+    createdAt: '2026-10-13T08:59:00Z', sentAt: '2026-10-13T08:59:01Z', finishedAt: '2026-10-13T08:59:02Z',
+    request: { method: 'POST', path: '/psd2/paymentinitiation/v1/payments/domestic', payload: {
+      creditorName: bankRecipient.holder, creditorAccount: { clearingNumber: '83279', accountNumber: '1234567890', currency: 'SEK' },
+      debtorAccount: { iban, currency: 'SEK' }, instructedAmount: { amount: '240.00', currency: 'SEK' },
+      endToEndIdentification: preparation.source.number, remittanceInformationUnstructured: preparation.source.number } },
+    response: { method: 'POST', httpStatus: 400, data: { tppMessages: [{ code: 'FORMAT_ERROR' }] } },
+    error: { code: 'bank_provider_rejected', message: 'creditorAccount requires iban or bban' }, events: [{ action: 'payment_rejected' }] };
+  await f.repository.transact(state => { state.bankPayments.jobs[legacyId] = structuredClone(legacy); });
+  await f.payments.refresh(legacyId, context);
+  assert.equal(f.calls.some(call => /^\/psd2\/paymentinitiation\//.test(call.path)), false, 'Refreshing a rejected attempt never resends it.');
+  assert.equal((await f.payments.start({ cardId }, context)).id, legacyId, 'A retry must explicitly name the rejected attempt.');
+  const [first, duplicate] = await Promise.all([
+    f.payments.start({ cardId, retryOf: legacyId }, context),
+    f.payments.start({ cardId, retryOf: legacyId }, context),
+  ]);
+  assert.notEqual(first.id, legacyId); assert.equal(duplicate.id, first.id); assert.equal(first.retryOf, legacyId);
+  const stored = await f.repository.read(state => structuredClone(state.bankPayments.jobs[first.id]), { domains: ['bankPayments'] });
+  assert.equal(stored.payloadVersion, 2);
+  assert.notEqual(first.providerInstructionUUID, legacy.providerInstructionUUID);
+  assert.deepEqual(stored.request.payload.creditorAccount, { bban: '832791234567890', currency: 'SEK' });
+  await f.payments.processQueuedPayments();
+  assert.equal((await f.payments.job(first.id, context)).status, 'awaiting_authorization');
+  assert.equal(f.calls.filter(call => call.method === 'POST' && call.path.endsWith('/payments/domestic')).length, 1);
+  assert.deepEqual(await f.repository.read(state => state.bankPayments.jobs[legacyId], { domains: ['bankPayments'] }), legacy,
+    'The historical rejected payload, response and identity stay immutable.');
+  assert.equal(f.receipts.length, 0); assert.equal(f.bookkeeping.length, 0);
 }));
 
 test('real adapter + engine giro ACSC without an exact creditor/reference echo fails closed instead of inferring settlement', () => fixture(async f => {

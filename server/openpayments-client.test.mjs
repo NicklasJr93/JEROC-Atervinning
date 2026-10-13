@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSandboxPaymentPayload, createOpenPaymentsClient, OPENPAYMENTS_SANDBOX_API, OPENPAYMENTS_SANDBOX_OAUTH, safeOpenPaymentsData } from './openpayments-client.mjs';
+import { bankPaymentCreditorAccount, buildSandboxPaymentPayload, createOpenPaymentsClient, OPENPAYMENTS_SANDBOX_API, OPENPAYMENTS_SANDBOX_OAUTH, safeOpenPaymentsData } from './openpayments-client.mjs';
 
 const env = () => ({ OPENPAYMENTS_CLIENT_ID: 'sandbox-client', OPENPAYMENTS_CLIENT_SECRET: 'test-secret-not-a-real-credential' });
 const requestId = '4da9ab29-0613-4000-8128-27e1c014ed73';
@@ -22,12 +22,66 @@ function clientMock(handler, options = {}) {
   return { client: createOpenPaymentsClient({ env: env(), fetchImpl, ...options }), calls };
 }
 
-test('Swedish bank account payload uses documented separate clearingNumber/accountNumber; preserves leading zeros and exact cents', () => {
+test('new Swedish PIS payload uses national BBAN and preserves clearing digits, leading zeros and exact cents', () => {
   const result = fixture(); assert.equal(result.ok, true); assert.equal(result.product, 'domestic');
-  assert.deepEqual(result.payload.creditorAccount, { clearingNumber: '5000', accountNumber: '0058398257466', currency: 'SEK' });
+  assert.equal(result.payloadVersion, 2);
+  assert.deepEqual(result.payload.creditorAccount, { bban: '50000058398257466', currency: 'SEK' });
   assert.deepEqual(result.payload.instructedAmount, { amount: '240.00', currency: 'SEK' });
   assert.equal(result.payload.endToEndIdentification, 'AV-3026-V1');
   assert.equal(fixture({ amountCents: 1001 }).payload.instructedAmount.amount, '10.01');
+});
+test('five-digit Swedbank clearing stays intact; a missing fifth digit is rejected without padding or invented digits', () => {
+  const complete = { ...recipient, clearing: '83279', account: '0001234567' };
+  assert.deepEqual(bankPaymentCreditorAccount(complete), { bban: '832790001234567', currency: 'SEK' });
+  assert.deepEqual(fixture({ recipient: complete }).payload.creditorAccount, bankPaymentCreditorAccount(complete));
+  assert.deepEqual(bankPaymentCreditorAccount({ ...recipient, clearing: '7104', account: '0012345' }), { bban: '71040012345', currency: 'SEK' });
+  assert.deepEqual(bankPaymentCreditorAccount({ ...recipient, clearing: '0500', account: '0001234' }), { bban: '05000001234', currency: 'SEK' });
+  const missing = { ...complete, clearing: '8327' };
+  assert.equal(bankPaymentCreditorAccount(missing), null);
+  const rejected = fixture({ recipient: missing });
+  assert.equal(rejected.ok, false); assert.equal(rejected.error.code, 'bank_clearing_incomplete');
+  assert.match(rejected.error.message, /fem siffror/);
+  for (const clearing of ['832', '832799', '8327-9']) assert.equal(fixture({ recipient: { ...complete, clearing } }).ok, false);
+});
+test('new debtor references preserve fetched IBAN/BBAN and map a valid AIS clearing/account pair without altering digits', () => {
+  assert.deepEqual(fixture().payload.debtorAccount, account);
+  const bban = { bban: '0058398257466', currency: 'SEK' };
+  assert.deepEqual(fixture({ debtorAccount: bban }).payload.debtorAccount, bban);
+  const pair = { clearingNumber: '83279', accountNumber: '0001234567', currency: 'SEK' };
+  const before = structuredClone(pair);
+  assert.deepEqual(fixture({ debtorAccount: pair }).payload.debtorAccount, { bban: '832790001234567', currency: 'SEK' });
+  assert.deepEqual(pair, before, 'the original fetched account remains unchanged');
+  assert.equal(fixture({ debtorAccount: { ...pair, iban: account.iban } }).ok, false);
+  assert.equal(fixture({ debtorAccount: { clearingNumber: '83279', currency: 'SEK' } }).ok, false);
+});
+test('explicit legacy version reconstructs its original schema without new clearing rules; unknown versions fail closed', () => {
+  const oldRecipient = { ...recipient, clearing: '8327', account: '1234567890' };
+  const oldDebtor = { clearingNumber: '8327', accountNumber: '0012345678', currency: 'SEK' };
+  const legacy = fixture({ payloadVersion: 1, recipient: oldRecipient, debtorAccount: oldDebtor });
+  assert.equal(legacy.ok, true); assert.equal(legacy.payloadVersion, 1);
+  assert.deepEqual(legacy.payload.creditorAccount, { clearingNumber: '8327', accountNumber: '1234567890', currency: 'SEK' });
+  assert.deepEqual(legacy.payload.debtorAccount, oldDebtor);
+  assert.deepEqual(bankPaymentCreditorAccount(oldRecipient, 1), legacy.payload.creditorAccount);
+  for (const version of [0, 3, '1', '2', null, NaN]) {
+    assert.equal(bankPaymentCreditorAccount(recipient, version), null);
+    assert.equal(fixture({ payloadVersion: version }).error.code, 'bank_payload_version_invalid');
+  }
+});
+test('legacy pair references are read-verifiable but cannot be posted to PIS or trigger even token HTTP', async () => {
+  const { client, calls } = clientMock(() => { throw new Error('must not reach provider'); });
+  const pair = { clearingNumber: '5000', accountNumber: '0058398257466', currency: 'SEK' };
+  const legacy = fixture({ payloadVersion: 1 });
+  assert.equal(legacy.ok, true);
+  const invalid = [legacy.payload, { ...fixture().payload, debtorAccount: pair },
+    { ...fixture().payload, creditorAccount: { ...pair, bban: '50000058398257466' } }];
+  for (const payload of invalid) {
+    const result = await client.createPayment({ ...context, product: 'domestic', payload });
+    assert.equal(result.ok, false); assert.equal(result.error.code, 'bank_payload_invalid');
+  }
+  const giro = fixture({ payloadVersion: 1, debtorAccount: pair,
+    recipient: { holder: recipient.holder, bankType: 'bankgiro', bankgiro: '12345678' } });
+  assert.equal((await client.createPayment({ ...context, product: 'swedish-giro', payload: giro.payload })).ok, false);
+  assert.equal(calls.length, 0);
 });
 test('IBAN and BG/PG use distinct confirmed bank products and canonical giro references', () => {
   const iban = fixture({ recipient: { ...recipient, bankType: 'iban', iban: account.iban, bankCountry: 'SE' } });
@@ -111,7 +165,7 @@ test('payment POST preserves exact frozen payload and trace ID; status GET does 
   assert.equal(post.url, `${OPENPAYMENTS_SANDBOX_API}/psd2/paymentinitiation/v1/payments/domestic`);
   assert.equal(post.headers['X-Request-ID'], requestId); assert.deepEqual(JSON.parse(post.body), frozen.payload);
   const read = await client.readPayment({ ...context, product: 'domestic', id: 'payment-1' });
-  assert.equal(read.data.instructedAmount.amount, '240.00'); assert.equal(read.data.creditorAccount.accountNumber, recipient.account);
+  assert.equal(read.data.instructedAmount.amount, '240.00'); assert.equal(read.data.creditorAccount.bban, `${recipient.clearing}${recipient.account}`);
   assert.equal((await client.readPaymentStatus({ ...context, product: 'domestic', id: 'payment-1' })).data.transactionStatus, 'ACSC');
   assert.equal(calls.filter(call => call.method === 'POST' && call.url.startsWith(OPENPAYMENTS_SANDBOX_API)).length, 1);
   assert.equal(JSON.stringify(created.journal).includes(account.iban), false);

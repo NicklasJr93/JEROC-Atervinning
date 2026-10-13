@@ -45,20 +45,47 @@ const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
 });
 const amount = z.object({ currency: z.literal('SEK'), amount: z.string().regex(/^(?:0|[1-9]\d{0,11})\.\d{2}$/)
   .refine(value => Number(value) > 0 && Number.isSafeInteger(Math.round(Number(value) * 100))) }).strict();
-const account = z.object({ iban: z.string().refine(validIban).optional(), bban: z.string().regex(/^[A-Za-z0-9]{1,30}$/).optional(),
+const legacyAccount = z.object({ iban: z.string().refine(validIban).optional(), bban: z.string().regex(/^[A-Za-z0-9]{1,30}$/).optional(),
   clearingNumber: z.string().regex(/^\d{4,5}$/).optional(), accountNumber: z.string().regex(/^\d{4,15}$/).optional(), currency: z.literal('SEK').optional() }).strict()
   .refine(value => Number(Boolean(value.iban)) + Number(Boolean(value.bban)) + Number(Boolean(value.clearingNumber && value.accountNumber)) === 1)
   .refine(value => Boolean(value.clearingNumber) === Boolean(value.accountNumber));
-const paymentBase = { instructedAmount: amount, debtorAccount: account, creditorName: z.string().trim().min(1).max(70),
+const pisAccount = z.object({ iban: z.string().refine(validIban).optional(), bban: z.string().regex(/^[A-Za-z0-9]{1,30}$/).optional(),
+  currency: z.literal('SEK').optional() }).strict().refine(value => Number(Boolean(value.iban)) + Number(Boolean(value.bban)) === 1);
+const paymentBase = { instructedAmount: amount, creditorName: z.string().trim().min(1).max(70),
   requestedExecutionDate: dateString.optional(), endToEndIdentification: z.string().min(1).max(35).optional() };
-const domestic = z.object({ ...paymentBase, creditorAccount: account, remittanceInformationUnstructured: z.string().min(1).max(140).optional() }).strict();
-const giro = z.object({ ...paymentBase, creditorGiro: z.object({ giroNumber: z.string().regex(/^\d{5,10}$/), giroType: z.enum(['BANKGIRO', 'PLUSGIRO']) }).strict(),
+const domesticSchema = account => z.object({ ...paymentBase, debtorAccount: account, creditorAccount: account,
+  remittanceInformationUnstructured: z.string().min(1).max(140).optional() }).strict();
+const giroSchema = account => z.object({ ...paymentBase, debtorAccount: account,
+  creditorGiro: z.object({ giroNumber: z.string().regex(/^\d{5,10}$/), giroType: z.enum(['BANKGIRO', 'PLUSGIRO']) }).strict(),
   invoiceRef: z.string().min(1).max(25).optional(), ocrRef: z.string().regex(/^\d{2,25}$/).optional() }).strict();
+const domestic = domesticSchema(pisAccount), giro = giroSchema(pisAccount);
+const legacyDomestic = domesticSchema(legacyAccount), legacyGiro = giroSchema(legacyAccount);
+const incompleteSwedbankClearing = recipient => /^8\d{3}$/.test(recipient?.clearing ?? '');
 
-/** The current official accountReference schema has clearingNumber/accountNumber.
- * Do not invent a Swedish BBAN by joining them. Foreign IBANs, FX and EUR/SEPA
- * remain unsupported until their products and bank constraints are implemented. */
-export function buildSandboxPaymentPayload({ amountCents, recipient, debtorAccount, reference, executionDate, bankDetails } = {}) {
+/** National Swedish account references preserve every supplied digit, including
+ * Swedbank's fifth clearing digit. No padding or IBAN conversion is inferred.
+ * Version 1 exists only to reconstruct previously frozen payment instructions. */
+export function bankPaymentCreditorAccount(recipient, payloadVersion = 2) {
+  if (payloadVersion !== 1 && payloadVersion !== 2) return null;
+  const type = recipient?.bankType ?? 'account';
+  let reference;
+  if (type === 'iban') reference = { iban: recipient?.iban, currency: 'SEK' };
+  else if (type === 'account') {
+    if (!/^\d{4,5}$/.test(recipient?.clearing ?? '') || !/^\d{4,15}$/.test(recipient?.account ?? '')
+      || payloadVersion === 2 && incompleteSwedbankClearing(recipient)) return null;
+    reference = payloadVersion === 1
+      ? { clearingNumber: recipient.clearing, accountNumber: recipient.account, currency: 'SEK' }
+      : { bban: `${recipient.clearing}${recipient.account}`, currency: 'SEK' };
+  } else return null;
+  const parsed = (payloadVersion === 1 ? legacyAccount : pisAccount).safeParse(reference);
+  return parsed.success ? parsed.data : null;
+}
+
+/** AIS can expose separate clearing/account fields; PIS needs IBAN or BBAN.
+ * Foreign IBANs, FX and EUR/SEPA remain outside this sandbox adapter. */
+export function buildSandboxPaymentPayload({ amountCents, recipient, debtorAccount, reference, executionDate, bankDetails, payloadVersion = 2 } = {}) {
+  if (payloadVersion !== 1 && payloadVersion !== 2)
+    return errorResult('bank_payload_version_invalid', 'Betalningsunderlagets formatversion stöds inte.');
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > 99999999999999)
     return errorResult('bank_amount_invalid', 'Beloppet måste vara ett positivt belopp i hela ören.');
   const type = recipient?.bankType ?? 'account', product = ['bankgiro', 'plusgiro'].includes(type) ? 'swedish-giro' : 'domestic';
@@ -69,21 +96,29 @@ export function buildSandboxPaymentPayload({ amountCents, recipient, debtorAccou
     return errorResult('bank_product_unsupported', 'Den valda banken har inte bekräftat stöd för denna betalningstyp.');
   if (debtorAccount?.currency && debtorAccount.currency !== 'SEK')
     return errorResult('bank_currency_unsupported', 'Avsändarkontot måste vara ett verifierat SEK-konto.');
+  if (payloadVersion === 2 && type === 'account' && incompleteSwedbankClearing(recipient))
+    return errorResult('bank_clearing_incomplete', 'Clearingnummer som börjar med 8 behöver fem siffror. Komplettera mottagarens fullständiga clearingnummer.');
+  let debtorReference = { ...debtorAccount, currency: 'SEK' };
+  if (payloadVersion === 2) {
+    const parsed = legacyAccount.safeParse(debtorReference);
+    if (parsed.success && parsed.data.clearingNumber && parsed.data.accountNumber)
+      debtorReference = { bban: `${parsed.data.clearingNumber}${parsed.data.accountNumber}`, currency: 'SEK' };
+  }
   const referenceValue = String(reference ?? '');
   const payload = { instructedAmount: { amount: `${Math.floor(amountCents / 100)}.${String(amountCents % 100).padStart(2, '0')}`, currency: 'SEK' },
-    debtorAccount: { ...debtorAccount, currency: 'SEK' }, creditorName: recipient?.holder,
+    debtorAccount: debtorReference, creditorName: recipient?.holder,
     ...(executionDate ? { requestedExecutionDate: executionDate } : {}), endToEndIdentification: referenceValue };
   if (product === 'swedish-giro') {
     payload.creditorGiro = { giroNumber: recipient?.[type], giroType: type === 'bankgiro' ? 'BANKGIRO' : 'PLUSGIRO' };
     if (recipient?.ocr) payload.ocrRef = recipient.ocr;
     else payload.invoiceRef = referenceValue;
   } else {
-    payload.creditorAccount = type === 'iban' ? { iban: recipient?.iban, currency: 'SEK' }
-      : { clearingNumber: recipient?.clearing, accountNumber: recipient?.account, currency: 'SEK' };
+    payload.creditorAccount = bankPaymentCreditorAccount(recipient, payloadVersion);
     payload.remittanceInformationUnstructured = referenceValue;
   }
-  const parsed = (product === 'domestic' ? domestic : giro).safeParse(payload);
-  return parsed.success ? { ok: true, product, payload: parsed.data } : errorResult('bank_payload_invalid', 'Kontrollera mottagaruppgifter, avsändarkonto, datum och betalningsreferens.');
+  const schema = product === 'domestic' ? (payloadVersion === 1 ? legacyDomestic : domestic) : (payloadVersion === 1 ? legacyGiro : giro);
+  const parsed = schema.safeParse(payload);
+  return parsed.success ? { ok: true, product, payload: parsed.data, payloadVersion } : errorResult('bank_payload_invalid', 'Kontrollera mottagaruppgifter, avsändarkonto, datum och betalningsreferens.');
 }
 
 const scopeFor = resource => resource === 'consent' ? 'accountinformation corporate' : 'paymentinitiation corporate';

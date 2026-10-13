@@ -419,7 +419,7 @@ export function createBankPayments({ getRepository, sourceProvider = async () =>
         recipient:recipientFor(details),
         bankId:value.settings.bankId,corporateId:value.settings.corporateId,psuId:value.settings.psuId,consentId:consent.id,debtorAccountId:account.id,debtorAccount:accountReference(account),
         settingsRevision:value.settings.revision,spirisBankAccountId:value.settings.spirisBankAccountId??null,spirisCompanyId:value.settings.spirisCompanyId??null,
-        registerSpirisPayment:value.settings.bookkeepingEnabled,bookkeepingEnabled:value.settings.bookkeepingEnabled,providerInstructionUUID:randomUUID(),providerProduct:built.product,
+        registerSpirisPayment:value.settings.bookkeepingEnabled,bookkeepingEnabled:value.settings.bookkeepingEnabled,providerInstructionUUID:randomUUID(),providerProduct:built.product,payloadVersion:built.payloadVersion,
         status:'queued',bookkeepingStatus:value.settings.bookkeepingEnabled?'pending':'not_requested',paymentDocumentStatus:'pending',createdAt:timestamp,updatedAt:timestamp,events:[],
         authorization:{actorId:context.actorId,effectiveUserId:context.effectiveUserId,siteId:source.source.siteId},
         reservedBy:{actualUserId:context.actorId,effectiveUserId:context.effectiveUserId,actualUserName:actor?.name??context.actorId,effectiveUserName:user?.name??context.effectiveUserId},...(previous?{retryOf:previous.id}:{})};
@@ -459,7 +459,7 @@ export function createBankPayments({ getRepository, sourceProvider = async () =>
     if(!equal(source.source,item.source)||!equal(source.snapshot,item.sourceSnapshot)||hash(item.sourceSnapshot)!==item.sourceSnapshotIntegrity||source.amountCents!==item.amountCents||item.amount!==item.amountCents/100||item.currency!=='SEK'
       ||!equal(source.originalPaymentDetails,item.originalPaymentDetails))fail('Den låsta avräkningen har ändrats.',409,'bank_source_changed');
     validateDetails(item.paymentDetails);
-    const rebuilt=buildSandboxPaymentPayload({amountCents:item.amountCents,recipient:item.paymentDetails,debtorAccount:item.debtorAccount,reference:item.source.number,
+    const rebuilt=buildSandboxPaymentPayload({payloadVersion:item.payloadVersion===undefined?1:item.payloadVersion,amountCents:item.amountCents,recipient:item.paymentDetails,debtorAccount:item.debtorAccount,reference:item.source.number,
       executionDate:item.request.payload.requestedExecutionDate,bankDetails:{globalPaymentProducts:[item.providerProduct]}});
     if(!rebuilt.ok||rebuilt.product!==item.providerProduct||!equal(rebuilt.payload,item.request.payload)||!equal(item.recipient,recipientFor(item.paymentDetails)))
       fail('Mottagaruppgifterna stämmer inte med den låsta bankinstruktionen.',409,'bank_instruction_changed');
@@ -500,7 +500,7 @@ export function createBankPayments({ getRepository, sourceProvider = async () =>
     if(!item?.sourceSnapshot||!item?.source||item.sourceSnapshotIntegrity!==hash(item.sourceSnapshot)
       ||item.sourceSnapshotHash!==item.source.hash||item.sourceSnapshot.hash!==item.source.hash||item.instructionHash!==hash(item.request?.payload)
       ||item.amount!==item.amountCents/100||item.currency!=='SEK'||!equal(item.recipient,recipientFor(item.paymentDetails)))return false;
-    const built=buildSandboxPaymentPayload({amountCents:item.amountCents,recipient:item.paymentDetails,debtorAccount:item.debtorAccount,reference:item.source.number,
+    const built=buildSandboxPaymentPayload({payloadVersion:item.payloadVersion===undefined?1:item.payloadVersion,amountCents:item.amountCents,recipient:item.paymentDetails,debtorAccount:item.debtorAccount,reference:item.source.number,
       executionDate:item.request?.payload?.requestedExecutionDate,bankDetails:{globalPaymentProducts:[item.providerProduct]}});
     return Boolean(built.ok&&equal(built.payload,item.request.payload));
   }

@@ -8,6 +8,11 @@ Uppdaterad i kontor **0.24.1, ÄL 110**: rätt skiftläge i bankens OAuth-länk,
 återförsök med samma medgivande/signering och stabilare integrationsvyer.
 [Verifierat riktigt medgivande-, konto- och saldoprov](openpayments-consent-probe-2026-10-13.md).
 
+Uppdaterad i kontor **0.28.1, ÄL 118**: nya svenska kontoinstruktioner använder
+BBAN för PIS i stället för separata AIS-clearing-/kontofält. Gamla frysta
+instruktioner verifieras enligt sin ursprungliga version. Se
+[kontoreferens och nästa test på 3027](openpayments-kontoreferens-2026-10-13.md).
+
 ## Prova efter deploy
 
 1. I Open Payments → ScrapPilot Gateway → Redirect URI whitelist, lägg till

@@ -2755,3 +2755,22 @@ Status: Implementerad 2026-10-13 i mobilwebb 0.11.0.
 - Verifierat: produktionsbygge, 19 server-/regressionsfall och 9 riktade
   browserfall för riktiga invägningar, behörigheter, stämpling, snabb start
   och layout på små skärmar.
+
+ÄL 118 – Banktest: korrekt kontoreferens och nytt försök på 3027
+Status: Implementerad 2026-10-13 i kontor 0.28.1.
+- Domestic-PIS använder IBAN eller nationell BBAN i stället för de separata
+  clearing-/kontofält som förekommer i AIS-svaren. Angivna siffror och
+  inledande nollor bevaras; kontrollsiffror och IBAN gissas inte.
+- Swedbank-/sparbanksclearing som börjar med 8 behöver fem siffror. De äldre
+  demouppgifterna med 8327 stoppas före sändning med en begriplig förklaring.
+  Kunden/utbetalningsinstruktionen måste kompletteras med rätt uppgift.
+- Nya bankjobb sparar payloadVersion 2. Gamla frysta jobb verifieras enligt
+  version 1, utan att deras payload, hash, underlag eller kundfält ändras.
+  Bekräftad betalning och PDF/Spiris kräver fortsatt exakt återläst kvittens.
+- Ett tydligt avvisat test kan ersättas med ett uttryckligt nytt försök:
+  Rätta uppgifter och gör nytt test. Ny instruktion kopplas via retryOf;
+  tidigare försök finns kvar. Pågående eller oklara betalningar dupliceras inte.
+- Guide/källor/provgräns: docs/integrationer/openpayments-kontoreferens-2026-10-13.md.
+  Inga nya Render-variabler. Extern betalning provas från viktkortet efter deploy.
+- Verifierat: 74 riktade klient-, betalningsmotor- och PDF/Spiris-kvittensprov
+  samt produktionsbygget passerar. Inga externa betalningar skickades i proven.

@@ -7,7 +7,7 @@ import { createSwishPayments } from './swish-payments.mjs';
 
 const CARD=2053,BANK='SWEDSESS',ACCOUNT='debtor-sek',IBAN='SE4550000000058398257466';
 const ctx={organisationId:'jeroc-demo',actorId:'admin',effectiveUserId:'admin',sessionKey:'bank-session',psuIp:'127.0.0.1',userAgent:'Fixture'};
-const details=()=>({method:'bank',bankType:'account',clearing:'8327',account:'1234567890',holder:'Erik Johansson'});
+const details=()=>({method:'bank',bankType:'account',clearing:'83279',account:'1234567890',holder:'Erik Johansson'});
 const proof=()=>({status:'booked',companyId:'sandbox-company',generation:'generation-a',invoiceId:'45411b28-fecb-43e9-8829-466fe0f45c88',draftId:'b1f5b3a0-22f9-4aa8-abdf-fa9bd389c1cb'});
 async function fixture(run,hooks={}) {
   const state=initialApplicationState(),customer=state.office.customers.find(item=>item.id==='customer-erik'),card=state.office.cards.find(item=>item.id===CARD);
@@ -102,7 +102,7 @@ for(const field of ['amount','currency','creditor','debtor','reference','environ
 },{read:async(options,payload,success)=>{const response={...payload,paymentId:options.id,transactionStatus:'ACSC'};
   if(field==='amount')response.instructedAmount={amount:'241.00',currency:'SEK'};
   if(field==='currency')response.instructedAmount={amount:'240.00',currency:'EUR'};
-  if(field==='creditor')response.creditorAccount={...payload.creditorAccount,accountNumber:'44444444'};
+  if(field==='creditor')response.creditorAccount={...payload.creditorAccount,bban:'832794444444444'};
   if(field==='debtor')response.debtorAccount={iban:'SE3550000000054910000003',currency:'SEK'};
   if(field==='reference')response.remittanceInformationUnstructured='ANOTHER-INVOICE';
   return {...success(response),...(field==='environment'?{environment:'production'}:{})};}}));

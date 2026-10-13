@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { bankRecipientType, bankRecipientError, normalizePaymentDetails } from '../dist-server/domain-models.mjs';
+import { bankPaymentCreditorAccount } from './openpayments-client.mjs';
 
 const echoedReferenceMatches = (actual, expected) => actual && expected && typeof actual === 'object' &&
   Object.keys(expected).every(key => isDeepStrictEqual(actual[key], expected[key]));
@@ -19,12 +20,15 @@ export function verifiedBankPaymentProof(job) {
     || job.currency !== 'SEK' || job.paymentDetails?.method !== 'bank' || bankRecipientError(job.paymentDetails)
     || paid.datePaidSource !== 'sandbox_confirmation' || !job.verifiedAt) return false;
   const payment = normalizePaymentDetails(job.paymentDetails), type = bankRecipientType(payment);
-  const account = type === 'iban' ? { iban: payment.iban, currency: 'SEK' }
-    : { clearingNumber: payment.clearing, accountNumber: payment.account, currency: 'SEK' };
+  // The original bank instruction stays frozen across adapter updates. Missing
+  // version denotes the historical separate clearing/account contract.
+  const payloadVersion = job.payloadVersion === undefined ? 1 : job.payloadVersion;
+  if (![1, 2].includes(payloadVersion)) return false;
+  const account = bankPaymentCreditorAccount(payment, payloadVersion);
   if (['bankgiro', 'plusgiro'].includes(type)) {
     const giro = { giroNumber: payment[type], giroType: type === 'bankgiro' ? 'BANKGIRO' : 'PLUSGIRO' };
     if (sent.creditorAccount !== undefined || job.providerProduct !== 'swedish-giro' || !isDeepStrictEqual(sent.creditorGiro, giro) || !echoedReferenceMatches(paid.creditorGiro, giro)) return false;
-  } else if (sent.creditorGiro !== undefined || job.providerProduct !== 'domestic' || !isDeepStrictEqual(sent.creditorAccount, account) || !echoedReferenceMatches(paid.creditorAccount, account)) return false;
+  } else if (!account || sent.creditorGiro !== undefined || job.providerProduct !== 'domestic' || !isDeepStrictEqual(sent.creditorAccount, account) || !echoedReferenceMatches(paid.creditorAccount, account)) return false;
   if (paid.creditorName !== payment.holder || sent.creditorName !== payment.holder
     || sent.instructedAmount?.currency !== 'SEK' || paid.instructedAmount?.currency !== 'SEK'
     || cents(sent.instructedAmount.amount) !== job.amountCents || cents(paid.instructedAmount.amount) !== job.amountCents
