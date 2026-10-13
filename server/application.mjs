@@ -439,7 +439,7 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
   for (const { before, after } of changes) if (after && !['attest', 'ready', 'paid', 'balance'].includes(after.status))
     rememberCustomerSelections(state, before, after, p);
 }
-function mobileToOffice(state, draft, p, pricing, siteCatalog) {
+function mobileToOffice(state, draft, p, pricing, siteCatalog, { captureSubmission = false } = {}) {
   if (draft.status !== 'ready') return;
   if (!isComplete(draft) || draft.pendingWeight || draft.vehicleInput) fail('Vägningen är inte färdig.');
   const existing = state.office.cards.find(card => card.sourceId === draft.id);
@@ -463,6 +463,7 @@ function mobileToOffice(state, draft, p, pricing, siteCatalog) {
     }
   } else pendingReason = 'Välj kund och beräkna priser innan kundgodkännande.';
   const pending = !quote;
+  const submittedAt = new Date().toISOString();
   state.office.cards.push(officeSchema.shape.cards.element.parse({
     id: draft.number, sourceId: draft.id, siteId, status: 'new', yard, weigher: p.user.name, date: draft.updatedAt,
     customerId: draft.customerId, customerSnapshot: customer,
@@ -475,10 +476,48 @@ function mobileToOffice(state, draft, p, pricing, siteCatalog) {
       ...(quote ? { source: quote.rows[index].source, volumeBefore: quote.rows[index].volumeBefore, volumeWithDelivery: quote.rows[index].volumeWithDelivery } : {}) })),
     payment: '', idVerified: false, financialPending: pending, pricingRowsPending: pending,
     ...(quote ? { pricingTotal: quote.total, pricedAt: quote.deliveredAt } : { pricingPendingReason: pendingReason }),
-    audit: [{ at: new Date().toISOString(), actor: p.user.name, actualUserId: p.actor.id, effectiveUserId: p.user.id, text: 'Färdig vägning mottagen från mobilappen. Ingen attest eller utbetalning gjord.' },
+    audit: [{ at: submittedAt, actor: p.user.name, actualUserId: p.actor.id, effectiveUserId: p.user.id, text: 'Färdig vägning mottagen från mobilappen. Ingen attest eller utbetalning gjord.' },
       ...(quote ? [{ at: new Date().toISOString(), actor: p.user.name, actualUserId: p.actor.id, effectiveUserId: p.user.id,
         text: 'Priser beräknade automatiskt av servern: artikelregler, rullande 12 månader och kundundantag.' }] : [])],
   }));
+  if (captureSubmission) {
+    // Private server evidence, independent of editable office audit/browser
+    // timestamps. Legacy imports create cards but never backfill an operator's
+    // "today" contribution. The existing source-ID guard makes replay a no-op.
+    const weighedKg = draft.rows.reduce((sum, row) => sum + rowWeight(row), 0);
+    if (!Number.isFinite(weighedKg) || weighedKg <= 0) fail('Vägningen måste ha verklig positiv nettovikt.', 422);
+    state.metadata.mobileSubmissionReceipts ??= [];
+    if (!state.metadata.mobileSubmissionReceipts.some(receipt => receipt.sourceId === draft.id)) {
+      state.metadata.mobileSubmissionReceipts.push({ sourceId: draft.id, cardId: draft.number, siteId,
+        actualUserId: p.actor.id, effectiveUserId: p.user.id, submittedAt, weighedKg });
+    }
+  }
+}
+function voidMissingMobileSubmissions(state) {
+  const receipts = state.metadata.mobileSubmissionReceipts;
+  if (!receipts?.length) return;
+  const originals = new Map(), sources = new Map();
+  const savedSites = state.metadata.mobileDraftSites;
+  const savedSite = id => savedSites && Object.hasOwn(savedSites, id) ? savedSites[id] : undefined;
+  for (const card of state.office.cards) {
+    if (!card.sourceId || card.kind === 'correction' || card.workOrderId || card.deletedAt) continue;
+    const siteId = savedSite(card.sourceId);
+    if (!siteId || card.siteId && card.siteId !== siteId) continue;
+    if (!originals.has(card.sourceId)) originals.set(card.sourceId, new Set());
+    originals.get(card.sourceId).add(JSON.stringify([card.id, siteId]));
+  }
+  for (const draft of state.mobile.drafts) {
+    const siteId = savedSite(draft.id);
+    if (draft.status !== 'ready' || draft.deletedAt || !siteId || draft.siteId && draft.siteId !== siteId) continue;
+    if (!sources.has(draft.id)) sources.set(draft.id, new Set());
+    sources.get(draft.id).add(JSON.stringify([draft.number, siteId]));
+  }
+  const at = new Date().toISOString();
+  for (const receipt of receipts) {
+    const key = JSON.stringify([receipt.cardId, receipt.siteId]);
+    if (!receipt.voidedAt && (!originals.get(receipt.sourceId)?.has(key) || !sources.get(receipt.sourceId)?.has(key)))
+      receipt.voidedAt = at;
+  }
 }
 const json = (res, status, value) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(value)); };
 async function body(req) {
@@ -978,7 +1017,7 @@ export function createApplicationService({ repository, env = process.env, seed =
             if (importedMobileDrafts.length) {
               state.pricing.customers = state.office.customers.map(({ id, name }) => ({ id, name }));
               const importPricing = createPricingStore({ initialState: state.pricing });
-              for (const draft of importedMobileDrafts) mobileToOffice(state, draft, p, importPricing, mobileSites);
+              for (const draft of importedMobileDrafts) mobileToOffice(state, draft, p, importPricing, mobileSites, { captureSubmission: false });
             }
             audit.push({ action: 'legacy.import.archived', domain, hash, actualUserId: p.actor.id, effectiveUserId: p.user.id });
           }
@@ -1061,7 +1100,8 @@ export function createApplicationService({ repository, env = process.env, seed =
             for (const { before, after } of changes) if (after) {
               if (after.status === 'ready' && before?.status !== 'ready' || after.customerSelectionsSavedAt && after.customerSelectionsSavedAt !== before?.customerSelectionsSavedAt)
                 rememberCustomerSelections(state, before, after, p, { force: true });
-              mobileToOffice(state, after, p, submissionPricing, mobileSites);
+              mobileToOffice(state, after, p, submissionPricing, mobileSites,
+                { captureSubmission: after.status === 'ready' && before?.status !== 'ready' });
             }
           } else {
             demand(p, 'transportPlan');
@@ -1100,6 +1140,9 @@ export function createApplicationService({ repository, env = process.env, seed =
         // in the same real command. A logistics GET only projects current stock.
         if (req.method === 'POST' && domain !== 'transport' && (payload?.importData || payload?.base && payload?.next))
           synchronizeLogisticsIncomingStock(state);
+        // Preserve lean mobile reads: sealed original completions are checked
+        // only in a real write transaction. Imports cannot reactivate a void.
+        if (req.method === 'POST' && domain !== 'transport') voidMissingMobileSubmissions(state);
         // One canonical customer registry also supplies the pricing engine.
         state.pricing.customers = state.office.customers.map(({ id, name }) => ({ id, name }));
         state.mobile.customers = mobileCustomers(state.office.customers);

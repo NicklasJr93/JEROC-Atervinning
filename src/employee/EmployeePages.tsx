@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CalendarDays, Check, CheckCircle2, ChevronRight, Clock3, Eye, EyeOff, HelpCircle, LockKeyhole, LogOut, Mail, MapPin, Package, Pencil, Phone, Play, Plus, RefreshCw, Scale, Settings2, Square, Trash2, Truck, UserRound } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Check, CheckCircle2, ChevronRight, Clock3, Eye, EyeOff, HelpCircle, LockKeyhole, LogOut, Mail, MapPin, Package, Pencil, Phone, Play, Plus, RefreshCw, Settings2, Square, Trash2, Truck, UserRound } from 'lucide-react';
 import { Button, Logo, MenuRow, Nav, Notice } from '../components';
-import { useDemo } from '../store';
-import { draftPath, recentDraftFirst } from '../model';
 import { actionLabels, transportStatusLabels } from '../office/transport/types';
 import type { LogisticsDriverCommand } from '../office/logistics/types';
 import DriverLogistics from '../driver/DriverLogistics';
@@ -69,29 +67,7 @@ export function EmployeeLoginPage() {
   return <main className="employee-login"><Logo /><h1>Välkommen tillbaka</h1><p>{companyName ? `Logga in på ditt personalkonto hos ${companyName}.` : 'Logga in på ditt personalkonto.'}</p><form onSubmit={submit} className="stack"><label>Användarnamn<div className="input-with-icon"><UserRound size={18} /><input required autoComplete="username" autoCapitalize="none" autoCorrect="off" disabled={busy} value={username} onChange={event => setUsername(event.target.value)} /></div></label><label>Lösenord<div className="input-with-icon"><LockKeyhole size={18} /><input required type={show ? 'text' : 'password'} autoComplete="current-password" disabled={busy} value={password} onChange={event => setPassword(event.target.value)} /><button className="icon-button" type="button" aria-label={show ? 'Dölj lösenord' : 'Visa lösenord'} onClick={() => setShow(value => !value)}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>{(error || loadError) && <Notice tone="red">{error || loadError}</Notice>}<Button type="submit" variant="blue" disabled={busy}>{busy ? 'Loggar in…' : 'Logga in'}</Button></form>{(demoAccounts?.niklas || demoAccounts?.admin) && <section className="employee-demo-login" aria-label="Demoinloggning"><p>Prova demon</p><div>{demoAccounts.niklas && <button type="button" disabled={busy} onClick={() => chooseDemo('niklas')}><UserRound size={19} /><span>Logga in som Niklas</span></button>}{demoAccounts.admin && <button type="button" disabled={busy} onClick={() => chooseDemo('admin')}><Settings2 size={19} /><span>Logga in som chef/admin</span></button>}</div></section>}<p className="employee-help"><HelpCircle size={17} />Behöver du hjälp? Kontakta din chef eller systemadmin.</p></main>;
 }
 
-export function EmployeeHomePage() {
-  const { overview, session, refresh } = useEmployee();
-  const { data, markDraftActive, sharedReady } = useDemo();
-  const navigate = useNavigate();
-  useEffect(() => {
-    const date = stockholmDay();
-    if (!overview || overview.date !== date || overview.today !== date || overview.monthLoaded !== false)
-      void refresh({ date, month: date.slice(0, 7), view: 'bootstrap' }).catch(() => undefined);
-  }, [refresh, overview?.date, overview?.today, overview?.monthLoaded]);
-  if (!session || !overview) return <Page title="Hem"><Empty>Hämtar din dag…</Empty><OverviewError /></Page>;
-  const today = overview.today;
-  const todayOrders = overview.orders.filter(order => order.date === today && order.status !== 'cancelled').sort((a, b) => (a.startMinute ?? 1440) - (b.startMinute ?? 1440));
-  const next = todayOrders.find(order => order.status !== 'done');
-  const schedule = overview.date === today ? overview.selectedDay.schedules[0] : undefined;
-  const ongoing = sharedReady ? data.drafts.filter(draft => draft.status !== 'ready').sort(recentDraftFirst)[0] : undefined;
-  const ongoingSite = session.sites.find(site => site.id === ongoing?.siteId);
-  return <Page title={`Hej, ${session.person.name.split(' ')[0]}!`} subtitle={capitalize(fullDayLabel(today))} sitePicker><OverviewError />
-    <EmployeeClockCard />
-    <section className="employee-card employee-day-overview"><h2>Din dag</h2><div className="employee-two-stat"><div><span>Arbetspass</span><strong>{schedule ? `${minuteLabel(schedule.startMinute)}–${minuteLabel(schedule.endMinute)}` : 'Inget planerat'}</strong></div><div><span>Dagens uppdrag</span><strong>{todayOrders.length} {todayOrders.length === 1 ? 'jobb' : 'jobb'}</strong></div></div>{next ? <button className="employee-next-job" onClick={() => navigate(`/assignments?order=${encodeURIComponent(next.id)}`)}><span className="employee-tile-icon blue"><Truck size={25} /></span><span><small>Nästa{next.startMinute !== undefined ? ` · ${minuteLabel(next.startMinute)}–${minuteLabel(next.startMinute + next.durationMinutes)}` : ''}</small><strong>{actionLabels[next.action]} · {next.customerName}</strong><span>{next.city || next.address}</span></span><ChevronRight size={21} /></button> : <p className="employee-subtle">Inga fler planerade uppdrag idag.</p>}</section>
-    <section className="employee-section"><h2>Vad vill du göra?</h2>{session.capabilities.yardWork && <MenuRow title="Gårdsarbete" description="Väg in, vägningar och prislista" icon={Scale} onClick={() => navigate('/yard')} />}{session.capabilities.assignedOrders && <MenuRow title="Mina uppdrag" description="Arbetsorder och transportdokument" icon={Truck} trailing={todayOrders.filter(order => order.status !== 'done').length > 0 ? String(todayOrders.filter(order => order.status !== 'done').length) : undefined} onClick={() => navigate('/assignments')} />}{session.capabilities.employeeTime && <MenuRow title="Schema & tid" description="Mitt schema, tidrapportering och ledighet" icon={CalendarDays} onClick={() => navigate('/schedule')} />}</section>
-    {(overview.activeWork || ongoing && session.capabilities.yardWork) && <section className="employee-section"><h2>Fortsätt där du var</h2>{overview.activeWork && <MenuRow title={overview.clock?.enabled ? 'Pågående uppdragsfördelning' : 'Pågående arbetstid'} description={`${overview.activeWork.orderId} · startad ${new Intl.DateTimeFormat('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' }).format(new Date(overview.activeWork.startedAt))}`} icon={Clock3} onClick={() => navigate(`/assignments?order=${encodeURIComponent(overview.activeWork!.orderId)}`)} />}{ongoing && session.capabilities.yardWork && <MenuRow title={ongoing.vehicleInput?.registration || `Vägning #${ongoing.number}`} description={`${ongoing.status === 'awaiting-exit' ? 'Väntar på utvägning' : 'Fortsätt din invägning'}${ongoingSite ? ` · ${ongoingSite.name}` : ''}`} icon={Scale} onClick={() => { markDraftActive(ongoing.id); navigate(draftPath(ongoing)); }} />}</section>}
-  </Page>;
-}
+export { default as EmployeeHomePage } from './EmployeeHome';
 
 function JobCard({ order }: { order: EmployeeOrder }) {
   const navigate = useNavigate();

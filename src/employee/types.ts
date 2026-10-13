@@ -76,6 +76,7 @@ export interface EmployeeSession {
   sites: { id: string; name: string; active?: boolean }[];
 }
 export interface EmployeeOverview extends EmployeeSession {
+  homeActivity?: { date: string; siteId: string; completedWeighings: number; weighedKg: number };
   monthLoaded?: boolean;
   revision: number; today: string; month: string; date: string;
   requirement: EmployeeRequirement; gate: EmployeeTimeGate; days: EmployeeDay[];

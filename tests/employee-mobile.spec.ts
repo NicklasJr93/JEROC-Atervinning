@@ -151,7 +151,7 @@ async function fillTime(page: Page, date: string, from: string, to: string, paus
 }
 
 test('riktig inloggning ger fyra kompakta huvudvyer och befintlig invägning fungerar', async ({ page, employeeBackend }) => {
-  const { username } = await createEmployee(page.request, employeeBackend);
+  const { username, personId } = await createEmployee(page.request, employeeBackend);
   // The old browser-only demo marker cannot authenticate a real account.
   await page.addInitScript(() => sessionStorage.setItem('jeroc.demo.login', 'yes'));
   await page.goto('/');
@@ -162,16 +162,16 @@ test('riktig inloggning ger fyra kompakta huvudvyer och befintlig invägning fun
   await expect(page.getByRole('alert')).toContainText('Fel inloggning');
   await page.getByLabel('Lösenord', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Logga in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: /^Hej,/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),/ })).toBeVisible();
   await expect(page.getByLabel('Aktiv anläggning: Norrtälje', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Byt anläggning/ })).toHaveCount(0);
   const navigation = page.getByRole('navigation', { name: 'Huvudmeny', exact: true });
   await expect(navigation.getByRole('button')).toHaveText(['Hem', 'Schema', 'Tid', 'Profil']);
   await expect(page.getByRole('img', { name: 'JEROC Återvinning', exact: true })).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole('heading', { name: /^Hej,/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),/ })).toBeVisible();
   await page.setViewportSize({ width: 320, height: 740 });
-  for (const [name, heading] of [['Schema', 'Mitt schema'], ['Tid', 'Tidrapportering'], ['Profil', 'Profil'], ['Hem', /^Hej,/]] as const) {
+  for (const [name, heading] of [['Schema', 'Mitt schema'], ['Tid', 'Tidrapportering'], ['Profil', 'Profil'], ['Hem', /^God (morgon|eftermiddag|kväll|natt),/]] as const) {
     await navigation.getByRole('button', { name, exact: true }).click();
     await expect(page.getByRole('heading', { name: heading, exact: typeof heading === 'string' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -189,11 +189,31 @@ test('riktig inloggning ger fyra kompakta huvudvyer och befintlig invägning fun
   await page.getByRole('button', { name: 'Färdigvägt', exact: true }).click();
   await expect(page.getByTestId('total-weight')).toHaveText('42 kg');
   const sourceId = new URL(page.url()).hash.match(/\/weigh\/([^/]+)/)![1];
+  const completionOverviewReads: string[] = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname === '/api/employee/overview') completionOverviewReads.push(url.search);
+  });
+  await page.evaluate(() => {
+    const state = window as Window & { submittedWeighingEvents?: unknown[] };
+    state.submittedWeighingEvents = [];
+    window.addEventListener('jeroc:mobile-weighing-submitted', event => state.submittedWeighingEvents!.push((event as CustomEvent).detail));
+  });
   await page.getByRole('button', { name: 'Spara färdig vägning', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Vägningen är sparad' })).toBeVisible();
   const mobile = await page.request.get(`${employeeBackend.origin}/api/application/mobile`);
   expect(mobile.ok(), await mobile.text()).toBe(true);
   expect((await mobile.json()).data.drafts.find((draft: { id: string }) => draft.id === sourceId)).toMatchObject({ status: 'ready' });
+  await expect.poll(() => page.evaluate(() => (window as Window & { submittedWeighingEvents?: unknown[] }).submittedWeighingEvents?.length)).toBe(1);
+  await navigation.getByRole('button', { name: 'Hem', exact: true }).click();
+  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),/ })).toBeVisible();
+  const sealedOverview = await overview(page, employeeBackend);
+  expect(await page.evaluate(() => (window as Window & { submittedWeighingEvents?: unknown[] }).submittedWeighingEvents)).toEqual([{ companyId: sealedOverview.companyId, personId }]);
+  const sealedActivity = sealedOverview.homeActivity;
+  expect(sealedActivity).toMatchObject({ date: dateInStockholm(), siteId: 'norrtalje', completedWeighings: 1, weighedKg: 42 });
+  const contribution = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Din insats idag', exact: true }) });
+  await expect(contribution.locator('strong')).toHaveText(['1', '42 kg']);
+  expect(completionOverviewReads.every(query => query.includes('view=bootstrap'))).toBe(true);
   await page.goto('/#/profile');
   await page.getByRole('button', { name: 'Logga ut', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Välkommen tillbaka' })).toBeVisible();
@@ -291,7 +311,7 @@ test('manuell tid räknar av rast, består efter omladdning och avvisar överlap
   const { username } = await createEmployee(page.request, employeeBackend);
   const date = addDays(dateInStockholm(), -1);
   await login(page, username);
-  await expect(page.getByRole('heading', { name: /^Hej,/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),/ })).toBeVisible();
   await page.goto(`/#/time?date=${date}&register=1`);
   await expect(page.getByRole('heading', { name: 'Registrera tid', exact: true })).toBeVisible();
   await fillTime(page, date, '07:00', '16:00', '60');
@@ -320,7 +340,7 @@ test('saknad gårdagstid spärrar arbete och nätfel kan inte upphäva spärren'
   const { username, personId } = await createEmployee(page.request, employeeBackend);
   const date = addDays(dateInStockholm(), -1);
   await login(page, username);
-  await expect(page.getByRole('heading', { name: /^Hej,/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),/ })).toBeVisible();
   modifyIsolatedFixture(employeeBackend, state => {
     const requirement = { personId, enabled: true, mode: 'fixed', dailyMinutes: 480, weekdays: [1, 2, 3, 4, 5, 6, 7], effectiveFrom: date, enforcementFrom: date, revision: 2 };
     state.employeeTime.settings = state.employeeTime.settings.filter((item: { personId: string }) => item.personId !== personId).concat(requirement);
@@ -373,7 +393,7 @@ test('kalendern visar valda dagens uppdrag och bara verklig start/stopp ger arbe
     state.transport.orders.push(assigned, { ...assigned, id: `${orderId}-future`, customerName: 'Morgondagens uppdrag', date: tomorrow });
   });
   await login(page, username);
-  await expect(page.getByRole('heading', { name: /^Hej,/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),/ })).toBeVisible();
   const planned = await overview(page, employeeBackend, date);
   expect(planned.selectedDay.orders).toHaveLength(1);
   expect(planned.selectedDay.recordedMinutes).toBe(0);
@@ -408,7 +428,7 @@ test('kalendern visar valda dagens uppdrag och bara verklig start/stopp ger arbe
 
 test('admin sparar timkrav och skapar personalkonto utan att ge arbetaren administratörsrättigheter', async ({ page, employeeBackend }) => {
   await login(page, 'admin', adminPassword);
-  await expect(page.getByRole('heading', { name: /^Hej,/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),/ })).toBeVisible();
   const navigation = page.getByRole('navigation', { name: 'Huvudmeny', exact: true });
   await navigation.getByRole('button', { name: 'Profil', exact: true }).click();
   await page.getByRole('button', { name: /^Timkrav för personal/ }).click();
@@ -445,7 +465,7 @@ test('admin sparar timkrav och skapar personalkonto utan att ge arbetaren admini
   await page.getByRole('button', { name: 'Logga ut', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Välkommen tillbaka', exact: true })).toBeVisible();
   await login(page, username);
-  await expect(page.getByRole('heading', { name: 'Hej, Kalle!', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Kalle!?$/, exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Gårdsarbete/ })).toHaveCount(0);
   const worker = await overview(page, employeeBackend);
   expect(worker.person).toMatchObject({ id: 'person-kalle', driverId: 'kalle' });
@@ -461,6 +481,6 @@ test('admin sparar timkrav och skapar personalkonto utan att ge arbetaren admini
   expect((await page.request.get(`${employeeBackend.origin}/api/employee/accounts`, { headers: admin })).status()).toBe(403);
   expect((await page.request.get(`${employeeBackend.origin}/api/employee/requirements`, { headers: admin })).status()).toBe(403);
   await page.goto('/#/yard');
-  await expect(page.getByRole('heading', { name: 'Hej, Kalle!', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Kalle!?$/, exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Starta invägning/ })).toHaveCount(0);
 });

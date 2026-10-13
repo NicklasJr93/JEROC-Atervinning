@@ -14,7 +14,10 @@ Videoidé: han stannar mitt i steget, nosar, får upp ett spår och hittar näst
 affär. Därefter visas: **Skrotis nosar upp affärerna. ScrapPilot håller koll
 på resten.** [Ett färdigt animationsförslag](skrotis-video-prompt.txt).
 
-Maskoten är en grafikresurs; den är inte installerad i appens gränssnitt.
+Maskoten används även som en liten dekoration på
+[mobilens hemskärm i 0.11.0](../../mobil-hemskarm-2026-10-13.md).
+Mobilens optimerade WebP bygger på originalet; PNG-filen är kvar för video
+och annan grafisk användning.
 
 ## Tidigare förslag
 

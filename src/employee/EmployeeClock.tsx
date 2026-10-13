@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, ChevronRight, Clock3, Coffee, LogIn, LogOut, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 import { Button, Notice } from '../components';
@@ -86,7 +86,9 @@ export function EmployeeClockStatus() {
   </button>;
 }
 
-export function EmployeeClockCard({ title = 'Stämpelklocka', compact = false }: { title?: string; compact?: boolean }) {
+export function EmployeeClockCard({ title = 'Stämpelklocka', compact = false, variant = 'default', daySummary, expectedMinutes, recordedMinutes }: {
+  title?: string; compact?: boolean; variant?: 'default' | 'home'; daySummary?: ReactNode; expectedMinutes?: number; recordedMinutes?: number;
+}) {
   const { overview, session, commandClock, clockBusy } = useEmployee(), navigate = useNavigate();
   const clock = overview?.clock, counters = useClockCounters(clock), online = useOnline();
   const [pending, setPending] = useState<EmployeeClockAction['action']>(), [error, setError] = useState('');
@@ -107,9 +109,14 @@ export function EmployeeClockCard({ title = 'Stämpelklocka', compact = false }:
     finally { if (mounted.current && identityRef.current === expectedIdentity) { busy.current = false; setPending(undefined); } }
   }
   const active = clock.activeSession;
-  return <section className={`employee-card employee-clock-card ${clock.status}${compact ? ' compact' : ''}`} aria-label={title}>
-    <header><span className="employee-clock-card-icon"><Clock3 size={23} /></span><h2>{title}</h2><span className={`employee-clock-state ${clock.status}`}>{statusNames[clock.status]}</span></header>
-    {active ? <><div className="employee-clock-main"><strong>{clockDuration(counters.workSeconds)}</strong><span>Arbetat i passet</span></div><div className="employee-clock-facts"><span>In {clockTime(active.startedAt, true)}</span><span>Rast {clockDuration(counters.breakSeconds)}</span></div>{clock.status === 'break' && <p className="employee-clock-rest">Rast sedan {clockTime(active.breaks.find(rest => !rest.endedAt)?.startedAt || clock.serverNow)}</p>}</> : <p className="employee-clock-ready">{clock.status === 'out' ? 'Stämpla in när du börjar arbeta.' : 'Stämpla in för att starta ett arbetspass.'}</p>}
+  const home = variant === 'home';
+  const progress = home && !clock.requiresCorrection && Number.isFinite(expectedMinutes) && expectedMinutes! > 0 && Number.isFinite(recordedMinutes)
+    ? Math.max(0, recordedMinutes! + (active && clock.status === 'working' ? counters.elapsedSeconds / 60 : 0)) : undefined;
+  return <section className={`employee-card employee-clock-card ${clock.status}${compact ? ' compact' : ''}${home ? ' employee-home-day-card' : ''}`} aria-label={title}>
+    <header>{!home && <span className="employee-clock-card-icon"><Clock3 size={23} /></span>}<h2>{home ? 'Din dag' : title}</h2><span className={`employee-clock-state ${clock.status}`}>{home && <i aria-hidden="true" />}{statusNames[clock.status]}</span></header>
+    {home && daySummary}
+    {active ? <><div className="employee-clock-main">{home && <span>Arbetat i passet · Rast {hoursLabel(counters.breakSeconds / 60)}</span>}<strong>{clockDuration(counters.workSeconds)}</strong>{!home && <span>Arbetat i passet</span>}</div>{!home && <div className="employee-clock-facts"><span>In {clockTime(active.startedAt, true)}</span><span>Rast {clockDuration(counters.breakSeconds)}</span></div>}{clock.status === 'break' && <p className="employee-clock-rest">Rast sedan {clockTime(active.breaks.find(rest => !rest.endedAt)?.startedAt || clock.serverNow)}</p>}</> : <>{home && Number.isFinite(recordedMinutes) && <div className="employee-clock-main"><span>Arbetat idag</span><strong>{clockDuration(recordedMinutes! * 60)}</strong></div>}<p className="employee-clock-ready">{clock.status === 'out' ? 'Stämpla in när du börjar arbeta.' : 'Stämpla in för att starta ett arbetspass.'}</p></>}
+    {progress !== undefined && <div className={`employee-home-progress ${clock.status}`} role="progressbar" aria-label="Arbetstid i förhållande till dagens timkrav" aria-valuemin={0} aria-valuemax={expectedMinutes} aria-valuenow={Math.min(expectedMinutes!, progress)} aria-valuetext={`${hoursLabel(progress)} av ${hoursLabel(expectedMinutes!)}`}><span style={{ width: `${Math.min(100, progress / expectedMinutes! * 100)}%` }} /></div>}
     {clock.requiresCorrection && <Notice tone="amber">Ett pass behöver kontrolleras innan tiden kan räknas.{active?.requiresCorrection && <button type="button" className="employee-text" onClick={() => navigate(`/time?${new URLSearchParams({ date: localInput(active.startedAt).slice(0, 10), clock: active.id })}`)}>Rätta stämpling<Pencil size={14} /></button>}</Notice>}
     {error && <Notice tone="red">{error}</Notice>}{!online && <Notice tone="amber">Stämpling kräver anslutning.</Notice>}
     <div className="employee-clock-actions">{!active ? <Button variant="blue" icon={LogIn} disabled={clockBusy || !online} onClick={() => void act('clock.in')}>{pending === 'clock.in' ? 'Stämplar in…' : 'Stämpla in'}</Button> : <>{clock.status === 'break' ? <Button variant="blue" icon={Play} disabled={clockBusy || !online} onClick={() => void act('clock.resume')}>{pending === 'clock.resume' ? 'Återupptar…' : 'Återuppta arbete'}</Button> : <Button variant="outline" icon={Coffee} disabled={clockBusy || !online} onClick={() => void act('clock.pause')}>{pending === 'clock.pause' ? 'Startar rast…' : 'Ta rast'}</Button>}<Button variant="danger" icon={LogOut} disabled={clockBusy || !online} onClick={() => void act('clock.out')}>{pending === 'clock.out' ? 'Stämplar ut…' : 'Stämpla ut'}</Button></>}</div>

@@ -6,7 +6,7 @@ import { ensureLogistics, driverOrderView, applyDriverAction } from './logistics
 import { createTransportOutbox } from './transport-integrations.mjs';
 import { applyTransportChange, personnelPlanIssues, normalizePhoneNumber, phoneNumberError } from '../dist-server/domain-models.mjs';
 import { ensureEmployeeTime, enrollEmployeeTime, employeeTimeProjection, employeeTimeBootstrapProjection, employeeTimeCommand,
-  employeeTimeGate, employeeTimeRequirementCommand, employeeTimeLifecycle, employeeClockCommand } from './employee-time.mjs';
+  employeeTimeGate, employeeTimeRequirementCommand, employeeTimeLifecycle, employeeClockCommand, employeeTimeToday } from './employee-time.mjs';
 import { employeeEquipmentProjection } from './equipment.mjs';
 import { employeePresenceForPerson } from './employee-presence.mjs';
 import { employeeTimeReviewOwn, employeeTimeReviewEmployeeCommand, employeeTimeReviewSourceStamp, assertEmployeeTimeReviewSourceStamp } from './employee-time-review.mjs';
@@ -116,6 +116,22 @@ export function employeeRequestPrincipal(state, req, { enforceGate = false, now 
 
 const safePerson = (person, account) => Object.fromEntries(['id', 'name', 'kind', 'role', 'team', 'phone', 'email', 'employeeNumber', 'siteIds', 'userId', 'driverId']
   .filter(key => person[key] !== undefined).map(key => [key, clone(person[key])]).concat([['username', account.username]]));
+function employeeHomeActivity(state, principal, siteId, date) {
+  if (!siteId) return undefined;
+  const countedSources = new Set();
+  let completedWeighings = 0, totalKg = 0;
+  for (const receipt of state.metadata?.mobileSubmissionReceipts ?? []) {
+    // Only actual server completion authors this private index. Card audit and
+    // browser timestamps/weights are never trusted. Application writes void a
+    // removed original permanently, so the light bootstrap needs no card data.
+    if (receipt.voidedAt || receipt.actualUserId !== principal.actor.id || receipt.siteId !== siteId || countedSources.has(receipt.sourceId)
+      || !Number.isFinite(receipt.weighedKg) || receipt.weighedKg <= 0 || !Number.isFinite(Date.parse(receipt.submittedAt))
+      || employeeTimeToday({ now: receipt.submittedAt }) !== date) continue;
+    countedSources.add(receipt.sourceId); completedWeighings += 1; totalKg += receipt.weighedKg;
+  }
+  return { date, siteId, completedWeighings, weighedKg: Math.round(totalKg * 1000) / 1000 };
+}
+
 const ownOrder = (state, person, id) => {
   const order = state.transport.orders.find(value => value.id === id);
   const driver = state.transport.drivers.find(value => value.id === person.driverId);
@@ -189,11 +205,14 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           const project = url.searchParams.get('view') === 'bootstrap' ? employeeTimeBootstrapProjection : employeeTimeProjection;
           const projection = project(state, scopedPerson, { now, allowedSiteIds: principal.user.siteIds, month: url.searchParams.get('month') ?? undefined, date: url.searchParams.get('date') ?? undefined, siteCatalog: sites });
           const companyId = employeeCompanyId(env, state);
+          const activeSiteId = employeeActiveSite(state, companyId, person.id, sites);
+          const yardWork = principal.user.level !== 'Medarbetare' || principal.user.permissions.includes('prepare');
+          const homeActivity = yardWork ? employeeHomeActivity(state, principal, activeSiteId, projection.today) : undefined;
           return { ...projection, companyId, companyName: state.metadata?.organisation?.name ?? (companyId === 'jeroc-demo' ? 'JEROC Återvinning AB' : ''), person: safePerson(scopedPerson, account), sites: sites.map(({ id, name, active }) => ({ id, name, active })),
-            activeSiteId: employeeActiveSite(state, companyId, person.id, sites),
+            activeSiteId, ...(homeActivity ? { homeActivity } : {}),
             presence: employeePresenceForPerson(state, scopedPerson, { now, siteCatalog: sites,
               actualUserId: principal.actor.id, effectiveUserId: principal.user.id, allowedSiteIds: principal.user.siteIds }),
-            capabilities: { yardWork: principal.user.level !== 'Medarbetare' || principal.user.permissions.includes('prepare'), assignedOrders: Boolean(person.canDrive && person.driverId),
+            capabilities: { yardWork, assignedOrders: Boolean(person.canDrive && person.driverId),
               paymentDetails: [principal.actor, principal.user].every(user => user.level !== 'Medarbetare' || user.permissions.includes('paymentDetails')),
               employeeTime: true, manageTimeRequirements: managePeople(state, identity).length > 0,
               manageEmployeeAccounts: principal.user.level === 'Systemadmin' || principal.user.level === 'VD' } };
@@ -369,7 +388,8 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         fail('Mobilsidan finns inte.', 404);
       };
       const result = req.method === 'GET' && repository.read
-        ? await repository.read(operate, { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth', 'employeeTime', 'transport', 'logistics', ...(path === 'equipment' ? ['equipment'] : [])] })
+        ? await repository.read(operate, { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth', 'employeeTime', 'transport', 'logistics',
+          ...(path === 'equipment' ? ['equipment'] : [])] })
         : await repository.transact(operate);
       if (result.failure) json(res, 401, { error: result.failure });
       else { if (result.token !== undefined) cookie(res, result.token, req); json(res, 200, result.value); }

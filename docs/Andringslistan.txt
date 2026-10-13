@@ -2728,3 +2728,30 @@ uppföljande Expo-fix samma dag utan nytt versionsnummer.
   215–272 ms. Den temporära Metro-cachen var inte rensad; resultaten belägger
   inte helt kall Render-start eller effekten av denna fix i drift.
 - Guide: docs/mobilstart-2026-10-13.md. Befintliga Expo-variabler används.
+
+ÄL 117 – Mobilens Hem: Skrotis, Din dag och egna invägningar
+Status: Implementerad 2026-10-13 i mobilwebb 0.11.0.
+- Hem följer den godkända bildmockupen med ljus blå/grön bakgrund, hälsning
+  efter Stockholmstid och Skrotis vid sidhuvudet. Anläggningsväljaren finns
+  kvar. Maskotbilden är cirka 25 kB och rörelse respekterar minskad animation.
+- Din dag visar egna arbetspass och dagens tilldelade uppdrag. Nästa uppdrag
+  öppnas direkt; avbokade uppdrag räknas inte. Tydliga tomma lägen när inget
+  är planerat. Ingen exempelstatistik används i den fungerande appen.
+- Aktiverad stämpelklocka ligger i dagskortet med arbete, rast och start/stopp.
+  Befintliga serverkommandon, dubbeltrycksskydd och felhantering återanvänds.
+  Tidsindikatorn bygger på verkligt timkrav när sådant finns.
+- Din insats idag visar egna färdiginsända mobilvägningar och fryst nettovikt
+  för vald, behörig anläggning. Texten Invägt skiljer från miljömottagning.
+  Serverns privata kvittens binds till faktisk användare, tid och källa.
+  Äldre kort utan kvittens fylls inte tillbaka; nya inlämningar räknas från
+  uppdateringen. Import/audittext kan inte skapa kvittenser eller dubletter.
+  Borttaget original eller mobilkälla ogiltigförklarar kvittensen permanent.
+- Väg in, Gårdsarbete och Mina uppdrag visas enligt befintliga rättigheter.
+  Fortsätt där du var och bottenmenyn Hem/Schema/Tid/Profil behålls.
+- Hem hämtar fortsatt lätt dagsvy utan kontors- eller mobilhistoriken.
+  Serverbekräftad inlämning uppdaterar siffrorna även om användaren hunnit
+  tillbaka före sparningen. Sekundräknaren gör inga nätverksanrop.
+- Guide: docs/mobil-hemskarm-2026-10-13.md. Inga nya Render-variabler.
+- Verifierat: produktionsbygge, 19 server-/regressionsfall och 9 riktade
+  browserfall för riktiga invägningar, behörigheter, stämpling, snabb start
+  och layout på små skärmar.

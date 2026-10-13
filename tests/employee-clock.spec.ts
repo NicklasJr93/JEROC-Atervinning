@@ -82,7 +82,7 @@ async function clockFixture(page: Page, initial = { enabled: true, blocked: fals
 test('home clock starts, pauses with orange live break, resumes and closes into Tid history without second-by-second fetches', async ({ page }) => {
   const fixture = await clockFixture(page);
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Hej, Niklas!' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Niklas!?$/ })).toBeVisible();
   const card = page.getByRole('region', { name: 'Stämpelklocka', exact: true });
   await card.getByRole('button', { name: 'Stämpla in', exact: true }).click();
   const strip = page.getByRole('button', { name: 'Stämpelklocka: Instämplad. Öppna Tid', exact: true });
@@ -116,7 +116,7 @@ test('home clock starts, pauses with orange live break, resumes and closes into 
 test('disabled clock stays hidden, while a missing clock day opens Tid and the existing pass correction', async ({ page }) => {
   const fixture = await clockFixture(page, { enabled: false, blocked: false });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Hej, Niklas!' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Niklas!?$/ })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Stämpelklocka', exact: true })).toHaveCount(0);
   await expect(page.locator('.employee-clock-strip')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Stämpla in', exact: true })).toHaveCount(0);

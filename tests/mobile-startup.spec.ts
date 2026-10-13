@@ -59,7 +59,7 @@ test('home opens from the lean session and loads a delayed full month only when 
   const fixture = await startupFixture(page);
   try {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Hej, Niklas!', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Niklas!?$/, exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Din dag', exact: true })).toBeVisible();
     expect(fixture.requests.filter(value => value.includes('/api/employee/session')).every(value => value.includes('view=bootstrap'))).toBe(true);
     expect(fixture.fullRequests()).toHaveLength(0);
@@ -87,7 +87,7 @@ test('a stalled session times out into a usable login screen and its late respon
     await expect(page.getByRole('button', { name: 'Logga in', exact: true })).toBeEnabled();
     fixture.releaseSession();
     await page.clock.fastForward(1000);
-    await expect(page.getByRole('heading', { name: 'Hej, Niklas!', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Niklas!?$/, exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Välkommen tillbaka', exact: true })).toBeVisible();
     expect(fixture.fullRequests()).toHaveLength(0); expect(fixture.errors).toEqual([]);
   } finally { fixture.releaseFull(); fixture.releaseSession(); }
@@ -97,7 +97,7 @@ test('a pending month response from the previous session cannot reopen the emplo
   const fixture = await startupFixture(page);
   try {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Hej, Niklas!', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Niklas!?$/, exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Tid', exact: true }).click();
     await expect.poll(() => fixture.fullRequests().length).toBeGreaterThan(0);
     await page.getByRole('button', { name: 'Profil', exact: true }).click();
@@ -107,7 +107,7 @@ test('a pending month response from the previous session cannot reopen the emplo
     fixture.releaseFull();
     await (await lateMonth).finished();
     await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
-    await expect(page.getByRole('heading', { name: 'Hej, Niklas!', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Niklas!?$/, exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Välkommen tillbaka', exact: true })).toBeVisible();
     expect(fixture.errors).toEqual([]);
   } finally { fixture.releaseFull(); fixture.releaseSession(); }

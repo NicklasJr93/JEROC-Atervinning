@@ -1,0 +1,116 @@
+.employee-home {
+  min-width: 0;
+  gap: 13px;
+  padding: 14px 16px calc(110px + env(safe-area-inset-bottom));
+  background: radial-gradient(ellipse 80% 29% at 105% 16%, #d5f5df8a, transparent 82%), linear-gradient(148deg, #eaf8ff 0%, #effaff 28%, #f3faff 68%, #eef9ff 100%);
+}
+.employee-home-hero { position: relative; min-height: 153px; padding-top: 48px; }
+.employee-home-site { position: absolute; top: 0; right: 0; z-index: 20; max-width: 70%; }
+.employee-home-site .employee-site-picker, .employee-home-site .employee-site-current { max-width: 100%; }
+.employee-home-site .employee-site-trigger, .employee-home-site .employee-site-current { min-height: 34px; padding: 7px 11px; border: 1px solid #e4f0fc; border-radius: 22px; background: #fff; color: #153861; font-size: 12px; box-shadow: 0 4px 16px #419ddd0b; }
+.employee-home-site .employee-site-trigger > svg:first-child, .employee-home-site .employee-site-current > svg { color: #087bff; }
+.employee-home-site .employee-site-popover { right: 0; }
+.employee-home-greeting { position: relative; z-index: 1; width: 68%; }
+.employee-home-greeting h1 { display: flex; flex-direction: column; gap: 2px; color: #071840; margin: 0; }
+.employee-home-greeting h1 > span { font-size: 21px; font-weight: 450; line-height: 1.18; letter-spacing: -.4px; }
+.employee-home-greeting h1 > strong { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; font-size: 35px; line-height: 1.17; font-weight: 780; letter-spacing: -.8px; overflow-wrap: anywhere; }
+.employee-home-greeting h1 > strong svg { flex-shrink: 0; color: #ffbd20; fill: #ffcf35; stroke-width: 1.5; }
+.employee-home-greeting h1 > strong svg.lucide-moon { fill: #9cbada; color: #7ca0c8; }
+.employee-home-greeting > p { font-size: 13px; line-height: 1.5; color: #61789b; margin: 5px 0 0; }
+.employee-home-mascot { position: absolute; right: -4px; bottom: -19px; width: 156px; height: 139px; overflow: hidden; pointer-events: none; animation: employee-home-peek .5s ease-out both; }
+.employee-home-mascot img { width: 210px; max-width: none; height: auto; margin-left: -27px; display: block; }
+@keyframes employee-home-peek { from { opacity: 0; transform: translateY(13px); } to { opacity: 1; transform: translateY(0); } }
+.employee-home .employee-home-day-card, .employee-home-card { position: relative; border: 1px solid #d6eafc; border-radius: 16px; background: #fff; box-shadow: 0 5px 22px #53a6e607; }
+.employee-home .employee-home-day-card { z-index: 2; gap: 10px; padding: 17px 16px 13px; }
+.employee-home-day-card > header { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
+.employee-home .employee-home-day-card h2 { font-size: 23px; line-height: 1.2; font-weight: 760; letter-spacing: -.5px; color: #091d45; margin: 0; }
+.employee-home .employee-home-day-card .employee-clock-state { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; font-size: 10px; }
+.employee-home-day-card .employee-clock-state i { height: 6px; width: 6px; border-radius: 50%; background: currentColor; }
+.employee-home-day-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 10px; padding: 2px 0 6px; }
+.employee-home-day-summary > div { min-width: 0; }
+.employee-home-day-summary > div + div { border-left: 1px solid #cee4fb; padding-left: 14px; }
+.employee-home-day-summary.single { grid-template-columns: minmax(0, 1fr); }
+.employee-home-day-summary span { display: block; color: #627b9c; font-size: 12px; margin-bottom: 3px; }
+.employee-home-day-summary strong { display: block; color: #152b53; font-size: 15px; line-height: 1.4; }
+.employee-home-day-summary .employee-home-unplanned { color: #768ca5; font-size: 12px; font-weight: 500; }
+.employee-home .employee-home-day-card .employee-clock-main { padding: 1px 0 0; gap: 4px; }
+.employee-home .employee-home-day-card .employee-clock-main > span { color: #647c9e; font-size: 11px; }
+.employee-home .employee-home-day-card .employee-clock-main > strong { color: #0b214e; font-size: clamp(35px, 11vw, 48px); line-height: 1.1; font-weight: 770; letter-spacing: -1px; }
+.employee-home-progress { height: 7px; width: 100%; border-radius: 10px; background: #dceaf6; overflow: hidden; margin: 1px 0 0; }
+.employee-home-progress > span { display: block; height: 100%; max-width: 100%; border-radius: inherit; background: #45c775; transition: width .35s linear; }
+.employee-home-progress.break > span { background: #e9b152; }
+.employee-home .employee-home-day-card .employee-clock-actions { gap: 8px; margin-top: 3px; }
+.employee-home .employee-home-day-card .employee-clock-actions > .button { font-size: 14px; min-height: 48px; padding: 11px 6px; border-radius: 11px; }
+.employee-home .employee-home-day-card .employee-clock-actions > .button.outline { border-color: #72d78d; color: #146f3c; background: #e8faed; }
+.employee-home .employee-home-day-card.break .employee-clock-actions > .button.blue { border-color: #9bd4ae; color: #146f3c; background: #e8faed; }
+.employee-home .employee-home-day-card .employee-clock-actions > .button.danger { border-color: transparent; color: #0979f6; background: transparent; }
+.employee-home .employee-home-day-card .employee-clock-actions > .button.danger > svg { display: none; }
+.employee-home .employee-home-day-card .employee-clock-rest { font-size: 10px; margin: 0; }
+.employee-home .employee-home-day-card .employee-clock-ready { font-size: 11px; text-align: center; margin: 0; }
+.employee-home .employee-home-day-card .notice { font-size: 11px; padding: 11px; }
+.employee-home .employee-home-day-card .notice .employee-text { display: flex; }
+.employee-home-recorded { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding-top: 2px; color: #6b81a1; }
+.employee-home-recorded strong { color: #2e4c71; font-variant-numeric: tabular-nums; }
+.employee-home-next { display: flex; flex-direction: column; gap: 11px; padding: 13px 15px; text-align: left; border-left: 4px solid #0b80ff; color: #10294e; }
+.employee-home-next-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 5px; }
+.employee-home-next-heading > strong { font-size: 16px; }
+.employee-home-next-heading > span { color: #087aff; background: #e7f3ff; border-radius: 20px; font-size: 11px; padding: 5px 8px; font-variant-numeric: tabular-nums; }
+.employee-home-next-content { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.employee-home-next-content > span:nth-child(2) { min-width: 0; flex: 1; }
+.employee-home-next-content strong { display: block; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.employee-home-next-content small { display: block; color: #6d83a2; font-size: 11px; line-height: 1.5; }
+.employee-home-next-content > svg { flex: 0 0 auto; color: #132a53; }
+.employee-home-tile-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 47px; width: 47px; height: 47px; border-radius: 12px; background: #e3f2ff; color: #087bfb; }
+.employee-home-tile-icon.green { color: #3bad68; background: #e6f9eb; }
+.employee-home-no-next { padding: 15px; }
+.employee-home-no-next h2 { color: #173858; font-size: 16px; margin: 0 0 6px; }
+.employee-home-no-next p { color: #778fa7; font-size: 12px; margin: 0; line-height: 1.5; }
+.employee-home-section { display: flex; flex-direction: column; gap: 10px; margin-top: 3px; min-width: 0; }
+.employee-home-section-header { display: flex; align-items: baseline; justify-content: space-between; gap: 9px; min-width: 0; }
+.employee-home-section-header > h2 { font-size: 18px; letter-spacing: -.25px; color: #14294f; margin: 0; }
+.employee-home-section-header > span { font-size: 10px; color: #738ba6; min-width: 0; overflow-wrap: anywhere; text-align: right; }
+.employee-home-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.employee-home-stats > div { display: flex; align-items: center; gap: 9px; padding: 13px 11px; min-width: 0; }
+.employee-home-stats > div > div { min-width: 0; }
+.employee-home-stats strong { display: block; color: #14284e; font-size: 24px; line-height: 1.2; letter-spacing: -.4px; overflow-wrap: anywhere; }
+.employee-home-stats span:not(.employee-home-tile-icon) { display: block; color: #6d83a2; font-size: 11px; margin-top: 3px; }
+.employee-home-stats .employee-home-tile-icon { flex-basis: 41px; width: 41px; height: 41px; }
+.employee-home-shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.employee-home-shortcuts.single { grid-template-columns: minmax(0, 1fr); }
+.employee-home-shortcut { display: flex; align-items: center; gap: 9px; min-width: 0; min-height: 67px; text-align: left; padding: 11px; border: 1px solid #d6eafc; border-radius: 14px; background: #fff; color: #123056; }
+.employee-home-shortcut:nth-child(odd):last-child { grid-column: 1 / -1; }
+.employee-home-shortcut-copy { display: block; flex: 1; min-width: 0; }
+.employee-home-shortcut-copy strong { display: block; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.employee-home-shortcut-copy small { display: block; color: #6d83a2; font-size: 10px; line-height: 1.35; margin-top: 2px; }
+.employee-home-shortcut > svg { flex: 0 0 auto; }
+.employee-home-shortcut .employee-home-tile-icon { flex-basis: 31px; width: 31px; height: 36px; background: #eaf8ed; color: #258550; border-radius: 8px; }
+.employee-home-shortcut.primary { background: #0a7cf8; color: #fff; border-color: #0a7cf8; }
+.employee-home-shortcut.primary .employee-home-tile-icon { color: #fff; background: transparent; }
+.employee-home-shortcut.primary small { color: #d4eaff; }
+.employee-home-count { color: #0b7bf7; background: #e9f3ff; border-radius: 12px; font-size: 10px; white-space: nowrap; padding: 4px 7px; }
+.employee-home-recovery .menu-row { background: #fff; }
+.employee-home + .bottom-nav { width: calc(min(100vw, 480px) - 20px); bottom: max(8px, env(safe-area-inset-bottom)); border: 1px solid #e0effc; border-radius: 15px; box-shadow: 0 5px 25px #163e590d; padding-bottom: 8px; }
+@media (max-width: 350px) {
+  .employee-home { padding-left: 11px; padding-right: 11px; gap: 11px; }
+  .employee-home-hero { min-height: 145px; }
+  .employee-home-greeting { width: 72%; }
+  .employee-home-greeting h1 > span { font-size: 19px; }
+  .employee-home-greeting h1 > strong { font-size: 30px; }
+  .employee-home-greeting h1 > strong svg { width: 25px; height: 25px; }
+  .employee-home-greeting > p { font-size: 11px; }
+  .employee-home-mascot { right: -6px; width: 127px; height: 129px; }
+  .employee-home-mascot img { width: 181px; margin-left: -26px; }
+  .employee-home .employee-home-day-card { padding: 15px 12px 12px; }
+  .employee-home .employee-home-day-card h2 { font-size: 21px; }
+  .employee-home .employee-home-day-card .employee-clock-state { font-size: 9px; padding: 5px 7px; }
+  .employee-home-day-summary strong { font-size: 13px; }
+  .employee-home-stats > div { padding: 11px 8px; gap: 6px; }
+  .employee-home-stats .employee-home-tile-icon { flex-basis: 32px; width: 32px; height: 36px; }
+  .employee-home-stats .employee-home-tile-icon svg { width: 24px; }
+  .employee-home-stats strong { font-size: 21px; }
+  .employee-home-shortcut { padding: 10px 8px; gap: 5px; }
+  .employee-home-shortcut-copy strong { font-size: 12px; }
+  .employee-home-shortcut-copy small { font-size: 9px; }
+  .employee-home-shortcut > svg { width: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .employee-home-mascot { animation: none; } .employee-home-progress > span { transition: none; } }

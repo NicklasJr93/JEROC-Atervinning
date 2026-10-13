@@ -205,6 +205,19 @@ export function useSharedData<T>(options: Options<T>) {
    if (o.domain === 'mobile' && result.customerPrices) updateCustomerPriceCatalog(result.customerPrices);
    if (o.domain === 'mobile' && typeof result.businessDate === 'string') observedBusinessDate = result.businessDate;
    if (o.domain === 'mobile' && typeof result.mobilePricingRevision === 'string') window.dispatchEvent(new CustomEvent('jeroc:mobile-pricing-change', { detail: { identity: identityKey, revision: result.mobilePricingRevision } }));
+   if (o.domain === 'mobile' && 'employee' in principal && objectValue(command) && command.kind === 'records'
+       && Array.isArray(command.drafts) && objectValue(result.data) && Array.isArray(result.data.drafts)) {
+    // A completed draft is optimistic until the write is acknowledged. Refresh
+    // Home only after that commit, including when navigation beat the save.
+    const confirmedDrafts: unknown[] = result.data.drafts;
+    const confirmedReady = new Set(confirmedDrafts.filter(objectValue).filter(draft => draft.status === 'ready').map(draft => draft.id));
+    const completed = command.drafts.some(change => objectValue(change) && typeof change.id === 'string'
+      && objectValue(change.next) && change.next.status === 'ready'
+      && (!objectValue(change.base) || change.base.status !== 'ready') && confirmedReady.has(change.id));
+    if (completed) window.dispatchEvent(new CustomEvent('jeroc:mobile-weighing-submitted', {
+     detail: { companyId: principal.companyId ?? 'jeroc-demo', personId: principal.employee },
+    }));
+   }
    return { ...result, confirmedEpoch } as { data: T; revision?: number; importConflicts?: number; confirmedEpoch: number };
   }
   function accept(data: T) {
