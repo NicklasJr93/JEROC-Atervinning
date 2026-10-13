@@ -16,7 +16,7 @@ export interface SwishPaymentJob {
   paymentDetails: SwishPaymentDetails; originalPaymentDetails?: PaymentDetails;
   reason?: string; recipient?: unknown; status: SwishPaymentStatus; bookkeepingStatus: SwishBookkeepingStatus;
   providerInstructionUUID?: string; createdAt: string; updatedAt: string; verifiedAt?: string;
-  error?: { code?: string; message?: string; details?: { provider?: string; field?: string; valueType?: string } } | string;
+  error?: { code?: string; message?: string; details?: { provider?: string; field?: string; valueType?: string } } | string | null;
   canResume?: boolean;
   preflightStatus?: 'ready' | 'blocked';
   preflightCheckedAt?: string;

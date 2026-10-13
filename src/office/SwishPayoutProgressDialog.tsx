@@ -52,7 +52,7 @@ export default function SwishPayoutProgressDialog({ job, preparing = false, unce
   const failure = error || (job ? swishFailureMessage(job.error) : '') || (rejected ? 'Swish kunde inte godkänna testutbetalningen.' : 'Testutbetalningen behöver kontrolleras.');
   const diagnostics = useMemo(() => JSON.stringify(sanitizeDiagnostic({
     paymentId: job?.id ?? null, instructionId: job?.providerInstructionUUID ?? null,
-    code: typeof job?.error === 'object' ? job.error.code ?? null : null,
+    code: job?.error && typeof job.error === 'object' ? job.error.code ?? null : null,
     serverStatus: job?.status ?? (uncertain ? 'unknown' : 'preparing'), httpStatus: job?.response?.httpStatus ?? null,
     preflightStatus: job?.preflightStatus ?? null, preflightCheckedAt: job?.preflightCheckedAt ?? null,
     request: job?.request ?? null, response: job?.response?.data ?? null, error: job?.error ?? (error || null),

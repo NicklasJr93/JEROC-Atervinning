@@ -43,7 +43,7 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
           details: { provider: 'spiris', field: 'Rows[1].CreditAmount', valueType: 'number' } } };
       body = job;
     } else if (path.endsWith('/payments/test-payout-job/refresh') && request.method() === 'POST') {
-      if (job?.status === 'blocked') job = { ...job, canResume: true, preflightStatus: 'ready', error: undefined,
+      if (job?.status === 'blocked') job = { ...job, canResume: true, preflightStatus: 'ready', error: null,
         preflightCheckedAt: '2026-10-13T08:02:00Z', updatedAt: '2026-10-13T08:02:00Z' };
       body = job;
     } else if (path.endsWith('/payments/test-payout-job/resume') && request.method() === 'POST') {
@@ -154,6 +154,8 @@ test('uppgifterna börjar låsta och avbruten redigering återställer förbered
 });
 
 test('blockerat test får detaljerad diagnos och statuskontroll kräver separat fortsättknapp', async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
   const state = await fixture(page, { blockedStart: true });
   await page.goto(`/kontor#/weighings/${state.cardId}`);
   const dialog = await fillPayout(page);
@@ -166,10 +168,18 @@ test('blockerat test får detaljerad diagnos och statuskontroll kräver separat 
   await progress.getByRole('button', { name: 'Kontrollera status', exact: true }).click();
   await expect(progress.getByRole('heading', { name: 'Kontrollen är godkänd', exact: true })).toBeVisible();
   expect(state.resumes()).toBe(0); expect(state.starts()).toBe(1);
+  await progress.getByRole('button', { name: 'Stäng', exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: `Invägning #${state.cardId}`, exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Visa utbetalning', exact: true }).first().click();
+  await expect(progress.getByRole('heading', { name: 'Kontrollen är godkänd', exact: true })).toBeVisible();
+  await progress.getByText('Avancerat', { exact: true }).click();
+  await expect(progress.locator('pre')).toContainText('"code": null');
   await progress.getByRole('button', { name: 'Fortsätt testutbetalning', exact: true }).dblclick();
   await expect(progress.getByRole('heading', { name: 'Väntar på bekräftelse', exact: true })).toBeVisible();
   expect(state.resumes()).toBe(1); expect(state.starts()).toBe(1);
   await expect(progress.locator('pre')).toContainText('"paymentId": "test-payout-job"');
+  expect(pageErrors).toEqual([]);
 });
 
 test('bekräftad Swish-betalning fortsätter visas som genomförd när separat bokföring behöver åtgärdas', async ({ page }) => {
