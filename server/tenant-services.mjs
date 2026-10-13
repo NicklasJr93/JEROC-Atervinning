@@ -12,6 +12,9 @@ import { createSwishMssClient } from './swish-client.mjs';
 import { createSwishPayments } from './swish-payments.mjs';
 import { createBankPayments } from './bank-payments.mjs';
 import { createOpenPaymentsClient } from './openpayments-client.mjs';
+import { createMailService } from './mail-service.mjs';
+import { createMailApi } from './mail-api.mjs';
+import { getPlatformContext } from './platform-auth.mjs';
 import { can } from '../dist-server/domain-models.mjs';
 
 /** All repositories, queues and provider connections belong to one immutable
@@ -114,8 +117,30 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     onPaymentConfirmed: job => documentsApi.archivePaymentConfirmation(job),
     onVerifiedPayment: (job, options) => vismaService.synchronizeSwishPayment(job.id, options),
   });
+  const resolveMailContext = async req => {
+    const platform = getPlatformContext(req);
+    if (!platform || platform.organisationId !== organisationId || typeof reauthorizeTrustedPrincipal !== 'function')
+      throw new PricingError('Logga in i bolaget för att öppna mejlen.', 401);
+    const context = { organisationId, actorId: platform.actualUser.id, effectiveUserId: platform.user.id,
+      sessionKey: platform.sessionKey, csrfToken: platform.csrfToken };
+    context.reauthorize = async () => {
+      const trusted = await reauthorizeTrustedPrincipal(req);
+      if (trusted.actorId !== context.actorId || trusted.userId !== context.effectiveUserId || trusted.sessionKey !== context.sessionKey)
+        throw new PricingError('Mejlsessionen eller bolaget har ändrats. Ladda om sidan.', 403);
+      return (await applicationApi.getRepository()).read(state => resolvePricingPrincipal(state.pricing?.users ?? [], context.actorId, context.effectiveUserId), { domains: ['pricing'] });
+    };
+    await context.reauthorize(); return context;
+  };
+  const mailService = createMailService({ env, getRepository: () => applicationApi.getRepository(),
+    authorizeContext: async context => {
+      if (context.organisationId !== organisationId || typeof context.reauthorize !== 'function') throw new PricingError('En verifierad mejlsession krävs.', 403);
+      const principal = await context.reauthorize();
+      if (principal.actor.id !== context.actorId || principal.user.id !== context.effectiveUserId) throw new PricingError('Mejlsessionen har ändrats.', 403);
+    },
+  });
+  const mailApi = createMailApi({ service: mailService, organisationId, resolveContext: resolveMailContext });
   const environmentApi = createEnvironmentApi({ env, initialSites, trustedPrincipalProvider: reauthorizeTrustedPrincipal ?? trustedPrincipalProvider, principalStore,
-    vismaService, swishService, bankService,
+    vismaService, swishService, bankService, mailService,
     approvalGuard: (input, operation) => terminalDemoApi.withApprovedCard(input, operation),
     outboundProvider: async () => (await applicationApi.getRepository()).read(state =>
       (state.logistics?.inventoryMovements ?? []).filter(row => row.kind === 'outbound' && row.hazardous)
@@ -217,8 +242,9 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     async function close() {
       await Promise.allSettled([terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close()]);
     }
-    return { applicationApi, articleMediaApi, vismaService, swishService, bankService, environmentApi, terminalDemoApi, documentsApi, close,
+    return { applicationApi, articleMediaApi, vismaService, swishService, bankService, mailService, resolveMailContext, environmentApi, terminalDemoApi, documentsApi, close,
       async handle(req, res, url) {
+        if (await mailApi(req, res, url)) return true;
         if (await articleMediaApi(req, res, url)) return true;
         if (await applicationApi(req, res, url)) return true;
         if (await documentsApi(req, res, url)) return true;

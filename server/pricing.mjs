@@ -55,6 +55,7 @@ export const permissions = [
   'environmentIntegration',
   'integrationsRead',
   'integrationsManage',
+  'mailRead',
   'environmentClassify',
   'environmentStorage',
   'environmentReceiveException',
@@ -70,7 +71,7 @@ export const permissions = [
   'staffingWrite',
   'externalAccounts',
 ];
-const sensitivePersonnelPermissions = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage', 'bookSpiris'];
+const sensitivePersonnelPermissions = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage', 'bookSpiris', 'mailRead'];
 const finite = z.number().finite();
 const nonnegative = finite.min(0).max(1e9);
 const id = z

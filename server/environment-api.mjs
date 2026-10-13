@@ -51,7 +51,7 @@ async function body(req) {
 /** Cookie-authenticated façade over the durable environment/reporting service.
  * Staff sessions remain explicit demo sessions. The integration registry uses
  * a server-owned organisation scope, not browser-supplied tenant identifiers. */
-export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, nvvClient, vismaService, swishService, bankService, initialSites, trustedPrincipalProvider, addressResolver = createEnvironmentAddressResolver() } = {}) {
+export function createEnvironmentApi({ principalStore = createPricingStore(), repository, env = process.env, now, approvalGuard, outboundProvider, nvvClient, vismaService, swishService, bankService, mailService, initialSites, trustedPrincipalProvider, addressResolver = createEnvironmentAddressResolver() } = {}) {
   const organisationId = readVismaOrganisationId(env);
   let repositoryPromise, storePromise;
   const changes = getChangeEvents(env);
@@ -125,7 +125,9 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
               ...(swishService ? [{ providerId: 'swish', allowedOrganisationIds: [organisationId],
                 status: () => swishService.integrationStatus() }] : []),
               ...(bankService ? [{ providerId: 'bank', allowedOrganisationIds: [organisationId],
-                status: () => bankService.integrationStatus() }] : [])] });
+                status: () => bankService.integrationStatus() }] : []),
+              ...(mailService ? [{ providerId: 'microsoft365', allowedOrganisationIds: [organisationId],
+                status: () => mailService.integrationStatus() }] : [])] });
             json(res, 200, await integrations.catalog(context), req.method === 'HEAD');
           }
           else if (route.startsWith('/bank/')) {

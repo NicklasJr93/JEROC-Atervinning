@@ -185,7 +185,8 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
     if (await platformApi(req, res, url)) return true;
     try {
       const bankCallback = url.pathname === '/api/integrations/openpayments/callback';
-      const callback = bankCallback || url.pathname === '/api/integrations/visma/oauth/callback';
+      const mailCallback = url.pathname === '/api/integrations/microsoft-mail/callback';
+      const callback = bankCallback || mailCallback || url.pathname === '/api/integrations/visma/oauth/callback';
       if (!callback || req.method !== 'GET') sameOrigin(req);
       const mediaRead = url.pathname.startsWith('/api/article-media/') && ['GET', 'HEAD'].includes(req.method);
       const office = callback || !employeeRoute(url) && !deviceRoute(url) && !mediaRead;
@@ -214,6 +215,16 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
           if (fields) fields['Cache-Control'] = 'private, no-store'; else this.setHeader('Cache-Control', 'private, no-store');
           return writeHead.apply(this, args);
         };
+      }
+      if (mailCallback) {
+        if (req.method !== 'GET') throw new PlatformError('Metoden stöds inte.', 405);
+        let outcome = 'error';
+        try {
+          await service.mailService.completeMicrosoft({ state: url.searchParams.get('state'), code: url.searchParams.get('code'), error: url.searchParams.get('error') }, await service.resolveMailContext(req));
+          outcome = 'ok';
+        } catch {}
+        res.writeHead(303, { Location: `/kontor/#/integrations?service=microsoft365&mailAuth=${outcome}`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+        res.end(); return true;
       }
       if (bankCallback) {
         if (req.method !== 'GET') throw new PlatformError('Metoden stöds inte.', 405);

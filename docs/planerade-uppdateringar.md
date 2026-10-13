@@ -4,7 +4,8 @@ Senast uppdaterad: 2026-10-13.
 
 Utbetalningsbuntar/betalfil och dashboards avvaktar fortsatt enligt
 användarens beslut. Mejlinkorgens nya bildmockuper är klara enligt ÄL 111;
-implementation återstår med Microsoft 365/Outlook som första testkoppling.
+första läsversionen med Microsoft 365/Outlook är levererad enligt ÄL 112.
+Google, svar och AI-förslag återstår.
 Bankmottagare och Open Payments-bankmotor
 är levererade i sandbox enligt ÄL 109; produktionsanslutning återstår.
 Ordningen är inte en prioritering.
@@ -104,7 +105,9 @@ Underlag: [Rollernas dashboardmockuper](mockups/roll-dashboard/README.md), ÄL 0
 
 ## Mejlinkorg med flera brevlådor och AI-förslag
 
-Status: Nya statiska bildmockuper klara i ÄL 111. Implementation återstår.
+Status: Första Microsoft 365-läsversionen implementerad i ÄL 112, kontor 0.25.0.
+Riktigt anslutningsprov inväntar Entra-klientuppgifter och användarens godkännande.
+[Bygge och inställningar](integrationer/microsoft365-mejl.md). Bildmockuper finns i ÄL 111.
 
 - Börja med Microsoft 365/Outlook under **Integrationer**. Flera konton och gemensamma
   brevlådor kan anslutas med individuellt styrd åtkomst.

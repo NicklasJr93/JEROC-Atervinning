@@ -14,6 +14,7 @@ import NvvIntegrationPanel from './NvvIntegrationPanel';
 import SpirisAccountingPanel from './SpirisAccountingPanel';
 import SwishIntegrationPanel from './SwishIntegrationPanel';
 import OpenPaymentsIntegrationPanel from './OpenPaymentsIntegrationPanel';
+import MailIntegrationPanel from './MailIntegrationPanel';
 import { cacheIntegrationRead, cachedIntegrationRead, clearIntegrationReadCache, integrationReadScope } from './integration-read-cache';
 import './environment.css';
 import './integrations.css';
@@ -44,6 +45,7 @@ interface IntegrationCatalog {
 export interface IntegrationsWorkspaceProps {
   user: OfficeUser;
   actualUser: OfficeUser;
+  users?: OfficeUser[];
   siteId?: string;
   onNotice: (message: string) => void;
 }
@@ -75,9 +77,14 @@ const providerPresentation: Record<string, { icon: LucideIcon; functions: string
     preparation: 'Ekonomiflöde och vilka underlag som ska överföras behöver bestämmas inför anslutningen.',
   },
   microsoft365: {
-    icon: Building2,
-    functions: ['Utskick från företagets e-post', 'Kalenderkoppling för planering', 'Gemensamma kontakt- och meddelandeflöden'],
-    preparation: 'En Microsoft 365-administratör behöver senare godkänna den åtkomst företaget väljer.',
+    icon: Mail,
+    functions: ['Flera egna och delade inkorgar', 'Inkomna mejl med kundmatchning', 'Individuellt styrd inkorgsåtkomst'],
+    preparation: 'Anslut Microsoft-kontot nedan och välj vilka inkorgar personalen får läsa.',
+  },
+  gmail: {
+    icon: Mail,
+    functions: ['Google-inkorgar i den gemensamma mejlvyn', 'Vald åtkomst per inkorg', 'Samma kundmatchning som Microsoft 365'],
+    preparation: 'Google-kopplingen följer efter första Microsoft 365-versionen.',
   },
   bankid: {
     icon: Fingerprint,
@@ -123,10 +130,11 @@ function IntegrationStatus({ provider }: { provider: IntegrationProvider }) {
   return <span className={`integration-status ${status.tone}`}><Icon size={13} />{status.label}</span>;
 }
 
-export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all', onNotice }: IntegrationsWorkspaceProps) {
+export default function IntegrationsWorkspace({ user, actualUser, users, siteId = 'all', onNotice }: IntegrationsWorkspaceProps) {
   const { session, loading: sessionLoading, error: sessionError, refreshSession } = useEnvironmentSession();
   const [search, setSearch] = useSearchParams();
-  const selectedId = search.get('service') ?? '';
+  const requestedId = search.get('service') ?? '';
+  const selectedId = requestedId === 'outlook' ? 'microsoft365' : requestedId;
   const [catalog, setCatalog] = useState<IntegrationCatalog>();
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState('');
@@ -208,6 +216,7 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
   const parallelSpiris = selectedId === 'visma' && (!catalog || !!selected?.implemented);
   const parallelSwish = selectedId === 'swish' && (!catalog || !!selected?.implemented);
   const parallelBank = selectedId === 'bank' && (!catalog || !!selected?.implemented);
+  const parallelMail = selectedId === 'microsoft365';
   const selectedPresentation = selected && providerPresentation[selected.id];
   const SelectedIcon = selectedPresentation?.icon ?? PlugZap;
 
@@ -229,9 +238,9 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
 
   return <section className="integrations-workspace">
     <OfficePageHeader>
-      {(parallelSpiris || parallelSwish || parallelBank || selected) && <button type="button" className="office-link integration-back" onClick={() => setSearch({})}><ArrowLeft size={15} />Alla integrationer</button>}
+      {(parallelSpiris || parallelSwish || parallelBank || parallelMail || selected) && <button type="button" className="office-link integration-back" onClick={() => setSearch({})}><ArrowLeft size={15} />Alla integrationer</button>}
     <div className="office-title integration-page-title">
-      <div><span className="office-eyebrow">BOLAGETS ANSLUTNINGAR</span><h1>{selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : selectedId === 'swish' ? 'Swish Utbetalning' : selectedId === 'bank' ? 'Bank · Open Payments' : 'Integrationer'}</h1><p>{selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : selectedId === 'swish' ? 'Testutbetalningar och bokföringskoppling för bolaget.' : selectedId === 'bank' ? 'Bankbetalningar, konton och bankmedgivande i sandbox.' : 'Koppla bolaget till myndigheter, ekonomi och andra tjänster.'}</p></div>
+      <div><span className="office-eyebrow">BOLAGETS ANSLUTNINGAR</span><h1>{selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : selectedId === 'swish' ? 'Swish Utbetalning' : selectedId === 'bank' ? 'Bank · Open Payments' : parallelMail ? 'Mejl & inkorgar' : 'Integrationer'}</h1><p>{selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : selectedId === 'swish' ? 'Testutbetalningar och bokföringskoppling för bolaget.' : selectedId === 'bank' ? 'Bankbetalningar, konton och bankmedgivande i sandbox.' : parallelMail ? 'Microsoft 365/Outlook och åtkomst till företagets inkorgar.' : 'Koppla bolaget till myndigheter, ekonomi och andra tjänster.'}</p></div>
       <button type="button" className="office-btn outline" onClick={() => void update()} disabled={catalogLoading || sessionLoading || nvvLoading}><RefreshCw size={14} />Uppdatera</button>
     </div>
     </OfficePageHeader>
@@ -242,14 +251,15 @@ export default function IntegrationsWorkspace({ user, actualUser, siteId = 'all'
       {!sessionLoading && <button type="button" className="office-btn outline" onClick={() => void refreshSession().catch(() => undefined)}>Försök igen</button>}
     </div>}
     {matchingSession && catalogError && <div className="office-panel integration-message error" role="alert"><CircleAlert size={19} /><span>{catalogError}</span><button type="button" className="office-btn outline" onClick={() => void loadCatalog(undefined, true)} disabled={catalogLoading}>Försök igen</button></div>}
-    {matchingSession && !catalog && !catalogError && !parallelSpiris && !parallelSwish && !parallelBank && <div className="office-panel integration-message" role="status"><RefreshCw size={19} /><span>Hämtar integrationer…</span></div>}
+    {matchingSession && !catalog && !catalogError && !parallelSpiris && !parallelSwish && !parallelBank && !parallelMail && <div className="office-panel integration-message" role="status"><RefreshCw size={19} /><span>Hämtar integrationer…</span></div>}
     {matchingSession && parallelSpiris && <>
       <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} />
     </>}
     {matchingSession && parallelSwish && <SwishIntegrationPanel user={user} actualUser={actualUser} onNotice={onNotice} />}
     {matchingSession && parallelBank && <OpenPaymentsIntegrationPanel user={user} actualUser={actualUser} onNotice={onNotice} />}
+    {matchingSession && parallelMail && <MailIntegrationPanel user={user} actualUser={actualUser} users={users} onNotice={onNotice} />}
 
-    {!!catalog && matchingSession && !parallelSpiris && !parallelSwish && !parallelBank && <>
+    {!!catalog && matchingSession && !parallelSpiris && !parallelSwish && !parallelBank && !parallelMail && <>
       {selected ? <>
         {selected.id === 'visma' && selected.implemented ? <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} /> : <article className="office-panel integration-detail">
           <div className="integration-detail-heading"><span className={`integration-icon ${selected.id}`}><SelectedIcon size={25} /></span><div><small>{categoryLabel(selected.category)}</small><h2 ref={detailHeading} tabIndex={-1}>{selected.name}</h2><p>{selected.description}</p></div><IntegrationStatus provider={selected} /></div>

@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.8.2. Aktuell kontorsversion: 0.24.1.
+Aktuell mobilwebbversion: 0.8.2. Aktuell kontorsversion: 0.25.0.
 Banköverföring/Open Payments sandbox och bankmottagare är genomförda i ÄL 109,
 bygge 2026-10-13: docs/integrationer/openpayments-bygge-2026-10-13.md.
 Delad attestknapp, bokföring i Spiris, utbetalningsspärr, eget utbetalningskort
@@ -2567,3 +2567,37 @@ Status: Tre bildmockuper klara 2026-10-13; mejlmodulen är inte implementerad.
   Första testkopplingen ska vara Microsoft 365/Outlook; Google följer senare.
 - Bilder: docs/mockups/inkomna-mejl/README.md. Nya testkopplingar behöver
   byggas separat; bildens anslutningar/statusar är exempeldata.
+
+ÄL 112 – Första mejlversionen: Microsoft 365, flera inkorgar och kundkort
+Status: Implementerad 2026-10-13 i kontor 0.25.0. Riktigt Microsoft-prov
+inväntar Entra-klientuppgifter och användarens inloggning/godkännande.
+- Integrationer får en fungerande Microsoft 365/Outlook-koppling med flera
+  Microsoft-konton, primära och delade inkorgar, läsbehörighet per inkorg,
+  uttrycklig synkning och bortkoppling. Google/Gmail visas som nästa koppling.
+- Inkomna mejl får sökning, olästfilter, val av inkorg, mejldetalj,
+  bilagemetadata och säker länk till originalet i Outlook. En röd notis
+  i vänstermenyn visar olästa synkroniserade mejl enligt Outlook.
+- Exakt normaliserad avsändaradress matchas mot bolagets kunder. En träff
+  visar ett kompakt kundkort med kundnummer, telefon, mejl, adress och
+  länk till kunddetaljen. Flera träffar kräver ett val. Kundens känsliga
+  betalningsuppgifter/personnummer lämnas inte ut; behörighet och anläggning
+  kontrolleras även för kundsammanfattningen.
+- Läsa mejl är en separat användarbehörighet, mailRead. Åtkomst kontrolleras
+  för både faktisk användare och vald roll samt inkorgens tilldelning.
+  Hantera anslutningar kräver VD/systemadmin och integrationsbehörigheter
+  för alla anläggningar. Användarkonton får ingen automatisk mejlåtkomst.
+- OAuth med PKCE, sessionsbunden engångsstate, skyddad callback och krypterad
+  tokenlagring. Bortkoppling, bolagsbyte och ändrad tilldelning spärrar sena
+  svar och gamla inloggningsförsök. Tokens hålls i privat bolagsdomän och
+  ingår inte i allmänna kontors-/mobilprojektioner.
+- Graph-anrop är begränsade till läsning och tidsbegränsas. Inga mejl skickas,
+  raderas eller markeras lästa. Metadata för de senaste 50 mejlen per inkorg
+  sparas; ofullständiga antal markeras. Mejlkroppen hämtas som text vid öppning
+  och lagras inte. Navigationsnotisen läser bara serverns sammanfattning.
+- AI-förslag, arbetsorder från mejl, skickade svar, större historiksynkning
+  och Google-anslutning är senare steg. Ingen anslutning låtsas vara klar
+  före verkligt Microsoft-godkännande.
+- Anslutning och Render-variabler: docs/integrationer/microsoft365-mejl.md.
+- Verifierat: API-/protokoll-/isoleringstester, riktig lokal gateway med
+  plattformscookie/callback och riktade browsertester med kontrollerade svar.
+  Riktig Graph-anslutning har inte provats utan Entra-uppgifterna.

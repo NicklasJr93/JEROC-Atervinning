@@ -32,6 +32,7 @@ import {
   PlugZap,
   Pencil,
   Trash2,
+  Mail,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
@@ -58,6 +59,7 @@ import CatalogImage from './CatalogImage';
 import { changeWeighingMaterial, type MaterialCommand } from './weighing-material-client';
 import StaffAccountPanel from './personnel/StaffAccountPanel';
 import { EnvironmentSessionProvider } from './EnvironmentSession';
+import MailNavUnreadBadge from './MailNavUnreadBadge';
 import EnvironmentReceiptPanel from './EnvironmentReceiptPanel';
 import CardSpirisStatusPanel, { CardSpirisTrackingProvider, CardAuditTimeline } from './CardSpirisStatusPanel';
 import EnvironmentWorkspace from './EnvironmentWorkspace';
@@ -75,6 +77,7 @@ const NvvSandboxWorkspace = lazy(() => import('./NvvSandboxWorkspace'));
 const VismaSandboxWorkspace = lazy(() => import('./VismaSandboxWorkspace'));
 const SwishSandboxWorkspace = lazy(() => import('./SwishSandboxWorkspace'));
 const BankSandboxWorkspace = lazy(() => import('./BankSandboxWorkspace'));
+const MailWorkspace = lazy(() => import('./MailWorkspace'));
 import { logisticsSummaryRequest, type LogisticsSummary } from './logistics/client';
 import type { WorkOrderPrefill } from './logistics/WorkOrderForm';
 import {
@@ -754,6 +757,7 @@ export function OfficeApp() {
   const panelClass = (panel: FocusPanel) => panelGuidance(panel) ? ` office-guidance-${panelGuidance(panel)}` : '';
   const nav = [
     { id: 'dashboard', name: 'Översikt', icon: LayoutDashboard, right: 'view' },
+    { id: 'mail', name: 'Inkomna mejl', icon: Mail, right: 'mailRead' },
     { id: 'weighings', name: 'Invägningar', icon: Scale, right: 'view' },
     { id: 'customer-approvals', name: 'Kundgodkännande', icon: ClipboardCheck, right: 'customerApprovalRead' },
     { id: 'attest', name: 'Attest', icon: BadgeCheck, right: 'attest' },
@@ -1234,6 +1238,7 @@ export function OfficeApp() {
               >
                 <n.icon size={19} />
                 {n.name}
+                {n.id === 'mail' && <MailNavUnreadBadge user={user} actualUser={actualUser!} />}
                 {navigationCounts[n.id] > 0 && (
                   <span id={`office-nav-count-${n.id}`} className="office-nav-count" aria-label={`${navigationCounts[n.id]} aktiva kort`}>
                     {navigationCounts[n.id]}
@@ -2196,10 +2201,14 @@ export function OfficeApp() {
               onOpenUser={id => navigate(`/personnel/accounts?user=${encodeURIComponent(id)}`)} /></Suspense>
           ) : section === 'environment' ? (
             <EnvironmentWorkspace user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} onOpenCard={open} />
+          ) : section === 'mail' ? (
+            <Suspense fallback={<div className="office-panel" role="status">Hämtar inkorgen…</div>}>
+              <MailWorkspace key={`${principalIdentity}`} user={user} actualUser={actualUser!} onNotice={setMessage} />
+            </Suspense>
           ) : section === 'integrations' ? (
             <Suspense fallback={<div className="office-panel" role="status">Hämtar integrationer…</div>}>
               {bankSandboxView ? <BankSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} onNotice={setMessage} /> : swishSandboxView ? <SwishSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} onNotice={setMessage} /> : vismaSandboxView ? <VismaSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : nvvSandboxView ? <NvvSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : <IntegrationsWorkspace
-                key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} siteId={siteFilter} onNotice={setMessage} />}
+                key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} users={data.users} siteId={siteFilter} onNotice={setMessage} />}
             </Suspense>
           ) : section === 'facilities' ? (
             <Suspense fallback={<div className="office-panel">Hämtar anläggningar…</div>}><FacilitiesWorkspace user={user} actualUser={actualUser!} onNotice={setMessage} /></Suspense>
