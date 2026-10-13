@@ -1,6 +1,6 @@
 # Swish Utbetalning – första testbygget
 
-Kontor 0.22.0, 2026-10-13, ÄL 102. Detta är ett verkligt API-flöde mot Swishs
+Kontor 0.22.1, 2026-10-13, ÄL 102. Detta är ett verkligt API-flöde mot Swishs
 Merchant Swish Simulator (MSS), med signerade instruktioner och återläsning.
 MSS flyttar inga pengar. Produktionsanslutning och bankutbetalningar är inte
 aktiverade. Spiris-betalningsregistreringen använder endast verifierad sandbox.
@@ -78,6 +78,11 @@ betalningsverifikations-ID:n. Det ursprungliga attesterade kortet och dess
 verkliga betalningsstatus skrivs inte om av en simulering.
 
 ## Fel och återhämtning
+
+I 0.22.1 rättades sparandet av Spiris-betalkonto: `CompanyIdentifier` är en
+textidentifierare enligt Spiris OpenAPI, medan bankkontots `Id` är en UUID.
+Företags-ID:t bevaras exakt och kontrolleras mot den verifierade anslutningen
+både vid sparande och före betalningsregistrering. Inga Render-variabler ändras.
 
 - Ett oklart Swish-resultat kontrolleras med GET på samma instruktion. Ingen
   automatisk ny utbetalning skapas. Statuskontrollen är begränsad och pausar

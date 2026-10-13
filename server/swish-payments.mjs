@@ -15,6 +15,9 @@ const hash = value => createHash('sha256').update(JSON.stringify(canonical(value
 const equal = (a, b) => isDeepStrictEqual(a, b);
 const text = (value, max = 200) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const uuid = z.string().uuid();
+// Spiris CompanyIdentifier is opaque text; only resource IDs such as bank
+// accounts are UUIDs. Preserve its exact value for the verified company pin.
+const spirisCompanyId = z.string().refine(value => Boolean(value.trim()));
 const paymentSchema = z.object({ method: z.enum(['swish', 'bank', 'cash', 'balance']), phone: z.string().max(100).optional(),
   recipient: z.string().max(200).optional(), personalNumber: z.string().max(30).optional(), bank: z.string().max(100).optional(),
   clearing: z.string().max(20).optional(), account: z.string().max(100).optional(), holder: z.string().max(200).optional() }).strict();
@@ -24,7 +27,7 @@ const startSchema = z.object({ cardId: z.number().int().positive(), source: sour
 const sandboxSchema = z.object({ amount: z.union([z.number().finite(), z.string().max(30)]), paymentDetails: paymentSchema,
   message: z.string().max(50).optional(), idempotencyKey: uuid }).strict();
 const settingsSchema = z.object({ enabled: z.boolean(), registerSpirisPayment: z.boolean().optional(), spirisBankAccountId: uuid.nullable().optional(),
-  bookkeepingEnabled: z.boolean().optional(), spirisCompanyId: uuid.nullable().optional() }).strict();
+  bookkeepingEnabled: z.boolean().optional(), spirisCompanyId: spirisCompanyId.nullable().optional() }).strict();
 const initialSettings = () => ({ enabled: false, bookkeepingEnabled: false, registerSpirisPayment: false, revision: 0 });
 const initial = organisationId => ({ version: 1, organisationId, settings: initialSettings(), jobs: {}, audit: [], workIds: [], nextWorkAt: null });
 const blocking = job => !['rejected', 'failed', 'cancelled'].includes(job.status);
@@ -202,7 +205,14 @@ export function createSwishPayments({ getRepository, sourceProvider = async () =
         message: 'ScrapPilot MSS-test' } };
   }
   async function saveSettings(input, context) {
-    const parsed = settingsSchema.safeParse(input); if (!parsed.success) fail('Kontrollera Swish-inställningarna.');
+    const parsed = settingsSchema.safeParse(input);
+    if (!parsed.success) {
+      if (parsed.error.issues.some(issue => issue.path[0] === 'spirisBankAccountId'))
+        fail('Spiris-kontots ID har fel format. Hämta konton från Spiris och välj kontot igen.', 422, 'swish_bank_account_invalid');
+      if (parsed.error.issues.some(issue => issue.path[0] === 'spirisCompanyId'))
+        fail('Spiris-företagets ID saknas eller har fel format. Hämta konton från Spiris igen.', 422, 'swish_company_invalid');
+      fail('Kontrollera Swish-inställningarna.');
+    }
     await authorize(context, { admin: true });
     await transaction((value, state, audit) => {
       principalIn(state, context, { admin: true });

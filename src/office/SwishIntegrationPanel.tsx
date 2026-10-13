@@ -54,6 +54,7 @@ export default function SwishIntegrationPanel({ user, actualUser, onNotice }: {
   function save() {
     if (!form) return;
     const submitted = structuredClone(form);
+    onNotice('');
     void action('save', async signal => {
       const value = await swishIntegrationApi.saveSettings(submitted, signal);
       if (!signal.aborted && identityRef.current === identity && permittedRef.current) {

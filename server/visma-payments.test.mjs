@@ -10,7 +10,8 @@ import { createVismaClient, parseVismaSandboxInput, VISMA_OPERATIONS } from './v
 import { createVismaSandbox } from './visma-sandbox.mjs';
 import { createVismaStorage } from './visma-storage.mjs';
 
-const organisationId = 'tenant-a', companyId = randomUUID(), bankId = randomUUID(), invoiceId = randomUUID(), draftId = randomUUID(), supplierId = randomUUID();
+// CompanyIdentifier is an opaque string in Spiris, unlike bank/invoice IDs.
+const organisationId = 'tenant-a', companyId = 'sandbox-company-123', bankId = randomUUID(), invoiceId = randomUUID(), draftId = randomUUID(), supplierId = randomUUID();
 const transactionId = randomUUID(), voucherId = randomUUID(), paymentVoucherId = randomUUID();
 async function fixture(run) {
   const directory = await mkdtemp(join(tmpdir(), 'visma-payment-')), file = join(directory, 'application.sqlite');
@@ -68,7 +69,8 @@ async function fixture(run) {
 test('only verified Swish PAID proof may create a payment journal; unlinked test payments and other tenants cannot', async () => fixture(async f => {
   const original = structuredClone(f.value);
   for (const patch of [{ status: 'debiting' }, { providerResult: { status: 'DEBITED' } }, { simulation: false }, { mode: 'production' },
-    { organisationId: 'tenant-b' }, { kind: 'sandbox' }, { amountCents: 0 }, { spirisCompanyId: randomUUID(), spirisBankAccountId: 'bad-id' }]) {
+    { organisationId: 'tenant-b' }, { kind: 'sandbox' }, { amountCents: 0 }, { spirisCompanyId: '   ' }, { spirisCompanyId: 123 },
+    { spirisCompanyId: randomUUID(), spirisBankAccountId: 'bad-id' }]) {
     Object.assign(f.value, original, patch);
     await assert.rejects(() => f.service.synchronize(f.value.id), error => error.code === 'visma_payment_proof_missing');
   }

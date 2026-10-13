@@ -75,6 +75,25 @@ async function fixture(run, hooks = {}) {
   } finally { await repository.close(); }
 }
 
+test('Spiris settings preserve opaque company identifiers through a verified payout and reject invalid bank accounts', async () => fixture(async f => {
+  const companyId = 'sandbox-company-123', bankAccountId = 'bba9d9b5-19f6-4a23-b546-3e79a3360d18';
+  const saved = await f.payments.saveSettings({ enabled: true, bookkeepingEnabled: true,
+    spirisCompanyId: companyId, spirisBankAccountId: bankAccountId }, context);
+  assert.equal(saved.settings.spirisCompanyId, companyId);
+  assert.equal(saved.settings.spirisBankAccountId, bankAccountId);
+  for (const patch of [{ spirisCompanyId: '   ' }, { spirisCompanyId: 123 }, { spirisBankAccountId: '1930' }]) {
+    await assert.rejects(() => f.payments.saveSettings({ enabled: true, bookkeepingEnabled: true,
+      spirisCompanyId: companyId, spirisBankAccountId: bankAccountId, ...patch }, context), error => error.status === 422);
+  }
+  assert.equal((await f.payments.settings(context)).settings.revision, saved.settings.revision);
+  const job = await f.payments.start(f.input(), context);
+  await f.payments.processQueuedPayments(); f.advance(5000); await f.payments.processQueuedPayments();
+  assert.equal((await f.payments.job(job.id, context)).status, 'simulated_paid');
+  assert.equal(f.bookkeeping.length, 1);
+  assert.equal(f.bookkeeping[0].spirisCompanyId, companyId);
+  assert.equal(f.bookkeeping[0].spirisBankAccountId, bankAccountId);
+}));
+
 test('concurrent reservations and workers send exactly one Swish instruction for one frozen attest version', async () => fixture(async f => {
   const preview = await f.payments.prepare(CARD_ID, context);
   assert.equal(preview.canStart, true, preview.issues.join('; '));

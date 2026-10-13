@@ -94,7 +94,8 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
       || value.status !== 'simulated_paid' || value.providerResult?.status !== 'PAID' || value.currency !== 'SEK'
       || !Number.isSafeInteger(value.amountCents) || value.amountCents <= 0 || !value.source || !Number.isSafeInteger(value.source.cardId)
       || !uuid(value.source.approvalId) || !Number.isInteger(value.source.version) || value.source.version < 1 || !/^[a-f0-9]{64}$/.test(value.source.hash)
-      || !uuid(value.spirisBankAccountId) || !uuid(value.spirisCompanyId)
+      // CompanyIdentifier is opaque text in Spiris; bank account IDs are UUIDs.
+      || !uuid(value.spirisBankAccountId) || typeof value.spirisCompanyId !== 'string' || !value.spirisCompanyId.trim()
       || !Number.isFinite(Date.parse(value.providerResult.datePaid)) || Date.parse(value.providerResult.datePaid) > clock().getTime() + 5000)
       fail('Betalningsbokföringen kräver en verifierad Swish-simulering, låst kortversion och eget Spiris-bankkonto.', 'visma_payment_proof_missing');
     return value;

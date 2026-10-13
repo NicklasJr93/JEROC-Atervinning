@@ -9,22 +9,31 @@ import { once } from 'node:events';
 import { createPricingStore } from './pricing.mjs';
 import { createEnvironmentRepository } from './environment-storage.mjs';
 import { createEnvironmentApi } from './environment-api.mjs';
+import { createApplicationRepository } from './application-storage.mjs';
+import { initialApplicationState } from './application.mjs';
+import { createSwishPayments } from './swish-payments.mjs';
 
 // The real cookie, CSRF and environment request scope are exercised here. The
 // provider stubs only record calls; no bank, Swish or Spiris writes occur.
 async function fixture(run) {
   const directory = await mkdtemp(join(tmpdir(), 'scrappilot-swish-api-'));
   const repository = await createEnvironmentRepository({ env: {}, filename: join(directory, 'environment.sqlite') });
+  const applicationRepository = await createApplicationRepository({ env: {}, filename: ':memory:', seed: initialApplicationState });
   const principalStore = createPricingStore(), calls = [];
   const job = { id: randomUUID(), status: 'queued', mode: 'mss', simulation: true };
-  const companyId = randomUUID(), bankAccountId = randomUUID();
+  // CompanyIdentifier is an opaque string in Spiris; only the bank-account ID
+  // has the UUID contract. Exercise the real settings schema and persistence.
+  const companyId = 'sandbox-company-123', bankAccountId = randomUUID();
   const record = (name, input, context) => {
     calls.push({ name, input: structuredClone(input), organisationId: context?.organisationId,
       actorId: context?.actorId, effectiveUserId: context?.effectiveUserId });
   };
+  const payments = createSwishPayments({ getRepository: async () => applicationRepository, env: {}, client: {
+    configurationStatus: async () => ({ ready: true, mode: 'mss', issues: [], missing: [] }),
+  } });
   const swishService = {
-    async settings(context) { record('settings', null, context); return { settings: { enabled: false } }; },
-    async saveSettings(input, context) { record('saveSettings', input, context); return { settings: input }; },
+    async settings(context) { record('settings', null, context); return payments.settings(context); },
+    async saveSettings(input, context) { record('saveSettings', input, context); return payments.saveSettings(input, context); },
     async prepare(id, context) { record('prepare', id, context); return { cardId: id, canStart: true }; },
     async start(input, context) { record('start', input, context); return job; },
     async sandboxSend(input, context) { record('sandboxSend', input, context); return job; },
@@ -54,7 +63,7 @@ async function fixture(run) {
       'X-Environment-CSRF': session.csrfToken, 'X-Environment-Actual-User': userId, 'X-Environment-Effective-User': userId };
   }
   try { await run({ base, origin, login, calls, job, companyId, bankAccountId }); }
-  finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await api.close(); await rm(directory, { recursive: true, force: true }); }
+  finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await api.close(); await applicationRepository.close(); await rm(directory, { recursive: true, force: true }); }
 }
 
 test('payment routes require a real staff session, payout rights, same-origin and CSRF before reserving a job', async () => fixture(async f => {
@@ -79,7 +88,13 @@ test('Swish settings pin the selected SEK bank account to the verified Spiris sa
   assert.equal(f.calls.filter(call => call.name === 'saveSettings').length, 0);
   const response = await save({ enabled: true, bookkeepingEnabled: true, spirisBankAccountId: f.bankAccountId });
   assert.equal(response.status, 200);
-  assert.equal((await response.json()).settings.spirisCompanyId, f.companyId);
+  const saved = (await response.json()).settings;
+  assert.equal(saved.spirisCompanyId, f.companyId);
+  assert.equal(saved.spirisBankAccountId, f.bankAccountId);
+  const settings = await fetch(f.base + '/swish/settings', { headers });
+  assert.equal(settings.status, 200);
+  assert.deepEqual((await settings.json()).settings, saved);
+  assert.equal(f.calls.filter(call => call.name === 'saveSettings').length, 1);
 }));
 
 test('sandbox jobs and status refresh preserve the ID and never create a second payout instruction', async () => fixture(async f => {

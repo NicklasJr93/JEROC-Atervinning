@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.8.0. Aktuell kontorsversion: 0.22.0.
+Aktuell mobilwebbversion: 0.8.0. Aktuell kontorsversion: 0.22.1.
 Swish MSS-test, utbetalningspopup, PDF-revisioner och Spiris-betalningsbokföring
 i sandbox är genomförda i 102, bygge 2026-10-13.
 096, 097 och 100 är genomförda tillsammans i bygge 2026-10-13.
@@ -2286,6 +2286,11 @@ byte av appens installerade logga återstår till nästa beställda koduppdateri
 ÄL 102 – Swish-test från attesterat viktkort och reviderade betalningsuppgifter
 Status: Implementerad 2026-10-13 i kontor 0.22.0. Endast Swish MSS och Spiris
 sandbox; ingen skarp Swish-/bankutbetalning har aktiverats.
+- Rättad 2026-10-13 i kontor 0.22.1: Spiris-företagets CompanyIdentifier
+  godtas som exakt textidentifierare vid sparande av betalkonto och vid
+  betalningsbokföring. UUID-format krävs fortsatt för bankkontots ID.
+  Kontot, bolaget och den aktuella anslutningen verifieras fortsatt före sändning.
+  Felaktiga konto-/företags-ID:n får tydligare felmeddelanden.
 - Ersätt Registrera demoutbetalning med Betala ut i viktkortets överdel
   och i utbetalningskortet. Båda öppnar samma förifyllda bekräftelsepopup.
   Den slutliga knappen heter Testa Swish-utbetalning och märker testmiljön.
