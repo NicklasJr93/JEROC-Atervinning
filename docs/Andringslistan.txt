@@ -2467,3 +2467,54 @@ Status: Implementerad 2026-10-13 i kontor 0.23.4.
   eller bokföringsanrop skapas av att visa spårbarheten.
 - Verifiering: 8 kontroller av utbetalning/spårbarhet, 4 kontroller av
   attest/bokföring/utbetalningsspärr samt produktionsbygget passerar.
+
+ÄL 109 – Banköverföring med svenskt konto, bankgiro, plusgiro och IBAN
+Status: Planerad 2026-10-13. Byggs senare tillsammans med bankmotorn;
+ingen implementation eller ny betalningsfunktion ingår i denna planering.
+- Huvudvalet Banköverföring får undervalet Svenskt bankkonto, Bankgiro,
+  Plusgiro eller IBAN. Samma val och fält används i kundregister, mobil,
+  kontor, utbetalningspopup, avräkning/PDF och integrationernas underlag.
+- Svenskt bankkonto anger clearing- och kontonummer; bankgiro och plusgiro
+  anger respektive gironummer; IBAN anger internationellt kontonummer.
+  Mottagarens namn krävs för samtliga typer. Banknamn, BIC/SWIFT, bankland
+  och mottagaradress kompletteras när vald bank-/betalningstjänst kräver dem.
+  Mottagaradress hålls skild från materialets ursprung. IBAN innebär inte
+  automatiskt utländsk valuta; bankland, kundland och betalningsvaluta är
+  skilda uppgifter. Första bankflödet avgränsas till SEK; andra valutor och
+  betalningsprodukter kräver separat verifierat stöd.
+- Servern normaliserar och sparar en tydlig mottagartyp med dess egna fält.
+  Mellanslag/bindestreck hanteras, IBAN/BIC blir versaler och inledande
+  nollor i kontonummer bevaras. Byte av typ rensar inaktiva mottagarfält.
+  Klient- och serverscheman, behörighetsskydd och maskering följer modellen.
+- Kontrollera svenska clearing-/kontoformat enligt tillämpliga bankregler,
+  bankgiro-/plusgiroformat, längd och kontrollsiffra samt IBAN:s landsformat,
+  landslängd och mod97. BIC kontrolleras till format när det anges.
+  Giltigt format bevisar inte att kontot finns, tillhör mottagaren eller
+  stöds av ansluten bank. Sådana kontroller får bara utlovas om tjänsten
+  faktiskt erbjuder dem.
+- Äldre bankposter utan undertyp läses som svenska bankkonton. Frysta
+  kundgodkända/attesterade underlag, gamla PDF:er och deras hash ändras inte
+  genom migrering. Utbetalningen använder det frysta mottagarunderlaget;
+  tillåtna senare rättningar kräver orsak, behörighet och separat spårbar
+  revision enligt befintligt utbetalningsflöde, utan ändrat belopp.
+- Spiris-mappningen för både förifyllning och export följer samma frysta
+  typ: Clearing/BankAccountNumber, BankgiroNumber, PlusgiroNumber eller
+  BankIban/BankBic samt BankName/BankCountryCode när tillämpligt.
+  Befintlig svensk SE-standard får inte tillämpas på alla IBAN-mottagare.
+  Uppgifter på Spiris-leverantören ersätter inte attestens låsta underlag.
+- Avräkningsnumret används som betalningsreferens/meddelande. OCR anges och
+  valideras bara när mottagaren eller bankprodukten kräver det; OCR ersätter
+  inte bankmotorns interna stabila betalnings-/instruktions-ID.
+- Bankmotorn kontrollerar stöd för mottagartyp, land, valuta och bankprodukt
+  innan en instruktion kan skickas. Open Payments sandbox med registrerad
+  AIS/PIS är ett planerat provspår, inte verifierat stöd för alla girotyper,
+  länder eller produktionsbetalningar. AIS-kontosaldo är en separat möjlig
+  läsfunktion och ingen bekräftelse på utförd betalning.
+- Bolagets anslutning, eget konto och betalningens miljö binds på servern.
+  En aktiv eller oklar instruktion reserverar avräkningen även mellan olika
+  betalmetoder, så Swish och bank inte kan betala samma underlag parallellt.
+- Byggkontroller ska täcka typbyte, felaktiga nummer, servervalidering,
+  gamla svenska bankposter, oförändrade frysta hashvärden, PDF-maskering
+  och korrekta Spiris-/providerunderlag för varje verifierad mottagartyp.
+- Samlad planering: docs/planerade-uppdateringar.md. Sandboxförberedelser:
+  docs/integrationer/openpayments-sandbox-setup.md.

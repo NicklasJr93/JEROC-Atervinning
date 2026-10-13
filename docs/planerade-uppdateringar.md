@@ -1,9 +1,70 @@
 # Planerade framtida uppdateringar
 
-Senast uppdaterad: 2026-10-12.
+Senast uppdaterad: 2026-10-13.
 
-De tre områdena nedan avvaktar enligt användarens beslut. Ingen implementation
-startas innan respektive område tas upp igen. Ordningen är inte en prioritering.
+Utbetalningsbuntar/betalfil, dashboards och mejlinkorg avvaktar fortsatt enligt
+användarens beslut. Bankmottagare och bankmotor är planerade för ett senare
+gemensamt bygge; ingen bankimplementation startas genom denna planering.
+Ordningen är inte en prioritering.
+
+## Bankmottagare: svenskt konto, bankgiro, plusgiro och IBAN
+
+Status: Planerad, ÄL 109, 2026-10-13. Byggs senare tillsammans med bankmotorn.
+
+- **Banköverföring** får undervalet **Svenskt bankkonto / Bankgiro / Plusgiro / IBAN**
+  med respektive nummerfält och obligatoriskt mottagarnamn. Banknamn, BIC/SWIFT,
+  bankland och mottagaradress krävs när vald betalningstjänst behöver dem.
+- Gemensam modell och servervalidering används av kundregister, mobil, kontor,
+  utbetalningspopup, PDF och integrationer. Normalisera nummer utan att förlora
+  inledande nollor; rensa inaktiva fält vid typbyte. Kontrollsiffra och IBAN-mod97
+  tillsammans med format/landslängd bevisar inte kontoägande eller bankstöd.
+- Äldre bankposter utan undertyp läses som svenska konton. Frysta attestunderlag
+  och hashvärden bevaras; senare mottagarrättningar följer befintliga krav på
+  behörighet, orsak, historik och revision. Betalningsunderlag kommer från den
+  frysta versionen, inte från senare ändrade kund-/leverantörsuppgifter.
+- Spiris-förifyllning och export mappar samma mottagartyp till `Clearing` /
+  `BankAccountNumber`, `BankgiroNumber`, `PlusgiroNumber` eller `BankIban` /
+  `BankBic`, med `BankName` / `BankCountryCode` när tillämpligt.
+- Bankland, kundland och betalningsvaluta hålls isär. IBAN innebär inte
+  automatiskt utländsk valuta eller att utlandsbetalningar är aktiverade.
+
+Underlag: [Ändringslistan, ÄL 109](Andringslistan.txt),
+[Spiris och bankbetalfil – förstudie](integrationer/spiris-visma/forstudie.md).
+
+## Bankmotor och Open Payments sandbox
+
+Status: Separat planerad integration. Användaren har registrerat Open Payments
+sandbox för AIS/PIS; faktiskt API-/bankstöd och anslutning återstår att verifiera.
+Byggs senare med mottagarfälten i ÄL 109. Ingen produktionsaktivering ingår här.
+
+- Börja med en isolerad sandboxadapter för betalningsinitiering (PIS), syntetiska
+  testmottagare och verifierad statusåterläsning. Fastställ tjänstens aktuella
+  autentisering, godkännandeflöde och bankprodukter före implementation.
+- Kontrollera varje mottagartyp, land och valuta mot den valda bankens/tjänstens
+  verkliga stöd. Registrerad AIS/PIS innebär inte att bankgiro, plusgiro, alla
+  IBAN-länder, valutor eller kontotyper fungerar genom samma API.
+- Återanvänd serverns låsta avräkningsunderlag, utbetalningsbehörighet och spärr
+  till verifierad bokföring i rätt Spiris-företag. Varje instruktion får beständig
+  journal, reservation, dubblettskydd och spårbar koppling till attestversionen.
+- Skapad, skickad, väntande, avvisad, okänd och verifierat genomförd betalning
+  hålls isär. Ett mottaget API-anrop eller genomfört bankgodkännande räcker inte
+  som betalningsbevis; bankens dokumenterade slutstatus och matchande underlag
+  måste återläsas. Oklart resultat kontrolleras utan ny pengainstruktion.
+- Bekräftad betalning följs av separat PDF-revision och Spiris-betalningsbokföring
+  mot rätt eget konto. Fel i dessa steg får inte skicka betalningen igen.
+- **AIS som möjligt tillval:** läsa anslutna egna konton och kontosaldo efter
+  rätt kontobehörighet/samtycke. Visa källa och uppdateringstid; tillgängligt och
+  bokfört saldo skiljs åt om API:t lämnar båda. Saldovisning planeras separat
+  från betalningsinitieringen; ett saldo är ingen betalningsbekräftelse eller
+  garanti för betalning.
+- Anslutningsuppgifter hanteras på servern. Sandboxens klientuppgifter kan
+  förberedas i Render enligt guiden nedan; ingen adapter läser dem ännu.
+  Återkopplingsadressen fastställs när bankens godkännandeflöde implementeras.
+
+Underlag: [Ändringslistan, ÄL 109](Andringslistan.txt),
+[Planerat utbetalningsflöde](integrationer/utbetalningar-plan.md),
+[Open Payments sandbox – förberedelser](integrationer/openpayments-sandbox-setup.md),
+[Attest, bokföring och utbetalning](integrationer/attest-bokfor-utbetalning-2026-10-13.md).
 
 ## Utbetalningsbuntar och betalfil
 
