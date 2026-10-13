@@ -37,6 +37,8 @@ async function fixture(run,hooks={}) {
     createConsent:async options=>{calls.push({method:'POST',kind:'consent',...structuredClone(options)});return success({consentId:'consent-new',consentStatus:'received'},201);},
     createAuthorisation:async options=>{calls.push({method:'POST',kind:'auth-create',...structuredClone(options)});return success({authorisationId:'auth-id',scaMethods:[{authenticationMethodId:'mbid'}],scaStatus:'received'});},
     startAuthorisation:async options=>{calls.push({method:'PUT',kind:'auth-start',...structuredClone(options)});return {...success({scaStatus:'started'}),...(!hooks.decoupled?{authorisationUrl:`https://oauth.sandbox.openbankingplatform.com/connect/authorize?state=${options.state}`}:{})};},
+    readAuthorisation:async options=>{calls.push({method:'GET',kind:'auth-read',...structuredClone(options)});return success({scaStatus:'started'});},
+    renewAuthorisation:options=>{calls.push({method:'LOCAL',kind:'auth-renew',...structuredClone(options)});return {ok:true,authorisationUrl:`https://oauth.sandbox.openbankingplatform.com/connect/authorize?state=${options.state}`};},
     completeAuthorisation:async options=>{calls.push({method:'POST',kind:'auth-complete',...structuredClone(options)});return success({activated:true});},
   };
   const service=()=>createBankPayments({getRepository:async()=>repo,sourceProvider:async()=>[structuredClone(approval)],client,env:{OPENPAYMENTS_REDIRECT_URI:'https://scrappilot.test/api/integrations/openpayments/callback'},now:()=>timestamp,
@@ -145,6 +147,79 @@ test('AIS consent uses its remote ID, persists expiry and only permits accounts 
   const accounts=await f.payments.getAccounts(ctx);assert.equal(accounts.accounts[0].id,ACCOUNT);
   await assert.rejects(()=>f.payments.saveSettings({enabled:true,debtorAccountId:'unverified-other-account'},ctx),error=>error.code==='bank_account_invalid');
   await f.payments.saveSettings({enabled:true,debtorAccountId:ACCOUNT},ctx);assert.equal((await f.payments.balances(ctx)).ok,true);
+}));
+test('failed AIS callback preserves safe diagnostics, hides its consumed link and explicitly reauthorises the same consent once',()=>fixture(async f=>{
+  let activated=false;
+  f.client.readConsentStatus=async options=>{f.calls.push({method:'GET',kind:'consent',id:options.id});return {ok:true,data:{consentStatus:activated?'valid':'received'}};};
+  f.client.completeAuthorisation=async options=>{f.calls.push({method:'POST',kind:'auth-complete',...structuredClone(options)});
+    return activated?{ok:true,statusCode:200,data:{activated:true}}:{ok:false,statusCode:400,uncertain:false,
+      error:{code:'bank_authorisation_activation_failed',message:'Activation rejected',providerCodes:['invalid_grant']},
+      journal:{method:'POST',path:'/connect/token',statusCode:400,request:{code:options.code},response:{error:'invalid_grant',error_description:options.code}}};};
+  const consent=await f.payments.connectConsent({},ctx),oldState=new URL(consent.authorisationUrl).searchParams.get('state');
+  const query={code:'synthetic-consumed-code-must-not-persist',state:oldState};
+  await assert.rejects(()=>f.payments.completeAuthorisation(query,ctx),error=>error.code==='bank_consent_pending');
+  let current=(await f.payments.settings(ctx)).consent;
+  assert.equal(current.authorisationUrl,null);assert.equal(current.canReauthorise,true);
+  assert.equal(current.authorisationDiagnostics.httpStatus,400);assert.deepEqual(current.authorisationDiagnostics.providerCodes,['invalid_grant']);
+  assert.equal(JSON.stringify(await f.repo.read(state=>state.bankPayments)).includes(query.code),false);
+  await assert.rejects(()=>f.payments.completeAuthorisation(query,ctx),error=>error.code==='bank_consent_pending');
+  assert.equal(f.calls.filter(call=>call.kind==='auth-complete').length,1);
+  const restarted=await Promise.all([f.payments.connectConsent({},ctx),f.payments.connectConsent({},ctx)]);
+  current=(await f.payments.settings(ctx)).consent;
+  assert.equal(current.id,consent.id);assert.equal(current.providerConsentId,consent.providerConsentId);
+  assert.equal(f.calls.filter(call=>call.kind==='consent'&&call.method==='POST').length,1);
+  assert.equal(f.calls.filter(call=>call.kind==='auth-create').length,1);assert.equal(f.calls.filter(call=>call.kind==='auth-renew').length,1);
+  assert.equal(f.calls.filter(call=>call.kind==='auth-start').length,1);
+  assert.ok(restarted.some(item=>item.authorisationUrl));assert.equal(current.canReauthorise,false);
+  const newState=new URL(current.authorisationUrl).searchParams.get('state');assert.notEqual(newState,oldState);
+  await assert.rejects(()=>f.payments.completeAuthorisation(query,ctx),error=>error.code==='bank_callback_state_invalid');
+  activated=true;await f.payments.completeAuthorisation({code:'synthetic-new-code',state:newState},ctx);
+  current=(await f.payments.settings(ctx)).consent;assert.equal(current.status,'valid');assert.equal(current.authorisationUrl,null);
+  assert.equal(current.authorisationDiagnostics.ok,true);assert.equal(f.bookkeeping.length,0);assert.equal(f.documents.length,0);
+}));
+test('uncertain AIS activation reconciles the existing consent and SCA before any explicit replacement signing',()=>fixture(async f=>{
+  let consentValid=false,scaReadable=false;
+  f.client.readConsentStatus=async options=>{f.calls.push({method:'GET',kind:'consent',id:options.id});return {ok:true,data:{consentStatus:consentValid?'valid':'received'}};};
+  f.client.readAuthorisation=async options=>{f.calls.push({method:'GET',kind:'auth-read',...options});return scaReadable?{ok:true,data:{scaStatus:'started'}}:{ok:false};};
+  f.client.completeAuthorisation=async()=>({ok:false,statusCode:500,uncertain:true,error:{code:'bank_authorisation_activation_failed',message:'Synthetic upstream 500'}});
+  const consent=await f.payments.connectConsent({},ctx),state=new URL(consent.authorisationUrl).searchParams.get('state');
+  await assert.rejects(()=>f.payments.completeAuthorisation({code:'synthetic-timeout-code',state},ctx),error=>error.code==='bank_consent_pending');
+  assert.equal((await f.payments.settings(ctx)).consent.canReauthorise,false);
+  assert.equal((await f.payments.settings(ctx)).consent.authorisationDiagnostics.httpStatus,500);
+  const count=f.calls.filter(call=>call.kind==='auth-create').length;
+  await assert.rejects(()=>f.payments.connectConsent({},ctx),error=>error.code==='bank_consent_reauthorisation_blocked');
+  assert.equal(f.calls.filter(call=>call.kind==='auth-create').length,count);
+  scaReadable=true;const restart=await f.payments.connectConsent({},ctx);assert.equal(restart.id,consent.id);assert.ok(restart.authorisationUrl);
+  assert.equal(f.calls.filter(call=>call.kind==='consent'&&call.method==='POST').length,1);
+  assert.equal(f.calls.filter(call=>call.kind==='auth-create').length,count);
+}));
+test('an uncertain OAuth callback that already activated its consent is reconciled without creating any new consent or signing',()=>fixture(async f=>{
+  let consentValid=false;
+  f.client.readConsentStatus=async options=>{f.calls.push({method:'GET',kind:'consent',id:options.id});return {ok:true,data:{consentStatus:consentValid?'valid':'received'}};};
+  f.client.completeAuthorisation=async()=>({ok:false,uncertain:true,error:{code:'bank_authorisation_activation_unknown',message:'Synthetic timeout'}});
+  const consent=await f.payments.connectConsent({},ctx),state=new URL(consent.authorisationUrl).searchParams.get('state');
+  await assert.rejects(()=>f.payments.completeAuthorisation({code:'synthetic-timeout-code',state},ctx),error=>error.code==='bank_consent_pending');
+  consentValid=true;const recovered=await f.payments.connectConsent({},ctx);
+  assert.equal(recovered.id,consent.id);assert.equal(recovered.status,'valid');assert.equal(recovered.authorisationUrl,null);
+  assert.equal(recovered.error,null);assert.equal(recovered.canReauthorise,false);
+  assert.equal(f.calls.filter(call=>call.kind==='consent'&&call.method==='POST').length,1);
+  assert.equal(f.calls.filter(call=>call.kind==='auth-create').length,1);
+}));
+test('an obsolete consent callback cannot activate the previous bank or retrieve accounts for a replacement connection',()=>fixture(async f=>{
+  const consent=await f.payments.connectConsent({},ctx),state=new URL(consent.authorisationUrl).searchParams.get('state');
+  await f.payments.saveSettings({enabled:true,bankId:'NDEASESS'},ctx);
+  await assert.rejects(()=>f.payments.completeAuthorisation({code:'synthetic-obsolete-callback',state},ctx),error=>error.code==='bank_connection_changed');
+  assert.equal(f.calls.filter(call=>call.kind==='auth-complete').length,0);
+}));
+test('bank identity changes during OAuth activation prevent the old reply from updating or querying the new consent',()=>fixture(async f=>{
+  let start,finish;const started=new Promise(resolve=>{start=resolve;}),gate=new Promise(resolve=>{finish=resolve;});
+  const consent=await f.payments.connectConsent({},ctx),state=new URL(consent.authorisationUrl).searchParams.get('state');
+  f.client.completeAuthorisation=async()=>{start();await gate;return {ok:true,statusCode:200,data:{activated:true}};};
+  const callback=f.payments.completeAuthorisation({code:'synthetic-gated-callback',state},ctx);await started;
+  const reads=f.calls.filter(call=>call.kind==='consent'&&call.method==='GET').length;
+  await f.payments.saveSettings({enabled:true,bankId:'NDEASESS'},ctx);finish();
+  await assert.rejects(()=>callback,error=>error.code==='bank_connection_changed');
+  assert.equal(f.calls.filter(call=>call.kind==='consent'&&call.method==='GET').length,reads);
 }));
 test('expired or revoked account consent prevents bank dispatch',()=>fixture(async f=>{
   const item=await f.payments.start(f.input(),ctx);await f.payments.processQueuedPayments();assert.equal((await f.payments.job(item.id,ctx)).status,'blocked');assert.equal(f.calls.filter(call=>call.kind==='payment'&&call.method==='POST').length,0);

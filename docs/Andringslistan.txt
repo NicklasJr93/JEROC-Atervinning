@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.8.2. Aktuell kontorsversion: 0.24.0.
+Aktuell mobilwebbversion: 0.8.2. Aktuell kontorsversion: 0.24.1.
 Banköverföring/Open Payments sandbox och bankmottagare är genomförda i ÄL 109,
 bygge 2026-10-13: docs/integrationer/openpayments-bygge-2026-10-13.md.
 Delad attestknapp, bokföring i Spiris, utbetalningsspärr, eget utbetalningskort
@@ -2525,3 +2525,45 @@ Open Payments sandbox, SEK; produktionsaktivering och utlandsbetalningar ingår 
   hålls instruktionen oklart reserverad utan betalnings-PDF eller Spiris-post.
   Faktiskt BG/PG-sandboxprov återstår; auth/banklista/Swedbankkapabiliteter
   är provade mot riktig sandbox med HTTP 200.
+
+ÄL 110 – Bankgodkännande och stabila integrationsvyer
+Status: Implementerad 2026-10-13 i kontor 0.24.1.
+- Rätta OAuth-länkens resursväljare enligt sandboxens faktiska svar.
+  ConsentAuthorisationId gav HTTP 500; consentAuthorisationId gav HTTP 200
+  med samma medgivande/signering och en ny OAuth-kod. Bankens ID:n hämtas
+  fortsatt från serverns beständiga underlag, inte från godtyckliga länkar.
+- Ett förbrukat godkännandelänk-/kodförsök visas inte igen. Ett uttryckligt
+  återförsök kontrollerar samma medgivande och återanvänder befintligt
+  signerings-ID med ny sessionsbunden state/länk. Inga dubbla medgivanden
+  eller betalningar skapas av återförsöket; okända resultat kontrolleras först.
+- Bankinställningarna visas direkt när de lokala serveruppgifterna hämtats.
+  Extern banklista hämtas separat och gråar inte ut hela formuläret eller
+  blockerar ett fristående anslutningsprov. Sena svar bevarar egna fält.
+- Anslutningsprov finns på både inställningskortet och testsidan. Saknad
+  konfiguration kan diagnostiseras; kontomedgivande/betalning behåller sina
+  krav. Läs-/diagnostikanrop får en tidsgräns och ett tydligt återförsök.
+- Sessionsfel visas med korrekt text och möjlighet att återansluta.
+  Konton och saldon från en gammal medgivandeprojektion prioriteras inte
+  framför färska uppgifter. Tidigare slutförd signering är inte bevis på
+  att ett medgivande fortfarande är giltigt.
+- HTTP-status, providerfel och maskerad anropsjournal för godkännandet
+  visas under Felsökningsinformation. Hemligheter/returkoder visas inte.
+- Ett kontrollerat riktigt AIS-prov bekräftade giltigt medgivande,
+  slutförd signering samt konton och saldon med HTTP 200. PIS/betalningar
+  ingick inte i provet. Rapport: docs/integrationer/openpayments-consent-probe-2026-10-13.md.
+- Verifiering: 75 riktade serverkontroller, 15 UI-kontroller och
+  produktionsbygget passerar. Godkännandefelet och de blockerade formulären
+  återskapades före fixen; äldre misslyckade medgivanden täcks separat.
+
+ÄL 111 – Inkomna mejl och flera inkorgar, bildmockuper
+Status: Tre bildmockuper klara 2026-10-13; mejlmodulen är inte implementerad.
+- Inkomna mejl samlar flera inkorgar med val Alla inkorgar, filter, sökning
+  och mottagande brevlåda per rad. Inkorgsikon högt i vänstermenyn får
+  en röd olästnotis. Enkel vy utan interaktiv demo.
+- Öppnat mejl visar tråd/bilaga och ett granskat arbetsorderförslag med
+  kund, kärl, adress och önskad tid. Användaren väljer att skapa eller svara.
+- Integrationer visar Microsoft 365/Outlook och Google/Gmail samt flera
+  anslutna inkorgar, delade brevlådor och rätt att läsa/svara per inkorg.
+  Första testkopplingen ska vara Microsoft 365/Outlook; Google följer senare.
+- Bilder: docs/mockups/inkomna-mejl/README.md. Nya testkopplingar behöver
+  byggas separat; bildens anslutningar/statusar är exempeldata.

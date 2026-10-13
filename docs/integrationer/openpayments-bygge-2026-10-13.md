@@ -4,6 +4,10 @@ Levererat 2026-10-13 i kontor 0.24.0 och mobilwebb 0.8.2.
 Endast Open Payments sandbox och SEK är aktiverbara. Produktionsbank,
 utlandsbetalningar och betalfil/buntar ingår inte i detta bygge.
 
+Uppdaterad i kontor **0.24.1, ÄL 110**: rätt skiftläge i bankens OAuth-länk,
+återförsök med samma medgivande/signering och stabilare integrationsvyer.
+[Verifierat riktigt medgivande-, konto- och saldoprov](openpayments-consent-probe-2026-10-13.md).
+
 ## Prova efter deploy
 
 1. I Open Payments → ScrapPilot Gateway → Redirect URI whitelist, lägg till
@@ -14,6 +18,10 @@ utlandsbetalningar och betalfil/buntar ingår inte i detta bygge.
 3. Spara inställningarna och anslut testbankens medgivande. Om signering via
    bankens webbsida behövs visas en separat länk. Återkomsten verifieras på
    servern för samma bolag, faktiska användare, valda konto och session.
+   Om ett äldre försök fastnat, välj **Kontrollera och försök igen** eller
+   **Prova bankgodkännandet igen**, följ den nya **Godkänn hos testbanken**-länken
+   och godkänn. Det befintliga medgivandet/signeringen återanvänds efter kontroll;
+   en gammal OAuth-kod eller förbrukad godkännandelänk skickas inte igen.
 4. Hämta konton efter godkännandet och välj ett verifierat SEK-konto.
    Kontona kommer från medgivandet; ett manuellt inmatat avsändarkonto godtas inte.
    Saldoläsningen visar testbankens svar och tid för hämtningen.

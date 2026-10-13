@@ -2,8 +2,10 @@
 
 Senast uppdaterad: 2026-10-13.
 
-Utbetalningsbuntar/betalfil, dashboards och mejlinkorg avvaktar fortsatt enligt
-användarens beslut. Bankmottagare och Open Payments-bankmotor
+Utbetalningsbuntar/betalfil och dashboards avvaktar fortsatt enligt
+användarens beslut. Mejlinkorgens nya bildmockuper är klara enligt ÄL 111;
+implementation återstår med Microsoft 365/Outlook som första testkoppling.
+Bankmottagare och Open Payments-bankmotor
 är levererade i sandbox enligt ÄL 109; produktionsanslutning återstår.
 Ordningen är inte en prioritering.
 
@@ -36,7 +38,9 @@ Underlag: [Ändringslistan, ÄL 109](Andringslistan.txt),
 
 Status: Implementerad sandboxintegration i ÄL 109, kontor 0.24.0.
 Token, banklista och Swedbank-kapabiliteter är provade mot riktig sandbox.
-Kundens medgivande och ett faktiskt BG/PG-svar ska provas i appen; bankens
+ÄL 110 rättar godkännandelänkens skiftläge. Ett riktigt AIS-prov bekräftar
+medgivande, signering, konton och saldon med HTTP 200; [provrapport](integrationer/openpayments-consent-probe-2026-10-13.md).
+Ett faktiskt BG/PG-svar ska provas i appen; bankens
 slutstatus behöver alltid matchande mottagar-/referensbevis. Produktionsbank
 och andra valutor ingår inte. [Provsteg](integrationer/openpayments-bygge-2026-10-13.md).
 
@@ -100,10 +104,12 @@ Underlag: [Rollernas dashboardmockuper](mockups/roll-dashboard/README.md), ÄL 0
 
 ## Mejlinkorg med flera brevlådor och AI-förslag
 
-Status: Avvaktar implementation. Klickbar mockup finns.
+Status: Nya statiska bildmockuper klara i ÄL 111. Implementation återstår.
 
 - Börja med Microsoft 365/Outlook under **Integrationer**. Flera konton och gemensamma
   brevlådor kan anslutas med individuellt styrd åtkomst.
+- Google/Gmail ska också kunna anslutas i samma vy efter första Microsoft-testet.
+- En inkorgsikon högt i vänstermenyn visar antalet olästa mejl med en röd notis.
 - En samlad mejlsida har valet **Alla tillgängliga inkorgar** och filter per brevlåda.
   Varje mejl visar mottagande adress; svaret föreslår samma avsändarbrevlåda.
 - Trådar, sökning, bilagor och automatisk hämtning av nya mejl.
@@ -116,4 +122,5 @@ Status: Avvaktar implementation. Klickbar mockup finns.
   och väljer själv att skapa ärendet eller skicka svaret.
 - Outlook-anslutning och faktiska läs-/svar-/ärendeflöden byggs före AI-stödet.
 
-Underlag: [Mejlinkorgens mockup](mockups/roll-dashboard/README.md), ÄL 075.
+Underlag: [Nya bildmockuper: inkorg, mejldetalj och integration](mockups/inkomna-mejl/README.md),
+ÄL 111. [Äldre mejlinkorgskoncept](mockups/roll-dashboard/README.md), ÄL 075.

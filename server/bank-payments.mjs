@@ -48,8 +48,10 @@ export function bankMoneyToCents(value) {
 
 function safeConsent(item) {
   if (!item) return null;
-  return copy(Object.fromEntries(['id','providerConsentId','bankId','status','scaStatus','authorisationUrl','createdAt','updatedAt','expiresAt','error']
-    .filter(key => item[key] !== undefined).map(key => [key,item[key]])));
+  return copy({ ...Object.fromEntries(['id','providerConsentId','bankId','status','scaStatus','authorisationUrl','authorisationDiagnostics','createdAt','updatedAt','expiresAt','error']
+    .filter(key => item[key] !== undefined).map(key => [key,item[key]])),
+    ...(item.authorisation?.callbackReservedAt && {authorisationUrl:null}),
+    canReauthorise: Boolean(item.providerConsentId && item.status !== 'valid' && item.authorisation?.phase === 'failed' && !item.authorisation?.unknown) });
 }
 function publicJob(item) {
   if (!item) return null;
@@ -57,9 +59,10 @@ function publicJob(item) {
     'paymentDetails','originalPaymentDetails','reason','recipient','status','bookkeepingStatus','bookkeeping','createdAt','updatedAt','verifiedAt','finishedAt','events','error','retryOf',
     'request','response','providerInstructionUUID','providerPaymentId','providerPaymentReference','providerProduct','bankId','authorisationUrl','scaStatus','bookingProof',
     'spirisCompanyId','spirisBankAccountId','reservedBy','revisionActor','bookkeepingEnabled','registerSpirisPayment','nextCheckAt','pollSuspended','documentRevision',
-    'paymentDocumentStatus','paymentDocumentError','paymentConfirmationDocument','preflightStatus','preflightCheckedAt']
+    'paymentDocumentStatus','paymentDocumentError','paymentConfirmationDocument','preflightStatus','preflightCheckedAt','authorisationDiagnostics']
     .filter(key => item[key] !== undefined).map(key => [key,item[key]])),
     ...(item.request?{request:{method:item.request.method,path:item.request.path,payload:safeOpenPaymentsData(item.request.payload)}}:{}),
+    ...(item.authorisation?.callbackReservedAt && {authorisationUrl:null}),
     canAuthorise: Boolean(item.status === 'awaiting_authorization' && item.providerPaymentId && !item.authorisation?.unknown),
     canResume: Boolean(item.status === 'blocked' && neverSent(item) && item.preflightStatus === 'ready' && !item.lease) });
 }
@@ -137,6 +140,18 @@ export function createBankPayments({ getRepository, sourceProvider = async () =>
       effectiveUserId:context?.effectiveUserId??'service:openpayments',...copy(details)}); item.updatedAt = clock().toISOString();
   }
   const workerContext = item => ({organisationId,actorId:item.authorization.actorId,effectiveUserId:item.authorization.effectiveUserId,sessionKey:'durable-bank-instruction'});
+  function authorisationDiagnostics(result, stage, secrets = []) {
+    const sensitive=[env.OPENPAYMENTS_CLIENT_SECRET,...secrets];
+    const status = result?.statusCode;
+    const codes = [...new Set([...(result?.error?.providerCodes ?? []), result?.data?.error, result?.data?.code]
+      .filter(code => typeof code === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(code)
+        && !sensitive.some(secret=>typeof secret==='string' && secret.length>=4 && code.includes(secret))))].slice(0,20);
+    const journal = (Array.isArray(result?.journal) ? result.journal : result?.journal ? [result.journal] : []).slice(-8);
+    return { stage, checkedAt:clock().toISOString(), ok:result?.ok === true,
+      httpStatus:Number.isInteger(status) && status >= 100 && status <= 599 ? status : null,
+      errorCode:result?.error?.code ? text(result.error.code,100) : null, providerCodes:codes,
+      journal:safeOpenPaymentsData(journal,0,sensitive) };
+  }
   async function configuration() {
     const config = await client.configurationStatus();
     if ((config.mode ?? config.environment) !== 'sandbox') return {...config,ready:false,issues:[...(config.issues??[]),'Endast Open Payments sandbox stöds.']};
@@ -206,10 +221,17 @@ export function createBankPayments({ getRepository, sourceProvider = async () =>
     if(url.protocol!=='https:'||url.username||url.password||url.hash) fail('Bankkopplingens returadress måste vara en HTTPS-adress.',409,'bank_redirect_invalid');
     return url.toString();
   }
-  async function createRedirectAuthorisation({resource,id,product,bankId,psuId,corporateId},context,input,save) {
+  async function createRedirectAuthorisation({resource,id,product,bankId,psuId,corporateId,existingAuthorisationId},context,input,save) {
     const uri=redirectUri(),state=randomUUID()+randomUUID();
-    await save({phase:'creating',stateHash:hash(state),redirectUri:uri,context:{actorId:context.actorId,effectiveUserId:context.effectiveUserId,sessionHash:hash(context.sessionKey)},expiresAt:nextAt(15*60_000)});
+    await save({phase:'creating',stateHash:hash(state),redirectUri:uri,context:{actorId:context.actorId,effectiveUserId:context.effectiveUserId,sessionHash:hash(context.sessionKey)},expiresAt:nextAt(15*60_000),
+      ...(existingAuthorisationId && {authorisationId:existingAuthorisationId})});
     const options={resource,id,product,...providerContext({bankId,psuId,corporateId},context),redirectUri:uri};
+    if(existingAuthorisationId){
+      const renewed=client.renewAuthorisation({...options,authorisationId:existingAuthorisationId,state});
+      if(!renewed.ok){await save({phase:'failed',error:safeError(renewed.error)});return null;}
+      await save({phase:'started',authorisationId:existingAuthorisationId,authorisationUrl:renewed.authorisationUrl,scaStatus:'started',error:null});
+      return {authorisationUrl:renewed.authorisationUrl,scaStatus:'started'};
+    }
     const created=await client.createAuthorisation(options);
     if(!created.ok) {await save({phase:created.uncertain?'unknown':'failed',unknown:Boolean(created.uncertain),error:safeError(created.error)});return null;}
     const authId=created.data?.authorisationId??created.data?.authorizationId;
@@ -220,7 +242,7 @@ export function createBankPayments({ getRepository, sourceProvider = async () =>
     if(!method||!methods.some(item=>item.authenticationMethodId===method)){
       await save({phase:'failed',error:{code:'bank_authorisation_method_missing',message:'Banken har inte lämnat en verifierad signeringsmetod.'}});return null;
     }
-    await save({phase:'starting'});
+    await save({phase:'starting',authenticationMethodId:method});
     const started=await client.startAuthorisation({...options,authorisationId:authId,...(method?{authenticationMethodId:method}:{}),redirectUri:uri,state});
     if(!started.ok){await save({phase:started.uncertain?'unknown':'failed',unknown:Boolean(started.uncertain),error:safeError(started.error)});return null;}
     const authorisationUrl=started.authorisationUrl??null;
@@ -236,9 +258,40 @@ export function createBankPayments({ getRepository, sourceProvider = async () =>
   async function connectConsent(input={},context) {
     const parsed=authInputSchema.safeParse(input);if(!parsed.success)fail('Kontrollera bankanslutningen.');
     await authorize(context,{admin:true});await configuration().then(config=>{if(!config.ready)fail('Open Payments sandbox är inte konfigurerad.',409,'bank_not_configured');});
+    const current=await read(value=>copy(value.consents[value.currentConsentId]??null));
+    const retry=Boolean(current?.providerConsentId && ['failed','unknown'].includes(current.authorisation?.phase)
+      && (current.authorisation?.callbackReservedAt || current.authorisation?.phase === 'failed'));
+    let existingAuthorisationId;
+    if(retry){
+      // A consumed OAuth code is never replayed. First inspect the exact same
+      // consent; a timeout may still have activated it at the provider.
+      const checked=await client.readConsentStatus({id:current.providerConsentId,...providerContext(current,context)});
+      if(!checked.ok)fail(checked.error?.message??'Medgivandet kunde inte kontrolleras.',502,checked.error?.code??'bank_consent_failed');
+      const status=checked.data?.consentStatus??checked.data?.status;
+      if(status==='valid'){await getAccounts(context,current.id);return safeConsent(await read(value=>value.consents[current.id]));}
+      if(!['received','partiallyAuthorised'].includes(status))fail('Kontrollera det tidigare bankmedgivandets status före ny signering.',409,'bank_consent_reauthorisation_blocked');
+      if(current.authorisation?.authorisationId){
+        const checkedAuth=await client.readAuthorisation?.({resource:'consent',id:current.providerConsentId,
+          authorisationId:current.authorisation.authorisationId,...providerContext(current,context)});
+        if(!checkedAuth?.ok || checkedAuth.data?.scaStatus!=='started')
+          fail('Bankens tidigare signering måste kunna kontrolleras före en ny signering.',409,'bank_consent_reauthorisation_blocked');
+        existingAuthorisationId=current.authorisation.authorisationId;
+      }
+    }
     const reservation=await transaction((value,state)=>{
       principalIn(state,context,{admin:true});assertProviderConfiguration(value.settings);
       const active=value.consents[value.currentConsentId];
+      if(retry && (active?.id!==current.id || ['bankId','corporateId','psuId'].some(key=>active[key]!==value.settings[key])))
+        fail('Bankkopplingen ändrades under kontrollen.',409,'bank_connection_changed');
+      if(retry && active?.id===current.id && active.authorisation?.stateHash===current.authorisation?.stateHash
+        && ['failed','unknown'].includes(active.authorisation?.phase)){
+        if(Date.parse(active.expiresAt)<=clock().getTime())fail('Bankmedgivandet har gått ut. Anslut banken igen.',409,'bank_consent_expired');
+        active.authorisationHistory??=[];active.authorisationHistory.push(copy(active.authorisation));
+        active.authorisation={phase:'reserved'};active.authorisationUrl=null;active.scaStatus=null;active.error=null;active.status='authorising';
+        event(active,'bank_consent_reauthorisation_reserved',context);
+        return {item:copy(active),reauthorise:true,existingAuthorisationId};
+      }
+      if(retry)return {existing:copy(active)};
       if(active&&['creating','authorising','unknown'].includes(active.status))return {existing:copy(active)};
       const id=randomUUID(),validUntil=new Date(clock().getTime()+30*86_400_000).toISOString().slice(0,10),
         item={id,bankId:value.settings.bankId,corporateId:value.settings.corporateId,psuId:value.settings.psuId,status:'creating',validUntil,expiresAt:`${validUntil}T23:59:59.000Z`,createdAt:clock().toISOString(),updatedAt:clock().toISOString(),events:[]};
@@ -247,16 +300,19 @@ export function createBankPayments({ getRepository, sourceProvider = async () =>
     });
     if(reservation.existing)return safeConsent(reservation.existing);
     const item=reservation.item;
-    const result=await client.createConsent({...providerContext(item,context),requestId:item.id,payload:{access:{},combinedServiceIndicator:false,frequencyPerDay:4,recurringIndicator:true,validUntil:item.validUntil}});
-    await transaction(value=>{const saved=value.consents[item.id];saved.status=result.ok?'authorising':result.uncertain?'unknown':'failed';saved.error=result.ok?null:safeError(result.error);
-      saved.providerConsentId=result.data?.consentId??result.data?.id??null;saved.updatedAt=clock().toISOString();});
-    if(!result.ok)return safeConsent(await read(value=>value.consents[item.id]));
-    const providerConsentId=result.data?.consentId??result.data?.id;
+    let providerConsentId=item.providerConsentId;
+    if(!reservation.reauthorise){
+      const result=await client.createConsent({...providerContext(item,context),requestId:item.id,payload:{access:{},combinedServiceIndicator:false,frequencyPerDay:4,recurringIndicator:true,validUntil:item.validUntil}});
+      await transaction(value=>{const saved=value.consents[item.id];saved.status=result.ok?'authorising':result.uncertain?'unknown':'failed';saved.error=result.ok?null:safeError(result.error);
+        saved.providerConsentId=result.data?.consentId??result.data?.id??null;saved.updatedAt=clock().toISOString();});
+      if(!result.ok)return safeConsent(await read(value=>value.consents[item.id]));
+      providerConsentId=result.data?.consentId??result.data?.id;
+    }
     if(!providerConsentId){await transaction(value=>{value.consents[item.id].status='unknown';value.consents[item.id].error={code:'bank_consent_id_missing',message:'Bankens medgivande-ID saknas.'};});return safeConsent(await read(value=>value.consents[item.id]));}
     const save=patch=>transaction(value=>{const saved=value.consents[item.id];saved.authorisation={...(saved.authorisation??{}),...patch};
       if(patch.scaStatus)saved.scaStatus=patch.scaStatus;if(Object.hasOwn(patch,'authorisationUrl'))saved.authorisationUrl=patch.authorisationUrl;
       if(patch.error)saved.error=patch.error;if(patch.unknown)saved.status='unknown';saved.updatedAt=clock().toISOString();});
-    await createRedirectAuthorisation({...item,resource:'consent',id:providerConsentId},context,parsed.data,save);
+    await createRedirectAuthorisation({...item,resource:'consent',id:providerConsentId,existingAuthorisationId:reservation.existingAuthorisationId},context,parsed.data,save);
     return safeConsent(await read(value=>value.consents[item.id]));
   }
   async function verifyConsent(value,context) {
@@ -266,13 +322,17 @@ export function createBankPayments({ getRepository, sourceProvider = async () =>
     if(!result.ok)fail(result.error?.message??'Medgivandet kunde inte kontrolleras.',502,result.error?.code??'bank_consent_failed');
     const status=result.data?.consentStatus??result.data?.status;
     await transaction(saved=>{const item=saved.consents[consent.id];item.status=status==='valid'?'valid':['rejected','revokedByPsu','expired','terminatedByTpp'].includes(status)?status:'authorising';item.updatedAt=clock().toISOString();
-      if(status==='valid')item.expiresAt=result.data?.validUntil?new Date(`${result.data.validUntil}T23:59:59Z`).toISOString():item.expiresAt;
+      if(status==='valid'){item.error=null;item.expiresAt=result.data?.validUntil?new Date(`${result.data.validUntil}T23:59:59Z`).toISOString():item.expiresAt;}
       if(saved.currentConsentId===item.id&&item.status!=='valid'){saved.accounts=[];saved.settings.debtorAccountId=null;}});
     if(status!=='valid')fail('Bankens kontomedgivande är inte godkänt ännu.',409,'bank_consent_pending');
     return consent;
   }
-  async function getAccounts(context) {
-    await authorize(context,{admin:true});const value=await read(copy),consent=await verifyConsent(value,context);
+  async function getAccounts(context,expectedConsentId) {
+    await authorize(context,{admin:true});const value=await read(copy);
+    if(expectedConsentId && (value.currentConsentId!==expectedConsentId
+      || ['bankId','corporateId','psuId'].some(key=>value.consents[expectedConsentId]?.[key]!==value.settings[key])))
+      fail('Bankkopplingen ändrades innan dess konton kunde kontrolleras.',409,'bank_connection_changed');
+    const consent=await verifyConsent(value,context);
     const result=await client.accounts({consentId:consent.providerConsentId,...providerContext(consent,context)});
     if(!result.ok)fail(result.error?.message??'Bankkonton kunde inte hämtas.',502,result.error?.code??'bank_accounts_failed');
     const accounts=accountsFrom(result.data);
@@ -538,16 +598,28 @@ export function createBankPayments({ getRepository, sourceProvider = async () =>
       ||auth.context.sessionHash!==hash(context.sessionKey)||Date.parse(auth.expiresAt)<=clock().getTime())fail('Bankens signering tillhör en annan eller utgången session.',403,'bank_callback_forbidden');
     await authorize(context,kind==='consent'?{admin:true}:{siteId:item.source.siteId});
     const reserved=await transaction((value,state)=>{const saved=kind==='payment'?value.jobs[item.id]:value.consents[item.id];principalIn(state,context,kind==='consent'?{admin:true}:{siteId:saved.source.siteId});
-      if(saved.authorisation.callbackReservedAt)return false;saved.authorisation.callbackReservedAt=clock().toISOString();saved.authorisation.phase='completing';return true;});
+      if(kind==='consent' && (value.currentConsentId!==item.id || ['bankId','corporateId','psuId'].some(key=>saved[key]!==value.settings[key])))
+        fail('Bankkopplingen ändrades innan bankens retur kunde aktiveras.',409,'bank_connection_changed');
+      if(!exactState(saved.authorisation?.stateHash,stateHash))fail('Bankens returhörning matchar ingen aktiv signering.',403,'bank_callback_state_invalid');
+      if(saved.authorisation.callbackReservedAt)return false;saved.authorisation.callbackReservedAt=clock().toISOString();saved.authorisation.phase='completing';saved.authorisationUrl=null;saved.authorisation.authorisationUrl=null;return true;});
     if(reserved){
       const result=await client.completeAuthorisation({resource:kind==='payment'?'payment':'consent',product:item.providerProduct,id:kind==='payment'?item.providerPaymentId:item.providerConsentId,
         ...providerContext(item,context),authorisationId:auth.authorisationId,redirectUri:auth.redirectUri,code});
-      await transaction(value=>{const saved=kind==='payment'?value.jobs[item.id]:value.consents[item.id];saved.authorisation.phase=result.ok?'completed':'unknown';saved.authorisation.unknown=!result.ok;
+      await transaction(value=>{const saved=kind==='payment'?value.jobs[item.id]:value.consents[item.id];
+        if(kind==='consent' && (value.currentConsentId!==item.id || ['bankId','corporateId','psuId'].some(key=>saved[key]!==value.settings[key])))
+          fail('Bankkopplingen ändrades under bankens retur.',409,'bank_connection_changed');
+        if(!exactState(saved.authorisation?.stateHash,stateHash))fail('Bankens signering har ersatts av en ny signering.',409,'bank_authorisation_changed');
+        saved.authorisation.phase=result.ok?'completed':result.uncertain?'unknown':'failed';saved.authorisation.unknown=!result.ok && Boolean(result.uncertain);
+        saved.authorisationDiagnostics=authorisationDiagnostics(result,'activation',[code]);
         if(saved.status!=='simulated_paid')saved.error=result.ok?null:safeError(result.error);if(kind==='payment'){
           if(saved.status!=='simulated_paid'){saved.status=result.ok?'pending':'unknown';saved.nextCheckAt=result.ok?nextAt():null;saved.pollSuspended=!result.ok;}
           event(saved,'payment_authorisation_completed',context,{text:result.ok?'Bankens retur mottagen. Genomförandet kontrolleras separat.':'Bankens signeringssvar saknas. Ingen ny betalning startas.'});}});
     }
-    if(kind==='consent'){await getAccounts(context);return {kind,consent:safeConsent(await read(value=>value.consents[item.id]))};}
+    if(kind==='consent'){
+      await read(value=>{if(value.currentConsentId!==item.id || ['bankId','corporateId','psuId'].some(key=>value.consents[item.id]?.[key]!==value.settings[key]))
+        fail('Bankkopplingen ändrades under bankens retur.',409,'bank_connection_changed');});
+      await getAccounts(context,item.id);return {kind,consent:safeConsent(await read(value=>value.consents[item.id]))};
+    }
     await run(item.id,true);return {kind,job:await job(item.id,context)};
   }
   async function refresh(id,context) {

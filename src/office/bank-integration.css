@@ -7,3 +7,4 @@
 @media(max-width:900px){.bank-settings-grid{grid-template-columns:1fr}.bank-sandbox-layout{grid-template-columns:1fr}.bank-integration-panel{padding:18px}.bank-section-heading{flex-wrap:wrap}.bank-section-heading .integration-status{margin-left:62px}.bank-panel-actions{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){.bank-spin{animation:none}}
 .bank-redirect-uri{display:block;overflow-wrap:anywhere;color:#203553;line-height:1.6;font-size:12px}
+.bank-consent-diagnostics{margin-top:10px}.bank-consent-diagnostics summary{cursor:pointer;font-size:12px}.bank-consent-diagnostics pre{max-height:280px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #e3ebf5;padding:12px;border-radius:8px;background:#f7faff;color:#203553;font-size:11px;line-height:1.6}

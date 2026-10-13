@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, CircleAlert, ExternalLink, FlaskConical, Landmark, LoaderCircle, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 import type { OfficeUser } from './model';
 import { clearIntegrationReadCache } from './integration-read-cache';
-import { bankAccountLabel, bankConsentLabel, bankIntegrationApi, type BankAccountsResult, type BankBookkeepingChoices, type BankDefinition, type BankIntegrationState, type BankSettingsInput } from './bank-integration-client';
+import { bankAccountLabel, bankConsentActionLabel, bankConsentLabel, bankIntegrationApi, type BankAccountsResult, type BankBookkeepingChoices, type BankDefinition, type BankIntegrationState, type BankSettingsInput } from './bank-integration-client';
 import { useBankIntegrationAction } from './useBankIntegrationAction';
+import BankConnectionCheckDialog, { bankCheckResult, type BankCheckState } from './BankConnectionCheckDialog';
+import BankConsentDiagnostics from './BankConsentDiagnostics';
 import './bank-integration.css';
 
 type Projection = { state: BankIntegrationState; form: BankSettingsInput; banks: BankDefinition[]; choices?: BankBookkeepingChoices; accounts?: BankAccountsResult; dirty: boolean };
@@ -17,18 +19,24 @@ export const bankAuthorizationUrl = (value?: string | null) => {
 };
 
 export default function OpenPaymentsIntegrationPanel({ user, actualUser, onNotice }: { user: OfficeUser; actualUser: OfficeUser; onNotice: (message: string) => void }) {
-  const { scope, permitted, matching, loading: sessionLoading, error: sessionError, refreshSession, pending, error, run } = useBankIntegrationAction(user, actualUser);
+  const { scope, permitted, matching, loading: sessionLoading, sessionError, refreshSession, pending, pendingReads, error, run, runRead } = useBankIntegrationAction(user, actualUser);
   const [stored, setStored] = useState<{ scope: string; value: Projection }>();
+  const [dialog, setDialog] = useState<BankCheckState>();
+  const testButton = useRef<HTMLButtonElement>(null);
   const value = stored?.scope === scope ? stored.value : undefined;
+  const visibleDialog = dialog?.scope === scope ? dialog : undefined;
   const load = useCallback(() => run('load', async (signal, current) => {
     const state = await bankIntegrationApi.settings(signal);
     if (!current()) return;
     setStored({ scope, value: { state, form: formFrom(state), banks: [], dirty: false } });
-    if (!state.configuration.ready) return;
+  }), [run, scope]);
+  const banks = useCallback(() => runRead('banks', async (signal, current) => {
     const list = await bankIntegrationApi.banks(signal);
     if (current()) setStored(previous => previous?.scope === scope ? { scope, value: { ...previous.value, banks: list.banks } } : previous);
-  }), [run, scope]);
+  }), [runRead, scope]);
   useEffect(() => { if (permitted && matching) void load(); }, [permitted, matching, load]);
+  const ready = !!value?.state.configuration.ready;
+  useEffect(() => { if (permitted && matching && ready) void banks(); }, [permitted, matching, ready, banks]);
   function change(patch: Partial<BankSettingsInput>) { setStored(previous => previous?.scope === scope ? { scope, value: { ...previous.value, form: { ...previous.value.form, ...patch }, dirty: true } } : previous); }
   function save() {
     if (!value) return;
@@ -40,7 +48,24 @@ export default function OpenPaymentsIntegrationPanel({ user, actualUser, onNotic
       clearIntegrationReadCache('catalog'); onNotice('Bankinställningarna är sparade för bolaget.');
     });
   }
-  function banks() { void run('banks', async (signal, current) => { const list = await bankIntegrationApi.banks(signal); if (current()) setStored(previous => previous?.scope === scope ? { scope, value: { ...previous.value, banks: list.banks } } : previous); }); }
+  function testConnection() { void run('test', async (signal, current) => {
+    setDialog({ scope, progress: { phase: 'running', mode: 'test' } });
+    try {
+      const result = await bankIntegrationApi.test(signal);
+      if (!current()) return;
+      setStored(previous => previous?.scope === scope ? { scope, value: { ...previous.value, state: { ...previous.value.state, lastTest: result } } } : previous);
+      setDialog(bankCheckResult(scope, result)); clearIntegrationReadCache('catalog');
+    } catch (failure) {
+      if (current()) setDialog({ scope, progress: { phase: 'error', mode: 'test', message: failure instanceof Error ? failure.message : 'Testet kunde inte slutföras.' } });
+      throw failure;
+    }
+  }); }
+  function readHistory() { void run('history', async (signal, current) => {
+    const state = await bankIntegrationApi.settings(signal);
+    if (!current()) return;
+    setStored(previous => previous?.scope === scope ? { scope, value: { ...previous.value, state, accounts: undefined } } : previous);
+    if (state.lastTest) setDialog(bankCheckResult(scope, state.lastTest));
+  }); }
   function choices() { void run('choices', async (signal, current) => { const choices = await bankIntegrationApi.choices(signal); if (current()) setStored(previous => previous?.scope === scope ? { scope, value: { ...previous.value, choices } } : previous); }); }
   function accounts() { void run('accounts', async (signal, current) => { const accounts = await bankIntegrationApi.accounts(signal); if (current()) setStored(previous => previous?.scope === scope ? { scope, value: { ...previous.value, accounts } } : previous); }); }
   function connect() { void run('consent', async (signal, current) => { const consent = await bankIntegrationApi.consent(signal); if (current()) setStored(previous => previous?.scope === scope ? { scope, value: { ...previous.value, accounts: undefined, state: { ...previous.value.state, consent, accounts: [] } } } : previous); }); }
@@ -63,15 +88,16 @@ export default function OpenPaymentsIntegrationPanel({ user, actualUser, onNotic
     {value && <>
       {!value.state.configuration.ready && <div className="bank-feedback warning"><CircleAlert size={17} /><div><strong>Serverns bankanslutning behöver konfigureras</strong><ul>{[...value.state.configuration.missing, ...value.state.configuration.issues].map((issue, index) => <li key={`${index}/${issue}`}>{issue}</li>)}</ul></div></div>}
       {value.state.configuration.redirectUri && <div className="bank-feedback"><ExternalLink size={17} /><div><strong>Returadress i Open Payments</strong><p className="bank-field-help">Lägg till denna exakta adress i portalens Redirect URI whitelist och spara:</p><code className="bank-redirect-uri">{value.state.configuration.redirectUri}</code></div></div>}
+      <div className="bank-sandbox-toolbar"><button ref={testButton} className="office-btn outline" disabled={!!pending} onClick={testConnection}>{pending === 'test' ? <LoaderCircle size={15} className="bank-spin" /> : <ShieldCheck size={15} />}{pending === 'test' ? 'Testar anslutning…' : 'Testa anslutningen'}</button><span className="bank-field-help">{value.state.lastTest?.ok ? `Anslutningen är verifierad${value.state.lastTest.bankCount != null ? ` · ${value.state.lastTest.bankCount} testbanker` : ''}.` : 'Anslutningsprovet kräver inget bankmedgivande.'}</span></div>
       <div className="bank-settings-grid">
-        <label><span className="bank-field-heading">Bank i testmiljön<button type="button" className="office-link" disabled={disabled || !value.state.configuration.ready} onClick={banks}><RefreshCw size={14} />Hämta testbanker</button></span><select aria-label="Bank i testmiljön" value={value.form.bankId ?? ''} disabled={disabled} onChange={event => change({ bankId: event.target.value || null, debtorAccountId: null })}><option value="">Välj en testbank</option>{savedBank && <option value={value.form.bankId ?? ''}>Tidigare vald bank · hämta för att kontrollera</option>}{value.banks.map(bank => <option key={bank.id} value={bank.id}>{bank.name}{bank.countryCode ? ` · ${bank.countryCode}` : ''}</option>)}</select></label>
+        <label><span className="bank-field-heading">Bank i testmiljön<button type="button" className="office-link" disabled={pendingReads.includes('banks') || !ready} onClick={() => void banks()}>{pendingReads.includes('banks') ? <LoaderCircle size={14} className="bank-spin" /> : <RefreshCw size={14} />}{pendingReads.includes('banks') ? 'Hämtar testbanker…' : 'Hämta testbanker'}</button></span><select aria-label="Bank i testmiljön" value={value.form.bankId ?? ''} disabled={disabled} onChange={event => change({ bankId: event.target.value || null, debtorAccountId: null })}><option value="">Välj en testbank</option>{savedBank && <option value={value.form.bankId ?? ''}>Tidigare vald bank · hämta för att kontrollera</option>}{value.banks.map(bank => <option key={bank.id} value={bank.id}>{bank.name}{bank.countryCode ? ` · ${bank.countryCode}` : ''}</option>)}</select></label>
         <label>Företags-ID hos testbanken<input value={value.form.corporateId ?? ''} disabled={disabled} onChange={event => change({ corporateId: event.target.value || null })} autoComplete="off" /><small>En testidentitet för bolaget. Det förifyllda värdet kommer från Open Payments sandboxexempel.</small></label>
         <label>Användar-ID hos testbanken<input value={value.form.psuId ?? ''} disabled={disabled} onChange={event => change({ psuId: event.target.value || null })} autoComplete="off" /><small>En testidentitet från sandboxexemplet, inte den inloggade personens personnummer.</small></label>
       </div>
       <section className="bank-settings-section"><div className="bank-field-heading"><h3><Building2 size={17} />Bolagets bankkonto</h3><button className="office-link" disabled={disabled || value.dirty || !consent} onClick={accounts}><RefreshCw size={14} />{pending === 'accounts' ? 'Hämtar…' : 'Hämta konton'}</button></div>
         <p className="bank-field-help">{bankConsentLabel(consent)}. Spara vald bank innan du ansluter den.</p>
-        {consent?.error && <div className="bank-feedback warning"><CircleAlert size={16} /><span>{consent.error.message}</span></div>}
-        <div className="bank-consent-actions"><button className="office-btn outline" disabled={disabled || value.dirty || !value.form.bankId || !value.state.configuration.ready} onClick={connect}><Landmark size={15} />{pending === 'consent' ? 'Förbereder anslutning…' : consent ? 'Förnya bankmedgivande' : 'Anslut testbanken'}</button>{authorisationUrl && <a className="office-btn" href={authorisationUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} />Godkänn hos testbanken</a>}</div>
+        <BankConsentDiagnostics consent={consent} />
+        <div className="bank-consent-actions"><button className="office-btn outline" disabled={disabled || value.dirty || !value.form.bankId || !value.state.configuration.ready} onClick={connect}><Landmark size={15} />{pending === 'consent' ? 'Förbereder anslutning…' : bankConsentActionLabel(consent)}</button>{authorisationUrl && <a className="office-btn" href={authorisationUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} />Godkänn hos testbanken</a>}</div>
         <label className="bank-field">Konto för utbetalningar<select value={value.form.debtorAccountId ?? ''} disabled={disabled || !bankAccounts.length} onChange={event => change({ debtorAccountId: event.target.value || null })}><option value="">Välj ett konto från banken</option>{savedAccount && <option value={value.form.debtorAccountId ?? ''}>Tidigare valt konto · kontrollera bankmedgivandet</option>}{bankAccounts.filter(account => !account.currency || account.currency === 'SEK').map(account => <option key={account.id} value={account.id}>{bankAccountLabel(account)}</option>)}</select><small>Endast konton som banken har lämnat ut för detta bolag kan väljas.</small></label>
       </section>
       <label className="bank-check"><input type="checkbox" checked={value.form.enabled} disabled={disabled} onChange={event => change({ enabled: event.target.checked })} /><span><strong>Aktivera bankutbetalningar i sandbox</strong><small>Betalningar startas från attesterade viktkort med bokförd leverantörsfaktura. Bankens slutliga bekräftelse krävs innan utbetalningen räknas som genomförd.</small></span></label>
@@ -80,5 +106,6 @@ export default function OpenPaymentsIntegrationPanel({ user, actualUser, onNotic
       </section>
       <div className="bank-panel-actions"><Link className="office-btn outline" to="/integrations/bank-test"><FlaskConical size={15} />Öppna banktestsidan</Link><button className="office-btn" disabled={disabled || !value.dirty} onClick={save}>{pending === 'save' ? <LoaderCircle size={15} className="bank-spin" /> : <Save size={15} />}{pending === 'save' ? 'Sparar…' : 'Spara inställningar'}</button></div>
     </>}
+    {visibleDialog && <BankConnectionCheckDialog check={visibleDialog} onClose={() => setDialog(undefined)} onReadHistory={readHistory} returnFocus={testButton} />}
   </article>;
 }

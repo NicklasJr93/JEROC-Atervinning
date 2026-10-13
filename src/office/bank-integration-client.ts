@@ -1,4 +1,4 @@
-import { environmentRequest } from './environment-client';
+import { environmentRequest, EnvironmentApiError } from './environment-client';
 import { can, type OfficeUser } from './model';
 
 export interface BankProviderConfiguration {
@@ -13,6 +13,12 @@ export type BankSettingsInput = Pick<BankSettings, 'enabled' | 'bankId' | 'corpo
 export interface BankConsent {
   id: string; status: string; bankId?: string; scaStatus?: string; authorisationUrl?: string | null;
   error?: { code?: string; message: string } | null;
+  canReauthorise?: boolean;
+  authorisationDiagnostics?: BankAuthorisationDiagnostics;
+}
+export interface BankAuthorisationDiagnostics {
+  stage: string; checkedAt?: string; ok: boolean; httpStatus?: number | null;
+  errorCode?: string | null; providerCodes?: string[]; journal?: BankJournal[];
 }
 export interface BankAccount {
   id: string; name?: string; currency?: string; iban?: string; bban?: string; clearingNumber?: string; accountNumber?: string;
@@ -46,18 +52,36 @@ export const mayManageBank = (user: OfficeUser, actualUser: OfficeUser) =>
 
 export const bankAccountLabel = (account: BankAccount) => [account.name || 'Bankkonto', account.currency, account.iban || account.bban || [account.clearingNumber, account.accountNumber].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
 export const bankConsentLabel = (consent?: BankConsent | null) => !consent ? 'Banken är inte ansluten'
-  : consent.status === 'valid' || consent.scaStatus === 'finalised' ? 'Bankens medgivande är klart'
+  : consent.status === 'valid' ? 'Bankens medgivande är klart'
     : ['rejected', 'revokedByPsu', 'expired', 'terminatedByTpp', 'failed'].includes(consent.status) ? 'Bankens medgivande behöver förnyas' : consent.status === 'unknown' ? 'Bankmedgivandets status behöver kontrolleras' : 'Inväntar godkännande hos banken';
+export const bankConsentActionLabel = (consent?: BankConsent | null) => consent?.canReauthorise ? 'Prova bankgodkännandet igen'
+  : consent && consent.status !== 'valid' && (consent.authorisationDiagnostics && !consent.authorisationDiagnostics.ok
+    || ['bank_authorisation_activation_failed', 'bank_authorisation_activation_unknown'].includes(consent.error?.code ?? '')) ? 'Kontrollera och försök igen'
+    : consent ? 'Förnya bankmedgivande' : 'Anslut testbanken';
+
+// Bound reference reads and connection diagnostics. A timed-out bank payment or
+// consent write must instead be reconciled by its durable server workflow.
+async function bankRead<T>(path: string, signal?: AbortSignal, method = 'GET', body?: unknown): Promise<T> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(abort, 35_000);
+  try { return await environmentRequest<T>(path, method, body, controller.signal); }
+  catch (failure) {
+    if (controller.signal.aborted && !signal?.aborted) throw new EnvironmentApiError('Hämtningen från banktjänsten tog för lång tid. Försök igen; tidigare uppgifter har behållits.', 'bank_integration_timeout', 408);
+    throw failure;
+  } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
+}
 
 export const bankIntegrationApi = {
-  settings: (signal?: AbortSignal) => environmentRequest<BankIntegrationState>('/bank/settings', 'GET', undefined, signal),
+  settings: (signal?: AbortSignal) => bankRead<BankIntegrationState>('/bank/settings', signal),
   saveSettings: (value: BankSettingsInput, signal?: AbortSignal) => environmentRequest<BankIntegrationState>('/bank/settings', 'POST', value, signal),
-  banks: (signal?: AbortSignal) => environmentRequest<BankList>('/bank/banks', 'GET', undefined, signal),
-  choices: (signal?: AbortSignal) => environmentRequest<BankBookkeepingChoices>('/bank/choices', 'GET', undefined, signal),
-  test: (signal?: AbortSignal) => environmentRequest<BankConnectionResult>('/bank/test', 'POST', {}, signal),
+  banks: (signal?: AbortSignal) => bankRead<BankList>('/bank/banks', signal),
+  choices: (signal?: AbortSignal) => bankRead<BankBookkeepingChoices>('/bank/choices', signal),
+  test: (signal?: AbortSignal) => bankRead<BankConnectionResult>('/bank/test', signal, 'POST', {}),
   consent: (signal?: AbortSignal) => environmentRequest<BankConsent>('/bank/consent', 'POST', {}, signal),
-  accounts: (signal?: AbortSignal) => environmentRequest<BankAccountsResult>('/bank/accounts', 'GET', undefined, signal),
-  balances: (signal?: AbortSignal) => environmentRequest<BankBalancesResult>('/bank/balances', 'GET', undefined, signal),
+  accounts: (signal?: AbortSignal) => bankRead<BankAccountsResult>('/bank/accounts', signal),
+  balances: (signal?: AbortSignal) => bankRead<BankBalancesResult>('/bank/balances', signal),
 };
 
 export const bankJournalEntries = (value?: BankJournal[] | BankJournal) => !value ? [] : Array.isArray(value) ? value : [value];

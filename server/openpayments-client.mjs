@@ -87,8 +87,9 @@ export function buildSandboxPaymentPayload({ amountCents, recipient, debtorAccou
 }
 
 const scopeFor = resource => resource === 'consent' ? 'accountinformation corporate' : 'paymentinitiation corporate';
-const providerCodes = data => [...new Set([...(Array.isArray(data?.tppMessages) ? data.tppMessages : []), ...(Array.isArray(data?.errors) ? data.errors : []), data]
-  .map(item => item?.code ?? item?.error).filter(value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value)))].slice(0, 20);
+const providerCodes = (data, secrets = []) => [...new Set([...(Array.isArray(data?.tppMessages) ? data.tppMessages : []), ...(Array.isArray(data?.errors) ? data.errors : []), data]
+  .map(item => item?.code ?? item?.error).filter(value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value)
+    && !secrets.some(secret => typeof secret === 'string' && secret.length >= 4 && value.includes(secret))))].slice(0, 20);
 
 /** Sandbox only. Fixed HTTPS origins, no automatic redirects and no HTTP retries.
  * X-Request-ID is trace correlation, NOT a provider idempotency promise. The
@@ -144,7 +145,7 @@ export function createOpenPaymentsClient({ env = process.env, fetchImpl = global
         const body = new URLSearchParams({ client_id: env.OPENPAYMENTS_CLIENT_ID, client_secret: env.OPENPAYMENTS_CLIENT_SECRET,
           grant_type: 'client_credentials', scope: corporateScope });
         const response = await transport(`${OPENPAYMENTS_SANDBOX_OAUTH}/connect/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body });
-        const codes = providerCodes(response.data);
+        const codes = providerCodes(response.data,[env.OPENPAYMENTS_CLIENT_SECRET,...activeSecrets]);
         if (response.statusCode !== 200 || typeof response.data?.access_token !== 'string' || !response.data.access_token ||
           String(response.data?.token_type).toLowerCase() !== 'bearer' || !Number.isFinite(response.data?.expires_in) || response.data.expires_in <= 0)
           return errorResult('bank_authentication_failed', 'Open Payments kunde inte autentisera sandboxkopplingen. Kontrollera klientuppgifterna.', {
@@ -198,7 +199,7 @@ export function createOpenPaymentsClient({ env = process.env, fetchImpl = global
         : response.statusCode >= 300 && response.statusCode < 400 ? 'bank_redirect_forbidden' : 'bank_request_rejected';
       return errorResult(code, uncertain ? 'Bankanropets resultat är osäkert. Kontrollera samma betalning; skicka inte en ny.' : 'Open Payments kunde inte godkänna bankanropet.', {
         statusCode: response.statusCode, uncertain, data: safe(response.data), journal,
-        error: { code, message: uncertain ? 'Bankanropets resultat är osäkert. Kontrollera samma betalning; skicka inte en ny.' : 'Open Payments kunde inte godkänna bankanropet.', providerCodes: providerCodes(response.data) } });
+        error: { code, message: uncertain ? 'Bankanropets resultat är osäkert. Kontrollera samma betalning; skicka inte en ny.' : 'Open Payments kunde inte godkänna bankanropet.', providerCodes: providerCodes(response.data,[env.OPENPAYMENTS_CLIENT_SECRET,...activeSecrets]) } });
     } catch { return errorResult('bank_transport_unknown', method === 'GET' ? 'Bankens svar kunde inte hämtas. Senaste bekräftade status behålls.'
       : 'Bankanropet avbröts utan bekräftat svar. Kontrollera samma betalning; skicka inte en ny.', { uncertain: method !== 'GET', journal }); }
   }
@@ -219,6 +220,25 @@ export function createOpenPaymentsClient({ env = process.env, fetchImpl = global
     }
     return request(method, path, { headers, body, requestId: options.requestId });
   };
+  function boundAuthorisationUrl(options, link = `${OPENPAYMENTS_SANDBOX_OAUTH}/connect/authorize`) {
+    if (!configuration().ready || !resourcePath(options) || !identifier.test(options.authorisationId ?? '')
+      || !bic.test(options.bankId ?? '') || !callbackUri(options.redirectUri) || !/^[A-Za-z0-9_-]{16,256}$/.test(options.state ?? '')) throw new Error();
+    const url = new URL(link);
+    if (!['https://oauth.sandbox.openbankingplatform.com', 'https://auth.sandbox.openbankingplatform.com'].includes(url.origin)
+      || url.pathname !== '/connect/authorize' || url.username || url.password || url.hash || link.length > 4096) throw new Error();
+    const resource = options.resource === 'consent' ? 'consent' : 'payment', title = resource === 'consent' ? 'Consent' : 'Payment';
+    // Actual sandbox links use lower-case consentAuthorisationId; the current
+    // prose documentation also shows the upper-case spelling. Preserve only
+    // this verified selector's spelling, never any provider-supplied IDs.
+    const supported = new Set([`${resource}AuthorisationId`, `${title}AuthorisationId`]);
+    const selectors = (url.searchParams.get('acr_values') ?? '').split(/\s+/).map(value => value.split(':')[0]).filter(key => supported.has(key));
+    if (selectors.length > 1) throw new Error();
+    const selector = selectors[0] ?? (resource === 'consent' ? 'consentAuthorisationId' : 'PaymentAuthorisationId');
+    url.search = '';
+    for (const [key,value] of Object.entries({client_id:env.OPENPAYMENTS_CLIENT_ID,redirect_uri:options.redirectUri,state:options.state,
+      scope:scopeFor(resource),response_type:'code',acr_values:`idp:${options.bankId} ${resource}Id:${options.id} ${selector}:${options.authorisationId}`})) url.searchParams.set(key,value);
+    return url.toString();
+  }
 
   return {
     configuration, configurationStatus: configuration,
@@ -281,21 +301,15 @@ export function createOpenPaymentsClient({ env = process.env, fetchImpl = global
       const link = result.data?._links?.scaOAuth?.href;
       if (!link) return result;
       try {
-        if (!callbackUri(options.redirectUri) || !/^[A-Za-z0-9_-]{16,256}$/.test(options.state ?? '')) throw new Error();
-        const url = new URL(link);
-        if (!['https://oauth.sandbox.openbankingplatform.com', 'https://auth.sandbox.openbankingplatform.com'].includes(url.origin) ||
-          url.pathname !== '/connect/authorize' || url.username || url.password || url.hash || link.length > 4096) throw new Error();
-        url.searchParams.set('client_id', env.OPENPAYMENTS_CLIENT_ID);
-        url.searchParams.set('redirect_uri', options.redirectUri);
-        url.searchParams.set('state', options.state);
-        url.searchParams.set('scope', scopeFor(options.resource));
-        url.searchParams.set('response_type', 'code');
-        const resource = options.resource === 'consent' ? 'consent' : 'payment', title = resource === 'consent' ? 'Consent' : 'Payment';
-        // Rebuild the documented resource selectors from the durable job rather
-        // than accepting an API link selecting another payment/tenant/bank.
-        url.searchParams.set('acr_values', `idp:${options.bankId} ${resource}Id:${options.id} ${title}AuthorisationId:${options.authorisationId}`);
-        return { ...result, authorisationUrl: url.toString() };
+        return { ...result, authorisationUrl: boundAuthorisationUrl(options,link) };
       } catch { return errorResult('bank_authorisation_link_invalid', 'Bankens godkännandelänk kunde inte verifieras. Ingen omdirigering görs.', { statusCode: result.statusCode, journal: result.journal, uncertain: true }); }
+    },
+    renewAuthorisation(options = {}) {
+      // Caller first reconciles the SAME existing consent/SCA. A started
+      // authorisation needs only fresh OAuth state/code; creating another one
+      // is rejected by the real sandbox and must not be attempted here.
+      try { return {ok:true,environment:'sandbox',authorisationUrl:boundAuthorisationUrl(options)}; }
+      catch { return errorResult('bank_authorisation_link_invalid','Bankens nya godkännandelänk kunde inte verifieras.'); }
     },
     readAuthorisation: options => boundRequest('GET', resourcePath(options) && identifier.test(options.authorisationId ?? '') ? `${resourcePath(options)}/authorisations/${options.authorisationId}` : null, options),
     async completeAuthorisation(options = {}) {
@@ -322,7 +336,8 @@ export function createOpenPaymentsClient({ env = process.env, fetchImpl = global
         if (response.statusCode === 200 && typeof response.data?.access_token === 'string' && response.data.access_token && String(response.data?.token_type).toLowerCase() === 'bearer')
           return { ok: true, environment: 'sandbox', statusCode: 200, uncertain: false, data: { activated: true }, journal };
         return errorResult('bank_authorisation_activation_failed', 'Bankgodkännandet kunde inte aktiveras. Kontrollera samma medgivande eller betalning.', {
-          statusCode: response.statusCode, uncertain: response.statusCode >= 500, data: safe(response.data), journal });
+          statusCode: response.statusCode, uncertain: response.statusCode >= 500, data: safe(response.data), journal,
+          error: { code: 'bank_authorisation_activation_failed', message: 'Bankgodkännandet kunde inte aktiveras. Kontrollera samma medgivande eller betalning.', providerCodes: providerCodes(response.data,[env.OPENPAYMENTS_CLIENT_SECRET,...activeSecrets]) } });
       } catch { return errorResult('bank_authorisation_activation_unknown', 'Bankgodkännandets resultat är osäkert. Kontrollera samma medgivande eller betalning.', { uncertain: true, journal }); }
     },
   };

@@ -168,6 +168,29 @@ test('unsafe authorisation links, HTTP callback and missing authentication metho
   assert.equal((await client.startAuthorisation({ ...context, product: 'domestic', id: 'payment-1', authorisationId: 'auth-1' })).ok, false);
   assert.equal(calls.length, 0);
 });
+test('the real sandbox lowercase consent selector is preserved while all resource values come from the bound request', async () => {
+  const {client}=clientMock(()=>reply({scaStatus:'started',_links:{scaOAuth:{href:'https://oauth.sandbox.openbankingplatform.com/connect/authorize?acr_values=idp:WRONGSESS%20consentId:other-consent%20consentAuthorisationId:other-auth'}}}));
+  const options={...context,resource:'consent',id:'bound-consent',authorisationId:'bound-auth',authenticationMethodId:'mbid',
+    redirectUri:'https://test.scrappilot.example/callback',state:'bound_new_oauth_state_123456789'};
+  const result=await client.startAuthorisation(options);assert.equal(result.ok,true);
+  const url=new URL(result.authorisationUrl);
+  assert.equal(url.searchParams.get('acr_values'),`idp:${context.bankId} consentId:bound-consent consentAuthorisationId:bound-auth`);
+  assert.equal(url.searchParams.get('state'),options.state);assert.equal(url.searchParams.get('scope'),'accountinformation corporate');
+  assert.equal(url.toString().includes('other-consent'),false);
+});
+test('fresh OAuth links for a started existing consent require no provider write and carry fresh bound state', async () => {
+  const {client,calls}=clientMock(()=>{throw new Error('No HTTP call is needed to renew a started OAuth authorisation');});
+  const options={...context,resource:'consent',id:'same-consent',authorisationId:'same-auth',
+    redirectUri:'https://test.scrappilot.example/callback',state:'fresh_oauth_state_123456789'};
+  const result=client.renewAuthorisation(options);assert.equal(result.ok,true);assert.equal(calls.length,0);
+  const url=new URL(result.authorisationUrl);assert.equal(url.origin,'https://oauth.sandbox.openbankingplatform.com');
+  assert.equal(url.searchParams.get('acr_values'),`idp:${context.bankId} consentId:same-consent consentAuthorisationId:same-auth`);
+  assert.equal(url.searchParams.get('state'),options.state);
+  // An explicit registered callback configuration rejects any other URI.
+  const bound=createOpenPaymentsClient({env:{...env(),OPENPAYMENTS_REDIRECT_URI:options.redirectUri}});
+  assert.equal(bound.renewAuthorisation({...options,redirectUri:'https://attacker.invalid/callback'}).ok,false);
+  assert.equal(client.renewAuthorisation({...options,resource:'production'}).ok,false);
+});
 test('callback activation uses documented resource headers and discards its token; it does not claim payment completion', async () => {
   for (const resource of ['payment', 'consent']) {
     const { client, calls } = clientMock(() => reply({ access_token: 'callback-secret-token', token_type: 'Bearer', expires_in: 3600 }));
@@ -180,6 +203,22 @@ test('callback activation uses documented resource headers and discards its toke
     assert.equal(form.get('scope'), resource === 'consent' ? 'accountinformation corporate' : 'paymentinitiation corporate');
     assert.equal(calls[0].headers[`X-${resource}Id`], 'resource-1'); assert.equal(calls[0].headers[`X-${resource === 'consent' ? 'Consent' : 'Payment'}AuthorisationId`], 'auth-1');
   }
+});
+test('a rejected OAuth code exchange keeps safe provider diagnostics without retaining one-use codes or tokens', async () => {
+  const settings=env(),code='synthetic-expired-callback-code';
+  const client=createOpenPaymentsClient({env:settings,fetchImpl:async()=>reply({error:'invalid_grant',
+    error_description:`Rejected ${code}; secret ${settings.OPENPAYMENTS_CLIENT_SECRET}`,access_token:'synthetic-echoed-access-token'},400)});
+  const result=await client.completeAuthorisation({...context,resource:'consent',id:'consent-1',authorisationId:'auth-1',code,
+    redirectUri:'https://test.scrappilot.example/callback'});
+  assert.equal(result.ok,false);assert.equal(result.statusCode,400);assert.equal(result.uncertain,false);
+  assert.deepEqual(result.error.providerCodes,['invalid_grant']);assert.equal(result.journal.statusCode,400);
+  const serialized=JSON.stringify(result);
+  for(const secret of [code,settings.OPENPAYMENTS_CLIENT_SECRET,'synthetic-echoed-access-token'])assert.equal(serialized.includes(secret),false);
+  const reflected=createOpenPaymentsClient({env:settings,fetchImpl:async()=>reply({error:code,errors:[{code:settings.OPENPAYMENTS_CLIENT_SECRET}]},400)});
+  const reflectedResult=await reflected.completeAuthorisation({...context,resource:'consent',id:'consent-1',authorisationId:'auth-1',code,
+    redirectUri:'https://test.scrappilot.example/callback'});
+  assert.deepEqual(reflectedResult.error.providerCodes,[]);
+  for(const secret of [code,settings.OPENPAYMENTS_CLIENT_SECRET])assert.equal(JSON.stringify(reflectedResult).includes(secret),false);
 });
 test('connection errors redact reflected client secrets and access tokens; malicious or oversized responses do not enter journals', async () => {
   const settings = env();

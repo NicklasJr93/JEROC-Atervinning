@@ -4,7 +4,7 @@ import { initialCustomers } from '../data';
 import { paymentDetailsSchema } from '../payment-details';
 export { paymentDetailsSchema } from '../payment-details';
 export type { PaymentDetails } from '../payment-details';
-export const OFFICE_VERSION = '0.24.0';
+export const OFFICE_VERSION = '0.24.1';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {
