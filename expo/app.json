@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "JEROC Gårdsapp",
+    "name": "ScrapPilot",
     "slug": "jeroc-atervinning",
     "owner": "nicklasjrs-team",
     "version": "0.3.0",
@@ -10,6 +10,18 @@
       "android"
     ],
     "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      }
+    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {

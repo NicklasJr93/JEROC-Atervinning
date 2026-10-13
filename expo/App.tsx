@@ -91,13 +91,13 @@ export default function App() {
           >
             <Image
               source={{
-                uri: `${origin || 'https://jeroc-atervinning.onrender.com'}/images/jeroc-logo-ui.webp`,
+                uri: `${origin || 'https://jeroc-atervinning.onrender.com'}/images/scrappilot-logo.png?v=20261013-blue-green`,
               }}
               style={styles.brandLogo}
               resizeMode="contain"
-              accessibilityLabel="JEROC Återvinning"
+              accessibilityLabel="ScrapPilot"
             />
-            <Text style={styles.subtitle}>JEROC-appen · Expo-demo</Text>
+            <Text style={styles.subtitle}>ScrapPilot · Expo-demo</Text>
             <Text style={styles.title}>
               {editing ? 'Anslut till din demo' : 'Kan inte ansluta'}
             </Text>

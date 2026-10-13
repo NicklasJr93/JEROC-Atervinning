@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { purchaseAccountingSnapshotSchema } from './accounting-types';
 import { initialCustomers } from '../data';
-export const OFFICE_VERSION = '0.22.1';
+export const OFFICE_VERSION = '0.22.2';
 export const OFFICE_WEIGHING_DEMO_VERSION = 'demo-weighings-2026-10-09-v2';
 export const officeKey = 'jeroc.office.demo.v1';
 export const permissionNames = {

@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.8.0. Aktuell kontorsversion: 0.22.1.
+Aktuell mobilwebbversion: 0.8.1. Aktuell kontorsversion: 0.22.2.
 Swish MSS-test, utbetalningspopup, PDF-revisioner och Spiris-betalningsbokföring
 i sandbox är genomförda i 102, bygge 2026-10-13.
 096, 097 och 100 är genomförda tillsammans i bygge 2026-10-13.
@@ -2268,20 +2268,23 @@ Status: Implementerad 2026-10-13 i mobilwebb 0.8.0 och kontor 0.21.0.
   tillåter Norrtälje och nya utkast får kontots första tillåtna anläggning.
   Att ge kontot flera anläggningar skapar ännu inget aktivt val i appen.
 
-ÄL 101 – Uppdatera ScrapPilot-loggan till ljusare återvinningsgrön
-Status: Planerad. Den nya färgvarianten är godkänd och sparad på GitHub;
-byte av appens installerade logga återstår till nästa beställda koduppdatering.
-- Ersätt den nuvarande ScrapPilot-loggan och symbolen med de nya
-  vektorvarianterna i docs/branding/scrappilot-logo-recycling-green.svg och
-  docs/branding/scrappilot-symbol-recycling-green.svg.
-- Använd ljusare återvinningsgrön #38A65B tillsammans med marinblå #0B2037.
+ÄL 101 – Ny blå/grön ScrapPilot-logga i hela systemet
+Status: Implementerad 2026-10-13 i kontor 0.22.2 och mobilwebb 0.8.1.
+Den senaste bifogade blå/gröna loggan ersätter den tidigare färgskissen.
+- Gemensamma SVG-masterfiler finns i docs/branding/scrappilot-logo.svg och
+  docs/branding/scrappilot-symbol.svg; PNG och vektor-PDF exporteras från dem.
+- Använd blå #0064B8 tillsammans med återvinningsgrön #32B747.
   Behåll befintliga former, proportioner och rundade hörn; två solida färger.
 - Uppdatera de gemensamma produktresurserna och alla befintliga ställen
   som visar ScrapPilot-loggan eller symbolen, inklusive inloggning och
   plattformsadministration. Samma original ska användas för export/tryck.
+- Favicon i SVG/ICO/PNG, Apple-hemskärmsikon samt Expo-appikon,
+  Android-ikon och startbild är exporterade och konfigurerade.
+  Expo Go- och anslutningssidan använder också produktloggan.
 - Kundbolagens egna loggor och företagsuppgifter, exempelvis JEROC:s,
   hanteras fortsatt separat från ScrapPilots produktlogga.
-- Färgreferens och original: docs/branding/recycling-green-preview.md.
+- Aktuella original och exportinstruktioner: docs/branding/README.md.
+  Tidigare färgförslag är historiska referenser, inte aktiva produktresurser.
 
 ÄL 102 – Swish-test från attesterat viktkort och reviderade betalningsuppgifter
 Status: Implementerad 2026-10-13 i kontor 0.22.0. Endast Swish MSS och Spiris
