@@ -73,10 +73,12 @@ function scheduleFacts(index, person, today, now) {
   const todaySchedules = configured.filter(value => value.weekdays?.includes(weekday));
   const isScheduledNow = configured.length ? todaySchedules.some(value => minute >= value.startMinute && minute < value.endMinute
     && !(value.lunchStart !== undefined && value.lunchEnd !== undefined && minute >= value.lunchStart && minute < value.lunchEnd)) : null;
-  const isAbsentNow = (index.absences.get(person.id) ?? []).some(value => value.status === 'registered'
+  const registered = (index.absences.get(person.id) ?? []).filter(value => value.status === 'registered' && value.fromDate <= today && value.toDate >= today);
+  const hasPartialAbsence = registered.some(value => [25, 50, 75].includes(value.sicknessExtent));
+  const isAbsentNow = registered.some(value => ![25, 50, 75].includes(value.sicknessExtent) && value.status === 'registered'
     && value.fromDate <= today && value.toDate >= today
     && (value.allDay || minute >= value.startMinute && minute < value.endMinute));
-  return { isEmploymentActive, isScheduledNow, isAbsentNow };
+  return { isEmploymentActive, isScheduledNow, isAbsentNow, hasPartialAbsence };
 }
 function latestClosedAt(sessions) {
   let latest = null;
@@ -111,6 +113,7 @@ function projectPerson(state, person, index, context, scope = {}) {
   if (requiresCorrection) reasons.push('clock_requires_correction');
   if (activeOrders.length > 1) reasons.push('multiple_active_orders');
   if (facts.isAbsentNow) reasons.push('registered_absence');
+  if (facts.hasPartialAbsence) reasons.push('partial_absence_needs_planning');
   if (isOnBreak) reasons.push('clock_on_break');
   if (activeOrder) reasons.push('active_order');
   if (facts.isScheduledNow === false) reasons.push('outside_schedule');
@@ -120,6 +123,8 @@ function projectPerson(state, person, index, context, scope = {}) {
     availabilityStatus = 'needs_review'; isAvailableNow = false;
   } else if (facts.isAbsentNow) {
     availabilityStatus = 'absent'; isAvailableNow = false;
+  } else if (facts.hasPartialAbsence) {
+    availabilityStatus = 'needs_review'; isAvailableNow = null;
   } else if (isOnBreak) {
     availabilityStatus = 'on_break'; isAvailableNow = false;
   } else if (activeOrder && isWorkingNow) {

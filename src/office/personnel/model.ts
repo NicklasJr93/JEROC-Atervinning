@@ -8,7 +8,7 @@ const required = text.min(1);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value + 'T12:00:00Z')) && new Date(value + 'T12:00:00Z').toISOString().slice(0,10) === value, 'Ange ett giltigt datum.');
 const minute = z.number().int().min(0).max(1440);
 const revision = z.number().int().nonnegative().default(0);
-export const personSchema = z.object({id, name:required, kind:z.enum(['employee','external']), active:z.boolean(), role:text, team:text, siteIds:z.array(id).min(1).max(50), managerId:id.optional(), companyId:id.optional(), employeeNumber:text.optional(), phone:text, email:text, address:text,
+export const personSchema = z.object({id, name:required, kind:z.enum(['employee','external']), active:z.boolean(), role:text, team:text, siteIds:z.array(id).max(50), managerId:id.optional(), companyId:id.optional(), employeeNumber:text.optional(), phone:text, email:text, address:text,
   addressDetails:z.object({address:text,postalCode:text,city:text,countryCode:text}).optional(),
   userId:id.optional(), driverId:id.optional(), vehicleId:id.optional(), canDrive:z.boolean(), revision});
 export const companySchema = z.object({id, name:required, number:text, contact:text, phone:text, email:text});
@@ -47,6 +47,7 @@ export function personnelPlanIssues(data:PersonnelData,transport:TransportData,o
   if(!shifts.some(s=>s.startMinute<=plan.startMinute && s.endMinute>=end && !(s.lunchStart!==undefined && s.lunchStart<end && s.lunchEnd!>plan.startMinute)))issues.push(shifts.some(s=>s.lunchStart!==undefined && s.lunchStart<end && s.lunchEnd!>plan.startMinute) ? 'Uppdraget överlappar förarens lunch.' : 'Uppdraget ligger utanför registrerat arbetspass.');
   if(data.absences.some(a=>a.personId===person.id && a.status==='registered' && a.fromDate<=plan.date && a.toDate>=plan.date && (a.allDay || a.startMinute!<end && a.endMinute!>plan.startMinute)))issues.push('Föraren är frånvarande under uppdraget.');
   if(!vehicle || !order || !vehicle.types.includes(order.vesselType))issues.push('Fordonet kan inte hantera uppdragets kärltyp.');
+  if(vehicle?.active===false)issues.push('Fordonet är inaktiverat. Välj ett aktivt fordon.');
   const requirements=[...(order?.requiredCompetencies??[]),...(vehicle?.requiredCompetencies??[])];
   for(const code of new Set(requirements)) {
     const match=data.competencies.some(c=>c.personId===person.id && c.verified && c.validFrom<=plan.date && (!c.validTo || c.validTo>=plan.date) && c.codes.some(value=>`${c.type}:${value}`.toLowerCase()===code.toLowerCase() || value.toLowerCase()===code.toLowerCase()));

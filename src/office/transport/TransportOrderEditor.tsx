@@ -105,7 +105,8 @@ export default function TransportOrderEditor({
   const [date, setDate] = useState(initialPlan?.date ?? order?.date ?? today());
   const [start, setStart] = useState(timeLabel(initialPlan?.startMinute ?? order?.startMinute ?? 600));
   const [driverId, setDriverId] = useState(initialPlan?.driverId ?? order?.driverId ?? data.drivers[0]?.id ?? '');
-  const [vehicleId, setVehicleId] = useState(initialPlan?.vehicleId ?? order?.vehicleId ?? data.drivers[0]?.vehicleId ?? '');
+  const [vehicleId, setVehicleId] = useState(initialPlan?.vehicleId ?? order?.vehicleId ??
+    (data.vehicles.some(vehicle => vehicle.id === data.drivers[0]?.vehicleId && vehicle.active !== false) ? data.drivers[0]?.vehicleId ?? '' : ''));
   const [repeat, setRepeat] = useState<Repeat>('none');
   const [scope, setScope] = useState<Scope>('one');
   const [finding, setFinding] = useState(false);
@@ -373,14 +374,14 @@ export default function TransportOrderEditor({
             <label>Förare<select required value={driverId} onChange={(event) => {
               setDriverId(event.target.value);
               const driver = data.drivers.find((entry) => entry.id === event.target.value);
-              if (driver) setVehicleId(driver.vehicleId);
+              if (driver) setVehicleId(data.vehicles.some(vehicle => vehicle.id === driver.vehicleId && vehicle.active !== false) ? driver.vehicleId : '');
               if (error) onError('');
             }}><option value="">Välj förare</option>{data.drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.name}</option>)}</select></label>
             {person && <p className="transport-editor-help">{person.kind === 'external' ? `Extern förare · ${company?.name ?? 'Åkeri'}` : `${person.name} · ${person.team || 'Personal'}`}</p>}
             <label>Fordon<select required value={vehicleId} onChange={(event) => {
               setVehicleId(event.target.value);
               if (error) onError('');
-            }}><option value="">Välj fordon</option>{data.vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.registration} · {vehicle.name}</option>)}</select></label>
+            }}><option value="">Välj fordon</option>{data.vehicles.filter(vehicle => vehicle.active !== false || vehicle.id === order?.vehicleId || vehicle.id === initialPlan?.vehicleId).map((vehicle) => <option key={vehicle.id} value={vehicle.id} disabled={vehicle.active === false}>{vehicle.registration} · {vehicle.name}{vehicle.active === false ? ' · Inaktivt' : ''}</option>)}</select></label>
             {Number.isFinite(startMinute) && <p className="transport-editor-booking-summary"><Clock3 size={14} /> {start}–{timeLabel(startMinute + draft.durationMinutes)} · {durationLabel(draft.durationMinutes)}</p>}
             {bookingIssues.length > 0 && <div className="transport-personnel-validation" role="status"><AlertCircle size={16} /><div>{bookingIssues.map(issue => <p key={issue}>{issue}</p>)}</div></div>}
             {(!order || order.status === 'unbooked' || order.preliminary) && <p className="transport-editor-help">Bokningen visas preliminärt i kalendern. Verkställ med knappen ovanför arbetsytan.</p>}

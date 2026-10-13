@@ -137,7 +137,7 @@ test('facility choices intersect registered active sites and revoked account sco
   assert.equal((await request('active-site', { siteId: 'norrtalje' }, alice.cookie)).status, 403);
 }));
 
-test('mismatched employee scopes deny foreign-site time and every assigned-order action without changing the profile', async () => fixture(async ({ request, login, repository }) => {
+test('legacy mismatched scopes migrate to the effective account scope without granting foreign-site time or orders', async () => fixture(async ({ request, login, repository }) => {
   const forbiddenId = 'AO-scope-rimbo', allowedId = 'AO-scope-norrtalje';
   await repository.transact(state => {
     const person = state.personnel.people.find(value => value.userId === 'test-alice');
@@ -161,7 +161,7 @@ test('mismatched employee scopes deny foreign-site time and every assigned-order
   for (const [action, payload] of [['start', {}], ['status', { status: 'on_way' }], ['logistics', { action: 'travel.empty', expectedVersion: 1 }]])
     assert.equal((await request(`orders/${forbiddenId}/${action}`, payload, alice.cookie)).status, 403);
   await repository.read(state => {
-    assert.deepEqual(state.personnel.people.find(value => value.id === alice.person.id).siteIds, ['norrtalje', 'rimbo']);
+    assert.deepEqual(state.personnel.people.find(value => value.id === alice.person.id).siteIds, ['norrtalje']);
     assert.equal(state.employeeTime.entries.length, 0); assert.equal(state.employeeTime.orderSessions.length, 0);
     assert.equal(state.transport.orders.find(value => value.id === forbiddenId).status, 'booked');
   });
@@ -312,7 +312,7 @@ test('known demo credentials are migrated once, admin can configure time and pro
   assert.equal((await request('login', { username: 'alice', password: 'Test-Password-2026!' })).status, 401);
   const authenticated = await login('alice.updated', 'Provisioned-Password-2026!'); assert.equal(authenticated.person.id, alice.id);
   const unlinked = (await request('accounts', undefined, admin.cookie)).people.find(value => value.id === 'person-kalle'); assert.ok(unlinked);
-  assert.equal((await request('accounts/save', { personId: unlinked.id, username: 'kalle.mobile', active: true, password: 'Kalle-Provisioned-2026!' }, admin.cookie)).status, 200);
+  assert.equal((await request('accounts/save', { personId: unlinked.id, siteIds: ['norrtalje'], username: 'kalle.mobile', active: true, password: 'Kalle-Provisioned-2026!' }, admin.cookie)).status, 200);
   const driver = await login('kalle.mobile', 'Kalle-Provisioned-2026!'); assert.equal(driver.person.id, unlinked.id); assert.equal(driver.person.driverId, 'kalle');
   assert.equal(driver.capabilities.assignedOrders, true); assert.equal(driver.capabilities.yardWork, false);
   await repository.read(state => { const user = state.pricing.users.find(value => value.id === driver.person.userId); assert.deepEqual(user.permissions, ['view']); });

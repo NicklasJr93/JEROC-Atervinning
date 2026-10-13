@@ -24,6 +24,25 @@ export interface TransportDriver {
 export interface TransportVehicle {
   id: string; registration: string; name: string; types: ContainerType[];
   requiredCompetencies?: string[];
+  /** Legacy vehicles without this flag remain active. Deactivation preserves all bookings. */
+  active?: boolean;
+  category?: 'truck' | 'van' | 'car' | 'trailer' | 'other';
+  capacityKg?: number;
+  revision?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+export interface VehicleRegistryResponse {
+  vehicles: TransportVehicle[];
+  revision: number;
+  capabilities: { vehicleRead: boolean; vehicleWrite: boolean };
+  savedVehicleId?: string;
+}
+export interface VehicleSaveCommand {
+  action: 'vehicle.save';
+  vehicle: Pick<TransportVehicle, 'registration' | 'name' | 'types'> &
+    Partial<Pick<TransportVehicle, 'id' | 'revision' | 'category' | 'capacityKg'>> & { active: boolean };
+  requestId?: string;
 }
 export interface TransportOrder {
   siteId?: string; operator?: 'own' | 'external';

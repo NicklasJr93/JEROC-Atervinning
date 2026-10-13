@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { EmployeeOverview, EmployeeOrder, EmployeeClockAction, EmployeeClockSession } from '../src/employee/types';
+import type { EmployeeSicknessCommand, EmployeeSicknessResponse, SicknessCase } from '../src/employee/sickness-types';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'sv-SE' });
 test.describe.configure({ mode: 'serial' });
@@ -13,10 +14,18 @@ async function homeFixture(page: Page, minimal = false) {
   const controls = { yardWork: !minimal, assignedOrders: !minimal, activeSiteId: 'norrtalje',
     activity: minimal ? undefined : { date: today, siteId: 'norrtalje', completedWeighings: 4, weighedKg: 1285 },
     clockEnabled: !minimal, clockStatus: (minimal ? 'off' : 'working') as 'working' | 'break' | 'out' | 'off',
-    clockError: false, holdClock: undefined as { ready: () => void; gate: Promise<void> } | undefined };
+    clockError: false, gateBlocked: false, noSites: false, futureOnly: false, sicknessError: false,
+    holdSickness: undefined as { ready: () => void; gate: Promise<void> } | undefined,
+    holdClock: undefined as { ready: () => void; gate: Promise<void> } | undefined };
   const reads: string[] = [], clockWrites: { command: EmployeeClockAction; company?: string }[] = [], siteWrites: string[] = [], errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   let revision = 10;
+  const sickness: EmployeeSicknessResponse = { revision: 0, today, policy: { revision: 0, dailyContact: true, contactByMinute: 480,
+    agreement: 'statutory', agreementName: '', calculationConfirmed: false, effectiveFrom: today }, activeCase: null, cases: [], events: [],
+    canReport: true, activeClock: !minimal, activeWork: false, notification: '' };
+  const sicknessWrites: { command: EmployeeSicknessCommand; person?: string; company?: string }[] = [];
+  const certificateUploads: { caseId: string | null; person?: string; company?: string; contentType?: string; bytes: number }[] = [];
+  const sicknessIds = new Set<string>();
   let activeSession: EmployeeClockSession | null = minimal ? null : { id: 'home-clock-session', revision: 1,
     startedAt: `${today}T05:00:00.000Z`, endedAt: null, breaks: [], workSeconds: 7200, breakSeconds: 900,
     dayWorkSeconds: 7200, dayBreakSeconds: 900 };
@@ -43,16 +52,18 @@ async function homeFixture(page: Page, minimal = false) {
     return { revision, companyId: 'home-fixture-company', companyName: 'Hemtest AB', person, today, date,
       month: url.searchParams.get('month') ?? date.slice(0, 7), monthLoaded: !lean, activeSiteId: controls.activeSiteId,
       capabilities: { yardWork: controls.yardWork, assignedOrders: controls.assignedOrders, employeeTime: true, manageTimeRequirements: false },
-      sites: minimal ? [{ id: 'norrtalje', name: 'Norrtälje', active: true }] : [
+      sites: controls.noSites ? [] : minimal ? [{ id: 'norrtalje', name: 'Norrtälje', active: true }] : [
         { id: 'norrtalje', name: 'Norrtälje', active: true }, { id: 'rimbo', name: 'Rimbo', active: true }],
       requirement: { enabled: true, mode: 'schedule', effectiveFrom: today, enforcementFrom: today, revision: 1, timeSource: day.timeSource },
-      gate: { blocked: false, expectedMinutes: 0, recordedMinutes: 0, missingMinutes: 0 }, days: [day],
+      gate: { blocked: controls.gateBlocked, ...(controls.gateBlocked ? { date: today } : {}), expectedMinutes: 480, recordedMinutes: 120, missingMinutes: controls.gateBlocked ? 360 : 0 }, days: [day],
       selectedDay: { ...day, entries: [], schedules: [{ id: 'home-schedule', personId: person.id,
         startMinute: 420, endMinute: 960, weekdays: [1, 2, 3, 4, 5], effectiveFrom: today, revision: 1 }],
         absences: [], orders: minimal ? [] : ownOrders.filter(item => item.date === date), clockSessions: [] },
       clock: { enabled: controls.clockEnabled, source: day.timeSource, status: controls.clockStatus, revision,
         serverNow: new Date().toISOString(), activeSession, workSeconds: activeSession?.workSeconds ?? 0,
         breakSeconds: activeSession?.breakSeconds ?? 0 }, orders: minimal ? [] : ownOrders,
+      upcomingOrders: minimal ? [] : ownOrders.filter(item => item.status !== 'done' && item.status !== 'cancelled' && (!controls.futureOnly || item.date === tomorrow)),
+      sickness: { ...structuredClone(sickness), activeClock: Boolean(activeSession) },
       activeWork: null, leaveRequests: [], summary: { expectedMinutes: 480, recordedMinutes: 120, missingMinutes: 0 },
       balances: { available: false }, ...(controls.activity ? { homeActivity: controls.activity } : {}) };
   }
@@ -66,6 +77,43 @@ async function homeFixture(page: Page, minimal = false) {
     if (url.pathname === '/api/employee/active-site') {
       const siteId = request.postDataJSON().siteId; siteWrites.push(siteId); controls.activeSiteId = siteId; revision++;
       return send(overview(url));
+    }
+    if (url.pathname === '/api/employee/sickness/files') {
+      certificateUploads.push({ caseId: url.searchParams.get('caseId'), person: request.headers()['x-employee-person'],
+        company: request.headers()['x-employee-company'], contentType: request.headers()['content-type'], bytes: request.postDataBuffer()?.length ?? 0 });
+      return send({ file: { id: 'own-private-file', caseId: url.searchParams.get('caseId'), name: 'intyg.pdf', contentType: 'application/pdf', size: certificateUploads.at(-1)!.bytes, uploadedAt: new Date().toISOString() } });
+    }
+    if (url.pathname === '/api/employee/sickness') {
+      if (request.method() === 'GET') return send({ ...sickness, activeClock: Boolean(activeSession) });
+      const command = request.postDataJSON() as EmployeeSicknessCommand;
+      sicknessWrites.push({ command, person: request.headers()['x-employee-person'], company: request.headers()['x-employee-company'] });
+      const held = controls.holdSickness; controls.holdSickness = undefined;
+      if (held) { held.ready(); await held.gate; }
+      if (controls.sicknessError) return send({ error: 'Tillfälligt okänt sparutfall' }, 503);
+      if (!sicknessIds.has(command.requestId)) {
+        sicknessIds.add(command.requestId); sickness.revision++; revision++;
+        if (command.action === 'sickness.report') {
+          expect(command.declared).toBe(true);
+          const item: SicknessCase = { id: 'own-sickness-case', personId: person.id, revision: 1, status: 'open', fromDate: command.fromDate,
+            startMinute: command.startMinute, extent: command.extent, forecast: command.forecast, declared: command.declared,
+            reportedAt: new Date().toISOString(), cycleId: 'own-sick-cycle', relapse: false, lastContactDate: today, contacts: [],
+            certificate: { received: false, reference: '' }, days: [], timeIssue: false,
+            followup: { certificateRequired: false, certificateDueDate: today, insurerReportDue: false, insurerReportDeadline: today,
+              rehabilitationPlanDue: false, contactOverdue: false, reviewRequired: false, messages: [] } };
+          sickness.activeCase = item; sickness.cases = [item]; sickness.canReport = false;
+          if (command.clockOut) { activeSession = null; controls.clockStatus = 'out'; sickness.activeClock = false; }
+        } else if (command.action === 'sickness.recover' && sickness.activeCase) {
+          sickness.activeCase.status = 'recovered'; sickness.activeCase.lastSickDate = command.lastSickDate;
+          sickness.activeCase = null; sickness.canReport = true;
+        } else if (command.action === 'sickness.forecast' && sickness.activeCase) {
+          sickness.activeCase.forecast = command.forecast; sickness.activeCase.revision++;
+        } else if (command.action === 'sickness.confirm' && sickness.activeCase) {
+          sickness.activeCase.extent = command.extent; sickness.activeCase.lastContactDate = today;
+          if (command.forecast) sickness.activeCase.forecast = command.forecast;
+          sickness.activeCase.revision++;
+        }
+      }
+      return send(sickness);
     }
     if (url.pathname === '/api/employee/clock') {
       const command = request.postDataJSON() as EmployeeClockAction;
@@ -86,7 +134,7 @@ async function homeFixture(page: Page, minimal = false) {
     if (url.pathname === '/api/employee/equipment') return send({ items: [], assignments: [], events: [], revision: 0 });
     return send({ error: 'Endpoint outside isolated Home fixture' }, 404);
   });
-  return { controls, reads, clockWrites, siteWrites, errors, today,
+  return { controls, reads, clockWrites, siteWrites, errors, today, sicknessWrites, sickness, ownOrders, certificateUploads,
     fullReads: () => reads.filter(value => value.includes('/overview') && !value.includes('view=bootstrap')) };
 }
 
@@ -107,70 +155,50 @@ async function geometry(page: Page) {
   await page.evaluate(() => window.scrollTo(0, 0));
 }
 
-test('startsidan visar egna pågående dagsuppdrag och verklig dagsstatistik utan att ladda full månad', async ({ page, browser }, info) => {
+test('Hem visar nästa eget uppdrag och Gårdsarbete visar verifierad statistik under Starta invägning', async ({ page, browser }, info) => {
   const fixture = await homeFixture(page);
   await page.goto('/');
   await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Niklas!?$/, exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Din dag', exact: true })).toBeVisible();
-  const contribution = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Din insats idag', exact: true }) });
-  await expect(contribution).toContainText('Invägningar');
-  await expect(contribution).toContainText('Invägt');
-  await expect(contribution).toContainText('4');
-  await expect(contribution).toContainText(/1[\s\u00a0]285 kg/);
+  await expect(page.getByRole('heading', { name: 'Din insats idag', exact: true })).toHaveCount(0);
   await expect(page.getByText('3 uppdrag idag', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Mina uppdrag', exact: true })).toContainText('2 kvar');
   const next = page.getByRole('button', { name: 'Öppna nästa uppdrag', exact: true });
-  await expect(next).toBeVisible();
-  await expect(next).toContainText('Nästa kund AB');
-  await expect(next).toContainText('Hämtning');
-  await expect(next).toContainText('10:30');
-  await expect(next).toContainText('Norrtälje');
+  await expect(next).toContainText('Nästa kund AB'); await expect(next).toContainText('Idag · 10:30');
   for (const hidden of ['Avbokad kund', 'Redan avslutad kund', 'Morgondagens kund']) await expect(page.getByText(hidden, { exact: false })).toHaveCount(0);
-  expect(fixture.reads.filter(value => value.startsWith('/api/employee/session')).every(value => value.includes('view=bootstrap'))).toBe(true);
   expect(fixture.fullReads()).toHaveLength(0);
   await geometry(page);
   await page.screenshot({ path: info.outputPath('employee-home-clock-390.png') });
-  const readsBeforeNotification = fixture.reads.length;
-  fixture.controls.activity = { date: fixture.today, siteId: 'norrtalje', completedWeighings: 5, weighedKg: 1327 };
-  await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent('jeroc:mobile-weighing-submitted', { detail: { companyId: 'other-company', personId: 'home-person' } }));
-    window.dispatchEvent(new CustomEvent('jeroc:mobile-weighing-submitted', { detail: { companyId: 'home-fixture-company', personId: 'other-person' } }));
-  });
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  expect(fixture.reads).toHaveLength(readsBeforeNotification);
+  await page.getByRole('button', { name: 'Gårdsarbete', exact: true }).click();
+  await expect(page).toHaveURL(/#\/yard$/);
+  const contribution = page.getByRole('region', { name: 'Din insats idag', exact: true });
+  await expect(contribution).toContainText('Invägt');
   await expect(contribution.locator('strong')).toHaveText(['4', /1[\s\u00a0]285 kg/]);
+  const start = await page.getByRole('button', { name: 'Starta invägning Materialvåg eller fordonsvåg' }).boundingBox();
+  const stats = await contribution.boundingBox();
+  const ongoing = await page.getByRole('heading', { name: 'Pågående vägningar', exact: true }).boundingBox();
+  expect(start!.y + start!.height).toBeLessThan(stats!.y); expect(stats!.y + stats!.height).toBeLessThan(ongoing!.y);
+  const readsBefore = fixture.reads.length;
+  fixture.controls.activity = { date: fixture.today, siteId: 'norrtalje', completedWeighings: 5, weighedKg: 1327 };
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('jeroc:mobile-weighing-submitted', { detail: { companyId: 'other-company', personId: 'home-person' } })));
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  expect(fixture.reads).toHaveLength(readsBefore);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('jeroc:mobile-weighing-submitted', { detail: { companyId: 'home-fixture-company', personId: 'home-person' } })));
   await expect(contribution.locator('strong')).toHaveText(['5', /1[\s\u00a0]327 kg/]);
-  await expect.poll(() => fixture.reads.length).toBe(readsBeforeNotification + 1);
-  expect(fixture.fullReads()).toHaveLength(0);
+  await page.getByRole('button', { name: 'Byt anläggning, Norrtälje', exact: true }).click();
+  await expect(page.getByRole('option')).toHaveText(['Norrtälje', 'Rimbo']);
+  await page.getByRole('option', { name: 'Rimbo', exact: true }).click();
+  expect(fixture.siteWrites).toEqual(['rimbo']); await expect(contribution).toHaveCount(0);
+  await page.getByRole('navigation', { name: 'Huvudmeny', exact: true }).getByRole('button', { name: 'Hem', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Din insats idag', exact: true })).toHaveCount(0);
+  await next.click(); await expect(page).toHaveURL(/#\/assignments\?order=AO-home-next$/);
+  expect(fixture.fullReads()).toHaveLength(0); expect(fixture.errors).toEqual([]);
   const desktop = await browser.newContext({ viewport: { width: 1440, height: 1000 }, locale: 'sv-SE' });
   try {
     const desktopPage = await desktop.newPage(), desktopFixture = await homeFixture(desktopPage);
-    await desktopPage.goto('/');
-    await expect(desktopPage.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Niklas!?$/ })).toBeVisible();
-    await geometry(desktopPage);
-    expect(desktopFixture.fullReads()).toHaveLength(0); expect(desktopFixture.errors).toEqual([]);
+    await desktopPage.goto('/'); await expect(desktopPage.getByRole('heading', { name: 'Din dag', exact: true })).toBeVisible();
+    await geometry(desktopPage); expect(desktopFixture.fullReads()).toHaveLength(0); expect(desktopFixture.errors).toEqual([]);
   } finally { await desktop.close(); }
-  await page.getByRole('button', { name: 'Byt anläggning, Norrtälje', exact: true }).click();
-  await expect(page.getByRole('listbox', { name: 'Anläggning', exact: true })).toBeVisible();
-  await expect(page.getByRole('option')).toHaveText(['Norrtälje', 'Rimbo']);
-  await page.getByRole('option', { name: 'Rimbo', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Byt anläggning, Rimbo', exact: true })).toBeVisible();
-  expect(fixture.siteWrites).toEqual(['rimbo']);
-  await expect(page.getByRole('heading', { name: 'Din insats idag', exact: true })).toHaveCount(0);
-  expect(fixture.fullReads()).toHaveLength(0);
-  await page.getByRole('button', { name: 'Väg in', exact: true }).click();
-  await expect(page).toHaveURL(/#\/new$/);
-  await expect(page.getByRole('button', { name: /Materialvåg/ })).toBeVisible();
-  await page.goBack(); // The existing mode chooser intentionally has no bottom navigation.
-  await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Niklas!?$/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Gårdsarbete', exact: true }).click();
-  await expect(page).toHaveURL(/#\/yard$/);
-  await expect(page.getByRole('heading', { name: 'Gårdsarbete', exact: true })).toBeVisible();
-  await page.getByRole('navigation', { name: 'Huvudmeny', exact: true }).getByRole('button', { name: 'Hem', exact: true }).click();
-  await next.click();
-  await expect(page).toHaveURL(/#\/assignments\?order=AO-home-next$/);
-  expect(fixture.errors).toEqual([]);
 });
 
 test('320 px minimal roll visar endast behöriga genvägar och saknad eller gammal statistik blir aldrig påhittade nollor', async ({ page }, info) => {
@@ -178,8 +206,10 @@ test('320 px minimal roll visar endast behöriga genvägar och saknad eller gamm
   const fixture = await homeFixture(page, true);
   await page.goto('/');
   await expect(page.getByRole('heading', { name: /^God (morgon|eftermiddag|kväll|natt),\s*Niklas!?$/, exact: true })).toBeVisible();
-  await expect(page.getByLabel('Aktiv anläggning: Norrtälje', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Byt anläggning/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Byt anläggning, Norrtälje', exact: true }).click();
+  await expect(page.getByText('Du är tilldelad Norrtälje.', { exact: false })).toBeVisible();
+  await page.keyboard.press('Escape');
+  expect(fixture.siteWrites).toEqual([]);
   for (const name of ['Väg in', 'Gårdsarbete', 'Mina uppdrag', 'Stämpla in', 'Ta rast', 'Stämpla ut'])
     await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Stämpelklocka', exact: true })).toHaveCount(0);
@@ -196,8 +226,8 @@ test('320 px minimal roll visar endast behöriga genvägar och saknad eller gamm
   await expect(page.getByRole('heading', { name: 'Din insats idag', exact: true })).toHaveCount(0);
   fixture.controls.yardWork = true;
   fixture.controls.activity = undefined;
-  await page.reload();
-  await expect(page.getByRole('button', { name: 'Väg in', exact: true })).toBeVisible();
+  await page.goto('/#/yard');
+  await expect(page.getByRole('heading', { name: 'Gårdsarbete', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Din insats idag', exact: true })).toHaveCount(0);
   fixture.controls.activity = { date: '2000-01-01', siteId: 'norrtalje', completedWeighings: 4, weighedKg: 1285 };
   await page.reload();
@@ -235,4 +265,121 @@ test('inbäddad klocka skickar en stämpling vid dubbeltryck och behåller synli
   await expect(card.getByRole('button', { name: 'Återuppta arbete', exact: true })).toBeEnabled();
   expect(fixture.clockWrites.map(value => value.command.action)).toEqual(['clock.pause', 'clock.resume']);
   expect(fixture.fullReads()).toHaveLength(0); expect(fixture.errors).toEqual([]);
+});
+
+test('nästa uppdrag använder en rullande vecka och noll anläggningar förklaras utan att starta vägning', async ({ page }) => {
+  const fixture = await homeFixture(page);
+  fixture.controls.futureOnly = true;
+  await page.goto('/');
+  const next = page.getByRole('button', { name: 'Öppna nästa uppdrag', exact: true });
+  await expect(next).toContainText('Morgondagens kund'); await expect(next).toContainText('Imorgon · 06:00');
+  await expect(page.getByText('3 uppdrag idag', { exact: true })).toBeVisible();
+  fixture.ownOrders.find(item => item.id === 'AO-home-tomorrow')!.startMinute = undefined;
+  await page.reload(); await expect(next).toContainText('Imorgon · Tid ej bokad');
+  await page.setViewportSize({ width: 320, height: 740 });
+  fixture.controls.noSites = true;
+  await page.reload();
+  await page.getByRole('button', { name: 'Byt anläggning, Ingen anläggning tilldelad', exact: true }).click();
+  await expect(page.getByText('Du har ingen aktiv anläggning tilldelad.', { exact: false })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Väg in', exact: true })).toBeDisabled();
+  expect(fixture.siteWrites).toEqual([]); expect(fixture.fullReads()).toHaveLength(0);
+  await geometry(page); expect(fixture.errors).toEqual([]);
+});
+
+test('sjukanmälan avslutar aktivt pass atomiskt vid dubbeltryck och behåller redan arbetade timmar', async ({ page }) => {
+  const fixture = await homeFixture(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Stämpla ut och sjukanmäl', exact: true }).click();
+  const modal = page.getByRole('dialog');
+  await expect(modal.getByText('Redan arbetad tid behålls.', { exact: false })).toBeVisible();
+  await modal.getByLabel('Sjukfrånvarons omfattning').selectOption('50');
+  await modal.getByRole('checkbox').check();
+  let ready!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });
+  fixture.controls.holdSickness = { ready, gate };
+  await modal.getByRole('button', { name: 'Avsluta pass och sjukanmäl', exact: true }).evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
+  await started;
+  expect(fixture.sicknessWrites).toHaveLength(1); expect(fixture.clockWrites).toHaveLength(0);
+  await expect(modal.getByRole('button', { name: 'Sparar…', exact: true })).toBeDisabled();
+  release();
+  await expect(page.getByRole('heading', { name: 'Du är sjukanmäld', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Stämpelklocka', exact: true }).getByText('02:00:00', { exact: true })).toBeVisible();
+  expect(fixture.sicknessWrites[0]).toMatchObject({ command: { action: 'sickness.report', fromDate: fixture.today, extent: 50,
+    declared: true, clockOut: true, forecast: { kind: 'unknown' } }, person: 'home-person', company: 'home-fixture-company' });
+  expect(fixture.errors).toEqual([]);
+});
+
+test('okänt sjukutfall ger ingen falsk bekräftelse och samma requestId återanvänds uttryckligen', async ({ page }) => {
+  const fixture = await homeFixture(page, true);
+  fixture.controls.sicknessError = true;
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sjukanmälan', exact: true }).click();
+  await page.getByRole('dialog').getByRole('checkbox').check();
+  await page.getByRole('dialog').getByRole('button', { name: 'Registrera sjukanmälan', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('Svaret kunde inte bekräftas');
+  await page.getByRole('dialog').getByRole('button', { name: 'Stäng', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Du är sjukanmäld', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Sjukanmälan', exact: true })).toBeDisabled();
+  expect(fixture.sicknessWrites).toHaveLength(1);
+  await page.getByRole('button', { name: 'Kontrollera registreringen', exact: true }).click();
+  await expect(page.getByText('Utfallet är ännu inte bekräftat.', { exact: false })).toBeVisible();
+  fixture.controls.sicknessError = false;
+  await page.getByRole('button', { name: 'Skicka samma försök', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Du är sjukanmäld', exact: true })).toBeVisible();
+  expect(fixture.sicknessWrites).toHaveLength(2);
+  expect(fixture.sicknessWrites[1].command.requestId).toBe(fixture.sicknessWrites[0].command.requestId);
+  expect(fixture.sickness.cases).toHaveLength(1); expect(fixture.errors).toEqual([]);
+});
+
+test('äldre saknad tid hindrar inte vägen till sjukanmälan men tidsspärren finns kvar', async ({ page }) => {
+  const fixture = await homeFixture(page, true);
+  fixture.controls.gateBlocked = true;
+  await page.goto('/');
+  const gate = page.getByRole('dialog');
+  await expect(gate.getByRole('heading', { name: /^Tid saknas/ })).toBeVisible();
+  await gate.getByRole('button', { name: 'Sjukanmälan / friskanmälan', exact: true }).click();
+  await expect(page).toHaveURL(/#\/time\/sickness$/);
+  await expect(page.getByText('Tid saknas för', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Sjukanmälan', exact: true }).click();
+  await page.getByRole('dialog').getByRole('checkbox').check();
+  await page.getByRole('dialog').getByRole('button', { name: 'Registrera sjukanmälan', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Du är sjukanmäld', exact: true })).toBeVisible();
+  expect(fixture.controls.gateBlocked).toBe(true);
+  await expect(page.getByText('Tid saknas för', { exact: false })).toBeVisible();
+  expect(fixture.errors).toEqual([]);
+});
+
+test('prognos, fortsatt sjukfrånvaro, privat intyg och faktisk friskanmälan är separata åtgärder', async ({ page }) => {
+  const fixture = await homeFixture(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sjukanmälan', exact: true }).click();
+  await page.getByRole('dialog').getByRole('checkbox').check();
+  await page.getByRole('dialog').getByRole('button', { name: 'Registrera sjukanmälan', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Du är sjukanmäld' })).toBeVisible();
+  await page.getByRole('button', { name: 'Ändra uppskattad återgång', exact: true }).click();
+  const tomorrow = new Date(`${fixture.today}T12:00:00Z`); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  await page.getByRole('dialog').getByLabel('När tror du att du kan arbeta igen?').selectOption('date');
+  await page.getByRole('dialog').getByLabel('Uppskattad återgång', { exact: true }).fill(tomorrow.toISOString().slice(0, 10));
+  await page.getByRole('dialog').getByRole('button', { name: 'Spara', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Du är sjukanmäld' })).toBeVisible();
+  expect(fixture.sickness.activeCase?.status).toBe('open');
+  await page.getByRole('button', { name: 'Jag är fortfarande sjuk', exact: true }).click();
+  await page.getByRole('dialog').getByLabel('Sjukfrånvarons omfattning').selectOption('75');
+  await page.getByRole('dialog').getByRole('button', { name: 'Spara', exact: true }).click();
+  await expect(page.getByText(/Från .*75 %/)).toBeVisible();
+  fixture.sickness.activeCase!.followup.certificateRequired = true;
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Ladda upp läkarintyg', exact: true })).toBeVisible();
+  const file = Buffer.from('%PDF-1.4\nOnly fictional test data\n%%EOF');
+  await page.getByLabel('Välj läkarintyg', { exact: true }).setInputFiles({ name: 'intyg.pdf', mimeType: 'application/pdf', buffer: file });
+  await expect(page.getByText('Intyget är uppladdat.', { exact: false })).toBeVisible();
+  expect(fixture.certificateUploads).toEqual([{ caseId: 'own-sickness-case', person: 'home-person', company: 'home-fixture-company', contentType: 'application/pdf', bytes: file.length }]);
+  expect(fixture.sickness.activeCase!.certificate.received, 'Uploading a file does not verify medical coverage.').toBe(false);
+  await page.getByRole('button', { name: 'Friskanmäl mig', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Registrera friskanmälan', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Sjukanmälan', exact: true })).toBeVisible();
+  expect(fixture.sickness.activeCase).toBeNull(); expect(fixture.clockWrites).toHaveLength(0);
+  expect(fixture.sicknessWrites.map(item => item.command.action)).toEqual(['sickness.report', 'sickness.forecast', 'sickness.confirm', 'sickness.recover']);
+  expect(fixture.errors).toEqual([]);
 });

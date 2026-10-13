@@ -1,0 +1,12 @@
+.employee-yard-activity { margin: 17px 0 20px; }
+.employee-yard-activity > header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 9px; }
+.employee-yard-activity h2 { font-size: 18px; margin: 0; color: #183957; }
+.employee-yard-activity > header > span { font-size: 11px; color: #7890a5; }
+.employee-yard-activity > div { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.employee-yard-activity article { display: flex; align-items: center; gap: 10px; padding: 14px 12px; border: 1px solid #dceafa; border-radius: 13px; background: white; min-width: 0; }
+.employee-yard-activity article > svg { color: #087aff; flex: 0 0 auto; }
+.employee-yard-activity article:last-child > svg { color: #289764; }
+.employee-yard-activity article > span { min-width: 0; }
+.employee-yard-activity strong { display: block; font-size: 23px; color: #173756; line-height: 1.25; overflow-wrap: anywhere; }
+.employee-yard-activity small { display: block; font-size: 11px; color: #758ba5; margin-top: 3px; }
+@media(max-width:350px) { .employee-yard-activity article { gap: 6px; padding: 12px 8px; } .employee-yard-activity strong { font-size: 19px; } }

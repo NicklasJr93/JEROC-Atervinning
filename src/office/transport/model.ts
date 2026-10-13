@@ -46,6 +46,11 @@ const vehicleSchema = z.object({
   id: requiredText, registration: requiredText, name: requiredText,
   types: z.array(vesselSchema).min(1),
   requiredCompetencies: z.array(requiredText).max(30).optional(),
+  active: z.boolean().optional(),
+  category: z.enum(['truck', 'van', 'car', 'trailer', 'other']).optional(),
+  capacityKg: z.number().finite().positive().max(1e7).optional(),
+  revision: z.number().int().nonnegative().optional(),
+  createdAt: z.string().datetime().optional(), updatedAt: z.string().datetime().optional(),
 });
 const driverSchema = z.object({ id: requiredText, name: requiredText, color: z.string().regex(/^#[0-9a-fA-F]{6}$/), vehicleId: requiredText,
   personId: requiredText.optional(), companyId: requiredText.optional(),
@@ -99,7 +104,7 @@ export function effectiveTransportOrders(data: TransportData): TransportOrder[] 
 }
 
 /** All scheduling validation uses the same rules as persisted data and drag previews. */
-export function validateTransportPlan(data: TransportData, id: string, plan: TransportPlan): string | null {
+export function validateTransportPlan(data: TransportData, id: string, plan: TransportPlan, options: { existingBooking?: boolean } = {}): string | null {
   const order = data.orders.find((entry) => entry.id === id);
   if (!order) return 'Arbetsordern finns inte längre.';
   if (!validDay(plan.date)) return 'Ange ett giltigt datum.';
@@ -111,7 +116,8 @@ export function validateTransportPlan(data: TransportData, id: string, plan: Tra
   if (!driver) return 'Välj en befintlig förare.';
   const vehicle = data.vehicles.find((entry) => entry.id === plan.vehicleId);
   if (!vehicle) return 'Välj ett befintligt fordon.';
-  if (!vehicle.types.includes(order.vesselType)) return 'Fordonet kan inte hantera denna kärltyp.';
+  if (!options.existingBooking && vehicle.active === false) return 'Fordonet är inaktiverat. Välj ett aktivt fordon för den nya bokningen.';
+  if (!options.existingBooking && !vehicle.types.includes(order.vesselType)) return 'Fordonet kan inte hantera denna kärltyp.';
   const end = plan.startMinute + plan.durationMinutes;
   const clash = effectiveTransportOrders(data).find((entry) => entry.id !== id && !['unbooked', 'cancelled'].includes(entry.status) &&
     entry.date === plan.date && entry.startMinute !== undefined &&
@@ -157,7 +163,7 @@ export const transportSchema = baseDataSchema.superRefine((data, context) => {
       problem = validateTransportPlan(order.status === 'cancelled' ? { ...data, orders: [order], preliminary: {} } : data, order.id, {
         date: order.date, startMinute: order.startMinute, durationMinutes: order.durationMinutes,
         driverId: order.driverId, vehicleId: order.vehicleId,
-      });
+      }, { existingBooking: true });
     }
     if (problem) context.addIssue({ code: z.ZodIssueCode.custom, path: ['orders', index], message: problem });
     if (order.confirmation && order.confirmation.status !== 'expired' && order.confirmation.bookingVersion !== order.bookingVersion) {
@@ -166,7 +172,7 @@ export const transportSchema = baseDataSchema.superRefine((data, context) => {
   });
   Object.entries(data.preliminary).forEach(([id, plan]) => {
     const order = data.orders.find((entry) => entry.id === id);
-    const problem = !order || order.status !== 'unbooked' ? 'En preliminär bokning måste höra till en obokad arbetsorder.' : validateTransportPlan(data, id, plan);
+    const problem = !order || order.status !== 'unbooked' ? 'En preliminär bokning måste höra till en obokad arbetsorder.' : validateTransportPlan(data, id, plan, { existingBooking: true });
     if (problem) context.addIssue({ code: z.ZodIssueCode.custom, path: ['preliminary', id], message: problem });
   });
 });
@@ -312,6 +318,11 @@ function applyChangeCore(data: TransportData, change: TransportChange, actor: Tr
         audit: [], updatedAt: now, bookingVersion: 0,
       };
       next.orders.push(record(order, actor, interval ? 'Arbetsorder skapad som del av återkommande serie.' : 'Arbetsorder skapad.'));
+      const addedPlan = transportPlanOf(order);
+      if (addedPlan) {
+        const problem = validateTransportPlan(next, order.id, addedPlan);
+        if (problem) throw new Error(problem);
+      }
     }
   } else {
     const original = writableOrder(next, change.id, change.type === 'status' || change.type === 'cancel');
@@ -345,6 +356,7 @@ function applyChangeCore(data: TransportData, change: TransportChange, actor: Tr
       const dateDelta = change.patch.date && original.date ? dayOffset(original.date, change.patch.date) : undefined;
       const requestedDelta = change.patch.requestedDate && original.requestedDate ? dayOffset(original.requestedDate, change.patch.requestedDate) : undefined;
       const changedIds = new Set<string>();
+      const changedPlanIds = new Set<string>();
       next.orders = next.orders.map((entry) => {
         const entryDay = entry.date ?? entry.requestedDate ?? anchor;
         const targeted = entry.id === original.id || (series && entry.seriesId === series && !['done', 'on_way', 'cancelled'].includes(entry.status) && entryDay >= anchor);
@@ -362,12 +374,24 @@ function applyChangeCore(data: TransportData, change: TransportChange, actor: Tr
         if (edited.status === 'unbooked') edited = clearBooking(edited);
         const fields = Object.keys(safePatch).filter((key) => JSON.stringify(entry[key as keyof TransportDraft]) !== JSON.stringify(edited[key as keyof TransportDraft]));
         if (!fields.length) return entry;
+        if (fields.some((field) => ['date', 'startMinute', 'durationMinutes', 'driverId', 'vehicleId', 'vesselType'].includes(field))) {
+          changedPlanIds.add(edited.id);
+        }
         changedIds.add(entry.id);
         const duration = entry.durationMinutes !== edited.durationMinutes ? ` Tidsåtgång ${durationLabel(entry.durationMinutes)} → ${durationLabel(edited.durationMinutes)}.` : '';
         const labels = [...new Set(fields.map((field) => fieldLabels[field as keyof TransportDraft] ?? field))];
         return record(edited, actor, `${series ? 'Återkommande arbetsorder' : 'Arbetsorder'} ändrad (${labels.join(', ')}).${duration}`);
       });
       if (!changedIds.size) return data;
+      // Validate the finished series together. Checking an intermediate row can
+      // falsely collide with another occurrence that this same save moves away.
+      for (const id of changedPlanIds) {
+        const editedPlan = transportPlanOf(next.orders.find((order) => order.id === id));
+        if (editedPlan) {
+          const problem = validateTransportPlan(next, id, editedPlan);
+          if (problem) throw new Error(problem);
+        }
+      }
     }
   }
   next.revision += 1;

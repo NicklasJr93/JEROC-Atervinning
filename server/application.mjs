@@ -20,6 +20,10 @@ import { prepareCustomerReview } from './customer-review.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
 import { mobileRecordPayload } from './mobile-records.mjs';
 import { createMobilePricingProjection, mobileBusinessDate } from './mobile-pricing-projection.mjs';
+import { migratePersonnelFacilityAccess, syncPersonnelFacilityAccess } from './facility-access.mjs';
+import { handlePersonnelVehiclesApi, assertVehiclePlanningChange } from './personnel-vehicles.mjs';
+import { ensureEmployeeSickness, sicknessManagementCommand, sicknessManagementProjection, refreshSicknessAbsences, recordSicknessPayUnderlay } from './employee-sickness.mjs';
+import { createSicknessFilesApi } from './sickness-files.mjs';
 import { officeSchema, seedOffice, migrateOffice, storeSchema, isComplete, rowWeight, transportSchema, seedTransport, articles, recordPayment, validPaymentDetails,
   normalizeCustomerDetails, validateCustomerDetails, normalizeOriginAddress, normalizeAddress, addressError,
   normalizePhoneNumber, normalizePaymentDetails, phoneNumberError, bankRecipientError } from '../dist-server/domain-models.mjs';
@@ -544,12 +548,29 @@ export function createApplicationService({ repository, env = process.env, seed =
     .then(async value => {
       // Legacy personnel seeding changes planning IDs/timestamps. Persist it
       // once at startup; never generate a different plan in each read-copy.
-      await value.transact(state => {
+      const untouchedPricingSeed = await value.transact(state => {
+        const comparableBefore = clone(state.pricing);
+        comparableBefore.users = comparableBefore.users.filter(user => !(state.metadata.mobileEmployeeBootstrapUsers ?? []).some(original => original.id === user.id && equal(original, user)));
+        const untouched = equal(comparableBefore, state.metadata.pricingSeed);
         ensurePersonnel(state); refreshStaffingTasks(state);
         ensureEmployeeTime(state); ensureMobileEmployeeAccounts(state);
+        ensureEmployeeSickness(state);
         // Persist catalog upgrades once. Existing article revisions, financial
         // snapshots and category IDs are retained by the pricing migration.
         state.pricing = createPricingStore({ initialState: state.pricing }).exportState();
+        return untouched;
+      });
+      const sites = await siteProvider();
+      await value.transact(state => {
+        migratePersonnelFacilityAccess(state, { siteCatalog: sites }); syncPersonnelFacilityAccess(state, { siteCatalog: sites }); refreshSicknessAbsences(state);
+        // Apply the baseline only after both startup stages. The trusted site
+        // catalog can change derived legacy account scopes in the second stage.
+        // A registry already edited by a human retains the original import guard.
+        if (untouchedPricingSeed) {
+          const upgradedSeed = clone(state.pricing);
+          upgradedSeed.users = upgradedSeed.users.filter(user => !(state.metadata.mobileEmployeeBootstrapUsers ?? []).some(original => original.id === user.id && equal(original, user)));
+          state.metadata.pricingSeed = upgradedSeed;
+        }
       });
       return value;
     }).catch(error => { repoPromise = undefined; throw error; });
@@ -753,11 +774,12 @@ export function createApplicationService({ repository, env = process.env, seed =
         if (siteId && (siteId.length > 100 || !/^[a-zA-Z0-9_-]+$/.test(siteId))) fail('Välj en giltig anläggning.', 422);
         const sites = await siteProvider(), repository = await getRepo();
         const result = await repository.read(state => {
+          refreshSicknessAbsences(state);
           const p = requestPrincipal({ principal: (actor, user) => resolvePricingPrincipal(state.pricing.users, actor, user) }, req);
           if (siteId && ![p.actor, p.user].every(user => !Array.isArray(user.siteIds) || user.siteIds.includes(siteId))) fail('Du saknar åtkomst till anläggningen.', 403);
           if (siteId && !sites.some(site => site.id === siteId)) fail('Anläggningen finns inte.', 404);
           return employeePresenceProjection(state, p, { siteCatalog: sites, siteId });
-        }, { domains: ['pricing', 'personnel', 'employeeTime', 'transport', 'logistics'] });
+        }, { domains: ['pricing', 'personnel', 'employeeTime', 'employeeSickness', 'transport', 'logistics'] });
         json(res, 200, result); return true;
       }
       if (domain === 'equipment') {
@@ -799,6 +821,7 @@ export function createApplicationService({ repository, env = process.env, seed =
           if (siteId && ![principal.actor, principal.user].every(user => !Array.isArray(user.siteIds) || user.siteIds.includes(siteId))) fail('Du saknar åtkomst till anläggningen.', 403);
           if (siteId && !sites.some(site => site.id === siteId)) fail('Anläggningen finns inte.', 404);
           const reviewContext = { month, siteId, siteCatalog: sites };
+          refreshSicknessAbsences(state, reviewContext);
           if (format === 'csv') return employeeTimeReviewApproved(state, principal, { ...reviewContext,
             ...(personId ? { personIds: [personId] } : {}), ...(versionValue ? { version: Number(versionValue) } : {}) });
           if (command) {
@@ -807,7 +830,7 @@ export function createApplicationService({ repository, env = process.env, seed =
           }
           return personId ? employeeTimeReviewDetail(state, principal, personId, reviewContext) : employeeTimeReviewList(state, principal, reviewContext);
         };
-        const result = req.method === 'GET' ? await repository.read(operate, { domains: ['pricing', 'personnel', 'employeeTime', 'transport', 'logistics'] })
+        const result = req.method === 'GET' ? await repository.read(operate, { domains: ['pricing', 'personnel', 'employeeTime', 'employeeSickness', 'transport', 'logistics'] })
           : await repository.transact(operate);
         if (format === 'csv') {
           if (!result.reports.length) fail('Det finns inga godkända tidrapporter att exportera för valet.', 409);
@@ -839,6 +862,7 @@ export function createApplicationService({ repository, env = process.env, seed =
           const scopedPerson = { ...person, siteIds };
           const timeContext = { actualUserId: p.actor.id, effectiveUserId: p.user.id, allowedSiteIds: siteIds,
             date: url.searchParams.get('date') ?? undefined, month: url.searchParams.get('month') ?? undefined, siteCatalog: sites, management: true };
+          refreshSicknessAbsences(state, timeContext);
           if (command) {
             if (!permitted('employmentWrite')) fail('Du saknar behörighet att ändra tidrapporteringen.', 403);
             if (command.action === 'requirement.save') {
@@ -865,7 +889,7 @@ export function createApplicationService({ repository, env = process.env, seed =
             capabilities: { manageTimeSettings: permitted('employmentWrite') && (person.userId !== p.user.id || p.user.level === 'Systemadmin'), correctClock: permitted('employmentWrite') && !selectedDay.reviewLocked } };
         };
         const result = req.method === 'GET' && repository.read
-          ? await repository.read(operate, { domains: ['pricing', 'personnel', 'employeeTime', 'transport', 'logistics'] })
+          ? await repository.read(operate, { domains: ['pricing', 'personnel', 'employeeTime', 'employeeSickness', 'transport', 'logistics'] })
           : await repository.transact(operate);
         json(res, 200, result); return true;
       }
@@ -877,6 +901,8 @@ export function createApplicationService({ repository, env = process.env, seed =
         const sites = await siteProvider();
         const repository = await getRepo();
         const operate = (state,_,audit=[])=>{
+          syncPersonnelFacilityAccess(state, { siteCatalog: sites });
+          refreshSicknessAbsences(state, { siteCatalog: sites });
           const pricing=createPricingStore({initialState:state.pricing}),p=requestPrincipal(pricing,req);
           if(p.actor.id==='mobile-demo')fail('Mobilkontot saknar åtkomst till personal.',403);
           if(!personnelCan(p,planning?'transportRead':'personnelRead'))fail('Du saknar behörighet att läsa personal.',403);
@@ -891,7 +917,7 @@ export function createApplicationService({ repository, env = process.env, seed =
           return {...personnelProjection(state,p,planning,sites),...(preview?{preview}:{})};
         };
         const result = req.method === 'GET' && repository.read
-          ? await repository.read(operate, { domains: ['pricing', 'personnel', 'transport'] })
+          ? await repository.read(operate, { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth', 'employeeTime', 'employeeSickness', 'transport'] })
           : await repository.transact(operate);
         json(res,200,result);return true;
       }
@@ -911,6 +937,7 @@ export function createApplicationService({ repository, env = process.env, seed =
           if (state.metadata.pricingImportHash || !equal(comparable, state.metadata.pricingSeed)) fail('Prisregistret har redan ändrats. Importen behöver granskas manuellt.');
           state.pricing = pricing.validateMigration(payload.pricing, p);
           state.pricing.users = state.pricing.users.filter(user => !bootstrapUsers.some(original => original.id === user.id)).concat(clone(bootstrapUsers));
+          syncPersonnelFacilityAccess(state);
           // Validate migration records without running any delivery adapter.
           const box = createTransportOutbox();
           for (const entry of payload.outbox ?? []) {
@@ -1107,6 +1134,7 @@ export function createApplicationService({ repository, env = process.env, seed =
             demand(p, 'transportPlan');
             if (Array.isArray(p.user.siteIds)) fail('Transportplanering saknar anläggningsindelning. Använd ett konto med tillgång till alla anläggningar.', 403);
             const base = transportSchema.parse(payload.base), next = transportSchema.parse(payload.next);
+            assertVehiclePlanningChange(state.transport, next);
             if (!equal(state.transport, base)) fail('Planeringen ändrades av en annan användare. Ladda om före bokning.');
             validatePersonnelTransportChange(state,base,next);
             validateLogisticsTransportChange(state,base,next);
@@ -1173,16 +1201,19 @@ export function createApplicationService({ repository, env = process.env, seed =
     const buffered = { writeHead(code, fields) { status = code; headers = { ...headers, ...fields }; }, setHeader(key, value) { headers[key] = value; }, end(value) { response = value; } };
     try {
       const repository = await getRepo();
+      const accountSites = pricingRoute && req.method === 'POST' && url.pathname === '/api/pricing/users' ? await siteProvider() : undefined;
       const operate = async (state, _, audit = []) => {
         const pricing = createPricingStore({ initialState: state.pricing });
         const outbox = createTransportOutbox({ initialState: state.outbox });
         await context.run({ pricing }, () => pricingRoute ? createPricingApi({ store: pricing, validateMediaReferences: validateArticleMedia })(req, buffered, url) : createTransportIntegrationsApi({ principalStore: pricing, outbox })(req, buffered, url));
         if (status < 400) {
           const next = pricing.exportState();
+          const changedAccounts = next.users.filter(user => !equal(user.siteIds, state.pricing.users.find(old => old.id === user.id)?.siteIds)).map(user => user.id);
           if (!equal(next, state.pricing)) audit.push({ action: 'pricing.changed', actualUserId: req.headers['x-demo-actor'], effectiveUserId: req.headers['x-demo-user'] });
           state.pricing = next; state.outbox = outbox.exportState();
           // Personnel permissions have a single durable authoritative source.
           state.office.users = clone(next.users);
+          if (accountSites) syncPersonnelFacilityAccess(state, { siteCatalog: accountSites, confirmedUserIds: changedAccounts });
           fallback = pricing;
         }
       };
@@ -1196,7 +1227,55 @@ export function createApplicationService({ repository, env = process.env, seed =
   const driverApi = createDriverApi({getRepository:getRepo,readBody:body,json});
   const employeeApi = createMobileEmployeeApi({getRepository:getRepo,readBody:body,json,siteProvider,env});
   const logisticsApi = createLogisticsApi({getRepository:getRepo,readBody:body,json,siteProvider,environmentProvider});
-  const api = async (req, res, url) => await employeeApi(req,res,url) || await logisticsApi(req,res,url) || await driverApi(req,res,url) || await durableApi(req, res, url) || await businessApi(req, res, url);
-  Object.assign(api, { principalStore, withPrincipal, businessApi, durableApi, getRepository: getRepo, close: async () => { if (repoPromise) await (await repoPromise).close(); } });
+  const officePrincipal = (state, req) => requestPrincipal({ principal: (actor, user) => resolvePricingPrincipal(state.pricing.users, actor, user) }, req);
+  const sicknessFilesApi = createSicknessFilesApi({ env, getRepository: getRepo, ownPrincipal: employeeRequestPrincipal, officePrincipal, json });
+  const sicknessApi = async (req, res, url) => {
+    if (url.pathname !== '/api/personnel/sickness') return false;
+    try {
+      if (!['GET', 'POST'].includes(req.method)) fail('Metoden stöds inte.', 405);
+      if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) fail('Anropet måste komma från samma webbplats.', 403);
+      if ([...url.searchParams.keys()].some(key => !['personId', 'siteId', 'month', 'format'].includes(key))) fail('Ogiltigt sjukfrånvarofilter.', 422);
+      const format = url.searchParams.get('format');
+      if (format && (format !== 'csv' || req.method !== 'GET')) fail('Välj ett giltigt exportformat.', 422);
+      const filters = Object.fromEntries(['personId', 'siteId', 'month'].filter(key => url.searchParams.has(key)).map(key => [key, url.searchParams.get(key)]));
+      const command = req.method === 'POST' ? await body(req) : undefined;
+      if (command && filters.personId && command.personId !== undefined && command.personId !== filters.personId) fail('Personvalet har ändrats.', 409);
+      const repository = await getRepo(), sites = await siteProvider();
+      const operate = (state, _, audit = []) => {
+        syncPersonnelFacilityAccess(state, { siteCatalog: sites });
+        const principal = officePrincipal(state, req), options = { siteCatalog: sites, now: new Date() };
+        refreshSicknessAbsences(state, options);
+        if (command) { sicknessManagementCommand(state, principal, command, audit, options); refreshStaffingTasks(state); }
+        const result = sicknessManagementProjection(state, principal, filters, options);
+        if (format === 'csv') {
+          if (!filters.personId || !result.underlay) fail('Välj en person med lönebehörighet för sjuklöneunderlaget.', 403);
+          result.underlay = recordSicknessPayUnderlay(state, principal, filters.personId, { month: filters.month }, audit, options);
+        }
+        return result;
+      };
+      const result = req.method === 'GET' && !format
+        ? await repository.read(operate, { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth', 'employeeTime', 'employeeSickness', 'transport', 'logistics'] })
+        : await repository.transact(operate);
+      if (format === 'csv') {
+        if (!result.underlay) fail('Välj en person med lönebehörighet för sjuklöneunderlaget.', 403);
+        const cell = value => `"${String(value ?? '').replace(/^[=+@-]/, "'$&").replaceAll('"', '""')}"`;
+        const columns = ['Ärende', 'Sjuklöneperiod', 'Datum', 'Sjuklönedag', 'Frånvaro minuter', 'Lönebortfall', 'Sjuklön före karens', 'Karensavdrag', 'Sjuklön att betala', 'Beräkningsstatus', 'Kommentar', 'Lönegrund version', 'Lönegrund gäller från', 'Timlönegrund', 'Genomsnittlig veckoarbetstid', 'Sjuklön andel', 'Lönegrund källa', 'Karensmål', 'Karens dragen', 'Karens kvar', 'Karensundantag', 'Underlag framställt', 'Underlags-ID', 'Underlagsversion', 'Kontrollsumma'];
+        const cycles = new Map(result.underlay.cycles.map(cycle => [cycle.id, cycle]));
+        const csv = '\uFEFF' + [columns, ...result.underlay.rows.map(row => {
+          const cycle = cycles.get(row.cycleId), basis = cycle?.basis;
+          return [row.caseId, row.cycleId, row.date, row.employerDay, row.lostMinutes, row.salaryLoss, row.grossSickPay, row.karensDeduction, row.payableSickPay, row.status, row.messages.join(' '), basis?.revision, basis?.effectiveFrom, basis?.hourlyBase, basis?.averageWeeklyHours, basis?.sickPayRate, basis?.source, cycle?.deductionTarget, cycle?.deductionTaken, cycle?.deductionRemaining, cycle?.deductionExemption, result.underlay.generatedAt, result.underlay.ledgerId, result.underlay.ledgerRevision, result.underlay.contentHash];
+        })].map(row => row.map(cell).join(';')).join('\r\n');
+        res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'attachment; filename="sjuklon-karens-underlag.csv"' }); res.end(csv);
+      } else json(res, 200, result);
+    } catch (error) { json(res, error instanceof PricingError ? error.status : 503, { error: error instanceof PricingError ? error.message : 'Sjukfrånvaron kunde inte sparas eller läsas. Försök igen.', ...(error.code ? { code: error.code } : {}) }); }
+    return true;
+  };
+  const vehiclesApi = async (req, res, url) => {
+    if (!url.pathname.startsWith('/api/personnel/vehicles')) return false;
+    return handlePersonnelVehiclesApi(req, res, url, await getRepo(), { principalResolver: officePrincipal, readBody: body, json });
+  };
+  const api = async (req, res, url) => await sicknessFilesApi(req,res,url) || await sicknessApi(req,res,url) || await vehiclesApi(req,res,url)
+    || await employeeApi(req,res,url) || await logisticsApi(req,res,url) || await driverApi(req,res,url) || await durableApi(req, res, url) || await businessApi(req, res, url);
+  Object.assign(api, { principalStore, withPrincipal, businessApi, durableApi, getRepository: getRepo, close: async () => { await sicknessFilesApi.close(); if (repoPromise) await (await repoPromise).close(); } });
   return api;
 }

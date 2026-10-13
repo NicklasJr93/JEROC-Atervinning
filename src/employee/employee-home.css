@@ -87,6 +87,7 @@
 .employee-home-shortcut.primary { background: #0a7cf8; color: #fff; border-color: #0a7cf8; }
 .employee-home-shortcut.primary .employee-home-tile-icon { color: #fff; background: transparent; }
 .employee-home-shortcut.primary small { color: #d4eaff; }
+.employee-home-shortcut:disabled { opacity: .55; cursor: default; }
 .employee-home-count { color: #0b7bf7; background: #e9f3ff; border-radius: 12px; font-size: 10px; white-space: nowrap; padding: 4px 7px; }
 .employee-home-recovery .menu-row { background: #fff; }
 .employee-home + .bottom-nav { width: calc(min(100vw, 480px) - 20px); bottom: max(8px, env(safe-area-inset-bottom)); border: 1px solid #e0effc; border-radius: 15px; box-shadow: 0 5px 25px #163e590d; padding-bottom: 8px; }

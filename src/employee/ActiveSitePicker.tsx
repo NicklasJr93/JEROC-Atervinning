@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, MapPin } from 'lucide-react';
 import { employeeError, useEmployee } from './EmployeeProvider';
+import './active-site-picker.css';
 
 export function ActiveSitePicker() {
-  const { session, setActiveSite } = useEmployee();
+  const { session, setActiveSite, sessionGeneration } = useEmployee();
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [online, setOnline] = useState(() => navigator.onLine);
   const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
-  const identity = `${session?.companyId ?? ''}:${session?.person.id ?? ''}`;
+  const identity = `${session?.companyId ?? ''}:${session?.person.id ?? ''}:${sessionGeneration}`;
   const identityRef = useRef(identity); identityRef.current = identity;
   const sites = session?.sites.filter(site => site.active !== false && session.person.siteIds.includes(site.id)) ?? [];
   const current = sites.find(site => site.id === session?.activeSiteId);
@@ -36,15 +37,17 @@ export function ActiveSitePicker() {
     finally { if (identityRef.current === initiatingIdentity) setBusy(false); }
   }
 
-  if (sites.length <= 1) return <span className="employee-site-current" aria-label={`Aktiv anläggning: ${current?.name ?? sites[0]?.name ?? 'Anläggning saknas'}`}><MapPin size={15} aria-hidden="true" /><span>{current?.name ?? sites[0]?.name ?? 'Anläggning saknas'}</span></span>;
   return <div className="employee-site-picker" ref={root}>
-    <button ref={trigger} type="button" className="employee-site-trigger" aria-label={`Byt anläggning, ${current?.name ?? 'Välj anläggning'}`} aria-haspopup="listbox" aria-expanded={open} disabled={busy} onClick={() => { setError(''); setOpen(value => !value); }}>
-      <MapPin size={15} aria-hidden="true" /><span>{current?.name ?? 'Välj anläggning'}</span><ChevronDown size={14} aria-hidden="true" />
+    <button ref={trigger} type="button" className="employee-site-trigger" aria-label={`Byt anläggning, ${current?.name ?? sites[0]?.name ?? 'Ingen anläggning tilldelad'}`} aria-haspopup="listbox" aria-expanded={open} disabled={busy} onClick={() => { setError(''); setOpen(value => !value); }}>
+      <MapPin size={16} aria-hidden="true" /><span className="employee-site-copy"><small>Byt anläggning</small><strong>{current?.name ?? sites[0]?.name ?? 'Ingen tilldelad'}</strong></span><ChevronDown size={15} aria-hidden="true" />
     </button>
     {open && <div className="employee-site-popover">
-      <div className="employee-site-options" role="listbox" aria-label="Anläggning" aria-busy={busy}>
+      {sites.length === 0 && <p role="status">Du har ingen aktiv anläggning tilldelad. Kontakta din chef eller systemadmin innan du skapar en vägning.</p>}
+      {sites.length === 1 && <p>Du är tilldelad {sites[0].name}. Kontakta din chef om du behöver åtkomst till fler anläggningar.</p>}
+      {sites.length > 0 && <div className="employee-site-options" role="listbox" aria-label="Anläggning" aria-busy={busy}>
         {sites.map(site => <button type="button" key={site.id} role="option" aria-selected={site.id === current?.id} disabled={busy || !online} onClick={() => void choose(site.id)}><span>{site.name}</span>{site.id === current?.id && <Check size={16} aria-hidden="true" />}</button>)}
-      </div>
+      </div>}
+      {sites.length > 1 && <p>Valet gäller nya vägningar. Påbörjade vägningar behåller sin anläggning.</p>}
       {busy && <p role="status">Sparar anläggning…</p>}
       {!online && <p role="status">Anläggningen kan inte bytas utan anslutning. Försök igen när du är online.</p>}
       {error && <p role="alert">{error}</p>}

@@ -11,6 +11,8 @@ import { employeeEquipmentProjection } from './equipment.mjs';
 import { employeePresenceForPerson } from './employee-presence.mjs';
 import { employeeTimeReviewOwn, employeeTimeReviewEmployeeCommand, employeeTimeReviewSourceStamp, assertEmployeeTimeReviewSourceStamp } from './employee-time-review.mjs';
 import { employeeSites, employeeCompanyId, employeeActiveSite, saveEmployeeActiveSite } from './mobile-sites.mjs';
+import { employeeSicknessCommand, employeeSicknessProjection, refreshSicknessAbsences } from './employee-sickness.mjs';
+import { personnelFacilityScope, syncPersonnelFacilityAccess } from './facility-access.mjs';
 
 const COOKIE = 'jeroc_employee';
 const SESSION_HOURS = 8;
@@ -98,8 +100,9 @@ function sessionIdentity(state, req, { now } = {}) {
   if (!session || !person?.active || person.kind !== 'employee' || !account?.active || person.userId && (!user || user.active === false))
     fail('Logga in igen för att använda appen.', 401);
   const accountUser = user ?? { id: person.id, name: person.name, level: 'Medarbetare', permissions: ['view', ...(person.canDrive ? ['transportRead'] : [])] };
-  const employeeUser = { ...accountUser, siteIds: person.siteIds.filter(id => !Array.isArray(accountUser.siteIds) || accountUser.siteIds.includes(id)) };
-  return { session, account, person, principal: { actor: employeeUser, user: employeeUser } };
+  const siteIds = personnelFacilityScope(state, person);
+  const employeeUser = { ...accountUser, siteIds };
+  return { session, account, person: { ...person, siteIds }, principal: { actor: employeeUser, user: employeeUser } };
 }
 function demandTimeComplete(state, person, now, allowedSiteIds) {
   const gate = employeeTimeGate(state, person, { now, allowedSiteIds });
@@ -110,6 +113,7 @@ function demandTimeComplete(state, person, now, allowedSiteIds) {
 export function employeeRequestPrincipal(state, req, { enforceGate = false, now } = {}) {
   const identity = sessionIdentity(state, req, { now });
   if (!identity) return undefined;
+  if (enforceGate) refreshSicknessAbsences(state, { now });
   if (enforceGate) demandTimeComplete(state, identity.person, now, identity.principal.user.siteIds);
   return identity.principal;
 }
@@ -193,6 +197,8 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         // use a snapshot and never take a write lock or prune authentication.
         if (req.method === 'POST') { ensureMobileEmployeeAccounts(state); ensureLogistics(state); }
         else ensureEmployeeTime(state);
+        refreshSicknessAbsences(state, { now, siteCatalog });
+        syncPersonnelFacilityAccess(state,{siteCatalog});
         const at = timestamp(now), auth = state.personnelAuth;
         if (req.method === 'POST') {
           auth.sessions = auth.sessions.filter(value => value.expiresAt > at);
@@ -204,12 +210,21 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           const sites = employeeSites(siteCatalog, person, principal.user);
           const project = url.searchParams.get('view') === 'bootstrap' ? employeeTimeBootstrapProjection : employeeTimeProjection;
           const projection = project(state, scopedPerson, { now, allowedSiteIds: principal.user.siteIds, month: url.searchParams.get('month') ?? undefined, date: url.searchParams.get('date') ?? undefined, siteCatalog: sites });
+          const end = new Date(`${projection.today}T12:00:00Z`); end.setUTCDate(end.getUTCDate() + 6);
+          const lastUpcomingDay = end.toISOString().slice(0, 10);
+          const upcomingOrders = person.driverId ? (state.transport?.orders ?? [])
+            .filter(order => order.date >= projection.today && order.date <= lastUpcomingDay && !['done', 'cancelled'].includes(order.status)
+              && (state.logistics?.details?.[order.id]?.assignedDriverId ?? order.driverId) === person.driverId
+              && state.logistics?.details?.[order.id]?.operator !== 'external'
+              && scopedPerson.siteIds.includes(state.logistics?.details?.[order.id]?.siteId ?? order.siteId))
+            .sort((a, b) => a.date.localeCompare(b.date) || (a.startMinute ?? 1440) - (b.startMinute ?? 1440))
+            .slice(0, 30).map(order => Object.fromEntries(['id', 'customerName', 'action', 'date', 'startMinute', 'durationMinutes', 'status', 'siteId', 'driverId', 'vehicleId', 'material', 'address', 'city'].filter(key => order[key] !== undefined).map(key => [key, clone(order[key])]))) : [];
           const companyId = employeeCompanyId(env, state);
           const activeSiteId = employeeActiveSite(state, companyId, person.id, sites);
           const yardWork = principal.user.level !== 'Medarbetare' || principal.user.permissions.includes('prepare');
           const homeActivity = yardWork ? employeeHomeActivity(state, principal, activeSiteId, projection.today) : undefined;
           return { ...projection, companyId, companyName: state.metadata?.organisation?.name ?? (companyId === 'jeroc-demo' ? 'JEROC Återvinning AB' : ''), person: safePerson(scopedPerson, account), sites: sites.map(({ id, name, active }) => ({ id, name, active })),
-            activeSiteId, ...(homeActivity ? { homeActivity } : {}),
+            activeSiteId, upcomingOrders, sickness: employeeSicknessProjection(state, person.id, { now, bootstrap: url.searchParams.get('view') === 'bootstrap', actualUserId: principal.actor.id, effectiveUserId: principal.user.id }), ...(homeActivity ? { homeActivity } : {}),
             presence: employeePresenceForPerson(state, scopedPerson, { now, siteCatalog: sites,
               actualUserId: principal.actor.id, effectiveUserId: principal.user.id, allowedSiteIds: principal.user.siteIds }),
             capabilities: { yardWork, assignedOrders: Boolean(person.canDrive && person.driverId),
@@ -239,6 +254,8 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         const identity = sessionIdentity(state, req, { now });
         if (!identity) fail('Logga in för att använda appen.', 401);
         const { person, account, principal, session } = identity;
+        if (req.headers['x-employee-person'] !== undefined && req.headers['x-employee-person'] !== person.id)
+          fail('Personalkontot har bytts i en annan flik. Logga in igen.', 409, { code: 'employee_selection_changed' });
         const scopedPerson = { ...person, siteIds: principal.user.siteIds };
         const allowedSites = employeeSites(siteCatalog, person, principal.user);
         const timeContext = { now, actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
@@ -246,6 +263,12 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           activeSiteId: employeeActiveSite(state, employeeCompanyId(env, state), person.id, allowedSites) };
         if (path === 'logout' && req.method === 'POST') { auth.sessions = auth.sessions.filter(value => value !== session); return { token: '', value: { ok: true } }; }
         if (['session', 'bootstrap', 'overview', 'calendar'].includes(path) && req.method === 'GET') return { value: overview(identity) };
+        if (path === 'sickness') {
+          if (!['GET', 'POST'].includes(req.method)) fail('Metoden stöds inte.', 405);
+          if ([...url.searchParams.keys()].length) fail('Sjukanmälan gäller ditt eget konto.', 422);
+          if (req.method === 'POST') { employeeSicknessCommand(state, person.id, payload, audit, timeContext); refreshStaffingTasks(state); }
+          return { value: employeeSicknessProjection(state, person.id, timeContext) };
+        }
         if (path === 'time-review') {
           if ([...url.searchParams.keys()].some(key => key !== 'month')) fail('Välj en månad för din egen tidrapport.', 422);
           const month = url.searchParams.get('month') ?? payload?.month;
@@ -279,7 +302,9 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           const phoneError = phoneNumberError(input.phone);
           if (phoneError) fail(phoneError, 422);
           input.phone = normalizePhoneNumber(input.phone);
-          Object.assign(person, input); person.revision += 1; state.personnel.revision += 1;
+          const savedPerson = state.personnel.people.find(value => value.id === person.id);
+          Object.assign(savedPerson, input); savedPerson.revision += 1; state.personnel.revision += 1;
+          Object.assign(person, input, { revision: savedPerson.revision });
           audit.push({ action: 'employee.profile.updated', personId: person.id, actualUserId: principal.actor.id, at });
           return { value: overview(identity) };
         }
@@ -309,19 +334,24 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           if (principal.user.level !== 'Systemadmin' && principal.user.level !== 'VD') fail('Du saknar behörighet att administrera personalkonton.', 403);
           const people = state.personnel.people.filter(value => value.kind === 'employee' && (!principal.user.siteIds || value.siteIds.every(id => principal.user.siteIds.includes(id))));
           if (req.method === 'POST') {
-            const input = parse(z.object({ personId: z.string().min(1).max(120), username: accountUsername, active: z.boolean(), password: z.string().min(10).max(200).optional() }).strict(), payload);
+            const input = parse(z.object({ personId: z.string().min(1).max(120), username: accountUsername, active: z.boolean(), password: z.string().min(10).max(200).optional(),
+              siteIds: z.array(z.string().min(1).max(100)).max(100).optional() }).strict(), payload);
             const target = people.find(value => value.id === input.personId);
             if (!target) fail('Personen ligger utanför ditt personalansvar.', 403);
             let linkedUser = state.pricing.users.find(value => value.id === target.userId);
             if (target.userId && !linkedUser) fail('Personens kopplade användarkonto finns inte längre.', 422);
             if (!linkedUser) {
+              if (!input.siteIds) fail('Välj uttryckligen vilka anläggningar det nya kontot får använda.', 422);
+              if (input.siteIds.some(id => !siteCatalog.some(site => site.id === id && site.active !== false)))
+                fail('Välj registrerade aktiva anläggningar för kontot.', 422);
               const id = `staff-${hash(target.id).slice(0, 32)}`;
               if (state.pricing.users.some(value => value.id === id)) fail('Kontots identitet används redan. Koppla befintligt konto i Personal.', 422);
               const pricing = createPricingStore({ initialState: state.pricing });
-              pricing.saveUsers({ users: [...state.pricing.users, { id, name: target.name, level: 'Medarbetare', permissions: ['view'], siteIds: target.siteIds,
+              pricing.saveUsers({ users: [...state.pricing.users, { id, name: target.name, level: 'Medarbetare', permissions: ['view'], siteIds: input.siteIds,
                 active: target.active, maxAttest: 0, ownAttest: false }] }, principal);
               state.pricing = pricing.exportState(); state.office.users = clone(state.pricing.users);
               target.userId = id; target.revision += 1; state.personnel.revision += 1;
+              syncPersonnelFacilityAccess(state,{siteCatalog});
               linkedUser = state.pricing.users.find(value => value.id === id);
             }
             if (principal.user.level !== 'Systemadmin' && linkedUser.level === 'Systemadmin') fail('Du kan inte ändra en systemadministratörs inloggning.', 403);
@@ -388,7 +418,7 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         fail('Mobilsidan finns inte.', 404);
       };
       const result = req.method === 'GET' && repository.read
-        ? await repository.read(operate, { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth', 'employeeTime', 'transport', 'logistics',
+        ? await repository.read(operate, { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth', 'employeeTime', 'employeeSickness', 'transport', 'logistics',
           ...(path === 'equipment' ? ['equipment'] : [])] })
         : await repository.transact(operate);
       if (result.failure) json(res, 401, { error: result.failure });

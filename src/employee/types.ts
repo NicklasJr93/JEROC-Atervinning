@@ -76,6 +76,8 @@ export interface EmployeeSession {
   sites: { id: string; name: string; active?: boolean }[];
 }
 export interface EmployeeOverview extends EmployeeSession {
+  sickness?: import('./sickness-types').EmployeeSicknessResponse;
+  upcomingOrders?: EmployeeOrder[];
   homeActivity?: { date: string; siteId: string; completedWeighings: number; weighedKg: number };
   monthLoaded?: boolean;
   revision: number; today: string; month: string; date: string;

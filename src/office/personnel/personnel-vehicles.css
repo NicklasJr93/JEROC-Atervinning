@@ -1,0 +1,14 @@
+.office .hr-vehicle-editor { margin: 12px 0; padding: 16px; border: 1px solid #dbe7f5; border-radius: 12px; background: #f7faff; }
+.office .hr-vehicle-editor h3 { display: flex; gap: 8px; align-items: center; margin: 0 0 16px; color: #18314e; font-size: 15px; }
+.office .hr-vehicle-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
+.office .hr-vehicle-create { margin-bottom: 16px; }
+.office .hr-vehicle-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+.office .hr-driver-section { border: 1px solid #dbe7f5; border-radius: 12px; padding: 16px; min-width: 0; }
+.office .hr-driver-section legend { display: flex; gap: 8px; align-items: center; padding: 0 8px; font-weight: 700; }
+.office .hr-driver-section .hr-checkbox { margin-bottom: 12px; }
+.office .hr-access-readonly { padding: 12px 14px; border: 1px solid #e0e9f5; border-radius: 9px; background: #f8faff; }
+.office .hr-access-readonly strong, .office .hr-access-readonly small { display: block; }
+.office .hr-access-readonly small { margin-top: 6px; color: #7187a3; line-height: 1.5; }
+.office .hr-access-conflict { margin-bottom: 18px; }
+.office .hr-access-conflict p { margin: 4px 0; }
+.office .hr-access-conflict .hr-dialog-actions { justify-content: flex-start; margin-top: 12px; }

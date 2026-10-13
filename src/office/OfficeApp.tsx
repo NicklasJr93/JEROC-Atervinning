@@ -1115,10 +1115,10 @@ export function OfficeApp() {
   const accountsView = section === 'users' ||
     (section === 'personnel' && location.pathname.split('/')[2] === 'accounts') ||
     (section === 'personnel' && user && !can(user, 'personnelRead') && can(user, 'users'));
-  async function saveStaffUsers(users: OfficeUser[]) {
+  async function saveStaffUsers(users: OfficeUser[], allSiteUserIds?: string[]) {
     if (!user || !actualUser || !can(user, 'users')) return false;
     try {
-      await pricingRequest('users', user, actualUser, { users });
+      await pricingRequest('users', user, actualUser, { users, ...(allSiteUserIds?.length ? { allSiteUserIds } : {}) });
       await shared.refresh();
       return true;
     } catch (e) {
@@ -2187,7 +2187,7 @@ export function OfficeApp() {
           ) : accountsView ? (
               <StaffAccountPanel key={`${actualUser!.id}:${user.id}:${query.get('user') ?? ''}`}
                 users={data.users} initialUserId={query.get('user') ?? undefined}
-                actor={user} sites={terminalDemo.state?.sites} save={saveStaffUsers}
+                actor={user} actualUser={actualUser!} sites={terminalDemo.state?.sites} save={saveStaffUsers}
                 navigation={<nav className="office-personnel-nav" aria-label="Personal">
                 {can(user, 'personnelRead') && <button onClick={() => navigate('/personnel')}>Alla personer</button>}
                 {can(user, 'personnelRead') && <button onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa</button>}
@@ -2200,9 +2200,9 @@ export function OfficeApp() {
               key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!}
               users={data.users} selectedSiteId={siteFilter} onNotice={setMessage}
               onAccountsChanged={() => shared.refresh()}
-              renderStaffAccount={id => can(user, 'users') && data.users.some(account => account.id === id) ? <StaffAccountPanel
+              renderStaffAccount={(id, onSaved) => can(user, 'users') && data.users.some(account => account.id === id) ? <StaffAccountPanel
                 key={`${user.id}:${id}`} embedded users={data.users} initialUserId={id}
-                actor={user} sites={terminalDemo.state?.sites} save={saveStaffUsers} /> : <p role="status">Hämtar det kopplade kontot…</p>}
+                actor={user} actualUser={actualUser!} sites={terminalDemo.state?.sites} save={saveStaffUsers} onSaved={onSaved} /> : <p role="status">Hämtar det kopplade kontot…</p>}
               onOpenUser={id => navigate(`/personnel/accounts?user=${encodeURIComponent(id)}`)} /></Suspense>
           ) : section === 'equipment' ? (
             <Suspense fallback={<div className="office-panel" role="status">Hämtar utrustningen…</div>}>

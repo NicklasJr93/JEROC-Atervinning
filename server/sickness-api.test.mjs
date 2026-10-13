@@ -1,0 +1,81 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { createServer } from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { createApplicationService, initialApplicationState } from './application.mjs';
+import { createApplicationRepository } from './application-storage.mjs';
+import { createPricingStore } from './pricing.mjs';
+
+test('unrestricted access is an explicit dual-admin grant; omitted legacy scope cannot widen accounts', () => {
+  const pricing = createPricingStore(), principal = pricing.principal('admin');
+  let users = pricing.exportState().users;
+  const target = users.find(user => user.id !== 'admin'); target.siteIds = ['norrtalje'];
+  pricing.saveUsers({ users }, principal);
+  users = pricing.exportState().users; delete users.find(user => user.id === target.id).siteIds;
+  pricing.saveUsers({ users }, principal);
+  assert.deepEqual(pricing.exportState().users.find(user => user.id === target.id).siteIds, ['norrtalje']);
+  pricing.saveUsers({ users, allSiteUserIds: [target.id] }, principal);
+  assert.equal(pricing.exportState().users.find(user => user.id === target.id).siteIds, undefined);
+  assert.throws(() => pricing.saveUsers({ users, allSiteUserIds: [target.id] }, { ...principal, user: { ...principal.user, siteIds: ['norrtalje'] } }), error => error.status === 403);
+  assert.throws(() => pricing.saveUsers({ users, allSiteUserIds: ['unknown'] }, principal), error => error.status === 422);
+  const crossSiteUsers = structuredClone(users); crossSiteUsers.find(user => user.id === target.id).siteIds = ['rimbo'];
+  assert.throws(() => pricing.saveUsers({ users: crossSiteUsers }, { ...principal, user: { ...principal.user, siteIds: ['norrtalje'] } }), error => error.status === 403);
+});
+
+test('real application routes commit own sickness, preserve identity boundaries, export a versioned underlay and protect certificate files', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'scrappilot-sickness-api-'));
+  const env = { JEROC_APPLICATION_DB_PATH: join(directory, 'business.sqlite'), JEROC_SICKNESS_FILES_DB_PATH: join(directory, 'medical.sqlite') };
+  const repository = await createApplicationRepository({ env, seed: initialApplicationState });
+  const application = createApplicationService({ repository, env, siteProvider: async () => [{ id: 'norrtalje', name: 'Norrtälje', active: true }, { id: 'rimbo', name: 'Rimbo', active: true }] });
+  await application.getRepository();
+  await repository.read(state => {
+    const baseline = structuredClone(state.pricing);
+    baseline.users = baseline.users.filter(user => !(state.metadata.mobileEmployeeBootstrapUsers ?? []).some(original => original.id === user.id && JSON.stringify(original) === JSON.stringify(user)));
+    assert.deepEqual(baseline, state.metadata.pricingSeed, 'trusted access migration preserves the untouched first-import baseline');
+  });
+  await repository.transact(state => {
+    const admin = { id: 'test-hr-admin', name: 'HR test', level: 'Systemadmin', active: true, permissions: [], maxAttest: 0, ownAttest: false };
+    state.pricing.users.push(admin); state.office.users.push(structuredClone(admin));
+  });
+  const server = createServer((req, res) => { void application(req, res, new URL(req.url, 'http://localhost')).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const request = (path, data, headers = {}) => fetch(base + path, { method: data === undefined ? 'GET' : 'POST', headers: { ...(data === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers }, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
+  const adminHeaders = { 'X-Demo-Actor': 'test-hr-admin', 'X-Demo-User': 'test-hr-admin' };
+  try {
+    const login = await request('/api/employee/login', { username: 'niklas', password: 'Demo123!' }); assert.equal(login.status, 200);
+    const own = await login.json(), cookie = login.headers.get('set-cookie').split(';')[0];
+    const headers = { Cookie: cookie, 'X-Employee-Person': own.person.id };
+    assert.ok(own.sickness); assert.ok(Array.isArray(own.upcomingOrders));
+    const wrong = await request('/api/employee/sickness', { action: 'sickness.report', requestId: randomUUID(), fromDate: own.today, extent: 100, forecast: { kind: 'unknown' }, declared: true }, { ...headers, 'X-Employee-Person': 'other-person' });
+    assert.equal(wrong.status, 409); assert.equal((await repository.read(state => state.employeeSickness.cases)).length, 0);
+    const command = { action: 'sickness.report', requestId: randomUUID(), fromDate: own.today, extent: 50, forecast: { kind: 'unknown' }, declared: true };
+    const posted = await request('/api/employee/sickness', command, headers); assert.equal(posted.status, 200, await posted.clone().text());
+    const report = await posted.json(); assert.equal(report.activeCase.extent, 50);
+    assert.equal((await request('/api/employee/sickness', command, headers)).status, 200);
+    assert.equal((await repository.read(state => state.employeeSickness.cases)).length, 1);
+    const office = await request(`/api/personnel/sickness?personId=${own.person.id}`, undefined, adminHeaders); assert.equal(office.status, 200);
+    const view = await office.json(); assert.equal(view.cases.length, 1); assert.equal(view.underlay.calculationStatus, 'missing_basis');
+    const policy = { ...view.policy, agreement: 'statutory', calculationConfirmed: true };
+    assert.equal((await request('/api/personnel/sickness', { action: 'policy.save', requestId: randomUUID(), policy }, adminHeaders)).status, 200);
+    const profile = { personId: own.person.id, revision: 0, effectiveFrom: own.today, hourlyBase: 200, averageWeeklyHours: 40, sickPayRate: 0.8, confirmed: true, source: 'Fiktivt verifierat löneunderlag för isolerat test' };
+    assert.equal((await request(`/api/personnel/sickness?personId=${own.person.id}`, { action: 'payprofile.save', requestId: randomUUID(), profile }, adminHeaders)).status, 200);
+    const csv = await request(`/api/personnel/sickness?personId=${own.person.id}&format=csv`, undefined, adminHeaders);
+    assert.equal(csv.status, 200, await csv.clone().text()); assert.match(csv.headers.get('content-type'), /text\/csv/);
+    const text = await csv.text(); assert.match(text, /Karensavdrag/); assert.match(text, /Underlagsversion/); assert.match(text, /Kontrollsumma/);
+    assert.equal((await repository.read(state => state.employeeSickness.ledgerSnapshots)).length, 1);
+    assert.equal((await request(`/api/personnel/sickness?personId=${own.person.id}&format=csv`, undefined, adminHeaders)).status, 200);
+    assert.equal((await repository.read(state => state.employeeSickness.ledgerSnapshots)).length, 1, 'identical export reuses the durable receipt');
+    const file = await fetch(`${base}/api/employee/sickness/files?caseId=${report.activeCase.id}`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/pdf', 'X-File-Name': 'fiktivt-intyg.pdf' }, body: '%PDF-1.4\nFiktivt intyg\n%%EOF' });
+    assert.equal(file.status, 201, await file.clone().text()); const uploaded = await file.json();
+    const downloaded = await request(`/api/personnel/sickness/files/${uploaded.file.id}`, undefined, adminHeaders); assert.equal(downloaded.status, 200); assert.match(downloaded.headers.get('cache-control'), /no-store/);
+    const generic = await request('/api/application/personnel?view=planning', undefined, adminHeaders); assert.equal(generic.status, 200);
+    const plain = await generic.text(); assert.equal(plain.includes('fiktivt-intyg.pdf'), false); assert.equal(plain.includes('ledgerSnapshots'), false);
+    const time = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()).split(':').map(Number), recoveryMinute = time[0] * 60 + time[1];
+    const recovered = await request('/api/employee/sickness', { action: 'sickness.recover', requestId: randomUUID(), id: report.activeCase.id, revision: report.activeCase.revision, lastSickDate: own.today, ...(recoveryMinute ? { recoveryMinute } : {}) }, headers);
+    assert.equal(recovered.status, 200, await recovered.clone().text()); assert.equal((await recovered.json()).activeCase, null);
+  } finally { await new Promise(resolve => server.close(resolve)); await application.close(); await rm(directory, { recursive: true, force: true }); }
+});

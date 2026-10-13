@@ -1,0 +1,5 @@
+.employee-site-trigger .employee-site-copy { display: flex; flex-direction: column; white-space: normal; gap: 1px; min-width: 0; }
+.employee-site-copy small { font-size: 10px; color: #6683a1; line-height: 1.2; }
+.employee-site-copy strong { color: #153861; font-size: 12px; font-weight: 650; line-height: 1.35; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.employee-site-trigger:focus-visible { outline: 3px solid #3987f2; outline-offset: 2px; }
+.employee-site-popover p { white-space: normal; }

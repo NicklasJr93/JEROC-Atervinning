@@ -1574,16 +1574,18 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
   }
   function saveUsers(input, principalValue) {
     demand(principalValue, 'users');
-    const users = validate(
-      z.object({ users: z.array(userSchema).min(1).max(100) }),
-      input,
-    ).users.map((user) => ({
+    const parsed = validate(z.object({ users: z.array(userSchema).min(1).max(100), allSiteUserIds: z.array(id).max(100).optional() }), input);
+    const allSiteUsers = new Set(parsed.allSiteUserIds ?? []);
+    if ([...allSiteUsers].some(userId => !parsed.users.some(user => user.id === userId))) throw new PricingError('Välj ett befintligt konto för åtkomst till alla anläggningar.', 422);
+    if (allSiteUsers.size && [principalValue.actor, principalValue.user].some(user => Array.isArray(user.siteIds) || !can(user, 'users')))
+      throw new PricingError('Både faktisk och effektiv administratör måste ha åtkomst till alla anläggningar för att ge obegränsad anläggningsåtkomst.', 403);
+    const users = parsed.users.map((user) => ({
       ...user,
       // Older callers must not accidentally re-enable a blocked account.
       active: user.active ?? state.users.find((entry) => entry.id === user.id)?.active ?? true,
       // Older clients omitted this optional field. Preserve an existing site
       // restriction rather than silently widening it to every demo site.
-      ...(user.siteIds !== undefined
+      ...(allSiteUsers.has(user.id) ? { siteIds: undefined } : user.siteIds !== undefined
         ? { siteIds: [...new Set(user.siteIds)] }
         : state.users.find((entry) => entry.id === user.id)?.siteIds !== undefined
           ? { siteIds: copy(state.users.find((entry) => entry.id === user.id).siteIds) }
@@ -1597,6 +1599,13 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     }));
     if (new Set(users.map((user) => user.id)).size !== users.length)
       throw new PricingError('Användar-id måste vara unika.');
+    for (const user of users) {
+      const previous = state.users.find(entry => entry.id === user.id);
+      const sitesChanged = !previous || !isDeepStrictEqual(previous.siteIds?.toSorted(), user.siteIds?.toSorted());
+      if (sitesChanged && [principalValue.actor, principalValue.user].some(admin => Array.isArray(admin.siteIds) &&
+          (!Array.isArray(user.siteIds) || user.siteIds.some(siteId => !admin.siteIds.includes(siteId)))))
+        throw new PricingError('Du får inte ge anläggningsåtkomst utanför faktisk eller effektiv administratörs egen åtkomst.', 403);
+    }
     if (!users.some((user) => user.level === 'Systemadmin' && user.active !== false))
       throw new PricingError('Minst en Systemadmin måste finnas kvar.');
     if (!users.some((user) => user.id === principalValue.actor.id))

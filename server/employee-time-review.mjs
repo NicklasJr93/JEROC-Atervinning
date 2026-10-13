@@ -89,7 +89,7 @@ function calculatePeriod(state, person, month, index, context) {
       .map(value => select(value, ['id', 'revision', 'siteId', 'startedAt', 'endedAt', 'breaks', 'requiresCorrection'])).sort((a, b) => a.id.localeCompare(b.id)),
     absences: (index.absences.get(person.id) ?? []).filter(value => value.status === 'registered'
       && value.fromDate.slice(0, 7) <= month && value.toDate.slice(0, 7) >= month)
-      .map(value => select(value, ['id', 'revision', 'fromDate', 'toDate', 'allDay', 'startMinute', 'endMinute', 'status']))
+      .map(value => select(value, ['id', 'revision', 'fromDate', 'toDate', 'allDay', 'startMinute', 'endMinute', 'sicknessExtent', 'status']))
       .sort((a, b) => a.id.localeCompare(b.id)),
   };
   const sourceSiteIds = [...new Set([...sources.entries, ...sources.orders, ...sources.clocks]

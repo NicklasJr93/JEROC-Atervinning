@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { createApplicationService, initialApplicationState } from './application.mjs';
 import { createPricingStore } from './pricing.mjs';
 import { createApplicationRepository } from './application-storage.mjs';
+import { syncPersonnelFacilityAccess } from './facility-access.mjs';
 import { createCorrectionDraft, submitCorrection, approveCorrection, recordPayment } from '../dist-server/domain-models.mjs';
 const office='/api/application/office', mobile='/api/application/mobile', transport='/api/application/transport';
 async function fixture(run) {
@@ -48,7 +49,11 @@ test('browser supplied approval, attest and paid status cannot skip server workf
  for(const status of ['attest','ready','paid']){const next=structuredClone(base);next.cards[0].status=status;assert.equal((await a(office,{base,next})).status,409);}
  const next=structuredClone(base);next.cards[0].customerApproval={id:randomUUID(),version:1,status:'approved',updatedAt:new Date().toISOString()};assert.equal((await a(office,{base,next})).status,409);
 }));
-test('transport and disabled outbox persist and reject duplicate event identities',async()=>fixture(async({a,instance})=>{
+test('transport and disabled outbox persist and reject duplicate event identities',async()=>fixture(async({a,instance,repository})=>{
+ // The legacy personal/account intersection deliberately restricts the demo
+ // admin. Provision full access explicitly for this whole-fleet transport test.
+ await a(office);
+ await (await repository()).transact(state=>{delete state.pricing.users.find(user=>user.id==='admin').siteIds;syncPersonnelFacilityAccess(state,{siteCatalog:[{id:'norrtalje'},{id:'rimbo'}]});});
  const base=(await a(transport)).data,next=structuredClone(base);next.orders[0].notes='Gemensam planering';await post(a,transport,base,next);const b=await instance();assert.equal((await b(transport)).data.orders[0].notes,'Gemensam planering');
  const event={id:randomUUID(),type:'work_order.updated',orderId:next.orders[0].id,at:new Date().toISOString(),bookingVersion:0,customer:{name:'Testkund'},actor:'Systemadmin',actualUserId:'admin',effectiveUserId:'admin'};
  assert.equal((await a('/api/transport/outbox',{events:[event]})).status,200);const box=await b('/api/transport/outbox');assert.equal(box.memoryOnly,false);assert.equal(box.deliveryEnabled,false);assert.equal(box.entries.length,1);assert.equal((await b('/api/transport/outbox',{events:[event]})).duplicates,1);

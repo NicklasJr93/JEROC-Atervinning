@@ -1,0 +1,60 @@
+.hr-sickness-workspace { min-width: 0; }
+.hr-sickness-workspace .hr-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.hr-sickness-tabs { display: flex; gap: 6px; border-bottom: 1px solid #e0eaf6; margin: 16px 0; }
+.hr-sickness-tabs button { border: 0; border-bottom: 3px solid transparent; background: none; padding: 13px 14px; color: #7186a6; font: inherit; font-size: 12px; }
+.hr-sickness-tabs button.active { border-bottom-color: #0866ed; color: #0866ed; font-weight: 600; }
+.hr-sickness-table tbody tr { cursor: pointer; }
+.hr-sickness-table tbody tr:hover, .hr-sickness-table tbody tr:focus-visible { background: #f2f7ff; outline: 2px solid #91baff; outline-offset: -2px; }
+.hr-sickness-person { display: flex; gap: 11px; align-items: center; }
+.hr-sickness-case-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+.hr-sickness-case-heading > div { flex: 1; }
+.hr-sickness-case-heading h3 { margin: 0 0 5px; font-size: 17px; }
+.hr-sickness-case-heading p { margin: 0; font-size: 11px; color: #8497b2; }
+.hr-sickness-case-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid #e3ebf5; border-radius: 10px; margin-bottom: 16px; }
+.hr-sickness-case-summary > div { padding: 16px; border-right: 1px solid #e3ebf5; }
+.hr-sickness-case-summary > div:last-child { border: 0; }
+.hr-sickness-case-summary span { display: block; color: #7e92ac; font-size: 10px; }
+.hr-sickness-case-summary strong { display: block; font-size: 16px; margin-top: 6px; }
+.hr-sickness-checklist { display: grid; gap: 10px; margin: 14px 0; }
+.hr-sickness-check { display: flex; gap: 12px; align-items: flex-start; padding: 13px; border: 1px solid #e2eaf5; border-radius: 9px; color: #7490b0; }
+.hr-sickness-check > svg { flex-shrink: 0; margin-top: 2px; }
+.hr-sickness-check > div { flex: 1; min-width: 0; }
+.hr-sickness-check strong { color: #365273; font-size: 12px; }
+.hr-sickness-check p { margin: 4px 0 0; font-size: 11px; }
+.hr-sickness-check.warning { background: #fff8ed; border-color: #ffe0b8; color: #ad752b; }
+.hr-sickness-check.complete { background: #effaf4; border-color: #d6efdf; color: #208353; }
+.hr-sickness-timeline { list-style: none; padding: 0; margin: 0; }
+.hr-sickness-timeline li { position: relative; padding: 0 0 18px 24px; border-left: 1px solid #d8e7fb; margin-left: 5px; font-size: 11px; }
+.hr-sickness-timeline li:last-child { border-color: transparent; padding-bottom: 0; }
+.hr-sickness-timeline li:before { content: ''; position: absolute; width: 8px; height: 8px; border: 2px solid #fff; outline: 1px solid #bcd5fa; background: #408beb; border-radius: 50%; left: -5px; top: 1px; }
+.hr-sickness-timeline strong, .hr-sickness-timeline time { display: block; }
+.hr-sickness-timeline time { font-size: 10px; color: #8497b2; margin-top: 4px; }
+.hr-sickness-timeline p { margin: 5px 0 0; color: #6e84a2; }
+.hr-sickness-inline-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.hr-sickness-inline-actions .office-btn { white-space: normal; }
+.hr-sickness-profile-list { display: grid; gap: 10px; }
+.hr-sickness-profile-list > div { border: 1px solid #e0e9f5; padding: 16px; border-radius: 9px; background: #fff; }
+.hr-sickness-profile-list h3 { margin: 0 0 5px; font-size: 13px; }
+.hr-sickness-profile-list p { margin: 5px 0 0; color: #8095b0; font-size: 11px; }
+.hr-sickness-numeric { text-align: right !important; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hr-sickness-basis { padding: 14px; border: 1px solid #dfe9f6; border-radius: 9px; background: #f6f9fd; font-size: 11px; line-height: 1.65; color: #6b819f; }
+.hr-sickness-basis strong { color: #365273; }
+.hr-sickness-subheading { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.hr-sickness-subheading h3 { margin: 0; font-size: 14px; }
+.hr-sickness-label-note { font-size: 11px; color: #7d92af; margin: 10px 0; }
+.hr-sickness-dialog .hr-alert { font-size: 12px; }
+.hr-sickness-dialog .hr-dialog-actions button { min-height: 40px; }
+.hr-sickness-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.hr-sickness-policy fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.hr-sickness-policy .hr-checkbox { margin-top: 14px; }
+.hr-sickness-private-files { padding: 15px 0; margin: 8px 0; border-top: 1px solid #e6edf6; border-bottom: 1px solid #e6edf6; }
+.hr-sickness-private-files .hr-sickness-label-note { display: flex; gap: 5px; align-items: flex-start; }
+.hr-sickness-private-files .hr-sickness-label-note svg { flex-shrink: 0; margin-top: 2px; }
+.hr-sickness-file-list { list-style: none; margin: 14px 0; padding: 0; }
+.hr-sickness-file-list li { display: flex; gap: 10px; align-items: center; padding: 13px 0; border-top: 1px solid #e8eff8; font-size: 11px; }
+.hr-sickness-file-list li > div { flex: 1; min-width: 0; }
+.hr-sickness-file-list strong { display: block; overflow-wrap: anywhere; }
+.hr-sickness-file-list small { display: block; color: #8497b2; margin-top: 4px; }
+.hr-sickness-case-select { max-width: 480px; margin: 4px 0 18px; }
+@media(max-width: 1100px) { .hr-sickness-workspace .hr-metrics { grid-template-columns: minmax(0,1fr); } }
+@media(max-width: 760px) { .hr-sickness-case-summary { grid-template-columns: minmax(0,1fr); } .hr-sickness-case-summary > div { border-right: 0; border-bottom: 1px solid #e3ebf5; } .hr-sickness-tabs { overflow-x: auto; } .hr-sickness-tabs button { white-space: nowrap; } .hr-sickness-subheading { flex-wrap: wrap; } }

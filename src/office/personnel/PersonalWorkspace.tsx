@@ -3,8 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, BadgeCheck, Building2, CalendarDays, ChevronRight, Clock, KeyRound, ListChecks, LockKeyhole, Pencil, Plus, RefreshCw, Search, ShieldCheck, Truck, UserRound, Users } from 'lucide-react';
 import { can, type OfficeUser } from '../model';
 import { OfficePageHeader } from '../OfficePageHeader';
-import { readPersonnel, updatePersonnel } from './client';
-import type { Competency, Employment, Person, PersonAccountCreation, PersonnelCommand, PersonnelResponse, Salary } from './types';
+import { PersonnelApiError, personnelClientScope, readPersonnel, updatePersonnel } from './client';
+import type { Competency, Employment, Person, PersonAccountCreation, PersonnelCommand, PersonnelResponse, Salary, FacilityAccessConflict } from './types';
 import { Alert, Dialog, Fact, Field, Panel, Pill, formatDate, initials, localToday, minuteLabel } from './components/Ui';
 import SchedulePanel from './components/SchedulePanel';
 import StaffingPanel from './components/StaffingPanel';
@@ -14,15 +14,18 @@ import PresenceOverview from './PresenceOverview';
 import { mayReadPersonnelPresence } from './presence-client';
 import TimeReviewWorkspace from './TimeReviewWorkspace';
 import { mayReadTimeReview } from './review-client';
+import SicknessWorkspace from './SicknessWorkspace';
+import { mayReadSickness } from './sickness-client';
+import VehicleRegistry, { useVehicleRegistry, VehicleEditor } from './VehicleRegistry';
 import './personal.css';
 
 export interface PersonalWorkspaceProps {
   user: OfficeUser; actualUser: OfficeUser; selectedSiteId?: string; users?: OfficeUser[];
   onNotice: (message: string) => void; onOpenUser?: (id: string) => void;
-  renderStaffAccount?: (userId: string) => ReactNode; onAccountsChanged?: () => Promise<void> | void;
+  renderStaffAccount?: (userId: string, onSaved?: () => Promise<void> | void) => ReactNode; onAccountsChanged?: () => Promise<void> | void;
 }
-type Modal = 'person' | 'employment' | 'salary' | 'competency' | 'account' | 'company' | null;
-const tabNames = { overview: 'Översikt', employment: 'Anställning', schedule: 'Schema & frånvaro', absence: 'Schema & frånvaro', time: 'Tidrapportering', equipment: 'Utrustning', competencies: 'Kompetenser', account: 'Inloggning & behörigheter' };
+type Modal = 'person' | 'employment' | 'salary' | 'competency' | 'account' | 'company' | 'vehicles' | null;
+const tabNames = { overview: 'Översikt', employment: 'Anställning', schedule: 'Schema & frånvaro', absence: 'Schema & frånvaro', time: 'Tidrapportering', sickness: 'Sjukfrånvaro', equipment: 'Utrustning', competencies: 'Kompetenser', account: 'Inloggning & behörigheter' };
 const employmentNames = { permanent: 'Tillsvidare', temporary: 'Visstid', probation: 'Provanställning', hourly: 'Timanställning' };
 const competencyNames = { license: 'Körkortsbehörighet', ykb: 'YKB', adr: 'ADR', employer: 'Arbetsgivarens körtillstånd', other: 'Övrig kompetens' };
 const absenceNames = { sick: 'Sjukfrånvaro', holiday: 'Semester', vab: 'Vård av barn', leave: 'Ledighet', training: 'Utbildning' };
@@ -36,43 +39,75 @@ export default function PersonalWorkspace(props: PersonalWorkspaceProps) {
   const location = useLocation();
   if (location.pathname.replace(/\/$/, '') === '/personnel/presence') return <PresenceOverview user={props.user} actualUser={props.actualUser} selectedSiteId={props.selectedSiteId} onNotice={props.onNotice} />;
   if (location.pathname.replace(/\/$/, '') === '/personnel/time-review') return <TimeReviewWorkspace user={props.user} actualUser={props.actualUser} selectedSiteId={props.selectedSiteId} onNotice={props.onNotice} />;
+  if (location.pathname.replace(/\/$/, '') === '/personnel/sickness') return <SicknessWorkspace user={props.user} actualUser={props.actualUser} selectedSiteId={props.selectedSiteId} onNotice={props.onNotice} />;
   return <PersonnelRegistryWorkspace {...props} />;
 }
 
 function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', users = [], onNotice, onOpenUser, renderStaffAccount, onAccountsChanged }: PersonalWorkspaceProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [response, setResponse] = useState<PersonnelResponse>();
+  const capturedScope = personnelClientScope(user, actualUser);
+  const scopeKey = `${capturedScope.key}:${selectedSiteId}`;
+  const scope = useMemo(() => capturedScope, [scopeKey]);
+  const [snapshot, setSnapshot] = useState<{ key: string; value: PersonnelResponse }>();
+  const response = snapshot?.key === scopeKey ? snapshot.value : undefined;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modal, setModal] = useState<Modal>(null);
   const [editingPerson, setEditingPerson] = useState<Person>();
   const [editingCompetency, setEditingCompetency] = useState<Competency>();
   const [createLoginOnEdit, setCreateLoginOnEdit] = useState(false);
+  const [focusDriver, setFocusDriver] = useState(false);
   const [query, setQuery] = useState('');
   const [kindFilter, setKindFilter] = useState('all');
   const [teamFilter, setTeamFilter] = useState('all');
   const [siteFilter, setSiteFilter] = useState('all');
   const [showInactive, setShowInactive] = useState(false);
-  const identity = useRef(`${actualUser.id}:${user.id}`);
-  identity.current = `${actualUser.id}:${user.id}`;
+  const identity = useRef(scopeKey); identity.current = scopeKey;
+  const requests = useRef(new Set<AbortController>());
+  const readSequence = useRef(0), inFlight = useRef<{ key: string; promise: Promise<PersonnelResponse> } | undefined>(undefined);
   const parts = location.pathname.split('/').filter(Boolean);
   const isTasks = parts[1] === 'tasks';
   const personId = !isTasks ? parts[1] : undefined;
   const tab = (parts[2] in tabNames ? parts[2] : 'overview') as keyof typeof tabNames;
-  const refresh = useCallback(async () => { const next = await readPersonnel(actualUser.id, user.id); if (identity.current === `${actualUser.id}:${user.id}`) setResponse(next); return next; }, [actualUser.id, user.id]);
+  const refresh = useCallback((): Promise<PersonnelResponse> => {
+    if (inFlight.current?.key === scopeKey) return inFlight.current.promise;
+    const controller = new AbortController(), sequence = ++readSequence.current;
+    requests.current.add(controller);
+    const promise = readPersonnel(actualUser.id, user.id, { scope, signal: controller.signal }).then(next => {
+      if (identity.current !== scopeKey || controller.signal.aborted) throw new DOMException('Inloggningen har ändrats.', 'AbortError');
+      if (sequence === readSequence.current) setSnapshot(previous => previous?.key === scopeKey && previous.value.revision > next.revision ? previous : { key: scopeKey, value: next });
+      return next;
+    }).catch(reason => {
+      if (identity.current === scopeKey && !controller.signal.aborted && reason instanceof PersonnelApiError && [401, 403].includes(reason.status)) {
+        setSnapshot(undefined); setError(reason.message); setModal(null);
+      }
+      throw reason;
+    }).finally(() => { requests.current.delete(controller); if (inFlight.current?.promise === promise) inFlight.current = undefined; });
+    inFlight.current = { key: scopeKey, promise }; return promise;
+  }, [scopeKey, actualUser.id, user.id, scope]);
   useEffect(() => {
     let current = true;
-    setLoading(true); setError(''); setResponse(undefined); setModal(null);
+    setLoading(true); setError(''); setSnapshot(undefined); setModal(null);
     void refresh().catch(reason => { if (current) setError(reason instanceof Error ? reason.message : 'Personalregistret kunde inte laddas.'); }).finally(() => { if (current) setLoading(false); });
-    const interval = window.setInterval(() => { void refresh().catch(() => {}); }, 20000);
-    return () => { current = false; window.clearInterval(interval); };
-  }, [refresh]);
+    const foreground = () => { if (document.visibilityState === 'visible') void refresh().catch(() => {}); };
+    const interval = window.setInterval(foreground, 20000);
+    document.addEventListener('visibilitychange', foreground);
+    const activeRequests = requests.current;
+    return () => { current = false; ++readSequence.current; window.clearInterval(interval); document.removeEventListener('visibilitychange', foreground); for (const request of activeRequests) request.abort(); activeRequests.clear(); if (inFlight.current?.key === scopeKey) inFlight.current = undefined; };
+  }, [refresh, scopeKey]);
   const runCommand = useCallback(async (command: PersonnelCommand) => {
-    const next = await updatePersonnel(command, actualUser.id, user.id);
-    if (!command.action.endsWith('.preview') && identity.current === `${actualUser.id}:${user.id}`) setResponse(next);
-    return next;
-  }, [actualUser.id, user.id]);
+    const controller = new AbortController(); requests.current.add(controller); ++readSequence.current;
+    try {
+      const next = await updatePersonnel(command, actualUser.id, user.id, { scope, signal: controller.signal });
+      if (identity.current !== scopeKey || controller.signal.aborted) throw new DOMException('Inloggningen har ändrats.', 'AbortError');
+      if (!command.action.endsWith('.preview')) setSnapshot({ key: scopeKey, value: next });
+      return next;
+    } catch (reason) {
+      if (identity.current === scopeKey && reason instanceof PersonnelApiError && [401, 403].includes(reason.status)) { setSnapshot(undefined); setError(reason.message); setModal(null); }
+      throw reason;
+    } finally { requests.current.delete(controller); }
+  }, [actualUser.id, user.id, scope, scopeKey]);
   const closeModal = useCallback(() => { setModal(null); setEditingCompetency(undefined); }, []);
   const permitted = (permission: string) => response?.capabilities.includes(permission as never) ?? false;
   const data = response?.data;
@@ -82,7 +117,7 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
   const companyName = (value: Person) => data?.companies.find(company => company.id === value.companyId)?.name ?? (value.kind === 'employee' ? 'JEROC Återvinning AB' : 'Åkeri saknas');
   const managerName = (value: Person) => data?.people.find(manager => manager.id === value.managerId)?.name ?? 'Ej vald';
   const openPerson = (id: string, nextTab = 'overview') => { setModal(null); navigate(`/personnel/${encodeURIComponent(id)}/${nextTab}`); };
-  const edit = (value?: Person, createLogin = false) => { setEditingPerson(value); setCreateLoginOnEdit(createLogin); setModal('person'); };
+  const edit = (value?: Person, createLogin = false, driver = false) => { setEditingPerson(value); setCreateLoginOnEdit(createLogin); setFocusDriver(driver); setModal('person'); };
   const today = localToday();
   const currentAbsence = (value: Person) => data?.absences.find(absence => absence.personId === value.id && absence.status === 'registered' && absence.fromDate <= today && absence.toDate >= today);
   const availability = (value: Person) => {
@@ -102,18 +137,21 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
   const account = person && data.externalAccounts.find(value => value.personId === person.id);
   const accountUsers = response.users ?? users;
   const linkedUser = person && accountUsers.find(value => value.id === person.userId);
-  const canManageAccount = person?.kind === 'external' ? permitted('externalAccounts') : can(user, 'users');
+  const canManageAccount = person?.kind === 'external' ? permitted('externalAccounts') : [user, actualUser].every(principal => can(principal, 'users'));
+  const canReadIllness = mayReadSickness(user, actualUser);
+  const ordinaryVehicle = person && response.transport.vehicles.find(vehicle => vehicle.id === person.vehicleId);
+  const accessConflicts = person ? (response.facilityAccessConflicts ?? []).filter(conflict => conflict.personId === person.id && !conflict.resolvedAt) : [];
   const canReadEquipment = [user, actualUser].every(person => can(person, 'equipmentRead'));
   const canReadTimeSettings = [user, actualUser].every(person => person.level === 'Systemadmin' || person.permissions.includes('employmentRead') || person.permissions.includes('employmentWrite'));
   const listedPeople = visiblePeople.filter(value => (showInactive || value.active) && (kindFilter === 'all' || kindFilter === value.kind) && (teamFilter === 'all' || value.team === teamFilter) && (siteFilter === 'all' || value.siteIds.includes(siteFilter)) && [value.name, value.role, value.team, companyName(value), ...data.competencies.filter(c => c.personId === value.id).flatMap(c => [c.name, c.scope, ...c.codes])].join(' ').toLocaleLowerCase('sv-SE').includes(query.toLocaleLowerCase('sv-SE')));
 
-  const sectionNav = <nav className="hr-section-nav" aria-label="Personal"><button className={!isTasks ? 'active' : ''} onClick={() => navigate('/personnel')}>Alla personer</button>{mayReadPersonnelPresence(user, actualUser) && <button onClick={() => navigate('/personnel/presence')}>Närvaro</button>}{mayReadTimeReview(user, actualUser) && <button onClick={() => navigate('/personnel/time-review')}>Månadsgranskning</button>}<button className={isTasks ? 'active' : ''} onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa{activeTasks.length > 0 && <span className="hr-count">{activeTasks.length}</span>}</button>{can(user, 'users') && <button onClick={() => navigate('/personnel/accounts')}>Konton</button>}</nav>;
+  const sectionNav = <nav className="hr-section-nav" aria-label="Personal"><button className={!isTasks ? 'active' : ''} onClick={() => navigate('/personnel')}>Alla personer</button>{mayReadPersonnelPresence(user, actualUser) && <button onClick={() => navigate('/personnel/presence')}>Närvaro</button>}{mayReadTimeReview(user, actualUser) && <button onClick={() => navigate('/personnel/time-review')}>Månadsgranskning</button>}{canReadIllness && <button onClick={() => navigate('/personnel/sickness')}>Sjukfrånvaro</button>}<button className={isTasks ? 'active' : ''} onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa{activeTasks.length > 0 && <span className="hr-count">{activeTasks.length}</span>}</button>{can(user, 'users') && <button onClick={() => navigate('/personnel/accounts')}>Konton</button>}</nav>;
 
   return <div className="hr-workspace">
     {personId && !person && sectionNav}
     {isTasks ? <StaffingPanel response={{ ...response, data: { ...data, staffingTasks: data.staffingTasks.filter(task => visiblePeople.some(value => value.id === task.personId)) } }} runCommand={runCommand} onOpenPerson={openPerson} onOpenOrder={() => navigate('/transport')} navigation={sectionNav} /> : personId && !person ? <Alert tone="orange">Personen finns inte eller hör inte till den valda anläggningen. <button className="office-link" onClick={() => navigate('/personnel')}>Visa personallistan</button></Alert> : person ? <>
       <OfficePageHeader className="hr-page-header" controls={
-        <nav className="hr-tabs" aria-label="Personalkortets flikar">{Object.entries(tabNames).filter(([id]) => id !== 'absence' && !(person.kind === 'external' && ['employment', 'time', 'equipment'].includes(id)) && (id !== 'account' || canManageAccount) && (id !== 'equipment' || canReadEquipment) && (id !== 'time' || canReadTimeSettings)).map(([id, name]) => <button key={id} className={tab === id || id === 'schedule' && tab === 'absence' ? 'active' : ''} onClick={() => openPerson(person.id, id)}>{name}</button>)}</nav>
+        <nav className="hr-tabs" aria-label="Personalkortets flikar">{Object.entries(tabNames).filter(([id]) => id !== 'absence' && !(person.kind === 'external' && ['employment', 'time', 'equipment', 'sickness'].includes(id)) && (id !== 'account' || canManageAccount) && (id !== 'equipment' || canReadEquipment) && (id !== 'time' || canReadTimeSettings) && (id !== 'sickness' || canReadIllness)).map(([id, name]) => <button key={id} className={tab === id || id === 'schedule' && tab === 'absence' ? 'active' : ''} onClick={() => openPerson(person.id, id)}>{name}</button>)}</nav>
       }>
         {sectionNav}
         <button className="office-back" onClick={() => navigate('/personnel')}><ArrowLeft size={16} /> Till personal</button>
@@ -121,17 +159,20 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
       </OfficePageHeader>
       {tab === 'overview' && <>
         <div className="hr-metrics three"><Metric label="Kommande uppdrag" value={jobs.length} note={jobs[0]?.date ? formatDate(jobs[0].date) : 'Inga bokade uppdrag'} icon={<Truck size={22} />} /><Metric label="Kompetenser" value={`${competencies.filter(c => ['valid', 'soon'].includes(competencyStatus(c))).length} giltiga`} note={`${competencies.filter(c => competencyStatus(c) === 'expired').length} utgångna`} icon={<BadgeCheck size={22} />} /><Metric label="Bemanning att lösa" value={activeTasks.filter(task => task.personId === person.id).length} note={`Ansvarig: ${managerName(person)}`} icon={<ListChecks size={22} />} /></div>
-        <div className="hr-grid two"><Panel title={person.kind === 'external' ? 'Förare & åkeri' : 'Kontakt & organisation'} actions={permitted('personnelWrite') && <button className="office-link" onClick={() => edit(person)}><Pencil size={14} /> Redigera</button>}><Fact label="Telefon">{person.phone || '—'}</Fact><Fact label="E-post">{person.email || '—'}</Fact>{person.kind === 'external' ? <><Fact label="Åkeri">{companyName(person)}</Fact><Fact label="Organisationsnummer">{data.companies.find(company => company.id === person.companyId)?.number || '—'}</Fact><Fact label="Åkeriets kontakt">{data.companies.find(company => company.id === person.companyId)?.contact || '—'}</Fact></> : <Fact label="Chef / gruppledare">{managerName(person)}</Fact>}<Fact label="Team">{person.team || '—'}</Fact><Fact label="Anläggning">{person.siteIds.map(siteName).join(', ')}</Fact><div className="hr-driver-toggle"><div><strong>Kan bokas som förare</strong><small>Kompetens och schema kontrolleras vid bokning.</small></div><input type="checkbox" role="switch" aria-label="Kan bokas som förare" checked={person.canDrive} disabled={!permitted('personnelWrite')} onChange={() => void runCommand({ action: 'person.save', person: { ...person, canDrive: !person.canDrive } }).then(() => onNotice('Förarprofilen är uppdaterad.')).catch(reason => onNotice(reason.message))} /></div>{person.kind === 'external' && <Alert>Extern person, kopplad till åkeriet. Anställning och lön hos åkeriet registreras inte här.</Alert>}</Panel>
+        <div className="hr-grid two"><Panel title={person.kind === 'external' ? 'Förare & åkeri' : 'Kontakt & organisation'} actions={permitted('personnelWrite') && <button className="office-link" onClick={() => edit(person)}><Pencil size={14} /> Redigera</button>}><Fact label="Telefon">{person.phone || '—'}</Fact><Fact label="E-post">{person.email || '—'}</Fact>{person.kind === 'external' ? <><Fact label="Åkeri">{companyName(person)}</Fact><Fact label="Organisationsnummer">{data.companies.find(company => company.id === person.companyId)?.number || '—'}</Fact><Fact label="Åkeriets kontakt">{data.companies.find(company => company.id === person.companyId)?.contact || '—'}</Fact></> : <Fact label="Chef / gruppledare">{managerName(person)}</Fact>}<Fact label="Team">{person.team || '—'}</Fact><Fact label="Anläggningsåtkomst">{person.siteIds.map(siteName).join(', ') || 'Ingen åtkomst'}</Fact>{(person.userId || account) && <p className="hr-muted">Åtkomsten hanteras på det kopplade kontot i Inloggning & behörigheter.</p>}{person.kind === 'external' && <Alert>Extern person, kopplad till åkeriet. Anställning och lön hos åkeriet registreras inte här.</Alert>}</Panel>
+        <Panel title="Förare & fordon" icon={<Truck size={18} />} actions={permitted('personnelWrite') && <button className="office-link" onClick={() => edit(person, false, true)}><Pencil size={14} /> Redigera förare & fordon</button>}><Fact label="Kan bokas som förare">{person.canDrive ? 'Ja' : 'Nej'}</Fact><Fact label="Ordinarie fordon">{ordinaryVehicle ? <>{ordinaryVehicle.name} · {ordinaryVehicle.registration}{ordinaryVehicle.active === false && <Pill tone="grey">Inaktiverat</Pill>}</> : 'Ej valt'}</Fact><p className="hr-muted">Kompetenser och schema kontrolleras vid bokning.</p><button type="button" className="office-btn outline" onClick={() => setModal('vehicles')}><Truck size={15} /> Hantera fordon</button></Panel>
         <Panel title="Kommande uppdrag" actions={<button className="office-link" onClick={() => openPerson(person.id, 'schedule')}>Visa schema <ChevronRight size={14} /></button>}><JobTable response={response} person={person} /></Panel>
         <Panel title="Kompetenser att följa upp" actions={<button className="office-link" onClick={() => openPerson(person.id, 'competencies')}>Öppna kompetenser <ChevronRight size={14} /></button>}>{competencies.filter(c => competencyStatus(c) !== 'valid').length ? competencies.filter(c => competencyStatus(c) !== 'valid').map(c => <div className="hr-fact" key={c.id}><span>{c.name}</span><Pill tone={toneForCompetency(c)}>{labelForCompetency(c)}{c.validTo && ` · ${formatDate(c.validTo)}`}</Pill></div>) : <div className="hr-empty"><ShieldCheck size={26} /><strong>Inga kompetensvarningar</strong></div>}</Panel>
         {person.kind === 'external' && <Panel title="Åtkomst till uppdrag" icon={<ShieldCheck size={18} />}><Fact label="Användarnamn">{account?.username || 'Ej skapat'}</Fact><Fact label="Kontostatus"><Pill tone={account?.active ? 'green' : 'grey'}>{account?.active ? 'Aktivt' : account ? 'Avaktiverat' : 'Ej skapat'}</Pill></Fact><Fact label="Åtkomst">Egna tilldelade uppdrag</Fact>{permitted('externalAccounts') && <button className="office-btn outline" onClick={() => openPerson(person.id, 'account')}><KeyRound size={15} /> Hantera konto</button>}<Alert>Åkeriets upphämtningstid är ett önskemål tills planeringen har bekräftats.</Alert></Panel>}</div>
       </>}
-      {tab === 'account' && (canManageAccount ? person.kind === 'external' ? <Panel title="Inloggning & behörigheter" icon={<KeyRound size={18} />} actions={<button className="office-btn" onClick={() => !account && (!person.canDrive || !person.vehicleId) ? edit(person, true) : setModal('account')}><Pencil size={15} /> {account ? 'Hantera inloggning' : 'Skapa inloggning'}</button>}><Fact label="Användarnamn">{account?.username || 'Ej skapat'}</Fact><Fact label="Kontostatus"><Pill tone={account?.active ? 'green' : 'grey'}>{account ? account.active ? 'Aktivt' : 'Avaktiverat' : 'Ej skapat'}</Pill></Fact><Fact label="Åkeri">{companyName(person)}</Fact><Fact label="Åtkomst">Egna tilldelade uppdrag</Fact><Fact label="Inloggning"><a className="office-link" href="/chauffor" target="_blank" rel="noopener noreferrer">Öppna chaufförsinloggningen <ChevronRight size={14} /></a></Fact><Alert>Kontot ger åtkomst till personens egna uppdrag. Återställt lösenord eller avaktivering avslutar befintliga inloggningar.</Alert></Panel> : person.userId ? !linkedUser ? <Panel title="Inloggning & behörigheter" icon={<KeyRound size={18} />}><Fact label="Kontostatus"><Pill tone="green">Kopplat konto</Pill></Fact><Alert>Du kan inte administrera det kopplade kontot. Personen och kontots historik finns kvar.</Alert></Panel> : renderStaffAccount ? renderStaffAccount(person.userId) : <Panel title="Inloggning & behörigheter"><Fact label="Konto">{linkedUser?.name || person.userId}</Fact><button className="office-btn" onClick={() => onOpenUser?.(person.userId!)}>Hantera behörigheter</button></Panel> : <Panel title="Inloggning & behörigheter" icon={<KeyRound size={18} />}><div className="hr-empty"><UserRound size={30} /><strong>Personen har inget kopplat konto</strong><p>Skapa ett konto eller koppla en befintlig inloggning till personkortet.</p>{permitted('personnelWrite') && <button className="office-btn" onClick={() => edit(person, true)}><Plus size={16} /> Skapa eller koppla konto</button>}</div></Panel> : <Alert tone="orange">Du saknar behörighet att hantera den här personens konto.</Alert>)}
+      {tab === 'account' && canManageAccount && accessConflicts.map(conflict => <FacilityAccessNotice key={conflict.id} conflict={conflict} person={person} expectedSiteIds={conflict.kind === 'staff' ? linkedUser?.siteIds ?? null : account?.siteIds ?? person.siteIds} sites={response.sites} onConfirm={async command => { await runCommand(command); await onAccountsChanged?.(); onNotice('Gemensam anläggningsåtkomst är bekräftad.'); }} />)}
+      {tab === 'account' && (canManageAccount ? person.kind === 'external' ? <Panel title="Inloggning & behörigheter" icon={<KeyRound size={18} />} actions={<button className="office-btn" onClick={() => !account && (!person.canDrive || !person.vehicleId) ? edit(person, true) : setModal('account')}><Pencil size={15} /> {account ? 'Hantera inloggning' : 'Skapa inloggning'}</button>}><Fact label="Användarnamn">{account?.username || 'Ej skapat'}</Fact><Fact label="Kontostatus"><Pill tone={account?.active ? 'green' : 'grey'}>{account ? account.active ? 'Aktivt' : 'Avaktiverat' : 'Ej skapat'}</Pill></Fact><Fact label="Åkeri">{companyName(person)}</Fact><Fact label="Åtkomst">Egna tilldelade uppdrag</Fact><Fact label="Inloggning"><a className="office-link" href="/chauffor" target="_blank" rel="noopener noreferrer">Öppna chaufförsinloggningen <ChevronRight size={14} /></a></Fact><Alert>Kontot ger åtkomst till personens egna uppdrag. Återställt lösenord eller avaktivering avslutar befintliga inloggningar.</Alert></Panel> : person.userId ? !linkedUser ? <Panel title="Inloggning & behörigheter" icon={<KeyRound size={18} />}><Fact label="Kontostatus"><Pill tone="green">Kopplat konto</Pill></Fact><Alert>Du kan inte administrera det kopplade kontot. Personen och kontots historik finns kvar.</Alert></Panel> : renderStaffAccount ? renderStaffAccount(person.userId, async () => { await refresh(); }) : <Panel title="Inloggning & behörigheter"><Fact label="Konto">{linkedUser?.name || person.userId}</Fact><button className="office-btn" onClick={() => onOpenUser?.(person.userId!)}>Hantera behörigheter</button></Panel> : <Panel title="Inloggning & behörigheter" icon={<KeyRound size={18} />}><div className="hr-empty"><UserRound size={30} /><strong>Personen har inget kopplat konto</strong><p>Skapa ett konto eller koppla en befintlig inloggning till personkortet.</p>{permitted('personnelWrite') && <button className="office-btn" onClick={() => edit(person, true)}><Plus size={16} /> Skapa eller koppla konto</button>}</div></Panel> : <Alert tone="orange">Du saknar behörighet att hantera den här personens konto.</Alert>)}
       {tab === 'employment' && person.kind === 'employee' && <EmploymentView response={response} person={person} onEdit={() => setModal('employment')} onSalaryEdit={() => setModal('salary')} />}
       {tab === 'time' && person.kind === 'employee' && (canReadTimeSettings ? <TimeSettingsPanel user={user} actualUser={actualUser} personId={person.id} onNotice={onNotice} /> : <Alert tone="orange">Du saknar behörighet till tidrapporteringen.</Alert>)}
+      {tab === 'sickness' && person.kind === 'employee' && (canReadIllness ? <SicknessWorkspace user={user} actualUser={actualUser} selectedSiteId={selectedSiteId} personId={person.id} onNotice={onNotice} /> : <Alert tone="orange">Du saknar behörighet att läsa sjukfrånvaron.</Alert>)}
       {tab === 'equipment' && person.kind === 'employee' && (canReadEquipment ? <EquipmentWorkspace user={user} actualUser={actualUser} personId={person.id} selectedSiteId={selectedSiteId} onNotice={onNotice} /> : <Alert tone="orange">Du saknar behörighet att läsa utrustningen.</Alert>)}
       {tab === 'account' && canManageAccount && person.kind === 'employee' && person.canDrive && <Panel title="Chaufförsinloggning" icon={<Truck size={18} />} actions={<button className="office-btn outline" onClick={() => setModal('account')}><KeyRound size={15} /> {account ? 'Hantera chaufförskonto' : 'Skapa chaufförskonto'}</button>}><Fact label="Användarnamn">{account?.username || 'Ej skapat'}</Fact><Fact label="Kontostatus"><Pill tone={account?.active ? 'green' : 'grey'}>{account ? account.active ? 'Aktivt' : 'Avaktiverat' : 'Ej skapat'}</Pill></Fact><Fact label="Inloggning"><a className="office-link" href="/chauffor" target="_blank" rel="noopener noreferrer">Öppna chaufförsportalen <ChevronRight size={14} /></a></Fact><Alert>Personligt lösenord för egna tilldelade transportuppdrag. Kontorsbehörigheterna ovan ändras inte.</Alert></Panel>}
-      {(tab === 'schedule' || tab === 'absence') && <SchedulePanel response={response} person={person} activeTab={tab} runCommand={runCommand} onOpenStaffing={() => navigate('/personnel/tasks')} />}
+      {(tab === 'schedule' || tab === 'absence') && <SchedulePanel response={response} person={person} activeTab={tab} runCommand={runCommand} onOpenStaffing={() => navigate('/personnel/tasks')} onOpenSickness={person.kind === 'employee' && canReadIllness ? () => openPerson(person.id, 'sickness') : undefined} />}
       {tab === 'competencies' && <><div className="hr-metrics three"><Metric label="Giltiga kompetenser" value={competencies.filter(c => ['valid', 'soon'].includes(competencyStatus(c))).length} note="Verifierade och giltiga idag" icon={<BadgeCheck size={22} />} /><Metric label="Förnyas snart" value={competencies.filter(c => competencyStatus(c) === 'soon').length} note="Inom 60 dagar" icon={<Clock size={22} />} /><Metric label="Utgångna / ej verifierade" value={competencies.filter(c => ['expired', 'unverified'].includes(competencyStatus(c))).length} note="Kan inte uppfylla obligatoriska uppdragskrav" icon={<ShieldCheck size={22} />} /></div><Panel title="Kompetenser & fordonsbehörighet" actions={permitted('competenciesWrite') && <button className="office-btn" onClick={() => { setEditingCompetency(undefined); setModal('competency'); }}><Plus size={16} /> Lägg till kompetens</button>}><div className="hr-table-scroll"><table className="office-table hr-table"><thead><tr><th>Kompetens</th><th>Omfattning</th><th>Giltighet</th><th>Verifiering</th><th>Status</th><th></th></tr></thead><tbody>{competencies.map(c => <tr key={c.id}><td><strong>{c.name}</strong><small>{competencyNames[c.type]}</small></td><td>{c.scope || c.codes.join(' / ') || '—'}</td><td>{formatDate(c.validFrom)}<small>Till {formatDate(c.validTo)}</small></td><td>{c.verified ? 'Kontrollerad' : 'Inväntar kontroll'}<small>{c.verifiedBy ? data.people.find(value => value.userId === c.verifiedBy || value.id === c.verifiedBy)?.name ?? c.verifiedBy : ''}</small></td><td><Pill tone={toneForCompetency(c)}>{labelForCompetency(c)}</Pill></td><td>{permitted('competenciesWrite') && <button className="office-link" aria-label={`Redigera ${c.name}`} onClick={() => { setEditingCompetency(c); setModal('competency'); }}><Pencil size={14} /> Ändra</button>}</td></tr>)}</tbody></table>{!competencies.length && <div className="hr-empty">Inga kompetenser registrerade.</div>}</div><Alert>Körkort, YKB, ADR och arbetsgivarens körtillstånd bedöms separat. Farligt avfall innebär inte automatiskt ADR-krav.</Alert></Panel></>}
     </> : <>
       <OfficePageHeader className="hr-page-header" controls={
@@ -146,7 +187,8 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
       {activeTasks.length > 0 && <Alert tone="orange"><strong>{activeTasks.length} uppdrag behöver ny bemanning.</strong><span>Bokningarna ligger kvar tills en ansvarig har löst uppgifterna.</span><button className="office-link" onClick={() => navigate('/personnel/tasks')}>Visa bemanning <ChevronRight size={14} /></button></Alert>}
       <section className="office-panel hr-panel"><div className="hr-table-scroll"><table className="office-table hr-table hr-people-table"><thead><tr><th>Person</th><th>Anläggning / team</th><th>Företag</th><th>Tillgänglighet idag</th><th>Kompetens / uppmärksamma</th><th></th></tr></thead><tbody>{listedPeople.map(value => <tr key={value.id}><td><div className="hr-person-chip"><span className={`hr-avatar${value.kind === 'external' ? ' external' : ''}`}>{initials(value.name)}</span><div><button className="hr-name-button" onClick={() => openPerson(value.id)}>{value.name}</button><small>{value.role || (value.canDrive ? 'Chaufför' : 'Medarbetare')} · {value.kind === 'employee' ? 'Anställd' : 'Extern'}</small></div></div></td><td>{value.siteIds.map(siteName).join(', ')}<small>{value.team}</small></td><td>{companyName(value)}</td><td>{availability(value)}</td><td>{activeTasks.some(task => task.personId === value.id) ? <Pill tone="orange">{activeTasks.filter(task => task.personId === value.id).length} uppdrag berörs</Pill> : data.competencies.filter(c => c.personId === value.id && c.verified && competencyStatus(c) !== 'expired').map(c => c.scope || c.codes.join('/')).filter(Boolean).join(' · ') || '—'}</td><td><button className="office-link" onClick={() => openPerson(value.id)}>Öppna <ChevronRight size={14} /></button></td></tr>)}</tbody></table>{!listedPeople.length && <div className="hr-empty"><Users size={27} />Inga personer matchar filtren.</div>}</div><p className="hr-muted hr-list-foot">Visar {listedPeople.length} personer · Sparas gemensamt på servern.</p></section><Alert>En person kan finnas utan inloggning. Förarprofil, anställning och systembehörigheter hanteras separat.</Alert>
     </>}
-    {modal === 'person' && <PersonForm response={response} person={editingPerson} users={accountUsers} createLoginOnEdit={createLoginOnEdit} onClose={closeModal} onCompany={() => setModal('company')} onSave={async (value, clearFields, createAccount) => { const next = await runCommand({ action: 'person.save', person: value, clearFields, ...(createAccount ? { createAccount } : {}) }); const saved = next.data.people.find(p => p.id === value.id); if (createAccount || saved?.userId !== editingPerson?.userId) await onAccountsChanged?.(); closeModal(); if (saved) openPerson(saved.id, createAccount || saved.userId !== editingPerson?.userId ? 'account' : 'overview'); onNotice(createAccount ? 'Personen och inloggningen är skapade.' : 'Personen är sparad.'); }} />}
+    {modal === 'person' && <PersonForm key={scopeKey} user={user} actualUser={actualUser} focusDriver={focusDriver} response={response} person={editingPerson} users={accountUsers} createLoginOnEdit={createLoginOnEdit} onClose={closeModal} onCompany={() => setModal('company')} onSave={async (value, clearFields, createAccount) => { const next = await runCommand({ action: 'person.save', person: value, clearFields, ...(createAccount ? { createAccount } : {}) }); const saved = next.data.people.find(p => p.id === value.id); if (createAccount || saved?.userId !== editingPerson?.userId) await onAccountsChanged?.(); closeModal(); if (saved) openPerson(saved.id, createAccount || saved.userId !== editingPerson?.userId ? 'account' : 'overview'); onNotice(createAccount ? 'Personen och inloggningen är skapade.' : 'Personen är sparad.'); }} />}
+    {modal === 'vehicles' && <VehicleRegistry key={scopeKey} scope={scope} onClose={closeModal} onChanged={async () => { await refresh(); }} />}
     {modal === 'company' && <CompanyForm onClose={() => setModal('person')} onSave={async company => { await runCommand({ action: 'company.save', company }); setModal('person'); onNotice('Åkeriet är sparat. Välj det i personformuläret.'); }} />}
     {modal === 'employment' && person && <EmploymentForm person={person} value={data.employment.find(value => value.personId === person.id)} onClose={closeModal} onSave={async employment => { await runCommand({ action: 'employment.save', employment }); closeModal(); onNotice('Anställningen är sparad.'); }} />}
     {modal === 'salary' && person && <SalaryForm person={person} value={data.salaries.find(value => value.personId === person.id)} onClose={closeModal} onSave={async salary => { await runCommand({ action: 'salary.save', salary }); closeModal(); onNotice('Löneuppgifterna är sparade.'); }} />}
@@ -167,28 +209,43 @@ function EmploymentView({ response, person, onEdit, onSalaryEdit }: { response: 
 }
 
 function useSubmit(onSave: (event: FormEvent<HTMLFormElement>) => Promise<void>) {
-  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
-  return { busy, error, submit: async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setBusy(true); setError(''); try { await onSave(event); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Uppgifterna kunde inte sparas.'); } finally { setBusy(false); } } };
+  const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const pending = useRef(false);
+  return { busy, error, submit: async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (pending.current) return; pending.current = true; setBusy(true); setError(''); try { await onSave(event); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Uppgifterna kunde inte sparas.'); } finally { pending.current = false; setBusy(false); } } };
 }
-function FormFooter({ busy, onClose, label = 'Spara' }: { busy: boolean; onClose: () => void; label?: string }) { return <div className="hr-dialog-actions"><button type="button" className="office-btn outline" onClick={onClose} disabled={busy}>Avbryt</button><button className="office-btn" disabled={busy}>{busy ? 'Sparar…' : label}</button></div>; }
-function PersonForm({ response, person, users, createLoginOnEdit = false, onClose, onSave, onCompany }: {
-  response: PersonnelResponse; person?: Person; users: OfficeUser[]; createLoginOnEdit?: boolean;
+function FormFooter({ busy, disabled = false, onClose, label = 'Spara' }: { busy: boolean; disabled?: boolean; onClose: () => void; label?: string }) { return <div className="hr-dialog-actions"><button type="button" className="office-btn outline" onClick={onClose} disabled={busy}>Avbryt</button><button className="office-btn" disabled={busy || disabled}>{busy ? 'Sparar…' : label}</button></div>; }
+function PersonForm({ response, person, users, user, actualUser, focusDriver = false, createLoginOnEdit = false, onClose, onSave, onCompany }: {
+  response: PersonnelResponse; person?: Person; users: OfficeUser[]; user: OfficeUser; actualUser: OfficeUser; focusDriver?: boolean; createLoginOnEdit?: boolean;
   onClose: () => void; onCompany: () => void;
   onSave: (person: Partial<Person> & Pick<Person, 'name' | 'kind'>, clearFields?: Extract<PersonnelCommand, {action: 'person.save'}>['clearFields'], createAccount?: PersonAccountCreation) => Promise<void>;
 }) {
   const [id] = useState(() => person?.id ?? `person_${crypto.randomUUID().replace(/-/g, '_')}`);
   const [kind, setKind] = useState<Person['kind']>(person?.kind ?? 'employee');
-  const hasExternalAccount = response.data.externalAccounts.some(account => account.personId === person?.id);
+  const externalAccount = response.data.externalAccounts.find(account => account.personId === person?.id);
+  const hasExternalAccount = Boolean(externalAccount);
   const mayManageStaff = response.capabilities.includes('users');
   const mayManageExternal = response.capabilities.includes('externalAccounts');
   const [staffUserId, setStaffUserId] = useState(person?.userId ?? '');
   const [createLogin, setCreateLogin] = useState(() => (!person || createLoginOnEdit) && (person?.kind === 'external' ? mayManageExternal && !hasExternalAccount : mayManageStaff && !person?.userId));
   const [canDrive, setCanDrive] = useState(person?.canDrive || createLoginOnEdit && person?.kind === 'external' || false);
+  const [vehicleId, setVehicleId] = useState(person?.vehicleId ?? '');
   const [siteIds, setSiteIds] = useState<string[]>(person?.siteIds ?? (response.sites[0] ? [response.sites[0].id] : []));
   const canCreateLogin = kind === 'employee' ? mayManageStaff && !staffUserId : mayManageExternal && !hasExternalAccount;
+  const creatingAccount = createLogin && canCreateLogin;
+  const linkedAccount = kind === 'employee' ? users.find(account => account.id === staffUserId) : undefined;
+  const hasCanonicalAccount = kind === 'employee' ? Boolean(staffUserId || !mayManageStaff && person?.userId || hasExternalAccount) : hasExternalAccount;
+  const scopeIds = kind === 'employee' ? linkedAccount ? linkedAccount.siteIds ?? response.sites.map(site => site.id) : externalAccount?.siteIds ?? person?.siteIds ?? [] : externalAccount?.siteIds ?? person?.siteIds ?? [];
+  const scopeText = kind === 'employee' && linkedAccount && !linkedAccount.siteIds ? 'Alla anläggningar' : scopeIds.map(siteId => response.sites.find(site => site.id === siteId)?.name ?? siteId).join(', ') || 'Ingen anläggningsåtkomst';
+  const capturedScope = personnelClientScope(user, actualUser);
+  const scope = useMemo(() => capturedScope, [capturedScope.key]);
+  const registry = useVehicleRegistry(scope, response.transport.vehicles);
+  const [creatingVehicle, setCreatingVehicle] = useState(false), [vehicleBusy, setVehicleBusy] = useState(false), [vehicleNotice, setVehicleNotice] = useState('');
+  const driverSection = useRef<HTMLFieldSetElement>(null);
+  useEffect(() => { if (focusDriver) { driverSection.current?.scrollIntoView({ block: 'center' }); driverSection.current?.querySelector<HTMLInputElement>('input')?.focus(); } }, [focusDriver]);
+  const close = () => { if (!vehicleBusy && !busy) onClose(); };
   const { busy, error, submit } = useSubmit(async event => {
+    if (vehicleBusy || creatingVehicle) throw new Error('Spara eller avbryt fordonsändringen först.');
     const values = new FormData(event.currentTarget);
-    if (!siteIds.length) throw new Error('Välj minst en anläggning.');
+    if (!hasCanonicalAccount && !siteIds.length) throw new Error('Välj minst en anläggning.');
     const next: Partial<Person> & Pick<Person, 'name' | 'kind'> = {
       ...person, id, name: String(values.get('name')).trim(), kind, active: values.get('active') === 'on',
       role: String(values.get('role')).trim(), team: String(values.get('team')).trim(),
@@ -197,12 +254,13 @@ function PersonForm({ response, person, users, createLoginOnEdit = false, onClos
       managerId: String(values.get('managerId') || '') || undefined,
       companyId: kind === 'external' ? String(values.get('companyId') || '') || undefined : undefined,
       userId: kind === 'employee' ? (mayManageStaff ? staffUserId || undefined : person?.userId) : undefined,
-      canDrive, siteIds, vehicleId: canDrive ? String(values.get('vehicleId') || '') || undefined : undefined,
+      canDrive, vehicleId: canDrive ? vehicleId || undefined : undefined,
     };
-    const createAccount: PersonAccountCreation | undefined = createLogin && canCreateLogin
-      ? kind === 'employee' ? { kind: 'staff' } : { kind: 'external', username: String(values.get('username') || '').trim(), password: String(values.get('password') || '') }
+    if (hasCanonicalAccount || creatingAccount) delete next.siteIds; else next.siteIds = siteIds;
+    const createAccount: PersonAccountCreation | undefined = creatingAccount
+      ? kind === 'employee' ? { kind: 'staff', siteIds } : { kind: 'external', siteIds, username: String(values.get('username') || '').trim(), password: String(values.get('password') || '') }
       : undefined;
-    if (createAccount?.kind === 'external' && (!canDrive || !next.vehicleId)) throw new Error('Välj ett ordinarie fordon för chaufförsinloggningen.');
+    if (canDrive && !next.vehicleId) throw new Error('Välj ett ordinarie fordon för förarprofilen.');
     const clearFields = (['managerId', 'companyId', 'userId', 'vehicleId'] as const).filter(key => Boolean(person?.[key]) && !next[key]);
     await onSave(next, clearFields, createAccount);
   });
@@ -211,7 +269,8 @@ function PersonForm({ response, person, users, createLoginOnEdit = false, onClos
     setCreateLogin(nextKind === 'employee' ? mayManageStaff : mayManageExternal && !hasExternalAccount);
     if (nextKind === 'external') setCanDrive(true);
   };
-  return <Dialog title={person ? 'Redigera person' : 'Lägg till person'} description="Personal, inloggning och förarprofil på samma personkort." onClose={onClose}>
+  const siteChoices = <div className="hr-field full"><span>{creatingAccount ? 'Anläggningsåtkomst *' : 'Anläggningstillhörighet *'}</span><div className="hr-checkbox-list">{response.sites.map(site => <label key={site.id}><input type="checkbox" checked={siteIds.includes(site.id)} onChange={event => setSiteIds(previous => event.target.checked ? [...previous, site.id] : previous.filter(value => value !== site.id))} />{site.name}</label>)}</div>{creatingAccount && <small>Kontots gemensamma åtkomst används även på personkortet.</small>}</div>;
+  return <Dialog title={person ? 'Redigera person' : 'Lägg till person'} description="Personal, inloggning och förarprofil på samma personkort." onClose={close}>
     <form onSubmit={submit}><div className="hr-form-grid">
       <Field label="Namn *" full><input name="name" defaultValue={person?.name} required maxLength={150} /></Field>
       <Field label="Persontyp"><select aria-label="Persontyp" value={kind} disabled={Boolean(person?.userId || hasExternalAccount)} onChange={event => changeKind(event.target.value as Person['kind'])}><option value="employee">Anställd</option><option value="external">Extern chaufför</option></select></Field>
@@ -221,25 +280,44 @@ function PersonForm({ response, person, users, createLoginOnEdit = false, onClos
       <Field label="Telefon"><input name="phone" type="tel" defaultValue={person?.phone} /></Field><Field label="E-post"><input name="email" type="email" defaultValue={person?.email} /></Field>
       <Field label="Adress" full><input name="address" defaultValue={person?.address} /></Field>
       {kind === 'employee' ? <Field label="Anställningsnummer" full><input name="employeeNumber" defaultValue={person?.employeeNumber} /></Field> : <Field label="Åkeri *" full><select name="companyId" aria-label="Åkeri *" defaultValue={person?.companyId ?? ''} required><option value="">Välj åkeri</option>{response.data.companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}</select><button type="button" className="office-link" onClick={onCompany}><Plus size={14} /> Lägg till åkeri</button></Field>}
-      <div className="hr-field full"><span>Anläggningar *</span><div className="hr-checkbox-list">{response.sites.map(site => <label key={site.id}><input type="checkbox" checked={siteIds.includes(site.id)} onChange={event => setSiteIds(previous => event.target.checked ? [...previous, site.id] : previous.filter(value => value !== site.id))} />{site.name}</label>)}</div></div>
-      <label className="hr-checkbox full"><input type="checkbox" checked={canDrive} onChange={event => setCanDrive(event.target.checked)} /> Kan bokas som förare</label>
-      {canDrive && <Field label="Ordinarie fordon" full><select name="vehicleId" aria-label="Ordinarie fordon" defaultValue={person?.vehicleId ?? ''} required={kind === 'external' && createLogin && canCreateLogin}><option value="">Ej valt</option>{response.transport.vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.registration}</option>)}</select></Field>}
+      {hasCanonicalAccount ? <div className="hr-access-readonly full"><strong>Anläggningsåtkomst: {scopeText}</strong><small>Hanteras endast under Inloggning & behörigheter. Kontaktuppgifter och team ändrar inte åtkomsten.</small></div> : !creatingAccount && siteChoices}
+      <fieldset ref={driverSection} className="hr-driver-section full"><legend><Truck size={17} /> Förare & fordon</legend>
+        <label className="hr-checkbox"><input type="checkbox" checked={canDrive} disabled={vehicleBusy} onChange={event => setCanDrive(event.target.checked)} /> Kan bokas som förare</label>
+        {canDrive && <><Field label="Ordinarie fordon" full><select name="vehicleId" aria-label="Ordinarie fordon" value={vehicleId} onChange={event => setVehicleId(event.target.value)} disabled={vehicleBusy} required><option value="">Ej valt</option>{registry.vehicles.filter(vehicle => vehicle.active !== false || vehicle.id === vehicleId).map(vehicle => <option key={vehicle.id} value={vehicle.id} disabled={vehicle.active === false}>{vehicle.name} · {vehicle.registration}{vehicle.active === false ? ' · Inaktiverat' : ''}</option>)}</select></Field>
+          {!creatingVehicle && registry.value?.capabilities.vehicleWrite && <div className="hr-vehicle-tools"><button type="button" className="office-link" onClick={() => { setVehicleNotice(''); setCreatingVehicle(true); }}><Plus size={14} /> Skapa nytt fordon</button></div>}
+          {registry.value && !registry.value.capabilities.vehicleWrite && <p className="hr-muted">För att skapa ett nytt fordon krävs behörighet för alla anläggningar.</p>}
+          {registry.error && <Alert tone="orange">{registry.error}<button type="button" className="office-link" onClick={() => void registry.refresh()}>Hämta fordon igen</button></Alert>}
+          {creatingVehicle && registry.value?.capabilities.vehicleWrite && <VehicleEditor allowInactive={false} onBusy={setVehicleBusy} onClose={() => setCreatingVehicle(false)} onSave={async command => { const result = await registry.save(command); if (!result.savedVehicleId || !result.vehicles.some(vehicle => vehicle.id === result.savedVehicleId && vehicle.active !== false)) throw new Error('Fordonet är sparat men kunde inte väljas som aktivt fordon. Uppdatera fordonslistan.'); setVehicleId(result.savedVehicleId); setCreatingVehicle(false); setVehicleNotice('Fordonet är skapat och valt. Spara personen för att koppla det till förarprofilen.'); return result; }} />}
+          {vehicleNotice && <Alert tone="green">{vehicleNotice}</Alert>}
+        </>}
+      </fieldset>
       <label className="hr-checkbox full"><input name="active" type="checkbox" defaultChecked={person?.active ?? true} /> Aktiv person</label>
       {(kind === 'employee' ? mayManageStaff : mayManageExternal) && <fieldset className="hr-account-options full"><legend><KeyRound size={16} /> Inloggning & behörigheter</legend>
         {canCreateLogin && <label className="hr-checkbox"><input type="checkbox" checked={createLogin} onChange={event => { setCreateLogin(event.target.checked); if (event.target.checked && kind === 'external') setCanDrive(true); }} /> Skapa inloggning</label>}
         {kind === 'employee' ? <>
-          {createLogin && canCreateLogin && <p className="hr-muted">Ett konto skapas med grundläggande åtkomst. Välj fler behörigheter på personkortet efter sparandet. Personal väljer sitt konto i demoinloggningen.</p>}
-          <Field label="Befintligt användarkonto" full><select name="userId" aria-label="Befintligt användarkonto" value={staffUserId} onChange={event => { setStaffUserId(event.target.value); if (event.target.value) setCreateLogin(false); }}><option value="">{createLogin ? 'Skapa ett nytt konto' : 'Inget konto kopplat'}</option>{users.filter(account => !response.data.people.some(value => value.id !== person?.id && value.userId === account.id)).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></Field>
-          {staffUserId && <p className="hr-muted">Det befintliga kontot kopplas till personen. Ett nytt konto skapas inte.</p>}
-        </> : hasExternalAccount ? <p className="hr-muted">Personen har redan en chaufförsinloggning. Lösenord och kontostatus hanteras på personkortets flik Inloggning & behörigheter.</p> : createLogin && <div className="hr-form-grid">
+          {creatingAccount && <p className="hr-muted">Ett konto skapas med grundläggande åtkomst. Välj fler behörigheter på personkortet efter sparandet.</p>}
+          <Field label="Befintligt användarkonto" full><select name="userId" aria-label="Befintligt användarkonto" value={staffUserId} onChange={event => { setStaffUserId(event.target.value); if (event.target.value) setCreateLogin(false); }}><option value="">{createLogin ? 'Skapa ett nytt konto' : 'Inget konto kopplat'}</option>{staffUserId && !linkedAccount && <option value={staffUserId} disabled>Kopplat konto · begränsad åtkomst</option>}{users.filter(account => !response.data.people.some(value => value.id !== person?.id && value.userId === account.id)).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></Field>
+          {staffUserId && <p className="hr-muted">Personen använder det befintliga kontots anläggningsåtkomst och behörigheter.</p>}
+        </> : hasExternalAccount ? <p className="hr-muted">Personen har redan en chaufförsinloggning. Anläggningsåtkomst, lösenord och kontostatus hanteras på fliken Inloggning & behörigheter.</p> : createLogin && <div className="hr-form-grid">
           <Field label="Användarnamn *"><input name="username" required autoComplete="off" pattern="[a-zA-Z0-9._-]+" minLength={3} maxLength={80} placeholder="T.ex. kalle.akeri" /></Field>
           <Field label="Lösenord *"><input name="password" type="password" aria-label="Lösenord *" required minLength={10} autoComplete="new-password" /><small>Minst 10 tecken.</small></Field>
           <p className="hr-muted full">Inloggning på /chauffor, med åtkomst till personens egna uppdrag hos det valda åkeriet.</p>
         </div>}
+        {creatingAccount && siteChoices}
       </fieldset>}
-    </div><Alert>Kompetenser och arbetstid avgör tillgänglighet. Lön och känsliga personaluppgifter har egna behörigheter.</Alert>{error && <Alert tone="red">{error}</Alert>}<FormFooter busy={busy} onClose={onClose} label="Spara person" /></form>
+    </div><Alert>Kompetenser och arbetstid avgör tillgänglighet. Lön och känsliga personaluppgifter har egna behörigheter.</Alert>{error && <Alert tone="red">{error}</Alert>}<FormFooter busy={busy || vehicleBusy} disabled={creatingVehicle} onClose={close} label="Spara person" /></form>
   </Dialog>;
 }
+function FacilityAccessNotice({ conflict, person, expectedSiteIds, sites, onConfirm }: {
+  conflict: FacilityAccessConflict; person: Person; expectedSiteIds: string[] | null;
+  sites: PersonnelResponse['sites']; onConfirm: (command: Extract<PersonnelCommand, {action: 'facilityAccess.confirm'}>) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''); const pending = useRef(false);
+  const names = (ids: string[] | null) => ids === null ? 'Alla anläggningar' : ids.map(id => sites.find(site => site.id === id)?.name ?? id).join(', ') || 'Ingen åtkomst';
+  async function confirm() { if (pending.current) return; pending.current = true; setBusy(true); setError(''); try { await onConfirm({ action: 'facilityAccess.confirm', personId: person.id, conflictId: conflict.id, expectedRevision: person.revision, expectedSiteIds }); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Åtkomsten kunde inte bekräftas.'); } finally { pending.current = false; setBusy(false); } }
+  return <div className="hr-access-conflict"><Alert tone="orange"><strong>Tidigare anläggningsval skilde sig åt</strong><p>Personkort: {names(conflict.previousPersonSiteIds)} · Konto: {names(conflict.previousAccountSiteIds)}</p><p>Gemensam åtkomst har bevarats utan utökning: <strong>{names(expectedSiteIds)}</strong>.</p><p>Kontots anläggningsval är nu det enda som styr åtkomsten.</p><div className="hr-dialog-actions"><button type="button" className="office-btn outline" disabled={busy} onClick={() => void confirm()}>{busy ? 'Bekräftar…' : 'Bekräfta gemensam åtkomst'}</button></div></Alert>{error && <Alert tone="red">{error}</Alert>}</div>;
+}
+
 function CompanyForm({ onClose, onSave }: { onClose: () => void; onSave: (company: {name: string; number: string; contact: string; phone: string; email: string}) => Promise<void> }) { const { busy, error, submit } = useSubmit(async event => { const values = new FormData(event.currentTarget); await onSave(Object.fromEntries(['name', 'number', 'contact', 'phone', 'email'].map(key => [key, String(values.get(key)).trim()])) as {name: string; number: string; contact: string; phone: string; email: string}); }); return <Dialog title="Lägg till åkeri" onClose={onClose}><form onSubmit={submit}><div className="hr-form-grid"><Field label="Företagsnamn *" full><input name="name" required /></Field><Field label="Organisationsnummer"><input name="number" /></Field><Field label="Kontaktperson"><input name="contact" /></Field><Field label="Telefon"><input name="phone" type="tel" /></Field><Field label="E-post"><input name="email" type="email" /></Field></div>{error && <Alert tone="red">{error}</Alert>}<FormFooter busy={busy} onClose={onClose} label="Spara åkeri" /></form></Dialog>; }
 function EmploymentForm({ person, value, onClose, onSave }: { person: Person; value?: Employment; onClose: () => void; onSave: (employment: Employment) => Promise<void> }) { const { busy, error, submit } = useSubmit(async event => { const form = new FormData(event.currentTarget); await onSave({ personId: person.id, revision: value?.revision ?? 0, form: form.get('form') as Employment['form'], startDate: String(form.get('startDate')), endDate: String(form.get('endDate') || '') || undefined, percentage: Number(form.get('percentage')), hoursPerWeek: Number(form.get('hoursPerWeek')) }); }); return <Dialog title="Redigera anställning" description={person.name} onClose={onClose}><form onSubmit={submit}><div className="hr-form-grid"><Field label="Anställningsform"><select name="form" defaultValue={value?.form ?? 'permanent'}>{Object.entries(employmentNames).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></Field><Field label="Startdatum *"><input name="startDate" type="date" required defaultValue={value?.startDate ?? localToday()} /></Field><Field label="Slutdatum"><input name="endDate" type="date" defaultValue={value?.endDate} /></Field><Field label="Sysselsättningsgrad (%)"><input name="percentage" type="number" min="0" max="100" step="0.1" required defaultValue={value?.percentage ?? 100} /></Field><Field label="Veckoarbetstid (timmar)"><input name="hoursPerWeek" type="number" min="0" max="80" step="0.1" required defaultValue={value?.hoursPerWeek ?? 40} /></Field></div>{error && <Alert tone="red">{error}</Alert>}<FormFooter busy={busy} onClose={onClose} label="Spara anställning" /></form></Dialog>; }
 function SalaryForm({ person, value, onClose, onSave }: { person: Person; value?: Salary; onClose: () => void; onSave: (salary: Salary) => Promise<void> }) { const { busy, error, submit } = useSubmit(async event => { const form = new FormData(event.currentTarget); await onSave({ personId: person.id, revision: value?.revision ?? 0, kind: form.get('kind') as Salary['kind'], amount: Number(form.get('amount')), effectiveFrom: String(form.get('effectiveFrom')), nextReview: String(form.get('nextReview') || '') || undefined, note: String(form.get('note')).trim() }); }); return <Dialog title="Lön & ersättning" description={`${person.name} · Fiktiva demouppgifter`} onClose={onClose}><form onSubmit={submit}><div className="hr-form-grid"><Field label="Löneform"><select name="kind" defaultValue={value?.kind ?? 'monthly'}><option value="monthly">Månadslön</option><option value="hourly">Timlön</option></select></Field><Field label="Belopp (kr) *"><input name="amount" type="number" min="0" step="0.01" required defaultValue={value?.amount} /></Field><Field label="Gäller från *"><input name="effectiveFrom" type="date" required defaultValue={value?.effectiveFrom ?? localToday()} /></Field><Field label="Nästa lönerevision"><input name="nextReview" type="date" defaultValue={value?.nextReview} /></Field><Field label="Notering" full><textarea name="note" defaultValue={value?.note} maxLength={1000} /></Field></div><Alert>Löneutbetalning ingår inte i demot.</Alert>{error && <Alert tone="red">{error}</Alert>}<FormFooter busy={busy} onClose={onClose} label="Spara löneuppgifter" /></form></Dialog>; }
@@ -247,6 +325,10 @@ function CompetencyForm({ person, value, onClose, onSave }: { person: Person; va
 function ExternalAccountForm({ person, response, onClose, onSave }: { person: Person; response: PersonnelResponse; onClose: () => void; onSave: (command: Extract<PersonnelCommand, {action: 'externalAccount.save' | 'driverAccount.save'}>) => Promise<void> }) {
   const account = response.data.externalAccounts.find(value => value.personId === person.id);
   const [active, setActive] = useState(account?.active ?? true); const [saved, setSaved] = useState(false);
-  const { busy, error, submit } = useSubmit(async event => { const element = event.currentTarget; const form = new FormData(element); const password = String(form.get('password') || ''); await onSave({ action: person.kind === 'external' ? 'externalAccount.save' : 'driverAccount.save', personId: person.id, username: String(form.get('username')).trim(), active, ...(password ? { password } : {}) }); setSaved(true); const input = element.querySelector<HTMLInputElement>('input[name="password"]'); if (input) input.value = ''; });
-  return <Dialog title={person.kind === 'external' ? 'Extern chaufför · användarkonto' : 'Chaufför · användarkonto'} description={`${person.name} · ${response.data.companies.find(value => value.id === person.companyId)?.name ?? 'JEROC'}`} onClose={onClose}><form onSubmit={submit}><div className="hr-account-state"><ShieldCheck size={28} /><div><strong>{person.name}</strong><small>{person.kind === 'external' ? 'Extern förarinloggning' : 'Personlig chaufförsinloggning'}</small></div><Pill tone={active ? 'green' : 'grey'}>{active ? 'Aktivt' : 'Avaktiverat'}</Pill></div><div className="hr-form-grid"><Field label="Användarnamn *" full><input name="username" required autoComplete="off" defaultValue={account?.username ?? person.name.toLocaleLowerCase('sv-SE').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9._-]+/g, '.').replace(/^[._-]+|[._-]+$/g, '')} pattern="[a-zA-Z0-9._-]+" minLength={3} maxLength={80} /></Field><Field label={account ? 'Nytt lösenord (lämna tomt för att behålla)' : 'Lösenord *'} full><input name="password" type="password" required={!account} minLength={10} autoComplete="new-password" /></Field><label className="hr-checkbox full"><input type="checkbox" checked={active} onChange={event => setActive(event.target.checked)} /> Konto aktivt</label></div><Alert>Inloggning på <strong>/chauffor</strong>. Kontot visar endast personens egna tilldelade transportuppdrag. Kontors-, kundregister- och HR-åtkomst ingår inte.</Alert>{account && <p className="hr-muted">Senast inloggad: {formatDate(account.lastLoginAt)}</p>}{error && <Alert tone="red">{error}</Alert>}{saved && <Alert tone="green">Kontot är sparat. Lösenordet visas inte igen.</Alert>}<FormFooter busy={busy} onClose={onClose} label="Spara konto" /></form></Dialog>;
+  const hasAccountScope = person.kind === 'external' || !person.userId;
+  const [siteIds, setSiteIds] = useState(account?.siteIds ?? person.siteIds);
+  const { busy, error, submit } = useSubmit(async event => { const element = event.currentTarget; const form = new FormData(element); const password = String(form.get('password') || ''); await onSave({ action: person.kind === 'external' ? 'externalAccount.save' : 'driverAccount.save', personId: person.id, username: String(form.get('username')).trim(), active, ...(hasAccountScope ? { siteIds } : {}), ...(password ? { password } : {}) }); setSaved(true); const input = element.querySelector<HTMLInputElement>('input[name="password"]'); if (input) input.value = ''; });
+  return <Dialog title={person.kind === 'external' ? 'Extern chaufför · användarkonto' : 'Chaufför · användarkonto'} description={`${person.name} · ${response.data.companies.find(value => value.id === person.companyId)?.name ?? 'JEROC'}`} onClose={() => { if (!busy) onClose(); }}><form onSubmit={submit}><div className="hr-account-state"><ShieldCheck size={28} /><div><strong>{person.name}</strong><small>{person.kind === 'external' ? 'Extern förarinloggning' : 'Personlig chaufförsinloggning'}</small></div><Pill tone={active ? 'green' : 'grey'}>{active ? 'Aktivt' : 'Avaktiverat'}</Pill></div><div className="hr-form-grid"><Field label="Användarnamn *" full><input name="username" required autoComplete="off" defaultValue={account?.username ?? person.name.toLocaleLowerCase('sv-SE').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9._-]+/g, '.').replace(/^[._-]+|[._-]+$/g, '')} pattern="[a-zA-Z0-9._-]+" minLength={3} maxLength={80} /></Field><Field label={account ? 'Nytt lösenord (lämna tomt för att behålla)' : 'Lösenord *'} full><input name="password" type="password" required={!account} minLength={10} autoComplete="new-password" /></Field><label className="hr-checkbox full"><input type="checkbox" checked={active} onChange={event => setActive(event.target.checked)} /> Konto aktivt</label>
+    {hasAccountScope ? <fieldset className="hr-account-options full"><legend>Anläggningsåtkomst</legend><div className="hr-checkbox-list">{response.sites.map(site => <label key={site.id}><input type="checkbox" checked={siteIds.includes(site.id)} onChange={event => setSiteIds(previous => event.target.checked ? [...previous, site.id] : previous.filter(id => id !== site.id))} />{site.name}</label>)}</div><p className="hr-muted">Kontots val styr även personkortets åtkomst. Inga val innebär inga uppdrag vid någon anläggning.</p></fieldset> : <div className="hr-access-readonly full"><strong>Anläggningsåtkomst: {person.siteIds.map(id => response.sites.find(site => site.id === id)?.name ?? id).join(', ') || 'Ingen åtkomst'}</strong><small>Samma åtkomst som personalens kopplade användarkonto. Ändra den i behörighetskortet ovan.</small></div>}
+    </div><Alert>Inloggning på <strong>/chauffor</strong>. Kontot visar endast personens egna tilldelade transportuppdrag. Kontors-, kundregister- och HR-åtkomst ingår inte.</Alert>{account && <p className="hr-muted">Senast inloggad: {formatDate(account.lastLoginAt)}</p>}{error && <Alert tone="red">{error}</Alert>}{saved && <Alert tone="green">Kontot är sparat. Lösenordet visas inte igen.</Alert>}<FormFooter busy={busy} onClose={onClose} label="Spara konto" /></form></Dialog>;
 }

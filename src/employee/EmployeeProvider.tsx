@@ -1,16 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { EmployeeAccountPerson, EmployeeClockAction, EmployeeClockCorrection, EmployeeLeaveDraft, EmployeeOverview, EmployeeRequirement, EmployeeRequirementPerson, EmployeeSession, EmployeeTimeDraft, EmployeeTimeGate } from './types';
 import { employeeCompanyId } from './cache';
+import type { EmployeeSicknessCommand } from './sickness-types';
 
 let requestCompanyId: string | undefined;
+let requestPersonId: string | undefined;
 
 export class EmployeeError extends Error {
   constructor(message: string, public status: number, public code?: string, public gate?: EmployeeTimeGate) { super(message); }
 }
-export async function employeeRequest<T>(path: string, body?: unknown, options?: { signal?: AbortSignal; expectedCompanyId?: string }): Promise<T> {
+export async function employeeRequest<T>(path: string, body?: unknown, options?: { signal?: AbortSignal; expectedCompanyId?: string; expectedPersonId?: string }): Promise<T> {
   // Capture the initiating company. A cookie changed in another tab must not
   // silently redirect an existing form or pending command to another company.
   const expectedCompany = options?.expectedCompanyId ?? requestCompanyId;
+  const expectedPerson = options?.expectedPersonId ?? (path === '/login' ? undefined : requestPersonId);
   const controller = new AbortController();
   const abort = () => controller.abort(options?.signal?.reason);
   if (options?.signal?.aborted) abort(); else options?.signal?.addEventListener('abort', abort, { once: true });
@@ -19,7 +22,7 @@ export async function employeeRequest<T>(path: string, body?: unknown, options?:
   try {
     const response = await fetch(`/api/employee${path}`, {
       credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
-      headers: { ...(expectedCompany ? { 'X-Employee-Company': expectedCompany } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      headers: { ...(expectedCompany ? { 'X-Employee-Company': expectedCompany } : {}), ...(expectedPerson ? { 'X-Employee-Person': expectedPerson } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }),
     });
     const result = await response.json().catch(() => null);
@@ -55,6 +58,7 @@ interface EmployeeContextValue {
   commandOrder: (orderId: string, command: 'start' | 'stop' | 'logistics' | 'status', body?: unknown) => Promise<void>;
   clockBusy: boolean;
   commandClock: (command: EmployeeClockAction | EmployeeClockCorrection) => Promise<void>;
+  commandSickness: (command: EmployeeSicknessCommand) => Promise<void>;
 }
 const EmployeeContext = createContext<EmployeeContextValue | null>(null);
 
@@ -77,11 +81,13 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
     if (previous && previous.companyId === result.companyId && previous.person.id === result.person.id && result.revision < previous.revision) return;
     if (previous && (previous.companyId !== result.companyId || previous.person.id !== result.person.id)) invalidate();
     requestCompanyId = employeeCompanyId(result.companyId);
+    requestPersonId = result.person.id;
     overviewRef.current = result;
     setOverview(result); setSession(result); sessionRef.current = result; setError(''); setRefreshing(false);
   }, [invalidate]);
   const clearSession = useCallback(() => {
     requestCompanyId = undefined;
+    requestPersonId = undefined;
     invalidate();
     setSession(null); sessionRef.current = null; overviewRef.current = null; setOverview(null); setRefreshing(false); clockBusyRef.current = false; setClockBusy(false);
   }, [invalidate]);
@@ -201,6 +207,21 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
     saveAccount: account => mutate('/accounts/save', account),
     commandOrder: (orderId, command, body = {}) => mutate(`/orders/${encodeURIComponent(orderId)}/${command}`, body),
     clockBusy, commandClock,
+    commandSickness: async command => {
+      const companyId = sessionRef.current?.companyId;
+      const current = generation.current;
+      if (!sessionRef.current) throw new EmployeeError('Logga in igen för att sjukanmäla dig.', 401);
+      if (navigator.onLine === false) throw new EmployeeError('Sjukanmälan kräver anslutning. Försök igen när du är online.', 0);
+      try {
+        await employeeRequest('/sickness', command, { expectedCompanyId: companyId, expectedPersonId: sessionRef.current.person.id });
+        if (current === generation.current) await refresh();
+      } catch (caught) {
+        // An uncertain response is re-read, never presented as a saved report.
+        // The caller retains requestId so retry cannot create another case.
+        if (current === generation.current) void refresh().catch(() => undefined);
+        throw caught;
+      }
+    },
   }}>{children}</EmployeeContext.Provider>;
 }
 

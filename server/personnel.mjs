@@ -5,6 +5,8 @@ import { PricingError, createPricingStore } from './pricing.mjs';
 import { createTransportOutbox } from './transport-integrations.mjs';
 import { ensureLogistics, driverOrderView, applyDriverAction, validateLogisticsTransportChange } from './logistics.mjs';
 import { employeeTimeGate, employeeTimeLifecycle } from './employee-time.mjs';
+import { migratePersonnelFacilityAccess, syncPersonnelFacilityAccess, personnelFacilityScope } from './facility-access.mjs';
+import { assertVehiclePlanningChange } from './personnel-vehicles.mjs';
 import { personSchema, companySchema, employmentSchema, salarySchema, scheduleSchema, absenceSchema, competencySchema, personnelPlanIssues, applyTransportChange, transportSchema,
   normalizePhoneNumber, phoneNumberError, normalizeOriginAddress, normalizeAddress, normalizeOrganisationNumber, customerIdentifierError } from '../dist-server/domain-models.mjs';
 
@@ -13,6 +15,10 @@ const privateRights=['salaryRead','salaryWrite','absenceRead','absenceWrite'];
 export const personnelCan=(principal,right)=>principal.user.level==='Systemadmin' || (privateRights.includes(right) ? principal.user.permissions.includes(right) : right==='users' ? principal.user.level!=='Medarbetare' : principal.user.level!=='Medarbetare' || principal.user.permissions.includes(right));
 const fail=(message,status=409)=>{throw new PricingError(message,status);};
 const demand=(p,right)=>{if(!personnelCan(p,right))fail('Du saknar behörighet för detta personalmoment.',403);};
+const accountRight=person=>person.kind==='external'?'externalAccounts':'users';
+const bothCan=(p,right)=>[p.actor,p.user].every(user=>personnelCan({user},right));
+const demandBoth=(p,right)=>{if(!bothCan(p,right))fail('Både faktiskt och effektivt konto behöver behörighet för kontoadministration.',403);};
+const coversSites=(p,siteIds)=>[p.actor,p.user].every(user=>!Array.isArray(user.siteIds) || Array.isArray(siteIds) && siteIds.every(id=>user.siteIds.includes(id)));
 const clone=value=>structuredClone(value);
 const stamp=()=>new Date().toISOString();
 const uid=prefix=>`${prefix}-${randomUUID()}`;
@@ -42,27 +48,35 @@ function saveRecord(rows,value,key='id') {
 }
 function employmentPerson(state,p,id) {const person=checkPerson(state,p,id);if(person.kind!=='employee')fail('Anställning och lön registreras bara för JEROC:s anställda.',422);return person;}
 
-function saveExternalAccount(state,p,person,input,transactionAudit) {
-  demand(p,person.kind==='external'?'externalAccounts':'users');
+function saveExternalAccount(state,p,person,input,transactionAudit,siteCatalog) {
+  demandBoth(p,accountRight(person));
   if(person.kind==='employee' && p.user.level!=='Systemadmin' && state.pricing.users.find(user=>user.id===person.userId)?.level==='Systemadmin')fail('Du kan inte ändra en systemadministratörs chaufförsinloggning.',403);
   if(!person.canDrive || !person.driverId || person.kind==='external' && !person.companyId)fail('Kontot kräver en förarprofil och, för externa förare, ett åkeri.',422);
   const username=parse(z.string().trim().toLowerCase().min(3).max(80).regex(/^[a-z0-9._-]+$/),input.username),active=parse(z.boolean(),input.active),old=state.personnelAuth.accounts.find(a=>a.personId===person.id);
+  let siteIds;
+  if(person.kind==='external' || !person.userId) {
+    if(!old && input.siteIds===undefined)fail('Välj uttryckligen vilka anläggningar det nya kontot får använda.',422);
+    siteIds=parse(z.array(z.string().min(1).max(100)).max(100),input.siteIds??old?.siteIds??person.siteIds);
+    if(!coversSites(p,siteIds) || old && !coversSites(p,old.siteIds))fail('Kontots anläggningar ligger utanför din behörighet.',403);
+    if(siteIds.some(id=>!siteCatalog.some(site=>site.id===id && site.active!==false)))fail('Välj registrerade aktiva anläggningar för kontot.',422);
+  }
   if(active && !person.active)fail('Aktivera personprofilen innan chaufförskontot aktiveras.',422);
   if(state.personnelAuth.accounts.some(a=>a.personId!==person.id && a.username===username))fail('Inloggningsnamnet används redan.',422);
   if(!old && !input.password)fail('Ange ett lösenord för det nya kontot.',422);
   const password=input.password===undefined?old?.password:passwordHash(parse(z.string().min(10).max(200),input.password));
-  const account={personId:person.id,username,active,createdAt:old?.createdAt??stamp(),updatedAt:stamp(),lastLoginAt:old?.lastLoginAt,password};
+  const account={personId:person.id,username,active,...(siteIds?{siteIds:[...new Set(siteIds)]}:{}),createdAt:old?.createdAt??stamp(),updatedAt:stamp(),lastLoginAt:old?.lastLoginAt,password};
   state.personnelAuth.accounts=state.personnelAuth.accounts.filter(a=>a.personId!==person.id).concat(account);state.personnelAuth.sessions=state.personnelAuth.sessions.filter(s=>s.personId!==person.id);
   state.personnel.externalAccounts=state.personnelAuth.accounts.map(({password,...a})=>a);
+  syncPersonnelFacilityAccess(state,{siteCatalog,confirmedExternalPersonIds:siteIds && input.siteIds!==undefined?[person.id]:[]});
   audit(state,p,person.kind==='external'?'externalAccount.saved':'driverAccount.saved',person.id,'Chaufförskonto sparat. Tidigare sessioner har avslutats.',transactionAudit);
 }
 function saveEmployeeAccount(state,p,person,input,transactionAudit) {
-  demand(p,'users');
+  demandBoth(p,'users');
   if(person.kind!=='employee')fail('Välj en anställd.',422);
   const linked=state.pricing.users.find(user=>user.id===person.userId);
   if(!linked)fail('Koppla personens användarkonto före inloggningen.',422);
   if(p.user.level!=='Systemadmin' && linked.level==='Systemadmin')fail('Du kan inte ändra en systemadministratörs inloggning.',403);
-  if(p.user.siteIds && (!linked.siteIds || linked.siteIds.some(siteId=>!p.user.siteIds.includes(siteId))))fail('Kontot ligger utanför din behörighet.',403);
+  if(!coversSites(p,linked.siteIds))fail('Kontot ligger utanför din behörighet.',403);
   const username=parse(z.string().trim().toLowerCase().min(3).max(200).refine(value=>
     /^[a-z0-9._-]+$/.test(value) && value.length<=80 || z.string().email().safeParse(value).success,
     'Ange ett giltigt inloggningsnamn eller en e-postadress.'),input.username);
@@ -78,8 +92,8 @@ function saveEmployeeAccount(state,p,person,input,transactionAudit) {
   audit(state,p,'employeeAccount.saved',person.id,'Personalkonto sparat. Tidigare sessioner har avslutats.',transactionAudit);
 }
 function staffCreation(state,p,person,input) {
-  demand(p,'users');
-  const account={id:person.userId??`staff-${hash(person.id).slice(0,32)}`,name:person.name,level:input.level??'Medarbetare',permissions:input.permissions??['view'],maxAttest:input.maxAttest??0,ownAttest:input.ownAttest??false,siteIds:person.siteIds,active:person.active};
+  demandBoth(p,'users');
+  const account={id:person.userId??`staff-${hash(person.id).slice(0,32)}`,name:person.name,level:input.level??'Medarbetare',permissions:input.permissions??['view'],maxAttest:input.maxAttest??0,ownAttest:input.ownAttest??false,siteIds:input.siteIds??person.siteIds,active:person.active};
   if(!person.userId && state.pricing.users.some(user=>user.id===account.id))fail('Kontot finns redan. Koppla det befintliga kontot i stället.',422);
   const pricing=createPricingStore({initialState:state.pricing});
   pricing.saveUsers({users:state.pricing.users.filter(u=>u.id!==account.id).concat(account)},p);
@@ -89,8 +103,12 @@ const withoutRevision=({revision,...person})=>person;
 
 /** Add the new durable domain once. All existing user, driver, order and booking
  * identities remain unchanged. Fictional example jobs are new records only. */
-export function ensurePersonnel(state) {
-  if(state.personnel)return;
+export function ensurePersonnel(state, siteCatalog) {
+  if(state.personnel) {
+    if(state.metadata) migratePersonnelFacilityAccess(state,{siteCatalog});
+    else syncPersonnelFacilityAccess(state,{siteCatalog});
+    return;
+  }
   const defaults={kind:'employee',active:true,team:'Transport',siteIds:['norrtalje'],phone:'070-000 00 00',email:'',address:'',canDrive:false,revision:0};
   const people=[
     {...defaults,id:'person-kalle',name:'Kalle Nilsson',role:'Chaufför',employeeNumber:'P-0012',managerId:'person-anna',driverId:'kalle',vehicleId:'vehicle-kalle',canDrive:true},
@@ -129,6 +147,7 @@ export function ensurePersonnel(state) {
     state.transport.orders.push({id,customerName:name,address:'Industrivägen 8',city:'Norrtälje',contact:'Demokontakt',phone:'070-000 00 00',action:'pickup',vesselType:type,material:index===2?'Blybatterier':'Metallskrot',vesselSize:'',pickupVessel:'',replacementVessel:'',notes:'Fiktivt exempel för personal och bemanning.',lat:59.7578,lng:18.7105,durationMinutes:60,status:'booked',date:exampleDate,startMinute:start,driverId:'kalle',vehicleId:'vehicle-kalle',requestedDate:exampleDate,requiredCompetencies:index===2?['license:CE','ykb:goods','adr:packages']:['license:CE','ykb:goods'],audit:[],updatedAt:stamp(),bookingVersion:1});
   }
   state.transport.revision++;
+  migratePersonnelFacilityAccess(state,{siteCatalog});
 }
 
 function affectedOrders(state,absence) {
@@ -162,6 +181,7 @@ function replacementIssues(state,person,tasks) {
   return [...new Set(issues)];
 }
 export function personnelProjection(state,p,planning=false,siteCatalog=[{id:'norrtalje',name:'Norrtälje'},{id:'rimbo',name:'Rimbo'}]) {
+  syncPersonnelFacilityAccess(state,{siteCatalog});
   const data=clone(state.personnel),ids=new Set(data.people.filter(person=>visible(p,person)).map(person=>person.id));
   data.people=data.people.filter(person=>ids.has(person.id));
   for(const key of ['employment','salaries','schedules','absences','competencies','staffingTasks','externalAccounts'])data[key]=data[key].filter(item=>ids.has(item.personId));
@@ -180,23 +200,35 @@ export function personnelProjection(state,p,planning=false,siteCatalog=[{id:'nor
   const sites=siteCatalog.filter(site=>site.active!==false && (!p.user.siteIds || p.user.siteIds.includes(site.id))).map(({id,name})=>({id,name}));
   const canManageUsers=!planning && personnelCan(p,'users');
   const users=canManageUsers?clone(state.pricing.users.filter(user=>!p.user.siteIds || user.siteIds && user.siteIds.every(id=>p.user.siteIds.includes(id)))):undefined;
-  return {data,transport,sites,...(users?{users}:{}),revision:data.revision,storage:'database',demo:true,capabilities:[...personnelRights,...(!planning?['users']:[])].filter(right=>personnelCan(p,right))};
+  const facilityAccessConflicts=planning?[]:(state.metadata?.facilityAccess?.conflicts??[]).filter(conflict=> {
+    const person=data.people.find(person=>person.id===conflict.personId);
+    return person && !conflict.resolvedAt && conflict.userId===person.userId && bothCan(p,accountRight(person))
+      && coversSites(p,person.siteIds) && coversSites(p,conflict.previousPersonSiteIds)
+      && (conflict.previousAccountSiteIds===null || coversSites(p,conflict.previousAccountSiteIds));
+  }).map(clone);
+  return {data,transport,sites,...(users?{users}:{}),...(!planning && facilityAccessConflicts.length?{facilityAccessConflicts}:{}),revision:data.revision,storage:'database',demo:true,capabilities:[...personnelRights,...(!planning?['users']:[])].filter(right=>personnelCan(p,right))};
 }
 
 export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog=[{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}]) {
   demand(p,'personnelRead');if(!command || typeof command.action!=='string')fail('Välj en personalåtgärd.',422);
-  ensurePersonnel(state);refreshStaffingTasks(state);const d=state.personnel;
+  ensurePersonnel(state,siteCatalog);refreshStaffingTasks(state);const d=state.personnel;
   switch(command.action) {
     case 'person.save': {
       demand(p,'personnelWrite');const input=command.person??{},old=input.id && d.people.some(person=>person.id===input.id)?checkPerson(state,p,input.id):null;
       const creation=command.createAccount===undefined?undefined:parse(z.discriminatedUnion('kind',[
-        z.object({kind:z.literal('staff'),level:z.enum(['Medarbetare','VD','Systemadmin']).optional(),permissions:z.array(z.string()).max(100).optional(),maxAttest:z.number().finite().nonnegative().optional(),ownAttest:z.boolean().optional(),username:z.string().optional(),password:z.string().min(10).max(200).optional()}).strict(),
-        z.object({kind:z.literal('external'),username:z.string(),password:z.string().min(10).max(200)}).strict(),
+        z.object({kind:z.literal('staff'),level:z.enum(['Medarbetare','VD','Systemadmin']).optional(),permissions:z.array(z.string()).max(100).optional(),maxAttest:z.number().finite().nonnegative().optional(),ownAttest:z.boolean().optional(),username:z.string().optional(),password:z.string().min(10).max(200).optional(),siteIds:z.array(z.string().min(1).max(100)).max(100).optional()}).strict(),
+        z.object({kind:z.literal('external'),username:z.string(),password:z.string().min(10).max(200),siteIds:z.array(z.string().min(1).max(100)).max(100).optional()}).strict(),
       ]),command.createAccount);
       if(creation && input.userId)fail('Välj antingen ett befintligt konto eller skapa en inloggning.',422);
       const clearFields=parse(z.array(z.enum(['managerId','companyId','userId','vehicleId'])).max(4),command.clearFields??[]);
-      if(clearFields.includes('userId') || input.userId!==undefined && input.userId!==old?.userId)demand(p,'users');
+      if(clearFields.includes('userId') || input.userId!==undefined && input.userId!==old?.userId)demandBoth(p,'users');
       const merged={active:true,role:'',team:'',siteIds:[p.user.siteIds?.[0]??'norrtalje'],phone:'',email:'',address:'',canDrive:false,revision:0,...old,...input,id:old?.id??input.id??uid('person')};for(const field of clearFields)delete merged[field];
+      const canonicalProfile=Boolean(merged.kind==='employee' && merged.userId || state.personnelAuth.accounts.some(account=>account.personId===merged.id));
+      if(canonicalProfile) merged.siteIds=personnelFacilityScope(state,merged,siteCatalog);
+      else if(creation) {
+        if(creation.siteIds===undefined && input.siteIds===undefined)fail('Välj uttryckligen vilka anläggningar det nya kontot får använda.',422);
+        merged.siteIds=creation.siteIds??input.siteIds;
+      }
       const person=parse(personSchema,merged);
       if(!old || normalizePhoneNumber(person.phone)!==normalizePhoneNumber(old.phone)) {
         const error=phoneNumberError(person.phone);if(error)fail(error,422);
@@ -205,7 +237,7 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
       person.address=normalizeOriginAddress(person.address);
       person.addressDetails=normalizeAddress(person.address);
       if(!visible(p,person) || p.user.siteIds && person.siteIds.some(id=>!p.user.siteIds.includes(id)))fail('Välj tillåtna anläggningar.',403);
-      if(person.siteIds.some(id=>!siteCatalog.some(site=>site.id===id && site.active!==false)))fail('Välj en registrerad aktiv anläggning.',422);
+      if(!canonicalProfile && person.siteIds.some(id=>!siteCatalog.some(site=>site.id===id && site.active!==false)))fail('Välj en registrerad aktiv anläggning.',422);
       if(person.kind==='external' && (!person.companyId || !d.companies.some(c=>c.id===person.companyId)))fail('Extern chaufför måste kopplas till ett åkeri.',422);
       if(person.kind==='external' && person.userId || old && person.kind!==old.kind && state.personnelAuth.accounts.some(a=>a.personId===person.id))fail('Behåll personens kontotyp när det finns en chaufförsinloggning.',422);
       if(creation && (creation.kind==='staff')!==(person.kind==='employee'))fail('Välj en inloggning som passar personens kontotyp.',422);
@@ -213,8 +245,7 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
       if(person.managerId && person.managerId!==old?.managerId)checkPerson(state,p,person.managerId);
       if(person.userId) {
         const linked=state.pricing.users.find(u=>u.id===person.userId);if(!linked)fail('Användarkontot finns inte.',422);
-        if(input.userId!==old?.userId && (p.user.level!=='Systemadmin' && linked.level==='Systemadmin' || p.user.siteIds && (!linked.siteIds || linked.siteIds.some(id=>!p.user.siteIds.includes(id)))))fail('Kontot ligger utanför din behörighet.',403);
-        if(linked.siteIds && person.siteIds.some(id=>!linked.siteIds.includes(id)))fail('Personens anläggningar måste omfattas av det kopplade kontot.',422);
+        if(input.userId!==old?.userId && (p.user.level!=='Systemadmin' && linked.level==='Systemadmin' || !coversSites(p,linked.siteIds)))fail('Kontot ligger utanför din behörighet.',403);
       }
       for(const key of ['driverId','userId'])if(person[key] && d.people.some(item=>item.id!==person.id && item[key]===person[key]))fail('Kopplingen används redan av en annan person.',422);
       if(old?.driverId && person.driverId!==old.driverId)fail('En befintlig förarkoppling får inte byta identitet.');
@@ -222,6 +253,9 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
       // response. An unchanged retry returns the original account without
       // resetting its password, revoking sessions or adding another account.
       if(creation && old && isDeepStrictEqual(withoutRevision(person),withoutRevision(old))) {
+        const requestedSites=creation.siteIds??input.siteIds;
+        if(requestedSites!==undefined && !isDeepStrictEqual([...new Set(requestedSites)].sort(),[...new Set(old.siteIds)].sort()))
+          fail('Personen har redan en inloggning. Ändra anläggningsåtkomsten under Inloggning & behörigheter.');
         if(creation.kind==='staff' && old.userId) {
           const proposed=staffCreation(state,p,person,creation),current=state.pricing.users.find(u=>u.id===old.userId);
           if(isDeepStrictEqual({...current,active:current.active??true},proposed.account))break;
@@ -239,13 +273,15 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
         audit(state,p,'staffAccount.created',person.id,'Personalprofil och användarkonto skapade tillsammans.',transactionAudit);
       }
       if(creation?.kind==='external' && state.personnelAuth.accounts.some(a=>a.personId===person.id))fail('Personen har redan en chaufförsinloggning.',422);
+      if(person.vehicleId && person.vehicleId!==old?.vehicleId && state.transport.vehicles.find(vehicle=>vehicle.id===person.vehicleId)?.active===false)fail('Välj ett aktivt fordon för förarprofilen.',422);
       if(person.canDrive){person.driverId??=`driver-${person.id}`;if(!person.vehicleId || !state.transport.vehicles.some(v=>v.id===person.vehicleId))fail('Välj ett befintligt fordon för förarprofilen.',422);let driver=state.transport.drivers.find(v=>v.id===person.driverId);if(!driver){driver={id:person.driverId,name:person.name,color:'#1673ff',vehicleId:person.vehicleId};state.transport.drivers.push(driver);}Object.assign(driver,{name:person.name,personId:person.id,companyId:person.companyId,vehicleId:person.vehicleId});state.transport.revision++;}
       saveRecord(d.people,person);if(person.kind==='external' && (d.employment.some(e=>e.personId===person.id) || d.salaries.some(e=>e.personId===person.id)))fail('En anställd med anställning/lön kan inte göras extern utan separat avveckling.');
+      syncPersonnelFacilityAccess(state,{siteCatalog});
       if(creation?.kind==='staff' && (creation.username!==undefined || creation.password!==undefined)) {
         if(creation.username===undefined || creation.password===undefined)fail('Ange både inloggningsnamn och lösenord för personalkontot.',422);
         saveEmployeeAccount(state,p,person,{username:creation.username,password:creation.password,active:person.active},transactionAudit);
       }
-      if(creation?.kind==='external')saveExternalAccount(state,p,person,{...creation,active:person.active},transactionAudit);
+      if(creation?.kind==='external')saveExternalAccount(state,p,person,{...creation,siteIds:creation.siteIds??input.siteIds,active:person.active},transactionAudit,siteCatalog);
       if(!person.active){const a=state.personnelAuth.accounts.find(a=>a.personId===person.id);if(a)a.active=false;state.personnelAuth.sessions=state.personnelAuth.sessions.filter(s=>s.personId!==person.id);}
       audit(state,p,'person.saved',person.id,'Personprofil sparad.',transactionAudit);break;
     }
@@ -259,6 +295,8 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
     case 'schedule.save': {demand(p,'personnelWrite');const input=parse(scheduleSchema,{...command.schedule,id:command.schedule?.id??uid('schedule'),revision:command.schedule?.revision??0});checkPerson(state,p,input.personId);if(d.schedules.some(old=>old.id!==input.id && old.personId===input.personId && old.weekdays.some(day=>input.weekdays.includes(day)) && old.effectiveFrom<=(input.effectiveTo??'9999-12-31') && (old.effectiveTo??'9999-12-31')>=input.effectiveFrom))fail('Arbetspassen överlappar. Ändra det befintliga passet.',422);saveRecord(d.schedules,input);audit(state,p,'schedule.saved',input.personId,'Arbetspass sparat.',transactionAudit);break;}
     case 'competency.save': {demand(p,'competenciesWrite');const input=parse(competencySchema,{...command.competency,id:command.competency?.id??uid('competency'),revision:command.competency?.revision??0});checkPerson(state,p,input.personId);if(input.verified){input.verifiedBy=p.user.id;input.verifiedAt=stamp();}else {delete input.verifiedBy;delete input.verifiedAt;}saveRecord(d.competencies,input);audit(state,p,'competency.saved',input.personId,'Kompetens och giltighet sparad.',transactionAudit);break;}
     case 'absence.preview': case 'absence.save': {
+      const managed = d.absences.find(value => value.id === command.absence?.id && value.sicknessCaseId);
+      if (managed) fail('Ändra den faktiska sjukfrånvaron under Sjukfrånvaro. Sjukärendets historik och karensunderlag ska följas åt.', 409);
       demand(p,'absenceWrite');const old=d.absences.find(a=>a.id===command.absence?.id);
       const input=parse(absenceSchema,{...command.absence,id:command.absence?.id??uid('absence'),revision:command.absence?.revision??0,status:'registered',createdAt:old?.createdAt??stamp(),createdBy:old?.createdBy??p.user.id});
       const person=checkPerson(state,p,input.personId);input.managerId??=person.managerId;
@@ -268,7 +306,7 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
       if(old && old.status==='registered' && ['personId','kind','fromDate','toDate','allDay','startMinute','endMinute','managerId'].every(field=>isDeepStrictEqual(old[field],input[field])))break;
       saveRecord(d.absences,input);refreshStaffingTasks(state);audit(state,p,'absence.saved',input.personId,'Frånvaro registrerad. Berörda bokningar har bevarats.',transactionAudit);break;
     }
-    case 'absence.cancel': {demand(p,'absenceWrite');const old=d.absences.find(a=>a.id===command.absenceId);if(!old)fail('Frånvaron finns inte.',404);checkPerson(state,p,old.personId);saveRecord(d.absences,{...old,status:'cancelled',revision:command.revision});refreshStaffingTasks(state);audit(state,p,'absence.cancelled',old.personId,'Frånvaro avbruten.',transactionAudit);break;}
+    case 'absence.cancel': {demand(p,'absenceWrite');const old=d.absences.find(a=>a.id===command.absenceId);if(!old)fail('Frånvaron finns inte.',404);checkPerson(state,p,old.personId);if(old.sicknessCaseId)fail('Friskanmäl eller rätta sjukärendet under Sjukfrånvaro så att historik och karensunderlag följs åt.',409);saveRecord(d.absences,{...old,status:'cancelled',revision:command.revision});refreshStaffingTasks(state);audit(state,p,'absence.cancelled',old.personId,'Frånvaro avbruten.',transactionAudit);break;}
     case 'replacement.preview': {demand(p,'staffingWrite');const tasks=tasksFor(state,p,command.taskIds);return {candidates:d.people.filter(person=>visible(p,person) && person.canDrive && person.driverId && person.active).map(person=>{const issues=replacementIssues(state,person,tasks);return {personId:person.id,name:person.name,available:issues.length===0,issues};})};}
     case 'staffing.assign': {
       demand(p,'staffingWrite');demand(p,'transportPlan');const tasks=tasksFor(state,p,command.taskIds),replacement=checkPerson(state,p,command.replacementPersonId);if(!replacement.canDrive || !replacement.driverId)fail('Välj en bokningsbar förare.',422);
@@ -285,15 +323,36 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
     }
     case 'externalAccount.save': {
       const person=checkPerson(state,p,command.personId);if(person.kind!=='external')fail('Välj en extern chaufför.',422);
-      saveExternalAccount(state,p,person,command,transactionAudit);break;
+      saveExternalAccount(state,p,person,command,transactionAudit,siteCatalog);break;
     }
     case 'driverAccount.save': {
       const person=checkPerson(state,p,command.personId);if(person.kind!=='employee')fail('Välj en anställd förare.',422);
-      saveExternalAccount(state,p,person,command,transactionAudit);break;
+      saveExternalAccount(state,p,person,command,transactionAudit,siteCatalog);break;
     }
     case 'employeeAccount.save': {
       const person=checkPerson(state,p,command.personId);
       saveEmployeeAccount(state,p,person,command,transactionAudit);break;
+    }
+    case 'facilityAccess.confirm': {
+      const input=parse(z.object({action:z.literal('facilityAccess.confirm'),personId:z.string().min(1).max(200),
+        conflictId:z.string().min(1).max(1000),expectedRevision:z.number().int().nonnegative(),
+        expectedSiteIds:z.array(z.string().min(1).max(100)).max(100).nullable()}).strict(),command);
+      const person=checkPerson(state,p,input.personId);
+      demandBoth(p,accountRight(person));
+      const account=person.kind==='employee' && person.userId ? state.pricing.users.find(user=>user.id===person.userId)
+        : state.personnelAuth.accounts.find(account=>account.personId===person.id);
+      if(!account)fail('Personens konto finns inte längre.',422);
+      const scope=Array.isArray(account.siteIds)?account.siteIds:null;
+      if(!coversSites(p,scope))fail('Kontot ligger utanför din behörighet.',403);
+      const canonical=value=>value===null?null:[...new Set(value)].sort();
+      if(person.revision!==input.expectedRevision || !isDeepStrictEqual(canonical(scope),canonical(input.expectedSiteIds)))fail('Anläggningsåtkomsten ändrades. Ladda om före bekräftelse.');
+      const conflict=state.metadata?.facilityAccess?.conflicts?.find(item=>item.id===input.conflictId && item.personId===person.id && item.userId===person.userId);
+      if(!conflict)fail('Skillnaden finns inte längre för det här kontot.',404);
+      if(!conflict.resolvedAt) {
+        conflict.resolvedAt=stamp();conflict.resolvedBy=p.user.id;conflict.actualUserId=p.actor.id;
+        audit(state,p,'facilityAccess.confirmed',person.id,'Gemensam anläggningsåtkomst granskad och bekräftad.',transactionAudit);
+      }
+      break;
     }
     default:fail('Personalåtgärden finns inte.',404);
   }
@@ -303,6 +362,7 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
 /** Only changed/new bookings are checked. A sickness report never deletes the
  * customer's previous booking; it creates a staffing task instead. */
 export function validatePersonnelTransportChange(state,previous,next) {
+  assertVehiclePlanningChange(previous,next);
   ensurePersonnel(state);
   for(const order of next.orders)if(['booked','on_way'].includes(order.status)) {
     const old=previous.orders.find(o=>o.id===order.id),key=o=>o && [o.date,o.startMinute,o.durationMinutes,o.driverId,o.vehicleId,JSON.stringify(o.requiredCompetencies??[])].join('|');

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { PricingError } from './pricing.mjs';
+import { assertSicknessWorkAllowed } from './sickness-work-guard.mjs';
 
 const ZONE = 'Europe/Stockholm';
 const dayPattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -233,8 +234,17 @@ function expectedDay(state, person, date) {
       }
     } else if (employment) base = Math.round(employment.hoursPerWeek * 60 / workingDays.length);
   }
-  const exclusions = absences.map(value => value.allDay ? [0, 1440] : [value.startMinute, value.endMinute]);
-  const absent = absences.some(value => value.allDay) ? base : Math.min(base, scheduledMinutes > 0 ? Math.round((scheduledMinutes - intervalMinutes(subtractIntervals(scheduled, exclusions))) * base / scheduledMinutes) : intervalMinutes(exclusions));
+  const fractions = absences.filter(value => [25, 50, 75].includes(value.sicknessExtent));
+  const fixed = absences.filter(value => !fractions.includes(value));
+  const exclusions = fixed.map(value => value.allDay ? [0, 1440] : [value.startMinute, value.endMinute]);
+  const fixedAbsent = fixed.some(value => value.allDay) ? base : Math.min(base, scheduledMinutes > 0 ? Math.round((scheduledMinutes - intervalMinutes(subtractIntervals(scheduled, exclusions))) * base / scheduledMinutes) : intervalMinutes(exclusions));
+  const remainingSchedule = subtractIntervals(scheduled, exclusions);
+  const partialAbsent = fractions.reduce((total, value) => {
+    const from = value.startMinute ?? 0, to = value.endMinute ?? 1440;
+    const overlap = scheduledMinutes > 0 ? intervalMinutes(remainingSchedule.map(([a, b]) => [Math.max(a, from), Math.min(b, to)]).filter(([a, b]) => b > a)) * base / scheduledMinutes : Math.min(base - fixedAbsent, Math.max(0, to - from));
+    return Math.max(total, Math.min(base * value.sicknessExtent / 100, overlap));
+  }, 0);
+  const absent = Math.min(base, Math.round(fixedAbsent + partialAbsent));
   return { expectedMinutes: Math.max(0, base - absent), absenceMinutes: absent, schedules, absences, requirement: setting };
 }
 
@@ -431,6 +441,15 @@ export function employeeTimeProjection(state, personOrId, context = {}) {
     clockHistory:context.bootstrap ? [] : (state.employeeTime?.audit??[]).filter(item=>item.personId===person.id&&item.action.startsWith('clock.')).slice(-50).reverse().map(item => clockAuditView(item, person.siteIds)),
     gate: employeeTimeGate(state, person, context), days, selectedDay, orders: context.bootstrap ? orders.filter(order => order.date === today) : orders, ...(activeWork ? { activeWork: copy(activeWork) } : {}), leaveRequests: context.bootstrap ? [] : copy((state.employeeTime?.leaveRequests ?? []).filter(value => value.personId === person.id)), sites, summary, balances: { available: false } };
 }
+/** Single-day facts for payroll/absence reconciliation. Avoid constructing a
+ * complete month twice for each sickness day in an employee's history. */
+export function employeeTimeDayProjection(state, personOrId, date, context = {}) {
+  context = { ...context, now: clock(context) };
+  const person = ownPerson(state, personOrId, context);
+  date = parse(dateSchema, date);
+  state = indexedPersonState(state, person);
+  return publicDay(dayData(state, person, date, siteList(state, person, context), ownOrders(state, person), context));
+}
 export function employeeTimeBootstrapProjection(state, personOrId, context = {}) {
   context = { ...context, now: clock(context) };
   const today = employeeTimeToday(context);
@@ -558,6 +577,7 @@ export function employeeClockCommand(state, personOrId, command, transactionAudi
     }
     if (input.sessionId && active?.id !== input.sessionId) fail('Det aktiva passet ändrades. Uppdatera sidan.', 409);
     if (input.action === 'clock.in') {
+      assertSicknessWorkAllowed(state, person, context);
       if (requirementAt(state, person, employeeTimeToday(context)).timeSource !== 'clock') fail('Stämpelklockan är inte vald för denna person.', 409);
       if (active) fail('Du är redan instämplad.', 409);
       if (domain.clockSessions.some(item => item.personId === person.id && item.endedAt && Date.parse(item.endedAt) > now.getTime())) {
@@ -585,6 +605,7 @@ export function employeeClockCommand(state, personOrId, command, transactionAudi
         active.breaks.push({ startedAt: at, endedAt: null });
       }
       if (input.action === 'clock.resume') {
+        assertSicknessWorkAllowed(state, person, context);
         if (!pause || pause.endedAt) fail('Du har ingen pågående rast.', 409);
         pause.endedAt = at;
       }
@@ -651,6 +672,7 @@ export function employeeTimeLifecycle(state, personOrId, orderId, phase, transac
   const person = ownPerson(state, personOrId, context), domain = ensureEmployeeTime(state), now = clock(context).toISOString();
   const active = domain.orderSessions.find(value => value.personId === person.id && !value.endedAt);
   if (phase === 'start') {
+    assertSicknessWorkAllowed(state, person, context);
     const order = assignedOrder(state, person, orderId);
     if (['cancelled', 'done'].includes(order.status)) fail('Uppdraget är avslutat eller avbrutet.', 409);
     if (active?.orderId === orderId) return { session: copy(active), gate: employeeTimeGate(state, person, context) };

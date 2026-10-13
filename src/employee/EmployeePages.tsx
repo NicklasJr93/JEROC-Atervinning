@@ -14,6 +14,7 @@ import { tenantPublicHeaders } from '../tenant-public-context';
 import { ActiveSitePicker } from './ActiveSitePicker';
 import EmployeeEquipment from './EmployeeEquipment';
 import { EmployeeClockCard, EmployeeClockCorrectionForm, EmployeeClockHistory, isEmployeeClockDay } from './EmployeeClock';
+import { EmployeeSicknessCard } from './EmployeeSickness';
 
 function Page({ title, subtitle, children, back, sitePicker = false }: { title: string; subtitle?: string; children: ReactNode; back?: string; sitePicker?: boolean }) {
   const navigate = useNavigate();
@@ -117,7 +118,7 @@ export function EmployeeTimePage() {
   if (register && editId && !selected) return <Page title="Ändra registrerad tid" back={`/time?date=${date}`}><Empty icon="clock">Hämtar tidrapporten…</Empty><OverviewError /></Page>;
   if (register && editId && (!edit || edit.source !== 'manual')) return <Page title="Registrerad tid" back={`/time?date=${date}`}><Notice tone="amber">{edit?.source === 'order' ? 'Uppdragstid registreras med start och stopp på arbetsordern. Den kan inte ändras som manuell tid.' : 'Tidsposten kunde inte hittas. Öppna dagen igen.'}</Notice><Button variant="outline" onClick={closeForm}>Till tidrapportering</Button></Page>;
   if (register) return <TimeForm key={`${date}:${editId || 'new'}`} date={date} entry={edit} loadingEntry={false} onClose={closeForm} />;
-  return <Page title="Tidrapportering"><OverviewError /><GateNotice /><EmployeeClockCard title="Pågående pass" /><ActiveWorkStop />
+  return <Page title="Tidrapportering"><OverviewError /><GateNotice /><EmployeeClockCard title="Pågående pass" /><EmployeeSicknessCard /><ActiveWorkStop />
     {session?.capabilities.employeeTime && session.person.kind !== 'external' && <MenuRow title="Min månadsrapport" description="Granska din arbetstid och skicka till chef" icon={Clock3} onClick={() => navigate(`/time/review?month=${date.slice(0, 7)}`)} />}
     {overview?.monthLoaded === false ? <Empty icon="clock">Hämtar månadens registrerade tider…</Empty> : <><div className="employee-hours-total"><Clock3 size={29} /><span><strong>{hoursLabel(overview?.summary.recordedMinutes || 0)} registrerat</strong><small>Arbetad tid efter rast</small></span></div><Calendar date={date} today={overview?.today || stockholmDay()} days={overview?.days || []} kind="time" onSelect={select} onMove={select} /></>}
     <section className="employee-section"><div className="employee-section-title"><h2>{capitalize(fullDayLabel(date))}</h2><strong className="employee-hours">{hoursLabel(selected?.recordedMinutes || 0)}</strong></div><div className="employee-day-requirement"><span>Timkrav {hoursLabel(selected?.expectedMinutes || 0)}</span><span className={selected?.missingMinutes ? 'missing' : 'complete'}>{selected?.missingMinutes ? `Saknas ${hoursLabel(selected.missingMinutes)}` : 'Ingen tid saknas'}</span></div>
@@ -309,7 +310,7 @@ export function EmployeeTimeGate() {
   const dialog = useRef<HTMLDialogElement>(null);
   const gate = overview?.gate;
   const clockMode = isEmployeeClockDay(overview, gate?.date);
-  const allowed = location.pathname === '/time' || location.pathname === '/time/review' || location.pathname.startsWith('/profile');
+  const allowed = location.pathname === '/time' || location.pathname === '/time/review' || location.pathname === '/time/sickness' || location.pathname.startsWith('/profile');
   const blocked = Boolean(session && gate?.blocked && !allowed);
   useEffect(() => {
     if (!blocked || !dialog.current) return;
@@ -320,5 +321,9 @@ export function EmployeeTimeGate() {
     return () => { document.body.style.overflow = previousOverflow; };
   }, [blocked]);
   if (!blocked || !gate?.date) return null;
-  return createPortal(<dialog className="employee-gate-dialog" ref={dialog} aria-labelledby="employee-gate-title" aria-describedby="employee-gate-description" onCancel={event => event.preventDefault()}><div className="employee-gate-icon"><Clock3 size={31} /></div><h2 id="employee-gate-title">Tid saknas för {fullDayLabel(gate.date)}</h2><p id="employee-gate-description">Komplettera din tidrapport för att fortsätta använda appen.</p><div className="employee-gate-stats"><div><span>Timkrav</span><strong>{hoursLabel(gate.expectedMinutes)}</strong></div><div><span>Registrerat</span><strong>{hoursLabel(gate.recordedMinutes)}</strong></div><div><span>Saknas</span><strong>{hoursLabel(gate.missingMinutes)}</strong></div></div><EmployeeClockCard compact /><ActiveWorkStop /><Button variant="blue" icon={Plus} onClick={() => navigate(`/time?date=${gate.date}${clockMode ? '' : '&register=1'}`)}>{clockMode ? 'Komplettera stämpling' : 'Registrera tid'}</Button><button className="employee-text centered" onClick={() => navigate('/profile')}>Kontakta chef eller logga ut</button></dialog>, document.body);
+  return createPortal(<dialog className="employee-gate-dialog" ref={dialog} aria-labelledby="employee-gate-title" aria-describedby="employee-gate-description" onCancel={event => event.preventDefault()}><div className="employee-gate-icon"><Clock3 size={31} /></div><h2 id="employee-gate-title">Tid saknas för {fullDayLabel(gate.date)}</h2><p id="employee-gate-description">Komplettera din tidrapport för att fortsätta använda appen.</p><div className="employee-gate-stats"><div><span>Timkrav</span><strong>{hoursLabel(gate.expectedMinutes)}</strong></div><div><span>Registrerat</span><strong>{hoursLabel(gate.recordedMinutes)}</strong></div><div><span>Saknas</span><strong>{hoursLabel(gate.missingMinutes)}</strong></div></div><EmployeeClockCard compact /><ActiveWorkStop /><Button variant="blue" icon={Plus} onClick={() => navigate(`/time?date=${gate.date}${clockMode ? '' : '&register=1'}`)}>{clockMode ? 'Komplettera stämpling' : 'Registrera tid'}</Button><button type="button" className="employee-sickness-gate-link" onClick={() => navigate('/time/sickness')}>Sjukanmälan / friskanmälan</button><button className="employee-text centered" onClick={() => navigate('/profile')}>Kontakta chef eller logga ut</button></dialog>, document.body);
+}
+
+export function EmployeeSicknessPage() {
+  return <Page title="Sjukfrånvaro" back="/time"><GateNotice /><EmployeeSicknessCard expanded /></Page>;
 }

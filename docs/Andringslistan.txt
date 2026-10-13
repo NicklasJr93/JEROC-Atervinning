@@ -4,7 +4,10 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.10.0. Aktuell kontorsversion: 0.28.0.
+Aktuell mobilwebbversion: 0.12.0. Aktuell kontorsversion: 0.29.0.
+119–122 är genomförda i bygge 2026-10-13. Beställningens ”129” tolkades
+som 120 enligt de fyra senast planerade punkterna.
+Guide och avgränsningar: docs/personal-sjukfranvaro-2026-10-13.md.
 Banköverföring/Open Payments sandbox och bankmottagare är genomförda i ÄL 109,
 bygge 2026-10-13: docs/integrationer/openpayments-bygge-2026-10-13.md.
 Delad attestknapp, bokföring i Spiris, utbetalningsspärr, eget utbetalningskort
@@ -2776,7 +2779,7 @@ Status: Implementerad 2026-10-13 i kontor 0.28.1.
   samt produktionsbygget passerar. Inga externa betalningar skickades i proven.
 
 ÄL 119 – En gemensam anläggningsåtkomst på personkortet
-Status: Planerad 2026-10-13; inte implementerad.
+Status: Implementerad 2026-10-13 i kontor 0.29.0 / mobilwebb 0.12.0.
 - Anläggningsåtkomst väljs en gång under Personal → personkort → Inloggning
   & behörigheter. Ta bort det andra behörighetsstyrande anläggningsvalet i
   Redigera person. Samma sparade åtkomst används av kontor, mobil, gårdsarbete
@@ -2799,7 +2802,7 @@ Status: Planerad 2026-10-13; inte implementerad.
   stämplingar och arbetsordrar behåller sina ursprungliga anläggningar.
 
 ÄL 120 – Hem i mobilen: tydligt anläggningsbyte och mindre statistik
-Status: Planerad 2026-10-13; inte implementerad. Uppföljning av ÄL 117.
+Status: Implementerad 2026-10-13. Uppföljning av ÄL 117.
 - Platsnamnet högst upp till höger får tydlig text Byt anläggning och pil.
   Öppna en kompakt väljare med användarens tillåtna aktiva anläggningar och
   markera aktuellt val. Vid endast en anläggning förklaras tilldelningen;
@@ -2821,7 +2824,7 @@ Status: Planerad 2026-10-13; inte implementerad. Uppföljning av ÄL 117.
   bygg ingen ny parallell statistikmodell.
 
 ÄL 121 – Tydligare Förare & fordon samt registrering av nya fordon
-Status: Planerad 2026-10-13; inte implementerad.
+Status: Implementerad 2026-10-13 i kontor 0.29.0.
 - Personkortet får en tydlig sektion Förare & fordon med Kan bokas som förare
   och Ordinarie fordon. Fordonskopplingen ska inte behöva letas fram bland
   kontaktuppgifter i en generell redigeringsruta.
@@ -2835,11 +2838,12 @@ Status: Planerad 2026-10-13; inte implementerad.
   Tidigare uppdrag behåller sina historiska fordonsuppgifter.
 
 ÄL 122 – Sjukanmälan och friskanmälan i mobilen
-Status: Planerat flödesförslag 2026-10-13; inte implementerad.
-- Samma stora röda Sjukanmälan-knapp på Hem och Tid. Visa den när personen
-  är utstämplad eller saknar aktiverad stämpelklocka. Under arbete eller rast
-  måste passet först stämplas ut. Aktiv arbetsordertid måste också avslutas;
-  ett nattpass eller rättelsekrävande öppet pass är inte ett avslutat pass.
+Status: Implementerad 2026-10-13 i mobilwebb 0.12.0 / kontor 0.29.0.
+- Samma stora röda Sjukanmälan-knapp på Hem och Tid. Vid aktiv stämpling
+  eller arbetsordertid erbjuds Stämpla ut och sjukanmäl i en transaktion.
+  Ett gammalt/rättelsekrävande pass får inte hindra mottagandet av anmälan:
+  tidsavvikelsen flaggas separat och historiska lås bevaras. Sjukanmälan är
+  inte beroende av att stämpelklockan är aktiverad.
 - Knappen öppnar en kort bekräftelseruta med första sjukdag, förvalt idag,
   och heldag eller från ett klockslag. Vid sjukdom efter påbörjat arbete
   föreslås sista relevanta verkliga utstämpling/avslut samma arbetsdag.
@@ -2849,16 +2853,38 @@ Status: Planerat flödesförslag 2026-10-13; inte implementerad.
   behörighetsstyrd avisering och bemanningsuppföljning för berörda uppdrag.
   Uppdrag flyttas eller avbokas inte automatiskt; övrig bemanning ser den
   frånvaroinformation som behövs för planeringen.
+- Uppskattad återkomst kan vara datum eller Vet inte. Den avslutar aldrig
+  ärendet. Daglig bekräftelse är en inställbar arbetsplatsrutin, inte ett
+  generellt lagkrav; utebliven kontakt ger uppföljning, inte automatisk friskhet.
 - Pågående sjukanmälan visas som Du är sjukanmäld med Friskanmälan. Perioden
   pågår tills friskanmälan fastställer sluttid. Därefter kan personen stämpla
-  in igen. Frånvaron används av schema, närvaro och timkrav; den är inte
-  arbetad tid eller en automatisk beräkning av sjuklön/löneutbetalning.
+  in igen. Partiell sjukfrånvaro 25/50/75 % tillåter arbete och kräver inget
+  påhittat klockslag för den frånvarande delen. Frånvaron används av schema,
+  närvaro och timkrav; den räknas aldrig som arbetad tid.
 - Registrering och friskanmälan ska kunna nås även om äldre tid saknas,
   utan att dölja den kvarvarande tidsspärren. Frysta/attesterade månader
   ändras endast genom befintlig återöppning/rättelse. En öppen sjukperiod
   över månadsskiftet får inte ändra historiska frysta timmar i efterhand.
 - Servern kontrollerar aktuell stämpling/uppdragstid och egen person inom
-  rätt bolag. Samtidig instämpling och sjukanmälan får inte accepteras båda.
+  rätt bolag. Stämpling och sjukanmälan serialiseras i samma databas;
+  ny arbetsstart efter registrerad heltidsfrånvaro nekas. Tidskonflikter
+  flaggas separat så att själva sjukärendet fortfarande kan tas emot.
   Dubbeltryck skapar en period; oklart nätutfall återläses och offline visas
   inte som registrerad sjukanmälan. Chef kan hjälpa till med spårbar rättelse
   enligt befintliga behörigheter och månadslås.
+- Privat sjukregister med skriftlig försäkran, intygsstatus/giltighetsperiod,
+  eget behörighetsskyddat PDF/bildarkiv och spårbara rättelser. Diagnos begärs
+  inte. Intygsuppladdning betyder inte att giltighetsperioden är verifierad.
+- Karensavdrag enligt veckosjuklönsmodellen: 20 % av genomsnittlig veckas
+  sjuklön. Avdraget begränsas till sjuklönen och återstoden följer perioden.
+  Återinsjuknande inom fem kalenderdagar återanvänder perioden utan nytt avdrag.
+  Högst 14 kalenderdagars arbetsgivarsjuklön, allmänt/särskilt högriskskydd,
+  kvalifikations-/återgångskontroll och tydliga statusar när underlag saknas.
+- Fastställd avtalsgrund och verifierad löneprofil krävs innan belopp räknas.
+  Andra avtalsmodeller hålls för manuell bedömning. Export är sjuklöneunderlag,
+  inte en löneutbetalning. CSV sparar version, källa och kontrollsumma; ändrade
+  underlag ersätter inte tidigare exportversioner.
+- Chef/HR får uppföljning för daglig kontakt, normalt intyg dag 8,
+  Försäkringskassan efter sjuklöneperioden och plan för återgång vid lång frånvaro.
+  Kontrollerna följer Sjuklönelagen och Försäkringskassans vägledning, inte LAS.
+  Anmälan till Försäkringskassan och lönekörning utförs separat.

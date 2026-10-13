@@ -1,0 +1,18 @@
+.employee-sickness { display: flex; flex-direction: column; gap: 10px; }
+.employee-sickness > .button.danger { width: 100%; min-height: 54px; background: #c84444; color: #fff; border: 1px solid #c84444; border-radius: 13px; font-size: 16px; font-weight: 700; }
+.employee-sickness.ongoing { border: 1px solid #ecd7d7; border-radius: 14px; background: #fffafa; padding: 16px; }
+.employee-sickness > header { display: flex; align-items: center; gap: 10px; color: #b23c3c; }
+.employee-sickness h2 { font-size: 18px; color: #7e3030; margin: 0 0 3px; }
+.employee-sickness p { font-size: 12px; color: #63788f; line-height: 1.5; margin: 0; }
+.employee-sickness-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.employee-sickness-actions > .button { flex: 1 1 140px; min-width: 0; padding: 12px 9px; font-size: 13px; }
+.employee-sickness .button:disabled { opacity: .55; }
+.employee-sickness-certificate { display: flex; flex-direction: column; gap: 9px; }
+.employee-sickness-certificate input[type=file] { display: none; }
+.employee-sickness-history { display: flex; justify-content: space-between; gap: 10px; border-top: 1px solid #eee1e1; padding-top: 10px; font-size: 12px; }
+.employee-sickness-history span { color: #71859b; }
+.employee-sickness-form { gap: 14px; padding-top: 10px; }
+.employee-sickness-form .employee-checkbox { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; }
+.employee-sickness-form .employee-checkbox input { width: 19px; min-height: 19px; height: 19px; flex: 0 0 19px; margin-top: 2px; }
+.employee-sickness-form .notice { font-size: 12px; }
+.employee-sickness-gate-link { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 46px; color: #ad3737; background: #fff0f0; border: 1px solid #eed2d2; border-radius: 10px; font-weight: 650; margin-top: 10px; }

@@ -9,13 +9,22 @@ import {createApplicationService,initialApplicationState} from './application.mj
 import {createApplicationRepository} from './application-storage.mjs';
 import {createPricingStore} from './pricing.mjs';
 import {applyTransportChange} from '../dist-server/domain-models.mjs';
+import {syncPersonnelFacilityAccess} from './facility-access.mjs';
 
 const personnel='/api/application/personnel',transport='/api/application/transport';
 async function fixture(run) {
   const dir=await mkdtemp(join(tmpdir(),'jeroc-personnel-'));let env={JEROC_APPLICATION_DB_PATH:join(dir,'business.sqlite')},pool,schema;
   if(process.env.JEROC_TEST_DATABASE_URL){const {Pool}=await import('pg');pool=new Pool({connectionString:process.env.JEROC_TEST_DATABASE_URL});schema='jeroc_personnel_'+randomUUID().replaceAll('-','');await pool.query(`CREATE SCHEMA "${schema}"`);const url=new URL(process.env.JEROC_TEST_DATABASE_URL);url.searchParams.set('options',`-c search_path=${schema}`);env={DATABASE_URL:url.toString()};}
-  const apps=[],servers=[],repos=[];
-  async function instance(){const app=createApplicationService({env});apps.push(app);const server=createServer((req,res)=>void app(req,res,new URL(req.url,'http://localhost')));servers.push(server);await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base=`http://127.0.0.1:${server.address().port}`;return async(path,data,actor='admin',cookie)=>{const response=await fetch(base+path,{method:data?'POST':'GET',headers:{'content-type':'application/json',...(actor?{'x-demo-actor':actor,'x-demo-user':actor}:{}),...(cookie?{cookie}:{})},body:data?JSON.stringify(data):undefined});return {status:response.status,cookie:response.headers.get('set-cookie'),...await response.json()};};}
+  const apps=[],servers=[],repos=[];let prepared=false;
+  async function instance(){const app=createApplicationService({env});apps.push(app);
+    if(!prepared){const repo=await app.getRepository();await repo.transact(state=>{
+      // These pre-existing workflow tests intentionally need an all-facility
+      // administrator. Provision the fixture after the safe legacy migration;
+      // production scopes must not be widened merely to preserve old tests.
+      delete state.pricing.users.find(user=>user.id==='admin').siteIds;
+      syncPersonnelFacilityAccess(state,{siteCatalog:[{id:'norrtalje'},{id:'rimbo'}]});
+    });prepared=true;}
+    const server=createServer((req,res)=>void app(req,res,new URL(req.url,'http://localhost')));servers.push(server);await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base=`http://127.0.0.1:${server.address().port}`;return async(path,data,actor='admin',cookie)=>{const response=await fetch(base+path,{method:data?'POST':'GET',headers:{'content-type':'application/json',...(actor?{'x-demo-actor':actor,'x-demo-user':actor}:{}),...(cookie?{cookie}:{})},body:data?JSON.stringify(data):undefined});return {status:response.status,cookie:response.headers.get('set-cookie'),...await response.json()};};}
   async function repository(){const repo=await createApplicationRepository({env,initial:initialApplicationState});repos.push(repo);return repo;}
   try{await run({a:await instance(),instance,repository});}finally{for(const server of servers)await new Promise(resolve=>server.close(resolve));for(const app of apps)await app.close();for(const repo of repos)await repo.close();if(pool){await pool.query(`DROP SCHEMA "${schema}" CASCADE`);await pool.end();}await rm(dir,{recursive:true,force:true});}
 }
@@ -63,7 +72,7 @@ test('record revision checks prevent lost updates and rejects cross-person row r
   const competency=first.data.competencies[0];assert.equal((await a(personnel,{action:'competency.save',competency:{...competency,personId:'person-lina'}})).status,422);
 }));
 test('external accounts hash credentials, restrict assigned orders and revoke sessions on password reset',async()=>fixture(async({a,repository})=>{
-  assert.equal((await a(personnel,{action:'externalAccount.save',personId:'person-oskar',username:'Oskar.Extern',active:true,password:'TestPassword-2026!'})).status,200);
+  assert.equal((await a(personnel,{action:'externalAccount.save',personId:'person-oskar',username:'Oskar.Extern',active:true,password:'TestPassword-2026!',siteIds:['norrtalje']})).status,200);
   const repo=await repository(),auth=await repo.transact(s=>structuredClone(s.personnelAuth));assert.ok(auth.accounts[0].password.digest);assert.ok(!JSON.stringify(auth).includes('TestPassword-2026!'));assert.ok(!JSON.stringify((await a(personnel)).data.externalAccounts).includes('digest'));
   assert.equal((await a('/api/driver/login',{username:'oskar.extern',password:'wrong'})).status,401);const login=await a('/api/driver/login',{username:'oskar.extern',password:'TestPassword-2026!'});assert.equal(login.status,200,login.error);assert.ok(login.cookie.includes('HttpOnly'));const cookie=login.cookie.split(';')[0];
   const orders=await a('/api/driver/orders',undefined,'admin',cookie);assert.equal(orders.status,200);assert.ok(orders.orders.every(o=>o.driverId==='oskar'));assert.ok(orders.orders.every(o=>o.audit.length===0));assert.equal((await a('/api/driver/orders/AO-1201/status',{status:'on_way'},'admin',cookie)).status,403);
@@ -110,7 +119,7 @@ test('staffing replacement synchronizes managed transport assignment and invalid
   }
   assert.equal(order.detail.document.signatures.length,2);assert.equal(order.detail.execution.officeCleared,true);
   const priorDocument=structuredClone(order.detail.document),priorVersion=order.detail.version;
-  for(const [personId,username] of [['person-kalle','replacement.old'],['person-lina','replacement.new']])assert.equal((await a(personnel,{action:'driverAccount.save',personId,username,active:true,password:'Replacement-Test-2026!'})).status,200);
+  for(const [personId,username] of [['person-kalle','replacement.old'],['person-lina','replacement.new']])assert.equal((await a(personnel,{action:'driverAccount.save',personId,username,active:true,password:'Replacement-Test-2026!',siteIds:['norrtalje']})).status,200);
   const oldLogin=await a('/api/driver/login',{username:'replacement.old',password:'Replacement-Test-2026!'}),newLogin=await a('/api/driver/login',{username:'replacement.new',password:'Replacement-Test-2026!'});assert.equal(oldLogin.status,200,oldLogin.error);assert.equal(newLogin.status,200,newLogin.error);
   const oldCookie=oldLogin.cookie.split(';')[0],newCookie=newLogin.cookie.split(';')[0];
   assert.ok((await a('/api/driver/orders',undefined,null,oldCookie)).orders.some(value=>value.id===order.id));

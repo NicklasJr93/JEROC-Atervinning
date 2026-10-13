@@ -8,6 +8,7 @@ import EmployeeTimeReview from './employee/EmployeeTimeReview';
 import {
   EmployeeLoginPage, EmployeeHomePage, EmployeeSchedulePage, EmployeeTimePage,
   EmployeeProfilePage, EmployeeAssignmentsPage, EmployeeRequirementPage, EmployeeTimeGate,
+  EmployeeSicknessPage,
 } from './employee/EmployeePages';
 import {
   HomePage,
@@ -68,6 +69,7 @@ export function App() {
           <Route path="/yard" element={yardPage(<HomePage />)} />
           <Route path="/schedule" element={<EmployeeSchedulePage />} />
           <Route path="/time" element={<EmployeeTimePage />} />
+          <Route path="/time/sickness" element={<EmployeeSicknessPage />} />
           <Route path="/time/review" element={<EmployeeTimeReview />} />
           <Route path="/assignments" element={<EmployeeAssignmentsPage />} />
           <Route path="/login" element={<Navigate to="/" replace />} />

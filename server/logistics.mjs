@@ -207,7 +207,10 @@ function normalizeInput(state, principal, input, excluding) {
   else {
     value.carrierId = undefined;
     if (value.assignedDriverId) { const driver = state.transport.drivers.find(driver => driver.id === value.assignedDriverId); const person = state.personnel.people.find(person => person.driverId === driver?.id); if (!driver || driver.companyId || !person || person.id !== driver.personId || person.kind !== 'employee' || !person.active || !person.canDrive) fail('Välj en aktiv egen JEROC-förare.', 422); }
-    if (value.assignedVehicleId && !state.transport.vehicles.some(vehicle => vehicle.id === value.assignedVehicleId && vehicle.types.includes(value.vesselType))) fail('Välj ett fordon som kan hantera kärltypen.', 422);
+    if (value.assignedVehicleId && !state.transport.vehicles.some(vehicle => vehicle.id === value.assignedVehicleId &&
+      (previous?.assignedVehicleId === vehicle.id && previous.assignedDriverId === value.assignedDriverId &&
+        state.transport.orders.find(order => order.id === excluding)?.vesselType === value.vesselType ||
+        vehicle.active !== false && vehicle.types.includes(value.vesselType)))) fail('Välj ett aktivt fordon som kan hantera kärltypen.', 422);
   }
   for (const [field, mustBeAvailable] of [['vesselId', false], ['replacementVesselId', true]]) if (value[field]) {
     const vessel = state.logistics.vessels.find(vessel => vessel.id === value[field]); if (!vessel || !vessel.active || vessel.siteId !== value.siteId) fail('Välj ett aktivt kärl på samma anläggning.', 422);
@@ -289,7 +292,7 @@ function assertDeparture(state, order, detail) {
   if (detail.operator === 'external' && detail.carrierRequest.status !== 'accepted') fail('Åkeriet behöver acceptera uppdraget.', 422);
   if (!detail.assignedDriverId || !detail.assignedVehicleId) fail('Förare och fordon måste vara tilldelade.', 422);
   const driver = state.transport.drivers.find(driver => driver.id === detail.assignedDriverId), person = state.personnel.people.find(person => person.driverId === driver?.id), vehicle = state.transport.vehicles.find(vehicle => vehicle.id === detail.assignedVehicleId);
-  if (!driver || !person?.active || !person.canDrive || driver.personId !== person.id || !vehicle || !vehicle.types.includes(order.vesselType)) fail('Tilldelad förare eller fordon är inte längre tillgänglig.', 422);
+  if (!driver || !person?.active || !person.canDrive || driver.personId !== person.id || !vehicle || vehicle.active === false || !vehicle.types.includes(order.vesselType)) fail('Tilldelad förare eller fordon är inte längre tillgänglig.', 422);
   if (detail.operator === 'own' && order.status === 'booked') { const issues = personnelPlanIssues(state.personnel, state.transport, order.id, order); if (issues.length) fail(issues.join(' '), 422); }
   if (detail.operator === 'external' && (person.companyId !== detail.carrierId || driver.companyId !== detail.carrierId)) fail('Föraren tillhör inte längre det valda åkeriet.', 422);
   const transportDay = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -614,7 +617,7 @@ function carrierCommand(state, company, command, transactionAudit) {
     if (detail.carrierRequest.status !== 'accepted') fail('Acceptera uppdraget innan ni bemannar det.', 422);
     const driver = state.transport.drivers.find(driver => driver.id === command.driverId), person = state.personnel.people.find(person => person.driverId === driver?.id), vehicle = state.transport.vehicles.find(vehicle => vehicle.id === command.vehicleId);
     if (!driver || driver.companyId !== company.id || person?.companyId !== company.id || person?.active !== true || !person.canDrive || driver.personId !== person.id) fail('Välj en aktiv chaufför från ert åkeri.', 403);
-    if (!vehicle || !state.transport.drivers.some(driver => driver.companyId === company.id && driver.vehicleId === vehicle.id) || !vehicle.types.includes(order.vesselType)) fail('Välj ett lämpligt fordon från ert åkeri.', 403);
+    if (!vehicle || vehicle.active === false || !state.transport.drivers.some(driver => driver.companyId === company.id && driver.vehicleId === vehicle.id) || !vehicle.types.includes(order.vesselType)) fail('Välj ett aktivt lämpligt fordon från ert åkeri.', 403);
     detail.assignedDriverId = driver.id; detail.assignedVehicleId = vehicle.id; invalidateDocument(detail);
     orderAudit(state, order, detail, actor, 'carrier.driver_assigned', 'Åkeriet har utsett chaufför och fordon. Tid och kundönskemål är bevarade.', transactionAudit);
   } else if (command.action === 'order.sign') {

@@ -30,6 +30,7 @@ import {
 import { useDemo } from '../store';
 import { useEmployee } from '../employee/EmployeeProvider';
 import { ActiveSitePicker } from '../employee/ActiveSitePicker';
+import { EmployeeYardActivity } from '../employee/EmployeeYardActivity';
 import { articleById } from '../data';
 import {
   APP_VERSION,
@@ -139,6 +140,8 @@ export function HomePage() {
     return () => window.clearTimeout(timer);
   }, [entrySaved, navigateHome]);
   const { data } = useDemo();
+  const { session } = useEmployee();
+  const canWeigh = session?.sites.some(site => site.active !== false && site.id === session.activeSiteId && session.person.siteIds.includes(site.id));
   const navigate = useNavigate();
   const ongoing = data.drafts
     .filter((d) => d.status !== 'ready')
@@ -153,7 +156,7 @@ export function HomePage() {
           </div>
           <ActiveSitePicker />
         </header>
-        <button className="hero-action" onClick={() => navigate('/new')}>
+        <button className="hero-action" disabled={!canWeigh} onClick={() => navigate('/new')}>
           <span className="hero-action-icon">
             <Scale size={33} />
           </span>
@@ -163,6 +166,7 @@ export function HomePage() {
           </span>
           <ChevronRight />
         </button>
+        <EmployeeYardActivity />
         {entrySaved && (
           <div role="status" className="entry-confirmation">
             Infarten sparad · {entrySaved} väntar på utvägning.
