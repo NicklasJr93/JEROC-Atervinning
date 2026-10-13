@@ -2815,8 +2815,10 @@ Status: Planerad 2026-10-13; inte implementerad. Uppföljning av ÄL 117.
   Avbokade uppdrag tas inte med. Din dag räknar fortsatt bara dagens jobb.
   Lägg till genväg till Schema och tydligt tomt läge om perioden saknar uppdrag.
   Hämta en liten sammanfattning, inte full månads- eller arbetstidshistorik.
-- Lägg eventuell egen invägningsstatistik under Gårdsarbete. Fortsätt använda
-  de verifierade serveruppgifterna; bygg ingen ny parallell statistikmodell.
+- Flytta Din insats idag till Gårdsarbete, direkt under Starta invägning och
+  ovanför Pågående vägningar. Siffrorna avser fortsatt personens egna färdiga
+  invägningar för vald anläggning. Återanvänd de verifierade serveruppgifterna;
+  bygg ingen ny parallell statistikmodell.
 
 ÄL 121 – Tydligare Förare & fordon samt registrering av nya fordon
 Status: Planerad 2026-10-13; inte implementerad.
