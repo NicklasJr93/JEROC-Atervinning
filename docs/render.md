@@ -39,7 +39,7 @@ Expo Go-stödet körs i samma Render-tjänst. Det aktiveras när du lägger till
 
 Datorn kan sedan vara avstängd. Render kör både webbdemon och Expo-servern. Expo Go visar appen i sin egen WebView utan Safari/Chrome-adressfält. Inuti JEROC används fortfarande demokontot **niklas / Demo123!**; det är separat från Expo-inloggningen.
 
-Första öppningen kan ta längre tid när gratisservern vaknar och Expo bygger iOS- eller Android-paketet. Expo använder en enda byggarbetare och som standard en JavaScript-heap på högst 256 MB för att begränsa resursbehovet. Processens totala minne är större än heapen. Båda mobilpaketen har byggts och hämtats genom proxyn lokalt med den gränsen; körning på Renders 512 MB behöver fortfarande kontrolleras. Om Render-loggen visar minnesbrist behöver minneskapaciteten bedömas. Mer CPU med samma RAM löser inte minnesbrist.
+Servern förbereder iOS- och Android-paketen innan QR-länken blir klar. Expo-sidan visar start och kompilering; vänta tills öppningsknappen visas, även om Render redan anger Live. Mobilen behöver därefter ladda ner paketet och kontakta webbappen. Expo använder en enda byggarbetare och som standard en JavaScript-heap på högst 256 MB; processens totala minne är större. Förberedelsen har provats lokalt med dessa gränser. Om Expo misslyckas fortsätter kontoret och webbappens API fungera. [Startflöde och mätvärden](mobilstart-2026-10-13.md).
 
 `/expo/status` visar bara om Expo är aktiverat och om processen har startat, inte att Expo-inloggningen eller mobiltestet har lyckats. Mobiltestet och den privata kontoinloggningen måste slutföras på din telefon/Render. Miljön som förbereder koden saknar Render-/Expo-inloggning och kan inte nå deras externa tjänster för att kontrollera dem åt dig.
 

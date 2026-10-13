@@ -38,6 +38,8 @@ function indexedPersonState(state, person) {
     }
   }
   return { ...state, employeeTime: { ...domain, entries, orderSessions: sessions, clockSessions: clocks,
+    reviews: (domain.reviews ?? []).filter(value => value.personId === person.id),
+    reviews: (domain.reviews ?? []).filter(value => value.personId === person.id),
     settings: (domain.settings ?? []).filter(value => value.personId === person.id),
     requirementHistory: (domain.requirementHistory ?? []).filter(value => value.personId === person.id),
     normativeHistory: (domain.normativeHistory ?? []).filter(value => value.personId === person.id) },
@@ -64,6 +66,34 @@ function localParts(value) {
   return { date: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute) };
 }
 export function employeeTimeToday(context = {}) { return localParts(clock(context)).date; }
+const lockedReview = value => value.status === 'submitted' || value.status === 'approved';
+function lockedPeriod(state, personOrId, matches) {
+  const personId = typeof personOrId === 'string' ? personOrId : personOrId?.id;
+  const review = (state.employeeTime?.reviews ?? []).find(value => value.personId === personId && lockedReview(value) && matches(value.month));
+  if (!review) return;
+  fail(review.status === 'approved'
+    ? `Tidrapporten för ${review.month} är attesterad. Be en ansvarig återöppna perioden före ändring.`
+    : `Tidrapporten för ${review.month} är inskickad. Återkalla den eller be en ansvarig skicka tillbaka perioden före ändring.`, 423);
+}
+export function assertEmployeeTimeEditable(state, personOrId, dates) {
+  const months = new Set(dates.map(value => parse(dateSchema, value).slice(0, 7)));
+  lockedPeriod(state, personOrId, month => months.has(month));
+}
+export function assertEmployeeTimeRangeEditable(state, personOrId, fromDate, toDate) {
+  const from = parse(dateSchema, fromDate), to = parse(dateSchema, toDate);
+  if (to < from) fail('Slutdatum måste vara samma dag eller senare än startdatum.');
+  // Inspect persisted periods, rather than enumerating an unbounded date span.
+  lockedPeriod(state, personOrId, month => month >= from.slice(0, 7) && month <= to.slice(0, 7));
+}
+export function employeeTimeIntervalDates(startedAt, endedAt, context = {}) {
+  const start = Date.parse(startedAt), end = endedAt ? Date.parse(endedAt) : clock(context).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) fail('Kontrollera passets verkliga start- och sluttid.');
+  return { fromDate: localParts(start).date, toDate: localParts(Math.max(start, end - 1)).date };
+}
+function assertIntervalEditable(state, person, startedAt, endedAt, context) {
+  const dates = employeeTimeIntervalDates(startedAt, endedAt, context);
+  assertEmployeeTimeRangeEditable(state, person, dates.fromDate, dates.toDate);
+}
 function addDays(day, count) { const date = new Date(`${day}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + count); return date.toISOString().slice(0, 10); }
 function weekday(day) { return new Date(`${day}T12:00:00Z`).getUTCDay() || 7; }
 function datesBetween(first, last) { const result = []; for (let date = first; date <= last; date = addDays(date, 1)) result.push(date); return result; }
@@ -337,7 +367,9 @@ function dayData(state, person, date, sites, orders = ownOrders(state, person), 
   const automaticMinutes = timeSource==='clock'?Math.floor(intervalSeconds(intersectIntervals(automatic,clocks.work))/60):elapsedMinutes(automatic);
   const allocatedMinutes=timeSource==='clock'?Math.floor(intervalSeconds(allocated)/60):recordedMinutes,manualMinutes=allocatedMinutes-automaticMinutes;
   const expectedMinutes = expected.expectedMinutes, missingMinutes = Math.max(0, expectedMinutes - recordedMinutes);
+  const reviewStatus = state.employeeTime?.reviews?.find(value => value.personId === person.id && value.month === date.slice(0, 7))?.status;
   const result = { date, timeSource,expectedMinutes, recordedMinutes, missingMinutes, automaticMinutes, manualMinutes,clockMinutes:clocks.clockMinutes,breakMinutes:clocks.breakMinutes,allocatedMinutes,unallocatedMinutes:timeSource==='clock'?Math.max(0,recordedMinutes-allocatedMinutes):0,clockSessions:clocks.clockSessions,
+    reviewLocked: reviewStatus === 'submitted' || reviewStatus === 'approved', ...(reviewStatus ? { reviewStatus } : {}),
     absenceMinutes: expected.absenceMinutes, jobsCount: orders.filter(order => order.date === date && order.status !== 'cancelled').length, status: expectedMinutes === 0 ? 'not_required' : recordedMinutes === 0 ? 'empty' : missingMinutes > 0 ? 'partial' : 'complete', entries, schedules: expected.schedules, absences: expected.absences, orders: orders.filter(order => order.date === date) };
   state[projectionIndex]?.days.set(date, result);
   return result;
@@ -358,6 +390,10 @@ export function employeeTimeGate(state, personOrId, context = {}) {
   if (!setting.enabled || !state.employeeTime?.settings.some(value => value.personId === person.id)) return empty;
   const sites = siteList(state, person, context), orders = ownOrders(state, person);
   for (const date of datesBetween(setting.enforcementFrom, addDays(today, -1))) {
+    // Explicit payroll approval may accept a documented real-hours deviation.
+    // It releases the operational gate, without creating fictitious hours or
+    // changing the frozen missing-minutes figures. Reopen restores the gate.
+    if (state.employeeTime?.reviews?.some(value => value.personId === person.id && value.month === date.slice(0, 7) && value.status === 'approved')) continue;
     if (!requirementAt(state, person, date).enabled) continue;
     const day = dayData(state, person, date, sites, orders,context);
     if (day.missingMinutes > 0) return { blocked: true, date, expectedMinutes: day.expectedMinutes, recordedMinutes: day.recordedMinutes, missingMinutes: day.missingMinutes,...(day.timeSource==='clock'?{timeSource:'clock'}:{}) };
@@ -373,7 +409,7 @@ export function employeeTimeProjection(state, personOrId, context = {}) {
   const date = parse(dateSchema, context.date ?? (today.startsWith(month) ? today : `${month}-01`));
   const sites = siteList(state, person, context), orders = ownOrders(state, person), last = new Date(`${month}-01T12:00:00Z`);
   last.setUTCMonth(last.getUTCMonth() + 1); last.setUTCDate(last.getUTCDate() - 1);
-  const days = datesBetween(`${month}-01`, last.toISOString().slice(0, 10)).map(day => publicDay(dayData(state, person, day, sites, orders,context)));
+  const days = (context.bootstrap ? [today] : datesBetween(`${month}-01`, last.toISOString().slice(0, 10))).map(day => publicDay(dayData(state, person, day, sites, orders,context)));
   const selected = dayData(state, person, date, sites, orders,context);
   const selectedDay = { ...selected, entries: selected.entries.map(({ intervals, personId, ...entry }) => {
     const siteId = timeRecordSite(state, entry);
@@ -389,11 +425,45 @@ export function employeeTimeProjection(state, personOrId, context = {}) {
   }, { expectedMinutes: 0, recordedMinutes: 0, missingMinutes: 0 });
   const activeWork = state.employeeTime?.orderSessions.find(value => value.personId === person.id && !value.endedAt && allowedPersonSite(person, timeRecordSite(state, value)));
   const configured=state.employeeTime?.settings.find(value=>value.personId===person.id);
-  return { revision: state.employeeTime?.revision ?? 0, today, month, date, person: Object.fromEntries(['id', 'name', 'role', 'team', 'phone', 'email', 'employeeNumber', 'siteIds'].filter(key => person[key] !== undefined).map(key => [key, copy(person[key])])),
+  return { revision: state.employeeTime?.revision ?? 0, today, month, date, monthLoaded: !context.bootstrap, person: Object.fromEntries(['id', 'name', 'role', 'team', 'phone', 'email', 'employeeNumber', 'siteIds'].filter(key => person[key] !== undefined).map(key => [key, copy(person[key])])),
     requirement: requirementAt(state, person, today), configuredRequirement:configured?{...copy(configured),timeSource:configured.timeSource??'workorder'}:requirementAt(state,person,today),
     timeSourceChange:sourceChangeInfo(state,person,context),clock:employeeClockProjection(state,person,context),
-    clockHistory:(state.employeeTime?.audit??[]).filter(item=>item.personId===person.id&&item.action.startsWith('clock.')).slice(-50).reverse().map(item => clockAuditView(item, person.siteIds)),
-    gate: employeeTimeGate(state, person, context), days, selectedDay, orders, ...(activeWork ? { activeWork: copy(activeWork) } : {}), leaveRequests: copy((state.employeeTime?.leaveRequests ?? []).filter(value => value.personId === person.id)), sites, summary, balances: { available: false } };
+    clockHistory:context.bootstrap ? [] : (state.employeeTime?.audit??[]).filter(item=>item.personId===person.id&&item.action.startsWith('clock.')).slice(-50).reverse().map(item => clockAuditView(item, person.siteIds)),
+    gate: employeeTimeGate(state, person, context), days, selectedDay, orders: context.bootstrap ? orders.filter(order => order.date === today) : orders, ...(activeWork ? { activeWork: copy(activeWork) } : {}), leaveRequests: context.bootstrap ? [] : copy((state.employeeTime?.leaveRequests ?? []).filter(value => value.personId === person.id)), sites, summary, balances: { available: false } };
+}
+export function employeeTimeBootstrapProjection(state, personOrId, context = {}) {
+  context = { ...context, now: clock(context) };
+  const today = employeeTimeToday(context);
+  return employeeTimeProjection(state, personOrId, { ...context, date: today, month: today.slice(0, 7), bootstrap: true });
+}
+/** Canonical month calculation without the login gate, current live clock or
+ * unrelated global revisions. Review callers filter this into a frozen,
+ * privacy-safe snapshot and fingerprint only the relevant source rows. */
+export function employeeTimePeriodProjection(state, personOrId, context = {}) {
+  context = { ...context, now: clock(context) };
+  const person = state.personnel?.people?.find(value => value.id === (typeof personOrId === 'string' ? personOrId : personOrId?.id) && value.kind === 'employee');
+  if (!person) fail('Tidrapporteringen gäller en anställd i bolaget.', 404);
+  const today = employeeTimeToday(context), month = context.month ?? today.slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month) || !validDay(`${month}-01`)) fail('Ange en giltig månad.');
+  state = indexedPersonState(state, person);
+  const last = new Date(`${month}-01T12:00:00Z`); last.setUTCMonth(last.getUTCMonth() + 1); last.setUTCDate(last.getUTCDate() - 1);
+  const sites = siteList(state, person, context);
+  const days = datesBetween(`${month}-01`, last.toISOString().slice(0, 10)).map(date => {
+    const { schedules, absences, orders, ...day } = dayData(state, person, date, sites, [], context);
+    const requirement = requirementAt(state, person, date);
+    return { ...day, requirement, missingMinutes: requirement.enabled && date >= requirement.enforcementFrom ? day.missingMinutes : 0 };
+  });
+  const normativeSources = days.map(day => {
+    const norm = normAt(state, person, day.date);
+    return { date: day.date, revision: norm.revision ?? 0, effectiveFrom: norm.effectiveFrom ?? null,
+      employment: norm.employment ? Object.fromEntries(['startDate', 'endDate', 'hoursPerWeek'].filter(key => norm.employment[key] !== undefined).map(key => [key, norm.employment[key]])) : null,
+      schedules: norm.schedules.filter(value => value.effectiveFrom <= day.date && (!value.effectiveTo || value.effectiveTo >= day.date))
+        .map(value => Object.fromEntries(['id', 'revision', 'weekdays', 'startMinute', 'endMinute', 'lunchStart', 'lunchEnd', 'effectiveFrom', 'effectiveTo'].filter(key => value[key] !== undefined).map(key => [key, copy(value[key])])))
+        .sort((a, b) => a.id.localeCompare(b.id)) };
+  });
+  const keys = ['expectedMinutes', 'recordedMinutes', 'missingMinutes', 'absenceMinutes', 'automaticMinutes', 'manualMinutes', 'clockMinutes', 'breakMinutes', 'allocatedMinutes', 'unallocatedMinutes'];
+  const summary = Object.fromEntries(keys.map(key => [key, days.reduce((sum, day) => sum + day[key], 0)]));
+  return { month, today, isClosed: month < today.slice(0, 7), days, summary, normativeSources };
 }
 
 const instantSchema = z.string().datetime({ offset: true }).max(64).refine(value =>
@@ -457,6 +527,8 @@ export function employeeClockCommand(state, personOrId, command, transactionAudi
     // Bound the duration before enumerating Stockholm dates. Malformed or
     // years-long spans never become unbounded date work or invented hours.
     validateClockSpan(candidate, now.getTime());
+    assertIntervalEditable(state, person, candidate.startedAt, candidate.endedAt, context);
+    if (old) assertIntervalEditable(state, person, old.startedAt, old.endedAt, context);
     const first = localParts(candidate.startedAt).date, last = localParts(Date.parse(candidate.endedAt) - 1).date;
     const oldFirst = old ? localParts(old.startedAt).date : null;
     const oldLast = old ? localParts((old.endedAt ? Date.parse(old.endedAt) : now.getTime()) - 1).date : null;
@@ -503,6 +575,7 @@ export function employeeClockCommand(state, personOrId, command, transactionAudi
       // An existing overnight pass can always be stopped, including when a
       // previously scheduled source change becomes effective at midnight.
       if (!active) fail('Du är inte instämplad.', 409);
+      assertIntervalEditable(state, person, active.startedAt, at, context);
       const pause = active.breaks.at(-1), last = pause?.endedAt ?? pause?.startedAt ?? active.startedAt;
       if (now.getTime() < Date.parse(last)) fail('Systemets klocka ligger före den senaste stämplingen. Försök igen.');
       before = copy(active); saved = active;
@@ -542,6 +615,7 @@ function saveEntry(state, person, value, transactionAudit, context) {
   if (old && !allowedPersonSite(person, timeRecordSite(state, old))) fail('Tidspostens anläggning ligger utanför din behörighet.', 403);
   if (old?.deletedAt) fail('Tidsposten har redan tagits bort.', 409);
   if (old && old.revision !== input.revision) fail('Tidsposten ändrades i en annan session. Ladda om.', 409);
+  assertEmployeeTimeEditable(state, person, old ? [old.date, input.date] : [input.date]);
   const now = clock(context), today = employeeTimeToday(context);
   if (input.date > today || input.date === today && localInstant(input.date, input.endMinute, 'end') > now.getTime()) fail('Registrera bara tid som redan har arbetats.');
   if (input.orderId) assignedOrder(state, person, input.orderId);
@@ -564,6 +638,7 @@ function removeEntry(state, person, command, transactionAudit, context) {
   if (entry.personId !== person.id) fail('Du kan bara ta bort din egen tid.', 403);
   if (!allowedPersonSite(person, timeRecordSite(state, entry))) fail('Tidspostens anläggning ligger utanför din behörighet.', 403);
   if (entry.revision !== input.revision || entry.deletedAt) fail('Tidsposten har ändrats. Ladda om.', 409);
+  assertEmployeeTimeEditable(state, person, [entry.date]);
   entry.deletedAt = clock(context).toISOString(); entry.revision += 1;
   audit(state, person, 'time.removed', { entryId: entry.id, date: entry.date, text: 'Manuell tidspost borttagen. Händelsen finns kvar i historiken.' }, transactionAudit, context);
   return { gate: employeeTimeGate(state, person, context) };
@@ -599,6 +674,7 @@ export function employeeTimeLifecycle(state, personOrId, orderId, phase, transac
   const breakMinutes = parse(z.number().int().min(0).max(720), context.breakMinutes ?? 0);
   if (breakMinutes * 60000 > Date.parse(now) - Date.parse(active.startedAt)) fail('Rasten kan inte vara längre än uppdragstiden.');
   if (breakMinutes > 0 && localParts(active.startedAt).date !== localParts(now).date) fail('För pass över midnatt behöver uppdragstiden stoppas före rast och startas igen efteråt, så att timmarna hamnar på rätt dag.');
+  assertIntervalEditable(state, person, active.startedAt, now, context);
   active.endedAt = now; active.breakMinutes = breakMinutes; active.revision += 1;
   audit(state, person, 'order.time_stopped', { orderId, sessionId: active.id, text: 'Verklig uppdragstid sparad från start och stopp.' }, transactionAudit, context);
   return { session: copy(active), gate: employeeTimeGate(state, person, context) };

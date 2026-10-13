@@ -4,6 +4,7 @@ import { useDemo } from './store';
 import { Notice, Nav } from './components';
 import { useEmployee } from './employee/EmployeeProvider';
 import { EmployeeClockStatus, isEmployeeClockDay } from './employee/EmployeeClock';
+import EmployeeTimeReview from './employee/EmployeeTimeReview';
 import {
   EmployeeLoginPage, EmployeeHomePage, EmployeeSchedulePage, EmployeeTimePage,
   EmployeeProfilePage, EmployeeAssignmentsPage, EmployeeRequirementPage, EmployeeTimeGate,
@@ -67,6 +68,7 @@ export function App() {
           <Route path="/yard" element={yardPage(<HomePage />)} />
           <Route path="/schedule" element={<EmployeeSchedulePage />} />
           <Route path="/time" element={<EmployeeTimePage />} />
+          <Route path="/time/review" element={<EmployeeTimeReview />} />
           <Route path="/assignments" element={<EmployeeAssignmentsPage />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="/drafts" element={yardPage(<DraftsPage />)} />

@@ -2192,6 +2192,7 @@ export function OfficeApp() {
                 {can(user, 'personnelRead') && <button onClick={() => navigate('/personnel')}>Alla personer</button>}
                 {can(user, 'personnelRead') && <button onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa</button>}
                 {[actualUser!, user].every(account => can(account, 'personnelRead') && can(account, 'personnelPresenceRead')) && <button onClick={() => navigate('/personnel/presence')}>Närvaro</button>}
+                {[actualUser!, user].every(account => can(account, 'personnelRead') && can(account, 'personnelTimeReviewRead')) && <button onClick={() => navigate('/personnel/time-review')}>Månadsgranskning</button>}
                 <button className="active" onClick={() => navigate('/personnel/accounts')}>Konton</button>
               </nav>} />
           ) : section === 'personnel' ? (

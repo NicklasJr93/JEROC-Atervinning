@@ -12,6 +12,9 @@ import { createMobileEmployeeApi, ensureMobileEmployeeAccounts, hasEmployeeSessi
 import { ensureEmployeeTime, refreshEmployeeTimeNorms, employeeTimeProjection, employeeTimeRequirementCommand, employeeClockCommand } from './employee-time.mjs';
 import { equipmentProjection, equipmentCommand } from './equipment.mjs';
 import { employeePresenceProjection } from './employee-presence.mjs';
+import { employeeTimeReviewList, employeeTimeReviewDetail, employeeTimeReviewStaffCommand, employeeTimeReviewApproved,
+  employeeTimeReviewSourceStamp, assertEmployeeTimeReviewSourceStamp } from './employee-time-review.mjs';
+import { employeeTimeReviewCsv } from './employee-time-review-csv.mjs';
 import { allocateWeighingNumber } from './work-order-weighing.mjs';
 import { prepareCustomerReview } from './customer-review.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
@@ -735,6 +738,47 @@ export function createApplicationService({ repository, env = process.env, seed =
           : await repository.transact(operate);
         json(res, 200, result); return true;
       }
+      if (domain === 'personnel-time-review') {
+        if (!['GET', 'POST'].includes(req.method)) fail('Metoden stöds inte.', 405);
+        if ([...url.searchParams.keys()].some(key => !['month', 'siteId', 'personId', 'format', 'version'].includes(key))) fail('Ogiltigt månadsfilter.', 422);
+        const format = url.searchParams.get('format');
+        if (format && format !== 'csv') fail('Välj ett giltigt exportformat.', 422);
+        if (req.method === 'POST' && (format || url.searchParams.has('version'))) fail('Export är endast läsbar.', 405);
+        const command = req.method === 'POST' ? await body(req) : undefined;
+        if (req.method === 'POST' && (!command || typeof command !== 'object' || Array.isArray(command))) fail('Välj en giltig tidrapportsåtgärd.', 422);
+        const month = url.searchParams.get('month') ?? command?.month;
+        const personId = url.searchParams.get('personId') ?? command?.personId;
+        const siteId = url.searchParams.get('siteId') || undefined;
+        if (personId && (typeof personId !== 'string' || personId.length > 120)) fail('Välj en giltig person.', 422);
+        if (siteId && (siteId.length > 100 || !/^[a-zA-Z0-9_-]+$/.test(siteId))) fail('Välj en giltig anläggning.', 422);
+        if (command && (command.month !== month || command.personId !== personId)) fail('Månaden eller personen har ändrats. Öppna rapporten igen.', 409);
+        const versionValue = url.searchParams.get('version');
+        if (versionValue && (format !== 'csv' || !personId || !/^[1-9]\d{0,6}$/.test(versionValue))) fail('Välj en giltig exportversion för en person.', 422);
+        const sites = await siteProvider(), repository = await getRepo();
+        const operate = (state, _, audit = []) => {
+          const principal = requestPrincipal({ principal: (actor, user) => resolvePricingPrincipal(state.pricing.users, actor, user) }, req);
+          if (siteId && ![principal.actor, principal.user].every(user => !Array.isArray(user.siteIds) || user.siteIds.includes(siteId))) fail('Du saknar åtkomst till anläggningen.', 403);
+          if (siteId && !sites.some(site => site.id === siteId)) fail('Anläggningen finns inte.', 404);
+          const reviewContext = { month, siteId, siteCatalog: sites };
+          if (format === 'csv') return employeeTimeReviewApproved(state, principal, { ...reviewContext,
+            ...(personId ? { personIds: [personId] } : {}), ...(versionValue ? { version: Number(versionValue) } : {}) });
+          if (command) {
+            if (!personId || !month) fail('Välj person och månad för tidrapporten.', 422);
+            employeeTimeReviewStaffCommand(state, principal, command, audit, reviewContext);
+          }
+          return personId ? employeeTimeReviewDetail(state, principal, personId, reviewContext) : employeeTimeReviewList(state, principal, reviewContext);
+        };
+        const result = req.method === 'GET' ? await repository.read(operate, { domains: ['pricing', 'personnel', 'employeeTime', 'transport', 'logistics'] })
+          : await repository.transact(operate);
+        if (format === 'csv') {
+          if (!result.reports.length) fail('Det finns inga godkända tidrapporter att exportera för valet.', 409);
+          const csv = employeeTimeReviewCsv(result);
+          res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+            'Content-Disposition': `attachment; filename="tidrapporter-${result.month}${versionValue ? `-v${versionValue}` : ''}.csv"` });
+          res.end(csv);
+        } else json(res, 200, result);
+        return true;
+      }
       if (domain === 'personnel-time') {
         if (!['GET', 'POST'].includes(req.method)) fail('Metoden stöds inte.', 405);
         if ([...url.searchParams.keys()].some(key => !['personId', 'date', 'month'].includes(key))) fail('Ogiltigt tidrapporteringsfilter.', 422);
@@ -760,7 +804,9 @@ export function createApplicationService({ repository, env = process.env, seed =
             if (!permitted('employmentWrite')) fail('Du saknar behörighet att ändra tidrapporteringen.', 403);
             if (command.action === 'requirement.save') {
               if (Object.keys(command).some(key => !['action', 'personId', 'requirement'].includes(key))) fail('Tidinställningen innehåller okända uppgifter.', 422);
+              const stamp = employeeTimeReviewSourceStamp(state, [requestedId], timeContext);
               employeeTimeRequirementCommand(state, p, { personId: requestedId, requirement: command.requirement }, audit, timeContext);
+              assertEmployeeTimeReviewSourceStamp(state, stamp, timeContext);
             } else if (command.action === 'clock.correct') {
               const { personId: _, ...clockCommand } = command;
               employeeClockCommand(state, scopedPerson, clockCommand, audit, timeContext);
@@ -777,7 +823,7 @@ export function createApplicationService({ repository, env = process.env, seed =
             return entry.source === 'order' || entry.orderId ? { ...safeEntry, activity: 'Uppdrag', note: '' } : safeEntry;
           });
           return { ...timeSummary, selectedDay: { ...selectedDay, entries, absences, orders: [] }, orders: [], activeWork: null, leaveRequests: [], person: { id: person.id, name: person.name },
-            capabilities: { manageTimeSettings: permitted('employmentWrite') && (person.userId !== p.user.id || p.user.level === 'Systemadmin'), correctClock: permitted('employmentWrite') } };
+            capabilities: { manageTimeSettings: permitted('employmentWrite') && (person.userId !== p.user.id || p.user.level === 'Systemadmin'), correctClock: permitted('employmentWrite') && !selectedDay.reviewLocked } };
         };
         const result = req.method === 'GET' && repository.read
           ? await repository.read(operate, { domains: ['pricing', 'personnel', 'employeeTime', 'transport', 'logistics'] })
@@ -796,8 +842,13 @@ export function createApplicationService({ repository, env = process.env, seed =
           if(p.actor.id==='mobile-demo')fail('Mobilkontot saknar åtkomst till personal.',403);
           if(!personnelCan(p,planning?'transportRead':'personnelRead'))fail('Du saknar behörighet att läsa personal.',403);
           ensurePersonnel(state);refreshStaffingTasks(state);
+          const previousPeople = command?.action?.startsWith('absence.') ? state.personnel.absences.filter(value => value.id === (command.absenceId ?? command.id ?? command.absence?.id)).map(value => value.personId)
+            : command?.action === 'schedule.save' ? state.personnel.schedules.filter(value => value.id === command.schedule?.id).map(value => value.personId) : [];
+          const affectedPeople = [command?.personId, command?.person?.id, command?.employment?.personId, command?.schedule?.personId, command?.absence?.personId, ...previousPeople].filter(Boolean);
+          const stamp = command ? employeeTimeReviewSourceStamp(state, affectedPeople) : [];
           const preview=command?personnelCommand(state,p,command,audit,sites):undefined;
           if(command) refreshEmployeeTimeNorms(state);
+          if(command) assertEmployeeTimeReviewSourceStamp(state, stamp);
           return {...personnelProjection(state,p,planning,sites),...(preview?{preview}:{})};
         };
         const result = req.method === 'GET' && repository.read

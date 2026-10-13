@@ -55,6 +55,8 @@ export interface EmployeeTimeDraft {
   breakMinutes: number; activity: string; note: string; orderId?: string; siteId?: string;
 }
 export interface EmployeeDay {
+  reviewLocked?: boolean;
+  reviewStatus?: 'draft' | 'submitted' | 'returned' | 'approved' | 'reopened';
   date: string; expectedMinutes: number; recordedMinutes: number; missingMinutes: number;
   automaticMinutes: number; manualMinutes: number; absenceMinutes: number; jobsCount: number;
   status: 'empty' | 'partial' | 'complete' | 'not_required';
@@ -74,6 +76,7 @@ export interface EmployeeSession {
   sites: { id: string; name: string; active?: boolean }[];
 }
 export interface EmployeeOverview extends EmployeeSession {
+  monthLoaded?: boolean;
   revision: number; today: string; month: string; date: string;
   requirement: EmployeeRequirement; gate: EmployeeTimeGate; days: EmployeeDay[];
   selectedDay: EmployeeDay & { entries: EmployeeTimeEntry[]; schedules: WorkSchedule[]; absences: Absence[]; orders: EmployeeOrder[]; clockSessions?: EmployeeClockSession[] };

@@ -63,23 +63,30 @@ async function handle(req, res) {
     return;
   }
   if (pathname === '/healthz') {
-    const ready = !expoGo.enabled || expoGo.ready;
-    res.writeHead(ready ? 200 : 503, {
+    // Expo is optional. Warming or a failed Metro process must not hold
+    // customer, payroll or payment APIs unavailable during a deployment.
+    res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
     });
-    res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ status: ready ? 'ok' : 'starting' }));
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ status: 'ok' }));
     return;
   }
   if (pathname === '/expo/status') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ enabled: expoGo.enabled, ready: expoGo.ready }));
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ enabled: expoGo.enabled, ready: expoGo.ready, state: expoGo.state,
+      compilingPlatform: expoGo.compilingPlatform, warmedPlatforms: expoGo.warmedPlatforms, ...(expoGo.errorCode ? { errorCode: expoGo.errorCode } : {}) }));
     return;
   }
   const nativeManifest = pathname === '/' && (req.headers['expo-platform'] || req.headers['exponent-platform'] || req.headers.accept?.includes('application/expo+json'));
   if (nativeManifest || ['/manifest', '/index.exp', '/index.bundle', '/index.ts.bundle'].includes(pathname) || pathname === '/expo' || pathname.startsWith('/expo/')) {
     if (!expoGo.enabled) {
       reply(res, 503, 'Expo Go är inte aktiverat. Se /expo-go för instruktioner.');
+      return;
+    }
+    if (!expoGo.ready) {
+      res.setHeader('Retry-After', '3');
+      reply(res, 503, expoGo.state === 'error' ? 'Expo Go kunde inte förberedas. Kontrollera /expo-go.' : 'Expo-paketen förbereds. Vänta tills länken på /expo-go är klar.');
       return;
     }
     proxyExpo(req, res, expoGo);
@@ -147,10 +154,13 @@ const server = createServer((req, res) => {
   });
 });
 const tenantGateway = await createTenantGateway();
-const expoGo = startExpoGo({ onFailure: () => {
-  console.error('Expo-servern har stannat. Startar om tjänsten.');
-  stop(1);
-} });
+let expoGo;
+try {
+  expoGo = startExpoGo({ onFailure: () => { console.error('Expo Go kunde inte förberedas. Webbappen och dess API fortsätter fungera.'); } });
+} catch {
+  console.error('Expo Go-inställningarna kunde inte användas. Kontrollera Expo-konfigurationen i Render.');
+  expoGo = { enabled: true, ready: false, state: 'error', compilingPlatform: null, warmedPlatforms: [], errorCode: 'EXPO_CONFIGURATION_ERROR', stop: async () => {} };
+}
 server.on('error', (error) => {
   console.error('Servern kunde inte starta:', error.code);
   process.exit(1);

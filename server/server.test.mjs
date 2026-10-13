@@ -4,14 +4,24 @@ import { on, once } from 'node:events';
 import { request } from 'node:http';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 let child;
 let base;
 let output = '';
+let directory;
 before(async () => {
+  directory = await mkdtemp(join(tmpdir(), 'scrappilot-static-server-'));
   child = spawn(process.execPath, ['server/index.mjs'], {
     cwd: fileURLToPath(new URL('../', import.meta.url)),
-    env: { ...process.env, PORT: '0', EXPO_GO_ENABLED: 'false' },
+    env: { PATH: process.env.PATH, NODE_ENV: 'test', DATABASE_URL: '', PORT: '0', EXPO_GO_ENABLED: 'false',
+      SCRAPPILOT_PLATFORM_ADMIN_PASSWORD: 'Private-Static-Server-Test-2026!', JEROC_DEMO_AUTO_SESSION: 'false',
+      JEROC_APPLICATION_DB_PATH: join(directory, 'application.sqlite'), JEROC_PLATFORM_DB_PATH: join(directory, 'platform.sqlite'),
+      JEROC_ENVIRONMENT_DB_PATH: join(directory, 'environment.sqlite'), JEROC_TERMINAL_DB_PATH: join(directory, 'terminal.sqlite'),
+      JEROC_DOCUMENT_DB_PATH: join(directory, 'documents.sqlite'), JEROC_ARTICLE_MEDIA_DB_PATH: join(directory, 'media.sqlite'),
+      JEROC_TENANT_DATA_DIR: directory },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const abort = AbortSignal.timeout(10000);
@@ -32,6 +42,7 @@ after(async () => {
     const [code] = await finished;
     assert.equal(code, 0, output);
   }
+  if (directory) await rm(directory, { recursive: true, force: true });
 });
 test('serves the production app, its JS and reference images', async () => {
   const response = await fetch(base);
@@ -39,7 +50,7 @@ test('serves the production app, its JS and reference images', async () => {
   assert.match(response.headers.get('content-type'), /text\/html/);
   assert.equal(response.headers.get('cache-control'), 'no-cache');
   const html = await response.text();
-  assert.match(html, /JEROC · Gårdsappen/);
+  assert.match(html, /<title>ScrapPilot<\/title>/);
   const jsPath = html.match(/src="([^\"]+\.js)"/)?.[1];
   assert.ok(jsPath);
   const js = await fetch(new URL(jsPath, base));
@@ -61,11 +72,12 @@ test('health and HEAD requests work without returning a body for HEAD', async ()
   assert.ok(Number(head.headers.get('content-length')) > 0);
   assert.equal(await head.text(), '');
 });
-test('does not expose source, secret paths or missing API routes', async () => {
-  for (const path of ['/package.json', '/server/index.mjs', '/.env', '/assets/', '/api/weighings', '/missing.js']) {
+test('does not expose source or secret paths and requires login before private API routing', async () => {
+  for (const path of ['/package.json', '/server/index.mjs', '/.env', '/assets/', '/missing.js']) {
     const response = await fetch(base + path);
     assert.equal(response.status, 404, path);
   }
+  assert.equal((await fetch(base + '/api/weighings')).status, 401);
   // Send the encoded path literally so a client cannot normalize traversal away.
   const status = await new Promise((accept, reject) => {
     const req = request(`${base}/`, { path: '/%2e%2e%2fpackage.json' }, (response) => {
@@ -86,7 +98,7 @@ test('rejects writes and malformed URLs', async () => {
 });
 test('web demo stays available while Expo Go waits for account setup', async () => {
   const status = await fetch(`${base}/expo/status`);
-  assert.deepEqual(await status.json(), { enabled: false, ready: false });
+  assert.deepEqual(await status.json(), { enabled: false, ready: false, state: 'disabled', compilingPlatform: null, warmedPlatforms: [] });
   const manifest = await fetch(`${base}/expo`, { headers: { 'Expo-Platform': 'ios' } });
   assert.equal(manifest.status, 503);
   const nativeRoot = await fetch(base, { headers: { 'Expo-Platform': 'android' } });

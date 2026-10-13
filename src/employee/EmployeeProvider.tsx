@@ -7,28 +7,40 @@ let requestCompanyId: string | undefined;
 export class EmployeeError extends Error {
   constructor(message: string, public status: number, public code?: string, public gate?: EmployeeTimeGate) { super(message); }
 }
-export async function employeeRequest<T>(path: string, body?: unknown, options?: { signal?: AbortSignal }): Promise<T> {
+export async function employeeRequest<T>(path: string, body?: unknown, options?: { signal?: AbortSignal; expectedCompanyId?: string }): Promise<T> {
   // Capture the initiating company. A cookie changed in another tab must not
   // silently redirect an existing form or pending command to another company.
-  const expectedCompany = requestCompanyId;
-  const response = await fetch(`/api/employee${path}`, {
-    credentials: 'same-origin', cache: 'no-store', signal: options?.signal,
-    headers: { ...(expectedCompany ? { 'X-Employee-Company': expectedCompany } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
-    ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }),
-  });
-  const result = await response.json().catch(() => null);
-  if (!response.ok) throw new EmployeeError(result?.error || result?.message || 'Kunde inte kontakta servern. Försök igen.', response.status, result?.code, result?.gate);
-  return result as T;
+  const expectedCompany = options?.expectedCompanyId ?? requestCompanyId;
+  const controller = new AbortController();
+  const abort = () => controller.abort(options?.signal?.reason);
+  if (options?.signal?.aborted) abort(); else options?.signal?.addEventListener('abort', abort, { once: true });
+  let timedOut = false;
+  const timer = body === undefined ? window.setTimeout(() => { timedOut = true; controller.abort(); }, 15000) : undefined;
+  try {
+    const response = await fetch(`/api/employee${path}`, {
+      credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+      headers: { ...(expectedCompany ? { 'X-Employee-Company': expectedCompany } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) throw new EmployeeError(result?.error || result?.message || 'Kunde inte kontakta servern. Försök igen.', response.status, result?.code, result?.gate);
+    if (controller.signal.aborted) throw controller.signal.reason;
+    if (!result || typeof result !== 'object') throw new EmployeeError('Servern gav ett ofullständigt svar. Försök igen.', 502, 'invalid_response');
+    return result as T;
+  } catch (error) {
+    if (timedOut) throw new EmployeeError('Servern svarade inte i tid. Kontrollera anslutningen och försök igen.', 0, 'request_timeout');
+    throw error;
+  } finally { if (timer !== undefined) window.clearTimeout(timer); options?.signal?.removeEventListener('abort', abort); }
 }
 export const employeeError = (error: unknown) => error instanceof TypeError ? 'Kunde inte nå servern. Kontrollera anslutningen och försök igen.' : error instanceof Error ? error.message : 'Något gick fel. Försök igen.';
 export const stockholmDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
 interface EmployeeContextValue {
   session: EmployeeSession | null; overview: EmployeeOverview | null;
-  loading: boolean; refreshing: boolean; error: string;
+  loading: boolean; refreshing: boolean; error: string; sessionGeneration: number;
   login: (username: string, password: string) => Promise<EmployeeSession>;
   logout: () => Promise<void>;
-  refresh: (focus?: { month?: string; date?: string }) => Promise<void>;
+  refresh: (focus?: { month?: string; date?: string; view?: 'bootstrap' | 'full' }) => Promise<void>;
   saveTime: (entry: EmployeeTimeDraft) => Promise<void>;
   removeTime: (id: string, revision: number) => Promise<void>;
   requestLeave: (request: EmployeeLeaveDraft) => Promise<void>;
@@ -53,30 +65,34 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [clockBusy, setClockBusy] = useState(false);
+  const [sessionGeneration, setSessionGeneration] = useState(0);
   const clockBusyRef = useRef(false), overviewRef = useRef<EmployeeOverview | null>(null);
   const generation = useRef(0);
   const sequence = useRef(0);
   const focus = useRef({ month: stockholmDay().slice(0, 7), date: stockholmDay() });
   const sessionRef = useRef<EmployeeSession | null>(null);
+  const invalidate = useCallback(() => { sequence.current += 1; const current = ++generation.current; setSessionGeneration(current); return current; }, []);
   const apply = useCallback((result: EmployeeOverview) => {
     const previous = overviewRef.current;
     if (previous && previous.companyId === result.companyId && previous.person.id === result.person.id && result.revision < previous.revision) return;
+    if (previous && (previous.companyId !== result.companyId || previous.person.id !== result.person.id)) invalidate();
     requestCompanyId = employeeCompanyId(result.companyId);
     overviewRef.current = result;
     setOverview(result); setSession(result); sessionRef.current = result; setError(''); setRefreshing(false);
-  }, []);
+  }, [invalidate]);
   const clearSession = useCallback(() => {
     requestCompanyId = undefined;
-    generation.current += 1; sequence.current += 1;
+    invalidate();
     setSession(null); sessionRef.current = null; overviewRef.current = null; setOverview(null); setRefreshing(false); clockBusyRef.current = false; setClockBusy(false);
-  }, []);
-  const refresh = useCallback(async (next?: { month?: string; date?: string }) => {
-    if (next) focus.current = { ...focus.current, ...next };
+  }, [invalidate]);
+  const refresh = useCallback(async (next?: { month?: string; date?: string; view?: 'bootstrap' | 'full' }) => {
+    if (next) focus.current = { month: next.month ?? focus.current.month, date: next.date ?? focus.current.date };
     if (!sessionRef.current) return;
     const current = generation.current, currentSequence = ++sequence.current;
     setRefreshing(true);
     try {
       const query = new URLSearchParams(focus.current);
+      if (next?.view === 'bootstrap' || !next && overviewRef.current?.monthLoaded === false) query.set('view', 'bootstrap');
       const result = await employeeRequest<EmployeeOverview>(`/overview?${query}`);
       if (current !== generation.current || currentSequence !== sequence.current) return;
       apply(result);
@@ -89,15 +105,16 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
   }, [apply, clearSession]);
 
   useEffect(() => {
-    const current = ++generation.current;
+    const current = invalidate();
+    const controller = new AbortController();
     setLoading(true);
-    void employeeRequest<EmployeeOverview>('/session').then(result => {
+    void employeeRequest<EmployeeOverview>('/session?view=bootstrap', undefined, { signal: controller.signal }).then(result => {
       if (generation.current === current) { focus.current = { month: result.month, date: result.date }; apply(result); }
     }).catch(caught => {
       if (generation.current === current && !(caught instanceof EmployeeError && caught.status === 401)) setError(employeeError(caught));
     }).finally(() => { if (generation.current === current) setLoading(false); });
-    return () => { generation.current += 1; sequence.current += 1; };
-  }, [apply]);
+    return () => { controller.abort(); generation.current += 1; sequence.current += 1; };
+  }, [apply, invalidate]);
 
   useEffect(() => {
     if (!session) return;
@@ -114,26 +131,27 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
   }, [session?.person.id, session?.companyId, refresh]);
 
   const login = useCallback(async (username: string, password: string) => {
-    const current = ++generation.current;
-    sequence.current += 1; setError('');
-    const result = await employeeRequest<EmployeeOverview>('/login', { username: username.trim(), password });
+    const current = invalidate();
+    setError('');
+    const result = await employeeRequest<EmployeeOverview>('/login?view=bootstrap', { username: username.trim(), password });
     if (current !== generation.current) throw new EmployeeError('Inloggningen avbröts.', 409);
     focus.current = { month: result.month, date: result.date }; apply(result);
     return result;
-  }, [apply]);
+  }, [apply, invalidate]);
   const logout = useCallback(async () => {
     // Invalidate pending responses immediately. A failed logout keeps the known session.
-    const current = ++generation.current; sequence.current += 1;
+    const current = invalidate();
     try { await employeeRequest('/logout', {}); }
     catch (caught) { if (!(caught instanceof EmployeeError && caught.status === 401)) throw caught; }
     if (current === generation.current) { clearSession(); setError(''); }
-  }, [clearSession]);
+  }, [clearSession, invalidate]);
   const mutate = useCallback(async (path: string, body: unknown, targetDate?: string) => {
     const current = generation.current;
     sequence.current += 1;
     if (targetDate) focus.current = { month: targetDate.slice(0, 7), date: targetDate };
     try {
       const query = new URLSearchParams(focus.current);
+      if (overviewRef.current?.monthLoaded === false) query.set('view', 'bootstrap');
       const result = await employeeRequest<EmployeeOverview>(`${path}?${query}`, body);
       if (current !== generation.current) throw new EmployeeError('Kontot ändrades medan uppgifterna sparades.', 409);
       sequence.current += 1;
@@ -169,7 +187,7 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
     catch (caught) { if (current === generation.current && caught instanceof EmployeeError && caught.status === 409) void refresh().catch(() => undefined); throw caught; }
     finally { if (current === generation.current) { clockBusyRef.current = false; setClockBusy(false); } }
   }, [mutate, refresh]);
-  return <EmployeeContext.Provider value={{ session, overview, loading, refreshing, error, login, logout, refresh,
+  return <EmployeeContext.Provider value={{ session, overview, loading, refreshing, error, sessionGeneration, login, logout, refresh,
     setActiveSite,
     saveTime: entry => mutate('/time/save', entry, entry.date),
     removeTime: (id, revision) => mutate('/time/remove', { id, revision }),

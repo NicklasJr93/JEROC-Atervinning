@@ -25,12 +25,12 @@ function Empty({ children, icon = 'calendar' }: { children: ReactNode; icon?: 'c
   return <div className="employee-empty">{icon === 'clock' ? <Clock3 size={28} /> : icon === 'truck' ? <Truck size={28} /> : <CalendarDays size={28} />}<p>{children}</p></div>;
 }
 function useFocus(defaultDate?: string) {
-  const { overview, refresh } = useEmployee();
+  const { overview, refresh, sessionGeneration } = useEmployee();
   const [search, setSearch] = useSearchParams();
   const proposed = search.get('date');
   const parsed = proposed && /^\d{4}-\d{2}-\d{2}$/.test(proposed) ? new Date(`${proposed}T12:00:00Z`) : null;
   const date = parsed && Number.isFinite(parsed.getTime()) && parsed.toISOString().startsWith(proposed!) ? proposed! : defaultDate || overview?.today || stockholmDay();
-  useEffect(() => { void refresh({ month: date.slice(0, 7), date }).catch(() => undefined); }, [date, refresh]);
+  useEffect(() => { void refresh({ month: date.slice(0, 7), date, view: 'full' }).catch(() => undefined); }, [date, refresh, sessionGeneration]);
   const select = (next: string) => setSearch(previous => { const value = new URLSearchParams(previous); value.set('date', next); return value; });
   return { date, search, setSearch, select };
 }
@@ -73,7 +73,11 @@ export function EmployeeHomePage() {
   const { overview, session, refresh } = useEmployee();
   const { data, markDraftActive, sharedReady } = useDemo();
   const navigate = useNavigate();
-  useEffect(() => { const date = stockholmDay(); void refresh({ date, month: date.slice(0, 7) }).catch(() => undefined); }, [refresh, overview?.today]);
+  useEffect(() => {
+    const date = stockholmDay();
+    if (!overview || overview.date !== date || overview.today !== date || overview.monthLoaded !== false)
+      void refresh({ date, month: date.slice(0, 7), view: 'bootstrap' }).catch(() => undefined);
+  }, [refresh, overview?.date, overview?.today, overview?.monthLoaded]);
   if (!session || !overview) return <Page title="Hem"><Empty>Hämtar din dag…</Empty><OverviewError /></Page>;
   const today = overview.today;
   const todayOrders = overview.orders.filter(order => order.date === today && order.status !== 'cancelled').sort((a, b) => (a.startMinute ?? 1440) - (b.startMinute ?? 1440));
@@ -111,7 +115,8 @@ const absenceLabels: Record<string, string> = { sick: 'Sjukfrånvaro', holiday: 
 const leaveStatusLabels: Record<string, string> = { pending: 'Inväntar beslut', approved: 'Godkänd', rejected: 'Avslagen', cancelled: 'Återtagen' };
 
 export function EmployeeTimePage() {
-  const { overview } = useEmployee();
+  const { overview, session } = useEmployee();
+  const navigate = useNavigate();
   const { date, search, setSearch, select } = useFocus();
   const register = search.get('register') === '1';
   const editId = search.get('entry');
@@ -119,11 +124,15 @@ export function EmployeeTimePage() {
   const balances = search.get('balances') === '1';
   const clockCorrection = search.get('clock');
   const selected = overview?.date === date ? overview.selectedDay : undefined;
+  const dayLocked = selected?.reviewLocked === true;
   const clockMode = isEmployeeClockDay(overview, date);
   const clockPass = selected?.clockSessions?.find(pass => pass.id === clockCorrection);
   const edit = selected?.entries.find(entry => entry.id === editId);
-  const registerTime = (entry?: EmployeeTimeEntry) => setSearch({ date, register: '1', ...(entry ? { entry: entry.id } : {}) });
+  const registerTime = (entry?: EmployeeTimeEntry) => { if (!dayLocked) setSearch({ date, register: '1', ...(entry ? { entry: entry.id } : {}) }); };
   const closeForm = () => setSearch({ date });
+  const lockNotice = <Notice>{selected?.reviewStatus === 'approved' ? 'Månadsrapporten är godkänd. Kontakta din chef om perioden behöver öppnas för rättelse.' : 'Månadsrapporten är inskickad. Återta rapporten eller invänta chefens granskning före rättelse.'}<button className="employee-text" onClick={() => navigate(`/time/review?month=${date.slice(0, 7)}`)}>Öppna månadsrapporten<ChevronRight size={16} /></button></Notice>;
+  if ((register || clockCorrection) && !selected) return <Page title="Tidrapportering" back={`/time?date=${date}`}><Empty icon="clock">Hämtar dagens tiduppgifter…</Empty><OverviewError /></Page>;
+  if ((register || clockCorrection) && dayLocked) return <Page title="Låst tidrapport" back={`/time?date=${date}`}>{lockNotice}<Button variant="outline" onClick={closeForm}>Visa registrerad tid</Button></Page>;
   if (clockCorrection && !selected) return <Page title="Rätta stämpling" back={`/time?date=${date}`}><Empty icon="clock">Hämtar stämplade pass…</Empty><OverviewError /></Page>;
   if (clockCorrection && (!clockMode || (clockCorrection !== 'new' && (!clockPass || (!clockPass.endedAt && !clockPass.requiresCorrection))))) return <Page title="Stämplat pass" back={`/time?date=${date}`}><Notice tone="amber">{!clockMode ? 'Denna dag registreras med arbetsorder och manuell tid.' : 'Passet kunde inte hittas eller är fortfarande öppet.'}</Notice><Button variant="outline" onClick={closeForm}>Till tidrapportering</Button></Page>;
   if (clockCorrection) return <Page title={clockPass ? 'Rätta stämplat pass' : 'Komplettera stämpling'} back={`/time?date=${date}`}><OverviewError /><EmployeeClockCorrectionForm key={`${date}/${clockCorrection}`} pass={clockPass} onClose={closeForm} /></Page>;
@@ -133,13 +142,15 @@ export function EmployeeTimePage() {
   if (register && editId && (!edit || edit.source !== 'manual')) return <Page title="Registrerad tid" back={`/time?date=${date}`}><Notice tone="amber">{edit?.source === 'order' ? 'Uppdragstid registreras med start och stopp på arbetsordern. Den kan inte ändras som manuell tid.' : 'Tidsposten kunde inte hittas. Öppna dagen igen.'}</Notice><Button variant="outline" onClick={closeForm}>Till tidrapportering</Button></Page>;
   if (register) return <TimeForm key={`${date}:${editId || 'new'}`} date={date} entry={edit} loadingEntry={false} onClose={closeForm} />;
   return <Page title="Tidrapportering"><OverviewError /><GateNotice /><EmployeeClockCard title="Pågående pass" /><ActiveWorkStop />
-    <div className="employee-hours-total"><Clock3 size={29} /><span><strong>{hoursLabel(overview?.summary.recordedMinutes || 0)} registrerat</strong><small>Arbetad tid efter rast</small></span></div><Calendar date={date} today={overview?.today || stockholmDay()} days={overview?.days || []} kind="time" onSelect={select} onMove={select} />
+    {session?.capabilities.employeeTime && session.person.kind !== 'external' && <MenuRow title="Min månadsrapport" description="Granska din arbetstid och skicka till chef" icon={Clock3} onClick={() => navigate(`/time/review?month=${date.slice(0, 7)}`)} />}
+    {overview?.monthLoaded === false ? <Empty icon="clock">Hämtar månadens registrerade tider…</Empty> : <><div className="employee-hours-total"><Clock3 size={29} /><span><strong>{hoursLabel(overview?.summary.recordedMinutes || 0)} registrerat</strong><small>Arbetad tid efter rast</small></span></div><Calendar date={date} today={overview?.today || stockholmDay()} days={overview?.days || []} kind="time" onSelect={select} onMove={select} /></>}
     <section className="employee-section"><div className="employee-section-title"><h2>{capitalize(fullDayLabel(date))}</h2><strong className="employee-hours">{hoursLabel(selected?.recordedMinutes || 0)}</strong></div><div className="employee-day-requirement"><span>Timkrav {hoursLabel(selected?.expectedMinutes || 0)}</span><span className={selected?.missingMinutes ? 'missing' : 'complete'}>{selected?.missingMinutes ? `Saknas ${hoursLabel(selected.missingMinutes)}` : 'Ingen tid saknas'}</span></div>
+      {dayLocked && lockNotice}
       <EmployeeClockHistory date={date} />
       {clockMode && <div className="employee-clock-allocation"><span>Fördelad tid {hoursLabel(selected?.allocatedMinutes ?? 0)}</span><span>{hoursLabel(selected?.unallocatedMinutes ?? 0)} att fördela</span></div>}
-      {selected?.entries.length ? selected.entries.map(entry => <TimeEntryCard key={entry.id} entry={entry} allocation={clockMode} onEdit={() => registerTime(entry)} />) : !clockMode && <Empty icon="clock">{selected ? 'Ingen arbetstid registrerad för denna dag.' : 'Hämtar vald dag…'}</Empty>}
+      {selected?.entries.length ? selected.entries.map(entry => <TimeEntryCard key={entry.id} entry={entry} allocation={clockMode} readOnly={dayLocked} onEdit={() => registerTime(entry)} />) : !clockMode && <Empty icon="clock">{selected ? 'Ingen arbetstid registrerad för denna dag.' : 'Hämtar vald dag…'}</Empty>}
       {selected?.absences.map(absence => <div className="employee-absence" key={absence.id}><CalendarDays size={17} />{absenceLabels[absence.kind || 'leave'] || 'Frånvaro'}</div>)}
-      <Button variant="blue" icon={Plus} onClick={() => registerTime()}>{clockMode ? 'Fördela tid' : 'Registrera tid'}</Button><Button variant="outline" icon={CalendarDays} onClick={() => setSearch({ date, leave: '1' })}>Ansök om ledighet</Button><button className="employee-text centered" onClick={() => setSearch({ date, balances: '1' })}>Ledighet & saldon<ChevronRight size={17} /></button>
+      {!dayLocked && <Button variant="blue" icon={Plus} disabled={!selected} onClick={() => registerTime()}>{clockMode ? 'Fördela tid' : 'Registrera tid'}</Button>}<Button variant="outline" icon={CalendarDays} onClick={() => setSearch({ date, leave: '1' })}>Ansök om ledighet</Button><button className="employee-text centered" onClick={() => setSearch({ date, balances: '1' })}>Ledighet & saldon<ChevronRight size={17} /></button>
     </section>
   </Page>;
 }
@@ -153,9 +164,9 @@ function GateNotice() {
   return gate?.blocked && gate.date ? <Notice tone="amber">Tid saknas för <strong>{fullDayLabel(gate.date)}</strong>. {clockMode ? 'Komplettera stämplingen' : `Registrera ${hoursLabel(gate.missingMinutes)}`} för att fortsätta arbeta i appen.{selectedDate !== gate.date && <button className="employee-text" onClick={() => navigate(`/time?date=${gate.date}${clockMode ? '' : '&register=1'}`)}>Öppna dagen som saknar tid<ChevronRight size={16} /></button>}</Notice> : null;
 }
 
-function TimeEntryCard({ entry, onEdit, allocation = false }: { entry: EmployeeTimeEntry; onEdit: () => void; allocation?: boolean }) {
-  const content = <><span><small>{minuteLabel(entry.startMinute)}–{minuteLabel(entry.endMinute)}{entry.breakMinutes > 0 ? ` · Rast ${entry.breakMinutes} min` : ''}</small><strong>{entry.orderName || entry.activity}</strong><span>{entry.orderId ? `${entry.orderId} · ` : ''}{entry.siteName || entry.activity}</span>{entry.note && <small>{entry.note}</small>}<small>{allocation ? entry.source === 'order' ? 'Uppdragsfördelning' : 'Tidfördelning' : entry.source === 'order' ? 'Registrerad från arbetsorder' : 'Manuellt registrerad'}</small></span><span><strong>{hoursLabel(entry.minutes)}</strong>{entry.source === 'manual' && <Pencil size={17} />}</span></>;
-  return entry.source === 'manual' ? <button className="employee-time-entry" onClick={onEdit} aria-label={`Ändra tid ${minuteLabel(entry.startMinute)}–${minuteLabel(entry.endMinute)}, ${entry.activity}`}>{content}</button> : <article className="employee-time-entry">{content}</article>;
+function TimeEntryCard({ entry, onEdit, allocation = false, readOnly = false }: { entry: EmployeeTimeEntry; onEdit: () => void; allocation?: boolean; readOnly?: boolean }) {
+  const content = <><span><small>{minuteLabel(entry.startMinute)}–{minuteLabel(entry.endMinute)}{entry.breakMinutes > 0 ? ` · Rast ${entry.breakMinutes} min` : ''}</small><strong>{entry.orderName || entry.activity}</strong><span>{entry.orderId ? `${entry.orderId} · ` : ''}{entry.siteName || entry.activity}</span>{entry.note && <small>{entry.note}</small>}<small>{allocation ? entry.source === 'order' ? 'Uppdragsfördelning' : 'Tidfördelning' : entry.source === 'order' ? 'Registrerad från arbetsorder' : 'Manuellt registrerad'}</small></span><span><strong>{hoursLabel(entry.minutes)}</strong>{entry.source === 'manual' && !readOnly && <Pencil size={17} />}</span></>;
+  return entry.source === 'manual' && !readOnly ? <button className="employee-time-entry" onClick={onEdit} aria-label={`Ändra tid ${minuteLabel(entry.startMinute)}–${minuteLabel(entry.endMinute)}, ${entry.activity}`}>{content}</button> : <article className="employee-time-entry">{content}</article>;
 }
 
 function ActiveWorkStop() {
@@ -322,7 +333,7 @@ export function EmployeeTimeGate() {
   const dialog = useRef<HTMLDialogElement>(null);
   const gate = overview?.gate;
   const clockMode = isEmployeeClockDay(overview, gate?.date);
-  const allowed = location.pathname === '/time' || location.pathname.startsWith('/profile');
+  const allowed = location.pathname === '/time' || location.pathname === '/time/review' || location.pathname.startsWith('/profile');
   const blocked = Boolean(session && gate?.blocked && !allowed);
   useEffect(() => {
     if (!blocked || !dialog.current) return;

@@ -12,6 +12,8 @@ import EquipmentWorkspace from './EquipmentWorkspace';
 import TimeSettingsPanel from './TimeSettingsPanel';
 import PresenceOverview from './PresenceOverview';
 import { mayReadPersonnelPresence } from './presence-client';
+import TimeReviewWorkspace from './TimeReviewWorkspace';
+import { mayReadTimeReview } from './review-client';
 import './personal.css';
 
 export interface PersonalWorkspaceProps {
@@ -33,6 +35,7 @@ function Metric({ label, value, note, icon }: { label: string; value: ReactNode;
 export default function PersonalWorkspace(props: PersonalWorkspaceProps) {
   const location = useLocation();
   if (location.pathname.replace(/\/$/, '') === '/personnel/presence') return <PresenceOverview user={props.user} actualUser={props.actualUser} selectedSiteId={props.selectedSiteId} onNotice={props.onNotice} />;
+  if (location.pathname.replace(/\/$/, '') === '/personnel/time-review') return <TimeReviewWorkspace user={props.user} actualUser={props.actualUser} selectedSiteId={props.selectedSiteId} onNotice={props.onNotice} />;
   return <PersonnelRegistryWorkspace {...props} />;
 }
 
@@ -104,7 +107,7 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
   const canReadTimeSettings = [user, actualUser].every(person => person.level === 'Systemadmin' || person.permissions.includes('employmentRead') || person.permissions.includes('employmentWrite'));
   const listedPeople = visiblePeople.filter(value => (showInactive || value.active) && (kindFilter === 'all' || kindFilter === value.kind) && (teamFilter === 'all' || value.team === teamFilter) && (siteFilter === 'all' || value.siteIds.includes(siteFilter)) && [value.name, value.role, value.team, companyName(value), ...data.competencies.filter(c => c.personId === value.id).flatMap(c => [c.name, c.scope, ...c.codes])].join(' ').toLocaleLowerCase('sv-SE').includes(query.toLocaleLowerCase('sv-SE')));
 
-  const sectionNav = <nav className="hr-section-nav" aria-label="Personal"><button className={!isTasks ? 'active' : ''} onClick={() => navigate('/personnel')}>Alla personer</button>{mayReadPersonnelPresence(user, actualUser) && <button onClick={() => navigate('/personnel/presence')}>Närvaro</button>}<button className={isTasks ? 'active' : ''} onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa{activeTasks.length > 0 && <span className="hr-count">{activeTasks.length}</span>}</button>{can(user, 'users') && <button onClick={() => navigate('/personnel/accounts')}>Konton</button>}</nav>;
+  const sectionNav = <nav className="hr-section-nav" aria-label="Personal"><button className={!isTasks ? 'active' : ''} onClick={() => navigate('/personnel')}>Alla personer</button>{mayReadPersonnelPresence(user, actualUser) && <button onClick={() => navigate('/personnel/presence')}>Närvaro</button>}{mayReadTimeReview(user, actualUser) && <button onClick={() => navigate('/personnel/time-review')}>Månadsgranskning</button>}<button className={isTasks ? 'active' : ''} onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa{activeTasks.length > 0 && <span className="hr-count">{activeTasks.length}</span>}</button>{can(user, 'users') && <button onClick={() => navigate('/personnel/accounts')}>Konton</button>}</nav>;
 
   return <div className="hr-workspace">
     {personId && !person && sectionNav}

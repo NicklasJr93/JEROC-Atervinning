@@ -112,6 +112,7 @@ export default function PresenceOverview({ user, actualUser, selectedSiteId = 'a
   const openPerson = (person: PresencePerson) => navigate(`/personnel/${encodeURIComponent(person.personId)}/${mayReadPersonnelTime(user, actualUser) ? 'time' : 'overview'}`);
   const navigation = <nav className="hr-section-nav" aria-label="Personal">
     <button onClick={() => navigate('/personnel')}>Alla personer</button><button className="active" aria-current="page" onClick={() => navigate('/personnel/presence')}>Närvaro</button>
+    {[user, actualUser].every(person => can(person, 'personnelTimeReviewRead')) && <button onClick={() => navigate('/personnel/time-review')}>Månadsgranskning</button>}
     <button onClick={() => navigate('/personnel/tasks')}>Bemanning att lösa</button>{[user, actualUser].every(person => can(person, 'users')) && <button onClick={() => navigate('/personnel/accounts')}>Konton</button>}
   </nav>;
   const controls = <div className="hr-presence-controls"><label className="hr-search"><Search size={16} /><input aria-label="Sök i närvaro" placeholder="Sök person, team eller anläggning…" value={query} onChange={event => setQuery(event.target.value)} /></label>

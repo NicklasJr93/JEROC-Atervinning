@@ -182,11 +182,12 @@ export function Nav() {
           className={
             location.pathname === path ||
             (path === '/' && ['/yard', '/drafts', '/prices', '/new', '/weigh', '/assignments'].some(prefix => location.pathname.startsWith(prefix))) ||
+            (path === '/time' && location.pathname.startsWith('/time/')) ||
             (path === '/profile' && location.pathname.startsWith('/profile/'))
               ? 'active'
               : ''
           }
-          aria-current={location.pathname === path || path === '/' && ['/yard', '/drafts', '/prices', '/new', '/weigh', '/assignments'].some(prefix => location.pathname.startsWith(prefix)) || path === '/profile' && location.pathname.startsWith('/profile/') ? 'page' : undefined}
+          aria-current={location.pathname === path || path === '/' && ['/yard', '/drafts', '/prices', '/new', '/weigh', '/assignments'].some(prefix => location.pathname.startsWith(prefix)) || path === '/time' && location.pathname.startsWith('/time/') || path === '/profile' && location.pathname.startsWith('/profile/') ? 'page' : undefined}
           onClick={() => navigate(path)}
         >
           <Icon size={22} />

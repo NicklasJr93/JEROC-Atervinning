@@ -1,6 +1,6 @@
 # ScrapPilot · Expo Go
 
-Expo-projektet öppnar mobilappen **0.8.1** i en React Native WebView på iPhone eller Android. Samma vyer och vägningslogik används som i mobilwebben. De fyra gemensamma flikarna är **Hem, Schema, Tid och Profil**; Gårdsarbete och Mina uppdrag öppnas från Hem efter behörighet. Expo-delen hanterar telefonens skärmytor, laddning, anslutningsfel och Androids bakåtknapp. [Personlig inloggning, timkrav och provflöde](../docs/employee-mobile.md).
+Expo-projektet öppnar mobilappen **0.10.0** i en React Native WebView på iPhone eller Android. Samma vyer och vägningslogik används som i mobilwebben. De fyra gemensamma flikarna är **Hem, Schema, Tid och Profil**; Gårdsarbete och Mina uppdrag öppnas från Hem efter behörighet. Expo-delen hanterar telefonens skärmytor, laddning, anslutningsfel och Androids bakåtknapp. [Personlig inloggning, timkrav och provflöde](../docs/employee-mobile.md).
 
 Den blå/gröna ScrapPilot-loggan används på anslutningsskärmen. Appikon,
 Androids adaptiva ikon och startbild är konfigurerade i `app.json` för nästa
@@ -12,6 +12,12 @@ finns i [brandpaketet](../docs/branding/README.md).
 ### Utan datorn igång
 
 Webbdemon finns på Render. Expo-servern kan aktiveras i samma tjänst med en personlig Expo-token och det nya byggkommandot. [Följ Render-instruktionerna](../docs/render.md#öppna-i-expo-go-utan-datorn), och öppna sedan [QR-sidan](https://jeroc-atervinning.onrender.com/expo-go). Den blir användbar när servern har byggts om och token har lagts i Render. Att bara koppla GitHub till Expo publicerar inte en fungerande Expo Go-länk.
+
+Servern förbereder iOS- och Android-paketen innan QR-länken blir klar. Sidan
+visar vilket paket som förbereds. Därefter återstår mobilens nedladdning och
+webbanslutning, medan kompileringen redan är gjord. Ett Expo-fel påverkar inte
+kontoret eller webbappens API. Mobilen hämtar dagens egenvy vid start; full
+månadsdata hämtas när Schema eller Tid öppnas.
 
 ### Med utvecklingsserver på din dator
 

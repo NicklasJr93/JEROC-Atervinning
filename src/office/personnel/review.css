@@ -1,0 +1,55 @@
+.hr-review-workspace .hr-review-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.hr-review-workspace .hr-review-title { align-items: center; }
+.hr-review-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.hr-review-controls .hr-search { flex: 1 1 240px; }
+.hr-review-controls > select, .hr-review-controls > input { width: auto !important; margin: 0 !important; font-size: 11px !important; min-width: 150px; max-width: 210px; }
+.hr-review-table { min-width: 1050px; }
+.hr-review-table tbody tr { cursor: pointer; }
+.hr-review-table tbody tr:hover, .hr-review-table tbody tr:focus-visible { background: #f7faff; }
+.hr-review-table tbody tr:focus-visible { outline: 2px solid #2378eb; outline-offset: -2px; }
+.hr-review-table .hr-pill { white-space: nowrap; }
+.hr-review-table td { padding-top: 13px; padding-bottom: 13px; }
+.hr-review-table td.numeric, .hr-review-day-table td.numeric { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hr-review-table .warning, .hr-review-day-table .warning { color: #b87b27; }
+.hr-review-person { display: flex; gap: 10px; align-items: center; min-width: 160px; }
+.hr-review-person .hr-avatar { width: 32px; height: 32px; font-size: 10px; }
+.hr-review-person small { margin-top: 2px; }
+.hr-review-table .hr-review-open { text-align: right; color: #95aac4; }
+.hr-review-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 13px; }
+.hr-review-heading h2 { font-size: 15px; margin: 0; }
+.hr-review-heading span { font-size: 10px; color: #8195b0; }
+.hr-review-state { display: flex; align-items: flex-start; gap: 14px; padding: 16px 18px; margin: 16px 0; border: 1px solid #dce9f9; border-radius: 11px; background: #f5f9ff; }
+.hr-review-state > svg { flex: 0 0 auto; color: #3277d9; margin-top: 2px; }
+.hr-review-state > div { flex: 1; min-width: 0; }
+.hr-review-state h2 { margin: 0 0 6px; font-size: 13px; }
+.hr-review-state p { color: #7087a7; font-size: 11px; margin: 6px 0 0; }
+.hr-review-state .hr-review-actions { align-self: center; }
+.hr-review-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 11px; margin: 17px 0; }
+.hr-review-kpis > div { background: #fff; border: 1px solid #e1eaf6; border-radius: 9px; padding: 15px; }
+.hr-review-kpis span { display: block; font-size: 10px; color: #8296b3; }
+.hr-review-kpis strong { display: block; margin-top: 7px; font-size: 18px; color: #263f62; font-variant-numeric: tabular-nums; }
+.hr-review-day-table { min-width: 800px; }
+.hr-review-day-table tr.selected td { background: #f0f6ff; }
+.hr-review-day-table button { text-align: left; }
+.hr-review-day-detail { margin-top: 16px; }
+.hr-review-day-detail .hr-grid.two { margin-top: 12px; }
+.hr-review-clock-list, .hr-review-allocation-list { list-style: none; margin: 0; padding: 0; }
+.hr-review-clock-list li, .hr-review-allocation-list li { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid #e9eff7; font-size: 11px; }
+.hr-review-clock-list li:first-child, .hr-review-allocation-list li:first-child { padding-top: 0; }
+.hr-review-clock-list li:last-child, .hr-review-allocation-list li:last-child { border: 0; padding-bottom: 0; }
+.hr-review-clock-list small, .hr-review-allocation-list small { display: block; color: #8196b1; font-size: 10px; margin-top: 4px; }
+.hr-review-clock-list p, .hr-review-allocation-list p { margin: 5px 0 0; color: #7288a6; font-size: 10px; }
+.hr-review-history { list-style: none; padding: 0; margin: 0; }
+.hr-review-history li { display: flex; gap: 11px; position: relative; padding: 0 0 19px; font-size: 11px; }
+.hr-review-history li:last-child { padding-bottom: 0; }
+.hr-review-history i { width: 7px; height: 7px; background: #508ded; border-radius: 50%; flex: 0 0 auto; margin-top: 5px; }
+.hr-review-history time { display: block; color: #8195af; font-size: 10px; margin-top: 4px; }
+.hr-review-history p { margin: 5px 0 0; font-size: 11px; color: #7087a6; overflow-wrap: anywhere; }
+.hr-review-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 35px 20px; color: #8397b4; text-align: center; font-size: 12px; }
+.hr-review-empty strong { color: #385376; font-size: 13px; }
+.hr-review-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.hr-review-spin { animation: hr-review-spin 1s linear infinite; }
+@keyframes hr-review-spin { to { transform: rotate(360deg); } }
+@media (max-width: 1200px) { .hr-review-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .hr-review-state { flex-wrap: wrap; } }
+@media (max-width: 760px) { .hr-review-controls > select, .hr-review-controls > input { flex: 1 1 140px; min-width: 0; max-width: none; } .hr-review-actions { width: 100%; } .hr-review-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .hr-review-kpis > div { padding: 12px; } .hr-review-heading { flex-wrap: wrap; } }
+@media (prefers-reduced-motion: reduce) { .hr-review-spin { animation: none; } }

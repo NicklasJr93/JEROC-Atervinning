@@ -1,0 +1,51 @@
+.employee-review-page { min-width:0; }
+.employee-review-month { display:flex; align-items:center; gap:10px; padding:13px; border:1px solid #dce8f5; border-radius:13px; background:#fff; }
+.employee-review-month > label { flex:1; min-width:0; margin:0; display:flex; gap:5px; color:#7489a2; font-size:11px; }
+.employee-review-month input { width:100%; min-width:0; padding:8px 0; border:0; color:#204260; background:#fff; font:inherit; font-size:15px; }
+.employee-review-month > button { flex-shrink:0; }
+.employee-review-status { display:flex; align-items:center; gap:10px; }
+.employee-review-status > svg { color:#268b58; flex-shrink:0; }
+.employee-review-status > div { flex:1; min-width:0; }
+.employee-review-status h2 { font-size:19px; }
+.employee-review-status p { margin-top:4px; color:#8194a7; font-size:11px; }
+.employee-review-pill { display:inline-block; padding:5px 9px; border-radius:20px; background:#edf3f9; color:#6a83a0; font-size:10px; font-weight:650; white-space:nowrap; }
+.employee-review-pill.submitted { background:#edf5ff; color:#1473d3; }
+.employee-review-pill.returned,.employee-review-pill.reopened { background:#fff3e1; color:#aa712a; }
+.employee-review-pill.approved { background:#eaf8ef; color:#218552; }
+.employee-review-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.employee-review-summary > div { min-width:0; border:1px solid #e0eaf4; border-radius:11px; padding:13px; background:#f8fbff; display:flex; flex-direction:column; gap:6px; }
+.employee-review-summary span { color:#7d91a8; font-size:11px; }
+.employee-review-summary strong { color:#244b6e; font-size:21px; font-variant-numeric:tabular-nums; }
+.employee-review-summary .registered { background:#eff9f3; border-color:#d9eee0; }
+.employee-review-summary .registered strong { color:#258758; }
+.employee-review-summary .missing strong { color:#b5792b; }
+.employee-review-message { font-size:12px; line-height:1.6; color:#7389a0; }
+.employee-review-comment { padding:12px; border-radius:10px; background:#fff7ea; border:1px solid #f3e2c4; display:flex; flex-direction:column; gap:6px; font-size:12px; line-height:1.55; }
+.employee-review-comment strong { color:#96712e; }
+.employee-review-comment p { color:#7c6b4d; white-space:pre-wrap; overflow-wrap:anywhere; }
+.employee-review-actions { display:flex; flex-direction:column; gap:9px; }
+.employee-review-actions .button { min-width:0; width:100%; }
+.employee-review-days { display:flex; flex-direction:column; gap:8px; }
+.employee-review-day { border:1px solid #dce7f4; border-radius:12px; background:#fff; padding:13px; }
+.employee-review-day-top { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+.employee-review-day-top h3 { min-width:0; font-size:13px; line-height:1.4; }
+.employee-review-day-top > strong { color:#246291; font-size:15px; flex-shrink:0; font-variant-numeric:tabular-nums; }
+.employee-review-day-source { color:#8a9cb0; font-size:10px; margin-top:5px; }
+.employee-review-day-facts { display:flex; flex-wrap:wrap; gap:5px 12px; color:#748ba4; font-size:11px; margin-top:10px; line-height:1.5; }
+.employee-review-day-facts .missing { color:#ae762b; }
+.employee-review-day .employee-text { padding-bottom:0; margin-top:6px; }
+.employee-review-issues { margin:0; padding-left:17px; display:flex; flex-direction:column; gap:7px; }
+.employee-review-history { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:0; }
+.employee-review-history li { position:relative; display:flex; align-items:flex-start; gap:11px; padding:0 0 18px; }
+.employee-review-history li:last-child { padding-bottom:0; }
+.employee-review-history li:not(:last-child)::before { content:''; position:absolute; left:5px; top:12px; bottom:0; width:1px; background:#dce7f2; }
+.employee-review-history i { width:11px; height:11px; border-radius:50%; background:#e8f3ff; border:2px solid #2880db; margin-top:3px; flex-shrink:0; }
+.employee-review-history div { min-width:0; }
+.employee-review-history strong { display:block; font-size:12px; line-height:1.5; }
+.employee-review-history small { display:block; color:#8a9cae; font-size:10px; margin-top:4px; }
+.employee-review-history p { color:#748aa2; font-size:11px; line-height:1.5; margin-top:6px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.employee-review-empty { display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center; padding:27px 18px; background:#f7fbff; border:1px dashed #dce7f3; border-radius:13px; color:#7a91a8; font-size:12px; line-height:1.5; }
+.employee-review-spinner { animation:employee-review-spin 1s linear infinite; }
+@keyframes employee-review-spin { to { transform:rotate(360deg); } }
+@media(max-width:350px) { .employee-review-status { flex-wrap:wrap; }.employee-review-summary strong { font-size:19px; }.employee-review-day-top { flex-wrap:wrap; } }
+@media(prefers-reduced-motion:reduce) { .employee-review-spinner { animation:none; } }

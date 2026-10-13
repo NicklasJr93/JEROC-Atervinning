@@ -25,8 +25,8 @@
     <a class="button" href="exps://jeroc-atervinning.onrender.com/expo">Öppna i Expo Go</a>
     <img src="/expo-go-qr.svg" alt="QR-kod till JEROC i Expo Go">
   </section>
-  <p class="note">Demokonto: <strong>niklas / Demo123!</strong>. Inget skickas till kontoret.</p>
-  <p class="note">Om servern går i vila kan första öppningen ta en stund. Försök igen om appen inte öppnas direkt.</p>
+  <p class="note">Logga in med ditt personalkonto. I det ursprungliga demot finns <strong>niklas / Demo123!</strong>.</p>
+  <p class="note">Servern förbereder appaketet innan öppningslänken visas. Mobilen behöver därefter ladda ner paketet och ansluta till webbappen.</p>
 </main>
 <script>
   async function check() {
@@ -38,8 +38,11 @@
       document.getElementById('launch').classList.toggle('hidden', !state.ready);
       status.textContent = !state.enabled
         ? 'Expo Go är inte aktiverat ännu. Lägg EXPO_TOKEN i Render → Environment och använd den nya Build Command från GitHub-instruktionerna.'
-        : state.ready ? 'Expo-servern är startad. Första laddningen bygger appaketet och kan ta en stund.' : 'Expo-servern startar. Den här sidan kontrollerar igen automatiskt.';
-      if (state.enabled && !state.ready) setTimeout(check, 3000);
+        : state.ready ? 'Appaketen för iPhone och Android är förberedda. Du kan öppna appen nu.'
+        : state.state === 'error' ? 'Expo Go kunde inte förberedas. Webbappen fungerar fortfarande. Be administratören kontrollera Expo-loggen i Render.'
+        : state.state === 'compiling' ? `Förbereder appaketet för ${state.compilingPlatform === 'android' ? 'Android' : 'iPhone'}… Länken visas när båda paketen är klara.`
+        : 'Expo-servern startar. Den här sidan kontrollerar igen automatiskt.';
+      if (state.enabled && !state.ready && state.state !== 'error') setTimeout(check, 3000);
     } catch {
       status.textContent = 'Kunde inte kontrollera Expo-servern. Ladda om sidan och försök igen.';
     }

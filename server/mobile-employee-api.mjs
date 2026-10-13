@@ -5,10 +5,11 @@ import { ensurePersonnel, refreshStaffingTasks } from './personnel.mjs';
 import { ensureLogistics, driverOrderView, applyDriverAction } from './logistics.mjs';
 import { createTransportOutbox } from './transport-integrations.mjs';
 import { applyTransportChange, personnelPlanIssues, normalizePhoneNumber, phoneNumberError } from '../dist-server/domain-models.mjs';
-import { ensureEmployeeTime, enrollEmployeeTime, employeeTimeProjection, employeeTimeCommand,
+import { ensureEmployeeTime, enrollEmployeeTime, employeeTimeProjection, employeeTimeBootstrapProjection, employeeTimeCommand,
   employeeTimeGate, employeeTimeRequirementCommand, employeeTimeLifecycle, employeeClockCommand } from './employee-time.mjs';
 import { employeeEquipmentProjection } from './equipment.mjs';
 import { employeePresenceForPerson } from './employee-presence.mjs';
+import { employeeTimeReviewOwn, employeeTimeReviewEmployeeCommand, employeeTimeReviewSourceStamp, assertEmployeeTimeReviewSourceStamp } from './employee-time-review.mjs';
 import { employeeSites, employeeCompanyId, employeeActiveSite, saveEmployeeActiveSite } from './mobile-sites.mjs';
 
 const COOKIE = 'jeroc_employee';
@@ -185,7 +186,8 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           const { person, account, principal } = identity;
           const scopedPerson = { ...person, siteIds: principal.user.siteIds };
           const sites = employeeSites(siteCatalog, person, principal.user);
-          const projection = employeeTimeProjection(state, scopedPerson, { now, allowedSiteIds: principal.user.siteIds, month: url.searchParams.get('month') ?? undefined, date: url.searchParams.get('date') ?? undefined, siteCatalog: sites });
+          const project = url.searchParams.get('view') === 'bootstrap' ? employeeTimeBootstrapProjection : employeeTimeProjection;
+          const projection = project(state, scopedPerson, { now, allowedSiteIds: principal.user.siteIds, month: url.searchParams.get('month') ?? undefined, date: url.searchParams.get('date') ?? undefined, siteCatalog: sites });
           const companyId = employeeCompanyId(env, state);
           return { ...projection, companyId, companyName: state.metadata?.organisation?.name ?? (companyId === 'jeroc-demo' ? 'JEROC Återvinning AB' : ''), person: safePerson(scopedPerson, account), sites: sites.map(({ id, name, active }) => ({ id, name, active })),
             activeSiteId: employeeActiveSite(state, companyId, person.id, sites),
@@ -225,6 +227,16 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           activeSiteId: employeeActiveSite(state, employeeCompanyId(env, state), person.id, allowedSites) };
         if (path === 'logout' && req.method === 'POST') { auth.sessions = auth.sessions.filter(value => value !== session); return { token: '', value: { ok: true } }; }
         if (['session', 'bootstrap', 'overview', 'calendar'].includes(path) && req.method === 'GET') return { value: overview(identity) };
+        if (path === 'time-review') {
+          if ([...url.searchParams.keys()].some(key => key !== 'month')) fail('Välj en månad för din egen tidrapport.', 422);
+          const month = url.searchParams.get('month') ?? payload?.month;
+          if (req.method === 'POST') {
+            if (payload?.personId !== undefined) fail('Du kan bara skicka din egen tidrapport.', 422);
+            if (payload?.month !== month) fail('Månadsvalet har ändrats. Öppna rapporten igen.', 409);
+            employeeTimeReviewEmployeeCommand(state, scopedPerson, payload, audit, { ...timeContext, month });
+          }
+          return { value: employeeTimeReviewOwn(state, scopedPerson, { ...timeContext, month }) };
+        }
         if (path === 'equipment' && req.method === 'GET') {
           if ([...url.searchParams.keys()].some(key => !['date', 'month'].includes(key))) fail('Utrustningen hämtas för ditt eget konto.', 422);
           return { value: employeeEquipmentProjection(state, scopedPerson, { actor: principal.actor, user: principal.user }) };
@@ -265,7 +277,9 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           if (!people.length) fail('Du saknar behörighet att hantera timkrav.', 403);
           if (req.method === 'POST') {
             if (!people.some(value => value.id === payload?.personId)) fail('Personen ligger utanför ditt personalansvar.', 403);
+            const stamp = employeeTimeReviewSourceStamp(state, [payload?.personId], timeContext);
             employeeTimeRequirementCommand(state, principal, payload, audit, timeContext);
+            assertEmployeeTimeReviewSourceStamp(state, stamp, timeContext);
           }
           return { value: { ...overview(identity), people: people.map(value => {
             const projected = employeeTimeProjection(state, value, timeContext);
