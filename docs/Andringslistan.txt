@@ -2774,3 +2774,60 @@ Status: Implementerad 2026-10-13 i kontor 0.28.1.
   Inga nya Render-variabler. Extern betalning provas från viktkortet efter deploy.
 - Verifierat: 74 riktade klient-, betalningsmotor- och PDF/Spiris-kvittensprov
   samt produktionsbygget passerar. Inga externa betalningar skickades i proven.
+
+ÄL 119 – En gemensam anläggningsåtkomst på personkortet
+Status: Planerad 2026-10-13; inte implementerad.
+- Anläggningsåtkomst väljs en gång under Personal → personkort → Inloggning
+  & behörigheter. Ta bort det andra behörighetsstyrande anläggningsvalet i
+  Redigera person. Samma sparade åtkomst används av kontor, mobil, gårdsarbete
+  och förarprofil. Ingen användare ska behöva markera Rimbo på två ställen.
+- För personal med kopplat användarkonto är kontots åtkomst den gemensamma
+  källan; personprofilens visning härleds från den. En eventuell hemmaanläggning
+  är organisatorisk tillhörighet och får inte fungera som ytterligare åtkomstspärr.
+- Äldre motstridiga listor migreras med nuvarande effektiva åtkomst bevarad,
+  inte genom att slå ihop dem och ge mer åtkomst. Skillnader visas för behörig
+  administratör som kan bekräfta det nya gemensamma valet.
+- Kontoadministrationsbehörighet krävs för att ändra åtkomst. Kontrollen gäller
+  både faktisk och effektiv användare samt bolag. Jobba som ändrar inte personens
+  sparade rättigheter. Personal utan konto får ingen inloggningsåtkomst via
+  organisatorisk tillhörighet; kontoaktivering kräver ett uttryckligt åtkomstval.
+- Externa chaufförskonton använder samma tydliga anläggningsinställning men
+  behåller avgränsningen till eget åkeri och egna uppdrag. Plattformssupport
+  behöver inte en vanlig personprofil för sin befintliga kontrollerade åtkomst.
+- Mobilens val uppdateras efter sparad åtkomständring. Återkallad anläggning
+  får inte ligga kvar som ett användbart aktivt val. Historiska viktkort,
+  stämplingar och arbetsordrar behåller sina ursprungliga anläggningar.
+
+ÄL 120 – Hem i mobilen: tydligt anläggningsbyte och mindre statistik
+Status: Planerad 2026-10-13; inte implementerad. Uppföljning av ÄL 117.
+- Platsnamnet högst upp till höger får tydlig text Byt anläggning och pil.
+  Öppna en kompakt väljare med användarens tillåtna aktiva anläggningar och
+  markera aktuellt val. Vid endast en anläggning förklaras tilldelningen;
+  vid ingen tilldelning visas ett tydligt läge utan möjlighet till ny vägning.
+- Valet gäller nya vägningar. Påbörjade viktkort och historiska stämplingar
+  flyttas inte automatiskt när användaren byter anläggning.
+- Ta bort Din insats idag från Hem. Behåll hälsning/Skrotis, Din dag,
+  eventuell stämpelklocka, nästa uppdrag, snabbval och fortsatt pågående arbete.
+- Nästa uppdrag visar nästa tilldelade, ej avslutade uppdrag inom kommande
+  sju dagar i stället för endast dagens. Använd rullande dagar så även nästa
+  veckas första jobb syns när man går hem inför helgen. Visa tydlig dag/datum
+  och tid, exempelvis Imorgon · 08:30; ange Tid ej bokad om tid saknas.
+  Avbokade uppdrag tas inte med. Din dag räknar fortsatt bara dagens jobb.
+  Lägg till genväg till Schema och tydligt tomt läge om perioden saknar uppdrag.
+  Hämta en liten sammanfattning, inte full månads- eller arbetstidshistorik.
+- Lägg eventuell egen invägningsstatistik under Gårdsarbete. Fortsätt använda
+  de verifierade serveruppgifterna; bygg ingen ny parallell statistikmodell.
+
+ÄL 121 – Tydligare Förare & fordon samt registrering av nya fordon
+Status: Planerad 2026-10-13; inte implementerad.
+- Personkortet får en tydlig sektion Förare & fordon med Kan bokas som förare
+  och Ordinarie fordon. Fordonskopplingen ska inte behöva letas fram bland
+  kontaktuppgifter i en generell redigeringsruta.
+- Välj befintligt fordon eller Skapa nytt fordon direkt vid väljaren, med
+  separata rättigheter för fordonsregistrering. Samma register används av
+  personal, arbetsordrar och transportplanering; inget extra personalregister.
+- Bygg en enkel fordonsregistervy för att skapa/redigera/avaktivera fordon,
+  med namn, registreringsnummer, typ och relevanta kapacitetsuppgifter.
+- Ordinarie fordon är ett förslag vid planering. Det ersätter inte faktiskt
+  fordon på en arbetsorder eller kontroller av körkompetens och tillgänglighet.
+  Tidigare uppdrag behåller sina historiska fordonsuppgifter.
