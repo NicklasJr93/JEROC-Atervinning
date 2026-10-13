@@ -3,6 +3,7 @@ import { addSpirisEvent, initialTracking, publicSpirisEvents, observeSpirisDraft
 import { z } from 'zod';
 import { customerIdentifierError, customerIdentityKey, normalizeOrganisationNumber } from '../dist-server/domain-models.mjs';
 import { EnvironmentError } from './environment-storage.mjs';
+import { readSpirisInvoiceBalance } from './visma-invoice-balance.mjs';
 import { latestAttestedVismaCards } from './visma-weightcard.mjs';
 import { normalizeAccountingSettings as normalize, accountingExportEligibility, buildAccountingDraft as buildDraft, previewAccountingExample as examplePreview,
   AccountingError, moneyToCents, calculateMaterialBaseCents } from './visma-accounting.mjs';
@@ -723,9 +724,7 @@ export function createVismaExports({ organisationId = 'jeroc-demo', readTenantPr
     }, async send => { const verified = await confirmInvoice(job, send, { kind: 'booked', invoiceId: job.tracking.invoiceId });
       const record = verified.invoice;
       for (const field of ['RemainingAmountInvoiceCurrency', ...(record.RemainingAmount !== undefined ? ['RemainingAmount'] : [])]) {
-        if (!Number.isFinite(record[field]))
-          throw spirisAmountError(record[field], field, 'Det återstående beloppet måste vara ett ändligt tal. Kontrollera fakturan före utbetalning.', 409, 'visma_payment_already_recorded');
-        if (spirisMoneyToCents(record[field], field) !== moneyToCents(job.draft.TotalAmount))
+        if (readSpirisInvoiceBalance(record, field).cents !== moneyToCents(job.draft.TotalAmount))
           throw spirisAmountError(record[field], field, 'Spiris-fakturan är redan helt eller delvis betald. Kontrollera betalningen före utbetalning.', 409, 'visma_payment_already_recorded');
       }
       if (record.PaymentStatus !== undefined && ![3, 7, 8, 10, 13, 14].includes(record.PaymentStatus))

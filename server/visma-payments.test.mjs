@@ -13,28 +13,31 @@ import { createVismaStorage } from './visma-storage.mjs';
 // CompanyIdentifier is an opaque string in Spiris, unlike bank/invoice IDs.
 const organisationId = 'tenant-a', companyId = 'sandbox-company-123', bankId = randomUUID(), invoiceId = randomUUID(), draftId = randomUUID(), supplierId = randomUUID();
 const transactionId = randomUUID(), voucherId = randomUUID(), paymentVoucherId = randomUUID();
-async function fixture(run) {
+async function fixture(run, { amountCents = 12345 } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'visma-payment-')), file = join(directory, 'application.sqlite');
   let repository = await createApplicationRepository({ env: {}, filename: file, seed: () => ({}) });
   let time = new Date('2026-10-13T12:00:00Z'), booked = true, generation = 'connection-a', enabled = true, mode = 'sandbox';
   let posted = false, afterPost = 'accepted', matchedReference = true, externalCompany = companyId, nextReadFailure = null;
   const source = { cardId: 3024, approvalId: randomUUID(), version: 1, hash: 'a'.repeat(64) };
   const value = { id: randomUUID(), organisationId, kind: 'card', mode: 'mss', simulation: true, status: 'simulated_paid',
-    source, amountCents: 12345, currency: 'SEK', spirisCompanyId: companyId, spirisBankAccountId: bankId,
+    source, amountCents, currency: 'SEK', spirisCompanyId: companyId, spirisBankAccountId: bankId,
     providerInstructionUUID: 'ABCDEF1234567890ABCDEF1234567890AB', providerPaymentReference: 'reference-a', providerResult: { status: 'PAID', datePaid: '2026-10-12T22:30:00Z' } };
   const job = { source, companyId, status: 'accepted', environment: 'sandbox', draftId, supplierId,
-    draft: { InvoiceNumber: 'AV-3024-V1', CurrencyCode: 'SEK', TotalAmount: 123.45 }, accounting: { paymentNetCents: 12345, offsetCents: 0 },
+    draft: { InvoiceNumber: 'AV-3024-V1', CurrencyCode: 'SEK', TotalAmount: amountCents / 100 }, accounting: { paymentNetCents: amountCents, offsetCents: 0 },
     tracking: { state: 'booked', invoiceId } };
-  const invoice = { Id: invoiceId, CreatedFromDraftId: draftId, SupplierId: supplierId, InvoiceNumber: 'AV-3024-V1', CurrencyCode: 'SEK', TotalAmount: 123.45,
-    Status: 1, VoucherId: voucherId, VoucherNumber: 'A11', RemainingAmountInvoiceCurrency: 123.45, PaymentStatus: 3, SkipSendToBank: true };
+  const invoice = { Id: invoiceId, CreatedFromDraftId: draftId, SupplierId: supplierId, InvoiceNumber: 'AV-3024-V1', CurrencyCode: 'SEK', TotalAmount: amountCents / 100,
+    IsCreditInvoice: false, Status: 1, VoucherId: voucherId, VoucherNumber: 'A11', RemainingAmountInvoiceCurrency: amountCents / 100, PaymentStatus: 3, SkipSendToBank: true };
+  const readback = {};
   const transaction = () => ({ Id: transactionId, TransactionDate: '2026-10-13T00:00:00', Reference: matchedReference ? `SP-SWISH-${value.providerInstructionUUID}` : 'OTHER-REFERENCE',
-    IsReconciled: true, TransactionAmount: -123.45, TransactionAmountCurrency: 'SEK', Rows: [{ SourceId: invoiceId,
-      PaymentVoucherId: paymentVoucherId, PaymentVoucherNumber: 'B12', AmountTransactionCurrency: -123.45 }] });
+    IsReconciled: true, TransactionAmount: -amountCents / 100, TransactionAmountCurrency: 'SEK', Rows: [{ SourceId: invoiceId,
+      PaymentVoucherId: paymentVoucherId, PaymentVoucherNumber: 'B12', AmountTransactionCurrency: -amountCents / 100 }] });
   const calls = [];
   const send = async (operation, parameters, payload) => {
     calls.push({ operation, parameters: structuredClone(parameters), payload: structuredClone(payload) });
     if (nextReadFailure?.operation === operation) { const failure = nextReadFailure.result; nextReadFailure = null; return failure; }
-    if (operation === 'invoice') return { outcome: 'accepted', response: { ...invoice, ...(posted ? { RemainingAmountInvoiceCurrency: 0, PaymentStatus: 6 } : {}) } };
+    if (operation === 'invoice') return { outcome: 'accepted', response: { ...invoice, ...(posted ? {
+      RemainingAmountInvoiceCurrency: 0, PaymentStatus: 6, ...(Object.hasOwn(invoice, 'RemainingAmount') ? { RemainingAmount: 0 } : {}), ...readback,
+    } : {}) } };
     if (operation === 'bankAccounts') return { outcome: 'accepted', response: { Data: [{ Id: bankId, IsActive: true, BankAccountType: 1, CurrencyCode: 'SEK', LedgerAccountNumber: 1930 }], Meta: { CurrentPage: 1, TotalNumberOfPages: 1 } } };
     if (operation === 'recordPayment') {
       posted = true;
@@ -54,12 +57,14 @@ async function fixture(run) {
     batch: async (_scope, authorize, operation) => { await authorize(); return operation(async (...args) => { await authorize(); return send(...args); }); },
   });
   let service = make();
-  const f = { value, job, invoice, calls, get service() { return service; },
+  const f = { value, job, invoice, readback, calls, get service() { return service; },
     posts: () => calls.filter(call => call.operation === 'recordPayment'),
     setBooked: flag => { booked = flag; }, setEnabled: flag => { enabled = flag; }, setMode: flag => { mode = flag; },
     changeGeneration: () => { generation = 'connection-b'; }, changeCompany: () => { externalCompany = randomUUID(); },
     loseResponse: () => { afterPost = 'unknown'; }, crash: () => { afterPost = 'throw'; }, wrongReference: () => { matchedReference = false; },
     failRead: (operation, result) => { nextReadFailure = { operation, result }; },
+    stored: () => repository.read(state => structuredClone(state.vismaPayments.records.find(entry => entry.paymentId === value.id)), { domains: ['vismaPayments'] }),
+    patchStored: operation => repository.transact(state => operation(state.vismaPayments.records.find(entry => entry.paymentId === value.id)), { domains: ['vismaPayments'] }),
     advance: () => { time = new Date(time.getTime() + 300001); },
     async restart() { await repository.close(); repository = await createApplicationRepository({ env: {}, filename: file, seed: () => ({}) }); service = make(); },
   };
@@ -94,6 +99,53 @@ test('concurrent callbacks reserve exactly one payment POST', async () => fixtur
   assert.equal(f.posts().length, 1); assert.equal((await f.service.projection(f.value.id)).status, 'registered');
 }));
 
+test('positive and negative full supplier balances register one positive 240 payment and preserve the provider sign', async () => {
+  for (const sign of [1, -1]) await fixture(async f => {
+    f.invoice.RemainingAmountInvoiceCurrency = sign * 240;
+    f.invoice.RemainingAmount = -sign * 240;
+    const result = await f.service.synchronize(f.value.id);
+    assert.equal(result.status, 'registered'); assert.equal(result.bankTransactionId, transactionId);
+    assert.equal(result.paymentVoucherId, paymentVoucherId); assert.equal(result.paymentVoucherNumber, 'B12');
+    assert.equal(f.posts().length, 1); assert.equal(f.posts()[0].payload.PaymentAmount, 240); assert.equal(f.posts()[0].payload.PaymentType, 2);
+    const stored = await f.stored();
+    assert.equal(stored.remainingBeforeCents, 24000); assert.equal(stored.remainingBeforeSignedCents, sign * 24000);
+    await f.restart(); await f.service.synchronize(f.value.id, { force: true });
+    assert.equal(f.posts().length, 1);
+  }, { amountCents: 24000 });
+});
+
+test('every permitted unpaid status supports a negative full supplier balance', async () => {
+  for (const status of [3, 7, 8, 10, 13, 14]) await fixture(async f => {
+    f.invoice.RemainingAmountInvoiceCurrency = -240; f.invoice.PaymentStatus = status;
+    assert.equal((await f.service.synchronize(f.value.id)).status, 'registered');
+    assert.equal(f.posts().length, 1); assert.equal(f.posts()[0].payload.PaymentAmount, 240);
+  }, { amountCents: 24000 });
+});
+
+test('partial, zero, excessive and malformed signed balances block before payment registration', async () => {
+  for (const remaining of [-239.99, 239.99, 0, -240.01, 240.01, undefined, null, '-240', '', NaN, Infinity, -Infinity, -240.001, {}, []])
+    await fixture(async f => {
+      f.invoice.RemainingAmountInvoiceCurrency = remaining;
+      const result = await f.service.synchronize(f.value.id);
+      assert.equal(result.status, 'blocked', `RemainingAmountInvoiceCurrency=${String(remaining)}`); assert.equal(f.posts().length, 0);
+    }, { amountCents: 24000 });
+  for (const remaining of [-239.99, 0, 240.01, undefined, null, '-240', NaN, -240.001]) await fixture(async f => {
+    f.invoice.RemainingAmountInvoiceCurrency = -240; f.invoice.RemainingAmount = remaining;
+    assert.equal((await f.service.synchronize(f.value.id)).status, 'blocked'); assert.equal(f.posts().length, 0);
+  }, { amountCents: 24000 });
+});
+
+test('credit, unverified credit flag and a larger frozen invoice cannot receive a full-invoice payout', async () => {
+  for (const credit of [true, undefined, null, 0, 'false']) await fixture(async f => {
+    f.invoice.RemainingAmountInvoiceCurrency = -240; f.invoice.IsCreditInvoice = credit;
+    assert.equal((await f.service.synchronize(f.value.id)).status, 'blocked'); assert.equal(f.posts().length, 0);
+  }, { amountCents: 24000 });
+  await fixture(async f => {
+    f.invoice.TotalAmount = 300; f.job.draft.TotalAmount = 300; f.invoice.RemainingAmountInvoiceCurrency = -300;
+    assert.equal((await f.service.synchronize(f.value.id)).status, 'blocked'); assert.equal(f.posts().length, 0);
+  }, { amountCents: 24000 });
+});
+
 test('a delayed PAID callback retains the original payout connection and invoice rather than adopting a reconnect', async () => fixture(async f => {
   f.value.bookingProof = { companyId, generation: 'connection-a', invoiceId, draftId };
   f.changeGeneration();
@@ -107,10 +159,39 @@ test('lost POST response is reconciled only through an exact matched transaction
   await f.service.synchronize(f.value.id); assert.equal(f.posts().length, 1);
 }));
 
+test('lost responses for signed supplier balances reconcile zero and the matching voucher without resubmission', async () => {
+  for (const sign of [1, -1]) await fixture(async f => {
+    f.invoice.RemainingAmountInvoiceCurrency = sign * 240; f.loseResponse();
+    const result = await f.service.synchronize(f.value.id);
+    assert.equal(result.status, 'registered'); assert.equal(result.paymentVoucherId, paymentVoucherId);
+    assert.ok(f.calls.some(call => call.operation === 'matchedTransactions'));
+    await f.restart(); await f.service.synchronize(f.value.id, { force: true });
+    assert.equal(f.posts().length, 1); assert.equal(f.posts()[0].payload.PaymentAmount, 240);
+  }, { amountCents: 24000 });
+});
+
+test('nonzero or malformed payment readback never confirms a signed full balance and never resubmits', async () => {
+  for (const patch of [{ RemainingAmountInvoiceCurrency: -1 }, { RemainingAmountInvoiceCurrency: 1 },
+    { RemainingAmountInvoiceCurrency: '0' }, { RemainingAmount: -1 }, { RemainingAmount: null }, { PaymentStatus: 5 }]) await fixture(async f => {
+    f.invoice.RemainingAmountInvoiceCurrency = -240; Object.assign(f.readback, patch); f.loseResponse();
+    assert.equal((await f.service.synchronize(f.value.id)).status, 'unknown');
+    f.advance(); assert.equal((await f.service.processQueue()).payments[0].status, 'unknown');
+    assert.equal(f.posts().length, 1);
+  }, { amountCents: 24000 });
+});
+
 test('process crash after POST is durable and resumes readback after restart without a second POST', async () => fixture(async f => {
   f.crash(); const unknown = await f.service.synchronize(f.value.id); assert.equal(unknown.status, 'unknown'); assert.equal(f.posts().length, 1);
   await f.restart(); f.advance(); const { payments } = await f.service.processQueue(); assert.equal(payments[0].status, 'registered'); assert.equal(f.posts().length, 1);
 }));
+
+test('reserved legacy payments lacking the raw signed balance still reconcile without a second POST', async () => fixture(async f => {
+  f.invoice.RemainingAmountInvoiceCurrency = -240; f.crash();
+  assert.equal((await f.service.synchronize(f.value.id)).status, 'unknown');
+  await f.patchStored(entry => { delete entry.remainingBeforeSignedCents; });
+  await f.restart(); f.advance();
+  assert.equal((await f.service.processQueue()).payments[0].status, 'registered'); assert.equal(f.posts().length, 1);
+}, { amountCents: 24000 }));
 
 test('zero balance or unrelated payment reference is insufficient proof', async () => fixture(async f => {
   f.wrongReference(); const result = await f.service.synchronize(f.value.id); assert.equal(result.status, 'unknown');
@@ -126,10 +207,16 @@ test('explicit refresh bypasses the readback due time but never resends a reserv
   assert.equal(result.status, 'unknown'); assert.equal(f.calls.filter(call => call.operation === 'invoice').length, reads + 1); assert.equal(f.posts().length, 1);
 }));
 
-test('paid or bank-submitted invoice is blocked before POST', async () => fixture(async f => {
-  f.invoice.RemainingAmountInvoiceCurrency = 0; f.invoice.PaymentStatus = 6;
-  const result = await f.service.synchronize(f.value.id); assert.equal(result.status, 'blocked'); assert.equal(f.posts().length, 0);
-}));
+test('paid, partial, bank-submitted and unknown statuses are blocked even with a negative full balance', async () => {
+  for (const status of [1, 2, 4, 5, 6, 9, 11, 12, 15, 16, 17, undefined, null, '3']) await fixture(async f => {
+    f.invoice.RemainingAmountInvoiceCurrency = -240; f.invoice.PaymentStatus = status;
+    const result = await f.service.synchronize(f.value.id); assert.equal(result.status, 'blocked'); assert.equal(f.posts().length, 0);
+  }, { amountCents: 24000 });
+  await fixture(async f => {
+    f.invoice.RemainingAmountInvoiceCurrency = -240; f.invoice.SkipSendToBank = false;
+    assert.equal((await f.service.synchronize(f.value.id)).status, 'blocked'); assert.equal(f.posts().length, 0);
+  }, { amountCents: 24000 });
+});
 
 test('different invoice supplier or total cannot receive the payment', async () => fixture(async f => {
   f.invoice.SupplierId = randomUUID(); const result = await f.service.synchronize(f.value.id); assert.equal(result.status, 'blocked'); assert.equal(f.posts().length, 0);
@@ -203,7 +290,7 @@ test('real OAuth service exposes own-account choices and privately books a verif
       }
       if (address.pathname === '/v2/bankaccounts') return response({ Data: [{ Id: bankId, IsActive: true, Name: 'Företagskonto', BankAccountType: 1, LedgerAccountNumber: 1930, CurrencyCode: 'SEK' }], Meta: { CurrentPage: 1, TotalNumberOfPages: 1 } });
       if (address.pathname === `/v2/supplierinvoices/${invoiceId}`) return response({ Id: invoiceId, CreatedFromDraftId: draftId, SupplierId: supplierId,
-        InvoiceNumber: 'AV-3024-V1', CurrencyCode: 'SEK', TotalAmount: 100, Status: 1, VoucherId: voucherId, SkipSendToBank: true,
+        InvoiceNumber: 'AV-3024-V1', CurrencyCode: 'SEK', TotalAmount: 100, IsCreditInvoice: false, Status: 1, VoucherId: voucherId, SkipSendToBank: true,
         RemainingAmountInvoiceCurrency: recorded ? 0 : 100, PaymentStatus: recorded ? 6 : 3 });
       if (address.pathname === `/v2/supplierinvoices/${invoiceId}/payments` && options.method === 'POST') { recorded = true; return response({ BankTransactionId: transactionId }, 201); }
       if (address.pathname === `/v2/banktransactions/${bankId}/${transactionId}`) return response({ Id: transactionId, Reference: `SP-SWISH-${paid.providerInstructionUUID}`,

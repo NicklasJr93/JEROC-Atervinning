@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.8.1. Aktuell kontorsversion: 0.23.1.
+Aktuell mobilwebbversion: 0.8.1. Aktuell kontorsversion: 0.23.2.
 Delad attestknapp, bokföring i Spiris, utbetalningsspärr, eget utbetalningskort
 och betalningsbekräftad PDF är genomförda i ÄL 103, bygge 2026-10-13.
 Swish MSS-test, utbetalningspopup, PDF-revisioner och Spiris-betalningsbokföring
@@ -2388,6 +2388,8 @@ ingen appkod ändrad i denna leverans.
 
 ÄL 105 – Tydlig Spiris-beloppsdiagnos och säker kontroll av blockerade Swish-test
 Status: Implementerad 2026-10-13 i kontor 0.23.1. Ingen skarp betalning.
+- Efter återkontrollen konstaterades ett negativt leverantörsrestbelopp;
+  rättningen beskrivs i ÄL 106, kontor 0.23.2.
 - Bakgrund: 3026 stoppades före Swish-sändning med accounting_amount_invalid.
   Begäran innehöll korrekt 240.00. Det delade fakturautkastet hade giltiga
   belopp; vilket fält i den senare fakturakontrollen som felar måste verifieras
@@ -2405,3 +2407,26 @@ Status: Implementerad 2026-10-13 i kontor 0.23.1. Ingen skarp betalning.
   försök får inte återköas genom denna väg.
 - Provflöde och verifiering:
   docs/integrationer/swish-blockerad-kontroll-2026-10-13.md.
+
+ÄL 106 – Tolka Spiris leverantörsskuld med korrekt tecken
+Status: Implementerad 2026-10-13 i kontor 0.23.2. Swish MSS och Spiris sandbox.
+- Återkontrollen av 3026 pekade ut RemainingAmountInvoiceCurrency. Fältet
+  var ett ändligt negativt tal och avvisades felaktigt av den generella
+  kontrollen för positiva betalningsbelopp.
+- En gemensam kontroll tolkar endast leverantörsfakturans restbeloppsfält
+  som skuld med tecken. Det gäller verifierad normal bokförd SEK-faktura,
+  positivt totalbelopp och ej kreditfaktura. Både positiva och negativa
+  restbelopp stöds; beloppets ursprungliga tecken sparas för avstämningen.
+- Fakturans hela obetalda skuld måste motsvara den frysta avräkningen.
+  Delbetalning, nollsaldo, annat belopp och betald/pågående bankstatus
+  spärrar fortsatt utbetalning. Eventuellt SEK-restbelopp i båda fälten
+  kontrolleras. Negativa fakturatotaler, moms och konteringsrader accepteras
+  inte genom denna rättning; den interna penningkontrollen är oförändrad.
+- Samma logik används vid betalningsregistrering efter verifierad Swish PAID.
+  Positiv betalning ska minska skulden till noll; bokföringen bekräftas bara
+  med betald status och rätt återlästa banktransaktion/betalningsverifikation.
+  Förlorade svar återläses och skapar ingen ny betalningsregistrering.
+- På befintliga 3026: Kontrollera status -> Fortsätt testutbetalning efter
+  godkänd kontroll. Samma reserverade instruktion återanvänds.
+- Förklaring och verifiering:
+  docs/integrationer/spiris-leverantorssaldo-2026-10-13.md.

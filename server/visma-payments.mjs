@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterDatabaseCommit } from './database-runtime.mjs';
 import { EnvironmentError } from './environment-storage.mjs';
+import { readSpirisInvoiceBalance } from './visma-invoice-balance.mjs';
 
 const DOMAIN = 'vismaPayments', LOCK = 1860399454, RETRY_MS = 300000, LEASE_MS = 120000, FOLLOWUP_MS = 30 * 86400000;
 const clone = value => structuredClone(value);
@@ -116,8 +117,8 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
   }
   function validateInvoice(invoice, entry, exportJob) {
     if (invoice?.Id !== entry.invoiceId || invoice.CreatedFromDraftId !== exportJob.draftId || invoice.SupplierId !== exportJob.supplierId
-      || invoice.InvoiceNumber !== exportJob.draft.InvoiceNumber || invoice.CurrencyCode !== 'SEK' || invoice.Status !== 1
-      || !uuid(invoice.VoucherId) || cents(invoice.TotalAmount) !== cents(exportJob.draft.TotalAmount)
+      || invoice.InvoiceNumber !== exportJob.draft.InvoiceNumber || invoice.CurrencyCode !== 'SEK' || invoice.Status !== 1 || invoice.IsCreditInvoice !== false
+      || !uuid(invoice.VoucherId) || cents(invoice.TotalAmount) !== entry.amountCents || cents(invoice.TotalAmount) !== cents(exportJob.draft.TotalAmount)
       || exportJob.accounting?.paymentNetCents !== entry.amountCents || exportJob.accounting?.offsetCents !== 0)
       fail('Spiris-fakturan matchar inte kortets attesterade version och utbetalningsbelopp.', 'visma_payment_invoice_mismatch');
   }
@@ -148,9 +149,13 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
       }
     }
     const matching = candidates.map(transaction => ({ transaction, row: verifiedTransaction(transaction, entry) })).filter(value => value.row);
-    const remaining = cents(invoiceResult.response.RemainingAmountInvoiceCurrency);
-    if (matching.length !== 1 || remaining === null || remaining !== entry.remainingBeforeCents - entry.amountCents
-      || remaining === 0 && invoiceResult.response.PaymentStatus !== 6) return false;
+    const remaining = readSpirisInvoiceBalance(invoiceResult.response);
+    const domestic = Object.hasOwn(invoiceResult.response, 'RemainingAmount') ? readSpirisInvoiceBalance(invoiceResult.response, 'RemainingAmount') : null;
+    const beforeSigned = entry.remainingBeforeSignedCents ?? entry.remainingBeforeCents;
+    const expectedSigned = beforeSigned < 0 ? beforeSigned + entry.amountCents : beforeSigned - entry.amountCents;
+    if (matching.length !== 1 || !Number.isSafeInteger(beforeSigned) || entry.remainingBeforeCents !== entry.amountCents
+      || remaining.cents !== 0 || remaining.signedCents !== expectedSigned || domestic && domestic.cents !== 0
+      || invoiceResult.response.PaymentStatus !== 6) return false;
     const { transaction, row } = matching[0]; entry.bankTransactionId = transaction.Id;
     entry.paymentVoucherId = row.PaymentVoucherId; entry.paymentVoucherNumber = row.PaymentVoucherNumber;
     return true;
@@ -201,8 +206,10 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
           const invoiceResult = await send('invoice', { resourceId: entry.invoiceId });
           requireRead(invoiceResult, 'Den bokförda fakturan kunde inte hämtas före betalningsregistreringen.', 'visma_payment_invoice_unavailable');
           validateInvoice(invoiceResult.response, entry, exportJob);
-          const remaining = cents(invoiceResult.response.RemainingAmountInvoiceCurrency);
-          if (remaining === null || remaining < entry.amountCents || [6, 9, 11, 15, 16, 17].includes(invoiceResult.response.PaymentStatus)
+          const remaining = readSpirisInvoiceBalance(invoiceResult.response);
+          const domestic = Object.hasOwn(invoiceResult.response, 'RemainingAmount') ? readSpirisInvoiceBalance(invoiceResult.response, 'RemainingAmount') : null;
+          if (remaining.cents !== entry.amountCents || domestic && domestic.cents !== remaining.cents
+            || ![3, 7, 8, 10, 13, 14].includes(invoiceResult.response.PaymentStatus)
             || invoiceResult.response.SkipSendToBank !== true) fail('Fakturan är redan betald, skickad till banken eller har ett annat restbelopp. Betalningsregistreringen måste granskas.', 'visma_payment_already_recorded');
           const accounts = [];
           for (let page = 1; page <= 100; page++) {
@@ -216,9 +223,10 @@ export function createVismaPayments({ organisationId, getRepository, proofProvid
           const bank = accounts.filter(account => account.Id === entry.bankAccountId && account.IsActive === true
             && (!account.CurrencyCode || account.CurrencyCode === 'SEK') && [1, 3, 5, 6].includes(account.BankAccountType));
           if (bank.length !== 1) fail('Valt Spiris-bankkonto är inte ett aktivt eget SEK-konto.', 'visma_payment_bank_unverified');
-          entry.remainingBeforeCents = remaining;
+          entry.remainingBeforeCents = remaining.cents;
+          entry.remainingBeforeSignedCents = remaining.signedCents;
           entry.request = { CompanyBankAccountId: entry.bankAccountId, PaymentDate: entry.paymentDate, PaymentAmount: entry.amountCents / 100,
-            PaymentCurrency: 'SEK', PaymentType: remaining === entry.amountCents ? 2 : 1, Reference: entry.reference };
+            PaymentCurrency: 'SEK', PaymentType: 2, Reference: entry.reference };
           // Durable reservation comes before POST. Even a process crash here
           // never permits a second POST with a new random idempotency key.
           entry.postReserved = true; setStatus(entry, 'processing', 'Betalningsregistrering reserverad i Spiris sandbox.'); await save();

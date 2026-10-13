@@ -170,6 +170,35 @@ test('a positive 240 SEK draft and booked DebetAmount invoice retain strict paym
   assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
 }));
 
+test('3026 signed supplier debt permits only the complete unpaid 240 SEK invoice', async () => fixture(async f => {
+  await f.enable({ exportMode: 'after_attest' });
+  const approval = await f.source({ cardId: 3026, rows: [{ articleId: 'iron', name: 'Järnskrot', taxCategory: 'scrap_reverse', weight: 10, price: 24, amount: 240 }] });
+  const remote = bookingProvider(f); f.setProvider(remote.provider);
+  await f.service.processQueuedExports(); await f.service.requestCardBooking({ cardId: approval.cardId }, context);
+  await f.service.processQueuedExports({ reconcile: false });
+  const source = { cardId: approval.cardId, approvalId: approval.id, version: approval.version, hash: approval.snapshot.hash };
+  const readback = (balance = -240, status = 3, credit = false) => f.setProvider(async call => {
+    const response = await remote.provider(call);
+    if (call.url.pathname !== `/v2/supplierinvoices/${remote.invoiceId}`) return response;
+    const document = await response.json(); Object.assign(document, { RemainingAmountInvoiceCurrency: balance,
+      RemainingAmount: -240, PaymentStatus: status, IsCreditInvoice: credit }); return body(document);
+  });
+  readback();
+  assert.equal((await f.service.assertPaymentReady(source, { fresh: true })).status, 'booked');
+  for (const balance of [0, -239, -241]) {
+    readback(balance);
+    await assert.rejects(() => f.service.assertPaymentReady(source, { fresh: true }), error => error.code === 'visma_payment_already_recorded');
+  }
+  for (const status of [4, 5, 6, 9, 11, 12, 15, 16, 17]) {
+    readback(-240, status);
+    await assert.rejects(() => f.service.assertPaymentReady(source, { fresh: true }), error => error.code === 'visma_payment_already_recorded');
+  }
+  readback(-240, 3, true);
+  await assert.rejects(() => f.service.assertPaymentReady(source, { fresh: true }), error => error.code === 'visma_booking_identity_conflict');
+  assert.equal(f.posts().filter(call => call.url.pathname.endsWith('/convert')).length, 1);
+  assert.equal(f.posts().filter(call => call.url.pathname === '/v2/supplierinvoicedrafts').length, 1);
+}));
+
 function amountBookingRecord() {
   const draft = { InvoiceNumber: 'AV-3016-V1', CurrencyCode: 'SEK', TotalAmount: 240, Vat: 0, IsCreditInvoice: false, SkipSendToBank: true,
     InvoiceDate: '2026-10-11', DueDate: '2026-10-11', Rows: [{ AccountNumber: 4000, DebitAmount: 240, CreditAmount: 0 },
@@ -315,7 +344,8 @@ test('fresh payment readbacks identify invalid amounts and still require exact u
   const cases = [
     ['TotalAmount', -1000, 'accounting_amount_invalid'], ['VatLow', 'provider-private-text', 'accounting_amount_invalid'],
     ['Rows[0].DebetAmount', -1000, 'accounting_amount_invalid'], ['Rows[1].CreditAmount', '', 'accounting_amount_invalid'],
-    ['RemainingAmountInvoiceCurrency', -1000, 'accounting_amount_invalid'], ['RemainingAmount', -1000, 'accounting_amount_invalid'],
+    ['RemainingAmountInvoiceCurrency', -999, 'visma_payment_already_recorded'], ['RemainingAmount', -999, 'visma_payment_already_recorded'],
+    ['RemainingAmountInvoiceCurrency', -1000.001, 'accounting_amount_invalid'], ['RemainingAmount', -1000.001, 'accounting_amount_invalid'],
     ['RemainingAmountInvoiceCurrency', undefined, 'visma_payment_already_recorded'], ['RemainingAmountInvoiceCurrency', null, 'visma_payment_already_recorded'],
     ['RemainingAmountInvoiceCurrency', '1000.00', 'visma_payment_already_recorded'], ['RemainingAmount', null, 'visma_payment_already_recorded'],
     ['RemainingAmount', '1000.00', 'visma_payment_already_recorded'], ['RemainingAmount', '', 'visma_payment_already_recorded'],
@@ -343,6 +373,15 @@ test('fresh payment readbacks identify invalid amounts and still require exact u
     const document = await response.json(); document.RemainingAmount = 1000; document.PaymentStatus = 3; return body(document);
   });
   assert.equal((await f.service.assertPaymentReady(source, { fresh: true })).status, 'booked');
+  for (const [currencyBalance, domesticBalance] of [[-1000, -1000], [-1000, 1000], [1000, -1000]]) {
+    f.setProvider(async call => {
+      const response = await remote.provider(call);
+      if (call.url.pathname !== `/v2/supplierinvoices/${remote.invoiceId}`) return response;
+      const document = await response.json(); document.RemainingAmountInvoiceCurrency = currencyBalance;
+      document.RemainingAmount = domesticBalance; document.PaymentStatus = 3; return body(document);
+    });
+    assert.equal((await f.service.assertPaymentReady(source, { fresh: true })).status, 'booked');
+  }
   f.setProvider(async call => {
     const response = await remote.provider(call);
     if (call.url.pathname !== `/v2/supplierinvoices/${remote.invoiceId}`) return response;
