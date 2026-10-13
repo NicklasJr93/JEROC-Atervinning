@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.8.1. Aktuell kontorsversion: 0.23.3.
+Aktuell mobilwebbversion: 0.8.1. Aktuell kontorsversion: 0.23.4.
 Delad attestknapp, bokföring i Spiris, utbetalningsspärr, eget utbetalningskort
 och betalningsbekräftad PDF är genomförda i ÄL 103, bygge 2026-10-13.
 Swish MSS-test, utbetalningspopup, PDF-revisioner och Spiris-betalningsbokföring
@@ -2445,3 +2445,25 @@ Status: Implementerad 2026-10-13 i kontor 0.23.3.
 - Betalningsjournal, belopp, status och spärrar ändras inte. Inga nya
   Render-inställningar eller ändringar av sparade kort behövs.
 - Verifiering: 7 kontroller av utbetalningsvyn och produktionsbygget passerar.
+
+ÄL 108 – Swish-utbetalningen visas i viktkortets gemensamma spårbarhet
+Status: Implementerad 2026-10-13 i kontor 0.23.4.
+- Sparade Swish-händelser från samtliga försök visas mellan viktkortets
+  och Spiris händelser i samma tidsordnade lista, nyast först.
+- Tydliga titlar för påbörjad, stoppad, avvisad, skickas, oklart resultat,
+  återupptagen och genomförd testutbetalning. Spiris-registreringen visas
+  separat. Ett lokalt stopp innebär inte att Swish har avvisat betalningen.
+- Historisk orsak och användare följer respektive händelse, inte jobbets
+  nuvarande fel. Tid visas i Stockholmstid; automatikhändelser märks Swish.
+  Referens till avräkning, försök och verifierad Swish-referens ger sammanhang.
+- Visa utbetalningshistorik öppnar den befintliga fullständiga historiken
+  på utbetalningskortet. Huvudlistan fabricerar inga händelser från status.
+- Samma bolags-/anläggningsskyddade läsning används av kortet och tidslinjen.
+  Både verklig och effektiv användares utbetalningsbehörighet krävs fortsatt.
+  Identitets-/kortbyten döljer gamla uppgifter; öppning, omladdning och
+  automatiska läsningar skickar inga betalnings- eller statusmutationer.
+- Befintliga sparade försök visas efter uppdateringen utan datamigrering.
+  Endast visningen och den delade läsningen ändras; inga nya betalningar
+  eller bokföringsanrop skapas av att visa spårbarheten.
+- Verifiering: 8 kontroller av utbetalning/spårbarhet, 4 kontroller av
+  attest/bokföring/utbetalningsspärr samt produktionsbygget passerar.

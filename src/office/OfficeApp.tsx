@@ -41,7 +41,7 @@ import { OfficePageHeader, OfficeStickyShell } from './OfficePageHeader';
 import CustomerWorkspace from './CustomerWorkspace';
 import PaymentEditor from './PaymentEditor';
 import SwishPayoutDialog from './SwishPayoutDialog';
-import SwishPaymentPanel from './SwishPaymentPanel';
+import SwishPaymentPanel, { CardSwishTrackingProvider } from './SwishPaymentPanel';
 import { CardBookingProvider, CardBookingPayButton } from './CardBookingContext';
 import { spirisBookingChanged, type SpirisAttestAction } from './booking-client';
 import CorrectionsWorkspace from './CorrectionsWorkspace';
@@ -1386,6 +1386,7 @@ export function OfficeApp() {
             </section>
           ) : selected && workflowSections.includes(section) ? (
             <CardBookingProvider card={selected} user={user} actualUser={actualUser!}>
+            <CardSwishTrackingProvider card={selected} user={user} actualUser={actualUser!}>
               <OfficePageHeader>
               <button
                 className="office-back"
@@ -1923,10 +1924,11 @@ export function OfficeApp() {
                           </span>
                         ))}
                     </div>
-                    <CardAuditTimeline card={selected} user={user} renderText={text => safeAuditText(user, text)} />
+                    <CardAuditTimeline card={selected} user={user} users={data.users} renderText={text => safeAuditText(user, text)} />
                   </section>
                   </CardSpirisTrackingProvider>
               </div>
+            </CardSwishTrackingProvider>
             </CardBookingProvider>
           ) : section === 'dashboard' ? (
             <>

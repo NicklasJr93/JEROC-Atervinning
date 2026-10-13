@@ -18,10 +18,13 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
     company, organisationId: company.id, isSupportSession: false, mustChangePassword: false, csrfToken: 'payment-csrf', generation: 1, companies: [company] };
   const source = { cardId, approvalId: 'payment-approval', version: 1, hash: 'payment-source-hash', siteId: 'norrtalje', customerId: customer.id, customerName: customer.name, customerType: customer.type };
   let job: SwishPaymentJob | undefined, starts = 0, resumes = 0;
+  let previousJobs: SwishPaymentJob[] = [], spirisTrace = false;
+  const paymentWrites: string[] = [];
   const requests: string[] = [], startsPayload: Record<string, unknown>[] = [];
   await page.context().route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     requests.push(path);
+    if (request.method() === 'POST' && path.startsWith('/api/environment/payments')) paymentWrites.push(path);
     let body: unknown = {}, status = 200;
     if (path === '/api/platform/session') body = auth;
     else if (path === '/api/application/office') body = { data: office, revision: 1 };
@@ -29,7 +32,7 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
     else if (path.includes('/environment/sources/')) body = { sourceId: String(cardId), revision: 1, sites: [], classifications: [], storagePolicies: [], reports: [], reportHistory: [], inventory: [] };
     else if (path.endsWith(`/payments/cards/${cardId}/prepare`)) body = { cardId, source, sourceSnapshotHash: source.hash, amount: 125, amountCents: 12500, currency: 'SEK', originalPaymentDetails: card.paymentDetails,
       paymentDetails: { ...card.paymentDetails, personalNumber: customer.number }, customer, canStart: false, canInitiate: true, issues: ['Välj Swish för testet.'], simulation: true, mode: 'mss', existingJob: job ?? null, settings: { enabled: true }, configuration: { ready: true, mode: 'mss' } };
-    else if (path.endsWith(`/payments/cards/${cardId}`)) body = job ? [job] : [];
+    else if (path.endsWith(`/payments/cards/${cardId}`)) body = job ? [job, ...previousJobs] : [];
     else if (path === '/api/environment/payments' && request.method() === 'POST') {
       starts += 1;
       const input = request.postDataJSON() as { paymentDetails: SwishPaymentJob['paymentDetails']; reason?: string }; startsPayload.push(input);
@@ -57,11 +60,42 @@ async function fixture(page: Page, options: { lostStartResponse?: boolean; restr
     else if (path === '/api/pricing/state') body = { version: 'test', revision: 1, memoryOnly: true, asOfDate: '2026-10-13', metals: [], articles: [], customers: [] };
     else if (path.endsWith('/summary')) body = { workOrders: 0, warehouse: 0, vessels: 0 };
     else if (path.includes('/accounting/cards/') && path.endsWith('/booking')) body = { cardId, status: 'booked', invoiceId: 'booked-invoice', voucherNumber: 'A1', canBook: false, canRefresh: true };
-    else if (path.includes('/accounting/cards/')) body = { export: null };
+    else if (path.includes('/accounting/cards/')) body = { export: spirisTrace ? {
+      id: 'trace-spiris-export', cardId, approvalId: source.approvalId, version: 1, status: 'accepted',
+      tracking: { state: 'booked', invoiceId: 'trace-invoice', voucherNumber: 'A1' },
+      events: [{ id: 'draft-created', type: 'draft_created', at: '2026-10-13T07:59:00Z', text: 'Fakturautkast skapat i Spiris' },
+        { id: 'booked', type: 'booked', at: '2026-10-13T08:00:00Z', text: 'Bokförd i Spiris' }],
+    } : null };
     else { status = 503; body = { error: 'Optional service unavailable in payout UI fixture' }; }
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
-  return { cardId, starts: () => starts, resumes: () => resumes, startsPayload, requests, reject: () => {
+  return { cardId, starts: () => starts, resumes: () => resumes, startsPayload, requests, paymentWrites,
+    seedPaymentHistory: () => {
+      spirisTrace = true;
+      const saved: SwishPaymentJob = { id: 'trace-latest', kind: 'card', source, amount: 125, amountCents: 12500,
+        currency: 'SEK', mode: 'mss', simulation: true, status: 'simulated_paid', bookkeepingStatus: 'registered', error: null,
+        paymentDetails: { method: 'swish', phone: '+46701234567', recipient: customer.name },
+        createdAt: '2026-10-13T08:04:00Z', updatedAt: '2026-10-13T08:07:00Z', providerPaymentReference: 'SWISH-TRACE-125',
+        reservedBy: { actualUserId: 'historic-finance', effectiveUserId: 'historic-finance', actualUserName: 'Historisk ekonom', effectiveUserName: 'Historisk ekonom' },
+        events: [
+          { id: 'reserved-2', action: 'payment_reserved', at: '2026-10-13T08:04:00Z', actualUserId: 'historic-finance', effectiveUserId: 'historic-finance' },
+          { id: 'blocked-2', action: 'payment_blocked', at: '2026-10-13T08:04:10Z', actualUserId: 'service:swish',
+            error: { message: 'Den ursprungliga kontrollen stoppade försöket.' } },
+          { id: 'resumed-2', action: 'payment_resumed', at: '2026-10-13T08:04:30Z', actualUserId: 'historic-finance', effectiveUserId: 'historic-finance' },
+          { id: 'sent-2', action: 'payment_sent', at: '2026-10-13T08:05:00Z', actualUserId: 'service:swish' },
+          { id: 'unknown-2', action: 'payment_outcome_unknown', at: '2026-10-13T08:05:30Z', actualUserId: 'service:swish', text: 'Slutresultatet kunde ännu inte bekräftas.' },
+          { id: 'paid-2', action: 'payment_simulated_paid', at: '2026-10-13T08:06:00Z', actualUserId: 'service:swish' },
+          { id: 'registered-2', action: 'payment_bookkeeping_updated', status: 'registered', at: '2026-10-13T08:07:00Z', actualUserId: 'service:swish' },
+        ] };
+      const rejection = { id: 'rejected-1', action: 'payment_rejected', at: '2026-10-13T08:03:00Z', actualUserId: 'service:swish', text: 'Testmottagaren avvisades av Swish.' };
+      previousJobs = [{ ...saved, id: 'trace-earlier', status: 'rejected', bookkeepingStatus: 'not_requested', providerPaymentReference: undefined,
+        createdAt: '2026-10-13T08:01:00Z', updatedAt: '2026-10-13T08:03:00Z', events: [
+          { action: 'payment_reserved', at: '2026-10-13T08:01:00Z', actualUserId: 'historic-finance', effectiveUserId: 'historic-finance' },
+          { id: 'sent-1', action: 'payment_sent', at: '2026-10-13T08:02:00Z', actualUserId: 'service:swish' },
+          rejection, { ...rejection },
+        ] }];
+      job = saved;
+    }, reject: () => {
     if (job) job = { ...job, status: 'rejected', updatedAt: '2026-10-13T08:02:00Z', response: { httpStatus: 400, data: { errorCode: 'RF07' } } };
   }, unknown: () => { if (job) job = { ...job, status: 'unknown', updatedAt: '2026-10-13T08:02:00Z' }; }, confirm: (bookkeepingStatus: SwishPaymentJob['bookkeepingStatus'] = 'registered') => {
     if (job) job = { ...job, status: 'simulated_paid', bookkeepingStatus, verifiedAt: '2026-10-13T08:02:00Z', updatedAt: '2026-10-13T08:02:00Z', response: { httpStatus: 200, data: { status: 'PAID' } } };
@@ -203,4 +237,32 @@ test('användare utan utbetalningsbehörighet ser inga betalningsåtgärder elle
   await expect(page.getByRole('button', { name: 'Betala ut', exact: true })).toHaveCount(0);
   await expect(page.locator('.swish-payment-panel')).toHaveCount(0);
   expect(state.requests.filter(path => path.startsWith('/api/environment/payments'))).toHaveLength(0);
+});
+
+test('spårbarhet visar sparade Swish-försök mellan Spiris-händelser utan nya betalningsanrop', async ({ page }) => {
+  const state = await fixture(page); state.seedPaymentHistory();
+  await page.goto(`/kontor#/weighings/${state.cardId}`);
+  const trace = page.locator('.office-card-audit .office-audit');
+  await expect(trace).toContainText('Testbetalning registrerad i Spiris sandbox');
+  const titles = [
+    'Testbetalning registrerad i Spiris sandbox', 'Testutbetalning genomförd · Swish MSS',
+    'Utbetalningens resultat behöver kontrolleras', 'Utbetalning skickas till Swish MSS',
+    'Samma testutbetalning återupptagen', 'Testutbetalning stoppad', 'Testutbetalning påbörjad · Swish MSS',
+    'Swish MSS avvisade testutbetalningen', 'Utbetalning skickas till Swish MSS',
+    'Testutbetalning påbörjad · Swish MSS', 'Bokförd i Spiris', 'Fakturautkast skapat i Spiris',
+  ];
+  await expect(trace.locator('li > div > strong')).toHaveText(titles);
+  await expect(trace).toContainText('Historisk ekonom');
+  await expect(trace).toContainText('SWISH-TRACE-125');
+  await expect(trace).toContainText('Testmottagaren avvisades av Swish.');
+  await expect(trace).toContainText('Den ursprungliga kontrollen stoppade försöket.');
+  await trace.getByRole('button', { name: 'Visa utbetalningshistorik', exact: true }).first().click();
+  await expect(page.locator('.swish-payment-history')).toHaveAttribute('open', '');
+  await page.evaluate(cardId => window.dispatchEvent(new CustomEvent('scrappilot:payment-change', {
+    detail: { cardId, identity: 'admin/admin' },
+  })), state.cardId);
+  await expect(trace.locator('li > div > strong')).toHaveText(titles);
+  await page.reload();
+  await expect(trace.locator('li > div > strong')).toHaveText(titles);
+  expect(state.starts()).toBe(0); expect(state.resumes()).toBe(0); expect(state.paymentWrites).toEqual([]);
 });

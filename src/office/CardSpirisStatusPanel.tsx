@@ -6,6 +6,8 @@ import { can, type OfficeCard, type OfficeUser } from './model';
 import { mayManageSpiris } from './integration-permissions';
 import { useEnvironmentSession } from './EnvironmentSession';
 import { spirisAccountingApi } from './spiris-accounting-client';
+import { useCardSwishTracking } from './SwishPaymentPanel';
+import { swishPaymentTrace } from './swish-payment-trace';
 import './card-spiris-status.css';
 
 const exportSchema = z.object({
@@ -235,22 +237,25 @@ export default function CardSpirisStatusPanel(_props: { card: OfficeCard; user: 
 }
 
 /** The same limited projection powers both the status card and the timeline. */
-export function CardAuditTimeline({ card, user, renderText }: {
-  card: OfficeCard; user: OfficeUser; renderText: (text: string) => string;
+export function CardAuditTimeline({ card, user, users = [], renderText }: {
+  card: OfficeCard; user: OfficeUser; users?: OfficeUser[]; renderText: (text: string) => string;
 }) {
   const context = useContext(TrackingContext);
+  const swish = useCardSwishTracking();
   const job = context?.allowed ? context.current.job : null;
   const audit = card.audit.filter(event => !event.text.startsWith('Pris för') || can(user, 'changePrice'))
-    .map((event, index) => ({ ...event, key: 'card-' + index, order: index, integration: false, detail: '' }));
+    .map((event, index) => ({ ...event, key: 'card-' + index, order: index, integration: false, payment: false, detail: '' }));
   const integrations = (job?.events ?? []).flatMap((event, index) => {
     if (event.type && !headlineTitles[event.type]) return [];
     if (!event.type && event.text.toLocaleLowerCase('sv').includes('leverantör') && !event.text.toLocaleLowerCase('sv').includes('faktura')) return [];
     return [{ at: event.at, text: event.type ? headlineTitles[event.type] : event.text,
       actor: event.actor ?? 'Spiris', key: 'spiris-' + job!.id + '-' + (event.id ?? index),
-      order: card.audit.length + index, integration: true,
+      order: card.audit.length + index, integration: true, payment: false,
       detail: 'Avräkning AV-' + card.id + '-V' + job!.version + (event.detail ? ' · ' + event.detail : '') }];
   });
-  const items = [...audit, ...integrations].sort((first, second) =>
+  const payments = swishPaymentTrace(swish.permitted && swish.sessionMatches ? swish.jobs : [], users)
+    .map(event => ({ ...event, order: card.audit.length + integrations.length + event.order, integration: false, payment: true }));
+  const items = [...audit, ...integrations, ...payments].sort((first, second) =>
     (Date.parse(second.at) || 0) - (Date.parse(first.at) || 0) || second.order - first.order);
   return <ol className="office-audit">{items.map(event => <li key={event.key}>
     <i /><div><strong>{renderText(event.text)}</strong>
@@ -259,6 +264,12 @@ export function CardAuditTimeline({ card, user, renderText }: {
       {event.integration && <button type="button" className="office-link card-spiris-trace-link" onClick={() => {
         context?.setDetails(true); document.getElementById('card-spiris-status')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }}>Visa överföring</button>}
+      {event.payment && <button type="button" className="office-link card-spiris-trace-link" onClick={() => {
+        const panel = document.getElementById('card-swish-payment');
+        const history = panel?.querySelector<HTMLDetailsElement>('.swish-payment-history');
+        if (history) history.open = true;
+        panel?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }}>Visa utbetalningshistorik</button>}
     </div>
   </li>)}</ol>;
 }

@@ -16,6 +16,8 @@ export interface SwishPaymentJob {
   paymentDetails: SwishPaymentDetails; originalPaymentDetails?: PaymentDetails;
   reason?: string; recipient?: unknown; status: SwishPaymentStatus; bookkeepingStatus: SwishBookkeepingStatus;
   providerInstructionUUID?: string; createdAt: string; updatedAt: string; verifiedAt?: string;
+  providerPaymentReference?: string;
+  reservedBy?: { actualUserId?: string; effectiveUserId?: string; actualUserName?: string; effectiveUserName?: string };
   error?: { code?: string; message?: string; details?: { provider?: string; field?: string; valueType?: string } } | string | null;
   canResume?: boolean;
   preflightStatus?: 'ready' | 'blocked';
@@ -24,7 +26,8 @@ export interface SwishPaymentJob {
   bookkeeping?: { status?: string; reason?: string | null; paymentId?: string; voucherId?: string; invoiceId?: string | null; bankTransactionId?: string | null;
     paymentVoucherId?: string | null; paymentVoucherNumber?: string | null; paymentDate?: string; updatedAt?: string };
   bookkeepingEnabled?: boolean;
-  events?: { at?: string; text?: string; message?: string; type?: string; actor?: string }[];
+  events?: { id?: string; action?: string; at?: string; text?: string; message?: string; type?: string; actor?: string;
+    actualUserId?: string; effectiveUserId?: string; status?: string; error?: { code?: string; message?: string } | null }[];
   request?: { method: string; path: string; payload?: NvvJsonObject };
   response?: { httpStatus?: number | null; data?: unknown };
   documentRevision?: ArchivedDocument | { id?: string; title?: string; documentId?: string; version?: number; originalDocumentId?: string; document?: ArchivedDocument; status?: string } | null;

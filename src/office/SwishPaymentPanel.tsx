@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { CheckCircle2, CircleAlert, FileText, LoaderCircle, RefreshCw, Smartphone, Wallet, BookOpenCheck } from 'lucide-react';
 import { can, type OfficeCard, type OfficeUser } from './model';
 import { useEnvironmentSession } from './EnvironmentSession';
@@ -15,6 +15,104 @@ import { useCardBooking } from './CardBookingContext';
 import { spirisBookingStatusNames } from './booking-client';
 
 const timestamp = (value: string) => new Date(value).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm', dateStyle: 'short', timeStyle: 'short' });
+
+export interface CardSwishTrackingState {
+  jobs: SwishPaymentJob[];
+  loading: boolean;
+  error: string;
+  permitted: boolean;
+  sessionMatches: boolean;
+  sessionLoading: boolean;
+  eligible: boolean;
+  load: (manual?: boolean) => Promise<void>;
+}
+const emptyJobs: SwishPaymentJob[] = [];
+const SwishTrackingContext = createContext<CardSwishTrackingState>({
+  jobs: emptyJobs, loading: false, error: '', permitted: false, sessionMatches: false, sessionLoading: false, eligible: false,
+  load: () => Promise.resolve(),
+});
+export const useCardSwishTracking = () => useContext(SwishTrackingContext);
+
+interface SwishReadState { scope: string; jobs: SwishPaymentJob[]; loading: boolean; error: string }
+const emptyRead = (scope: string): SwishReadState => ({ scope, jobs: emptyJobs, loading: false, error: '' });
+export function CardSwishTrackingProvider({ card, user, actualUser, children }: {
+  card: OfficeCard; user: OfficeUser; actualUser: OfficeUser; children: ReactNode;
+}) {
+  const { reportPayment } = useCardBooking();
+  const { session, loading: sessionLoading } = useEnvironmentSession();
+  const identity = `${actualUser.id}/${user.id}`;
+  const permitted = can(user, 'pay') && can(actualUser, 'pay');
+  const sessionMatches = session?.actualUserId === actualUser.id && session?.effectiveUserId === user.id;
+  const eligible = card.status === 'ready';
+  const readAllowed = permitted && sessionMatches && (eligible || card.status === 'paid');
+  const scope = JSON.stringify([card.id, card.siteId, card.status, identity,
+    actualUser.level, actualUser.permissions, actualUser.siteIds, user.level, user.permissions, user.siteIds,
+    session?.actualUserId, session?.effectiveUserId, session?.csrfToken, session?.expiresAt]);
+  const [state, setState] = useState<SwishReadState>(() => emptyRead(scope));
+  const flight = useRef<AbortController | null>(null), epoch = useRef(0);
+  const scopeRef = useRef(scope); scopeRef.current = scope;
+  const sessionLoadingRef = useRef(sessionLoading); sessionLoadingRef.current = sessionLoading;
+  const jobsRef = useRef({ scope, jobs: emptyJobs });
+  const visible = state.scope === scope ? state : emptyRead(scope);
+  const jobs = visible.jobs;
+  const load = useCallback(async (manual = false) => {
+    if (!readAllowed || scopeRef.current !== scope || flight.current || (manual && sessionLoadingRef.current)) return;
+    const version = epoch.current, controller = new AbortController(); flight.current = controller;
+    const current = () => version === epoch.current && scopeRef.current === scope && !controller.signal.aborted;
+    const latest = jobsRef.current.scope === scope ? jobsRef.current.jobs[0] : undefined;
+    if (manual || !latest) setState(previous => ({ ...(previous.scope === scope ? previous : emptyRead(scope)), loading: true }));
+    try {
+      // Only the explicit update action refreshes a payment. Opening or changing a card only reads it.
+      if (manual && latest?.kind === 'card' && latest.source?.cardId === card.id) {
+        await swishPaymentsApi.refresh(latest.id, controller.signal);
+        if (!current()) return;
+      }
+      const next = await swishPaymentsApi.jobs(card.id, controller.signal);
+      if (!current()) return;
+      const scopedJobs = next.filter(job => job.kind === 'card' && job.source?.cardId === card.id)
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      jobsRef.current = { scope, jobs: scopedJobs };
+      setState({ scope, jobs: scopedJobs, loading: false, error: '' });
+    } catch (failure) {
+      if (current()) setState(previous => ({ ...(previous.scope === scope ? previous : emptyRead(scope)),
+        error: failure instanceof Error ? failure.message : 'Swish-statusen kunde inte hämtas.' }));
+    } finally {
+      if (flight.current === controller) flight.current = null;
+      if (current()) setState(previous => ({ ...previous, loading: false }));
+    }
+  }, [card.id, scope, readAllowed]);
+  useEffect(() => {
+    epoch.current += 1; flight.current?.abort(); flight.current = null;
+    jobsRef.current = { scope, jobs: emptyJobs }; setState(emptyRead(scope));
+    void load();
+    return () => {
+      epoch.current += 1; flight.current?.abort(); flight.current = null;
+      jobsRef.current = { scope, jobs: emptyJobs };
+    };
+  }, [scope, load]);
+  useEffect(() => { reportPayment(jobs[0]); }, [jobs[0], reportPayment]);
+  useEffect(() => {
+    if (!readAllowed) return;
+    const changed = (event: Event) => {
+      const value = (event as CustomEvent<{ cardId: number; identity: string }>).detail;
+      if (value?.cardId === card.id && value.identity === identity) void load();
+    };
+    window.addEventListener('scrappilot:payment-change', changed);
+    return () => window.removeEventListener('scrappilot:payment-change', changed);
+  }, [card.id, identity, readAllowed, load]);
+  useEffect(() => {
+    if (!readAllowed || !jobs.some(job => swishPaymentRunning(job) || swishBookkeepingRunning(job))) return;
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      if (Date.now() - started > 90_000) { window.clearInterval(timer); return; }
+      if (document.visibilityState === 'visible') void load();
+    }, jobs[0]?.status === 'simulated_paid' ? 15_000 : 4000);
+    return () => window.clearInterval(timer);
+  }, [readAllowed, jobs[0]?.id, jobs[0]?.status, jobs[0]?.bookkeepingStatus, load]);
+  return <SwishTrackingContext.Provider value={{ jobs, loading: visible.loading, error: visible.error,
+    permitted, sessionMatches, sessionLoading, eligible, load }}>{children}</SwishTrackingContext.Provider>;
+}
+
 export function SwishPaymentDocument({ job, user, actualUser }: { job: SwishPaymentJob; user: OfficeUser; actualUser: OfficeUser }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const flight = useRef<AbortController | null>(null), generation = useRef(0);
@@ -57,57 +155,12 @@ export default function SwishPaymentPanel({ card, user, actualUser, onStart, onR
   card: OfficeCard; user: OfficeUser; actualUser: OfficeUser; onStart: () => void; onReview?: () => void; refreshKey?: number;
 }) {
   const bookingState = useCardBooking();
-  const { session, loading: sessionLoading } = useEnvironmentSession();
-  const [jobs, setJobs] = useState<SwishPaymentJob[]>([]), [loading, setLoading] = useState(false), [error, setError] = useState('');
-  const flight = useRef<AbortController | null>(null), epoch = useRef(0);
-  const jobsRef = useRef(jobs); jobsRef.current = jobs;
-  const reportPayment = bookingState.reportPayment;
-  useEffect(() => { reportPayment(jobs[0]); }, [jobs[0], reportPayment]);
-  const identity = `${actualUser.id}/${user.id}`;
-  const permitted = can(user, 'pay') && can(actualUser, 'pay');
-  const sessionMatches = session?.actualUserId === actualUser.id && session?.effectiveUserId === user.id;
-  const eligible = card.status === 'ready';
-  const load = useCallback(async (manual = false) => {
-    if (!permitted || !sessionMatches || flight.current) return;
-    const version = epoch.current, controller = new AbortController(); flight.current = controller;
-    if (manual) setLoading(true);
-    try {
-      if (manual && jobsRef.current[0]) await swishPaymentsApi.refresh(jobsRef.current[0].id, controller.signal);
-      const next = await swishPaymentsApi.jobs(card.id, controller.signal);
-      if (version !== epoch.current || controller.signal.aborted) return;
-      setJobs([...next].sort((left, right) => right.createdAt.localeCompare(left.createdAt))); setError('');
-    } catch (failure) {
-      if (version === epoch.current && !controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Swish-statusen kunde inte hämtas.');
-    } finally {
-      if (flight.current === controller) flight.current = null;
-      if (version === epoch.current) setLoading(false);
-    }
-  }, [card.id, identity, permitted, sessionMatches]);
+  const { jobs, loading, error, permitted, sessionMatches, sessionLoading, eligible, load } = useCardSwishTracking();
+  const previousRefreshKey = useRef(refreshKey);
   useEffect(() => {
-    epoch.current += 1; flight.current?.abort(); flight.current = null;
-    setJobs([]); setError(''); setLoading(false);
-    if (permitted && sessionMatches && (eligible || card.status === 'paid')) void load(true);
-    return () => { epoch.current += 1; flight.current?.abort(); flight.current = null; };
-  }, [load, eligible, card.status]);
-  useEffect(() => { if (refreshKey > 0) void load(); }, [refreshKey, load]);
-  useEffect(() => {
-    if (!permitted || !sessionMatches) return;
-    const changed = (event: Event) => {
-      const value = (event as CustomEvent<{ cardId: number; identity: string }>).detail;
-      if (value?.cardId === card.id && value.identity === identity) void load();
-    };
-    window.addEventListener('scrappilot:payment-change', changed);
-    return () => window.removeEventListener('scrappilot:payment-change', changed);
-  }, [card.id, identity, permitted, sessionMatches, load]);
-  useEffect(() => {
-    if (!jobs.some(job => swishPaymentRunning(job) || swishBookkeepingRunning(job))) return;
-    const started = Date.now();
-    const timer = window.setInterval(() => {
-      if (Date.now() - started > 90_000) { window.clearInterval(timer); return; }
-      if (document.visibilityState === 'visible') void load();
-    }, jobs[0]?.status === 'simulated_paid' ? 15_000 : 4000);
-    return () => window.clearInterval(timer);
-  }, [jobs[0]?.id, jobs[0]?.status, jobs[0]?.bookkeepingStatus, load]);
+    if (refreshKey > 0 && previousRefreshKey.current !== refreshKey) void load();
+    previousRefreshKey.current = refreshKey;
+  }, [refreshKey, load]);
   if (!bookingState.permitted || !['ready', 'paid', 'balance'].includes(card.status)) return null;
   const latest = jobs[0], booking = bookingState.booking;
   const paid = latest?.status === 'simulated_paid';
@@ -121,7 +174,7 @@ export default function SwishPaymentPanel({ card, user, actualUser, onStart, onR
     : booking?.status === 'draft' ? 'Granska utkastet och bokför underlaget i Spiris före utbetalning.'
     : booking?.status === 'booking' || booking?.status === 'creating_draft' ? 'Spiris arbetar i bakgrunden. Utbetalningen öppnas när bokföringen har bekräftats.'
     : booking?.reason ?? 'Utbetalningen öppnas först när bokföringen i Spiris har bekräftats.';
-  return <section className={`office-panel office-card-payout swish-payment-panel${actionable ? ' office-guidance-focus' : ''}`} aria-label="Utbetalning">
+  return <section id="card-swish-payment" className={`office-panel office-card-payout swish-payment-panel${actionable ? ' office-guidance-focus' : ''}`} aria-label="Utbetalning">
     <ElectricFocusBorder active={actionable} />
     <div className="office-payout-heading">
       <div className="office-payout-title"><Wallet size={25} aria-hidden="true" /><div><h2>Utbetalning</h2><p>{nextAction}</p></div></div>
