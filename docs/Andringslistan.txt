@@ -22,6 +22,8 @@ Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 av de sex första områdena. 087 väntar på Google-uppgifter.
 Byggets innehåll och verifiering: docs/bygge-kunddata-och-spiris-2026-10-12.md.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
+ÄL 123 är planerad som Before demo release: rättningar och verifiering av
+säkerhet, drift och skalbarhet innan live-demo. Implementation avvaktar.
 
 Arbetssätt
 ÄL är vår förkortning för ÄndringsListan.
@@ -2895,3 +2897,46 @@ Status: Implementerad 2026-10-13 i mobilwebb 0.12.0 / kontor 0.29.0.
   Försäkringskassan efter sjuklöneperioden och plan för återgång vid lång frånvaro.
   Kontrollerna följer Sjuklönelagen och Försäkringskassans vägledning, inte LAS.
   Anmälan till Försäkringskassan och lönekörning utförs separat.
+
+ÄL 123 – Before demo release: säkerhet, drift och skalbarhet
+Status: Planerad 2026-10-14. Ska genomföras och verifieras innan live-demo.
+Användaren har skjutit upp implementationen till en senare beställning.
+Underlag: docs/security/launch-readiness-2026-10-14.md (samtliga 51 punkter).
+Framtidsplanering: docs/planerade-uppdateringar.md.
+- Samordna identitet, lösenord och sessionsåterkallning mellan mobil och
+  kontor. Efter säkerhetsändring får gamla sessioner/lösenord inte fortsätta
+  fungera i ett annat inloggningsflöde för samma konto. Avveckla äldre
+  demoinloggningar i live-demomiljön och rotera tidigare delade hemligheter
+  via säker konfiguration, utan nya hemligheter i chatt eller Git.
+  Kontrollerade demokonton ska bara fungera i uttryckligt aktiverad demodrift
+  med syntetiska data; avstängning måste spärra serverinloggningen.
+- Rätta arkivskrivning med enbart view-behörighet. Kräv uttrycklig
+  skrivbehörighet, strikt schema, innehållsgräns och kvot på servern.
+  Kontrollera faktisk och effektiv användare, bolag och relevant anläggning.
+- Rätta Swish HTTP 408: timeout ska behålla okänt utfall och reservation.
+  Återläs samma instruktion; ett nytt instruktion-ID får inte skapas för en
+  betalning vars tidigare resultat ännu kan vara genomfört. Kontrollera
+  dubbeltryck, parallella försök, återstart och borttappade svar. Nuvarande
+  Swish är MSS-test; skarp betalningsanslutning är en separat senare etapp.
+- Genomför backup-/återställnings- och driftverifieringen enligt ÄL 045.
+  Omfatta alla bolagsschemas, plattformsregister samt PDF/bilder/intyg.
+  Återställ till separat miljö och verifiera att gamla betalningar/utskick
+  inte återutlöses. Fastställ RPO/RTO, beroendekontroller för readiness och
+  larm för köstopp, felandel, databasanslutningar/utrymme och backupfel.
+- Utred beroendeskanningens fynd i sharp och Expo. Inför automatiska
+  test-/skanningskontroller före release, komplettera säkerhetsheaders och
+  loggmaskering, besluta säker hantering av intygs-PDF och bygg ErrorBoundary
+  med begriplig återhämtning vid chunk-/renderfel i stället för vit sida.
+- Förbered växande datamängder med paginering/gränser, mindre skrivningar,
+  central budget för DB-anslutningar och index utifrån riktiga query plans.
+  Verifiera bolagsisolering, flerprocesslåsning, idempotens, återstart,
+  partiella avbrott och realistisk last mot en separat PostgreSQL-testmiljö.
+- Följ upp resterande luckor i alla 51 granskningspunkter, bland annat
+  rate limiting, återställningslänkar, miljöseparering, nyckelrotation,
+  gallring, dead-letter-jobb, SSE-återhämtning och externa API-trafikgränser.
+  Dokumentera rättningar, negativa tester och kvarstående begränsningar
+  inför live-demo; skilj lokal testverifiering från Render-/PostgreSQL-bevis.
+  Negativa tester för lösenord, sessioner, arkivskrivning och bolagsåtkomst
+  ska även gå genom produktionsgatewayen, inte enbart underliggande tjänster.
+- Detta är planering. Ingen applikationskod, integration eller
+  driftkonfiguration ändras genom den här uppdateringen av ÄL.

@@ -1,6 +1,6 @@
 # Planerade framtida uppdateringar
 
-Senast uppdaterad: 2026-10-13.
+Senast uppdaterad: 2026-10-14.
 
 Utbetalningsbuntar/betalfil och dashboards avvaktar fortsatt enligt
 användarens beslut. Mejlinkorgens nya bildmockuper är klara enligt ÄL 111;
@@ -9,6 +9,34 @@ Google, svar och AI-förslag återstår.
 Bankmottagare och Open Payments-bankmotor
 är levererade i sandbox enligt ÄL 109; produktionsanslutning återstår.
 Ordningen är inte en prioritering.
+
+## Before demo release – säkerhet, drift och skalbarhet
+
+Status: Planerad enligt ÄL 123. Ska åtgärdas och verifieras innan live-demo.
+Implementation avvaktar en senare beställning.
+
+- Samordna lösenordsbyte och sessionsåterkallning mellan mobil och kontor.
+  Avveckla äldre demoinloggningar i miljön för live-demo och hantera tidigare
+  delade hemligheter genom säker rotation.
+- Stäng arkivskrivning för konton med enbart läsbehörighet. Inför specifik
+  skrivbehörighet, servervalidering och gränser för arkivinnehåll.
+- Behåll Swish-timeout som okänt betalningsresultat: reservera kortet och
+  kontrollera samma instruktion, utan möjlighet till en ny dubbelbetalning.
+- Verifiera komplett backup och återställning till separat miljö enligt ÄL 045.
+  Lägg till beroendekontroller för readiness och användbara driftlarm.
+- Utred och åtgärda beroendeskanningens fynd. Inför automatiska
+  releasekontroller, säkerhetsheaders, loggmaskering, säker filhantering och
+  en återhämtningsvy vid klientfel i stället för vit sida.
+- Begränsa stora listor, minska hela domänskrivningar, budgetera
+  databasanslutningar och kontrollera index. Kör separat PostgreSQL-prov för
+  bolagsisolering, samtidiga ändringar, återstart, partiella avbrott och last.
+- Följ upp samtliga 51 granskningspunkter. Dokumentera utförda rättningar,
+  testresultat och kvarstående begränsningar inför live-demo. En punkt är
+  inte verifierad enbart för att den är dokumenterad eller kodad.
+
+Underlag: [Granskning av alla 51 punkter](security/launch-readiness-2026-10-14.md),
+[Ändringslistan, ÄL 123](Andringslistan.txt). ÄL 045 behåller backup-/driftomfånget;
+den här punkten samlar arbetet inför live-demo.
 
 ## Bankmottagare: svenskt konto, bankgiro, plusgiro och IBAN
 
