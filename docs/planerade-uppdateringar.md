@@ -1,6 +1,6 @@
 # Planerade framtida uppdateringar
 
-Senast uppdaterad: 2026-10-14.
+Senast uppdaterad: 2026-10-16.
 
 Utbetalningsbuntar/betalfil och dashboards avvaktar fortsatt enligt
 användarens beslut. Mejlinkorgens nya bildmockuper är klara enligt ÄL 111;
@@ -14,6 +14,11 @@ Ordningen är inte en prioritering.
 
 Status: första fristående backendgrund levererad 2026-10-16 enligt ÄL 127.
 [Dokumentation och provsteg](integrationer/telematik/README.md).
+
+Digital testbil och separat virtuell FMC003 är implementerade enligt ÄL 128
+på `/testbil1` efter deploy. [Guide](integrationer/telematik/testbil.md).
+Det är en isolerad syntetisk kanal med processminne, inte verklig telemetri
+eller den separata produktionsplattformen med databas och bakgrundsprocesser.
 
 - Lokal TCP/Codec 8 Extended-mottagning, SQLite-pilot och reseprojektion
   är byggda. Ingen fysisk tracker, produktionsstart eller appvy är ansluten.

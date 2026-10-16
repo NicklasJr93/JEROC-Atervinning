@@ -1,8 +1,9 @@
 # ScrapPilot – digital testbil
 
 Statisk bildmockup, framtagen 16 oktober 2026. Ingen interaktiv demo eller
-ny applikationsfunktion ingår i den här leveransen. Användaren bad om en
-bildmockup före implementation; kodningen av testbilssidan är pausad.
+ny applikationsfunktion ingår i själva bildleveransen. Användaren godkände
+sedan mockupen och beställde implementation enligt ÄL 128.
+[Den byggda simulatorn beskrivs här](../../integrationer/telematik/testbil.md).
 
 [Öppna bilden i full storlek](01_Testbil_Dashboard.png)
 
@@ -12,7 +13,7 @@ Förslag till separat sida på `/testbil1`, med en fiktiv FMC003-utrustad
 transportbil. Bilden visar pågående körning från Kontoret till Kund 1.
 Kartan, rutten, kunderna, fordonsvärdena och mottagarstatistiken är
 illustrationer med syntetiska uppgifter, inte verklig telemetri.
-Sökvägen är ett designförslag och är ännu inte publicerad som fungerande sida.
+Implementationen använder sökvägen `/testbil1` efter deploy.
 
 ## Föreslaget flöde
 

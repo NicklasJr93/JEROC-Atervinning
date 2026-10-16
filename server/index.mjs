@@ -8,6 +8,7 @@ import { expoStatus, retryExpo, serveExpo, startExpoGo } from './expo-go.mjs';
 import { closePdfRenderer } from './documents/render-pool.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
 import { createTenantGateway } from './tenant-gateway.mjs';
+import { createTestCarApi } from './telematics/testcar-api.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -55,6 +56,9 @@ async function handle(req, res) {
     reply(res, 400, 'Invalid URL');
     return;
   }
+  // A public, synthetic-only lab has its own bounded browser sessions. It has
+  // no capability to select a tenant or write business/production telemetry.
+  if (await testCarApi(req, res, url)) return;
   if (await tenantGateway.selectPage(req, res, url)) return;
   if (await tenantGateway(req, res, url)) return;
   if (pathname === '/expo/retry' && req.method === 'POST') {
@@ -91,7 +95,7 @@ async function handle(req, res) {
     reply(res, 404, 'Not found');
     return;
   }
-  const staticPath = ['/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/kontor/integration/systemadminswishtest.html', '/kontor/integration/systemadminbanktest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
+  const staticPath = ['/', '/testbil1', '/testbil1/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/kontor/integration/systemadminswishtest.html', '/kontor/integration/systemadminbanktest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
   const file = resolve(dist, `.${staticPath}`);
   const within = relative(dist, file);
   if (within.startsWith('..') || isAbsolute(within)) {
@@ -147,6 +151,7 @@ const server = createServer((req, res) => {
     else reply(res, 500, 'Server error');
   });
 });
+const testCarApi = createTestCarApi();
 const tenantGateway = await createTenantGateway();
 let expoGo;
 try {
@@ -182,6 +187,7 @@ async function stop(code = 0) {
   clearInterval(accountingTimer);
   clearInterval(accountingTrackingTimer);
   clearInterval(paymentTimer);
+  testCarApi.close();
   setTimeout(() => process.exit(1), 10000).unref();
   await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), tenantGateway.close()]);
   await closePdfRenderer();

@@ -3038,3 +3038,28 @@ Status: Första fristående pilotgrund implementerad 2026-10-16.
   transportskydd, PostgreSQL/retention och inkrementell bearbetning, riktig
   register-/behörighetskoppling, appkomplettering och senare paneladapter.
 - Dokumentation och provsteg: docs/integrationer/telematik/README.md.
+
+ÄL 128 – Digital testbil och virtuell FMC003
+Status: Implementerad 2026-10-16 efter godkänd bildmockup.
+- Separat sida /testbil1 med ScrapPilot-bil, karta, instrument, körkontroller,
+  simulerad hastighet 1×/5×/10×, mottagarstatistik och händelser.
+- Fiktiva platser Kontoret, Kund 1, Kund 2 och Hem. Nuvarande plats visas
+  tydligt och samma destination spärras både i gränssnitt och serverkommando.
+  Ankomst uppdaterar platsen; paus/motorstopp mitt på resan behåller verklig
+  simulerad position och visar Längs vägen. Ingen teleport till destinationen.
+- Separat virtuell FMC003 läser bilmodellen, samlar var 15:e simulerad sekund,
+  sänder var 30:e och prioriterar tändningshändelser. Genererade Codec 8E-
+  paket går genom befintlig decoder med CRC och kvitteras med mottaget antal.
+  Utebliven/fel kvittens behåller samma paket för omsändning.
+- Simulerat täckningsbortfall buffrar mätpunkter och återanslutning tömmer kön.
+  Fördröjda data och omsändningar skapar inte dubbla mottagna mätpunkter.
+- Publik men avskild fiktiv testsession per webbläsare, inga företags- eller
+  databasändringar. Egen cookie/CSRF/origin-kontroll och fasta resursgränser.
+  Tillståndet ligger i processminne och försvinner vid deploy/utgångstid.
+- Kartbilder har lokal illustrerad fallback. Mobilvy, laddfel och osäkra
+  kommandosvar har återhämtning utan automatisk omsändning av kommandot.
+- Det är en programkoppling i serverprocessen, inte ett fysiskt trackerprov
+  eller en driftsatt TCP-/PostgreSQL-plattform för tusentals fordon.
+- Verifierat: 65 riktade telematiktester, fem browserfall, produktionsbygge
+  och browserprov med riktig lokal HTTP-session/CSRF. Inget fysiskt trackerprov.
+- Guide: docs/integrationer/telematik/testbil.md.

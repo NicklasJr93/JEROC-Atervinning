@@ -1,0 +1,330 @@
+.testcar-app {
+  --tc-ink: #0c1d37;
+  --tc-muted: #5d7190;
+  --tc-line: #dfe8f1;
+  --tc-blue: #0678e8;
+  width: 100%; min-width: 0; min-height: 100dvh;
+  color: var(--tc-ink); background: #f3f8fc;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px; line-height: 1.45; color-scheme: light;
+}
+.testcar-app *, .testcar-app *::before, .testcar-app *::after { box-sizing: border-box; }
+.testcar-app button, .testcar-app a { -webkit-tap-highlight-color: transparent; }
+.testcar-app button { font: inherit; cursor: pointer; color: inherit; }
+.testcar-app button:disabled { cursor: default; }
+.testcar-app button:focus-visible, .testcar-app a:focus-visible { outline: 3px solid #3899f3; outline-offset: 3px; }
+.testcar-app a { color: var(--tc-blue); text-decoration: none; }
+.testcar-app button { transition: background-color .15s, border-color .15s, box-shadow .15s; }
+.testcar-app h1, .testcar-app h2, .testcar-app h3, .testcar-app p { margin: 0; }
+.testcar-app h2 { font-size: 20px; line-height: 1.25; font-weight: 760; letter-spacing: -.035em; }
+.testcar-app h3 { font-size: 15px; line-height: 1.35; font-weight: 700; letter-spacing: -.02em; }
+.testcar-header { width: 100%; background: #fff; border-bottom: 1px solid var(--tc-line); }
+.testcar-header-inner { min-height: 66px; max-width: 1744px; padding: 10px 28px; margin: 0 auto; display: flex; align-items: center; gap: 24px; }
+.testcar-brand { display: inline-flex; flex: 0 0 auto; align-items: center; }
+.testcar-brand img { display: block; width: 174px; height: 39px; object-fit: contain; }
+.testcar-breadcrumb { display: flex; align-items: center; gap: 17px; padding-left: 24px; border-left: 1px solid var(--tc-line); color: var(--tc-muted); white-space: nowrap; }
+.testcar-breadcrumb strong { color: var(--tc-ink); font-size: 13px; font-weight: 650; }
+.testcar-header-actions { display: flex; align-items: center; gap: 22px; margin-left: auto; }
+.testcar-back-link { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.testcar-badge { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; border: 1px solid transparent; border-radius: 8px; background: #f1f6fb; color: #38506e; font-size: 11px; font-weight: 650; line-height: 1.2; white-space: nowrap; }
+.testcar-test-badge { color: #183b67; background: #f7faff; border-color: var(--tc-line); font-size: 12px; padding: 8px 11px; }
+.testcar-badge.is-green { color: #157b38; background: #e5f6e8; }
+.testcar-badge.is-amber { color: #915b0a; background: #fff1d7; }
+.testcar-main { max-width: 1744px; margin: 0 auto; padding: 24px 24px 12px; }
+.testcar-intro { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin: 0 8px 20px; }
+.testcar-eyebrow { font-size: 10px; font-weight: 750; letter-spacing: .13em; color: #6e8198; margin-bottom: 4px; }
+.testcar-intro h1 { font-size: clamp(29px, 2.7vw, 40px); line-height: 1.15; font-weight: 800; letter-spacing: -.055em; }
+.testcar-intro p { color: #4d6380; margin-top: 6px; font-size: 16px; }
+.testcar-time-control { display: flex; align-items: center; gap: 12px; padding-bottom: 2px; color: var(--tc-muted); font-size: 12px; }
+.testcar-time-control > div { display: flex; border: 1px solid #dce5f0; border-radius: 8px; overflow: hidden; background: #fff; }
+.testcar-time-control button { min-width: 53px; height: 40px; border: 0; border-left: 1px solid #e2e9f2; font-weight: 700; background: transparent; }
+.testcar-time-control button:first-child { border-left: 0; }
+.testcar-time-control button[aria-pressed=true] { background: #096fd8; color: #fff; border-color: #096fd8; }
+.testcar-time-control button:not(:disabled):not([aria-pressed=true]):hover { background: #ecf5ff; }
+.testcar-time-control button:disabled { opacity: .65; }
+.testcar-dashboard { display: grid; grid-template-columns: minmax(265px, .94fr) minmax(370px, 1.85fr) minmax(285px, 1.02fr); align-items: stretch; gap: 12px; }
+.testcar-card { min-width: 0; background: #fff; border: 1px solid #dce7f1; border-radius: 9px; }
+.testcar-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 32px; }
+.testcar-card-heading h2 { min-width: 0; }
+.testcar-controls { padding: 15px 14px 10px; }
+.testcar-car-title { padding: 0 2px 5px; }
+.testcar-car-title h2 { font-size: 23px; }
+.testcar-car-title p { color: var(--tc-muted); font-size: 12px; margin-top: 2px; }
+.testcar-van { position: relative; height: 158px; margin: 2px -7px 10px; overflow: hidden; border-radius: 6px; }
+.testcar-van-scene { position: absolute; width: 100%; height: 100%; object-fit: cover; }
+.testcar-van-fallback { position: absolute; width: 100%; height: 100%; inset: 0; }
+.testcar-van-image { display: block; position: absolute; inset: -15px 0 0; width: 100%; height: calc(100% + 15px); object-fit: contain; opacity: 0; }
+.testcar-van-image.is-loaded { opacity: 1; }
+.testcar-van-caption { position: absolute; left: 9px; bottom: 7px; display: inline-flex; gap: 5px; align-items: center; padding: 3px 7px; border-radius: 4px; color: #52687c; background: #ffffffeb; font-size: 9px; }
+.testcar-status-dot { display: inline-block; flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: #a5b3c2; }
+.testcar-status-dot.is-moving { background: #37b64d; }
+.testcar-status-dot.is-idle { background: #f0b33d; }
+.testcar-van-caption .testcar-status-dot { width: 5px; height: 5px; }
+.testcar-engine-buttons { display: grid; grid-template-columns: 1.3fr 1fr; gap: 8px; }
+.testcar-engine-buttons button { height: 39px; display: flex; justify-content: center; align-items: center; gap: 8px; border-radius: 8px; font-size: 12px; font-weight: 650; }
+.testcar-engine-start { background: #20943b; color: #fff !important; border: 1px solid #20943b; }
+.testcar-engine-start:not(:disabled):hover { background: #187e30; }
+.testcar-engine-start:disabled:not(.is-on) { opacity: .6; }
+.testcar-engine-start.is-on { background: #269a3d; }
+.testcar-engine-stop { background: #f8fafc; border: 1px solid #d9e3ee; }
+.testcar-engine-stop:not(:disabled):hover { background: #edf3f9; border-color: #b6c9dc; }
+.testcar-engine-stop:disabled { color: #9aa8b8; background: #fafbfd; }
+.testcar-driver { display: flex; align-items: center; gap: 5px; min-height: 32px; padding: 5px 2px 2px; font-size: 11px; color: #516882; }
+.testcar-driver strong { font-weight: 600; letter-spacing: 0; margin-left: -2px; }
+.testcar-current-place { display: flex; align-items: center; gap: 10px; min-height: 55px; padding: 8px 10px; background: #edf6ff; border: 1px solid #cee4fc; border-radius: 7px; color: #0766c4; }
+.testcar-current-place > div { min-width: 0; }
+.testcar-current-place > div > span { display: block; color: #52789d; font-size: 10px; line-height: 1.4; }
+.testcar-current-place strong { display: block; font-size: 14px; letter-spacing: -.02em; line-height: 1.35; overflow-wrap: anywhere; }
+.testcar-place-check { display: flex; align-items: center; justify-content: center; margin-left: auto; width: 24px; height: 24px; border-radius: 50%; background: #d9ecff; flex: 0 0 auto; }
+.testcar-destinations-heading { margin: 13px 2px 8px !important; }
+.testcar-destinations { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.testcar-destination { position: relative; display: flex; align-items: center; gap: 9px; text-align: left; padding: 10px 9px; min-height: 61px; min-width: 0; border: 1px solid #dce6ef; border-radius: 7px; background: #fff; }
+.testcar-destination > svg { flex: 0 0 auto; color: #7388a2; }
+.testcar-destination > span { min-width: 0; }
+.testcar-destination strong { display: block; font-size: 12px; line-height: 1.25; font-weight: 700; white-space: nowrap; }
+.testcar-destination small { display: block; font-size: 10px; color: #70819a; line-height: 1.3; margin-top: 4px; }
+.testcar-destination:not(:disabled):hover { border-color: #68adf6; background: #f6faff; }
+.testcar-destination.is-selected { background: #e9f3ff; border-color: #2689f5; box-shadow: inset 0 0 0 1px #b8daff; }
+.testcar-destination.is-selected > svg { color: #176cc2; }
+.testcar-destination.is-here { background: #f4f8fc; border-color: #e0e9f2; }
+.testcar-destination.is-here strong, .testcar-destination.is-here small { color: #4e7397; }
+.testcar-destination .testcar-here-check { position: absolute; top: 5px; right: 5px; color: #4280b8; width: 11px; height: 11px; }
+.testcar-destination:disabled:not(.is-here):not(.is-selected) { opacity: .55; }
+.testcar-primary-button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 46px; padding: 11px 17px; border: 1px solid #0878de; border-radius: 7px; background: #087ce6; color: #fff !important; font-weight: 700 !important; }
+.testcar-primary-button:not(:disabled):hover { background: #056ccc; }
+.testcar-primary-button:disabled { background: #e8eef5; color: #8292a7 !important; border-color: #e3eaf2; }
+.testcar-drive-button { width: 100%; margin-top: 13px; min-height: 47px; font-size: 13px !important; }
+.testcar-drive-hint { color: #8594a8; font-size: 10px; text-align: center; margin-top: 5px !important; }
+.testcar-reset-link { border: 0; background: transparent; color: #1673ca !important; display: flex; align-items: center; justify-content: center; gap: 7px; margin: 8px auto 0; min-height: 30px; padding: 4px 8px; font-size: 11px !important; }
+.testcar-reset-link:not(:disabled):hover { text-decoration: underline; }
+.testcar-reset-link:disabled { opacity: .5; }
+.testcar-reset-confirm { margin-top: 9px; padding: 10px; background: #f5f8fc; border: 1px solid #dde7f2; border-radius: 7px; font-size: 11px; }
+.testcar-reset-confirm strong { font-size: 12px; }
+.testcar-reset-confirm p { color: var(--tc-muted); margin: 3px 0 8px; }
+.testcar-reset-confirm > div { display: flex; justify-content: flex-end; gap: 7px; }
+.testcar-reset-confirm button { border: 1px solid #d5e1ed; border-radius: 5px; background: #fff; padding: 6px 10px; font-size: 11px; }
+.testcar-reset-confirm button:last-child { color: #fff; background: #176dc4; border-color: #176dc4; }
+.testcar-map-card { padding: 13px 6px 6px; display: flex; flex-direction: column; overflow: hidden; }
+.testcar-map-card > .testcar-card-heading { padding: 0 10px 12px; min-height: 42px; }
+.testcar-map-card h2 { display: flex; align-items: center; gap: 9px; font-size: 19px; }
+.testcar-map-card h2 .testcar-status-dot { width: 13px; height: 13px; }
+.testcar-map-card .testcar-badge { font-size: 10px; padding: 7px 8px; }
+.testcar-map-wrap { position: relative; flex: 1; min-height: 510px; overflow: hidden; border-radius: 5px; background: #e9f1e9; isolation: isolate; }
+.testcar-map { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; background: #e9f1e9; font-family: inherit; }
+.testcar-map-note { position: absolute; left: 10px; top: 10px; z-index: 500; padding: 4px 7px; border-radius: 4px; background: #ffffffec; color: #6e7e88; border: 1px solid #dce6e5; font-size: 9px; pointer-events: none; }
+.testcar-location-overlay { position: absolute; z-index: 500; display: flex; align-items: center; gap: 10px; left: 10px; bottom: 27px; width: min(345px, calc(100% - 76px)); min-height: 61px; padding: 10px 13px; border: 1px solid #dce8f0; border-radius: 7px; background: #fffffff7; box-shadow: 0 3px 10px #203e6115; pointer-events: none; }
+.testcar-location-overlay > svg { color: #0882d6; flex: 0 0 auto; }
+.testcar-location-overlay > div { min-width: 0; }
+.testcar-location-overlay span { font-size: 11px; line-height: 1.4; }
+.testcar-location-overlay strong { font-weight: 750; letter-spacing: -.01em; }
+.testcar-location-overlay small { display: block; color: var(--tc-muted); font-size: 10px; margin-top: 2px; }
+.testcar-map .leaflet-control-zoom { border: 1px solid #dae3eb; border-radius: 6px; box-shadow: 0 2px 8px #122a4b1a; overflow: hidden; }
+.testcar-map .leaflet-control-zoom a { color: #18385d; width: 33px; height: 34px; line-height: 33px; font-size: 22px; }
+.testcar-map .leaflet-control-attribution { font-size: 9px; color: #718498; background: #fffffff0; padding: 2px 5px; }
+.testcar-map .leaflet-control-attribution a { color: #396d99; }
+.testcar-map-marker { border: 0; background: transparent; }
+.testcar-map-pin { display: flex; align-items: center; white-space: nowrap; gap: 0; font-family: inherit; }
+.testcar-map-pin > span { display: flex; align-items: center; justify-content: center; width: 33px; height: 33px; border-radius: 50% 50% 50% 2px; transform: rotate(-45deg); color: #fff; background: #3a4e67; border: 3px solid #fff; font-size: 20px; line-height: 1; box-shadow: 0 2px 4px #142f4c22; }
+.testcar-map-pin > span::first-letter { transform: rotate(45deg); }
+.testcar-map-pin > strong { color: #213c60; background: #fffffff2; padding: 4px 7px; border-radius: 0 4px 4px 0; font-size: 11px; margin-left: 1px; box-shadow: 1px 1px 5px #344a6312; }
+.testcar-map-pin.is-destination > span { background: #087bed; }
+.testcar-map-pin.is-destination > strong { color: #0867c7; }
+.testcar-position-pin { display: flex; align-items: center; justify-content: center; color: #fff; width: 42px; height: 42px; border: 3px solid #fff; border-radius: 50%; background: #0784fa; box-shadow: 0 0 0 7px #0589ff22, 0 2px 6px #173c6433; }
+.testcar-map-unavailable { position: absolute; inset: 70px 20px 115px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 25px; color: #326483; text-align: center; border: 1px dashed #abc9d4; border-radius: 12px; background: #eff8f4de; }
+.testcar-map-unavailable strong { font-size: 20px; }
+.testcar-map-unavailable span { max-width: 270px; font-size: 12px; }
+.testcar-live { padding: 15px 14px 13px; display: flex; flex-direction: column; }
+.testcar-live > .testcar-card-heading h2 { font-size: 19px; white-space: nowrap; }
+.testcar-network-toggle { font-size: 10px !important; padding: 7px 8px; }
+.testcar-network-toggle:not(:disabled):hover { box-shadow: 0 0 0 2px #8abc9b33; }
+.testcar-network-toggle:disabled { opacity: .65; }
+.testcar-speedometer { margin: 8px -4px -1px; }
+.testcar-speedometer svg { display: block; width: 100%; max-height: 236px; }
+.testcar-speed-number { fill: #0a1d38; font-family: inherit; font-size: 49px; font-weight: 800; letter-spacing: -2px; font-variant-numeric: tabular-nums; }
+.testcar-speed-unit { fill: #2d4564; font-family: inherit; font-size: 15px; font-weight: 650; }
+.testcar-metrics { display: grid; grid-template-columns: 1fr 1fr; }
+.testcar-metric { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 16px 5px; border-bottom: 1px solid #e1e9f1; }
+.testcar-metric:nth-child(even) { padding-left: 13px; border-left: 1px solid #e1e9f1; }
+.testcar-metric > svg { flex: 0 0 auto; color: #314864; }
+.testcar-metric > div { min-width: 0; flex: 1; }
+.testcar-metric span { display: block; color: #697c96; font-size: 10px; line-height: 1.4; margin-bottom: 2px; }
+.testcar-metric strong { display: block; font-size: clamp(17px, 1.6vw, 23px); line-height: 1.2; font-weight: 760; letter-spacing: -.04em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.testcar-metric strong small { font-size: 12px; letter-spacing: -.025em; font-weight: 650; }
+.testcar-fuel-track { width: 100%; height: 7px; margin-top: 6px; background: #e0e9f2; border-radius: 10px; overflow: hidden; }
+.testcar-fuel-track > span { display: block; height: 100%; background: #0c81e7; border-radius: inherit; }
+.testcar-history { padding-top: 16px; margin-top: auto; }
+.testcar-history h3 { font-size: 11px; color: #5a708b; font-weight: 600; margin-bottom: 7px; }
+.testcar-history svg { display: block; width: 100%; max-height: 100px; }
+.testcar-history p { text-align: right; color: #8392a6; font-size: 9px; }
+.testcar-history time { color: #647b97; font-variant-numeric: tabular-nums; margin-left: 3px; }
+.testcar-network-hint { text-align: center; color: #8190a3; font-size: 9px; margin-top: 12px !important; }
+.testcar-bottom-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 12px; margin-top: 12px; }
+.testcar-events, .testcar-receiver { padding: 12px 15px; }
+.testcar-events .testcar-card-heading, .testcar-receiver .testcar-card-heading { min-height: 29px; }
+.testcar-bottom-grid h2 { font-size: 18px; }
+.testcar-small-note { color: #8190a4; font-size: 9px; }
+.testcar-events ol { list-style: none; padding: 0; margin: 7px 0 0; }
+.testcar-events li { position: relative; display: grid; grid-template-columns: 8px 36px 1fr; align-items: start; gap: 11px; padding: 7px 0; border-bottom: 1px solid #e8eef5; font-size: 11px; line-height: 1.4; }
+.testcar-events li:last-child { border-bottom: 0; }
+.testcar-event-dot { position: relative; width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: #1684ef; }
+.testcar-events li:not(:last-child) .testcar-event-dot::after { content: ''; position: absolute; top: 7px; left: 3px; width: 1px; height: 29px; background: #d5e1ed; }
+.testcar-events .is-success .testcar-event-dot { background: #2bb24c; }
+.testcar-events .is-warning .testcar-event-dot { background: #e3a132; }
+.testcar-events time { color: #7186a0; font-size: 10px; font-variant-numeric: tabular-nums; padding-top: 1px; }
+.testcar-no-events { display: flex; align-items: center; gap: 9px; padding: 25px 3px; color: #70839b; font-size: 12px; }
+.testcar-pipeline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: #6d819a; font-size: 10px; margin: 4px 0 9px; }
+.testcar-pipeline span:nth-child(even) { color: #b2bfce; }
+.testcar-receiver-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0; margin: 9px 0 0; }
+.testcar-receiver-stats > div { min-width: 0; text-align: center; padding: 8px 5px; background: #f0f6fb; border-radius: 6px; }
+.testcar-receiver-stats dd { margin: 0; font-size: 28px; font-weight: 780; letter-spacing: -.055em; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.testcar-receiver-stats dt { color: #617791; font-size: 11px; font-weight: 550; margin-top: 2px; }
+.testcar-receiver-stats .has-queue { background: #fff5e3; color: #9d620e; }
+.testcar-receiver-summary { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 5px 12px; margin-top: 9px !important; font-size: 9px; color: #7b8da4; }
+.testcar-receiver-cadence { font-size: 9px; color: #8b9aab; margin-top: 5px !important; }
+.testcar-footer { display: flex; justify-content: flex-end; gap: 6px; color: #7f90a5; font-size: 9px; margin-top: 9px; padding: 0 3px; }
+.testcar-message { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; border: 1px solid #d6e6f6; padding: 10px 13px; border-radius: 7px; color: #265f91; background: #edf6ff; font-size: 12px; }
+.testcar-message > svg { flex: 0 0 auto; }
+.testcar-message > span { flex: 1; }
+.testcar-message.is-warning { color: #92621b; border-color: #edd8b2; background: #fff8eb; }
+.testcar-message button { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 30px; min-height: 30px; padding: 3px 6px; border: 0; background: transparent; font-size: 11px; white-space: nowrap; }
+.testcar-message button:hover { background: #ffffff80; border-radius: 4px; }
+.testcar-startup { width: min(560px, 100%); min-height: 350px; padding: 25px; margin: 35px auto 90px; display: flex; align-items: center; flex-direction: column; justify-content: center; gap: 15px; text-align: center; }
+.testcar-startup .testcar-van { width: min(350px, 100%); height: 160px; margin: 0; }
+.testcar-startup h2 { font-size: 22px; }
+.testcar-startup p { color: #70829a; max-width: 350px; font-size: 13px; }
+.testcar-startup > svg { color: var(--tc-blue); }
+.testcar-spin { animation: testcar-spin 1s linear infinite; }
+@keyframes testcar-spin { to { transform: rotate(360deg); } }
+
+@media (min-width: 1650px) {
+  .testcar-van { height: 190px; }
+  .testcar-destination { min-height: 70px; padding: 12px 14px; }
+  .testcar-destination strong { font-size: 14px; }
+  .testcar-destination small { font-size: 11px; }
+  .testcar-metric { padding: 21px 8px; }
+  .testcar-map-wrap { min-height: 570px; }
+}
+@media (max-width: 1150px) {
+  .testcar-main { padding: 20px 16px 12px; }
+  .testcar-header-inner { padding: 10px 22px; }
+  .testcar-dashboard { grid-template-columns: 265px minmax(345px, 1fr) 285px; gap: 10px; }
+  .testcar-live { padding: 13px 11px; }
+  .testcar-card-heading h2, .testcar-map-card h2 { font-size: 17px; }
+  .testcar-live > .testcar-card-heading h2 { font-size: 17px; }
+  .testcar-map-card .testcar-badge { padding: 6px; font-size: 9px; }
+  .testcar-metric { gap: 5px; padding: 15px 2px; }
+  .testcar-metric:nth-child(even) { padding-left: 9px; }
+  .testcar-metric > svg { width: 22px; }
+}
+@media (max-width: 990px) {
+  .testcar-dashboard { grid-template-columns: 280px minmax(0, 1fr); }
+  .testcar-live { grid-column: 1 / -1; display: grid; grid-template-columns: 240px 1fr 240px; gap: 0 15px; align-items: center; padding: 14px 18px; }
+  .testcar-live > .testcar-card-heading { grid-column: 1 / -1; }
+  .testcar-speedometer { margin: 0; }
+  .testcar-history { margin: 0; padding: 0; }
+  .testcar-network-hint { grid-column: 1 / -1; margin-top: 0 !important; }
+  .testcar-metric { padding: 15px 3px; }
+  .testcar-metric strong { font-size: 19px; }
+  .testcar-bottom-grid { grid-template-columns: 1.3fr 1fr; }
+  .testcar-small-note { display: none; }
+}
+@media (max-width: 760px) {
+  .testcar-header-inner { padding: 10px 16px; min-height: 60px; gap: 14px; }
+  .testcar-brand img { width: 147px; height: 34px; }
+  .testcar-breadcrumb { gap: 9px; padding-left: 14px; font-size: 12px; }
+  .testcar-breadcrumb strong { font-size: 11px; }
+  .testcar-header-actions { gap: 0; }
+  .testcar-back-link { display: none; }
+  .testcar-test-badge { padding: 7px 8px; font-size: 10px; }
+  .testcar-main { padding: 21px 14px 12px; }
+  .testcar-intro { margin: 0 2px 16px; align-items: flex-start; flex-direction: column; gap: 14px; }
+  .testcar-intro h1 { font-size: 34px; }
+  .testcar-intro p { font-size: 14px; }
+  .testcar-time-control { justify-content: space-between; width: 100%; }
+  .testcar-time-control button { height: 36px; min-width: 49px; }
+  .testcar-dashboard { grid-template-columns: 240px minmax(0, 1fr); gap: 10px; }
+  .testcar-controls { padding: 12px 10px 8px; }
+  .testcar-van { height: 140px; }
+  .testcar-destination { gap: 6px; padding: 8px 6px; }
+  .testcar-destination > svg { width: 23px; }
+  .testcar-destination strong { font-size: 11px; }
+  .testcar-destination small { font-size: 9px; }
+  .testcar-map-card > .testcar-card-heading { padding: 0 6px 9px; align-items: flex-start; flex-direction: column; gap: 8px; }
+  .testcar-map-wrap { min-height: 460px; }
+  .testcar-map-card h2 { font-size: 16px; }
+  .testcar-live { grid-template-columns: 210px 1fr; gap: 0 18px; }
+  .testcar-live .testcar-history { grid-column: 1 / -1; width: 100%; margin-top: 5px; }
+  .testcar-history svg { max-height: 85px; }
+  .testcar-network-hint { margin-top: 10px !important; }
+  .testcar-bottom-grid { grid-template-columns: 1fr; gap: 10px; margin-top: 10px; }
+  .testcar-small-note { display: inline; }
+  .testcar-receiver-stats dd { font-size: 30px; }
+  .testcar-events, .testcar-receiver { padding: 13px 15px; }
+}
+@media (max-width: 560px) {
+  .testcar-header-inner { gap: 10px; padding: 10px 14px; }
+  .testcar-brand img { width: 137px; height: 33px; }
+  .testcar-breadcrumb { padding-left: 10px; gap: 7px; }
+  .testcar-breadcrumb > span:last-of-type, .testcar-breadcrumb > strong { display: none; }
+  .testcar-header-actions .testcar-badge { padding: 6px 7px; font-size: 9px; gap: 4px; }
+  .testcar-header-actions .testcar-badge svg { width: 14px; height: 14px; }
+  .testcar-main { padding: 19px 12px 14px; }
+  .testcar-intro h1 { font-size: 32px; }
+  .testcar-eyebrow { font-size: 9px; }
+  .testcar-dashboard { display: flex; flex-direction: column; gap: 12px; }
+  .testcar-controls { padding: 15px 14px 10px; }
+  .testcar-car-title h2 { font-size: 22px; }
+  .testcar-van { height: 170px; margin: 2px -7px 11px; }
+  .testcar-engine-buttons button { height: 43px; font-size: 13px; }
+  .testcar-driver { font-size: 11px; min-height: 33px; }
+  .testcar-current-place { min-height: 58px; }
+  .testcar-current-place strong { font-size: 16px; }
+  .testcar-current-place > div > span { font-size: 11px; }
+  .testcar-destinations-heading { margin-top: 14px !important; font-size: 16px !important; }
+  .testcar-destination { padding: 11px 10px; min-height: 65px; gap: 11px; }
+  .testcar-destination > svg { width: 30px; }
+  .testcar-destination strong { font-size: 13px; }
+  .testcar-destination small { font-size: 10px; }
+  .testcar-drive-button { min-height: 49px; font-size: 14px !important; }
+  .testcar-reset-link { font-size: 12px !important; min-height: 35px; }
+  .testcar-map-card { padding-top: 14px; }
+  .testcar-map-card > .testcar-card-heading { flex-direction: row; align-items: center; padding: 0 8px 11px; }
+  .testcar-map-card h2 { font-size: 16px; }
+  .testcar-map-card .testcar-badge { font-size: 9px; padding: 6px; }
+  .testcar-map-wrap { flex: auto; height: 365px; min-height: 365px; }
+  .testcar-location-overlay { min-height: 57px; padding: 8px 9px; left: 8px; gap: 7px; }
+  .testcar-location-overlay span { font-size: 11px; }
+  .testcar-location-overlay small { font-size: 10px; }
+  .testcar-live { display: flex; padding: 15px 15px 13px; gap: 0; }
+  .testcar-live > .testcar-card-heading { width: 100%; }
+  .testcar-live > .testcar-card-heading h2 { font-size: 20px; }
+  .testcar-network-toggle { font-size: 11px !important; padding: 8px 9px; }
+  .testcar-speedometer { width: min(330px, 100%); margin: 9px auto -2px; }
+  .testcar-speedometer svg { max-height: 222px; }
+  .testcar-metrics { width: 100%; }
+  .testcar-metric { padding: 17px 5px; gap: 11px; }
+  .testcar-metric:nth-child(even) { padding-left: 18px; }
+  .testcar-metric > svg { width: 27px; }
+  .testcar-metric span { font-size: 11px; }
+  .testcar-metric strong { font-size: 23px; }
+  .testcar-live .testcar-history { margin-top: 18px; }
+  .testcar-history h3 { font-size: 12px; }
+  .testcar-history svg { max-height: 105px; }
+  .testcar-network-hint { font-size: 10px; margin-top: 12px !important; }
+  .testcar-bottom-grid { margin-top: 12px; gap: 12px; }
+  .testcar-bottom-grid h2 { font-size: 18px; }
+  .testcar-small-note { font-size: 8px; }
+  .testcar-events li { font-size: 11px; padding: 9px 0; }
+  .testcar-receiver .testcar-badge { font-size: 9px; padding: 6px 7px; }
+  .testcar-receiver-stats { margin-top: 10px; }
+  .testcar-receiver-stats > div { padding: 11px 4px; }
+  .testcar-pipeline { font-size: 10px; }
+  .testcar-footer { justify-content: center; flex-wrap: wrap; font-size: 9px; margin-top: 14px; }
+  .testcar-message { align-items: flex-start; font-size: 11px; padding: 10px; }
+  .testcar-message button { white-space: normal; }
+  .testcar-startup { margin: 10px auto 40px; padding: 20px 15px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .testcar-app button { transition: none; }
+  .testcar-spin { animation-duration: 2.5s; }
+}
