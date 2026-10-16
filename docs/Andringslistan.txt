@@ -4,7 +4,9 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.12.1. Aktuell kontorsversion: 0.29.1.
+Aktuell mobilwebbversion: 0.12.1. Aktuell kontorsversion: 0.29.2.
+ÄL 124 är genomförd 2026-10-16: förifyllt NVV-supportprov direkt i kontoret,
+utan Render Shell. Själva nya myndighetsanropet körs från användarens testknapp.
 119–122 är genomförda i bygge 2026-10-13. Beställningens ”129” tolkades
 som 120 enligt de fyra senast planerade punkterna.
 Guide och avgränsningar: docs/personal-sjukfranvaro-2026-10-13.md.
@@ -2940,3 +2942,29 @@ Framtidsplanering: docs/planerade-uppdateringar.md.
   ska även gå genom produktionsgatewayen, inte enbart underliggande tjänster.
 - Detta är planering. Ingen applikationskod, integration eller
   driftkonfiguration ändras genom den här uppdateringen av ÄL.
+
+ÄL 124 – Förifyllt NVV-supportprov utan Render Shell
+Status: Implementerad 2026-10-16 i kontor 0.29.2.
+- Under Integrationer → Naturvårdsverket finns Öppna förifyllt supportprov,
+  synlig även när inställningarna är hopfällda. Samma mall väljs även via
+  Förbered NVV-supportens test på den befintliga NVV-testsidan.
+  Verksamhetsutövare är JEROC 5593593626, ombud och certifikat Testbolag 1
+  5560000167. Kontaktuppgifter, 10 kg blybatterier, vägtransport och svenska
+  testplatser förifylls. Ny tid och unik referens används vid förberedelse.
+- Öppna/förbereda sidan gör inget myndighetsutskick. Användaren granskar
+  formuläret och klickar uttryckligen Skicka till NVV · TEST.
+- Återanvänd befintlig popup för begäran, HTTP-status och råsvar samt den
+  beständiga testhistoriken. Märk supportförsöken och spara profil/TLS-spår.
+- Servern kräver faktisk/effektiv systemadmin, samtliga anläggningar,
+  testmiljö, rätt roller och verifierat giltigt Testbolag 1-certifikat.
+  Bind en isolerad TLS 1.2-profil utan att ändra Render- eller rapportörsdata.
+- Reservera före sändning, behåll idempotens och spärra parallella nya
+  supportprov. Pågående/okänt resultat spärrar nya försök efter omladdning;
+  accepterat supportprov stoppar vidare prov. Avslag kräver aktivt nytt försök.
+  HTTP 401 visas med sitt ursprungliga svar utan automatisk omsändning.
+- CLI-alternativet finns kvar för driftansvarig och delar samma testmall.
+  Ingen ny Render-inställning eller integration behövs.
+- Verifierat: riktade serverprov, fyra browserfall och produktionsbygge.
+  Alla myndighetsanrop i dessa tester är mockade. Ingen ny accepterad
+  NVV-rapport hävdas; ett faktiskt svar kräver användarens testknapp.
+- Guide: docs/integrationer/naturvardsverket/nytt-supportprov-2026-10-16.md.

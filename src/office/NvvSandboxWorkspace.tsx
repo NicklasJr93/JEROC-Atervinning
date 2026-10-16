@@ -4,13 +4,19 @@ import { ArrowLeft, ArrowUpRight, CheckCircle2, CircleAlert, Code2, Copy, FileTe
 import { can, type OfficeUser } from './model';
 import { environmentApi, EnvironmentApiError } from './environment-client';
 import { environmentFailure, useEnvironmentSession } from './EnvironmentSession';
-import { environmentTime, type NvvJsonObject, type NvvJsonValue, type NvvSandboxRequest, type NvvSandboxRun, type NvvSandboxState } from './environment-types';
+import { environmentTime, type NvvJsonObject, type NvvJsonValue, type NvvSandboxPreset, type NvvSandboxRequest, type NvvSandboxRun, type NvvSandboxState } from './environment-types';
 import NvvConnectionCheckDialog, { type NvvCheckProgress } from './NvvConnectionCheckDialog';
 import './environment.css';
 import './nvv-sandbox.css';
 
 const runLabels: Record<NvvSandboxRun['status'], string> = { in_flight: 'Inväntar NVV', accepted: 'Mottaget i TEST', rejected: 'Avvisat', unknown: 'Oklart resultat' };
 const jsonText = (value: unknown) => JSON.stringify(value, null, 2);
+const supportPreset: NvvSandboxPreset = 'support-2026-10-16';
+const freshSupportForm = (template: NvvJsonObject): NvvJsonObject => {
+  const time = new Date().toISOString();
+  return { ...structuredClone(template), tidpunkt: time, mottagningsDatum: time,
+    referens: `JEROC-SUPPORT-${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}` };
+};
 const objectValue = (value: NvvJsonValue | undefined): NvvJsonObject => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 const fieldValue = (payload: NvvJsonObject | undefined, path: string[]) => {
   let value: NvvJsonValue | undefined = payload;
@@ -48,6 +54,8 @@ export default function NvvSandboxWorkspace({ user, actualUser }: { user: Office
   const submitButton = useRef<HTMLButtonElement>(null);
   const [sandbox, setSandbox] = useState<NvvSandboxState>();
   const [payload, setPayload] = useState<NvvJsonObject>();
+  const requestedPreset = useRef(new URLSearchParams(window.location.search).get('preset') === supportPreset ? supportPreset : undefined);
+  const [preset, setPreset] = useState<NvvSandboxPreset | undefined>(requestedPreset.current);
   const [editor, setEditor] = useState<'fields' | 'json'>('fields');
   const [raw, setRaw] = useState('');
   const [loading, setLoading] = useState(false), [sending, setSending] = useState(false), [uncertain, setUncertain] = useState(false);
@@ -61,6 +69,7 @@ export default function NvvSandboxWorkspace({ user, actualUser }: { user: Office
     writeController.current?.abort(); writeController.current = undefined; busy.current = false;
     requestRef.current = undefined; formRef.current = undefined; dialogRef.current = null;
     setSandbox(undefined); setPayload(undefined); setRaw(''); setDialog(null); setEditor('fields');
+    setPreset(requestedPreset.current);
     setSending(false); setUncertain(false); setError(''); setNotice('');
   }, [identity]);
 
@@ -79,7 +88,10 @@ export default function NvvSandboxWorkspace({ user, actualUser }: { user: Office
         const next = await environmentApi.nvvSandbox(controller.signal);
         if (!current()) return;
         setSandbox(next); setError('');
-        if (!formRef.current) { const copy = structuredClone(next.template); formRef.current = copy; setPayload(copy); setRaw(jsonText(copy)); }
+        if (!formRef.current) {
+          const copy = requestedPreset.current && next.supportTest ? freshSupportForm(next.supportTest.template) : structuredClone(next.template);
+          formRef.current = copy; setPayload(copy); setRaw(jsonText(copy));
+        }
         const recovering = requestRef.current;
         if (recovering) {
           let found = next.runs.find(run => run.id === recovering.request.requestId);
@@ -110,6 +122,11 @@ export default function NvvSandboxWorkspace({ user, actualUser }: { user: Office
     return () => { readFlight.current?.controller.abort(); readFlight.current = undefined; };
   }, [identity, permitted, sessionMatches]);
   const unresolved = sandbox?.runs.find(run => run.id === requestRef.current?.request.requestId && (run.status === 'in_flight' || run.status === 'unknown'));
+  const stoppedSupportRun = sandbox?.runs.find(run => run.preset === supportPreset && run.status !== 'rejected');
+  const supportReady = !!sandbox?.supportTest?.ready && !stoppedSupportRun;
+  const supportIssue = stoppedSupportRun
+    ? stoppedSupportRun.status === 'accepted' ? 'Ett supportprov har redan tagits emot av NVV. Inga fler supportprov ska skickas.' : 'Ett supportprov saknar säkert slutresultat. Kontrollera historiken före ett nytt prov.'
+    : sandbox?.supportTest?.issues.join(' ') || (!sandbox?.supportTest ? 'Supportprovet blir tillgängligt när serveruppdateringen är klar.' : '');
   useEffect(() => {
     if (!sessionMatches || (!uncertain && unresolved?.status !== 'in_flight')) return;
     const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 5_000);
@@ -137,15 +154,20 @@ export default function NvvSandboxWorkspace({ user, actualUser }: { user: Office
     }
     adoptForm(copy);
   }
+  function prepareSupportTest() {
+    if (!supportReady || !sandbox?.supportTest || busy.current || uncertain || unresolved) return;
+    adoptForm(freshSupportForm(sandbox.supportTest.template)); setPreset(supportPreset); setEditor('fields');
+    setNotice('NVV-supportens test är förberett. Granska uppgifterna och tryck på Skicka till NVV · TEST.');
+  }
   async function send() {
-    if (!permitted || !sessionMatches || busy.current || !sandbox?.ready || sandbox.mode !== 'test' || unresolved || uncertain) return;
+    if (!permitted || !sessionMatches || busy.current || !sandbox?.ready || sandbox.mode !== 'test' || unresolved || uncertain || preset && !supportReady) return;
     let frozen: NvvJsonObject;
     try { frozen = structuredClone(editor === 'json' ? parsePayload(raw) : formRef.current ?? {}); }
     catch (failure) { setError(`JSON-payloaden kunde inte läsas: ${environmentFailure(failure)}`); return; }
-    const fingerprint = JSON.stringify(frozen);
+    const fingerprint = JSON.stringify({ payload: frozen, preset: preset ?? null });
     if (requestRef.current?.fingerprint !== fingerprint) {
       const requestId = crypto.randomUUID();
-      requestRef.current = { fingerprint, request: { requestId, idempotencyKey: `nvv-test-${requestId}`, payload: frozen } };
+      requestRef.current = { fingerprint, request: { requestId, idempotencyKey: `nvv-test-${requestId}`, payload: frozen, ...(preset && { preset }) } };
     }
     const submitted = requestRef.current.request, epoch = generation.current;
     const controller = new AbortController(); writeController.current = controller;
@@ -182,7 +204,7 @@ export default function NvvSandboxWorkspace({ user, actualUser }: { user: Office
   };
   const agentEnabled = payload && Object.prototype.hasOwnProperty.call(payload, 'ombud');
   const blockedReason = sending ? 'Inväntar serverns svar.' : uncertain || unresolved ? 'Ett test saknar säkert slutresultat. Kontrollera testhistoriken.'
-    : sandbox?.mode !== 'test' ? 'Servern behöver vara inställd för NVV:s testmiljö.' : !sandbox.ready ? 'Komplettera serveranslutningen före testet.' : '';
+    : sandbox?.mode !== 'test' ? 'Servern behöver vara inställd för NVV:s testmiljö.' : !sandbox.ready ? 'Komplettera serveranslutningen före testet.' : preset && !supportReady ? supportIssue || 'Supportprovet kan inte skickas med den aktuella anslutningen.' : '';
 
   return <section className="environment-workspace nvv-sandbox-workspace">
     <OfficePageHeader>
@@ -193,11 +215,12 @@ export default function NvvSandboxWorkspace({ user, actualUser }: { user: Office
         : <>
           <div className="nvv-sandbox-context office-panel"><span className="environment-icon"><Leaf size={22} /></span><div><strong>NVV:s testmiljö · POST /insamlingar</strong><p>Serverns klientcertifikat och API-anslutning används. Testet ändrar inga viktkort, lager eller ekonomiposter.</p>{sandbox?.certificate?.metadataAvailable && <small>Certifikat: {sandbox.certificate.organisationName || 'Namn ej angivet'}{sandbox.certificate.organisationNumber && ` · ${sandbox.certificate.organisationNumber}`}</small>}</div><button className="office-btn outline" type="button" disabled={loading} onClick={() => void load()}><RefreshCw size={14} />{loading ? 'Hämtar…' : 'Kontrollera testhistorik'}</button></div>
           {!!sandbox?.missing.length && <div className="environment-alert" role="status"><CircleAlert size={16} /><div><strong>Återstår före testet</strong><ul>{sandbox.missing.map(item => <li key={item}>{item}</li>)}</ul></div></div>}
+          <section className="office-panel nvv-support-test" aria-label="NVV-supportens test"><div><span className="office-eyebrow">FÖRIFYLLT SUPPORTPROV</span><h2>Testa rollerna från supportärendet</h2><p>JEROC är verksamhetsutövare. Testbolag 1 är ombud och dess certifikat används.</p><dl><div><dt>Verksamhetsutövare</dt><dd>JEROC · 5593593626</dd></div><div><dt>Ombud och certifikat</dt><dd>Testbolag 1 · 5560000167</dd></div></dl><p>Testkontakter, material och platser fylls i automatiskt. Inget skickas förrän du trycker på Skicka till NVV · TEST.</p>{supportIssue && <p className="nvv-support-issue" role="status">{supportIssue}</p>}{preset && <span className="environment-pill success"><CheckCircle2 size={13} />Supportprovet är valt</span>}</div><button type="button" className="office-btn outline" disabled={!supportReady || loading || sending || uncertain || !!unresolved} onClick={prepareSupportTest}><FlaskConical size={15} />Förbered NVV-supportens test</button></section>
           {error && <div className="environment-error" role="alert"><CircleAlert size={16} />{error}</div>}
           {notice && <p className="nvv-sandbox-notice" role="status">{notice}</p>}
           {payload ? <div className="nvv-sandbox-layout">
             <form className="office-panel nvv-sandbox-form" onSubmit={event => { event.preventDefault(); void send(); }} aria-label="NVV:s testformulär">
-              <div className="nvv-sandbox-form-header"><div><h2>Testuppgifter</h2><p>Ändra uppgifterna inför nästa test.</p></div><button className="office-link" type="button" onClick={() => { if (sandbox) { adoptForm(sandbox.template); setNotice('Serverns testmall har återställts i formuläret.'); } }}>Återställ testmall</button></div>
+              <div className="nvv-sandbox-form-header"><div><h2>Testuppgifter</h2><p>{preset ? 'Förifyllt supportprov. Verksamhetsutövare och ombud kontrolleras också på servern.' : 'Ändra uppgifterna inför nästa test.'}</p></div><button className="office-link" type="button" onClick={() => { if (sandbox) { adoptForm(sandbox.template); setPreset(undefined); setNotice('Serverns testmall har återställts i formuläret.'); } }}>Återställ testmall</button></div>
               <div className="nvv-sandbox-tabs" role="tablist" aria-label="Redigera testpayload"><button type="button" role="tab" aria-selected={editor === 'fields'} aria-controls="nvv-sandbox-fields" onClick={() => switchEditor('fields')}><FileText size={15} />Formulär</button><button type="button" role="tab" aria-selected={editor === 'json'} aria-controls="nvv-sandbox-json" onClick={() => switchEditor('json')}><Code2 size={15} />Avancerad JSON</button></div>
               {editor === 'json' ? <div id="nvv-sandbox-json" role="tabpanel" className="nvv-sandbox-json"><label>JSON-payload<textarea value={raw} onChange={event => { setRaw(event.target.value); setError(''); }} rows={25} spellCheck={false} /></label><small>Objektet skickas som det skrivs. Adressen och autentiseringen bestäms av servern.</small></div>
                 : <div id="nvv-sandbox-fields" role="tabpanel">
@@ -212,8 +235,8 @@ export default function NvvSandboxWorkspace({ user, actualUser }: { user: Office
           </div> : loading && <div className="environment-empty"><LoaderCircle size={25} /><p>Hämtar testmallen…</p></div>}
           <section className="office-panel nvv-sandbox-history" aria-label="NVV:s testhistorik"><header><div><h2><History size={19} />Testhistorik</h2><p>Senaste 50 testerna. Tidigare payload och svar bevaras.</p></div>{unresolved && <span className="environment-pill warning"><CircleAlert size={13} />{runLabels[unresolved.status]}</span>}</header>
             {!sandbox?.runs.length ? <p className="nvv-sandbox-empty">Inga tester har skickats från detta formulär.</p> : <ol>{sandbox.runs.map(run => <li key={run.id}>
-              <div className="nvv-sandbox-run-heading"><span className={`environment-pill ${run.status === 'accepted' ? 'success' : 'warning'}`}>{run.status === 'accepted' ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{runLabels[run.status]}</span><strong>{environmentTime(run.startedAt)}</strong><span>{run.httpStatus == null ? 'Inget HTTP-svar' : `HTTP ${run.httpStatus}`}</span><div><button className="office-link" type="button" onClick={() => setDialog({ progress: progressFor(run), payload: structuredClone(run.payload), run })}><ArrowUpRight size={14} />Visa anrop och svar</button><button className="office-link" type="button" onClick={() => { adoptForm(run.payload); setNotice('Testets uppgifter har lagts i formuläret. Inget nytt anrop har skickats.'); }}><Copy size={14} />Använd uppgifter</button></div></div>
-              <small>Spårnings-ID: {run.trackingId}</small>{run.avfallId && <small>Avfalls-ID: {run.avfallId}</small>}{run.error && <p>{run.error.message}</p>}
+              <div className="nvv-sandbox-run-heading"><span className={`environment-pill ${run.status === 'accepted' ? 'success' : 'warning'}`}>{run.status === 'accepted' ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{runLabels[run.status]}</span><strong>{environmentTime(run.startedAt)}</strong><span>{run.httpStatus == null ? 'Inget HTTP-svar' : `HTTP ${run.httpStatus}`}</span><div><button className="office-link" type="button" onClick={() => setDialog({ progress: progressFor(run), payload: structuredClone(run.payload), run })}><ArrowUpRight size={14} />Visa anrop och svar</button><button className="office-link" type="button" onClick={() => { adoptForm(run.payload); setPreset(run.preset); setNotice('Testets uppgifter har lagts i formuläret. Inget nytt anrop har skickats.'); }}><Copy size={14} />Använd uppgifter</button></div></div>
+              <small>{run.preset && 'NVV-supportens test · '}Spårnings-ID: {run.trackingId}</small>{run.profile && <small>Certifikatets organisation: {run.profile.certificateOrganisationNumber} · {run.transport?.protocol || 'TLS 1.2'}</small>}{run.avfallId && <small>Avfalls-ID: {run.avfallId}</small>}{run.error && <p>{run.error.message}</p>}
             </li>)}</ol>}
           </section>
         </>}

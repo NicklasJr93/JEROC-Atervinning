@@ -183,8 +183,12 @@ export interface NvvIntegrationStatus {
 }
 export type NvvJsonValue = string | number | boolean | null | NvvJsonObject | NvvJsonValue[];
 export interface NvvJsonObject { [key: string]: NvvJsonValue }
+export type NvvSandboxPreset = 'support-2026-10-16';
 export interface NvvSandboxRun {
   id: string; status: 'in_flight' | 'accepted' | 'rejected' | 'unknown';
+  preset?: NvvSandboxPreset;
+  profile?: { tls: 'tls12'; certificateFP: string; certificateOrganisationNumber: string };
+  transport?: { protocol: string | null; cipher: string | null };
   method: 'POST'; path: '/insamlingar'; payload: NvvJsonObject;
   startedAt: string; finishedAt?: string; httpStatus: number | null; response: NvvJsonValue;
   trackingId: string; outcome?: 'accepted' | 'rejected' | 'unknown'; avfallId?: string;
@@ -195,9 +199,11 @@ export interface NvvSandboxState {
   mode: NvvMode; ready: boolean; missing: string[];
   certificate: NonNullable<NvvIntegrationStatus['certificate']> | null;
   template: NvvJsonObject; runs: NvvSandboxRun[];
+  supportTest?: { ready: boolean; issues: string[]; template: NvvJsonObject };
 }
 export interface NvvSandboxRequest {
   requestId: string; idempotencyKey: string; payload: NvvJsonObject;
+  preset?: NvvSandboxPreset;
 }
 export interface NvvReportVersion {
   id: string; reportId: string; sourceReportIds: string[]; receiptId: string; receiptVersion: number;

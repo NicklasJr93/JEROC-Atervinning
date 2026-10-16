@@ -19,9 +19,38 @@ bevarad HTTP-status/TraceId vid spärrad 401-omsändning.
 | Testbolag 1 som ombud | `5560000167` |
 
 Samtliga verksamhets- och ombudskontakter fylls i med syntetiska testuppgifter.
-Ny referens, tracking-ID och tidpunkt skapas när kommandot körs.
+Ny referens, tracking-ID och tidpunkt skapas för ett nytt prov.
 
-## Kör i Render Shell från projektroten
+## Kör direkt i kontorsappen – inget Render Shell behövs
+
+Implementerat 2026-10-16 i kontor **0.29.2**.
+
+1. Logga in som systemadmin och arbeta som JEROC.
+2. [Öppna det förifyllda supportprovet](https://jeroc-atervinning.onrender.com/kontor/integration/systemadminintegrationtest.html?preset=support-2026-10-16).
+   Under **Integrationer → Naturvårdsverket** finns också knappen
+   **Öppna förifyllt supportprov**, synlig även när NVV-inställningarna är
+   hopfällda. På testsidan kan samma mall väljas med **Förbered NVV-supportens test**.
+3. Granska verksamhetsutövare, ombud och övriga förifyllda uppgifter. Ingen
+   rapport skickas när sidan öppnas eller när formuläret förbereds.
+4. Tryck en gång på **Skicka till NVV · TEST**. Den befintliga popupen visar
+   den frysta begäran, HTTP-status, NVV:s svar och spårning. Allt sparas i
+   testsidans beständiga, bolagsavgränsade historik.
+
+Serverns befintliga Render-anslutning används. Systemadmin, rätt certifikat,
+certifikatets giltighet och rollerna kontrolleras även på servern. Provet
+använder en isolerad TLS 1.2-profil; ordinarie rapportörsinställningar ändras
+inte. Även HTTP 401 bevaras utan automatisk tokenförnyelse/omsändning för
+just supportprovet.
+
+Ett tidigare pågående eller okänt supportprov spärrar nya prov även efter
+omladdning och vid samtidiga anrop. Ett accepterat supportprov stoppar
+ytterligare supportprov. Ett avvisat prov kan följas av ett uttryckligt nytt
+försök. **Kontrollera testhistorik** hämtar bara sparat resultat.
+
+Ett förifyllt formulär är inte en bekräftelse på att NVV accepterar anropet.
+Ett faktiskt nytt svar måste komma från användarens uttryckliga test efter deploy.
+
+## Alternativ för driftansvarig: Render Shell från projektroten
 
 Efter deploy av denna fil, kör en gång:
 

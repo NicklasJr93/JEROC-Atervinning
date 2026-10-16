@@ -3,22 +3,8 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createNvvClient, requestHttps, NVV_TEST_API_URL, NVV_TEST_TOKEN_URL } from '../server/nvv-client.mjs';
-
-const testCertificate = '71:0F:90:58:33:AA:17:60:90:89:48:AC:2A:DD:87:F3:B0:12:64:4E:88:6C:84:B5:FB:AB:13:A7:E5:5D:72:27';
-
-export function supportPayload(time, id) {
-  return {
-    tidpunkt: time.toISOString(), verksamhetsutovare: '5593593626', verksamhetensNamn: 'JEROC Återvinning AB',
-    verksamhetensKontaktpersonNamn: 'Testkontakt JEROC', verksamhetensKontaktpersonEpost: 'nvv-test@example.invalid',
-    verksamhetensKontaktpersonTelefonnummer: '0700000000',
-    ombud: '5560000167', ombudetsNamn: 'Testbolag 1', ombudetsKontaktpersonNamn: 'Testkontakt Ombud',
-    ombudetsKontaktpersonEpost: 'nvv-ombud@example.invalid', ombudetsKontaktpersonTelefonnummer: '0700000000',
-    referens: `JEROC-SUPPORT-${id.replaceAll('-', '').slice(0, 24)}`, avfall: { kod: '160601', mangd: 10 },
-    mottagningsDatum: time.toISOString(), tidigareInnehavare: '5560000167', transportsatt: 'R',
-    senasteHanteringsPlats: { kommunkod: '0188', adress: { adressrad: 'Testgatan 12, Norrtälje', postnummer: '76141' } },
-    kommandeHanteringsPlats: { kommunkod: '0188', adress: { adressrad: 'Ängsvägen 19, Norrtälje', postnummer: '76141' } },
-  };
-}
+import { NVV_SUPPORT_CERTIFICATE_FINGERPRINT as testCertificate, supportPayload } from '../server/nvv-support-payload.mjs';
+export { supportPayload };
 
 // The shared client normally refreshes/replays after 401. This diagnostic
 // deliberately forbids a second token request or report POST, even after 401.
@@ -69,7 +55,7 @@ export async function runSupportProbe({ env = process.env, send = false } = {}) 
   // Persist the reservation before network I/O; interrupted attempts stay unknown.
   await writeFile(outputFile, JSON.stringify({ ...record, status: 'in_flight' }, null, 2), { flag: 'wx', mode: 0o600 });
   let result;
-  try { result = await diagnostic.submit({ method: 'POST', path: '/insamlingar', payload, trackingId: id }); }
+  try { result = await diagnostic.submit({ method: 'POST', path: '/insamlingar', payload, trackingId: id, retryUnauthorized: false }); }
   catch { result = { outcome: 'unknown', httpStatus: null, response: null, error: { code: 'NVV_UNKNOWN_OUTCOME', message: 'Svar saknas; skicka inte igen innan försöket är utrett.' } }; }
   const completed = { ...record, status: result.outcome, finishedAt: new Date().toISOString(), httpExchange: transport.summary(), result };
   await writeFile(outputFile, JSON.stringify(completed, null, 2), { mode: 0o600 });

@@ -241,14 +241,14 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
     try { return await pending.promise; } finally { if (tokenPromise === pending) tokenPromise = null; }
   }
 
-  async function call(config, { method, path, payload, trackingId }) {
+  async function call(config, { method, path, payload, trackingId, retryUnauthorized = true }) {
     let bearer;
     const authenticationFailure = cause => ({ authError: true, statusCode: cause?.nvvStatusCode ?? null, body: cause?.nvvResponseBody ?? null, ...(cause?.nvvClientCertificate && { clientCertificate: cause.nvvClientCertificate }), ...(cause?.nvvTransport && { transport: cause.nvvTransport }) });
     try { bearer = await token(config); } catch (cause) { return authenticationFailure(cause); }
     const execute = async (value) => request({ url: `${config.apiBaseUrl}${path}`, method, headers: { Authorization: `Bearer ${value}`, 'NV-Client-System-ID': config.systemId, 'NV-Client-Tracking-ID': trackingId, Accept: 'application/json', ...(payload !== undefined ? { 'Content-Type': 'application/json; charset=UTF-8' } : {}) }, body: payload === undefined ? undefined : JSON.stringify(payload), pfx: config.pfx, passphrase: config.passphrase, ...(maxTlsVersion && { maxTlsVersion }), timeoutMs: 20_000 });
     try {
       let response = await execute(bearer);
-      if (statusCode(response) === 401) {
+      if (statusCode(response) === 401 && retryUnauthorized) {
         const previousResponse = response;
         cachedToken = null;
         try { bearer = await token(config, true); } catch (cause) { return { ...authenticationFailure(cause), previousResponse }; }
@@ -357,7 +357,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
 
   async function check() { return (await checkWithConfiguration()).result; }
 
-  async function submit({ method, path, payload, trackingId } = {}) {
+  async function submit({ method, path, payload, trackingId, retryUnauthorized = true } = {}) {
     const config = await configuration({ forceFileRead: true });
     trackingId = validTracking(trackingId);
     if (!config.ready) return unavailable(config, trackingId);
@@ -370,7 +370,7 @@ export function createNvvClient({ env = process.env, request = requestHttps, now
       mockRecords.set(avfallId, { ...snapshot, avfall: { ...snapshot.avfall, avfallId }, avfallId, payload: snapshot, recordedAt: iso(now), simulated: true });
       return { outcome: 'accepted', mode: 'mock', simulated: true, httpStatus: 200, trackingId, avfallId, response: { avfallId, simulated: true } };
     }
-    return normalized(config, await call(config, { method, path, payload, trackingId }), trackingId, { write: true });
+    return normalized(config, await call(config, { method, path, payload, trackingId, retryUnauthorized }), trackingId, { write: true });
   }
 
   async function read({ avfallId, from, to, maxCount } = {}) {

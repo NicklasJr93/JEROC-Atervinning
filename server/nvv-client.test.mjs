@@ -298,7 +298,33 @@ test('rejected responses retain field errors and redact tokens or credentials in
   for (const secret of [f.env.NVV_CLIENT_SECRET, f.env.NVV_CLIENT_PFX_PASSWORD, 'local-test-bearer']) assert.ok(!JSON.stringify(result).includes(secret));
 });
 
-test('an explicit 401 renews once and resubmits the same immutable request and tracking', async (t) => {
+test('a single-attempt submit preserves its original 401 and diagnostics without refreshing or replaying', async (t) => {
+  const f = await fixture(t);
+  const certificate = describeNvvCertificate(tls.createSecureContext({ pfx: Buffer.from(localOnlyPfx, 'base64'), passphrase: f.env.NVV_CLIENT_PFX_PASSWORD }).context.getCertificate());
+  const body = { Message: 'Original report authentication failure', TraceId: 'single-attempt-original-trace' };
+  const transport = { protocol: 'TLSv1.2', cipher: 'TLS_FIXTURE' };
+  const calls = [];
+  const client = createNvvClient({ env: f.env, request: async (input) => {
+    calls.push(input);
+    if (input.url === NVV_TEST_TOKEN_URL) return { statusCode: 200, body: { access_token: 'single-attempt-bearer', expires_in: 3600 } };
+    return { statusCode: 401, headers: { 'nv-client-tracking-id': 'single-attempt-provider-tracking' }, body, clientCertificate: certificate, transport };
+  } });
+  const result = await client.submit({ method: 'POST', path: '/insamlingar', payload, trackingId: 'single-attempt-request-tracking', retryUnauthorized: false });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url, NVV_TEST_TOKEN_URL);
+  assert.equal(calls[1].url, `${NVV_TEST_API_URL}/insamlingar`);
+  assert.ok(calls.every(input => input.method === 'POST'));
+  assert.equal(calls[1].headers['NV-Client-Tracking-ID'], 'single-attempt-request-tracking');
+  assert.equal(result.outcome, 'rejected');
+  assert.equal(result.httpStatus, 401);
+  assert.equal(result.error.code, 'NVV_AUTHENTICATION');
+  assert.deepEqual(result.response, body);
+  assert.equal(result.trackingId, 'single-attempt-provider-tracking');
+  assert.deepEqual(result.clientCertificate, certificate);
+  assert.deepEqual(result.transport, transport);
+});
+
+test('an explicit 401 renews once and resubmits the same immutable request and tracking by default', async (t) => {
   const f = await fixture(t);
   let tokens = 0;
   const submissions = [];

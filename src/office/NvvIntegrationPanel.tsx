@@ -93,6 +93,10 @@ export default function NvvIntegrationPanel({ user, actualUser, status, onChange
       <span className={`environment-pill ${status?.connected ? 'success' : 'warning'}`}><ShieldCheck size={13} />{nvvModeLabel(status?.mode)}</span>
       <ChevronDown size={17} className={open ? 'is-open' : ''} />
     </button>
+    {permitted && <div className="nvv-support-entry">
+      <div><strong>Provrapport enligt supportärendet</strong><p>Förifyllt prov med JEROC som verksamhetsutövare och Testbolag 1 som ombud.</p></div>
+      <a className="office-btn outline" href="/kontor/integration/systemadminintegrationtest.html?preset=support-2026-10-16"><ArrowUpRight size={14} />Öppna förifyllt supportprov</a>
+    </div>}
     {open && <div className="nvv-settings-body">
       <div className="nvv-connection-summary">
         <div><span className={`environment-pill ${status?.connected ? 'success' : 'warning'}`}>{status?.connected ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{status?.connected ? (status.mode === 'mock' ? 'Simulerad anslutning' : 'Testanslutning fungerar') : status?.configured ? 'Anslutning ej verifierad' : 'Inställningar saknas'}</span>
