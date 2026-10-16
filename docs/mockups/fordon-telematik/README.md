@@ -12,12 +12,14 @@ Sidan samlar 20 bilder för granskning av webb, app och hårdvara. Bilderna är 
 | --- | ---: | --- |
 | [Daglig webb](#daglig-webb) | 6 | Fordon, fordonskort, underhåll, körjournal, förare och karta. |
 | [Daglig app](#daglig-app) | 5 | Mitt fordon, resehistorik, komplettering och fordonskontroll. |
-| [Enhetsadmin](#enhetsadmin) | 4 | Systemadmins lager, bolagets enheter, fordonskoppling och aktivering. |
+| [Enhetsadmin](#enhetsadmin) | 4 | Systemadmins lager, bolagets enheter, fordonskoppling och fordonsbyte. |
 | [Export](#export) | 2 | Exportval och förhandsvisning av körjournal. |
 | [Test och hårdvara](#test-hardvara) | 3 | Digital testbil och ett möjligt fysiskt förarpanelskoncept. |
 | **Totalt** | **20** | **12 tidigare bilder och 8 kompletterande bilder.** |
 
 **Navigation:** Fordon & maskiner öppnar den vanliga fordonsöversikten. Körjournal och GPS-enheter hör till samma arbetsyta; GPS-enheter är en sekundär flik för administration, inte bolagets huvudingång. Systemadmins centrala enhetslager är separat.
+
+**Reviderat upplägg:** ScrapPilot förbereder, aktiverar och tilldelar puckarna till bolaget. Bolaget väljer bara fordon i en dropdown. Appaktivering och QR-engångskoder är bortvalda; bilden för detta har ersatts av ett fordonsbyte.
 
 **Gemensamt före/efter-scenario:** De tidigare appbilderna visar klockan **08:52 den 16 oktober 2026**, då två resor ännu behöver kompletteras. De nya vardags- och exportbilderna visar **09:05 samma dag**, efter att uppgifterna sparats. Exemplet gäller **Niklas**, **PQR678 · Servicebilen · VW Transporter**, med **JEROC Norrtälje** som utgångspunkt:
 
@@ -142,7 +144,9 @@ Förbered puckar, hantera enhetsprofiler och tilldela enheter till rätt bolag. 
 
 ![Bolagets tilldelade GPS-enheter med kopplade och okopplade puckar](../telematikenheter/02_Bolag_GPS_enheter.png)
 
-Bolaget ser bara sina tilldelade enheter på den sekundära fliken GPS-enheter. Livscykelstatus och anslutningsstatus är olika uppgifter; en levererad puck behöver inte vara uppkopplad.
+Bolaget ser bara sina redan aktiverade, tilldelade enheter på den sekundära fliken GPS-enheter. I fordonskolumnens dropdown väljs ett befintligt fordon. Livscykelstatus, fordonskoppling och anslutningsstatus är olika uppgifter; en levererad puck behöver inte vara uppkopplad. Kunden ska inte aktivera eller skanna enheten.
+
+En ledig puck får en kort kopplingsbekräftelse. Ändras valet för en redan kopplad puck öppnas **Byt fordon**; själva dropdownvalet flyttar inte några resor eller ändrar kopplingen direkt.
 
 [Öppna i full storlek](../telematikenheter/02_Bolag_GPS_enheter.png)
 
@@ -150,19 +154,19 @@ Bolaget ser bara sina tilldelade enheter på den sekundära fliken GPS-enheter. 
 
 ![Förslag till sökbart fordonsval vid koppling av en telematikenhet](../telematikenheter/03_Koppla_puck_till_fordon.png)
 
-Sök ett befintligt fordon och bekräfta vilken puck som ska kopplas till det. Byte av fordon får inte flytta gamla resor till den nya fordonskopplingen.
+Välj ett befintligt fordon i dropdownen och bekräfta kopplingen för en redan aktiverad puck. Tidigare resor ändras inte. Första kontakt visas separat när pucken väl är installerad och skickar data.
 
 [Öppna i full storlek](../telematikenheter/03_Koppla_puck_till_fordon.png)
 
-### 15. Aktivera puck i appen
+### 15. Flytta puck till annat fordon
 
-<img src="05_App_Aktivera_puck.png" alt="Appförslag: aktivera en tilldelad puck och koppla den till fordon" width="800">
+![Förslag till fordonsbyte med tydlig från- och tillkoppling](05_Webb_Byt_fordon.png)
 
-Förslag till aktivering efter att rätt bolag fått enheten tilldelad. QR-engångskoden hör till aktiveringen; IMEI identifierar enheten men är inte ett lösenord eller ett bevis på behörighet.
+Välj nytt fordon och se **Från → Till** innan bytet påbörjas. Den gamla resan ska vara avslutad och motorn av. **Påbörja byte** stänger den gamla kopplingen och sätter pucken **Under flytt**. Efter den fysiska flytten bekräftas det nya fordonet i steg 2, medan motorn fortfarande är av.
 
-Skanning och bekräftelse visas som två steg. Förbrukad kod kräver en ny engångskod. **Kopplingen är sparad** och **första kontakt mottagen** är separata statusar; en lyckad aktivering ska inte påstå att pucken redan är online.
+Gamla resor ligger kvar på sitt fordon. Sena eller osäkra mätpunkter får inte automatiskt hamna på det nya fordonet, och puckens gamla mätarvärde får inte bli den nya bilens mätarställning. Pågående resa eller okänt läge efter kontaktavbrott blockerar normalbytet; särskild hantering krävs för en trasig eller frånkopplad puck.
 
-[Öppna i full storlek](05_App_Aktivera_puck.png)
+[Öppna i full storlek](05_Webb_Byt_fordon.png) · [Rutin och specialfall](../../integrationer/telematik/enhetskoppling.md)
 
 <a id="export"></a>
 ## Export

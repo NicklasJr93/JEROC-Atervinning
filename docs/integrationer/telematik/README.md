@@ -15,6 +15,8 @@ Statiska designförslag finns för [enhetsadministration](../../mockups/telemati
 och [körjournal i webb/app med obligatorisk resekomplettering](../../mockups/korjournal/README.md).
 De beskriver planerade vyer, inte redan implementerade appfunktioner.
 
+Beslutet för kundflödet är **central aktivering av ScrapPilot och bolagets fordonsval i dropdown**, utan kundaktivering eller QR-koder. [Koppling och säkert fordonsbyte](enhetskoppling.md) beskriver den planerade rutinen, inklusive fysisk flytt, tidsgränser och sena paket.
+
 **Status: fungerande, fristående pilotgrund med lokal simulator.** Mottagaren
 har inte startats på Render och ingen fysisk tracker är ansluten. Kontorets
 fordonsregister och appens vyer är inte kopplade till piloten ännu.
@@ -105,6 +107,8 @@ Byte av bolag/fordon är avsiktligt spärrat för en befintlig bindning.
 Avaktivering och återaktivering byter generation så att en gammal anslutning
 inte återfår skrivåtkomst. Säker överlåtelse, byte av tracker och nyckelrotation
 behöver egna historikbevarande kommandon senare.
+
+Den nya [designen för fordonsbyte](enhetskoppling.md) ändrar inte denna pilotbegränsning. Den förutsätter en framtida kopplingshistorik och serverkommandon innan bolag kan flytta en puck mellan verkliga fordon.
 
 ## Provkörning
 
