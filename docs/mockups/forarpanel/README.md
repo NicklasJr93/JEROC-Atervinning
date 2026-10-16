@@ -22,3 +22,14 @@ verifierad elektronik eller tillverkningsunderlag. Mått, material, matning,
 RFID-standard, radiokommunikation, lampindikering, summerlogik, fordonsintegration
 och certifiering behöver fastställas vid konstruktion och prototypprov.
 Ingen applikationskod eller interaktiv demo ingår.
+
+## Fast monterad vid förarplatsen
+
+[Öppna installationsbilden i full storlek](02_ScrapPilot_Forarpanel_Installerad.png)
+
+![Förarpanel fast monterad i bilen](02_ScrapPilot_Forarpanel_Installerad.png)
+
+Samma panel visas fastsatt med en låg monteringsplatta och skruvinfästning
+vid förarplatsen. Kabeldragningen är dold bakom panelen och bilens inredning.
+Bilden visar en föreslagen monteringsprincip; placering och infästning behöver
+anpassas till det faktiska fordonet vid konstruktion och installationsprov.
