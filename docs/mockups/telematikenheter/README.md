@@ -1,5 +1,7 @@
 # Telematikenheter – bildmockuper
 
+**[Samlad bildöversikt för fordon, app, körjournal och GPS-enheter](../fordon-telematik/README.md).**
+
 Tre statiska bildmockuper framtagna 2026-10-16. Antal, enhetsuppgifter och fordonskopplingar är exempeldata. JEROC Återvinning AB används som bolagsexempel; övriga bolag är fiktiva. Vyerna beskriver ett förslag och är inte implementerad funktion; denna leverans innehåller ingen ny appkod.
 
 1. [Systemadmins enhetslager](01_Systemadmin_Enhetslager.png) – centralt förberedda puckar, import, enhetsprofiler och bolagstilldelning av flera enheter samtidigt.

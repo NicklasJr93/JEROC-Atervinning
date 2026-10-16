@@ -1,5 +1,7 @@
 # ScrapPilot – Fordon & maskiner
 
+**[Se hela fordons- och telematikdelen på en samlad bildsida](../fordon-telematik/README.md).**
+
 Tre **statiska bildmockuper**, framtagna 16 oktober 2026 för JEROC Återvinning.
 Detta är designförslag med fiktiva fordons-, person-, boknings- och kostnadsuppgifter.
 Ingen interaktiv demo eller ny applikationsfunktion ingår i leveransen.

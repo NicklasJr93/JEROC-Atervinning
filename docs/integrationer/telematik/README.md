@@ -2,6 +2,8 @@
 
 Datum: 2026-10-16. ÄL 127.
 
+**[Samlad bildöversikt: fordon, körjournal, app och GPS-enheter](../../mockups/fordon-telematik/README.md)** – alla designmockuper på en sida.
+
 En separat **digital testbil med virtuell FMC003** finns enligt ÄL 128–129 på
 `/testbil1` efter deploy. Den skickar till en egen HTTP-process med separat
 databas för syntetiska mätningar. Den utökar inte pilotens rättigheter till

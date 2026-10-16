@@ -1,5 +1,7 @@
 # Körjournal – bildmockuper
 
+**[Samlad bildöversikt för hela fordons- och telematikdelen](../fordon-telematik/README.md).**
+
 Tre statiska bildmockuper framtagna 2026-10-16 med fiktiva personer, resor och fordonsuppgifter. Leveransen innehåller ingen appkod. Beteenden och funktionella garantier nedan är designkrav, inte implementerad funktion.
 
 ## 1. Webb: körjournal med sidopanel
