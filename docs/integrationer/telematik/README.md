@@ -9,6 +9,10 @@ verkliga fordon eller positionslagring.
 [Användning, uppbyggnad och begränsningar](testbil.md).
 [Mottagartjänst, beständighet och senare drift](mottagartjanst.md).
 
+Statiska designförslag finns för [enhetsadministration](../../mockups/telematikenheter/README.md)
+och [körjournal i webb/app med obligatorisk resekomplettering](../../mockups/korjournal/README.md).
+De beskriver planerade vyer, inte redan implementerade appfunktioner.
+
 **Status: fungerande, fristående pilotgrund med lokal simulator.** Mottagaren
 har inte startats på Render och ingen fysisk tracker är ansluten. Kontorets
 fordonsregister och appens vyer är inte kopplade till piloten ännu.
