@@ -158,7 +158,7 @@
 .testcar-history p { text-align: right; color: #8392a6; font-size: 9px; }
 .testcar-history time { color: #647b97; font-variant-numeric: tabular-nums; margin-left: 3px; }
 .testcar-network-hint { text-align: center; color: #8190a3; font-size: 9px; margin-top: 12px !important; }
-.testcar-bottom-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 12px; margin-top: 12px; }
+.testcar-bottom-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 12px; margin-top: 12px; align-items: start; }
 .testcar-events, .testcar-receiver { padding: 12px 15px; }
 .testcar-events .testcar-card-heading, .testcar-receiver .testcar-card-heading { min-height: 29px; }
 .testcar-bottom-grid h2 { font-size: 18px; }
@@ -175,12 +175,40 @@
 .testcar-pipeline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: #6d819a; font-size: 10px; margin: 4px 0 9px; }
 .testcar-pipeline span:nth-child(even) { color: #b2bfce; }
 .testcar-receiver-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0; margin: 9px 0 0; }
-.testcar-receiver-stats > div { min-width: 0; text-align: center; padding: 8px 5px; background: #f0f6fb; border-radius: 6px; }
+.testcar-receiver-stats > div { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; text-align: center; padding: 8px 5px; background: #f0f6fb; border-radius: 6px; }
 .testcar-receiver-stats dd { margin: 0; font-size: 28px; font-weight: 780; letter-spacing: -.055em; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .testcar-receiver-stats dt { color: #617791; font-size: 11px; font-weight: 550; margin-top: 2px; }
 .testcar-receiver-stats .has-queue { background: #fff5e3; color: #9d620e; }
 .testcar-receiver-summary { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 5px 12px; margin-top: 9px !important; font-size: 9px; color: #7b8da4; }
 .testcar-receiver-cadence { font-size: 9px; color: #8b9aab; margin-top: 5px !important; }
+.testcar-receiver.has-receiver-warning { border-color: #e8d5b7; }
+.testcar-receiver-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; padding: 5px 0 4px; color: #526d8a; font-size: 10px; }
+.testcar-receiver-meta > span { display: inline-flex; align-items: center; gap: 5px; }
+.testcar-receiver-meta svg { flex: 0 0 auto; color: #6b86a2; }
+.testcar-receiver-warning { margin: 9px 0 10px; padding: 9px 11px; border: 1px solid #f0dbb8; border-radius: 6px; color: #81581c; background: #fff8ea; font-size: 11px; line-height: 1.5; }
+.testcar-receiver-warning.is-buffering { color: #58728b; background: #f1f6fb; border-color: #dae7f1; }
+.testcar-stored-data { margin-top: 12px; border-top: 1px solid #e2eaf2; }
+.testcar-stored-data summary { display: flex; align-items: center; gap: 8px; min-height: 49px; padding: 10px 1px; cursor: pointer; list-style: none; color: #234c76; font-size: 12px; font-weight: 650; }
+.testcar-stored-data summary::-webkit-details-marker { display: none; }
+.testcar-stored-data summary > svg { flex: 0 0 auto; }
+.testcar-stored-data summary > svg:last-child { margin-left: auto; transition: transform .15s; color: #8294a9; }
+.testcar-stored-data[open] summary > svg:last-child { transform: rotate(180deg); }
+.testcar-stored-data summary > span { min-width: 0; }
+.testcar-stored-data summary small { display: block; margin-top: 1px; font-size: 9px; font-weight: 400; color: #8191a4; }
+.testcar-stored-data summary:focus-visible { outline: 3px solid #3899f3; outline-offset: 2px; border-radius: 4px; }
+.testcar-stored-table-wrap { min-width: 0; border: 1px solid #e1e9f2; border-radius: 6px; overflow: hidden; }
+.testcar-stored-data table { width: 100%; table-layout: fixed; border-collapse: collapse; border-spacing: 0; text-align: left; font-size: 11px; }
+.testcar-stored-data th { padding: 8px 10px; background: #f4f8fc; color: #667e98; font-size: 10px; font-weight: 600; text-align: left; border: 0; border-bottom: 1px solid #e1e9f2; }
+.testcar-stored-data td { padding: 7px 10px; border: 0; border-bottom: 1px solid #edf1f6; vertical-align: middle; font-variant-numeric: tabular-nums; }
+.testcar-stored-data tr:last-child td { border-bottom: 0; }
+.testcar-stored-data tbody tr:nth-child(even) { background: #fbfdff; }
+.testcar-stored-data td strong { color: #1f4163; font-size: 11px; font-weight: 650; letter-spacing: 0; white-space: nowrap; }
+.testcar-stored-data td > span { color: #7d91a5; font-size: 9px; white-space: nowrap; }
+.testcar-stored-data time { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.testcar-stored-data time > span { color: #8998aa; font-size: 9px; }
+.testcar-stored-caption { margin-top: 6px !important; color: #8998aa; font-size: 9px; }
+.testcar-stored-empty { padding: 12px; border: 1px dashed #dce6f0; border-radius: 6px; color: #768ba2; font-size: 11px; }
+.testcar-retention-note { padding-top: 8px; border-top: 1px solid #edf1f6; color: #7a8da3; font-size: 10px; line-height: 1.5; }
 .testcar-footer { display: flex; justify-content: flex-end; gap: 6px; color: #7f90a5; font-size: 9px; margin-top: 9px; padding: 0 3px; }
 .testcar-message { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; border: 1px solid #d6e6f6; padding: 10px 13px; border-radius: 7px; color: #265f91; background: #edf6ff; font-size: 12px; }
 .testcar-message > svg { flex: 0 0 auto; }
@@ -316,6 +344,12 @@
   .testcar-small-note { font-size: 8px; }
   .testcar-events li { font-size: 11px; padding: 9px 0; }
   .testcar-receiver .testcar-badge { font-size: 9px; padding: 6px 7px; }
+  .testcar-receiver > .testcar-card-heading { flex-wrap: wrap; gap: 7px; }
+  .testcar-receiver-stats dt { font-size: 10px; }
+  .testcar-receiver-meta { font-size: 10px; gap: 5px 12px; }
+  .testcar-stored-data summary { min-height: 54px; }
+  .testcar-stored-data td, .testcar-stored-data th { padding-left: 9px; padding-right: 7px; }
+  .testcar-retention-note { font-size: 10px; }
   .testcar-receiver-stats { margin-top: 10px; }
   .testcar-receiver-stats > div { padding: 11px 4px; }
   .testcar-pipeline { font-size: 10px; }

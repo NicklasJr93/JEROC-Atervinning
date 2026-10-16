@@ -9,6 +9,8 @@ import { closePdfRenderer } from './documents/render-pool.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
 import { createTenantGateway } from './tenant-gateway.mjs';
 import { createTestCarApi } from './telematics/testcar-api.mjs';
+import { createDemoReceiverRuntime } from './telematics/demo-runtime.mjs';
+import { createServiceTestCar } from './telematics/demo-client.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const port = Number(process.env.PORT ?? '3000');
@@ -151,7 +153,8 @@ const server = createServer((req, res) => {
     else reply(res, 500, 'Server error');
   });
 });
-const testCarApi = createTestCarApi();
+const testCarRuntime = createDemoReceiverRuntime();
+const testCarApi = createTestCarApi({ factory: () => createServiceTestCar({ createClient: testCarRuntime.createClient }) });
 const tenantGateway = await createTenantGateway();
 let expoGo;
 try {
@@ -189,7 +192,7 @@ async function stop(code = 0) {
   clearInterval(paymentTimer);
   testCarApi.close();
   setTimeout(() => process.exit(1), 10000).unref();
-  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), tenantGateway.close()]);
+  await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), tenantGateway.close(), testCarRuntime.close()]);
   await closePdfRenderer();
   process.exit(code);
 }

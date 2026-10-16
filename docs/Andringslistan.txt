@@ -3063,3 +3063,26 @@ Status: Implementerad 2026-10-16 efter godkänd bildmockup.
 - Verifierat: 65 riktade telematiktester, fem browserfall, produktionsbygge
   och browserprov med riktig lokal HTTP-session/CSRF. Inget fysiskt trackerprov.
 - Guide: docs/integrationer/telematik/testbil.md.
+
+ÄL 129 – Separat mottagartjänst och lagring för digital FMC003
+Status: Implementerad 2026-10-16 för syntetiska tester.
+- Testpucken sänder Codec 8E-bytes via riktig HTTP till en egen Node-process.
+  SQLite-databas är separat från CRM; kvittens lämnas först efter commit.
+- Beständigt strömbundet dubblettskydd gör omsändning säker efter tappad
+  kvittens eller mottagaromstart. Enkelriktad sändkö, timeout och backoff.
+  Avstängd motor fortsätter försöka leverera sitt sista väntande paket.
+- Mottagarkort visar sparade mätpunkter, verklig mottagarstatus och en
+  expanderbar lista med senaste lagrade värden. Skilj avbrott i mottagaren
+  från simulerad mobiltäckning. Ingen intern reservväg får låtsas kvittera.
+- Starta lokal mottagarprocess automatiskt utan nya Render-inställningar.
+  Senare kan egen HTTPS-tjänst/token och dedikerad PostgreSQL konfigureras.
+  Ingen betald tjänst eller extern infrastruktur skapas nu.
+- Begränsa syntetiska strömmar/poster och gallra inaktiva strömmar efter
+  24 timmar. Nollställning gör en ny ström, historik blandas inte ihop.
+- Render Free behöver beständig disk eller separat databas för att behålla
+  mätningar mellan deployer. Bilens aktiva läge/oskickade kö är ännu i minnet.
+  Ingen fysisk tracker, publik TCP, verklig fordonsdata eller kapacitetsgaranti.
+- PostgreSQL-adapter förberedd; SQLite/processgräns är den lokalt verifierade
+  vägen. Guide: docs/integrationer/telematik/mottagartjanst.md.
+- Verifierat: 100 telematiktester, sju browserfall, produktionsbygge och
+  browserprov mot byggd webbserver med riktig separat HTTP-/SQLite-mottagare.

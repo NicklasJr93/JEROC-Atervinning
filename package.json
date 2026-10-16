@@ -15,6 +15,7 @@
     "test": "playwright test",
     "test:server": "node scripts/build-domain-models.mjs && node --test server/*.test.mjs",
     "test:ui": "playwright test --ui",
+    "telematics:receiver": "node server/telematics/demo-main.mjs",
     "expo": "node scripts/start-expo.mjs",
     "expo:check": "npm --prefix expo run typecheck",
     "expo:prebuild": "node scripts/expo-prebuild.mjs"

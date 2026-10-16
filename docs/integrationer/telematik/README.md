@@ -2,10 +2,12 @@
 
 Datum: 2026-10-16. ÄL 127.
 
-En separat **digital testbil med virtuell FMC003** finns enligt ÄL 128 på
-`/testbil1` efter deploy. Den använder en avskild syntetisk kanal och utökar
-inte pilotens rättigheter till verkliga fordon eller positionslagring.
+En separat **digital testbil med virtuell FMC003** finns enligt ÄL 128–129 på
+`/testbil1` efter deploy. Den skickar till en egen HTTP-process med separat
+databas för syntetiska mätningar. Den utökar inte pilotens rättigheter till
+verkliga fordon eller positionslagring.
 [Användning, uppbyggnad och begränsningar](testbil.md).
+[Mottagartjänst, beständighet och senare drift](mottagartjanst.md).
 
 **Status: fungerande, fristående pilotgrund med lokal simulator.** Mottagaren
 har inte startats på Render och ingen fysisk tracker är ansluten. Kontorets

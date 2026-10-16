@@ -70,10 +70,10 @@ function bucket(capacity, periodMs, now) {
   };
 }
 
-/** Public, fictional laboratory. Its only capability is an ephemeral synthetic
- * car belonging to a random browser session. No tenant service, database,
- * vehicle registry, real device credentials or external integration is imported.
- * Memory and CPU budgets are fixed; production telemetry remains a separate task.
+/** Public, fictional laboratory. Its only capability is a synthetic car owned
+ * by a random browser session. A trusted injected factory may send to the
+ * separate demo receiver; requests cannot select its endpoint or stream ID.
+ * No tenant service, vehicle registry or real-device credentials are imported.
  */
 export function createTestCarApi({ env = process.env, now = Date.now, factory = createTestCar,
   maxSessions = 32, idleMs = 30 * minute, lifetimeMs = 120 * minute, maxRunMs = 20 * minute,
@@ -81,10 +81,14 @@ export function createTestCarApi({ env = process.env, now = Date.now, factory = 
   const sessions = new Map();
   const creationBudget = bucket(32, 5 * minute, now), trafficBudget = bucket(200, 2000, now);
   let stopped = false;
+  function dispose(session) {
+    try { session.car.close?.(); } catch { /* Disposal must not interrupt other synthetic sessions. */ }
+    sessions.delete(session.token);
+  }
   function prune() {
     const time = now();
-    for (const [token, session] of sessions) if (time - session.touched >= idleMs || time - session.created >= lifetimeMs)
-      sessions.delete(token);
+    for (const session of sessions.values()) if (time - session.touched >= idleMs || time - session.created >= lifetimeMs)
+      dispose(session);
   }
   function cookie(req, token) {
     const secure = env.RENDER || req.socket?.encrypted || req.headers['x-forwarded-proto'] === 'https';
@@ -97,13 +101,15 @@ export function createTestCarApi({ env = process.env, now = Date.now, factory = 
       const elapsed = Math.min(2, Math.max(0, time - session.lastTick) / 1000); session.lastTick = time;
       try {
         const state = session.car.snapshot();
-        if (!state.engineOn) continue;
-        if (time - session.runningSince >= maxRunMs) {
+        // A stopped engine can still have its final packet waiting for ACK.
+        // Keep the puck's send clock alive until that bounded queue is empty.
+        if (!state.engineOn && !state.device?.pendingRecords) continue;
+        if (state.engineOn && time - session.runningSince >= maxRunMs) {
           session.car.command({ action: 'stop' }); session.runningSince = null;
         } else if (elapsed > 0) session.car.tick(elapsed);
       } catch {
         // A broken synthetic session must not interrupt the main HTTP server.
-        sessions.delete(session.token);
+        dispose(session);
       }
     }
   }
@@ -158,6 +164,6 @@ export function createTestCarApi({ env = process.env, now = Date.now, factory = 
     return true;
   };
   api.tick = tick;
-  api.close = () => { stopped = true; clearInterval(timer); sessions.clear(); };
+  api.close = () => { stopped = true; clearInterval(timer); for (const session of sessions.values()) dispose(session); };
   return api;
 }

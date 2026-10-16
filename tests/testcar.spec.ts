@@ -1,20 +1,60 @@
 import { expect, test, type Page } from '@playwright/test';
 // @ts-expect-error Node loads the real in-memory server model, which has no generated declarations.
 import { createTestCar } from '../server/telematics/testcar-model.mjs';
-import type { TestCarCommand, TestCarSnapshot } from '../src/testcar/types';
+// @ts-expect-error The production Codec 8E decoder is plain Node ESM.
+import { decodeCodec8EFrame, encodeRecordAck } from '../server/telematics/codec8e.mjs';
+import type { TestCarCommand, TestCarSnapshot, TestCarReceiver, TestCarReceiverRecord } from '../src/testcar/types';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1, locale: 'sv-SE' });
 test.describe.configure({ mode: 'serial' });
 
 /** HTTP/session security has its own server tests. Here every response comes
  * from the real isolated model, including its Codec 8E decoder and ACK path. */
-async function fixture(page: Page, options: { sessionFailure?: boolean; failTiles?: boolean } = {}) {
+async function fixture(page: Page, options: { sessionFailure?: boolean; failTiles?: boolean; separateReceiver?: boolean; receiverMode?: 'deferred' | 'unavailable' | 'immediate' } = {}) {
   let wallMs = Date.parse('2026-10-16T08:00:00.000Z');
-  const model = createTestCar({ now: () => new Date(wallMs), random: () => 0.5 }) as {
-    snapshot(): TestCarSnapshot; command(value: TestCarCommand): TestCarSnapshot; tick(seconds?: number): TestCarSnapshot;
-  };
   const controls = { sessionFailure: options.sessionFailure ?? false, failTiles: options.failTiles ?? false,
-    uncertainCommand: false, holdCommand: undefined as { entered: () => void; gate: Promise<void> } | undefined };
+    uncertainCommand: false, holdCommand: undefined as { entered: () => void; gate: Promise<void> } | undefined,
+    receiverMode: options.receiverMode ?? 'immediate' };
+  const stored: Omit<TestCarReceiver, 'channel' | 'transport'> & { packetsReceived: number; distanceKm: number; trips: number } = {
+    status: 'ready', durable: true, storage: 'sqlite', recordsStored: 0, packetsReceived: 0, distanceKm: 0, trips: 0,
+    lastReceivedAt: null, lastRecord: null, recentRecords: [], lastError: null,
+  };
+  const waiting: { frame: Buffer; resolve: (ack: Buffer) => void }[] = [];
+  const committed = new Map<string, TestCarReceiverRecord>();
+  let receiverCalls = 0;
+  function commit(frame: Buffer): Buffer {
+    const { records } = decodeCodec8EFrame(frame) as { records: { at: string; gps: { latitude: number; longitude: number; speedKmh: number }; io: Record<number, string> }[] };
+    for (const record of records) {
+      const value: TestCarReceiverRecord = {
+        at: record.at, lat: record.gps.latitude, lng: record.gps.longitude, speedKmh: record.gps.speedKmh,
+        rpm: parseInt(record.io[36], 16), fuelPercent: parseInt(record.io[48], 16),
+        coolantC: Buffer.from(record.io[32], 'hex').readInt8(), batteryVolts: parseInt(record.io[66], 16) / 1000,
+        odometerMeters: parseInt(record.io[16], 16), ignition: record.io[239] === '01', movement: record.io[240] === '01',
+      };
+      committed.set(JSON.stringify(value), value);
+    }
+    stored.recordsStored = committed.size;
+    stored.packetsReceived++;
+    stored.status = 'ready'; stored.lastError = null; stored.lastReceivedAt = new Date(wallMs).toISOString();
+    stored.recentRecords = [...committed.values()].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).slice(-10);
+    stored.lastRecord = stored.recentRecords.at(-1) ?? null;
+    return encodeRecordAck(records.length) as Buffer;
+  }
+  const model = createTestCar({ now: () => new Date(wallMs), random: () => 0.5,
+    ...(options.separateReceiver ? {
+      receiverSnapshot: () => structuredClone(stored),
+      receivePacket(frame: Buffer) {
+        receiverCalls++;
+        if (controls.receiverMode === 'unavailable') {
+          stored.status = 'unavailable'; stored.lastError = 'Local receiver is unavailable';
+          return Promise.reject(new Error(stored.lastError));
+        }
+        if (controls.receiverMode === 'deferred') return new Promise<Buffer>(resolve => waiting.push({ frame: Buffer.from(frame), resolve }));
+        return commit(frame);
+      },
+    } : {}),
+  }) as { snapshot(): TestCarSnapshot; command(value: TestCarCommand): TestCarSnapshot; tick(seconds?: number): TestCarSnapshot; close(): void };
+  page.on('close', () => { model.close(); for (const item of waiting.splice(0)) item.resolve(encodeRecordAck(0) as Buffer); });
   const commands: TestCarCommand[] = [], requests: string[] = [], unexpected: string[] = [], errors: string[] = [], tiles: string[] = [];
   const origin = new URL(test.info().project.use.baseURL ?? 'http://127.0.0.1:5173').origin;
   page.on('pageerror', error => errors.push(error.message));
@@ -61,14 +101,22 @@ async function fixture(page: Page, options: { sessionFailure?: boolean; failTile
     }
     return route.continue();
   });
-  return { model, controls, commands, requests, unexpected, errors, tiles,
+  return { model, controls, commands, requests, unexpected, errors, tiles, stored, receiverCalls: () => receiverCalls,
+    async commitNext() {
+      const next = waiting.shift(); expect(next, 'The virtual FMC003 must have an outstanding packet').toBeDefined();
+      next!.resolve(commit(next!.frame));
+      await new Promise<void>(resolve => setImmediate(resolve));
+    },
     advance(seconds: number) { wallMs += seconds * 1000; return model.tick(seconds); } };
 }
 
 const place = (page: Page) => page.locator('.testcar-current-place');
 const destination = (page: Page, name: string) => page.locator('.testcar-destinations').getByRole('button', { name: new RegExp(`^${name} `) });
 const receiver = (page: Page) => page.getByRole('region', { name: 'Mottagaren', exact: true });
-const count = (page: Page, name: string) => receiver(page).locator('dl > div').filter({ has: page.getByText(name, { exact: true }) }).locator('dd');
+const count = (page: Page, name: string) => {
+  const labels: Record<string, RegExp> = { Mätpunkter: /^(?:Mätpunkter|Sparade mätpunkter)$/, Paket: /^(?:Paket|Kvitterade paket)$/, 'I kö': /^(?:I kö|Väntar i bilen)$/ };
+  return receiver(page).locator('dl > div').filter({ has: page.getByText(labels[name] ?? name, { exact: true }) }).locator('dd');
+};
 async function refresh(page: Page) { await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))); }
 function isolated(value: Awaited<ReturnType<typeof fixture>>) { expect(value.unexpected).toEqual([]); expect(value.errors).toEqual([]); }
 async function start(page: Page) {
@@ -155,7 +203,7 @@ test('förlorad täckning buffrar riktiga mätpunkter och återanslutning tömme
   expect(offline.stats.pendingRecords).toBeGreaterThan(10);
   await expect(count(page, 'Mätpunkter')).toHaveText('0');
   await expect(count(page, 'I kö')).toHaveText(String(offline.stats.pendingRecords));
-  await expect(receiver(page)).toContainText('Buffrar i bilen');
+  await expect(receiver(page)).toContainText('Bilen saknar täckning');
   await page.getByRole('button', { name: 'Ingen täckning. Återställ täckning', exact: true }).click();
   await expect(count(page, 'I kö')).toHaveText('0');
   const connected = car.model.snapshot();
@@ -220,6 +268,77 @@ test.describe('mobil och återhämtning', () => {
     await page.getByRole('button', { name: 'Stäng av', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Starta bilen', exact: true })).toBeEnabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    isolated(car);
+  });
+});
+
+test('separat mottagare visar bara committade mätpunkter medan ett Codec8E-paket väntar på kvittens', async ({ page }, info) => {
+  const car = await fixture(page, { separateReceiver: true, receiverMode: 'deferred' });
+  await page.goto('/testbil1'); await start(page);
+  await destination(page, 'Kund 1').click();
+  await page.getByRole('button', { name: 'Kör till Kund 1', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Pausa körning', exact: true })).toBeEnabled();
+  car.advance(4); await refresh(page);
+  expect(car.receiverCalls()).toBe(1); // Sampling continues, but the outstanding packet is never sent concurrently.
+  const pending = car.model.snapshot().stats.pendingRecords;
+  expect(pending).toBeGreaterThan(1);
+  await expect(count(page, 'Mätpunkter')).toHaveText('0'); await expect(count(page, 'Paket')).toHaveText('0');
+  await expect(count(page, 'I kö')).toHaveText(String(pending));
+  await expect(receiver(page)).toContainText('Mätpunkter i kö');
+  await expect(receiver(page)).not.toContainText('Sparat och kvitterat');
+  await receiver(page).getByText('Senast lagrad data', { exact: false }).click();
+  await expect(receiver(page)).toContainText('Inga mätpunkter har lagrats ännu');
+  await expect(page.getByRole('table', { name: 'Senast lagrade syntetiska mätpunkter', exact: true })).toHaveCount(0);
+  await car.commitNext(); await refresh(page);
+  await expect(count(page, 'Mätpunkter')).toHaveText('1'); await expect(count(page, 'Paket')).toHaveText('1');
+  await expect(receiver(page)).toContainText('Mätpunkter i kö');
+  await expect(receiver(page)).not.toContainText('Sparat och kvitterat');
+  const table = page.getByRole('table', { name: 'Senast lagrade syntetiska mätpunkter', exact: true });
+  await expect(table.locator('tbody tr')).toHaveCount(1);
+  await expect(table.locator('tbody tr').getByRole('cell').nth(1)).toHaveText('0 km/h');
+  await expect(table.locator('tbody tr').getByRole('cell').nth(2)).toHaveText('780 rpm');
+  expect(car.model.snapshot().telemetry.rpm).toBeGreaterThan(780);
+  expect(car.model.snapshot().stats.pendingRecords).toBeGreaterThan(0);
+  await expect(receiver(page)).toContainText('Separat tjänst');
+  await expect(receiver(page)).toContainText('SQLite · beständig lagring');
+  await page.screenshot({ path: info.outputPath('testcar-receiver-committed-1440.png'), fullPage: true });
+  car.controls.receiverMode = 'immediate';
+  await car.commitNext(); await refresh(page);
+  await expect(count(page, 'I kö')).toHaveText('0');
+  await expect(receiver(page)).toContainText('Sparat och kvitterat');
+  isolated(car);
+});
+
+test.describe('separat mottagare på mobil', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  test('mottagaravbrott skiljs från bilens täckning och återhämtning visar lagrade telemetrirader', async ({ page }, info) => {
+    const car = await fixture(page, { separateReceiver: true, receiverMode: 'unavailable' });
+    await page.goto('/testbil1'); await start(page);
+    await expect(receiver(page)).toContainText('Mottagaren är nere');
+    await expect(count(page, 'Mätpunkter')).toHaveText('0'); await expect(count(page, 'I kö')).toHaveText('1');
+    await expect(page.getByRole('button', { name: 'Ansluten. Simulera förlorad täckning', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Ansluten. Simulera förlorad täckning', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Ingen täckning. Återställ täckning', exact: true })).toBeVisible();
+    await expect(receiver(page)).toContainText('Mottagaren är nere');
+    const attempts = car.receiverCalls();
+    car.controls.receiverMode = 'immediate'; car.stored.status = 'ready'; car.stored.lastError = null;
+    await refresh(page);
+    await expect(receiver(page)).toContainText('Bilen saknar täckning');
+    await expect(receiver(page)).not.toContainText('Mottagaren är nere');
+    expect(car.receiverCalls()).toBe(attempts);
+    await expect(count(page, 'I kö')).toHaveText('1');
+    await page.getByRole('button', { name: 'Ingen täckning. Återställ täckning', exact: true }).click();
+    await expect(count(page, 'I kö')).toHaveText('0');
+    await expect(count(page, 'Mätpunkter')).toHaveText('1');
+    await expect(receiver(page)).toContainText('Sparat och kvitterat');
+    await receiver(page).getByText('Senast lagrad data', { exact: false }).click();
+    const table = page.getByRole('table', { name: 'Senast lagrade syntetiska mätpunkter', exact: true });
+    await expect(table.getByRole('columnheader')).toHaveText(['Mättid', 'Hastighet', 'Varvtal']);
+    await expect(table.locator('tbody tr')).toHaveCount(1);
+    await expect(table.locator('tbody tr').getByRole('cell').nth(2)).toHaveText('780 rpm');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: info.outputPath('testcar-receiver-mobile-390.png'), fullPage: true });
     isolated(car);
   });
 });

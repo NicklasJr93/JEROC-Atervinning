@@ -1,17 +1,18 @@
 import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, ArrowUpRight, Building2, Check, FlaskConical, Fuel, Gauge, House,
+  AlertTriangle, ArrowUpRight, Building2, Check, ChevronDown, Database, FlaskConical, Fuel, Gauge, House,
   LoaderCircle, MapPin, Milestone, Pause, Play, Power, RefreshCw, RotateCcw,
-  Signal, Square, Thermometer, UserRound, Warehouse, WifiOff, X,
+  Server, Signal, Square, Thermometer, UserRound, Warehouse, WifiOff, X,
 } from 'lucide-react';
 import { TestCarMap } from './TestCarMap';
-import { currentPlaceName, isTestCarSnapshot, type PlaceId, type TestCarAction, type TestCarCommand, type TestCarSnapshot, type TimeScale } from './types';
+import { currentPlaceName, isTestCarSnapshot, readTestCarReceiver, type PlaceId, type TestCarAction, type TestCarCommand, type TestCarSnapshot, type TimeScale } from './types';
 import './testcar.css';
 
 const number = new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 0 });
 const decimal = new Intl.NumberFormat('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const clock = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit' });
 const fullClock = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const recordDay = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', day: 'numeric', month: 'short' });
 type ResponseData = { car?: unknown; csrfToken?: unknown };
 class RequestError extends Error { constructor(public status: number) { super('Testbilen svarade inte som väntat'); } }
 
@@ -213,6 +214,40 @@ function SpeedHistory({ car }: { car: TestCarSnapshot }) {
   </svg><p>Simulerad tid <time dateTime={car.simulatedAt}>{fullClock.format(new Date(car.simulatedAt))}</time></p></div>;
 }
 
+function ReceiverCard({ car }: { car: TestCarSnapshot }) {
+  const legacy = car.receiver === undefined;
+  const receiver = readTestCarReceiver(car.receiver);
+  const unavailable = receiver?.status === 'unavailable';
+  const unknown = !legacy && (!receiver || receiver.status === 'unknown');
+  const waiting = !legacy && car.stats.pendingRecords > 0;
+  const separate = receiver?.channel === 'separate_http';
+  const lastReceivedAt = receiver?.lastReceivedAt ?? (legacy ? car.stats.lastReceivedAt : null);
+  const records = receiver?.recentRecords.length ? receiver.recentRecords : receiver?.lastRecord ? [receiver.lastRecord] : [];
+  const storageName = receiver?.storage === 'sqlite' ? 'SQLite' : receiver?.storage === 'postgres' ? 'PostgreSQL' : null;
+  const healthy = !unavailable && !unknown && car.networkOnline;
+  const badge = unavailable ? 'Mottagaren är nere' : unknown ? 'Status okänd'
+    : !car.networkOnline ? legacy ? 'Buffrar i bilen' : 'Bilen saknar täckning'
+      : waiting ? 'Mätpunkter i kö'
+      : lastReceivedAt ? legacy ? 'Testdata mottagen' : 'Sparat och kvitterat'
+        : legacy ? 'Väntar på testdata' : 'Mottagaren är redo';
+  return <section className={`testcar-card testcar-receiver${unavailable || unknown ? ' has-receiver-warning' : ''}`} aria-labelledby="testcar-receiver-heading">
+    <div className="testcar-card-heading"><h2 id="testcar-receiver-heading">Mottagaren</h2><span className={`testcar-badge ${!healthy ? 'is-amber' : waiting ? '' : lastReceivedAt || !legacy ? 'is-green' : ''}`}>{unavailable || unknown ? <AlertTriangle size={15} /> : !car.networkOnline ? <WifiOff size={15} /> : waiting ? <RefreshCw size={15} /> : <Check size={15} />}{badge}</span></div>
+    <div className="testcar-pipeline" aria-label="Testbil till virtuell FMC003 till mottagare"><span>Testbil</span><span aria-hidden="true">→</span><strong>Virtuell FMC003</strong><span aria-hidden="true">→</span><span>{separate ? 'Separat mottagare' : 'Mottagare'}</span></div>
+    {!legacy && <div className="testcar-receiver-meta"><span><Server size={13} />{receiver ? separate ? 'Separat tjänst' : 'Intern testmottagare' : 'Tjänststatus saknas'}</span><span><Database size={13} />{storageName ? `${storageName} · ${receiver?.durable ? 'beständig lagring' : 'testlagring'}` : receiver ? 'Tillfällig lagring' : 'Lagring ej bekräftad'}</span></div>}
+    {(unavailable || unknown || (!legacy && !car.networkOnline)) && <div className={`testcar-receiver-warning${!unavailable && !unknown ? ' is-buffering' : ''}`} role="status"><span>{unavailable ? 'Bilen fortsätter. Mätpunkterna väntar i kön och skickas igen när mottagaren svarar.' : unknown ? 'Det går inte att bekräfta mottagarens status just nu. Bilens instrument fortsätter att uppdateras.' : 'Bilen saknar mobiltäckning. Mätpunkterna buffras tills anslutningen är tillbaka.'}</span></div>}
+    <dl className="testcar-receiver-stats"><div><dd>{receiver ? number.format(receiver.recordsStored) : legacy ? number.format(car.stats.recordsReceived) : '—'}</dd><dt>{legacy ? 'Mätpunkter' : 'Sparade mätpunkter'}</dt></div><div><dd>{number.format(car.stats.packetsReceived)}</dd><dt>{legacy ? 'Paket' : 'Kvitterade paket'}</dt></div><div className={car.stats.pendingRecords > 0 ? 'has-queue' : ''}><dd>{number.format(car.stats.pendingRecords)}</dd><dt>{legacy ? 'I kö' : 'Väntar i bilen'}</dt></div></dl>
+    <p className="testcar-receiver-summary"><span>{decimal.format(car.stats.distanceKm)} km körda · {number.format(car.stats.trips)} resor</span><span>{lastReceivedAt ? `Senast mottaget ${fullClock.format(new Date(lastReceivedAt))}` : unknown || unavailable ? 'Senaste lagring ej bekräftad' : 'Redo för första mätpunkten'}</span></p>
+    <p className="testcar-receiver-cadence">Mätning var 15:e sekund · sändning var 30:e sekund i simulerad tid</p>
+    {!legacy && <>
+      <details className="testcar-stored-data"><summary><Database size={15} /><span>Senast lagrad data<small>{records.length ? `${records.length} senaste mätpunkter` : 'Mätningar från mottagaren'}</small></span><ChevronDown size={17} /></summary>
+        {records.length ? <div className="testcar-stored-table-wrap"><table aria-label="Senast lagrade syntetiska mätpunkter"><thead><tr><th scope="col">Mättid</th><th scope="col">Hastighet</th><th scope="col">Varvtal</th></tr></thead><tbody>{records.map((record, index) => <tr key={`${record.at}:${index}`}><td><time dateTime={record.at}><strong>{fullClock.format(new Date(record.at))}</strong><span>{recordDay.format(new Date(record.at))}</span></time></td><td><strong>{number.format(record.speedKmh)}</strong><span> km/h</span></td><td><strong>{record.rpm === undefined ? '—' : number.format(record.rpm)}</strong>{record.rpm !== undefined && <span> rpm</span>}</td></tr>)}</tbody></table></div> : <p className="testcar-stored-empty">{unknown || unavailable ? 'Lagrade mätningar kan inte visas just nu.' : receiver && receiver.recordsStored > 0 ? 'Mätpunkter har tagits emot. Detaljdata finns inte tillgängliga i den här vyn.' : 'Inga mätpunkter har lagrats ännu. Starta bilen och kör en tur.'}</p>}
+        <p className="testcar-stored-caption">Syntetiska mätningar · tider visas för Stockholm</p>
+      </details>
+      <p className="testcar-retention-note">Bara mottagarens mätpunkter sparas här, inte bilens löpande instrumentvärden.{receiver?.durable && <> Historiken finns kvar när testbilen nollställs och rensas enligt lagringstiden.</>}</p>
+    </>}
+  </section>;
+}
+
 const placeIcons = { office: Building2, customer1: Warehouse, customer2: Warehouse, home: House };
 
 function TestCarDashboard() {
@@ -220,6 +255,7 @@ function TestCarDashboard() {
   const [selected, setSelected] = useState<PlaceId | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const sessionUnavailable = loading || loadError;
+  const durableReceiver = !!car && readTestCarReceiver(car.receiver)?.durable === true;
   useEffect(() => {
     if (car?.currentPlace.id === selected) setSelected(null);
   }, [car?.currentPlace.id, selected]);
@@ -265,7 +301,7 @@ function TestCarDashboard() {
           <button type="button" className="testcar-primary-button testcar-drive-button" disabled={!canDrive || !!busy || sessionUnavailable} onClick={onDrive}>{busy === 'drive' || busy === 'pause' ? <LoaderCircle size={20} className="testcar-spin" /> : car.mode === 'driving' ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}{busy === 'drive' ? 'På väg…' : busy === 'pause' ? 'Pausar…' : driveLabel}</button>
           {!car.engineOn && <p className="testcar-drive-hint">Starta bilen för att köra.</p>}
           {car.engineOn && !journeyInProgress && !selected && <p className="testcar-drive-hint">Välj en annan plats för nästa resa.</p>}
-          {!confirmReset ? <button type="button" className="testcar-reset-link" disabled={!!busy || sessionUnavailable} onClick={() => setConfirmReset(true)}><RotateCcw size={16} />Nollställ testbilen</button> : <div className="testcar-reset-confirm" role="group" aria-label="Bekräfta nollställning"><strong>Börja om från Kontoret?</strong><p>Testbilens resor och mätningar nollställs.</p><div><button type="button" disabled={!!busy} onClick={() => setConfirmReset(false)}>Avbryt</button><button type="button" disabled={!!busy || sessionUnavailable} onClick={() => { void onReset(); }}>{busy === 'reset' ? 'Nollställer…' : 'Ja, nollställ'}</button></div></div>}
+          {!confirmReset ? <button type="button" className="testcar-reset-link" disabled={!!busy || sessionUnavailable} onClick={() => setConfirmReset(true)}><RotateCcw size={16} />Nollställ testbilen</button> : <div className="testcar-reset-confirm" role="group" aria-label="Bekräfta nollställning"><strong>Börja om från Kontoret?</strong><p>Bilens lokala körning och väntande mätpunkter nollställs.{durableReceiver && <> Tidigare sparade mätpunkter i mottagaren finns kvar enligt lagringstiden.</>}</p><div><button type="button" disabled={!!busy} onClick={() => setConfirmReset(false)}>Avbryt</button><button type="button" disabled={!!busy || sessionUnavailable} onClick={() => { void onReset(); }}>{busy === 'reset' ? 'Nollställer…' : 'Ja, nollställ'}</button></div></div>}
         </section>
         <TestCarMap car={car} />
         <section className="testcar-card testcar-live" aria-labelledby="testcar-live-heading"><div className="testcar-card-heading"><h2 id="testcar-live-heading">Live från bilen</h2><button type="button" className={`testcar-badge testcar-network-toggle ${car.networkOnline ? 'is-green' : 'is-amber'}`} disabled={!!busy || sessionUnavailable} aria-label={car.networkOnline ? 'Ansluten. Simulera förlorad täckning' : 'Ingen täckning. Återställ täckning'} aria-pressed={car.networkOnline} title="Klicka för att prova med eller utan mobiltäckning" onClick={() => { void command({ action: 'network', online: !car.networkOnline }); }}>{car.networkOnline ? <Signal size={15} /> : <WifiOff size={15} />}{car.networkOnline ? 'Ansluten' : 'Ingen täckning'}</button></div>
@@ -276,7 +312,7 @@ function TestCarDashboard() {
         </section>
       </div>
       <div className="testcar-bottom-grid"><section className="testcar-card testcar-events" aria-labelledby="testcar-events-heading"><div className="testcar-card-heading"><h2 id="testcar-events-heading">Det händer just nu</h2><span className="testcar-small-note">Alla händelser är simulerade</span></div>{car.events.length ? <ol>{[...car.events].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 4).map(event => <li key={event.id} className={`is-${event.type}`}><span className="testcar-event-dot" /><time dateTime={event.at}>{clock.format(new Date(event.at))}</time><span>{event.text}</span></li>)}</ol> : <div className="testcar-no-events"><Power size={18} />Starta bilen så börjar det hända saker här.</div>}</section>
-        <section className="testcar-card testcar-receiver" aria-labelledby="testcar-receiver-heading"><div className="testcar-card-heading"><h2 id="testcar-receiver-heading">Mottagaren</h2><span className={`testcar-badge ${!car.networkOnline ? 'is-amber' : car.stats.lastReceivedAt ? 'is-green' : ''}`}>{!car.networkOnline ? <WifiOff size={15} /> : <Check size={15} />}{!car.networkOnline ? 'Buffrar i bilen' : car.stats.lastReceivedAt ? 'Testdata mottagen' : 'Väntar på testdata'}</span></div><div className="testcar-pipeline" aria-label="Testbil till virtuell FMC003 till mottagare"><span>Testbil</span><span aria-hidden="true">→</span><strong>Virtuell FMC003</strong><span aria-hidden="true">→</span><span>Mottagare</span></div><dl className="testcar-receiver-stats"><div><dd>{number.format(car.stats.recordsReceived)}</dd><dt>Mätpunkter</dt></div><div><dd>{number.format(car.stats.packetsReceived)}</dd><dt>Paket</dt></div><div className={car.stats.pendingRecords > 0 ? 'has-queue' : ''}><dd>{number.format(car.stats.pendingRecords)}</dd><dt>I kö</dt></div></dl><p className="testcar-receiver-summary"><span>{decimal.format(car.stats.distanceKm)} km körda · {number.format(car.stats.trips)} resor</span><span>{car.stats.lastReceivedAt ? `Senast ${fullClock.format(new Date(car.stats.lastReceivedAt))}` : 'Redo för första resan'}</span></p><p className="testcar-receiver-cadence">Mätning var 15:e sekund · sändning var 30:e sekund i simulerad tid</p></section>
+        <ReceiverCard car={car} />
       </div>
     </>}
     <footer className="testcar-footer">ScrapPilot Labbet <span aria-hidden="true">·</span> Syntetisk bil, påhittade resor</footer>

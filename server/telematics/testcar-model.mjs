@@ -34,6 +34,27 @@ const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const round = (value, digits = 2) => Number(value.toFixed(digits));
 const samePoint = (a, b) => Math.abs(a.lat - b.lat) < 1e-10 && Math.abs(a.lng - b.lng) < 1e-10;
 const radians = degrees => degrees * Math.PI / 180;
+const safeCount = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+const safeDistance = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+function safeTime(value) {
+  if (typeof value !== 'string' || value.length > 100) return null;
+  const at = Date.parse(value);
+  return Number.isFinite(at) ? new Date(at).toISOString() : null;
+}
+function receiverRecord(value) {
+  if (!value || typeof value !== 'object') return null;
+  const at = safeTime(value.at);
+  const ranges = { lat: [-90, 90], lng: [-180, 180], speedKmh: [0, 350], rpm: [0, 20000], fuelPercent: [0, 100], coolantC: [-128, 215], batteryVolts: [0, 100], odometerMeters: [0, 0xFFFFFFFF] };
+  if (!at) return null;
+  const record = { at };
+  for (const [key, [min, max]] of Object.entries(ranges)) {
+    const number = value[key];
+    if (typeof number === 'number' && Number.isFinite(number) && number >= min && number <= max) record[key] = number;
+  }
+  if (!['lat', 'lng', 'speedKmh'].every(key => Object.hasOwn(record, key))) return null;
+  for (const key of ['ignition', 'movement']) if (typeof value[key] === 'boolean') record[key] = value[key];
+  return record;
+}
 function metersBetween(a, b) {
   const sinLat = Math.sin(radians(b.lat - a.lat) / 2);
   const sinLng = Math.sin(radians(b.lng - a.lng) / 2);
@@ -67,10 +88,13 @@ function validateCommand(input) {
   }
 }
 
-/** An isolated in-memory demonstration: no socket, database, CRM or real device. */
-export function createTestCar({ now = () => new Date(), random = Math.random } = {}) {
+/** Synthetic car physics. Transport may be injected; never writes CRM data. */
+export function createTestCar({ now = () => new Date(), random = Math.random, receivePacket, receiverSnapshot } = {}) {
+  if (receivePacket !== undefined && typeof receivePacket !== 'function') throw new TypeError('Invalid test-car receiver');
+  if (receiverSnapshot !== undefined && (typeof receiverSnapshot !== 'function' || !receivePacket)) throw new TypeError('External receiver snapshots need an external receiver');
   let state;
   let device;
+  let closed = false;
   let revision = 0;
   let sequence = 0;
   function wallTime() {
@@ -84,6 +108,7 @@ export function createTestCar({ now = () => new Date(), random = Math.random } =
   }
   function initialize() {
     const clockMs = wallTime().getTime();
+    device?.close();
     state = {
       clockMs,
       engineOn: false, mode: 'off', timeScale: 10, networkOnline: true,
@@ -96,12 +121,36 @@ export function createTestCar({ now = () => new Date(), random = Math.random } =
     };
     sequence = 0;
     device = createVirtualFmc003({
-      initialAt: new Date(clockMs), receivePacket: receive,
+      initialAt: new Date(clockMs), receivePacket: receivePacket ?? receive,
+      transport: receivePacket ? 'http' : 'in_process',
+      onChange() { if (!closed) revision += 1; },
       onSample(sample) {
         state.speedHistory.push({ at: sample.at, value: round(sample.speedKmh, 1) });
         state.speedHistory = state.speedHistory.slice(-60);
       },
     });
+  }
+  function receivingState() {
+    if (!receivePacket) {
+      return {
+        view: { channel: 'internal_memory', transport: 'in_process', status: 'ready', durable: false, storage: null, recordsStored: state.recordsReceived, lastReceivedAt: state.lastReceivedAt, lastRecord: null, recentRecords: [], lastError: null },
+        stats: { recordsReceived: state.recordsReceived, packetsReceived: state.packetsReceived, distanceKm: round((state.receiverOdometer - INITIAL_ODOMETER_METERS) / 1000, 3), trips: state.receiverCompletedTrips, lastReceivedAt: state.lastReceivedAt },
+      };
+    }
+    let raw;
+    try { raw = receiverSnapshot?.(); } catch { /* Read-only cached status may be unavailable. */ }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || typeof raw.then === 'function') raw = {};
+    const status = ['ready', 'unavailable', 'unknown'].includes(raw.status) ? raw.status : 'unknown';
+    const storage = ['sqlite', 'postgres'].includes(raw.storage) ? raw.storage : null;
+    const recordsStored = safeCount(raw.recordsStored ?? raw.recordsReceived);
+    const lastReceivedAt = safeTime(raw.lastReceivedAt);
+    const view = {
+      channel: 'separate_http', transport: 'http', status, durable: raw.durable === true && storage !== null,
+      storage, recordsStored, lastReceivedAt, lastRecord: receiverRecord(raw.lastRecord),
+      recentRecords: Array.isArray(raw.recentRecords) ? raw.recentRecords.slice(-10).map(receiverRecord).filter(Boolean) : [],
+      lastError: typeof raw.lastError === 'string' ? raw.lastError.slice(0, 300) : null,
+    };
+    return { view, stats: { recordsReceived: recordsStored, packetsReceived: safeCount(raw.packetsReceived), distanceKm: safeDistance(raw.distanceKm), trips: safeCount(raw.trips), lastReceivedAt } };
   }
   initialize();
   const iso = () => new Date(state.clockMs).toISOString();
@@ -268,6 +317,7 @@ export function createTestCar({ now = () => new Date(), random = Math.random } =
   }
   function snapshot() {
     const deviceView = device.snapshot();
+    const receiver = receivingState();
     const route = state.route;
     let routeView = null;
     if (route) {
@@ -297,15 +347,16 @@ export function createTestCar({ now = () => new Date(), random = Math.random } =
       },
       driver: { name: 'Niklas', source: 'default' },
       stats: {
-        recordsReceived: state.recordsReceived, packetsReceived: state.packetsReceived, pendingRecords: deviceView.pendingRecords,
-        distanceKm: round((state.receiverOdometer - INITIAL_ODOMETER_METERS) / 1000, 3), trips: state.receiverCompletedTrips, lastReceivedAt: state.lastReceivedAt,
+        ...receiver.stats, pendingRecords: deviceView.pendingRecords,
       },
       events: state.events.map(entry => ({ ...entry })), trips,
       speedHistory: state.speedHistory.map(point => ({ ...point })), networkOnline: state.networkOnline, revision,
       device: deviceView,
+      receiver: receiver.view,
     };
   }
   function command(input) {
+    if (closed) fail(409, 'TESTCAR_CLOSED', 'Den här testbilen har stängts. Öppna den aktuella testbilen igen.');
     validateCommand(input);
     if (input.action === 'start' && state.engineOn) fail(409, 'TESTCAR_ALREADY_RUNNING', 'Testbilens motor är redan startad.');
     if (input.action === 'stop' && !state.engineOn) fail(409, 'TESTCAR_ALREADY_STOPPED', 'Testbilens motor är redan avstängd.');
@@ -355,6 +406,7 @@ export function createTestCar({ now = () => new Date(), random = Math.random } =
     if (typeof realSeconds !== 'number' || !Number.isFinite(realSeconds) || realSeconds < 0 || realSeconds > 3600) {
       fail(422, 'TESTCAR_INVALID_TICK', 'Tidssteget måste vara mellan 0 och 3 600 sekunder.');
     }
+    if (closed) return snapshot();
     let remainingMs = Math.round(realSeconds * state.timeScale * 1000);
     if (!remainingMs) return snapshot();
     while (remainingMs > 0) {
@@ -366,5 +418,11 @@ export function createTestCar({ now = () => new Date(), random = Math.random } =
     revision += 1;
     return snapshot();
   }
-  return { snapshot, command, tick };
+  function close() {
+    if (closed) return;
+    closed = true;
+    device.close();
+    revision += 1;
+  }
+  return { snapshot, command, tick, close };
 }

@@ -197,3 +197,73 @@ test('synthetic FMC003 packets preserve AVL units and are rejected by the strict
   assert.throws(() => decodeCodec8EFrame(packet), error => error.code === 'TELEMATICS_CODEC_INVALID');
   assert.throws(() => encodeSyntheticTestCarFrame([{ ...sample, simulated: false }]), TypeError);
 });
+
+test('separate asynchronous receiver supplies committed statistics without local fake receipts', async () => {
+  let resolve;
+  const delivered = new Promise(yes => { resolve = yes; });
+  let summary = { status: 'ready', durable: true, storage: 'sqlite', recordsStored: 0, packetsReceived: 0, distanceKm: 0, trips: 0, lastReceivedAt: null };
+  const car = createTestCar({ now: () => new Date(START), random: () => 0.5,
+    receivePacket: () => delivered, receiverSnapshot: () => summary,
+  });
+  let state = car.command({ action: 'start' });
+  assert.equal(state.stats.recordsReceived, 0);
+  assert.equal(state.stats.pendingRecords, 1);
+  assert.equal(state.device.sending, true);
+  assert.equal(state.receiver.channel, 'separate_http');
+  assert.equal(state.receiver.durable, true);
+  const previousRevision = state.revision;
+  summary = { ...summary, recordsStored: 1, packetsReceived: 1, distanceKm: 1.25, trips: 1, lastReceivedAt: START,
+    lastRecord: { at: START, lat: 59.76035, lng: 18.70412, speedKmh: 0, rpm: 780, privateKey: 'must-not-appear' },
+    recentRecords: [{ at: START, lat: 59.76035, lng: 18.70412, speedKmh: 0, unexpected: true }],
+  };
+  // Receiver commit and device ACK are distinct. A lost ACK would retain the
+  // device record even though the receiver already truthfully reports commit.
+  assert.equal(car.snapshot().stats.recordsReceived, 1);
+  assert.equal(car.snapshot().stats.pendingRecords, 1);
+  resolve(Buffer.from([0, 0, 0, 1]));
+  await new Promise(yes => setImmediate(yes));
+  state = car.snapshot();
+  assert.equal(state.stats.pendingRecords, 0);
+  assert.equal(state.stats.packetsReceived, 1);
+  assert.equal(state.stats.distanceKm, 1.25);
+  assert.equal(state.stats.trips, 1);
+  assert.ok(state.revision > previousRevision);
+  assert.equal(state.receiver.lastRecord.rpm, 780);
+  assert.equal(Object.hasOwn(state.receiver.lastRecord, 'privateKey'), false);
+  assert.equal(Object.hasOwn(state.receiver.recentRecords[0], 'unexpected'), false);
+});
+
+test('external receiver failures stay external and old reset ACK cannot clear the new device buffer', async () => {
+  let resolveOld;
+  const oldReply = new Promise(yes => { resolveOld = yes; });
+  const car = createTestCar({ now: () => new Date(START), receivePacket: () => oldReply,
+    receiverSnapshot: () => ({ status: 'unavailable', storage: 'postgres', durable: true, recordsStored: 0, lastError: 'Mottagaren svarar inte.' }),
+  });
+  car.command({ action: 'start' });
+  assert.equal(car.snapshot().receiver.status, 'unavailable');
+  assert.equal(car.snapshot().stats.recordsReceived, 0);
+  car.command({ action: 'reset' });
+  const reset = car.snapshot();
+  resolveOld(Buffer.from([0, 0, 0, 1]));
+  await new Promise(yes => setImmediate(yes));
+  assert.deepEqual(car.snapshot(), reset);
+  car.close();
+  assert.throws(() => car.command({ action: 'start' }), error => error.code === 'TESTCAR_CLOSED');
+  const closed = car.snapshot();
+  car.tick(10);
+  assert.deepEqual(car.snapshot(), closed);
+});
+
+test('an absent or malformed external status never falls back to the internal receiver', async () => {
+  const car = createTestCar({ now: () => new Date(START), receivePacket: async () => Buffer.from([0, 0, 0, 1]),
+    receiverSnapshot: () => { throw new Error('status cache unavailable'); },
+  });
+  car.command({ action: 'start' });
+  await new Promise(yes => setImmediate(yes));
+  const state = car.snapshot();
+  assert.equal(state.receiver.status, 'unknown');
+  assert.equal(state.receiver.durable, false);
+  assert.equal(state.receiver.recordsStored, 0);
+  assert.equal(state.stats.recordsReceived, 0);
+  assert.equal(state.device.recordsAcknowledged, 1);
+});

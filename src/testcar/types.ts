@@ -7,6 +7,31 @@ export interface MapPoint { lat: number; lng: number }
 export interface Destination extends MapPoint { id: PlaceId; name: string; subtitle: string }
 export interface TestCarEvent { id: string; at: string; text: string; type: 'info' | 'success' | 'warning' }
 
+export interface TestCarReceiverRecord extends MapPoint {
+  at: string;
+  speedKmh: number;
+  rpm?: number;
+  fuelPercent?: number;
+  coolantC?: number;
+  batteryVolts?: number;
+  odometerMeters?: number;
+  ignition?: boolean;
+  movement?: boolean;
+}
+
+export interface TestCarReceiver {
+  channel: 'separate_http' | 'internal_memory';
+  transport: 'http' | 'in_process';
+  status: 'ready' | 'unavailable' | 'unknown';
+  durable: boolean;
+  storage: 'sqlite' | 'postgres' | null;
+  recordsStored: number;
+  lastReceivedAt: string | null;
+  lastRecord: TestCarReceiverRecord | null;
+  recentRecords: TestCarReceiverRecord[];
+  lastError: string | null;
+}
+
 export interface TestCarSnapshot {
   simulated: true;
   id: string;
@@ -59,6 +84,7 @@ export interface TestCarSnapshot {
   speedHistory: Array<{ at: string; value: number }>;
   networkOnline: boolean;
   revision: number;
+  receiver?: TestCarReceiver;
 }
 
 export interface TestCarCommand {
@@ -79,6 +105,42 @@ const isPoint = (value: unknown): value is MapPoint => {
   return Number.isFinite(point.lat) && Number.isFinite(point.lng)
     && Math.abs(point.lat) <= 90 && Math.abs(point.lng) <= 180;
 };
+
+const isTimestamp = (value: unknown): value is string => typeof value === 'string'
+  && /^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value));
+const isReceiverRecord = (value: unknown): value is TestCarReceiverRecord => {
+  if (!isPoint(value)) return false;
+  const record = value as TestCarReceiverRecord;
+  return isTimestamp(record.at) && Number.isFinite(record.speedKmh)
+    && (record.ignition === undefined || typeof record.ignition === 'boolean')
+    && (record.movement === undefined || typeof record.movement === 'boolean')
+    && [record.rpm, record.fuelPercent, record.coolantC, record.batteryVolts, record.odometerMeters]
+      .every(value => value === undefined || Number.isFinite(value));
+};
+
+// The receiver is an optional, independently refreshed service. An invalid DTO
+// must never blank the car dashboard or be mistaken for a healthy receiver.
+export function readTestCarReceiver(value: unknown): TestCarReceiver | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const receiver = value as TestCarReceiver;
+  if (!['separate_http', 'internal_memory'].includes(receiver.channel)
+    || !['http', 'in_process'].includes(receiver.transport)
+    || !['ready', 'unavailable', 'unknown'].includes(receiver.status)
+    || typeof receiver.durable !== 'boolean'
+    || ![null, 'sqlite', 'postgres'].includes(receiver.storage)
+    || !Number.isSafeInteger(receiver.recordsStored) || receiver.recordsStored < 0
+    || !(receiver.lastReceivedAt === null || isTimestamp(receiver.lastReceivedAt))
+    || !(receiver.lastRecord === null || isReceiverRecord(receiver.lastRecord))
+    || !Array.isArray(receiver.recentRecords) || receiver.recentRecords.length > 10 || !receiver.recentRecords.every(isReceiverRecord)
+    || !(receiver.lastError === null || typeof receiver.lastError === 'string')) return null;
+  return {
+    channel: receiver.channel, transport: receiver.transport, status: receiver.status,
+    durable: receiver.durable, storage: receiver.storage, recordsStored: receiver.recordsStored,
+    lastReceivedAt: receiver.lastReceivedAt, lastRecord: receiver.lastRecord,
+    recentRecords: [...receiver.recentRecords].sort((left, right) => Date.parse(right.at) - Date.parse(left.at)).slice(0, 10),
+    lastError: receiver.lastError,
+  };
+}
 
 // An unexpected response leaves the last usable snapshot on screen. Checking
 // the rendered fields also keeps a partial/error response out of Leaflet.

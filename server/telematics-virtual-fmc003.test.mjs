@@ -9,6 +9,11 @@ const telemetry = () => ({
   speedKmh: 45, rpm: 1800, coolantC: 85, fuelPercent: 68,
   fuelRateLh: 7.25, batteryVolts: 14.2, odometerMeters: 124583456,
 });
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
 
 test('car input is sampled every15s, then encoded/decoded and acknowledged every30s', () => {
   const packets = [];
@@ -144,4 +149,99 @@ test('offline overflow keeps newest samples; factories and public snapshots are 
   const other = createVirtualFmc003({ initialAt: BASE, receivePacket: () => encodeRecordAck(1) });
   assert.equal(other.snapshot().samplesCreated, 0);
   assert.equal(other.snapshot().lastPacket, null);
+});
+
+test('asynchronous ACK keeps one request active while sampling continues, then drains queued records', async () => {
+  const first = deferred();
+  const packets = [];
+  let activeRequests = 0;
+  let maximumActive = 0;
+  const device = createVirtualFmc003({ initialAt: BASE, transport: 'http', receivePacket(packet) {
+    packets.push(decodeCodec8EFrame(packet).records);
+    activeRequests += 1;
+    maximumActive = Math.max(maximumActive, activeRequests);
+    if (packets.length === 1) return first.promise.finally(() => { activeRequests -= 1; });
+    activeRequests -= 1;
+    return encodeRecordAck(packets.at(-1).length);
+  } });
+  const sending = device.capture(telemetry(), { at: BASE, immediate: true });
+  assert.equal(device.snapshot().status, 'sending');
+  assert.equal(device.snapshot().recordsAcknowledged, 0);
+  device.advanceTo(BASE + 60000, telemetry);
+  device.capture(telemetry(), { at: BASE + 60001, immediate: true });
+  assert.equal(packets.length, 1);
+  assert.equal(device.snapshot().pendingRecords, 6);
+  first.resolve(encodeRecordAck(1));
+  await sending;
+  assert.equal(maximumActive, 1);
+  assert.deepEqual(packets.map(records => records.length), [1, 5]);
+  assert.equal(device.snapshot().pendingRecords, 0);
+  assert.equal(device.snapshot().recordsAcknowledged, 6);
+  assert.equal(device.snapshot().transport, 'http');
+});
+
+test('asynchronous lost/bad ACK stops retries until a later flush and preserves bytes with newer queued samples', async () => {
+  for (const outcome of ['bad', 'lost']) {
+    const attempt = deferred();
+    const packets = [];
+    const unique = new Set();
+    const device = createVirtualFmc003({ initialAt: BASE, receivePacket(packet) {
+      packets.push(Buffer.from(packet));
+      const { records } = decodeCodec8EFrame(packet);
+      for (const record of records) unique.add(JSON.stringify(record));
+      return packets.length === 1 ? attempt.promise : Promise.resolve(encodeRecordAck(records.length));
+    } });
+    const firstSend = device.capture(telemetry(), { at: BASE, immediate: true });
+    device.advanceTo(BASE + 15000, telemetry);
+    if (outcome === 'bad') attempt.resolve(encodeRecordAck(0));
+    else attempt.reject(new Error('ACK disappeared after commit'));
+    await firstSend;
+    assert.equal(packets.length, 1, 'No automatic tight retry on an async failure');
+    assert.equal(device.snapshot().pendingRecords, 2);
+    assert.equal(device.snapshot().status, 'retry_pending');
+    await device.flush(BASE + 16000);
+    assert.deepEqual(packets[1], packets[0], 'The retry must not absorb newly queued samples');
+    assert.equal(packets.length, 3);
+    assert.equal(unique.size, 2);
+    assert.equal(device.snapshot().recordsAcknowledged, 2);
+    assert.equal(device.snapshot().pendingRecords, 0);
+  }
+});
+
+test('offline transition invalidates a late ACK and does not overlap its request on reconnect', async () => {
+  const first = deferred();
+  const packets = [];
+  const device = createVirtualFmc003({ initialAt: BASE, receivePacket(packet) {
+    packets.push(Buffer.from(packet));
+    return packets.length === 1 ? first.promise : encodeRecordAck(decodeCodec8EFrame(packet).records.length);
+  } });
+  const pending = device.capture(telemetry(), { at: BASE, immediate: true });
+  device.setOnline(false);
+  device.setOnline(true);
+  assert.equal(packets.length, 1);
+  first.resolve(encodeRecordAck(1));
+  await pending;
+  assert.equal(device.snapshot().recordsAcknowledged, 0);
+  assert.equal(device.snapshot().pendingRecords, 1);
+  await device.flush(BASE + 1000);
+  assert.equal(device.snapshot().recordsAcknowledged, 1);
+  assert.deepEqual(packets[1], packets[0]);
+});
+
+test('closing an obsolete device generation prevents late callbacks changing its state or a new device', async () => {
+  const first = deferred();
+  let changes = 0;
+  const oldDevice = createVirtualFmc003({ initialAt: BASE, receivePacket: () => first.promise, onChange: () => { changes += 1; } });
+  const pending = oldDevice.capture(telemetry(), { at: BASE, immediate: true });
+  oldDevice.close();
+  const freshDevice = createVirtualFmc003({ initialAt: BASE, receivePacket: () => encodeRecordAck(1) });
+  first.resolve(encodeRecordAck(1));
+  await pending;
+  assert.equal(oldDevice.snapshot().recordsAcknowledged, 0);
+  assert.equal(oldDevice.snapshot().pendingRecords, 1);
+  assert.equal(oldDevice.snapshot().closed, true);
+  assert.equal(changes, 0);
+  assert.equal(freshDevice.snapshot().samplesCreated, 0);
+  oldDevice.capture(telemetry(), { at: BASE + 1000, immediate: true });
+  assert.equal(oldDevice.snapshot().samplesCreated, 1);
 });

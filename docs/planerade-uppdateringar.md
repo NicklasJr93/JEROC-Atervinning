@@ -15,10 +15,11 @@ Ordningen är inte en prioritering.
 Status: första fristående backendgrund levererad 2026-10-16 enligt ÄL 127.
 [Dokumentation och provsteg](integrationer/telematik/README.md).
 
-Digital testbil och separat virtuell FMC003 är implementerade enligt ÄL 128
+Digital testbil och separat virtuell FMC003 är implementerade enligt ÄL 128–129
 på `/testbil1` efter deploy. [Guide](integrationer/telematik/testbil.md).
-Det är en isolerad syntetisk kanal med processminne, inte verklig telemetri
-eller den separata produktionsplattformen med databas och bakgrundsprocesser.
+Den syntetiska mottagaren har nu egen HTTP-process och databas med commit före
+ACK. [Drift och begränsningar](integrationer/telematik/mottagartjanst.md).
+Fysisk tracker, fristående värdplattform och PostgreSQL-driftsprov återstår.
 
 - Lokal TCP/Codec 8 Extended-mottagning, SQLite-pilot och reseprojektion
   är byggda. Ingen fysisk tracker, produktionsstart eller appvy är ansluten.
