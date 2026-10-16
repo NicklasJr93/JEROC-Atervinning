@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { EnvironmentError } from './environment-storage.mjs';
-import { NVV_SUPPORT_PRESET, NVV_SUPPORT_CERTIFICATE_FINGERPRINT, supportPayload } from './nvv-support-payload.mjs';
+import { NVV_SUPPORT_PRESET, NVV_TESTBOLAG1_OWN_PRESET, NVV_SUPPORT_CERTIFICATE_FINGERPRINT, supportPayload, testbolag1OwnPayload } from './nvv-support-payload.mjs';
 
 const copy = value => structuredClone(value);
 const fail = (message, status = 422, code = 'sandbox_invalid') => { throw new EnvironmentError(message, status, code); };
@@ -22,7 +22,7 @@ const payloadSchema = z.object({ tidpunkt: text.optional(), ombud: nullableText,
   senasteHanteringsPlats: place.optional(), transportsatt: text.optional(),
 }).strict();
 const inputSchema = z.object({ requestId: z.string().uuid(), idempotencyKey: z.string().trim().min(1).max(100), payload: payloadSchema,
-  preset: z.literal(NVV_SUPPORT_PRESET).optional() }).strict();
+  preset: z.enum([NVV_SUPPORT_PRESET, NVV_TESTBOLAG1_OWN_PRESET]).optional() }).strict();
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 const hash = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
@@ -73,13 +73,14 @@ function template(config, reporter, time) {
     kommandeHanteringsPlats: { kommunkod: '0188', adress: { adressrad: 'Ängsvägen 19, Norrtälje', postnummer: '76141' } } };
 }
 
-function supportIssues(config, time) {
+function supportIssues(config, time, preset = NVV_SUPPORT_PRESET) {
   const issues = [...(config.missing ?? []), ...(config.issues ?? [])], certificate = config.certificate;
-  if (config.mode !== 'test') issues.push('Supportprovet kräver NVV TEST.');
+  const label = preset === NVV_TESTBOLAG1_OWN_PRESET ? 'Provet utan ombud' : 'Supportprovet';
+  if (config.mode !== 'test') issues.push(`${label} kräver NVV TEST.`);
   if (!config.ready && !issues.length) issues.push('NVV TEST är inte färdigkonfigurerat.');
   if (certificate?.validated !== true || certificate?.metadataAvailable !== true
     || certificate.organisationNumber !== '5560000167' || certificate.fingerprint256 !== NVV_SUPPORT_CERTIFICATE_FINGERPRINT)
-    issues.push('Supportprovet kräver det verifierade Testbolag 1-certifikatet, organisation 5560000167.');
+    issues.push(`${label} kräver det verifierade Testbolag 1-certifikatet, organisation 5560000167.`);
   else if (!Number.isFinite(Date.parse(certificate.validFrom)) || !Number.isFinite(Date.parse(certificate.validTo))
     || Date.parse(certificate.validFrom) > time.getTime() || Date.parse(certificate.validTo) <= time.getTime())
     issues.push('Testbolag 1-certifikatet är inte giltigt vid provets tidpunkt.');
@@ -92,10 +93,20 @@ function assertSupportRoles(payload) {
     fail('Supportprovet kräver JEROC 5593593626 som verksamhetsutövare och Testbolag 1 5560000167 som ombud.', 422, 'sandbox_support_roles');
 }
 
-function priorSupportIssue(state) {
-  const prior = state.nvvSandboxRuns.find(run => run.preset === NVV_SUPPORT_PRESET
+function assertOwnRoles(payload) {
+  if (payload.verksamhetsutovare !== '5560000167' || payload.verksamhetensNamn !== 'Testbolag 1'
+    || payload.tidigareInnehavare !== '5560000167' || Object.keys(payload).some(key => key.startsWith('ombud')))
+    fail('Provet utan ombud kräver Testbolag 1 5560000167 som verksamhetsutövare och tidigare innehavare. Inga ombudsfält får anges.', 422, 'sandbox_own_roles');
+}
+
+const presetError = (preset, suffix) => `sandbox_${preset === NVV_TESTBOLAG1_OWN_PRESET ? 'own' : 'support'}_${suffix}`;
+function priorSupportIssue(state, preset = NVV_SUPPORT_PRESET) {
+  const prior = state.nvvSandboxRuns.find(run => run.preset === preset
     && ['accepted', 'unknown', 'in_flight'].includes(run.status));
   if (!prior) return undefined;
+  if (preset === NVV_TESTBOLAG1_OWN_PRESET) return prior.status === 'accepted'
+    ? 'Ett prov utan ombud har redan accepterats. Inga fler sådana prov ska skickas.'
+    : 'Ett tidigare prov utan ombud pågår eller har okänt utfall. Utred det försöket innan ett nytt prov skickas.';
   return prior.status === 'accepted' ? 'Ett supportprov har redan accepterats. Inga fler supportprov ska skickas.'
     : 'Ett tidigare supportprov pågår eller har okänt utfall. Utred det försöket innan ett nytt supportprov skickas.';
 }
@@ -116,13 +127,15 @@ export function createNvvSandbox({ transaction, read, principalFor, client }) {
   return {
     async status(token) {
       const context = await read((state, time) => { authorize(state, time, token); return { reporter: copy(state.nvvSettings.at(-1) ?? null), time,
-        supportIssue: priorSupportIssue(state),
+        supportIssue: priorSupportIssue(state), ownIssue: priorSupportIssue(state, NVV_TESTBOLAG1_OWN_PRESET),
         runs: state.nvvSandboxRuns.filter(run => !run.diagnosticOperation).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 50).map(run => publicRun(run, time)) }; });
       const config = await client.status();
       const issues = [...supportIssues(config, context.time), ...(context.supportIssue ? [context.supportIssue] : [])];
+      const ownIssues = [...supportIssues(config, context.time, NVV_TESTBOLAG1_OWN_PRESET), ...(context.ownIssue ? [context.ownIssue] : [])];
       return { mode: config.mode, ready: config.mode === 'test' && config.ready, missing: [...new Set([...(config.missing ?? []), ...(config.issues ?? []), ...(config.mode === 'test' ? [] : ['Fristående testutskick kräver NVV TEST.'])])],
         certificate: copy(config.certificate ?? null), template: template(config, context.reporter, context.time), runs: context.runs,
-        supportTest: { ready: issues.length === 0, issues, template: supportPayload(context.time, randomUUID()) } };
+        supportTest: { ready: issues.length === 0, issues, template: supportPayload(context.time, randomUUID()) },
+        ownTest: { ready: ownIssues.length === 0, issues: ownIssues, template: testbolag1OwnPayload(context.time, randomUUID()) } };
     },
     run(id, token) { return read((state, time) => { authorize(state, time, token); const run = state.nvvSandboxRuns.find(item => item.id === id && !item.diagnosticOperation);
       if (!run) fail('Testförsöket finns inte.', 404, 'not_found'); return publicRun(run, time); }); },
@@ -132,27 +145,28 @@ export function createNvvSandbox({ transaction, read, principalFor, client }) {
       if (prior) return prior;
       let config = await client.status(), dispatchClient = client, profile;
       if (request.preset) {
-        assertSupportRoles(request.payload);
+        if (request.preset === NVV_TESTBOLAG1_OWN_PRESET) assertOwnRoles(request.payload); else assertSupportRoles(request.payload);
         // Freeze the chosen PFX and configuration in an isolated client before
         // reserving. A rotation of ordinary settings cannot redirect this probe.
         if (config.mode !== 'test') fail('Fristående testutskick tillåts endast i NVV TEST.', 409, 'sandbox_test_only');
         if (!config.ready) fail('NVV TEST är inte färdigkonfigurerat.', 409, 'sandbox_not_ready');
-        if (typeof client.diagnosticSession !== 'function') fail('Supportprovets certifikatprofil är inte tillgänglig.', 409, 'sandbox_support_certificate');
+        const certificateError = presetError(request.preset, 'certificate');
+        if (typeof client.diagnosticSession !== 'function') fail('Provets certifikatprofil är inte tillgänglig.', 409, certificateError);
         try { dispatchClient = await client.diagnosticSession({ tls: 'tls12' }); config = await dispatchClient.status(); }
-        catch { fail('Supportprovet kräver ett giltigt verifierat Testbolag 1-certifikat.', 409, 'sandbox_support_certificate'); }
+        catch { fail('Provet kräver ett giltigt verifierat Testbolag 1-certifikat.', 409, certificateError); }
         profile = { tls: 'tls12', certificateFP: config.certificate?.fingerprint256, certificateOrganisationNumber: config.certificate?.organisationNumber };
       }
       const reservation = await transaction((state, time) => {
         const principal = authorize(state, time, token), match = existing(state, request, principal);
         if (match.prior) return { prior: publicRun(match.prior, time) };
         if (request.preset) {
-          const issue = priorSupportIssue(state);
-          if (issue) fail(issue, 409, 'sandbox_support_pending');
+          const issue = priorSupportIssue(state, request.preset);
+          if (issue) fail(issue, 409, presetError(request.preset, 'pending'));
         }
         if (config.mode !== 'test') fail('Fristående testutskick tillåts endast i NVV TEST.', 409, 'sandbox_test_only');
         if (!config.ready) fail('NVV TEST är inte färdigkonfigurerat.', 409, 'sandbox_not_ready');
-        if (request.preset && supportIssues(config, time).length)
-          fail(supportIssues(config, time).join(' '), 409, 'sandbox_support_certificate');
+        if (request.preset && supportIssues(config, time, request.preset).length)
+          fail(supportIssues(config, time, request.preset).join(' '), 409, presetError(request.preset, 'certificate'));
         const run = { id: request.requestId, keyHash: match.keyHash, payloadHash: hash(request.payload), status: 'in_flight', method: 'POST', path: '/insamlingar',
           payload: copy(request.payload), startedAt: time.toISOString(), leaseUntil: new Date(time.getTime() + 120000).toISOString(), trackingId: randomUUID(), httpStatus: null, response: null,
           actualUserId: principal.actor.id, effectiveUserId: principal.user.id, ...(request.preset && { preset: request.preset, profile }) };

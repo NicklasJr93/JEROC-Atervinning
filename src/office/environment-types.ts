@@ -183,7 +183,7 @@ export interface NvvIntegrationStatus {
 }
 export type NvvJsonValue = string | number | boolean | null | NvvJsonObject | NvvJsonValue[];
 export interface NvvJsonObject { [key: string]: NvvJsonValue }
-export type NvvSandboxPreset = 'support-2026-10-16';
+export type NvvSandboxPreset = 'support-2026-10-16' | 'testbolag1-own-2026-10-16';
 export interface NvvSandboxRun {
   id: string; status: 'in_flight' | 'accepted' | 'rejected' | 'unknown';
   preset?: NvvSandboxPreset;
@@ -200,6 +200,7 @@ export interface NvvSandboxState {
   certificate: NonNullable<NvvIntegrationStatus['certificate']> | null;
   template: NvvJsonObject; runs: NvvSandboxRun[];
   supportTest?: { ready: boolean; issues: string[]; template: NvvJsonObject };
+  ownTest?: { ready: boolean; issues: string[]; template: NvvJsonObject };
 }
 export interface NvvSandboxRequest {
   requestId: string; idempotencyKey: string; payload: NvvJsonObject;

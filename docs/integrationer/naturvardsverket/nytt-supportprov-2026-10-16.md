@@ -1,4 +1,45 @@
-# Nytt NVV TEST enligt supportens citerade roller
+# NVV TEST – Testbolag 1 utan ombud
+
+## Aktuell testmall från kontor 0.29.5
+
+Beställt 2026-10-16: förifyll Testbolag 1:s egna uppgifter utan ombud.
+[Öppna det förifyllda kontrollprovet](https://jeroc-atervinning.onrender.com/kontor/integration/systemadminintegrationtest.html?preset=testbolag1-own-2026-10-16).
+Under **Integrationer → Naturvårdsverket** finns **Testa Testbolag 1 utan ombud**.
+Även testsidan utan query-parametrar och den äldre supportlänken öppnar
+nu den här mallen. Inga uppgifter behöver kopieras manuellt.
+
+| Fält | Värde |
+| --- | --- |
+| Verksamhetsutövare | `5560000167` |
+| Verksamhetens namn | `Testbolag 1` |
+| Tidigare innehavare | `5560000167` |
+| Ombud och alla ombudets kontaktfält | Utelämnas helt ur JSON |
+
+Syntetisk kontaktperson, e-post, telefon, 10 kg avfall `160601`, vägtransport,
+platser, aktuell tidpunkt och unik referens fylls i automatiskt. Certifikatet
+ska fortfarande vara det verifierade Testbolag 1-certifikatet. Testmallen är
+fristående från ordinarie NVV-inställningar och verkliga viktkort.
+
+Ladda om efter deploy, granska formuläret och tryck **Skicka till NVV · TEST**.
+Att öppna sidan, förbereda mallen eller kontrollera historiken skickar inget
+nytt anrop. Den befintliga popupen visar begäran, råsvar och TraceId.
+För eget manuellt test används **Återställ testmall**; den knappen lämnar
+den styrda förifyllningen och återgår till serverns generiska mall.
+
+Den nya mallen har en egen preset och stoppspärr per variant. Äldre payloads,
+svar och supportförsök behåller sin ursprungliga betydelse i historiken.
+Ett pågående, okänt eller accepterat försök med den nya mallen spärrar fler
+sådana försök; ett avvisat försök kan följas av ett aktivt nytt test.
+TLS 1.2, verifierat certifikat och spärrad automatisk 401-omsändning behålls.
+Inget faktiskt NVV-resultat har verifierats i utvecklingsmiljön; ett nytt
+svar kräver den uttryckliga testknappen i den anslutna Render-miljön.
+
+## Tidigare supportprov med ombud (0.29.2)
+
+Den tidigare mallen och CLI-provet nedan behålls för historik och jämförelse.
+**CLI-provet använder fortfarande JEROC som verksamhetsutövare och Testbolag 1
+som ombud.** Den äldre UI-länken nedan öppnar däremot den aktuella mallen utan
+ombud från 0.29.5.
 
 Beställt 2026-10-16. Detta är ett förberett engångsprov; inget nytt svar från
 NVV har verifierats i den här arbetsmiljön. Befintlig Render-konfiguration

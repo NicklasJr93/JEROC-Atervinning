@@ -94,8 +94,8 @@ export default function NvvIntegrationPanel({ user, actualUser, status, onChange
       <ChevronDown size={17} className={open ? 'is-open' : ''} />
     </button>
     {permitted && <div className="nvv-support-entry">
-      <div><strong>Provrapport enligt supportärendet</strong><p>Förifyllt prov med JEROC som verksamhetsutövare och Testbolag 1 som ombud.</p></div>
-      <a className="office-btn outline" href="/kontor/integration/systemadminintegrationtest.html?preset=support-2026-10-16"><ArrowUpRight size={14} />Öppna förifyllt supportprov</a>
+      <div><strong>Kontrollprov med Testbolag 1</strong><p>Förifyllt prov med Testbolag 1 som verksamhetsutövare, utan ombud.</p></div>
+      <a className="office-btn outline" href="/kontor/integration/systemadminintegrationtest.html?preset=testbolag1-own-2026-10-16"><ArrowUpRight size={14} />Testa Testbolag 1 utan ombud</a>
     </div>}
     {open && <div className="nvv-settings-body">
       <div className="nvv-connection-summary">

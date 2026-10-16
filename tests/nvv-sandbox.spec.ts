@@ -6,7 +6,7 @@ test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: f
 test.setTimeout(45_000);
 test.describe.configure({ mode: 'serial' });
 
-const testPage = '/kontor/integration/systemadminintegrationtest.html';
+const testPage = '/kontor/integration/systemadminintegrationtest.html?preset=custom';
 const sandbox = '/api/environment/nvv/sandbox';
 const sendLabel = 'Skicka till NVV · TEST';
 

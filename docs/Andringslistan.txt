@@ -2994,3 +2994,21 @@ Status: Implementerad 2026-10-16 i bygge 0.29.4.
 - Kontoret och plattformens systemadmininloggning omfattas inte.
 - Verifierat: 22 servertester, 10 browserfall och produktionsbygge.
   Guide: docs/portaler-demoinlogg-2026-10-16.md.
+
+
+ÄL 126 – NVV-kontrollprov: Testbolag 1 utan ombud
+Status: Implementerad 2026-10-16 i kontor 0.29.5.
+- Förifyll Testbolag 1 / 5560000167 som verksamhetsutövare och tidigare
+  innehavare, med syntetiska kontaktuppgifter, material, platser och ny referens.
+  Utelämna samtliga ombudsfält helt, även tomma/null-värden.
+- Testsidan väljer mallen som standard; befintlig supportlänk öppnar också
+  den nya mallen. Integrationer → NVV länkar direkt till kontrollprovet.
+- Bevara tidigare supportmall, CLI och historik. Ny preset har egen
+  beständig spärr för pågående, okända och accepterade försök, idempotens,
+  samma verifierade Testbolag 1-certifikat, TLS 1.2 och ingen 401-omsändning.
+- Inget skickas vid sidladdning/förberedelse. Skicka till NVV · TEST använder
+  befintlig popup för begäran/svar. Inga ordinarie kort/inställningar ändras.
+- Verifierat: 22 sandboxtester, sex browserfall och produktionsbygge.
+  Kontrollerna använder simulerade NVV-svar; faktisk acceptans kräver
+  nytt uttryckligt test i Render. Inga nya miljövariabler behövs.
+- Guide: docs/integrationer/naturvardsverket/nytt-supportprov-2026-10-16.md.
