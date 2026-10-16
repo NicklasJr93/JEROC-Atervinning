@@ -3012,3 +3012,29 @@ Status: Implementerad 2026-10-16 i kontor 0.29.5.
   Kontrollerna använder simulerade NVV-svar; faktisk acceptans kräver
   nytt uttryckligt test i Render. Inga nya miljövariabler behövs.
 - Guide: docs/integrationer/naturvardsverket/nytt-supportprov-2026-10-16.md.
+
+ÄL 127 – Egen FTC134-telematikbackend, valfri förarpanel
+Status: Första fristående pilotgrund implementerad 2026-10-16.
+- Bygg egen TCP/Codec 8 Extended-mottagare utifrån FTC134:s officiella
+  protokoll- och AVL-dokumentation. RFID/panel med Privat/Tjänst är tillval
+  senare; backend fungerar utan panel och kräver inte Bluetooth.
+- Koppla endast till verifierat befintligt bolag och fordons-ID. Ingen
+  automatisk fordonsregistrering från IMEI, som inte är autentisering.
+- Beständig SQLite-pilot med transaktion, unikt dubblettskydd, paginering
+  och kvittens först efter commit. Prova riktig lokal TCP med simulator.
+- Resor utifrån tändning på/av. Varje resa använder aktuell standardförare
+  från betrodd fordonssnapshot, eller okänd förare om standard saknas.
+  Aktuellt appval/blipp ersätter standarden för resan; nästa resa börjar
+  åter med standarden. Standardtilldelning och faktisk identifieringshändelse
+  får skilda källmarkeringar. Webb/app-väljaren återstår.
+  Syfte nollställs per resa; saknade uppgifter kräver komplettering. Tjänst behöver arbetsorder eller
+  manuellt syfte, privat undanröjer det kravet. App-/panelkommandon återstår.
+- Ingen positions-/råpaketslagring i denna etapp. Publik klartext spärras;
+  publik TLS kräver verifierad klient och enhetsbunden certifikatpinning.
+  Detta bevisar inte att FTC134:s firmware stöder den valda mTLS-profilen.
+- Verifierat: 41 riktade tester och lokal simulator. Inga fysiska enheter
+  anslutna. Ingen ny produktionsstart, appvy eller miljövariabel införd.
+- Återstår: fysisk tracker/firmwareprov, separat TCP-drift, verifierat
+  transportskydd, PostgreSQL/retention och inkrementell bearbetning, riktig
+  register-/behörighetskoppling, appkomplettering och senare paneladapter.
+- Dokumentation och provsteg: docs/integrationer/telematik/README.md.

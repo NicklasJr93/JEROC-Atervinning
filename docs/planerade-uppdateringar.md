@@ -10,6 +10,21 @@ Bankmottagare och Open Payments-bankmotor
 är levererade i sandbox enligt ÄL 109; produktionsanslutning återstår.
 Ordningen är inte en prioritering.
 
+## FTC134 och egen körjournal
+
+Status: första fristående backendgrund levererad 2026-10-16 enligt ÄL 127.
+[Dokumentation och provsteg](integrationer/telematik/README.md).
+
+- Lokal TCP/Codec 8 Extended-mottagning, SQLite-pilot och reseprojektion
+  är byggda. Ingen fysisk tracker, produktionsstart eller appvy är ansluten.
+- Fordon använder befintliga fordons-ID:n; förarpanel/RFID/knappar är ett
+  senare tillval. Standardförare stöds i backend; webb/app-väljaren återstår.
+  Aktuellt appval/blipp ersätter standarden för resan. Utan standard eller
+  aktivt val krävs förarkomplettering. Syftet bestäms separat för varje resa.
+- Före skarp drift: verifiera firmware/transportskydd på faktisk FTC134,
+  separat TCP-tjänst, PostgreSQL/retention, behörigheter, registerkoppling
+  och inkrementell resehantering. Positionslagring kräver eget integritetsflöde.
+
 ## Before demo release – säkerhet, drift och skalbarhet
 
 Status: Planerad enligt ÄL 123. Ska åtgärdas och verifieras innan live-demo.
