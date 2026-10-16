@@ -13,6 +13,7 @@ import { employeeTimeReviewOwn, employeeTimeReviewEmployeeCommand, employeeTimeR
 import { employeeSites, employeeCompanyId, employeeActiveSite, saveEmployeeActiveSite } from './mobile-sites.mjs';
 import { employeeSicknessCommand, employeeSicknessProjection, refreshSicknessAbsences } from './employee-sickness.mjs';
 import { personnelFacilityScope, syncPersonnelFacilityAccess } from './facility-access.mjs';
+import { fleetTripGate, fleetVehicleEligible } from './fleet.mjs';
 
 const COOKIE = 'jeroc_employee';
 const SESSION_HOURS = 8;
@@ -107,6 +108,9 @@ function sessionIdentity(state, req, { now } = {}) {
 function demandTimeComplete(state, person, now, allowedSiteIds) {
   const gate = employeeTimeGate(state, person, { now, allowedSiteIds });
   if (gate.blocked) fail('Registrera den saknade tiden innan du fortsätter arbetet.', 423, { code: 'EMPLOYEE_TIME_REQUIRED', gate });
+  const fleetGate = fleetTripGate(state, person);
+  if (fleetGate.blocked && fleetGate.safeToInteract !== false)
+    fail('Komplettera dina avslutade resor innan du fortsätter arbetet.', 423, { code: 'FLEET_TRIPS_REQUIRED', fleetGate });
 }
 /** A genuine cookie always takes precedence over browser-supplied demo headers.
  * A stale/invalid cookie throws; it may never fall back to a demo identity. */
@@ -405,7 +409,11 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           }
           if (order.status !== input.status) {
             if (input.status === 'on_way' && order.status !== 'booked' || input.status === 'done' && order.status !== 'on_way') fail('Uppdraget måste påbörjas innan det slutförs.');
-            if (input.status === 'on_way') { const issues = personnelPlanIssues(state.personnel, state.transport, order.id, order); if (issues.length) fail(issues.join(' '), 422); }
+          if (input.status === 'on_way') {
+            const vehicle = fleetVehicleEligible(state, order.vehicleId);
+            if (!vehicle.eligible) fail(vehicle.issues.map(issue => issue.message).join(' '), 422);
+            const issues = personnelPlanIssues(state.personnel, state.transport, order.id, order); if (issues.length) fail(issues.join(' '), 422);
+          }
             const known = new Set(state.transport.events.map(value => value.id));
             state.transport = applyTransportChange(state.transport, { type: 'status', id: order.id, status: input.status }, { canPlan: true, actor: person.name, actualUserId: principal.actor.id, effectiveUserId: principal.user.id });
             const events = state.transport.events.filter(value => !known.has(value.id));
@@ -419,12 +427,12 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
       };
       const result = req.method === 'GET' && repository.read
         ? await repository.read(operate, { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth', 'employeeTime', 'employeeSickness', 'transport', 'logistics',
-          ...(path === 'equipment' ? ['equipment'] : [])] })
+          'fleet', ...(path === 'equipment' ? ['equipment'] : [])] })
         : await repository.transact(operate);
       if (result.failure) json(res, 401, { error: result.failure });
       else { if (result.token !== undefined) cookie(res, result.token, req); json(res, 200, result.value); }
     } catch (error) {
-      json(res, error instanceof PricingError ? error.status : 503, { error: error instanceof PricingError ? error.message : 'Appens personaltjänst kunde inte nås.', ...(error.code ? { code: error.code } : {}), ...(error.gate ? { gate: error.gate } : {}) });
+      json(res, error instanceof PricingError ? error.status : 503, { error: error instanceof PricingError ? error.message : 'Appens personaltjänst kunde inte nås.', ...(error.code ? { code: error.code } : {}), ...(error.gate ? { gate: error.gate } : {}), ...(error.fleetGate ? { fleetGate: error.fleetGate } : {}) });
     }
     return true;
   };

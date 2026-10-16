@@ -70,6 +70,7 @@ import type { TerminalApproval } from './terminal-demo-types';
 const TransportWorkspace = lazy(() => import('./transport/TransportWorkspace'));
 const FacilitiesWorkspace = lazy(() => import('./FacilitiesWorkspace'));
 const PersonalWorkspace = lazy(() => import('./personnel/PersonalWorkspace'));
+const FleetWorkspace = lazy(() => import('./fleet/FleetWorkspace'));
 const EquipmentWorkspace = lazy(() => import('./personnel/EquipmentWorkspace'));
 const WorkOrdersWorkspace = lazy(() => import('./logistics/WorkOrdersWorkspace'));
 const WarehouseWorkspace = lazy(() => import('./logistics/WarehouseWorkspace'));
@@ -771,6 +772,7 @@ export function OfficeApp() {
     { id: 'warehouse', name: 'Lager', icon: Package, right: 'warehouseRead' },
     { id: 'vessels', name: 'Kärl & containrar', icon: Container, right: 'vesselsRead' },
     { id: 'transport', name: 'Transportplanering', icon: Truck, right: 'transportRead' },
+    { id: 'fleet', name: 'Fordon & maskiner', icon: Truck, right: 'fleetRead' },
     { id: 'personnel', name: 'Personal', icon: Users, right: 'personnelRead' },
     { id: 'equipment', name: 'Utrustning', icon: Wrench, right: 'equipmentRead' },
     {
@@ -1128,7 +1130,8 @@ export function OfficeApp() {
       return false;
     }
   }
-  const allowed = accountsView ? 'users' :
+  const fleetAccess = Boolean(user && actualUser && [actualUser, user].every(account => can(account, 'fleetRead')));
+  const allowed = section === 'fleet' && fleetAccess ? undefined : accountsView ? 'users' :
     section === 'corrections' &&
     user &&
     (can(user, 'corrections') || can(user, 'attest'))
@@ -1219,7 +1222,9 @@ export function OfficeApp() {
         <nav>
           {nav
             .filter((n) =>
-              n.id === 'terminals'
+              n.id === 'fleet'
+                ? [actualUser!, user].every(account => can(account, 'fleetRead'))
+                : n.id === 'terminals'
                 ? user.level === 'Systemadmin'
                 : n.id === 'prices'
                 ? pricingAccess
@@ -2189,6 +2194,8 @@ export function OfficeApp() {
               key={`${actualUser!.id}:${user.id}`} actorId={actualUser!.id} userId={user.id} user={user}
               selectedSite={siteFilter} onNotice={setMessage}
               onBookOutbound={prefill => createLogisticsOrder({ ...prefill, action: 'outbound' })} /></Suspense>
+          ) : section === 'fleet' ? (
+            <Suspense fallback={<div role="status">Hämtar fordon och körjournal…</div>}><FleetWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} sites={terminalDemo.state?.sites} /></Suspense>
           ) : section === 'vessels' ? (
             <Suspense fallback={<div role="status">Hämtar kärl och avtal…</div>}><VesselsWorkspace
               key={`${actualUser!.id}:${user.id}`} actorId={actualUser!.id} userId={user.id} user={user}

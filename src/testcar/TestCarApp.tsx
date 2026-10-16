@@ -5,6 +5,7 @@ import {
   Server, Signal, Square, Thermometer, UserRound, Warehouse, WifiOff, X,
 } from 'lucide-react';
 import { TestCarMap } from './TestCarMap';
+import TestCarFleetLink from './TestCarFleetLink';
 import { currentPlaceName, isTestCarSnapshot, readTestCarReceiver, type PlaceId, type TestCarAction, type TestCarCommand, type TestCarSnapshot, type TimeScale } from './types';
 import './testcar.css';
 
@@ -17,6 +18,7 @@ type ResponseData = { car?: unknown; csrfToken?: unknown };
 class RequestError extends Error { constructor(public status: number) { super('Testbilen svarade inte som väntat'); } }
 
 function useTestCar() {
+  const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [car, setCar] = useState<TestCarSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -63,6 +65,7 @@ function useTestCar() {
     active.current?.controller.abort();
     const generation = ++epoch.current;
     token.current = null;
+    setCsrfToken(null);
     setLoading(true);
     setLoadError(false);
     try {
@@ -71,6 +74,7 @@ function useTestCar() {
       if (typeof data.csrfToken !== 'string' || !data.csrfToken) throw new Error('Testsession saknas');
       acceptCar(data.car, true);
       token.current = data.csrfToken;
+      setCsrfToken(data.csrfToken);
       setSyncError(false);
       if (expired) setNotice('Testsessionen hade gått ut. En ny testbil är klar att använda.');
     } catch (error) {
@@ -156,7 +160,7 @@ function useTestCar() {
   }, [acceptCar, bootstrap, poll, request]);
 
   const refresh = () => { if (!carRef.current || loadError) void bootstrap(); else void poll(); };
-  return { car, loading, loadError, syncError, commandError, notice, busy, command, refresh,
+  return { car, csrfToken, loading, loadError, syncError, commandError, notice, busy, command, refresh,
     dismissNotice: () => setNotice(''), dismissError: () => setCommandError('') };
 }
 
@@ -251,10 +255,11 @@ function ReceiverCard({ car }: { car: TestCarSnapshot }) {
 const placeIcons = { office: Building2, customer1: Warehouse, customer2: Warehouse, home: House };
 
 function TestCarDashboard() {
-  const { car, loading, loadError, syncError, commandError, notice, busy, command, refresh, dismissNotice, dismissError } = useTestCar();
+  const { car, csrfToken, loading, loadError, syncError, commandError, notice, busy, command, refresh, dismissNotice, dismissError } = useTestCar();
+  const [fleetBusy, setFleetBusy] = useState(false);
   const [selected, setSelected] = useState<PlaceId | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
-  const sessionUnavailable = loading || loadError;
+  const sessionUnavailable = loading || loadError || fleetBusy;
   const durableReceiver = !!car && readTestCarReceiver(car.receiver)?.durable === true;
   useEffect(() => {
     if (car?.currentPlace.id === selected) setSelected(null);
@@ -314,6 +319,7 @@ function TestCarDashboard() {
       <div className="testcar-bottom-grid"><section className="testcar-card testcar-events" aria-labelledby="testcar-events-heading"><div className="testcar-card-heading"><h2 id="testcar-events-heading">Det händer just nu</h2><span className="testcar-small-note">Alla händelser är simulerade</span></div>{car.events.length ? <ol>{[...car.events].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 4).map(event => <li key={event.id} className={`is-${event.type}`}><span className="testcar-event-dot" /><time dateTime={event.at}>{clock.format(new Date(event.at))}</time><span>{event.text}</span></li>)}</ol> : <div className="testcar-no-events"><Power size={18} />Starta bilen så börjar det hända saker här.</div>}</section>
         <ReceiverCard car={car} />
       </div>
+      <TestCarFleetLink csrfToken={csrfToken} engineOn={car.engineOn} disabled={!!busy || loading || loadError} onBusyChange={setFleetBusy} onChanged={refresh} />
     </>}
     <footer className="testcar-footer">ScrapPilot Labbet <span aria-hidden="true">·</span> Syntetisk bil, påhittade resor</footer>
   </main></div>;

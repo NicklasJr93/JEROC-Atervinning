@@ -4,6 +4,7 @@ import { seedOffice } from '../src/office/model';
 import { migrateOffice } from '../src/office/customer-model';
 import type { EquipmentCommand, EquipmentResponse, EmployeeEquipmentResponse, EquipmentItem } from '../src/office/personnel/equipment-types';
 import type { EmployeeOverview } from '../src/employee/types';
+import type { EmployeeFleetSnapshot } from '../src/employee/employee-fleet-types';
 
 const screenshots = '/tmp/jeroc-personnel-tools-review';
 const at = '2026-10-13T07:15:00.000Z';
@@ -80,6 +81,10 @@ function mobileOverview(): EmployeeOverview {
 }
 async function mobileFixture(page: Page) {
   const overview = mobileOverview();
+  const fleet: EmployeeFleetSnapshot = { revision: 0, personId: overview.person.id, vehicles: [], profiles: {},
+    services: [], issues: [], inspections: [], trips: [], pendingTrips: [], workOrders: [],
+    gate: { blocked: false, count: 0, pendingTrips: [], safeToInteract: true },
+    capabilities: { read: true, write: false, vehicleWrite: false, export: false } };
   const equipment: EmployeeEquipmentResponse = { revision: 3,
     items: [{ id: 'equipment-1', inventoryNumber: 'UTR-001', name: 'Arbetstelefon', category: 'phone', siteId: 'norrtalje', serialNumber: 'SN-10023', description: 'Telefon med skyddsfodral.', status: 'issued', revision: 2, createdAt: at, updatedAt: at }],
     assignments: [
@@ -97,6 +102,7 @@ async function mobileFixture(page: Page) {
       await gate; return fulfill(route, snapshot);
     }
     if (path === '/api/employee/session' || path === '/api/employee/overview') { if (path.endsWith('/overview')) statistics.overviewReads++; return fulfill(route, overview); }
+    if (path === '/api/employee/fleet') return fulfill(route, fleet);
     if (path === '/api/platform/tenant-context') return fulfill(route, { companyId: 'jeroc-demo', companyName: 'Utrustning testbolag' });
     if (path === '/api/employee/demo-config') return fulfill(route, { enabled: false, accounts: {} });
     return route.fulfill({ status: 503, json: { code: 'equipment_fixture_only', error: 'Tjänsten ingår inte i utrustningstestet.' } });

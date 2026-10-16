@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createTestCar } from './testcar-model.mjs';
+import { decodeCodec8EFrame } from './codec8e.mjs';
+import { encodeSyntheticFmc003Frame } from './virtual-fmc003.mjs';
 
 const unavailable = () => Object.assign(new Error('telematics_demo_unavailable'), { code: 'telematics_demo_unavailable' });
 const integer = value => Number.isSafeInteger(value) && value >= 0;
@@ -119,23 +121,46 @@ export function createDemoTelematicsClient({ endpoint, streamId = randomUUID(), 
   };
 }
 
-export function createServiceTestCar({ createClient, now, random } = {}) {
+export function createServiceTestCar({ createClient, now, random, onAcknowledgedFrame } = {}) {
   if (typeof createClient !== 'function') throw new Error('telematics_demo_client_factory_required');
-  let client = createClient(), closed = false;
+  let client = createClient(), closed = false, generation = 0, primeFrame = null, primeFlight = null;
   void client.initialize().catch(() => {});
+  async function send(bytes) {
+    const epoch = generation, current = client;
+    const { records } = decodeCodec8EFrame(bytes);
+    const ack = await current.send(bytes);
+    if (closed || epoch !== generation || !Buffer.isBuffer(ack) || ack.length !== 4 || ack.readUInt32BE() !== records.length) throw unavailable();
+    // A company sink must commit before the puck removes its frozen packet.
+    // A failed sink leaves that identical packet queued for a safe retry.
+    await onAcknowledgedFrame?.(Buffer.from(bytes));
+    if (closed || epoch !== generation) throw unavailable();
+    return ack;
+  }
   const car = createTestCar({ ...(now && { now }), ...(random && { random }),
-    receivePacket: bytes => client.send(bytes), receiverSnapshot: () => client.snapshot() });
+    receivePacket: send, receiverSnapshot: () => client.snapshot() });
   return {
     snapshot: car.snapshot, tick: car.tick,
+    prime() {
+      if (primeFlight) return primeFlight;
+      const state = car.snapshot();
+      if (closed || state.engineOn || state.device.pendingRecords || state.device.sending || !state.networkOnline) throw unavailable();
+      if (!primeFrame) primeFrame = encodeSyntheticFmc003Frame([{ simulated: true,
+        at: new Date(now ? now() : Date.now()).toISOString(), event: true, eventIoId: 239,
+        ...state.currentPlace, ...state.telemetry, angle: 0, engineOn: false, tripActive: false,
+        odometerMeters: Math.round(state.telemetry.odometerKm * 1000), fuelRateLh: 0 }]);
+      primeFlight = send(primeFrame).then(() => { primeFrame = null; }).finally(() => { primeFlight = null; });
+      return primeFlight;
+    },
     command(value) {
       if (closed) throw unavailable();
       // Model validation happens before disposal. Invalid commands cannot reset
       // the transport or abandon its unacknowledged frame.
       const result = car.command(value);
       if (value.action !== 'reset') return result;
+      generation++; primeFrame = null;
       client.close(); client = createClient(); void client.initialize().catch(() => {});
       return car.snapshot();
     },
-    close() { if (!closed) { closed = true; car.close?.(); client.close(); } },
+    close() { if (!closed) { closed = true; generation++; car.close?.(); client.close(); } },
   };
 }

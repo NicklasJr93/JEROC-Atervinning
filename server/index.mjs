@@ -154,8 +154,8 @@ const server = createServer((req, res) => {
   });
 });
 const testCarRuntime = createDemoReceiverRuntime();
-const testCarApi = createTestCarApi({ factory: () => createServiceTestCar({ createClient: testCarRuntime.createClient }) });
-const tenantGateway = await createTenantGateway();
+const testCarApi = createTestCarApi({ factory: callbacks => createServiceTestCar({ createClient: testCarRuntime.createClient, ...callbacks }) });
+const tenantGateway = await createTenantGateway({ testCarApi });
 let expoGo;
 try {
   expoGo = startExpoGo({ onFailure: state => { console.error('Expo Go kunde inte förberedas:', state.errorCode, 'Webbappen och dess API fortsätter fungera.'); } });

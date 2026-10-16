@@ -3,6 +3,7 @@ import { Building2, Check, Copy, Eye, EyeOff, Plus, RefreshCw, ShieldCheck, X } 
 import { customerIdentifierError, normalizeOrganisationNumber } from '../data-format';
 import { platformApi } from './client';
 import PlatformCompanySwitcher from './PlatformCompanySwitcher';
+import PlatformFleet from './PlatformFleet';
 import type { AuthenticatedPlatformSession, CompanyCreated, PlatformCompany } from './types';
 
 const companyStatus = { active: 'Aktivt', inactive: 'Inaktivt', provisioning: 'Förbereds', failed: 'Behöver åtgärdas' };
@@ -111,6 +112,7 @@ export default function PlatformAdmin({ session, onSwitch }: {
       </form>
     </section>}
     <section className="platform-panel"><div className="platform-panel-heading"><h2>Öppna ett bolag</h2></div><PlatformCompanySwitcher session={session} companies={companies} onSwitch={onSwitch} /></section>
+    {session.actor.platformAdmin && <PlatformFleet session={session} companies={companies} />}
     <section className="platform-panel"><div className="platform-panel-heading"><h2>Alla bolag</h2><button type="button" className="platform-text-btn" disabled={loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={15} />Uppdatera</button></div>
       {error && <p className="platform-error" role="alert">{error}</p>}
       {loading && <p role="status">Hämtar bolag…</p>}

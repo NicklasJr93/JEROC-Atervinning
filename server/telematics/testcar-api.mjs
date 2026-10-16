@@ -82,6 +82,8 @@ export function createTestCarApi({ env = process.env, now = Date.now, factory = 
   const creationBudget = bucket(32, 5 * minute, now), trafficBudget = bucket(200, 2000, now);
   let stopped = false;
   function dispose(session) {
+    const sink = session.fleetSink; session.fleetSink = null;
+    void Promise.resolve(sink?.dispose?.()).catch(() => {});
     try { session.car.close?.(); } catch { /* Disposal must not interrupt other synthetic sessions. */ }
     sessions.delete(session.token);
   }
@@ -116,6 +118,9 @@ export function createTestCarApi({ env = process.env, now = Date.now, factory = 
   const timer = autoTick ? setInterval(tick, intervalMs) : undefined;
   timer?.unref();
   const api = async (req, res, url) => {
+    // This single authenticated bridge belongs to the tenant gateway. No
+    // other laboratory URL may inherit its office access or company storage.
+    if (url.pathname === '/api/testcar/fleet') return false;
     if (!url.pathname.startsWith('/api/testcar/')) return false;
     try {
       if (stopped) throw error('Testbilen startas om. Försök snart igen.', 503, 'testcar_stopped');
@@ -130,9 +135,13 @@ export function createTestCarApi({ env = process.env, now = Date.now, factory = 
           creationBudget();
           if (sessions.size >= maxSessions) throw error('Alla testbilar används just nu. Försök igen om en stund.', 429, 'testcar_capacity');
           token = randomBytes(32).toString('hex'); const time = now();
-          session = { token, csrfToken: randomBytes(32).toString('hex'), car: factory(),
+          session = { token, csrfToken: randomBytes(32).toString('hex'),
             created: time, touched: time, lastTick: time, runningSince: null,
             commandBudget: bucket(12, 6000, now), readBudget: bucket(12, 3000, now) };
+          session.car = factory({ onAcknowledgedFrame: async bytes => {
+            const sink = session.fleetSink;
+            if (sink) await sink.receive(bytes);
+          } });
           sessions.set(token, session);
         }
         session.readBudget(); session.touched = now(); res.setHeader('Set-Cookie', cookie(req, token));
@@ -148,6 +157,12 @@ export function createTestCarApi({ env = process.env, now = Date.now, factory = 
         if (sessions.get(token) !== session || now() - session.touched >= idleMs || now() - session.created >= lifetimeMs)
           throw error('Testsessionen har avslutats. Öppna en ny testbil.', 401, 'testcar_session_expired');
         const previouslyOn = session.car.snapshot().engineOn;
+        if (session.fleetBusy && value?.action !== 'stop')
+          throw error('Invänta uppdateringen av företagskopplingen.', 409, 'testcar_fleet_busy');
+        if (session.fleetSink && value?.action === 'reset')
+          throw error('Koppla från företagets enhet med motorn av innan testbilen återställs.', 409, 'testcar_fleet_disconnect_required');
+        if (session.fleetSink && session.fleetSink.status !== 'connected' && ['start', 'drive'].includes(value?.action))
+          throw error('Invänta bekräftad företagskoppling eller koppla från med motorn av.', 409, 'testcar_fleet_not_ready');
         session.car.command(value);
         const on = session.car.snapshot().engineOn;
         if (on && !previouslyOn) { session.runningSince = now(); session.lastTick = now(); }
@@ -164,6 +179,24 @@ export function createTestCarApi({ env = process.env, now = Date.now, factory = 
     return true;
   };
   api.tick = tick;
+  // Server-only capabilities. Neither the cookie token nor a telemetry sink
+  // can be supplied by a browser command or returned in a laboratory DTO.
+  api.fleetSession = (req, { write = false } = {}) => {
+    if (stopped) throw error('Testbilen startas om.', 503, 'testcar_stopped');
+    originGuard(req); trafficBudget(); prune();
+    const session = sessions.get(cookieToken(req));
+    if (!session) throw error('Öppna testbilen innan företagskopplingen används.', 401, 'testcar_session_expired');
+    if (write && !equalToken(req.headers['x-testcar-csrf'], session.csrfToken))
+      throw error('Testsessionen kunde inte verifieras. Ladda om sidan.', 403, 'testcar_csrf_invalid');
+    (write ? session.commandBudget : session.readBudget)(); session.touched = now();
+    return session;
+  };
+  api.setFleetSink = (req, sink) => {
+    const session = api.fleetSession(req, { write: true });
+    if (session.car.snapshot().engineOn) throw error('Stäng av motorn före anslutning eller frånkoppling.', 409, 'testcar_fleet_engine_on');
+    session.fleetSink = sink;
+    return session;
+  };
   api.close = () => { stopped = true; clearInterval(timer); for (const session of sessions.values()) dispose(session); };
   return api;
 }

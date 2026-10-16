@@ -23,14 +23,20 @@ export interface TransportDriver {
 }
 export interface TransportVehicle {
   id: string; registration: string; name: string; types: ContainerType[];
+  /** Non-road machines may use an internal asset tag/identifier instead of a plate. */
+  assetTag?: string;
+  identifier?: string;
   requiredCompetencies?: string[];
   /** Legacy vehicles without this flag remain active. Deactivation preserves all bookings. */
   active?: boolean;
-  category?: 'truck' | 'van' | 'car' | 'trailer' | 'other';
+  category?: 'truck' | 'van' | 'car' | 'trailer' | 'machine' | 'other';
   capacityKg?: number;
   revision?: number;
   createdAt?: string;
   updatedAt?: string;
+}
+export function vehicleIdentifier(vehicle: Pick<TransportVehicle, 'id' | 'registration' | 'assetTag' | 'identifier'>): string {
+  return vehicle.registration || vehicle.assetTag || vehicle.identifier || vehicle.id;
 }
 export interface VehicleRegistryResponse {
   vehicles: TransportVehicle[];
@@ -41,7 +47,7 @@ export interface VehicleRegistryResponse {
 export interface VehicleSaveCommand {
   action: 'vehicle.save';
   vehicle: Pick<TransportVehicle, 'registration' | 'name' | 'types'> &
-    Partial<Pick<TransportVehicle, 'id' | 'revision' | 'category' | 'capacityKg'>> & { active: boolean };
+    Partial<Pick<TransportVehicle, 'id' | 'revision' | 'category' | 'capacityKg' | 'assetTag' | 'identifier'>> & { active: boolean };
   requestId?: string;
 }
 export interface TransportOrder {

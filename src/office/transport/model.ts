@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { vehicleIdentifier } from './types';
 import type {
   TransportActor, TransportAudit, TransportChange, TransportData, TransportDraft,
   TransportOrder, TransportPlan, TransportVehicle, TransportEventType, TransportIntegrationEvent,
@@ -43,14 +44,20 @@ const auditSchema = z.object({
   effectiveUserId: requiredText, text: textSchema,
 });
 const vehicleSchema = z.object({
-  id: requiredText, registration: requiredText, name: requiredText,
-  types: z.array(vesselSchema).min(1),
+  id: requiredText, registration: z.string().trim().max(200), name: requiredText,
+  assetTag: z.string().trim().min(1).max(120).optional(), identifier: z.string().trim().min(1).max(120).optional(),
+  types: z.array(vesselSchema),
   requiredCompetencies: z.array(requiredText).max(30).optional(),
   active: z.boolean().optional(),
-  category: z.enum(['truck', 'van', 'car', 'trailer', 'other']).optional(),
+  category: z.enum(['truck', 'van', 'car', 'trailer', 'machine', 'other']).optional(),
   capacityKg: z.number().finite().positive().max(1e7).optional(),
   revision: z.number().int().nonnegative().optional(),
   createdAt: z.string().datetime().optional(), updatedAt: z.string().datetime().optional(),
+}).passthrough().superRefine((vehicle, context) => {
+  if (!vehicle.registration && (!['machine', 'other'].includes(vehicle.category ?? '') || !vehicle.assetTag && !vehicle.identifier))
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['registration'], message: 'Ange registreringsnummer eller intern identifiering för maskinen.' });
+  if (!vehicle.types.length && !['car', 'machine', 'other'].includes(vehicle.category ?? ''))
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['types'], message: 'Ange minst en kärltyp för transportfordonet.' });
 });
 const driverSchema = z.object({ id: requiredText, name: requiredText, color: z.string().regex(/^#[0-9a-fA-F]{6}$/), vehicleId: requiredText,
   personId: requiredText.optional(), companyId: requiredText.optional(),
@@ -124,7 +131,7 @@ export function validateTransportPlan(data: TransportData, id: string, plan: Tra
     (entry.driverId === plan.driverId || entry.vehicleId === plan.vehicleId) &&
     entry.startMinute < end && entry.startMinute + entry.durationMinutes > plan.startMinute);
   if (clash) {
-    const resource = clash.driverId === plan.driverId ? driver.name : vehicle.registration;
+    const resource = clash.driverId === plan.driverId ? driver.name : vehicleIdentifier(vehicle);
     return `${resource} är redan bokad ${timeLabel(clash.startMinute!)}–${timeLabel(clash.startMinute! + clash.durationMinutes)} (${clash.id}).`;
   }
   return null;
@@ -335,7 +342,7 @@ function applyChangeCore(data: TransportData, change: TransportChange, actor: Tr
       const order = { ...original, ...change.plan, status: original.status === 'on_way' ? 'on_way' as const : 'booked' as const };
       const driver = next.drivers.find((entry) => entry.id === order.driverId)!;
       const vehicle = next.vehicles.find((entry) => entry.id === order.vehicleId)!;
-      const text = `${change.type === 'book' ? 'Bokad' : 'Bokning ändrad'}: ${order.date} ${timeLabel(order.startMinute!)}–${timeLabel(order.startMinute! + order.durationMinutes)}, ${driver.name}, ${vehicle.registration}.`;
+      const text = `${change.type === 'book' ? 'Bokad' : 'Bokning ändrad'}: ${order.date} ${timeLabel(order.startMinute!)}–${timeLabel(order.startMinute! + order.durationMinutes)}, ${driver.name}, ${vehicleIdentifier(vehicle)}.`;
       next.orders = next.orders.map((entry) => entry.id === order.id ? record(order, actor, text) : entry);
       delete next.preliminary[order.id];
     } else if (change.type === 'unbook') {
@@ -488,7 +495,7 @@ export function commitPreliminaryBookings(data: TransportData, actor: TransportA
     const driver = next.drivers.find((candidate) => candidate.id === plan.driverId)!;
     const vehicle = next.vehicles.find((candidate) => candidate.id === plan.vehicleId)!;
     return record({ ...entry, ...plan, status: 'booked' }, actor,
-      `Bokning verkställd: ${plan.date} ${timeLabel(plan.startMinute)}–${timeLabel(plan.startMinute + plan.durationMinutes)}, ${driver.name}, ${vehicle.registration}.`);
+      `Bokning verkställd: ${plan.date} ${timeLabel(plan.startMinute)}–${timeLabel(plan.startMinute + plan.durationMinutes)}, ${driver.name}, ${vehicleIdentifier(vehicle)}.`);
   });
   next.preliminary = {};
   next.revision += 1;

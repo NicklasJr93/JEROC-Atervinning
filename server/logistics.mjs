@@ -7,12 +7,17 @@ import { applyTransportChange, personnelPlanIssues, transportSchema, normalizeAd
   normalizePhoneNumber, phoneNumberError, normalizeOrganisationNumber } from '../dist-server/domain-models.mjs';
 import { ensureWorkOrderWeighing, syncWorkOrderWeighing, workOrderWeighing, startWorkOrderWeighing, saveWorkOrderWeighing, completeWorkOrderWeighing } from './work-order-weighing.mjs';
 import { portalDemoConfig, portalDemoAccountAllowed, portalDemoAccountMetadata } from './portal-demo.mjs';
+import { fleetVehicleEligible } from './fleet.mjs';
 
 const copy = value => structuredClone(value);
 const stamp = () => new Date().toISOString();
 const uid = prefix => `${prefix}-${randomUUID()}`;
 const hash = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
 const fail = (message, status = 409) => { throw new PricingError(message, status); };
+const demandAvailableVehicle = (state, vehicleId, options) => {
+  const availability = fleetVehicleEligible(state, vehicleId, options);
+  if (!availability.eligible) fail(availability.issues.map(issue => issue.message).join(' '), 422);
+};
 const rights = ['workOrdersRead', 'workOrdersWrite', 'vesselsRead', 'vesselsWrite', 'warehouseRead', 'warehouseWrite', 'customerAccounts', 'carrierAccounts'];
 const can = (principal, right) => principal.user.level !== 'Medarbetare' || principal.user.permissions.includes(right);
 const demand = (principal, right) => { if (!can(principal, right)) fail('Du saknar behörighet för detta moment.', 403); };
@@ -212,6 +217,8 @@ function normalizeInput(state, principal, input, excluding) {
       (previous?.assignedVehicleId === vehicle.id && previous.assignedDriverId === value.assignedDriverId &&
         state.transport.orders.find(order => order.id === excluding)?.vesselType === value.vesselType ||
         vehicle.active !== false && vehicle.types.includes(value.vesselType)))) fail('Välj ett aktivt fordon som kan hantera kärltypen.', 422);
+    if (value.assignedVehicleId && !(previous?.assignedVehicleId === value.assignedVehicleId && previous.assignedDriverId === value.assignedDriverId && state.transport.orders.find(order => order.id === excluding)?.vesselType === value.vesselType))
+      demandAvailableVehicle(state, value.assignedVehicleId);
   }
   for (const [field, mustBeAvailable] of [['vesselId', false], ['replacementVesselId', true]]) if (value[field]) {
     const vessel = state.logistics.vessels.find(vessel => vessel.id === value[field]); if (!vessel || !vessel.active || vessel.siteId !== value.siteId) fail('Välj ett aktivt kärl på samma anläggning.', 422);
@@ -294,6 +301,7 @@ function assertDeparture(state, order, detail) {
   if (!detail.assignedDriverId || !detail.assignedVehicleId) fail('Förare och fordon måste vara tilldelade.', 422);
   const driver = state.transport.drivers.find(driver => driver.id === detail.assignedDriverId), person = state.personnel.people.find(person => person.driverId === driver?.id), vehicle = state.transport.vehicles.find(vehicle => vehicle.id === detail.assignedVehicleId);
   if (!driver || !person?.active || !person.canDrive || driver.personId !== person.id || !vehicle || vehicle.active === false || !vehicle.types.includes(order.vesselType)) fail('Tilldelad förare eller fordon är inte längre tillgänglig.', 422);
+  demandAvailableVehicle(state, vehicle.id);
   if (detail.operator === 'own' && order.status === 'booked') { const issues = personnelPlanIssues(state.personnel, state.transport, order.id, order); if (issues.length) fail(issues.join(' '), 422); }
   if (detail.operator === 'external' && (person.companyId !== detail.carrierId || driver.companyId !== detail.carrierId)) fail('Föraren tillhör inte längre det valda åkeriet.', 422);
   const transportDay = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -352,7 +360,7 @@ export function applyDriverAction(state, person, orderId, command, transactionAu
   else if (command.action === 'deliver') deliver(state, order, detail, actor, transactionAudit);
   else {
     assertUnfinished(order, detail);
-    if (command.action === 'travel.empty') { detail.execution.stage = 'travelling_empty'; orderAudit(state, order, detail, actor, 'transport.empty_travel', 'Föraren är på väg till lastning. Ingen lagerförändring.', transactionAudit); }
+    if (command.action === 'travel.empty') { demandAvailableVehicle(state, detail.assignedVehicleId ?? order.vehicleId); detail.execution.stage = 'travelling_empty'; orderAudit(state, order, detail, actor, 'transport.empty_travel', 'Föraren är på väg till lastning. Ingen lagerförändring.', transactionAudit); }
     else if (command.action === 'arrive') { detail.execution.stage = 'at_pickup'; orderAudit(state, order, detail, actor, 'transport.arrived', 'Föraren är framme vid lastplatsen.', transactionAudit); }
     else if (command.action === 'load') { loadRows(detail, command.rows); orderAudit(state, order, detail, actor, 'transport.loaded', 'Verkliga lastvikter registrerade.', transactionAudit); }
     else if (command.action === 'sign') { signDocument(detail, 'carrier', actor, command.documentVersion, 'demo_account'); orderAudit(state, order, detail, actor, 'transport.document_signed_demo', 'Transportören har godkänt dokumentet i demo.', transactionAudit); }
@@ -368,6 +376,12 @@ function loadRows(detail, input) {
   detail.materialRows = next; detail.execution.stage = 'loaded';
 }
 export function validateLogisticsTransportChange(state, base, next) {
+  const planKeys = ['date', 'startMinute', 'durationMinutes', 'driverId', 'vehicleId', 'vesselType'];
+  for (const order of next.orders.filter(order => ['booked', 'on_way'].includes(order.status))) {
+    const before = base.orders.find(previous => previous.id === order.id);
+    if (!before || !['booked', 'on_way'].includes(before.status) || planKeys.some(key => !isDeepStrictEqual(before[key], order[key])) || order.status === 'on_way' && before.status !== 'on_way')
+      demandAvailableVehicle({ ...state, transport: next }, order.vehicleId, { plan: order });
+  }
   for (const order of next.orders.filter(order => !base.orders.some(previous => previous.id === order.id))) {
     if (order.operator === 'external' || order.action === 'outbound') fail('Skapa externa uppdrag och utleveranser i Arbetsordrar för korrekt lager- och transportkoppling.');
     if (!['unbooked', 'booked'].includes(order.status)) fail('Nya uppdrag får inte kringgå avfärds- och avslutsflödet.');
@@ -527,6 +541,7 @@ function officeCommand(state, principal, command, transactionAudit) {
     if (detail.operator !== 'own') fail('Åkeriet bekräftar och bemannar externa uppdrag.', 422);
     const plan = parse(z.object({ date: day, startMinute: z.number().int().min(0).max(1425).multipleOf(15), durationMinutes: z.number().int().min(15).max(480).multipleOf(15), driverId: identifier, vehicleId: identifier }).strict(), command.plan);
     const driver = state.transport.drivers.find(driver => driver.id === plan.driverId); if (driver?.companyId) fail('Välj en egen JEROC-förare.', 422);
+    demandAvailableVehicle(state, plan.vehicleId, { plan });
     const issues = personnelPlanIssues(state.personnel, state.transport, order.id, plan); if (issues.length) fail(issues.join(' '), 422);
     try { state.transport = applyTransportChange(state.transport, { type: order.status === 'unbooked' ? 'book' : 'reschedule', id: order.id, plan }, actor); } catch (error) { fail(error.message, 422); }
     const booked = state.transport.orders.find(value => value.id === order.id); detail.assignedDriverId = plan.driverId; detail.assignedVehicleId = plan.vehicleId; detail.confirmedWindow = { date: plan.date, from: `${Math.floor(plan.startMinute / 60)}`.padStart(2, '0') + ':' + `${plan.startMinute % 60}`.padStart(2, '0') }; invalidateDocument(detail);
@@ -619,6 +634,7 @@ function carrierCommand(state, company, command, transactionAudit) {
     const driver = state.transport.drivers.find(driver => driver.id === command.driverId), person = state.personnel.people.find(person => person.driverId === driver?.id), vehicle = state.transport.vehicles.find(vehicle => vehicle.id === command.vehicleId);
     if (!driver || driver.companyId !== company.id || person?.companyId !== company.id || person?.active !== true || !person.canDrive || driver.personId !== person.id) fail('Välj en aktiv chaufför från ert åkeri.', 403);
     if (!vehicle || vehicle.active === false || !state.transport.drivers.some(driver => driver.companyId === company.id && driver.vehicleId === vehicle.id) || !vehicle.types.includes(order.vesselType)) fail('Välj ett aktivt lämpligt fordon från ert åkeri.', 403);
+    demandAvailableVehicle(state, vehicle.id);
     detail.assignedDriverId = driver.id; detail.assignedVehicleId = vehicle.id; invalidateDocument(detail);
     orderAudit(state, order, detail, actor, 'carrier.driver_assigned', 'Åkeriet har utsett chaufför och fordon. Tid och kundönskemål är bevarade.', transactionAudit);
   } else if (command.action === 'order.sign') {

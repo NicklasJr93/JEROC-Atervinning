@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { EmployeeOverview, EmployeeOrder, EmployeeClockAction, EmployeeClockSession } from '../src/employee/types';
 import type { EmployeeSicknessCommand, EmployeeSicknessResponse, SicknessCase } from '../src/employee/sickness-types';
+import { emptyEmployeeFleet } from './helpers/employee-fleet';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'sv-SE' });
 test.describe.configure({ mode: 'serial' });
@@ -70,6 +71,7 @@ async function homeFixture(page: Page, minimal = false) {
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url());
     const send = (json: unknown, status = 200) => route.fulfill({ status, json });
+    if (url.pathname === '/api/employee/fleet') return send(emptyEmployeeFleet(person.id));
     if (['/api/employee/session', '/api/employee/overview'].includes(url.pathname)) {
       reads.push(`${url.pathname}${url.search}`); return send(overview(url));
     }

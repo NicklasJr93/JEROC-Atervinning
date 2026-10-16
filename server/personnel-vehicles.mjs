@@ -4,14 +4,20 @@ import { z } from 'zod';
 import { PricingError, resolvePricingPrincipal } from './pricing.mjs';
 
 const identifier = z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9_-]+$/);
-const category = z.enum(['truck', 'van', 'car', 'trailer', 'other']);
+const category = z.enum(['truck', 'van', 'car', 'trailer', 'machine', 'other']);
 const vehicleInput = z.object({
   id: identifier.optional(), revision: z.number().int().nonnegative().optional(),
-  registration: z.string().trim().min(2).max(30),
+  registration: z.string().trim().max(30),
+  assetTag: z.string().trim().min(1).max(120).optional(), identifier: z.string().trim().min(1).max(120).optional(),
   name: z.string().trim().min(1).max(200), active: z.boolean(),
-  types: z.array(z.enum(['container', 'battery', 'bin', 'cage'])).min(1).max(4),
+  types: z.array(z.enum(['container', 'battery', 'bin', 'cage'])).max(4),
   category: category.optional(), capacityKg: z.number().finite().positive().max(1e7).optional(),
-}).strict();
+}).strict().superRefine((vehicle, context) => {
+  if (!vehicle.registration && (!['machine', 'other'].includes(vehicle.category ?? '') || !vehicle.assetTag && !vehicle.identifier))
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['registration'], message: 'Ange registreringsnummer eller intern identifiering för maskinen.' });
+  if (!vehicle.types.length && !['car', 'machine', 'other'].includes(vehicle.category ?? ''))
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['types'], message: 'Ange minst en kärltyp för transportfordonet.' });
+});
 const commandSchema = z.object({ action: z.literal('vehicle.save'), vehicle: vehicleInput, requestId: identifier.optional() }).strict();
 const fail = (message, status = 409) => { throw new PricingError(message, status); };
 const copy = value => structuredClone(value);
@@ -24,13 +30,14 @@ const identities = p => [p?.actor, p?.user];
 const can = (user, permission) => Boolean(user?.id) && user.active !== false &&
   (['VD', 'Systemadmin'].includes(user.level) || user.level === 'Medarbetare' && user.permissions?.includes(permission));
 const canonicalRegistration = value => typeof value === 'string' ? value.trim().toUpperCase().replace(/[\s-]+/g, '') : '';
+const canonicalAsset = value => typeof value === 'string' ? value.trim().toUpperCase().replace(/\s+/g, ' ') : '';
 
 /** One shared tenant fleet. Site-limited administrators may select vehicles,
  * but cannot retire or alter resources used by an unseen part of the company. */
 export function vehicleRegistryCapabilities(principal) {
-  const vehicleRead = identities(principal).every(user => can(user, 'personnelRead') || can(user, 'transportRead'));
+  const vehicleRead = identities(principal).every(user => can(user, 'fleetRead') || can(user, 'fleetWrite') || can(user, 'personnelRead') || can(user, 'transportRead'));
   const vehicleWrite = vehicleRead && identities(principal).every(user => !Array.isArray(user.siteIds) &&
-    (can(user, 'personnelRead') && can(user, 'personnelWrite') || can(user, 'transportRead') && can(user, 'transportPlan')));
+    (can(user, 'fleetWrite') || can(user, 'personnelRead') && can(user, 'personnelWrite') || can(user, 'transportRead') && can(user, 'transportPlan')));
   return { vehicleRead, vehicleWrite };
 }
 
@@ -53,7 +60,7 @@ export function vehicleRegistryProjection(state, principal) {
 /** The legacy transport editor submits a complete aggregate. Fleet edits must
  * still pass this dedicated registry API; its snapshots are not a write bypass.
  * Only new/changed plans use present-day vehicle eligibility. */
-export function assertVehiclePlanningChange(previous, next) {
+export function assertVehiclePlanningChange(previous, next, { vehicleEligible } = {}) {
   if (!isDeepStrictEqual(previous.vehicles, next.vehicles))
     fail('Använd fordonsregistret för att skapa eller ändra ett fordon.', 403);
   const planKey = order => order && ['date', 'startMinute', 'durationMinutes', 'driverId', 'vehicleId', 'vesselType']
@@ -63,11 +70,16 @@ export function assertVehiclePlanningChange(previous, next) {
     if (!vehicle) fail('Välj ett befintligt fordon.', 422);
     if (vehicle.active === false) fail('Fordonet är inaktiverat. Välj ett aktivt fordon för den nya bokningen.', 422);
     if (!vehicle.types.includes(order.vesselType)) fail('Fordonet kan inte hantera denna kärltyp.', 422);
+    const availability = vehicleEligible?.(vehicle.id, { plan });
+    if (availability && !availability.eligible) fail(availability.issues.map(issue => issue.message).join(' '), 422);
   };
   for (const order of next.orders) {
     if (!['booked', 'on_way'].includes(order.status)) continue;
     const old = previous.orders.find(value => value.id === order.id);
-    if (old && ['booked', 'on_way'].includes(old.status) && planKey(old) === planKey(order)) continue;
+    if (old && ['booked', 'on_way'].includes(old.status) && planKey(old) === planKey(order)) {
+      if (order.status === 'on_way' && old.status !== 'on_way' && vehicleEligible) eligible(order, order);
+      continue;
+    }
     eligible(order, order);
   }
   for (const [id, plan] of Object.entries(next.preliminary ?? {})) {
@@ -86,7 +98,7 @@ export function vehicleRegistryCommand(state, principal, value, transactionAudit
   if (!vehicleRegistryCapabilities(principal).vehicleWrite)
     fail('Behörighet att hantera personal eller transporter med åtkomst till alla anläggningar krävs för fordonsregistret.', 403);
   const command = parse(commandSchema, value);
-  command.vehicle.registration = normalizeVehicleRegistration(command.vehicle.registration);
+  command.vehicle.registration = command.vehicle.registration ? normalizeVehicleRegistration(command.vehicle.registration) : '';
   command.vehicle.types = [...new Set(command.vehicle.types)].sort();
   const hash = commandHash(command), events = state.metadata?.vehicleEvents ?? [];
   if (command.requestId) {
@@ -103,16 +115,20 @@ export function vehicleRegistryCommand(state, principal, value, transactionAudit
   if (input.id && !old) fail('Fordonet finns inte längre.', 404);
   if (old && input.revision !== (old.revision ?? 0)) fail('Fordonet har ändrats. Uppdatera sidan innan du sparar.');
   if (!old && input.revision !== undefined && input.revision !== 0) fail('Ett nytt fordon kan inte ha en tidigare revision.', 422);
-  if (fleet.some(vehicle => vehicle.id !== old?.id && canonicalRegistration(vehicle.registration) === input.registration))
+  if (input.registration && fleet.some(vehicle => vehicle.id !== old?.id && canonicalRegistration(vehicle.registration) === input.registration))
     fail('Registreringsnumret används redan av ett fordon. Välj det befintliga fordonet.');
+  for (const field of ['assetTag', 'identifier']) if (input[field] && fleet.some(vehicle => vehicle.id !== old?.id && canonicalAsset(vehicle[field]) === canonicalAsset(input[field])))
+    fail('Den interna identifieringen används redan av ett fordon eller en maskin. Välj den befintliga posten.');
   const now = new Date().toISOString();
   const saved = { ...old, id: old?.id ?? `vehicle-${randomUUID()}`, registration: input.registration, name: input.name,
     types: input.types, active: input.active, revision: (old?.revision ?? 0) + 1,
     createdAt: old?.createdAt ?? now, updatedAt: now };
   if (input.category !== undefined) saved.category = input.category; else delete saved.category;
   if (input.capacityKg !== undefined) saved.capacityKg = input.capacityKg; else delete saved.capacityKg;
+  for (const field of ['assetTag', 'identifier']) if (input[field] !== undefined) saved[field] = input[field]; else delete saved[field];
   const editable = vehicle => ({ registration: canonicalRegistration(vehicle.registration), name: vehicle.name,
-    types: [...vehicle.types].sort(), active: vehicle.active !== false, category: vehicle.category, capacityKg: vehicle.capacityKg });
+    types: [...vehicle.types].sort(), active: vehicle.active !== false, category: vehicle.category, capacityKg: vehicle.capacityKg,
+    assetTag: vehicle.assetTag, identifier: vehicle.identifier });
   if (old && isDeepStrictEqual(editable(old), editable(saved)))
     return { ...vehicleRegistryProjection(state, principal), savedVehicleId: old.id };
   // Ordinary vehicle links and every existing order keep their IDs and booking

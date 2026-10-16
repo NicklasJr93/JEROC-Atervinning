@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import type { EmployeeOverview, EmployeeClockSession, EmployeeClockAction } from '../src/employee/types';
+import { emptyEmployeeFleet } from './helpers/employee-fleet';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 test.describe.configure({ mode: 'serial' });
@@ -45,6 +46,7 @@ async function clockFixture(page: Page, initial = { enabled: true, blocked: fals
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url());
     const send = (body: unknown, statusCode = 200) => route.fulfill({ status: statusCode, contentType: 'application/json', body: JSON.stringify(body) });
+    if (url.pathname === '/api/employee/fleet') return send(emptyEmployeeFleet(person.id));
     if (url.pathname.startsWith('/api/employee/')) {
       queries.push(`${request.method()} ${url.pathname}`);
       if (url.pathname === '/api/employee/clock' && request.method() === 'POST') {

@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { STORE_KEY, seedDemo } from '../src/model';
 import { employeeIdentity, employeeRecoveryKey, legacyEmployeeRecoveryKey } from '../src/employee/cache';
 import { sharedBusinessCacheKey } from '../src/shared-data';
+import { emptyEmployeeFleet } from './helpers/employee-fleet';
 
 test('mobile recovery, price and pending keys remain company-specific even when person IDs collide', () => {
   const personId = 'shared-person-id';
@@ -26,6 +27,7 @@ test('another company never imports old employee or Niklas recovery data and dis
   }, { personId, old });
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
+    if (path === '/api/employee/fleet') return route.fulfill({ json: emptyEmployeeFleet(personId) });
     if (path.startsWith('/api/employee/')) return route.fulfill({ json: {
       companyId, companyName: 'Bolag B',
       person: { id: personId, username: 'niklas', name: 'Medarbetare B', role: 'Invägare', team: '', siteIds: ['main'] },

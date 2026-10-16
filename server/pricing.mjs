@@ -14,6 +14,7 @@ export const metals = [
   { id: 'tin', name: 'Tenn' },
 ];
 export const permissions = [
+  'fleetRead', 'fleetWrite', 'fleetExport', 'fleetUnblock',
   'view',
   'prepare',
   'weighingAddArticle',

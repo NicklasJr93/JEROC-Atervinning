@@ -95,6 +95,10 @@ async function fixture(page: Page, options: { sessionFailure?: boolean; failTile
       // visible. No external map service or production API is called by tests.
       return route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==', 'base64') });
     }
+    // The optional company bridge checks office authentication once. Public
+    // visitors stay in the standalone lab and must never read company APIs.
+    if (url.origin === origin && url.pathname === '/api/platform/session')
+      return route.fulfill({ status: 401, json: { error: 'Public lab visitor' } });
     if (url.origin !== origin || url.pathname.startsWith('/api/')) {
       unexpected.push(`${request.method()} ${url.origin}${url.pathname}`);
       return route.abort('blockedbyclient');

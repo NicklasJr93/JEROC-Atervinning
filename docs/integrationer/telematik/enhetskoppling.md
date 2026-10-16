@@ -1,6 +1,6 @@
 # Enhetskoppling och fordonsbyte
 
-**Designkrav för granskning – inte implementerad funktion.** Underlaget beskriver hur en redan förberedd telematikpuck ska kopplas till och flyttas mellan befintliga fordon. Det aktiverar ingen fysisk enhet eller produktionskoppling.
+**Implementerade serverkommandon och webbflöden, 2026-10-16, ÄL 130.** En redan förberedd telematikpuck kan tilldelas ett bolag och kopplas eller flyttas mellan befintliga fordon. Flödena är verifierade med syntetisk telemetri. Fysisk provisionering, SIM/APN och transportskydd ska fortfarande konfigureras och provas med riktig hårdvara. Se [byggstatus och provsteg](../../fordon-telematik-bygge-2026-10-16.md).
 
 ## Ansvar och ordinarie koppling
 
@@ -29,7 +29,7 @@ Bolaget gör bytet i två uttryckliga steg. Enheten får inte skriva nya resor p
 
 Vid aktiv resa, påslagen motor eller okänd resstatus får normalbytet inte påbörjas. Ingen kontakt betyder inte att resan är avslutad. Ett timeoutvärde får aldrig automatiskt avsluta en verklig resa eller göra bytet tillåtet.
 
-En trasig eller försvunnen puck behöver ett separat undantagsflöde för särskilt behörig personal: uttrycklig manuell bryttid, obligatorisk orsak och spårbar granskning av osäkra resor och mätvärden. Åtgärden får inte skapa ett påhittat observerat resslut eller dölja att tiden är manuellt angiven.
+En trasig eller försvunnen puck behöver ett separat undantagsflöde för särskilt behörig personal: uttrycklig manuell bryttid, obligatorisk orsak och spårbar granskning av osäkra resor och mätvärden. Serverns betrodda undantagskommando har separat behörighetskontroll; det exponeras inte som en vanlig flyttknapp i kundvyn. Åtgärden får inte skapa ett påhittat observerat resslut eller dölja att tiden är manuellt angiven.
 
 ## Avbryt och återgå
 
@@ -60,8 +60,8 @@ Enhetens virtuella GPS-mätare kan innehålla körsträcka från det gamla fordo
 - Historiken visar vem som påbörjade, bekräftade, återförde eller manuellt bröt en koppling, när det skedde och eventuell orsak. En omstart eller ett anslutningsavbrott får inte återaktivera en gammal koppling.
 - **Bolagsbyte är inte ett vanligt fordonsbyte.** Det får endast göras av systemadmin i ett separat överlåtelseflöde som hanterar anslutningsuppgifter, buffrad data och säker brytpunkt. Det nya bolaget får ingen åtkomst till gamla bolagets CRM-data, resor eller historik.
 
-## Kontrollfall inför implementation
+## Verifiering och fysisk pilot
 
 Första koppling, normalt tvåstegsbyte och bekräftad återinstallation ska kunna granskas var för sig. Prova också aktiv/okänd resa, utebliven första kontakt, trasig puck med manuell bryttid, sena paket, mätarbaseline, samtidiga byten och dubbla bekräftelser. Misslyckad serverlagring ska behålla det tidigare bekräftade läget och ge ett tydligt fel; klienten får inte visa bytet som färdigt i förväg.
 
-Den befintliga [telematikgrunden](README.md) och [syntetiska mottagartjänsten](mottagartjanst.md) är separata från dessa planerade administrationsflöden.
+Serverprov täcker första koppling, tvåstegsflytt, återinstallation, reservationer, samtidiga försök, sena poster och felställd klocka. Browserprov täcker koppling och flytt utan optimistisk bekräftelse. Den [syntetiska mottagartjänsten](mottagartjanst.md) kan nu kopplas uttryckligen till ett bolags testsändare; publik testkörning är fortsatt avskild som standard. Den [fysiska TCP-grunden](README.md) behöver fortfarande verifierad transport och verkligt hårdvaruprov.

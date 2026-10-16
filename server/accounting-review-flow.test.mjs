@@ -105,7 +105,10 @@ test('ordinary VAT is computed from the actual article before approval and appea
 
 test('registered scrap and private purchases both have zero seller VAT and fully balanced frozen drafts', async () => {
   for (const privateSeller of [false, true]) await fixture(async f => {
-    await f.setArticle(privateSeller ? 'standard_25' : 'scrap_reverse'); await f.setCustomer({ type: privateSeller ? 'Privatperson' : 'Företag', vatRegistered: !privateSeller });
+    await f.setArticle(privateSeller ? 'standard_25' : 'scrap_reverse'); await f.setCustomer({ type: privateSeller ? 'Privatperson' : 'Företag', vatRegistered: !privateSeller,
+      // Changing customer type must also replace the company's identifier with
+      // a synthetic, date/checksum-valid personal identifier for the private case.
+      ...(privateSeller && { number: '199001010009' }) });
     const review = await f.review(), accounting = review.approval.snapshot.card.accounting;
     assert.equal(accounting.sellerVat, 0); assert.equal(accounting.gross, 100); assert.equal(accounting.reverseVat, privateSeller ? 0 : 25);
     assert.equal(accounting.lines[0].treatment, privateSeller ? 'private' : 'reverse25');
@@ -195,7 +198,17 @@ test('VAT-inclusive gross bounds offset, pays only the net and blocks every mana
     state.vismaIntegration = { version: 1, tenants: { 'jeroc-demo': { finance: { settings: { [companyId]: authorized }, settingsHistory: { [companyId]: { 1: authorized } }, choices: {}, mappings: {}, outbox: [] }, audit: [] } } };
   });
   assert.deepEqual(await service.processQueuedExports(), { processed: 0 }); assert.deepEqual(await service.processQueuedExports(), { processed: 0 });
-  assert.equal((await service.exports(context)).exports.length, 0); assert.equal(providerCalls.length, 0);
+  // A rejected source is retained once for diagnosis, without queuing or
+  // reserving any provider operation, even when the worker runs again.
+  const exports = (await service.exports(context)).exports;
+  assert.equal(exports.length, 1);
+  assert.deepEqual(exports[0].source, { cardId: 2053, approvalId: review.approval.id, version: review.approval.version, hash: review.approval.snapshot.hash });
+  assert.equal(exports[0].companyId, companyId); assert.equal(exports[0].customerId, CUSTOMER);
+  assert.equal(exports[0].status, 'blocked'); assert.equal(exports[0].stage, 'validation');
+  assert.equal(exports[0].error.code, 'visma_accounting_blocked');
+  assert.match(exports[0].error.message, /Kvittning behöver kopplas till kreditunderlag/);
+  assert.deepEqual(exports[0].runs, {}); assert.equal(exports[0].draftId, undefined); assert.equal(exports[0].supplierId, undefined);
+  assert.equal(providerCalls.length, 0);
 }));
 
 test('office-save rejects a legacy own correction for platform admin working as an independent attestant despite a valid server receipt', async () => fixture(async f => {

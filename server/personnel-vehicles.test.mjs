@@ -9,6 +9,8 @@ import { createPricingStore, resolvePricingPrincipal } from './pricing.mjs';
 import { applyTransportChange, transportSchema, seedTransport } from '../dist-server/domain-models.mjs';
 import { normalizeVehicleRegistration, vehicleRegistryCapabilities, vehicleRegistryCommand, vehicleRegistryProjection,
   handlePersonnelVehiclesApi, assertVehiclePlanningChange } from './personnel-vehicles.mjs';
+import { fleetVehicleEligible } from './fleet.mjs';
+import { validatePersonnelTransportChange } from './personnel.mjs';
 
 const principal = (state, actor = 'admin', user = actor) => resolvePricingPrincipal(state.pricing.users, actor, user);
 const initialApplicationState = () => ({ metadata: { version: 1 }, pricing: createPricingStore().exportState(), transport: seedTransport('2026-10-08') });
@@ -88,6 +90,68 @@ test('optimistic revisions and stable command IDs prevent duplicate creation, st
   const count = state.transport.revision;
   vehicleRegistryCommand(state, p, { action: 'vehicle.save', vehicle: { ...command().vehicle, id: saved.id, revision: 1 } });
   assert.equal(state.transport.revision, count);
+});
+
+test('machines and non-hauling cars share canonical IDs without plates or a parallel registry', () => {
+  const state = initialApplicationState(), p = principal(state), orders = structuredClone(state.transport.orders);
+  const machine = vehicleRegistryCommand(state, p, { ...command({ registration: '', name: 'Grävmaskin', assetTag: 'EX-01', category: 'machine', types: [] }), requestId: 'machine-new' });
+  const saved = machine.vehicles.find(vehicle => vehicle.id === machine.savedVehicleId);
+  assert.equal(saved.registration, ''); assert.equal(saved.assetTag, 'EX-01'); assert.deepEqual(saved.types, []);
+  const other = vehicleRegistryCommand(state, p, { ...command({ registration: '', identifier: 'Serie 02', category: 'machine', types: [] }), requestId: 'machine-other' });
+  assert.notEqual(other.savedVehicleId, saved.id);
+  const car = vehicleRegistryCommand(state, p, { ...command({ registration: 'CAR 321', category: 'car', types: [] }), requestId: 'car-new' });
+  assert.deepEqual(car.vehicles.find(vehicle => vehicle.id === car.savedVehicleId).types, []);
+  assert.equal(transportSchema.safeParse(state.transport).success, true);
+  assert.deepEqual(state.transport.orders, orders);
+  assert.throws(() => vehicleRegistryCommand(state, p, { ...command({ registration: '', category: 'machine', types: [] }), requestId: 'no-identifier' }), /identifiering/);
+  assert.throws(() => vehicleRegistryCommand(state, p, { ...command({ registration: '', assetTag: 'ex-01', category: 'machine', types: [] }), requestId: 'duplicate-asset' }), /används redan/);
+  assert.throws(() => applyTransportChange(state.transport, { type: 'book', id: 'AO-1043', plan: {
+    date: '2026-10-15', startMinute: 900, durationMinutes: 60, driverId: 'kalle', vehicleId: saved.id,
+  } }, { canPlan: true, actor: 'Admin', actualUserId: 'admin', effectiveUserId: 'admin' }), /kärltyp/);
+});
+
+test('transport parsing and canonical edits preserve old metadata, links and separate fleet profiles', () => {
+  const state = initialApplicationState(), p = principal(state), vehicle = state.transport.vehicles[0];
+  vehicle.legacyMetadata = { serial: 'historical-serial', flags: ['original'] };
+  state.fleet = { profiles: { [vehicle.id]: { blocked: true, blockReason: 'Service', notes: 'Separat profil' } } };
+  const profiles = structuredClone(state.fleet), drivers = structuredClone(state.transport.drivers);
+  const parsed = transportSchema.parse(state.transport);
+  assert.deepEqual(parsed.vehicles[0].legacyMetadata, vehicle.legacyMetadata);
+  vehicleRegistryCommand(state, p, { action: 'vehicle.save', vehicle: { id: vehicle.id, revision: vehicle.revision ?? 0,
+    registration: vehicle.registration, name: 'Uppdaterat namn', active: true, types: vehicle.types } });
+  assert.equal(state.transport.vehicles[0].id, vehicle.id);
+  assert.deepEqual(state.transport.vehicles[0].legacyMetadata, vehicle.legacyMetadata);
+  assert.deepEqual(state.fleet, profiles); assert.deepEqual(state.transport.drivers, drivers);
+});
+
+test('explicit fleet grants extend legacy rights while both identities and all-site restrictions remain enforced', () => {
+  const state = initialApplicationState(), worker = state.pricing.users.find(user => user.id === 'kajsa');
+  worker.level = 'Medarbetare'; worker.permissions = ['fleetRead', 'fleetWrite', 'fleetExport', 'fleetUnblock']; delete worker.siteIds;
+  assert.deepEqual(vehicleRegistryCapabilities(principal(state, 'admin', 'kajsa')), { vehicleRead: true, vehicleWrite: true });
+  worker.siteIds = ['norrtalje']; assert.equal(vehicleRegistryCapabilities(principal(state, 'admin', 'kajsa')).vehicleWrite, false);
+  delete worker.siteIds; worker.permissions = ['fleetRead'];
+  assert.equal(vehicleRegistryCapabilities(principal(state, 'admin', 'kajsa')).vehicleWrite, false);
+  assert.equal(vehicleRegistryCapabilities({ actor: worker, user: state.pricing.users.find(user => user.id === 'admin') }).vehicleWrite, false);
+});
+
+test('drift blocks reject new and changed plans, preliminary booking and departure without rewriting history', () => {
+  const state = initialApplicationState(), before = structuredClone(state.transport);
+  state.fleet = { profiles: { 'vehicle-kalle': { blocked: true, blockReason: 'Driftspärr: service pågår' } } };
+  const check = next => assertVehiclePlanningChange(before, next, { vehicleEligible: id => fleetVehicleEligible(state, id) });
+  const newBooking = structuredClone(before);
+  Object.assign(newBooking.orders.find(order => order.id === 'AO-1043'), { status: 'booked', date: '2026-10-15', startMinute: 900, driverId: 'kalle', vehicleId: 'vehicle-kalle' });
+  assert.throws(() => check(newBooking), /Driftspärr/);
+  const staged = structuredClone(before); staged.preliminary['AO-1043'] = { date: '2026-10-15', startMinute: 900, durationMinutes: 60, driverId: 'kalle', vehicleId: 'vehicle-kalle' };
+  assert.throws(() => check(staged), /Driftspärr/);
+  const notes = structuredClone(before); notes.orders.find(order => order.id === 'AO-1042').notes = 'Tidigare bokning bevarad';
+  assert.doesNotThrow(() => check(notes));
+  const departure = structuredClone(before); departure.orders.find(order => order.id === 'AO-1042').status = 'on_way';
+  assert.throws(() => check(departure), /Driftspärr/);
+  assert.throws(() => validatePersonnelTransportChange(state, before, newBooking), /Driftspärr/);
+  const complete = structuredClone(before); complete.orders.find(order => order.id === 'AO-1042').status = 'done';
+  assert.doesNotThrow(() => check(complete)); assert.deepEqual(state.transport, before);
+  state.fleet.profiles['vehicle-kalle'].blocked = false;
+  assert.doesNotThrow(() => check(newBooking));
 });
 
 test('full transport snapshots cannot bypass registry permissions or use an inactive resource for a new plan', () => {

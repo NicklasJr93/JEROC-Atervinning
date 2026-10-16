@@ -5,6 +5,7 @@ import { Notice, Nav } from './components';
 import { useEmployee } from './employee/EmployeeProvider';
 import { EmployeeClockStatus, isEmployeeClockDay } from './employee/EmployeeClock';
 import EmployeeTimeReview from './employee/EmployeeTimeReview';
+import { EmployeeFleetPage, EmployeeTripGate } from './employee/EmployeeFleet';
 import {
   EmployeeLoginPage, EmployeeHomePage, EmployeeSchedulePage, EmployeeTimePage,
   EmployeeProfilePage, EmployeeAssignmentsPage, EmployeeRequirementPage, EmployeeTimeGate,
@@ -72,6 +73,8 @@ export function App() {
           <Route path="/time/sickness" element={<EmployeeSicknessPage />} />
           <Route path="/time/review" element={<EmployeeTimeReview />} />
           <Route path="/assignments" element={<EmployeeAssignmentsPage />} />
+          <Route path="/my-vehicle" element={<EmployeeFleetPage view="vehicle" />} />
+          <Route path="/my-trips" element={<EmployeeFleetPage view="trips" />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="/drafts" element={yardPage(<DraftsPage />)} />
           <Route path="/prices" element={yardPage(<PricesPage />)} />
@@ -111,6 +114,7 @@ export function App() {
         </Routes>
       )}
       {loggedIn && !employee.loading && <EmployeeTimeGate />}
+      {loggedIn && !employee.loading && <EmployeeTripGate suspended={Boolean(employee.overview?.gate.blocked)} />}
     </div>
   );
 }

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pencil, Plus, RefreshCw, Truck } from 'lucide-react';
+import { ArrowUpRight, Truck } from 'lucide-react';
 import type { ContainerType, TransportVehicle, VehicleRegistryResponse, VehicleSaveCommand } from '../transport/types';
 import { vesselTypes } from '../transport/types';
 import { PersonnelApiError, type PersonnelClientScope } from './client';
 import { readVehicles, saveVehicle } from './vehicles-client';
-import { Alert, Dialog, Field, Pill } from './components/Ui';
+import { Alert, Dialog, Field } from './components/Ui';
 import './personnel-vehicles.css';
 
-const categories = { truck: 'Lastbil', van: 'Transportbil', car: 'Personbil', trailer: 'Släp', other: 'Annat fordon' };
+const categories = { truck: 'Lastbil', van: 'Transportbil', car: 'Personbil', trailer: 'Släp', machine: 'Maskin', other: 'Annat fordon' };
 
 export function useVehicleRegistry(scope: PersonnelClientScope, initialVehicles: TransportVehicle[] = []) {
   const identity = useRef(scope.key); identity.current = scope.key;
@@ -55,6 +55,7 @@ export function VehicleEditor({ vehicle, onSave, onClose, onBusy, allowInactive 
   onClose: () => void; onBusy?: (busy: boolean) => void; allowInactive?: boolean;
 }) {
   const [name, setName] = useState(vehicle?.name ?? ''), [registration, setRegistration] = useState(vehicle?.registration ?? '');
+  const [assetTag, setAssetTag] = useState(vehicle?.assetTag ?? ''), [identifier, setIdentifier] = useState(vehicle?.identifier ?? '');
   const [category, setCategory] = useState<NonNullable<TransportVehicle['category']>>(vehicle?.category ?? 'truck');
   const [capacity, setCapacity] = useState(vehicle?.capacityKg === undefined ? '' : String(vehicle.capacityKg));
   const [types, setTypes] = useState<ContainerType[]>(vehicle?.types ?? ['container']);
@@ -63,10 +64,15 @@ export function VehicleEditor({ vehicle, onSave, onClose, onBusy, allowInactive 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   async function submit() {
     if (pending.current) return;
-    if (!name.trim() || registration.trim().length < 2 || !types.length) { setError('Ange namn, registreringsnummer och minst en kärltyp.'); return; }
+    const machine = category === 'machine' || category === 'other';
+    if (!name.trim() || (!machine && registration.trim().length < 2) || (machine && !registration.trim() && !assetTag.trim() && !identifier.trim())) {
+      setError('Ange namn och registreringsnummer. För maskiner räcker ett inventarienummer eller en intern identifiering.'); return;
+    }
+    if (!types.length && !['car', 'machine', 'other'].includes(category)) { setError('Välj minst en kärltyp för transportfordonet.'); return; }
     const kg = capacity.trim() ? Number(capacity.replace(',', '.')) : undefined;
     if (kg !== undefined && (!Number.isFinite(kg) || kg <= 0 || kg > 1e7)) { setError('Ange en lastkapacitet över 0 och högst 10 000 000 kg, eller lämna fältet tomt.'); return; }
-    const input: VehicleSaveCommand['vehicle'] = { ...(vehicle ? { id: vehicle.id, revision: vehicle.revision ?? 0 } : {}), name: name.trim(), registration: registration.trim(), types, active, category, ...(kg === undefined ? {} : { capacityKg: kg }) };
+    const input: VehicleSaveCommand['vehicle'] = { ...(vehicle ? { id: vehicle.id, revision: vehicle.revision ?? 0 } : {}), name: name.trim(), registration: registration.trim(), types, active, category,
+      ...(assetTag.trim() ? { assetTag: assetTag.trim() } : {}), ...(identifier.trim() ? { identifier: identifier.trim() } : {}), ...(kg === undefined ? {} : { capacityKg: kg }) };
     const key = JSON.stringify(input);
     if (retry.current?.key !== key) retry.current = { key, requestId: crypto.randomUUID() };
     pending.current = true; setBusy(true); onBusy?.(true); setError('');
@@ -78,10 +84,12 @@ export function VehicleEditor({ vehicle, onSave, onClose, onBusy, allowInactive 
     <h3><Truck size={17} />{vehicle ? 'Redigera fordon' : 'Skapa nytt fordon'}</h3>
     <fieldset disabled={busy} className="hr-vehicle-fields"><div className="hr-form-grid">
       <Field label="Fordonsnamn *"><input aria-label="Fordonsnamn *" value={name} onChange={event => setName(event.target.value)} maxLength={200} placeholder="T.ex. Lastbil 3" /></Field>
-      <Field label="Registreringsnummer *"><input aria-label="Registreringsnummer *" value={registration} onChange={event => setRegistration(event.target.value)} maxLength={30} autoCapitalize="characters" /></Field>
-      <Field label="Fordonstyp"><select value={category} onChange={event => setCategory(event.target.value as typeof category)}>{Object.entries(categories).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></Field>
+      <Field label={['machine', 'other'].includes(category) ? 'Registreringsnummer' : 'Registreringsnummer *'}><input aria-label={['machine', 'other'].includes(category) ? 'Registreringsnummer' : 'Registreringsnummer *'} value={registration} onChange={event => setRegistration(event.target.value)} maxLength={30} autoCapitalize="characters" /></Field>
+      <Field label="Fordonstyp"><select aria-label="Fordonstyp" value={category} onChange={event => setCategory(event.target.value as typeof category)}>{Object.entries(categories).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></Field>
+      <Field label="Inventarienummer"><input value={assetTag} onChange={event => setAssetTag(event.target.value)} maxLength={120} placeholder="Valfritt" /></Field>
+      <Field label="Intern identifiering"><input value={identifier} onChange={event => setIdentifier(event.target.value)} maxLength={120} placeholder="T.ex. serienummer" /></Field>
       <Field label="Lastkapacitet (kg)"><input inputMode="decimal" value={capacity} onChange={event => setCapacity(event.target.value)} placeholder="Valfritt" /></Field>
-      <div className="hr-field full"><span>Kan hantera *</span><div className="hr-checkbox-list">{Object.entries(vesselTypes).map(([id, type]) => <label key={id}><input type="checkbox" checked={types.includes(id as ContainerType)} onChange={event => setTypes(previous => event.target.checked ? [...previous, id as ContainerType] : previous.filter(value => value !== id))} />{type.label}</label>)}</div></div>
+      <div className="hr-field full"><span>{['car', 'machine', 'other'].includes(category) ? 'Kan hantera (valfritt)' : 'Kan hantera *'}</span><div className="hr-checkbox-list">{Object.entries(vesselTypes).map(([id, type]) => <label key={id}><input type="checkbox" checked={types.includes(id as ContainerType)} onChange={event => setTypes(previous => event.target.checked ? [...previous, id as ContainerType] : previous.filter(value => value !== id))} />{type.label}</label>)}</div></div>
       {allowInactive && <label className="hr-checkbox full"><input type="checkbox" checked={active} onChange={event => setActive(event.target.checked)} /> Fordonet är aktivt</label>}
     </div></fieldset>
     {!active && <Alert tone="orange">Fordonet tas bort från nya fordonsval. Befintliga kopplingar och bokningshistorik finns kvar.</Alert>}
@@ -90,18 +98,9 @@ export function VehicleEditor({ vehicle, onSave, onClose, onBusy, allowInactive 
   </section>;
 }
 
-export default function VehicleRegistry({ scope, onClose, onChanged }: { scope: PersonnelClientScope; onClose: () => void; onChanged?: () => Promise<void> | void }) {
-  const registry = useVehicleRegistry(scope), [editing, setEditing] = useState<TransportVehicle | 'new'>(), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
-  return <Dialog title="Fordonsregister" description="Gemensamma fordon för personal och transportplanering." onClose={() => { if (!busy) onClose(); }}>
-    {registry.loading ? <div className="hr-loading"><RefreshCw size={18} /> Laddar fordon…</div> : <>
-      {registry.error && <Alert tone="red">{registry.error}<button type="button" className="office-link" onClick={() => void registry.refresh()}>Uppdatera fordon</button></Alert>}
-      {notice && <Alert tone="green">{notice}</Alert>}
-      {editing && registry.value?.capabilities.vehicleWrite ? <VehicleEditor key={editing === 'new' ? 'new' : `${editing.id}:${editing.revision ?? 0}`} vehicle={editing === 'new' ? undefined : editing} onBusy={setBusy} onClose={() => setEditing(undefined)} onSave={async command => { const value = await registry.save(command); setEditing(undefined); setNotice('Fordonet är sparat.'); void Promise.resolve(onChanged?.()).catch(() => {}); return value; }} /> : <>
-        {registry.value?.capabilities.vehicleWrite && <button type="button" className="office-btn hr-vehicle-create" onClick={() => { setNotice(''); setEditing('new'); }}><Plus size={16} /> Skapa nytt fordon</button>}
-        <div className="hr-table-scroll"><table className="office-table hr-table"><thead><tr><th>Fordon</th><th>Kan hantera</th><th>Status</th><th></th></tr></thead><tbody>{registry.vehicles.map(vehicle => <tr key={vehicle.id}><td><strong>{vehicle.name}</strong><small>{vehicle.registration}{vehicle.capacityKg !== undefined ? ` · ${vehicle.capacityKg.toLocaleString('sv-SE')} kg` : ''}</small></td><td>{vehicle.types.map(type => vesselTypes[type].label).join(', ')}</td><td><Pill tone={vehicle.active === false ? 'grey' : 'green'}>{vehicle.active === false ? 'Inaktiverat' : 'Aktivt'}</Pill></td><td>{registry.value?.capabilities.vehicleWrite && <button type="button" className="office-link" aria-label={`Redigera ${vehicle.name}`} onClick={() => { setNotice(''); setEditing(vehicle); }}><Pencil size={14} /> Redigera</button>}</td></tr>)}</tbody></table></div>
-        {!registry.vehicles.length && !registry.error && <div className="hr-empty">Inga fordon registrerade.</div>}
-        {registry.value && !registry.value.capabilities.vehicleWrite && <p className="hr-muted">För att ändra det gemensamma fordonsregistret krävs behörighet för alla anläggningar.</p>}
-      </>}
-    </>}
+export default function VehicleRegistry({ onClose }: { scope: PersonnelClientScope; onClose: () => void; onChanged?: () => Promise<void> | void }) {
+  return <Dialog title="Fordonsregister" description="Fordon och maskiner hanteras i det gemensamma registret." onClose={onClose}>
+    <p>Öppna Fordon och maskiner för register, underhåll och fordonsuppgifter. Befintliga kopplingar till personal och transporter följer med.</p>
+    <a className="office-btn" href="#/fleet" onClick={onClose}><ArrowUpRight size={16} /> Öppna Fordon och maskiner</a>
   </Dialog>;
 }

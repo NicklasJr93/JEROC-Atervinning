@@ -41,6 +41,36 @@ async function account(request, kind, subjectId) { const username = `${kind}.${r
 async function createOrder(request, value) { const created = await request(officePath, { action: 'order.create', input: value, idempotencyKey: randomUUID() }); assert.equal(created.status, 200, created.error); return created.orders.find(order => order.id === created.result.orderId); }
 async function commandOrder(request, order, action, extra = {}) { const response = await request(officePath, { action, orderId: order.id, expectedVersion: order.detail.version, ...extra }); assert.equal(response.status, 200, response.error); return response.orders.find(value => value.id === order.id); }
 
+test('fleet drift blocks apply to assignment, booking and actual departure without changing existing orders', async () => fixture(async ({ request, repository }) => {
+  let order = await createOrder(request, input({ assignedDriverId: 'kalle', assignedVehicleId: 'vehicle-kalle' }));
+  order = await commandOrder(request, order, 'order.clearance', { cleared: true });
+  await repository.transact(state => { state.fleet ??= { profiles: {} }; state.fleet.profiles['vehicle-kalle'] = { blocked: true, blockReason: 'Driftspärr: verkstadsarbete' }; });
+  const before = await repository.read(state => structuredClone(state.transport.orders));
+  const blockedCreate = await request(officePath, { action: 'order.create', input: input({ assignedDriverId: 'kalle', assignedVehicleId: 'vehicle-kalle' }), idempotencyKey: randomUUID() });
+  assert.equal(blockedCreate.status, 422); assert.match(blockedCreate.error, /Driftspärr/);
+  const blockedBook = await request(officePath, { action: 'order.book', orderId: order.id, expectedVersion: order.detail.version,
+    plan: { date: '2026-11-02', startMinute: 600, durationMinutes: 60, driverId: 'kalle', vehicleId: 'vehicle-kalle' } });
+  assert.equal(blockedBook.status, 422); assert.match(blockedBook.error, /Driftspärr/);
+  const blockedDeparture = await request(officePath, { action: 'order.depart', orderId: order.id, expectedVersion: order.detail.version });
+  assert.equal(blockedDeparture.status, 422); assert.match(blockedDeparture.error, /Driftspärr/);
+  assert.deepEqual(await repository.read(state => state.transport.orders), before);
+  await repository.transact(state => { state.fleet.profiles['vehicle-kalle'].blocked = false; });
+  assert.equal((await request(officePath, { action: 'order.depart', orderId: order.id, expectedVersion: order.detail.version })).status, 200);
+}));
+
+test('carrier assignment also rejects a drift-blocked canonical vehicle', async () => fixture(async ({ request, repository }) => {
+  const carrier = (await request()).carriers[0], login = await account(request, 'carrier', carrier.id);
+  let order = await createOrder(request, input({ operator: 'external', carrierId: carrier.id }));
+  order = await commandOrder(request, order, 'order.send');
+  const accepted = await request('/api/carrier/actions', { action: 'request.respond', orderId: order.id, expectedVersion: order.detail.version, response: 'accept' }, null, login.cookie);
+  assert.equal(accepted.status, 200, accepted.error); order = accepted.orders.find(value => value.id === order.id);
+  await repository.transact(state => { state.fleet ??= { profiles: {} }; state.fleet.profiles['vehicle-oskar'] = { blocked: true, blockReason: 'Driftspärr: felanmälan' }; });
+  const assigned = await request('/api/carrier/actions', { action: 'order.assign', orderId: order.id, expectedVersion: order.detail.version, driverId: 'oskar', vehicleId: 'vehicle-oskar' }, null, login.cookie);
+  assert.equal(assigned.status, 422); assert.match(assigned.error, /Driftspärr/);
+  const saved = await repository.read(state => state.logistics.details[order.id]);
+  assert.equal(saved.assignedVehicleId, undefined);
+}));
+
 test('logistics reads preserve the repository and real commands persist legacy preparation once', async () => fixture(async ({ request, repository, instance }) => {
   const original = await repository.read(state => structuredClone(state));
   const state = await request(); assert.equal(state.status, 200, state.error); assert.equal(state.vessels.length, 0); assert.equal(state.stock.length, 0);

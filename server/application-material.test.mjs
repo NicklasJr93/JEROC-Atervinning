@@ -15,7 +15,7 @@ const office = '/api/application/office', material = `${office}/material`;
 const users = [
   ['weight-only', ['weighingEditWeight']], ['remove-only', ['weighingRemoveArticle']],
   ['add-only', ['weighingAddArticle']], ['quantity-editor', ['weighingEditWeight', 'weighingRemoveArticle', 'weighingAddArticle']],
-].map(([id, rights]) => ({ id, name: id, level: 'Medarbetare', permissions: ['view', ...rights], maxAttest: 0, ownAttest: false }));
+].map(([id, rights]) => ({ id, name: id, level: 'Medarbetare', permissions: ['view', ...rights], maxAttest: 0, ownAttest: false, siteIds: ['norrtalje', 'rimbo'] }));
 async function fixture(run) {
   const directory = await mkdtemp(join(tmpdir(), 'jeroc-material-'));
   const env = { JEROC_APPLICATION_DB_PATH: join(directory, 'application.sqlite') };
@@ -33,42 +33,47 @@ async function fixture(run) {
     transact: (operation, options) => repository.transact(async (...args) => {
       const result = await operation(...args); if (rejectCommit) throw new Error('forced material rollback'); return result;
     }, options) };
-  const app = createApplicationService({ env, repository: wrapped, projections: cardId => terminal.projections(cardId),
-    sendCustomerReview: (payload, identity) => terminal.send(payload, undefined, identity),
-    withMaterialChangeApproval: (input, identity, operation) => terminal.withMaterialChangeApproval(input, identity, operation),
-    guardMaterialChange: (input, operation) => {
-      if (recorded.has(input.sourceId)) throw Object.assign(new Error('Mottagningen är registrerad. Använd rättelseflödet.'), { status: 409 });
-      return operation();
-    } });
-  terminal = createTerminalDemoStore({ repository: terminalRepository, principalStore: app.principalStore });
-  const server = createServer((req, res) => void app(req, res, new URL(req.url, 'http://localhost')));
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  async function api(path, input, actor = 'admin') {
-    const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`, {
-      method: input === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Demo-Actor': actor, 'X-Demo-User': actor },
-      body: input === undefined ? undefined : JSON.stringify(input) });
-    return { status: response.status, ...await response.json() };
+  let app, server;
+  try {
+    app = createApplicationService({ env, repository: wrapped, projections: cardId => terminal.projections(cardId),
+      sendCustomerReview: (payload, identity) => terminal.send(payload, undefined, identity),
+      withMaterialChangeApproval: (input, identity, operation) => terminal.withMaterialChangeApproval(input, identity, operation),
+      guardMaterialChange: (input, operation) => {
+        if (recorded.has(input.sourceId)) throw Object.assign(new Error('Mottagningen är registrerad. Använd rättelseflödet.'), { status: 409 });
+        return operation();
+      } });
+    terminal = createTerminalDemoStore({ repository: terminalRepository, principalStore: app.principalStore });
+    server = createServer((req, res) => void app(req, res, new URL(req.url, 'http://localhost')));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    async function api(path, input, actor = 'admin') {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`, {
+        method: input === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Demo-Actor': actor, 'X-Demo-User': actor },
+        body: input === undefined ? undefined : JSON.stringify(input) });
+      return { status: response.status, ...await response.json() };
+    }
+    const seedUsers = (await api('/api/pricing/state')).users;
+    assert.equal((await api('/api/pricing/users', { users: [...seedUsers, ...users] })).status, 200);
+    const staff = (await terminal.staffSession({ actualUserId: 'admin', effectiveUserId: 'admin' })).token;
+    const device = await terminal.createTerminal({ name: 'Material test', username: 'material-test', password: 'local-test-only', siteId: 'norrtalje' }, staff);
+    const login = await terminal.login({ username: 'material-test', password: 'local-test-only' });
+    const card = async (actor = 'admin', id = 2053) => (await api(office, undefined, actor)).data.cards.find(value => value.id === id);
+    const command = (card, patch) => ({ cardId: card.id, expectedRows: card.rows, ...patch });
+    async function review() {
+      await repository.transact(state => {
+        const row = state.office.cards.find(value => value.id === 2053);
+        Object.assign(row, { status: 'complement', origin: 'Testgatan 12, 761 41 Norrtälje', customerId: 'customer-build',
+          payment: 'Kontant', paymentDetails: { method: 'cash' }, rows: [{ articleId: 'copper-1', weight: 72, price: 0, tier: 'C', pricePending: true }] });
+      });
+      const response = await api('/api/application/customer-review', { cardId: 2053, expectedCard: await card(), terminalId: device.id,
+        siteId: 'norrtalje', idempotencyKey: randomUUID() });
+      assert.equal(response.status, 200, response.error); return response;
+    }
+    await run({ api, card, command, repository, terminal, staff, login, device, recorded, review, postgres: Boolean(pool), rejectCommit: value => { rejectCommit = value; } });
   }
-  const seedUsers = (await api('/api/pricing/state')).users;
-  assert.equal((await api('/api/pricing/users', { users: [...seedUsers, ...users] })).status, 200);
-  const staff = (await terminal.staffSession({ actualUserId: 'admin', effectiveUserId: 'admin' })).token;
-  const device = await terminal.createTerminal({ name: 'Material test', username: 'material-test', password: 'local-test-only', siteId: 'norrtalje' }, staff);
-  const login = await terminal.login({ username: 'material-test', password: 'local-test-only' });
-  const card = async (actor = 'admin', id = 2053) => (await api(office, undefined, actor)).data.cards.find(value => value.id === id);
-  const command = (card, patch) => ({ cardId: card.id, expectedRows: card.rows, ...patch });
-  async function review() {
-    await repository.transact(state => {
-      const row = state.office.cards.find(value => value.id === 2053);
-      Object.assign(row, { status: 'complement', origin: 'Testgatan 12, 761 41 Norrtälje', customerId: 'customer-build',
-        payment: 'Kontant', paymentDetails: { method: 'cash' }, rows: [{ articleId: 'copper-1', weight: 72, price: 0, tier: 'C', pricePending: true }] });
-    });
-    const response = await api('/api/application/customer-review', { cardId: 2053, expectedCard: await card(), terminalId: device.id,
-      siteId: 'norrtalje', idempotencyKey: randomUUID() });
-    assert.equal(response.status, 200, response.error); return response;
-  }
-  try { await run({ api, card, command, repository, terminal, staff, login, device, recorded, review, postgres: Boolean(pool), rejectCommit: value => { rejectCommit = value; } }); }
   finally {
-    await new Promise(resolve => server.close(resolve)); await app.close(); await terminalRepository.close();
+    if (server) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+    if (app) await app.close(); else await repository.close();
+    await terminalRepository.close();
     if (pool) { await pool.query(`DROP SCHEMA "${schema}" CASCADE`); await pool.end(); }
     await rm(directory, { recursive: true, force: true });
   }

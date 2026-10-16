@@ -1,25 +1,37 @@
-# FTC134 – första telematikbackend
+# Fordon, körjournal och telematik
 
-Datum: 2026-10-16. ÄL 127.
+Datum: 2026-10-16. ÄL 127–130.
 
 **[Samlad bildöversikt: fordon, körjournal, app och GPS-enheter](../../mockups/fordon-telematik/README.md)** – alla designmockuper på en sida.
 
+**ÄL 130: fordonsadministrationen är nu implementerad i kontoret och appen.**
+Kontoret öppnar **Fordon & maskiner** och använder samma fordons-ID:n som
+personal, transporter och kärlplanering. Där finns fordonskort, service,
+fel, dokument, karta, körjournal, export och den sekundära fliken GPS-enheter.
+Plattformens systemadmin registrerar och tilldelar trackers till bolag.
+Appen visar Mitt fordon, Mina resor och obligatorisk komplettering av egna
+avslutade resor. [Byggstatus, behörigheter och provsteg](../../fordon-telematik-bygge-2026-10-16.md).
+
 En separat **digital testbil med virtuell FMC003** finns enligt ÄL 128–129 på
 `/testbil1` efter deploy. Den skickar till en egen HTTP-process med separat
-databas för syntetiska mätningar. Den utökar inte pilotens rättigheter till
-verkliga fordon eller positionslagring.
+databas för syntetiska mätningar. Som standard är den avskild. Behörig
+administratör kan uttryckligen koppla testsessionen till en redan tilldelad
+simulatorenhet i bolaget; först kvitterade paket och bekräftad bolagslagring
+bygger då resor i bolagets körjournal. Alla dessa data märks som simulerade.
 [Användning, uppbyggnad och begränsningar](testbil.md).
 [Mottagartjänst, beständighet och senare drift](mottagartjanst.md).
 
 Statiska designförslag finns för [enhetsadministration](../../mockups/telematikenheter/README.md)
 och [körjournal i webb/app med obligatorisk resekomplettering](../../mockups/korjournal/README.md).
-De beskriver planerade vyer, inte redan implementerade appfunktioner.
+De är designunderlag. Den faktiska leveransen beskrivs i byggguiden ovan.
 
-Beslutet för kundflödet är **central aktivering av ScrapPilot och bolagets fordonsval i dropdown**, utan kundaktivering eller QR-koder. [Koppling och säkert fordonsbyte](enhetskoppling.md) beskriver den planerade rutinen, inklusive fysisk flytt, tidsgränser och sena paket.
+Beslutet för kundflödet är **central aktivering av ScrapPilot och bolagets fordonsval i dropdown**, utan kundaktivering eller QR-koder. [Koppling och säkert fordonsbyte](enhetskoppling.md) beskriver den implementerade rutinen, inklusive fysisk flytt, tidsgränser och sena paket.
 
-**Status: fungerande, fristående pilotgrund med lokal simulator.** Mottagaren
-har inte startats på Render och ingen fysisk tracker är ansluten. Kontorets
-fordonsregister och appens vyer är inte kopplade till piloten ännu.
+**Status: lokalt verifierat flöde från digital FMC003 till bolagets körjournal.**
+Ingen fysisk tracker är ansluten eller verifierad. TCP-lyssnaren för verklig
+hårdvara har inte driftsatts. ÄL 130 använder en separat mottagarprocess för
+syntetiska paket och en uttrycklig, autentiserad brygga till CRM. Beskrivningen
+nedan avser den första FTC134/TCP-piloten där inget annat anges.
 
 ## Utan panel först, tillval senare
 
@@ -31,7 +43,7 @@ Panelen kan vara kabelansluten. Backend kräver inte Bluetooth.
 Fordonet kan ha en **standardförare** även utan panel. Ett aktuellt förarval
 i appen eller ett verkligt blipp ersätter standardföraren för just den resan.
 Nästa resa börjar åter med den då gällande standardföraren. Projektionen visar
-`driverSource: default/app/panel/unknown` och skiljer standardtilldelning från
+`driverSource: default/app/office/panel/unknown` och skiljer standardtilldelning från
 observerad identifiering. Även ett blipp av standardförarens eget kort märks
 som observerat. Två olika faktiska förarval inom samma resa kräver granskning.
 Ingen av dessa källmarkeringar bevisar i sig vem som faktiskt körde bilen.
@@ -42,8 +54,8 @@ Trackerpaketet får inte ange den uppgiften. Standardföraren sparas som en
 snapshot vid första mottagning; ändrad standard och återförsök skriver inte
 om historiken. Ändringshistorik för sena paket behöver tillkomma före riktig
 drift så att standardförare kan bestämmas vid resans tid, inte mottagningstiden.
-Väljaren för standardförare i webb/app återstår; flera personers befintliga
-fordonskoppling får inte godtyckligt tolkas som en entydig standardförare.
+Kontoret har nu ett uttryckligt standardförarval per fordon. Flera personers
+befintliga fordonskoppling tolkas inte som en entydig standardförare.
 
 Enheten kopplas till ett befintligt fordons-ID i ett bestämt bolag.
 Inga fordon eller bolag skapas automatiskt från IMEI. Nuvarande pilot-API
@@ -68,7 +80,7 @@ eller senast kända iButton-ID får inte räknas som en ny föraridentifiering.
 | Kvittens | Sänds först efter commit. Samma post i ett återförsök kvitteras utan en ny rad. |
 | Resor | Tändning på/av avgränsar resor. Första på-signalen utan observerad start markeras osäker. |
 | Standardförare | Används från betrodd fordonssnapshot. Aktuellt appval/blipp kan ersätta den för resan. |
-| Saknade uppgifter | Utan standardförare eller aktuellt förarval är föraren okänd. Appflödet för komplettering återstår. |
+| Saknade uppgifter | Utan standardförare eller aktuellt förarval är föraren okänd. ÄL 130 har separat förargranskning och appkomplettering. |
 | Datakvalitet | Mätargap/-återställning ger okänd sträcka; motstridiga tidsstämplar markeras för granskning. |
 
 Reseprojektionen är en ren intern funktion som även kan ta emot betrodda
@@ -76,8 +88,10 @@ app-/panelhändelser. En uttryckligen påbörjad arbetsorderresa kan ange
 tjänst och arbetsorder. Tjänst utan arbetsorder kräver manuellt syfte.
 Privat tar bort arbetsorder och tjänstesyfte. Vid samtidig konflikt vinner
 privat och resan flaggas. Varje resa börjar med aktuell standardförare eller
-okänd förare och tomt syfte; tidigare blipp ärvs inte. Efterhandskomplettering behöver ett separat behörighetskontrollerat
-kommando med rese-ID; det finns ännu inte.
+okänd förare och tomt syfte; tidigare blipp ärvs inte. ÄL 130 har separata
+behörighetskontrollerade kommandon för egen efterhandskomplettering och
+kontorets granskning av okänd förare. TCP-pilotens interna projektion är
+fortfarande inte en direkt publik skrivväg till dessa kommandon.
 
 Tändningssignalen ska konfigureras för verklig fordons­tändning, så att
 motorstopp vid trafikljus inte avslutar en resa. Mottagaren härleder inte
@@ -89,9 +103,10 @@ GPS avkodas för korrekt protokollhantering men **koordinater, råpaket, okända
 I/O-värden och RFID-värden lagras inte**. Dubblettskyddet använder en hash
 av den avkodade posten; även hash och tids-/fordonsdata behandlas som
 skyddsvärda uppgifter. Felrapporteringen lämnar enbart generiska felkoder.
-Kartor, rutter och geokodning ingår inte. En senare ruttfunktion måste
-bestämma insamling, behörighet och gallring för privat/oklassificerad resa
-innan positionslagring slås på.
+TCP-piloten lagrar inga kartpositioner. ÄL 130:s separata syntetiska brygga
+kan lagra testpositioner och visar bara tjänstepositioner i kontoret.
+Policy för insamling/gallring av verkliga positioner ska fastställas och
+verifieras före fysisk drift. Geokodning ingår inte.
 
 IMEI är en identifierare, **inte autentisering**. Oskyddad TCP är därför
 begränsad till `127.0.0.1`/`::1`. En publik lyssnare kräver i nuvarande kod
@@ -108,7 +123,10 @@ Avaktivering och återaktivering byter generation så att en gammal anslutning
 inte återfår skrivåtkomst. Säker överlåtelse, byte av tracker och nyckelrotation
 behöver egna historikbevarande kommandon senare.
 
-Den nya [designen för fordonsbyte](enhetskoppling.md) ändrar inte denna pilotbegränsning. Den förutsätter en framtida kopplingshistorik och serverkommandon innan bolag kan flytta en puck mellan verkliga fordon.
+Den nya [rutinen för fordonsbyte](enhetskoppling.md) har nu kopplingshistorik
+och serverkommandon i bolagets fordonsdel. Den har testats med syntetiska
+poster. Den verkliga TCP-adaptern ska anslutas till samma betrodda register
+och provas före flytt av fysiska enheter.
 
 ## Provkörning
 
@@ -173,9 +191,10 @@ Officiella källor, lästa 2026-10-16:
    skrivkapacitet och larm. SQLite-versionen är en pilot med max 50 000 poster
    per enhet; full lagring avvisar hela paketet i stället för att kvittera bort det.
    En tracker har begränsat eget buffertminne: stopp ska larma innan det blir fullt.
-4. Koppla registrering/läsning/komplettering till verkligt bolag, befintliga
-   fordon och separata behörigheter i kontor/app. Inför spårbarhet, provisionering
-   och säkra kommandon för bindningsändringar. IMEI från en klient får inte välja bolag.
+4. Anslut den fysiska mottagarens betrodda resolver till det nu byggda
+   plattformsregistret och bolagets fordons-/resekommandon. Kontor/app,
+   spårbarhet och bindningshistorik finns i ÄL 130. Fysisk provisionering
+   och anslutningsidentitet återstår; IMEI från en klient får inte välja bolag.
 5. Gör inkrementell resebearbetning och sena-händelsehantering utan att läsa om
    all historik. `projectTrips` behöver en sammanhängande historik för ett fordon;
    en enskild begränsad sida är inte en komplett körjournal.

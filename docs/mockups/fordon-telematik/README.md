@@ -3,6 +3,8 @@
 Detta är **statiska designförslag med fiktiva data**, inte en leverans av färdiga funktioner.
 Sidan samlar 20 bilder för granskning av webb, app och hårdvara. Bilderna är inte klickbara appflöden; bildlänkarna öppnar bara originalen i full storlek.
 
+**Bygguppdatering 2026-10-16:** webb-/appflödena har implementerats i ÄL 130. Se [faktisk leverans, provsteg och kvar före fysisk drift](../../fordon-telematik-bygge-2026-10-16.md). Bilderna nedan är fortfarande det godkända designunderlaget.
+
 [Översikt](#oversikt) · [Daglig webb](#daglig-webb) · [Daglig app](#daglig-app) · [Enhetsadmin](#enhetsadmin) · [Export](#export) · [Test och hårdvara](#test-hardvara) · [Kompletteringslåset](#kompletteringslas)
 
 <a id="oversikt"></a>

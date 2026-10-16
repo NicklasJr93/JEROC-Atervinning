@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.12.1. Aktuell kontorsversion: 0.29.4.
+Aktuell mobilwebbversion: 0.13.0. Aktuell kontorsversion: 0.30.0.
 ÄL 125: demoinloggning med förifyllning på Chaufför, Åkeri och Kundportal.
 ÄL 124 är genomförd 2026-10-16: förifyllt NVV-supportprov direkt i kontoret,
 utan Render Shell. Själva nya myndighetsanropet körs från användarens testknapp.
@@ -3086,3 +3086,38 @@ Status: Implementerad 2026-10-16 för syntetiska tester.
   vägen. Guide: docs/integrationer/telematik/mottagartjanst.md.
 - Verifierat: 100 telematiktester, sju browserfall, produktionsbygge och
   browserprov mot byggd webbserver med riktig separat HTTP-/SQLite-mottagare.
+
+ÄL 130 – Gemensam fordonsadministration, GPS-enheter och körjournal
+Status: Implementerad 2026-10-16 i kontor 0.30.0 / mobilwebb 0.13.0.
+- Ersätt den separata registerhanteringen med Fordon & maskiner. Bevara
+  state.transport.vehicles och befintliga ID:n som gemensam källa för
+  personal, chaufförer, kärlkrav, transporter och arbetsordrar.
+- Bygg fordonskort, maskin-ID, standardförare, nästa förarval, service,
+  besiktning/kontroller, fel med foto, skyddade dokument och historik.
+  Driftspärrar hävs separat. Verkstadsintervall spärrar överlappande planer.
+- Sekundär flik GPS-enheter visar bolagets redan tilldelade puckar.
+  Plattformens egen systemadmin registrerar och tilldelar. Bolaget väljer
+  befintligt fordon i dropdown; ingen QR-/appaktivering.
+- Fordonsbyte i två steg med beständig reservation, fysisk bekräftelse,
+  ny motor-av-observation och historik. Gamla resor/mätarvärden följer inte
+  med. Aktiv/okänd resa spärrar normalbyte; sena poster hanteras separat.
+- Körjournal med serverfilter, sidor, privat ruttmaskning och PDF/CSV.
+  Ofullständigt underlag märks utkast. Kontoret kan inte omklassificera
+  en annans privatresa för att öppna rutten.
+- Appen får Mitt fordon, Mina resor, fel/kontroller och direkt semilås för
+  egna avslutade resor som saknar syfte. Alla datum omfattas; senaste först.
+  Ingen Senare-knapp. Serverbekräftat sparande krävs, återförsök behåller ID.
+  Tjänst behöver konkret syfte/order; privat rensar tjänsteuppgifter.
+- Äldre chaufförsstartväg följer samma resegrind. Stopp/avslut och
+  utstämpling förblir möjliga. Historiska resor ger inte aktuell bilåtkomst.
+- Digitala FMC003 kan uttryckligen anslutas till tilldelad testsändare.
+  Separat mottagar-ACK och bolagscommit krävs innan kön töms. Sessionsbyte
+  kräver aktiv återanslutning; motor-av och slutkvittens före frånkoppling.
+- Verifierat: 87/87 riktade servertester, 35 kritiska browserfall, bygg och
+  Expo-typkontroll. Dessutom regressioner för befintliga fordonsberoenden.
+  Full serversvit: 1 249 pass, 45 skip, nio fel som samtliga återkommer på
+  tidigare HEAD eab634b. Dessa listas separat i byggguiden; sviten är inte
+  helt grön. Ingen produktionsregel för ekonomi ändrades för att få grönt.
+- Fysisk puck/SIM/APN/transport, större mottagardrift och förarpanel
+  återstår att koppla och verifiera. Inga nya obligatoriska Render-env.
+- Guide: docs/fordon-telematik-bygge-2026-10-16.md.

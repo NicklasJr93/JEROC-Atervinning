@@ -179,18 +179,40 @@ test('fordon skapas inne i personalformuläret utan att osparade personuppgifter
   expect(fixture.statistics.vehicles).toHaveLength(1); expect(fixture.statistics.pageErrors).toEqual([]);
 });
 
-test('inaktivering bevarar nuvarande fordonskoppling och bokningar men tar bort fordonet från nya val', async ({ page }) => {
+test('den gemensamma fordonseditorn skapar en maskin med inventarienummer utan registrering eller kärlkapacitet', async ({ page }) => {
   const fixture = await setup(page);
-  const orders = structuredClone(fixture.state().transport.orders);
+  await page.goto('/kontor#/personnel');
+  await page.getByRole('button', { name: 'Lägg till person', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Lägg till person', exact: true });
+  await dialog.getByLabel('Namn *', { exact: true }).fill('Maskinförare för test');
+  await dialog.getByRole('checkbox', { name: 'Kan bokas som förare', exact: true }).check();
+  await dialog.getByRole('button', { name: 'Skapa nytt fordon', exact: true }).click();
+  await dialog.getByLabel('Fordonsnamn *', { exact: true }).fill('Grävmaskin för test');
+  await dialog.getByLabel('Fordonstyp', { exact: true }).selectOption('machine');
+  await dialog.getByLabel('Inventarienummer', { exact: true }).fill('MASKIN-11');
+  await dialog.getByRole('checkbox', { name: 'Container', exact: true }).uncheck();
+  await dialog.getByRole('button', { name: 'Spara fordon', exact: true }).click();
+  await expect(dialog.getByLabel('Fordonsnamn *', { exact: true })).toHaveCount(0);
+  const machine = fixture.state().transport.vehicles.find((vehicle: { assetTag?: string }) => vehicle.assetTag === 'MASKIN-11');
+  expect(machine).toMatchObject({ registration: '', category: 'machine', types: [], active: true });
+  await expect(dialog.getByLabel('Ordinarie fordon', { exact: true })).toHaveValue(machine.id);
+  await expect(dialog.getByLabel('Namn *', { exact: true })).toHaveValue('Maskinförare för test');
+  expect(fixture.statistics.vehicles).toHaveLength(1); expect(fixture.statistics.pageErrors).toEqual([]);
+});
+
+test('personaldialogen länkar till samma fullständiga fordonsregister utan en parallell editor', async ({ page }) => {
+  const fixture = await setup(page);
   await page.getByRole('button', { name: 'Hantera fordon', exact: true }).click();
   const registry = page.getByRole('dialog', { name: 'Fordonsregister', exact: true });
-  await registry.getByRole('row').filter({ hasText: fixture.currentVehicle.registration })
-    .getByRole('button', { name: `Redigera ${fixture.currentVehicle.name}`, exact: true }).click();
-  await registry.getByRole('checkbox', { name: 'Fordonet är aktivt', exact: true }).uncheck();
-  await registry.getByRole('button', { name: 'Spara fordon', exact: true }).click();
-  const registration = fixture.state().transport.vehicles.find((value: { id: string }) => value.id === fixture.currentVehicle.id).registration;
-  await expect(registry.getByRole('row').filter({ hasText: registration })).toContainText('Inaktiverat');
-  await registry.getByRole('button', { name: 'Stäng', exact: true }).click();
+  await expect(registry.getByRole('link', { name: 'Öppna Fordon och maskiner', exact: true })).toHaveAttribute('href', '#/fleet');
+  await expect(registry.getByRole('table')).toHaveCount(0);
+  await expect(registry.getByRole('button', { name: /Skapa nytt|Redigera/ })).toHaveCount(0);
+  expect(fixture.statistics.vehicles).toHaveLength(0);
+});
+
+test('inaktiverade fordon bevarar nuvarande koppling och bokningar men kan inte väljas för nya personer', async ({ page }) => {
+  const fixture = await setup(page, { inactive: true });
+  const orders = structuredClone(fixture.state().transport.orders);
   await page.getByRole('button', { name: 'Redigera förare & fordon', exact: true }).click();
   const edit = page.getByRole('dialog', { name: 'Redigera person', exact: true });
   const select = edit.getByLabel('Ordinarie fordon', { exact: true });

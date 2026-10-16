@@ -13,7 +13,7 @@ import { recordPayment } from '../dist-server/domain-models.mjs';
 const office = '/api/application/office';
 const preparer = { id: 'price-preparer', name: 'Prisberäkning utan prisändring', level: 'Medarbetare',
   permissions: ['view', 'prepare', 'prices', 'priceA', 'priceB', 'priceC', 'customerPrices', 'paymentDetails', 'verifyId', 'customerApprovalRead'],
-  maxAttest: 0, ownAttest: false };
+  maxAttest: 0, ownAttest: false, siteIds: ['norrtalje', 'rimbo'] };
 
 async function fixture(run) {
   const directory = await mkdtemp(join(tmpdir(), 'jeroc-review-projection-'));
@@ -40,38 +40,40 @@ async function fixture(run) {
     }
     return { app, api };
   }
-  const first = await instance();
-  terminal = createTerminalDemoStore({ repository: terminalRepository, principalStore: first.app.principalStore });
-  const staff = (await terminal.staffSession({ actualUserId: 'admin', effectiveUserId: 'admin' })).token;
-  const users = (await first.api('/api/pricing/state')).users;
-  assert.equal((await first.api('/api/pricing/users', { users: [...users, preparer] })).status, 200);
-  const prepareSession = (await terminal.staffSession({ actualUserId: preparer.id, effectiveUserId: preparer.id })).token;
-  const device = await terminal.createTerminal({ name: 'Testterminal', username: 'review-test', password: 'local-test-only', siteId: 'norrtalje' }, staff);
-  const login = await terminal.login({ username: 'review-test', password: 'local-test-only' });
-  async function save(base, next, actor) { const result = await first.api(office, { base, next }, actor); assert.equal(result.status, 200, result.error); return result.data; }
-  async function pendingCard() {
-    const base = (await first.api(office)).data, next = structuredClone(base), card = next.cards.find(card => card.id === 2053);
-    Object.assign(card, { status: 'complement', customerId: 'customer-build', origin: 'Testgatan 12, 761 41 Norrtälje', reference: 'Granskning',
-      payment: 'Kontant', paymentDetails: { method: 'cash' }, financialPending: true, pricingRowsPending: true,
-      rows: [{ articleId: 'copper-1', weight: 72, tier: 'C', price: 1, pricePending: true }] });
-    await save(base, next); return { card: structuredClone(card), customer: next.customers.find(c => c.id === card.customerId) };
+  try {
+    const first = await instance();
+    terminal = createTerminalDemoStore({ repository: terminalRepository, principalStore: first.app.principalStore });
+    const staff = (await terminal.staffSession({ actualUserId: 'admin', effectiveUserId: 'admin' })).token;
+    const users = (await first.api('/api/pricing/state')).users;
+    assert.equal((await first.api('/api/pricing/users', { users: [...users, preparer] })).status, 200);
+    const prepareSession = (await terminal.staffSession({ actualUserId: preparer.id, effectiveUserId: preparer.id })).token;
+    const device = await terminal.createTerminal({ name: 'Testterminal', username: 'review-test', password: 'local-test-only', siteId: 'norrtalje' }, staff);
+    const login = await terminal.login({ username: 'review-test', password: 'local-test-only' });
+    async function save(base, next, actor) { const result = await first.api(office, { base, next }, actor); assert.equal(result.status, 200, result.error); return result.data; }
+    async function pendingCard() {
+      const base = (await first.api(office)).data, next = structuredClone(base), card = next.cards.find(card => card.id === 2053);
+      Object.assign(card, { status: 'complement', customerId: 'customer-build', origin: 'Testgatan 12, 761 41 Norrtälje', reference: 'Granskning',
+        payment: 'Kontant', paymentDetails: { method: 'cash' }, financialPending: true, pricingRowsPending: true,
+        rows: [{ articleId: 'copper-1', weight: 72, tier: 'C', price: 1, pricePending: true }] });
+      await save(base, next); return { card: structuredClone(card), customer: next.customers.find(c => c.id === card.customerId) };
+    }
+    async function send(input) {
+      const snapshot = await first.api('/api/pricing/snapshots', { cardId: input.card.id, customerId: input.card.customerId, deliveredAt: input.card.date,
+        rows: input.card.rows.map(row => ({ articleId: row.articleId, weight: row.weight })) }, preparer.id);
+      assert.equal(snapshot.status, 201, snapshot.error);
+      const rows = snapshot.rows.map(row => ({ ...row, tier: row.tier === 'Special' ? 'Eget' : row.tier, pricePending: false }));
+      return terminal.send({ card: { ...input.card, rows, pricingSnapshotId: snapshot.id, pricingTotal: snapshot.total, financialPending: false, pricingRowsPending: false },
+        customer: input.customer, terminalId: device.id, siteId: 'norrtalje', offset: 0, correctionIds: [], idempotencyKey: randomUUID(),
+        rows: rows.map(row => ({ articleId: row.articleId, name: row.articleId, weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })) }, prepareSession);
+    }
+    async function approve(review) {
+      await terminal.respond(review.id, { action: 'id_requested', termsAccepted: true }, login.token);
+      await terminal.confirmId(review.id, prepareSession);
+    }
+    await run({ ...first, instance, terminal, staff, prepareSession, save, pendingCard, send, approve });
   }
-  async function send(input) {
-    const snapshot = await first.api('/api/pricing/snapshots', { cardId: input.card.id, customerId: input.card.customerId, deliveredAt: input.card.date,
-      rows: input.card.rows.map(row => ({ articleId: row.articleId, weight: row.weight })) }, preparer.id);
-    assert.equal(snapshot.status, 201, snapshot.error);
-    const rows = snapshot.rows.map(row => ({ ...row, tier: row.tier === 'Special' ? 'Eget' : row.tier, pricePending: false }));
-    return terminal.send({ card: { ...input.card, rows, pricingSnapshotId: snapshot.id, pricingTotal: snapshot.total, financialPending: false, pricingRowsPending: false },
-      customer: input.customer, terminalId: device.id, siteId: 'norrtalje', offset: 0, correctionIds: [], idempotencyKey: randomUUID(),
-      rows: rows.map(row => ({ articleId: row.articleId, name: row.articleId, weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })) }, prepareSession);
-  }
-  async function approve(review) {
-    await terminal.respond(review.id, { action: 'id_requested', termsAccepted: true }, login.token);
-    await terminal.confirmId(review.id, prepareSession);
-  }
-  try { await run({ ...first, instance, terminal, staff, prepareSession, save, pendingCard, send, approve }); }
   finally {
-    for (const server of servers) await new Promise(resolve => server.close(resolve));
+    for (const server of servers) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
     for (const app of apps) await app.close(); await terminalRepository.close();
     if (postgres) { await postgres.query(`DROP SCHEMA "${schema}" CASCADE`); await postgres.end(); }
     await rm(directory, { recursive: true, force: true });

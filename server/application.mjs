@@ -23,6 +23,9 @@ import { mobileRecordPayload } from './mobile-records.mjs';
 import { createMobilePricingProjection, mobileBusinessDate } from './mobile-pricing-projection.mjs';
 import { migratePersonnelFacilityAccess, syncPersonnelFacilityAccess } from './facility-access.mjs';
 import { handlePersonnelVehiclesApi, assertVehiclePlanningChange } from './personnel-vehicles.mjs';
+import { ensureFleet } from './fleet.mjs';
+import { createFleetApi } from './fleet-api.mjs';
+import { createFleetFilesApi } from './fleet-files.mjs';
 import { ensureEmployeeSickness, sicknessManagementCommand, sicknessManagementProjection, refreshSicknessAbsences, recordSicknessPayUnderlay } from './employee-sickness.mjs';
 import { createSicknessFilesApi } from './sickness-files.mjs';
 import { officeSchema, seedOffice, migrateOffice, storeSchema, isComplete, rowWeight, transportSchema, seedTransport, articles, recordPayment, validPaymentDetails,
@@ -553,7 +556,7 @@ export function createApplicationService({ repository, env = process.env, seed =
         const comparableBefore = clone(state.pricing);
         comparableBefore.users = comparableBefore.users.filter(user => !(state.metadata.mobileEmployeeBootstrapUsers ?? []).some(original => original.id === user.id && equal(original, user)));
         const untouched = equal(comparableBefore, state.metadata.pricingSeed);
-        ensurePersonnel(state); refreshStaffingTasks(state);
+        ensurePersonnel(state); refreshStaffingTasks(state); ensureFleet(state);
         ensureEmployeeTime(state); ensureMobileEmployeeAccounts(state);
         ensureEmployeeSickness(state);
         // Persist catalog upgrades once. Existing article revisions, financial
@@ -1230,6 +1233,8 @@ export function createApplicationService({ repository, env = process.env, seed =
   const logisticsApi = createLogisticsApi({getRepository:getRepo,readBody:body,json,siteProvider,environmentProvider,env});
   const officePrincipal = (state, req) => requestPrincipal({ principal: (actor, user) => resolvePricingPrincipal(state.pricing.users, actor, user) }, req);
   const sicknessFilesApi = createSicknessFilesApi({ env, getRepository: getRepo, ownPrincipal: employeeRequestPrincipal, officePrincipal, json });
+  const fleetApi = createFleetApi({ env, getRepository: getRepo, ownPrincipal: employeeRequestPrincipal, officePrincipal, readBody: body, json, siteProvider });
+  const fleetFilesApi = createFleetFilesApi({ env, getRepository: getRepo, ownPrincipal: employeeRequestPrincipal, officePrincipal, json });
   const sicknessApi = async (req, res, url) => {
     if (url.pathname !== '/api/personnel/sickness') return false;
     try {
@@ -1275,8 +1280,8 @@ export function createApplicationService({ repository, env = process.env, seed =
     if (!url.pathname.startsWith('/api/personnel/vehicles')) return false;
     return handlePersonnelVehiclesApi(req, res, url, await getRepo(), { principalResolver: officePrincipal, readBody: body, json });
   };
-  const api = async (req, res, url) => await sicknessFilesApi(req,res,url) || await sicknessApi(req,res,url) || await vehiclesApi(req,res,url)
+  const api = async (req, res, url) => await fleetFilesApi(req,res,url) || await fleetApi(req,res,url) || await sicknessFilesApi(req,res,url) || await sicknessApi(req,res,url) || await vehiclesApi(req,res,url)
     || await employeeApi(req,res,url) || await logisticsApi(req,res,url) || await driverApi(req,res,url) || await durableApi(req, res, url) || await businessApi(req, res, url);
-  Object.assign(api, { principalStore, withPrincipal, businessApi, durableApi, getRepository: getRepo, close: async () => { await sicknessFilesApi.close(); if (repoPromise) await (await repoPromise).close(); } });
+  Object.assign(api, { principalStore, withPrincipal, businessApi, durableApi, getRepository: getRepo, close: async () => { await fleetFilesApi.close(); await sicknessFilesApi.close(); if (repoPromise) await (await repoPromise).close(); } });
   return api;
 }

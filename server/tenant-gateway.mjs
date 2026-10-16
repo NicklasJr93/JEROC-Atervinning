@@ -7,6 +7,9 @@ import { tenantRuntimeEnvironment, tenantInitialSites, createTenantApplicationSt
 import { createTenantServices } from './tenant-services.mjs';
 import { employeeRequestPrincipal, hasEmployeeSession } from './mobile-employee-api.mjs';
 import { withBusinessIdentity } from './business-identity.mjs';
+import { createPlatformFleet } from './platform-fleet.mjs';
+import { applyFleetDeviceAssignment } from './fleet-telematics.mjs';
+import { createFleetSimulatorBridge } from './fleet-simulator.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -36,8 +39,9 @@ function sameOrigin(req) {
  * comes from the platform registry and a server-authenticated session. Public
  * login endpoints select a bundle but still require its own employee/device or
  * partner credentials; a tenant selector is never a permission grant. */
-export async function createTenantGateway({ env = process.env, makeServices = createTenantServices } = {}) {
+export async function createTenantGateway({ env = process.env, makeServices = createTenantServices, testCarApi } = {}) {
   const bundles = new Map(), streams = new Set();
+  const fleetSimulator = createFleetSimulatorBridge({ testCarApi });
   const repository = await createPlatformStorage({ env });
   let schemaPool, auth, stopping = false;
   const defaultCompany = { id: legacyId, name: 'JEROC Återvinning AB', organisationNumber: '5593593626', status: 'active', storageSchema: 'public' };
@@ -135,7 +139,16 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
     if (error.code !== 'platform_bootstrap_required') throw error;
     console.warn('Bolagsadministrationen väntar på ett privat systemadminlösenord i Render.');
   }
-  const platformApi = createPlatformApi({ auth, env });
+  const platformFleet = createPlatformFleet({ auth, repository, applyAssignment: async (company, device) => {
+    const service = await bundle(company);
+    await (await service.applicationApi.getRepository()).transact(state => {
+      applyFleetDeviceAssignment(state, device, { organisationId: company.id });
+    });
+  } });
+  const platformApi = createPlatformApi({ auth, fleet: platformFleet, env });
+  const fleetTimer = setInterval(() => { void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.')); }, 30_000);
+  fleetTimer.unref();
+  void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.'));
   // Reopen existing companies, never seed them from JEROC or a lost temporary
   // password. Their independent durable queues resume in their original scope.
   for (const company of await repository.read(state => structuredClone(state.companies.filter(value => value.status === 'active' && value.id !== legacyId)))) {
@@ -189,7 +202,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       const mailCallback = url.pathname === '/api/integrations/microsoft-mail/callback';
       const callback = bankCallback || mailCallback || url.pathname === '/api/integrations/visma/oauth/callback';
       if (!callback || req.method !== 'GET') sameOrigin(req);
-      const mediaRead = url.pathname.startsWith('/api/article-media/') && ['GET', 'HEAD'].includes(req.method);
+      const mediaRead = (url.pathname.startsWith('/api/article-media/') || /^\/api\/fleet\/files\/[a-f0-9-]+$/.test(url.pathname)) && ['GET', 'HEAD'].includes(req.method);
       const office = callback || !employeeRoute(url) && !deviceRoute(url) && !mediaRead;
       let context, company;
       if (office) { context = await auth.resolveContext(req); company = context.company; bindIdentity(req, context); protectStream(req, res, context); }
@@ -203,6 +216,18 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       if (expectedCompany !== undefined && expectedCompany !== null && expectedCompany !== company.id)
         throw new PlatformError('Bolaget har bytts i en annan flik. Logga in igen.', 409, 'company_selection_changed');
       const service = await bundle(company);
+      if (url.pathname === '/api/testcar/fleet') {
+        const captured = { method: 'POST', headers: { ...req.headers,
+          'x-platform-generation': String(context.generation), 'x-platform-organisation-id': company.id } };
+        const reauthorize = async () => {
+          const current = await auth.resolveContext(captured);
+          if (current.company.id !== company.id || current.generation !== context.generation || current.sessionKey !== context.sessionKey
+            || current.actualUser.id !== context.actualUser.id || current.user.id !== context.user.id)
+            throw new PlatformError('Sessionen eller det valda bolaget har ändrats.', 403, 'fleet_simulator_session_changed');
+          return current;
+        };
+        if (await fleetSimulator(req, res, url, { context, repository: await service.applicationApi.getRepository(), reauthorize })) return true;
+      }
       if (mobileData(url) && !hasEmployeeSession(req)) throw new PlatformError('Logga in med ditt personalkonto.', 401, 'employee_session_required');
       if (mediaRead) {
         if (!context) {
@@ -286,6 +311,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   };
   api.close = async () => {
     stopping = true; for (const res of streams) res.end();
+    clearInterval(fleetTimer); await platformFleet.close();
     await Promise.allSettled([...bundles.values()].map(async pending => (await pending).close()));
     if (schemaPool) await schemaPool.end(); await repository.close();
   };

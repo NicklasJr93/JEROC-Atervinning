@@ -38,6 +38,22 @@ test('personal employee accounts accept email login without changing external dr
   assert.equal((await a(personnel,{action:'externalAccount.save',personId:'person-oskar',username:'oskar@example.test',active:true,password:'Email-Password-2026!'})).status,422);
 }));
 async function absenceInput(a){const state=await a(personnel),order=state.transport.orders.find(o=>o.id==='AO-1201');return {id:randomUUID(),personId:'person-kalle',kind:'sick',fromDate:order.date,toDate:order.date,allDay:true,managerId:'person-anna'};}
+test('fleet drift blocks affect staffing previews and new person assignments while existing links remain editable',async()=>fixture(async({a,repository})=>{
+  const absence=await absenceInput(a),registered=await a(personnel,{action:'absence.save',absence});
+  const taskIds=registered.data.staffingTasks.filter(task=>task.absenceId===absence.id && task.status==='open').map(task=>task.id);
+  const repo=await repository();
+  await repo.transact(state=>{state.fleet??={profiles:{}};state.fleet.profiles['vehicle-lina']={blocked:true,blockReason:'Driftspärr: service'};state.fleet.profiles['vehicle-kalle']={blocked:true,blockReason:'Driftspärr: kontroll'};});
+  const preview=await a(personnel,{action:'replacement.preview',taskIds}),lina=preview.preview.candidates.find(person=>person.personId==='person-lina');
+  assert.equal(lina.available,false);assert.ok(lina.issues.some(issue=>issue.includes('Driftspärr')));
+  const before=await repo.read(state=>structuredClone(state.transport.orders));
+  assert.equal((await a(personnel,{action:'staffing.assign',taskIds,replacementPersonId:'person-lina'})).status,422);
+  const current=(await a(personnel)).data.people.find(person=>person.id==='person-kalle');
+  const changed=await a(personnel,{action:'person.save',person:{...current,vehicleId:'vehicle-lina'}});
+  assert.equal(changed.status,422);assert.match(changed.error,/Driftspärr/);
+  const notes=await a(personnel,{action:'person.save',person:{...current,team:'Oförändrat fordons-ID'}});
+  assert.equal(notes.status,200,notes.error);assert.equal(notes.data.people.find(person=>person.id===current.id).vehicleId,current.vehicleId);
+  assert.deepEqual(await repo.read(state=>state.transport.orders),before);
+}));
 test('personnel migration preserves bookings and durable records survive a second instance',async()=>fixture(async({a,instance,repository})=>{
   const repo=await repository(),before=await repo.transact(s=>structuredClone(s.transport.orders));const first=await a(personnel);assert.equal(first.status,200,first.error);for(const order of before)assert.deepEqual(first.transport.orders.find(o=>o.id===order.id),order);
   const kalle=first.data.people.find(p=>p.id==='person-kalle');const saved=await a(personnel,{action:'person.save',person:{...kalle,phone:'070-123 44 55',address:'Testgatan 12, 761 41 Norrtälje'}});assert.equal(saved.status,200,saved.error);

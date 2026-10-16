@@ -7,6 +7,7 @@ import { ensureLogistics, driverOrderView, applyDriverAction, validateLogisticsT
 import { employeeTimeGate, employeeTimeLifecycle } from './employee-time.mjs';
 import { migratePersonnelFacilityAccess, syncPersonnelFacilityAccess, personnelFacilityScope } from './facility-access.mjs';
 import { assertVehiclePlanningChange } from './personnel-vehicles.mjs';
+import { fleetTripGate, fleetVehicleEligible } from './fleet.mjs';
 import { portalDemoConfig, portalDemoAccountAllowed, portalDemoAccountMetadata } from './portal-demo.mjs';
 import { personSchema, companySchema, employmentSchema, salarySchema, scheduleSchema, absenceSchema, competencySchema, personnelPlanIssues, applyTransportChange, transportSchema,
   normalizePhoneNumber, phoneNumberError, normalizeOriginAddress, normalizeAddress, normalizeOrganisationNumber, customerIdentifierError } from '../dist-server/domain-models.mjs';
@@ -176,6 +177,8 @@ function replacementIssues(state,person,tasks) {
   for(const task of tasks) {
     const order=transport.orders.find(o=>o.id===task.orderId);if(!order || order.status!=='booked'){issues.push(`${task.orderId}: Uppdraget kan inte byta förare i nuvarande status.`);continue;}
     const plan={date:order.date,startMinute:order.startMinute,durationMinutes:order.durationMinutes,driverId:person.driverId,vehicleId:person.vehicleId??order.vehicleId};
+    const availability=fleetVehicleEligible(state,plan.vehicleId,{plan});
+    issues.push(...availability.issues.map(issue=>`${order.id}: ${issue.message}`));
     issues.push(...personnelPlanIssues(state.personnel,transport,order.id,plan).map(message=>`${order.id}: ${message}`));
     Object.assign(order,plan);
   }
@@ -274,7 +277,10 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
         audit(state,p,'staffAccount.created',person.id,'Personalprofil och användarkonto skapade tillsammans.',transactionAudit);
       }
       if(creation?.kind==='external' && state.personnelAuth.accounts.some(a=>a.personId===person.id))fail('Personen har redan en chaufförsinloggning.',422);
-      if(person.vehicleId && person.vehicleId!==old?.vehicleId && state.transport.vehicles.find(vehicle=>vehicle.id===person.vehicleId)?.active===false)fail('Välj ett aktivt fordon för förarprofilen.',422);
+      if(person.vehicleId && (person.vehicleId!==old?.vehicleId || person.canDrive && !old?.canDrive)) {
+        const availability=fleetVehicleEligible(state,person.vehicleId);
+        if(!availability.eligible)fail(availability.issues.map(issue=>issue.message).join(' '),422);
+      }
       if(person.canDrive){person.driverId??=`driver-${person.id}`;if(!person.vehicleId || !state.transport.vehicles.some(v=>v.id===person.vehicleId))fail('Välj ett befintligt fordon för förarprofilen.',422);let driver=state.transport.drivers.find(v=>v.id===person.driverId);if(!driver){driver={id:person.driverId,name:person.name,color:'#1673ff',vehicleId:person.vehicleId};state.transport.drivers.push(driver);}Object.assign(driver,{name:person.name,personId:person.id,companyId:person.companyId,vehicleId:person.vehicleId});state.transport.revision++;}
       saveRecord(d.people,person);if(person.kind==='external' && (d.employment.some(e=>e.personId===person.id) || d.salaries.some(e=>e.personId===person.id)))fail('En anställd med anställning/lön kan inte göras extern utan separat avveckling.');
       syncPersonnelFacilityAccess(state,{siteCatalog});
@@ -363,7 +369,7 @@ export function personnelCommand(state,p,command,transactionAudit=[],siteCatalog
 /** Only changed/new bookings are checked. A sickness report never deletes the
  * customer's previous booking; it creates a staffing task instead. */
 export function validatePersonnelTransportChange(state,previous,next) {
-  assertVehiclePlanningChange(previous,next);
+  assertVehiclePlanningChange(previous,next,{vehicleEligible:(vehicleId,options)=>fleetVehicleEligible(state,vehicleId,options)});
   ensurePersonnel(state);
   for(const order of next.orders)if(['booked','on_way'].includes(order.status)) {
     const old=previous.orders.find(o=>o.id===order.id),key=o=>o && [o.date,o.startMinute,o.durationMinutes,o.driverId,o.vehicleId,JSON.stringify(o.requiredCompetencies??[])].join('|');
@@ -393,10 +399,14 @@ export function createDriverApi({getRepository,readBody,json,env=process.env}) {
     if(phase==='stop' && !state.employeeTime?.orderSessions?.some(session=>session.personId===person.id && session.orderId===orderId && !session.endedAt))return;
     employeeTimeLifecycle(state,person,orderId,phase,audit);
   };
-  const demandRecordedTime=(state,person)=>{
+  const demandRecordedTime=(state,person,{finishing=false}={})=>{
     if(person.kind!=='employee')return;
     const gate=employeeTimeGate(state,person);
     if(gate.blocked)throw Object.assign(new PricingError('Tid saknas för en tidigare arbetsdag. Registrera den i appens Tid för att fortsätta.',423),{code:'EMPLOYEE_TIME_REQUIRED',gate});
+    const fleetGate=fleetTripGate(state,person);
+    // Completing work must remain possible; unfinished travel is completed
+    // only once the driver has stopped safely, as in the employee API.
+    if(!finishing && fleetGate.blocked && fleetGate.safeToInteract!==false)throw Object.assign(new PricingError('Komplettera dina avslutade resor innan du fortsätter arbetet.',423),{code:'FLEET_TRIPS_REQUIRED',fleetGate});
   };
   return async(req,res,url)=>{
     if(!url.pathname.startsWith('/api/driver/'))return false;
@@ -435,7 +445,7 @@ export function createDriverApi({getRepository,readBody,json,env=process.env}) {
         if(path==='orders' && req.method==='GET')return {value:{orders:clone(orders.map(orderView)),demo:true}};
         const logisticsMatch=path.match(/^orders\/([^/]+)\/logistics$/);
         if(logisticsMatch && req.method==='POST') {
-          demandRecordedTime(state,person);
+          demandRecordedTime(state,person,{finishing:payload?.action==='deliver'});
           const order=orders.find(order=>order.id===decodeURIComponent(logisticsMatch[1]));if(!order)fail('Uppdraget är inte tilldelat dig.',403);
           if(!order.detail)fail('Detta äldre uppdrag följer det tidigare statusflödet.',409);
           const updated=applyDriverAction(state,person,order.id,payload,transactionAudit);refreshStaffingTasks(state);
@@ -445,7 +455,7 @@ export function createDriverApi({getRepository,readBody,json,env=process.env}) {
         }
         const match=path.match(/^orders\/([^/]+)\/status$/);
         if(match && req.method==='POST') {
-          demandRecordedTime(state,person);
+          demandRecordedTime(state,person,{finishing:payload?.status==='done'});
           const order=orders.find(o=>o.id===decodeURIComponent(match[1]));if(!order)fail('Uppdraget är inte tilldelat dig.',403);
           const input=parse(z.object({status:z.enum(['on_way','done'])}),payload);
           if(order.detail) {
@@ -455,7 +465,7 @@ export function createDriverApi({getRepository,readBody,json,env=process.env}) {
           }
           if(order.status===input.status)return {value:{order:clone(orderView(order)),demo:true}};
           if((input.status==='on_way' && order.status!=='booked') || (input.status==='done' && order.status!=='on_way'))fail('Uppdraget måste påbörjas innan det slutförs.');
-          if(input.status==='on_way'){const issues=personnelPlanIssues(state.personnel,state.transport,order.id,order);if(issues.length)fail(issues.join(' '),422);}
+          if(input.status==='on_way'){const availability=fleetVehicleEligible(state,order.vehicleId);if(!availability.eligible)fail(availability.issues.map(issue=>issue.message).join(' '),422);const issues=personnelPlanIssues(state.personnel,state.transport,order.id,order);if(issues.length)fail(issues.join(' '),422);}
           const events=new Set(state.transport.events.map(e=>e.id));state.transport=applyTransportChange(state.transport,{type:'status',id:order.id,status:input.status},{canPlan:true,actor:person.name,actualUserId:person.id,effectiveUserId:person.id});
           // External event actor does not become an office principal; records are
           // retained as prepared integration events, never dispatched in this demo.
@@ -471,7 +481,7 @@ export function createDriverApi({getRepository,readBody,json,env=process.env}) {
         ? await repository.read(operate,{domains:['metadata','pricing','personnel','personnelAuth','transport','logistics']})
         : await repository.transact(operate);
       if(result.failure)json(res,401,{error:result.failure});else {if(result.cookie!==undefined)setCookie(res,result.cookie,req,result.logout?0:8*3600);json(res,200,result.value);}
-    } catch(error) {json(res,error instanceof PricingError?error.status:503,{error:error instanceof PricingError?error.message:'Chaufförstjänsten kunde inte nås.',...(error.code?{code:error.code}:{}),...(error.gate?{gate:error.gate}:{})});}
+    } catch(error) {json(res,error instanceof PricingError?error.status:503,{error:error instanceof PricingError?error.message:'Chaufförstjänsten kunde inte nås.',...(error.code?{code:error.code}:{}),...(error.gate?{gate:error.gate}:{}),...(error.fleetGate?{fleetGate:error.fleetGate}:{})});}
     return true;
   };
 }

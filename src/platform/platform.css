@@ -84,6 +84,9 @@
 .platform-office-body { min-width: 0; }
 .platform-office-body .office { min-height: calc(100dvh - var(--platform-header-height)); }
 .platform-office-body .office-sidebar { top: var(--platform-header-height); height: calc(100dvh - var(--platform-header-height)); }
+@media (max-width: 650px) {
+  .platform-office-body .office-sidebar { top: auto; height: auto; }
+}
 @media (max-width: 800px) {
   .platform-topbar { gap: 12px; flex-wrap: wrap; padding: 10px 17px; }
   .platform-topbar-actions { gap: 4px; flex-wrap: wrap; }

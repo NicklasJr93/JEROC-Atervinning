@@ -380,6 +380,18 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
   async function checkRequest(req, { write = !['GET', 'HEAD', 'OPTIONS'].includes(req.method) } = {}) {
     const { value } = await readSession(req, { writes: write }); return value;
   }
+  async function withPlatformAdminTransaction(req, operation, { write = false } = {}) {
+    const context = await resolveContext(req, { writes: write });
+    if (!context.platformAdmin || context.isSupportSession) fail('Öppna systemadministrationen som dig själv för att hantera trackers.', 403, 'platform_fleet_forbidden');
+    const token = platformCookieToken(req);
+    return repository[write ? 'transact' : 'read'](state => {
+      const current = identity(state, token); checkExpected(req, current, write);
+      if (!current.actor.platformAdmin || current.company.id !== 'jeroc-demo' || effectiveBusinessId(current) !== actualBusinessId(current))
+        fail('Trackerregistret kräver plattformens egen systemadministratör.', 403, 'platform_fleet_forbidden');
+      return operation(state, { actorId: current.actor.id, actorName: current.actor.name, at: at() });
+    });
+  }
   return { initialize, login, logout, session, changePassword, resolveContext, checkRequest, resolveTenantSelector, selectTenant, companies, users, switchCompany, createCompany, resetInitialPassword,
+    withPlatformAdminTransaction,
     getCompany: organisationId => repository.read(state => clone(state.companies.find(item => item.id === organisationId))), repository };
 }
