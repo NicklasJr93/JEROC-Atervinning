@@ -131,6 +131,7 @@ import './office.css';
 import { useSharedData, type BusinessChange } from '../shared-data';
 import { usePlatformContext } from '../platform/PlatformGate';
 import { currentPlatformSession } from '../platform/session';
+import { currentSelfBusinessUserIds, isCurrentUserSelfOwned } from '../platform/self-ownership';
 import { mayManageSpiris } from './integration-permissions';
 const fmt = (s: string) =>
   new Intl.DateTimeFormat('sv-SE', {
@@ -366,7 +367,7 @@ export function OfficeApp() {
     }
   }
   const actorContext = user
-    ? { user, actualUser, office: platform ? companyName : 'Kontor Norrtälje', actor: auditActor }
+    ? { user, actualUser, office: platform ? companyName : 'Kontor Norrtälje', actor: auditActor, selfBusinessUserIds: currentSelfBusinessUserIds() }
     : undefined;
   const [documentType, setDocumentType] = useState<'settlement' | 'receipt'>();
   const [swishPayoutOpen, setSwishPayoutOpen] = useState(false);
@@ -448,6 +449,7 @@ export function OfficeApp() {
     const live = dataRef.current;
     const old = live.cards.find((c) => c.id === card.id);
     if (!old || (right === 'pay' && old.financialPending)) return false;
+    const oldApproval = terminalDemo.state?.approvals.find(value => value.id === old.customerApproval?.id);
     if (card.status === 'attest' && old.customerApproval &&
       !['approved', 'attested'].includes(old.customerApproval.status)) {
       setMessage('Kunden måste godkänna den aktuella avräkningen före attest.');
@@ -484,7 +486,7 @@ export function OfficeApp() {
       (old.status !== 'attest' ||
         old.financialPending ||
         amount(old) > user.maxAttest ||
-        (!user.ownAttest && old.preparedBy === user.id))
+        (!user.ownAttest && isCurrentUserSelfOwned([old.preparedBy, oldApproval?.actualUserId, oldApproval?.effectiveUserId], user, actualUser)))
     )
       return false;
     const saved = {
@@ -751,7 +753,7 @@ export function OfficeApp() {
     if (environmentGuidance?.cardId === selected.id && environmentGuidance.sourceId === selected.sourceId &&
       environmentGuidance.visible && !environmentGuidance.received && environmentGuidance.canConfirm) return 'environment';
     if (selected.status === 'attest' && receiptStatus !== 'required' && receiptStatus !== 'checking' && can(user, 'attest') && !selected.financialPending && amount(selected) <= user.maxAttest &&
-      (user.ownAttest || (selected.preparedBy !== user.id && selectedApproval?.actualUserId !== actualUser.id)) &&
+      (user.ownAttest || !isCurrentUserSelfOwned([selected.preparedBy, selectedApproval?.actualUserId, selectedApproval?.effectiveUserId], user, actualUser)) &&
       (!selected.customerApproval || selectedApproval?.status === 'approved')) return 'attest';
   };
   const focusPanel = nextPanel();
@@ -1393,8 +1395,16 @@ export function OfficeApp() {
           )}
           {terminalAdminDenied || nvvSandboxDenied || vismaSandboxDenied || (allowed && !can(user, allowed)) ? (
             <section className="office-panel">
-              <h1>Behörighet saknas</h1>
-              <p>Ditt konto har inte åtkomst till denna vy.</p>
+              {nvvSandboxDenied ? <>
+                <h1>NVV-testet kräver systemadmins egen behörighet</h1>
+                <p>Du arbetar som {user.name} · {user.level}.{(user.siteIds || actualUser!.siteIds) && ' Kontot är begränsat till valda anläggningar.'}</p>
+                <p>{platform?.session.actor.platformAdmin
+                  ? 'Öppna Jobba som bolag och välj Plattformens systemadmin · egen behörighet för det bolag du vill testa. Öppna sedan NVV-testet igen.'
+                  : 'Testverktyget kräver systemadmin som arbetar med egen behörighet och åtkomst till alla anläggningar.'}</p>
+              </> : <>
+                <h1>Behörighet saknas</h1>
+                <p>Ditt konto har inte åtkomst till denna vy.</p>
+              </>}
             </section>
           ) : selected && workflowSections.includes(section) ? (
             <CardBookingProvider card={selected} user={user} actualUser={actualUser!}>
@@ -2152,7 +2162,7 @@ export function OfficeApp() {
               </div>
               </OfficePageHeader>
               {(section === 'attest' || section === 'payments') && (
-                <QueueSummary cards={visibleCards} user={user} mode={section} />
+                <QueueSummary cards={visibleCards} user={user} actualUser={actualUser} approvals={terminalDemo.state?.approvals} mode={section} />
               )}
               <section className="office-panel">
                 <WeightCardTable
@@ -2279,6 +2289,7 @@ export function OfficeApp() {
             <CorrectionsWorkspace
               data={data}
               user={user}
+              actualUser={actualUser}
               onOpenCard={open}
               onSubmit={sendCorrection}
               onSaveDocument={saveCorrectionDocument}

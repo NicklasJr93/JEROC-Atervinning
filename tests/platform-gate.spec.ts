@@ -26,6 +26,19 @@ test('kontoret visar riktig inloggning och hämtar inga verksamhetsuppgifter fö
   expect(businessRequests).toEqual([]);
 });
 
+test('kontoväljaren skiljer plattformens egen behörighet från ett valt systemadminkonto i bolaget', async ({ page }) => {
+  const company = { id: 'jeroc-demo', name: 'JEROC', organisationNumber: '5593593626', status: 'active' };
+  await json(page, 'session', { ...auth, actualUser: { ...admin, id: '__platform-admin' }, user: admin,
+    effectiveUserId: admin.id, organisationId: company.id, company, companies: [company], isSupportSession: true });
+  await json(page, 'companies', { companies: [company] });
+  await json(page, 'companies/jeroc-demo/users', { users: [admin] });
+  await page.goto('/kontor#/platform-admin');
+  const chooser = page.getByLabel('Jobba som användare', { exact: true });
+  await expect(chooser).toHaveValue('admin');
+  await expect(chooser.getByRole('option', { name: 'Plattformens systemadmin · egen behörighet', exact: true })).toHaveAttribute('value', '');
+  await expect(chooser.getByRole('option', { name: 'Systemadmin · bolagets konto', exact: true })).toHaveAttribute('value', 'admin');
+});
+
 test('tillfälligt lösenord måste bytas och platformmutation skickar sessionens CSRF och generation', async ({ page }) => {
   await json(page, 'session', { ...auth, mustChangePassword: true });
   await json(page, 'companies', { companies: [] });

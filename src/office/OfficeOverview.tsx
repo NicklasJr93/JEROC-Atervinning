@@ -23,6 +23,8 @@ import {
   type Permission,
 } from './model';
 import './overview.css';
+import { isCurrentUserSelfOwned } from '../platform/self-ownership';
+import type { TerminalApproval } from './terminal-demo-types';
 
 const number = (value: number, decimals = 0) =>
   value.toLocaleString('sv-SE', {
@@ -62,10 +64,14 @@ function deliveryDay(value: string) {
 export function QueueSummary({
   cards,
   user,
+  actualUser,
+  approvals,
   mode,
 }: {
   cards: OfficeCard[];
   user: OfficeUser;
+  actualUser?: OfficeUser;
+  approvals?: TerminalApproval[];
   mode: 'attest' | 'payments';
 }) {
   const queue = cards.filter((card) =>
@@ -74,14 +80,18 @@ export function QueueSummary({
   const overLimit = queue.filter(
     (card) => !card.financialPending && amount(card) > user.maxAttest,
   );
+  const selfOwned = (card: OfficeCard) => {
+    const approval = approvals?.find(value => value.id === card.customerApproval?.id);
+    return isCurrentUserSelfOwned([card.preparedBy, approval?.actualUserId, approval?.effectiveUserId], user, actualUser);
+  };
   const ownBlocked = queue.filter(
-    (card) => !user.ownAttest && card.preparedBy === user.id,
+    (card) => !user.ownAttest && selfOwned(card),
   );
   const eligible = queue.filter(
     (card) =>
       !card.financialPending &&
       amount(card) <= user.maxAttest &&
-      (user.ownAttest || card.preparedBy !== user.id),
+      (user.ownAttest || !selfOwned(card)),
   );
   const paymentMethods = new Set(
     queue.map((card) => card.payment.split('·')[0].trim()).filter(Boolean),

@@ -4,9 +4,11 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.12.1. Aktuell kontorsversion: 0.29.2.
+Aktuell mobilwebbversion: 0.12.1. Aktuell kontorsversion: 0.29.3.
 ÄL 124 är genomförd 2026-10-16: förifyllt NVV-supportprov direkt i kontoret,
 utan Render Shell. Själva nya myndighetsanropet körs från användarens testknapp.
+Behörighetsrättning i 0.29.3: systemadmins egen plattformsbehörighet hålls
+separat från det äldre personalkontots anläggningsbegränsning även i JEROC.
 119–122 är genomförda i bygge 2026-10-13. Beställningens ”129” tolkades
 som 120 enligt de fyra senast planerade punkterna.
 Guide och avgränsningar: docs/personal-sjukfranvaro-2026-10-13.md.
@@ -2968,3 +2970,13 @@ Status: Implementerad 2026-10-16 i kontor 0.29.2.
   Alla myndighetsanrop i dessa tester är mockade. Ingen ny accepterad
   NVV-rapport hävdas; ett faktiskt svar kräver användarens testknapp.
 - Guide: docs/integrationer/naturvardsverket/nytt-supportprov-2026-10-16.md.
+- Rättning i 0.29.3: plattformens egen systemadminidentitet är separat också
+  i JEROC. Befintliga egna plattformssessioner läser samma dedikerade identitet.
+  Personalkontots anläggningar, lösenord och mobilåtkomst ändras inte.
+  Vid arbete som annan användare gäller fortfarande det kontots begränsningar.
+  Nekad NVV-vy beskriver nu vilket konto som är valt och hur egen behörighet väljs.
+  Kontoväljaren skiljer tydligt Plattformens systemadmin · egen behörighet
+  från bolagets konton, även om ett lokalt konto också heter Systemadmin.
+  Valet visar det faktiska kontot, även när ett annat systemadminkonto valts.
+  Tidigare personidentitet bevaras för spärrar mot självattest av tid och
+  ekonomiska underlag. Kopplingen ger inga extra roller eller anläggningar.

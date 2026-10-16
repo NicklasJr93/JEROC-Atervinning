@@ -4,10 +4,12 @@ import { safeAuditText } from './workflow';
 import { articleById } from '../data';
 import { kilos, money } from '../model';
 import { can, type OfficeData, type OfficeUser } from './model';
+import { isCurrentUserSelfOwned } from '../platform/self-ownership';
 
 export default function CorrectionsWorkspace({
   data,
   user,
+  actualUser,
   onOpenCard,
   onSubmit,
   onApprove,
@@ -16,6 +18,7 @@ export default function CorrectionsWorkspace({
 }: {
   data: OfficeData;
   user: OfficeUser;
+  actualUser?: OfficeUser;
   onOpenCard: (id: number) => void;
   onSubmit: (id: number) => Promise<boolean>;
   onApprove: (id: number) => Promise<boolean>;
@@ -173,9 +176,7 @@ export default function CorrectionsWorkspace({
                           busy ||
                           Math.abs(c.amountDelta ?? 0) > user.maxAttest ||
                           (!user.ownAttest &&
-                            [c.submittedBy, c.effectiveUserId].includes(
-                              user.id,
-                            ))
+                            isCurrentUserSelfOwned([c.submittedBy, c.effectiveUserId, c.actualUserId], user, actualUser))
                         }
                         onClick={() => onApprove(c.id)}
                       >

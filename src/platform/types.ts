@@ -18,6 +18,7 @@ export type AuthenticatedPlatformSession = {
   company?: PlatformCompany;
   organisationId?: string;
   effectiveUserId?: string;
+  selfBusinessUserIds?: string[];
   isSupportSession: boolean;
   mustChangePassword: boolean;
   csrfToken: string;

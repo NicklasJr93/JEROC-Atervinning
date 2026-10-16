@@ -6,6 +6,7 @@ import { createPlatformApi } from './platform-api.mjs';
 import { tenantRuntimeEnvironment, tenantInitialSites, createTenantApplicationState } from './tenant-runtime.mjs';
 import { createTenantServices } from './tenant-services.mjs';
 import { employeeRequestPrincipal, hasEmployeeSession } from './mobile-employee-api.mjs';
+import { withBusinessIdentity } from './business-identity.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -197,6 +198,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
         if (platformCookieToken(req) !== undefined) context = await auth.resolveContext(req, { writes: false });
         company = context?.company ?? (await auth.resolveTenantSelector(req))?.company ?? defaultCompany;
       }
+      return await withBusinessIdentity(context, async () => {
       const expectedCompany = req.headers['x-client-company'] ?? req.headers['x-employee-company'] ?? url.searchParams.get('expectedCompany');
       if (expectedCompany !== undefined && expectedCompany !== null && expectedCompany !== company.id)
         throw new PlatformError('Bolaget har bytts i en annan flik. Logga in igen.', 409, 'company_selection_changed');
@@ -255,6 +257,8 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       }
       if (await service.handle(req, res, url)) return true;
       json(res, 404, { error: 'API-vyn finns inte.', code: 'not_found' });
+      return true;
+      });
     } catch (error) {
       if (res.headersSent) { res.end(); return true; }
       const known = error instanceof PlatformError || Number.isInteger(error.status);

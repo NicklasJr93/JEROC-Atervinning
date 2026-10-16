@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import CatalogImage from './CatalogImage';
+import { isCurrentUserSelfOwned } from '../platform/self-ownership';
 import { OfficePageHeader } from './OfficePageHeader';
 import { createWeightCardPreview, WeightCardLink, WeightCardRow, WeightCardRows } from './WeightCardRows';
 import { articleGroupPath, sortArticleGroups } from '../catalog-types';
@@ -2379,6 +2380,7 @@ function CustomerBalance(
   const {
     data,
     user,
+    actualUser,
     customer,
     onOpenCard,
     onCreateCorrection,
@@ -2712,10 +2714,7 @@ function CustomerBalance(
                         Math.abs(correction.amountDelta ?? 0) >
                           user.maxAttest ||
                         (!user.ownAttest &&
-                          [
-                            correction.submittedBy,
-                            correction.effectiveUserId,
-                          ].includes(user.id))
+                          isCurrentUserSelfOwned([correction.submittedBy, correction.effectiveUserId, correction.actualUserId], user, actualUser))
                       }
                       onClick={() =>
                         void act(() => onApproveCorrection(correction.id))
@@ -2729,10 +2728,7 @@ function CustomerBalance(
                       </p>
                     )}
                     {!user.ownAttest &&
-                      [
-                        correction.submittedBy,
-                        correction.effectiveUserId,
-                      ].includes(user.id) && (
+                      isCurrentUserSelfOwned([correction.submittedBy, correction.effectiveUserId, correction.actualUserId], user, actualUser) && (
                         <p className="customer-note">
                           En annan användare behöver attestera rättelsen.
                         </p>

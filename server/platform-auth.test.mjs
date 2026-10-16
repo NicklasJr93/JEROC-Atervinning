@@ -21,7 +21,8 @@ async function fixture(run, options = {}) {
   const administratorPassword = options.demo ? 'JerocDemo2026!' : 'Legacy-Administrator-2026!';
   const legacyHash = await platformPasswordHash(administratorPassword);
   const adminUser = { id: 'admin', name: 'Systemadmin', level: 'Systemadmin', permissions: [], active: true };
-  const usersByCompany = new Map([['jeroc-demo', [adminUser, { id: 'lars', name: 'Lars', level: 'VD', permissions: [], active: true }]]]);
+  const usersByCompany = new Map([['jeroc-demo', [adminUser, { id: 'lars', name: 'Lars', level: 'VD', permissions: [], active: true },
+    { id: '__platform-admin', name: 'Platform support', level: 'Systemadmin', permissions: [], active: true }]]]);
   const employeeAccounts = new Map(), provisions = [], passwordChanges = [];
   let failProvision = false, failSync = false;
   const callbacks = {
@@ -67,12 +68,12 @@ async function fixture(run, options = {}) {
 
 test('bootstrap imports the existing hash without password reset; restart retains session and registry', async () => fixture(async ({ request, login, repository, legacyHash, reopen, auth, serverReq }) => {
   const visitor = await request('session'); assert.deepEqual(visitor.value, { enabled: true, authenticated: false });
-  const administrator = await login(); assert.equal(administrator.value.actor.platformAdmin, true); assert.equal(administrator.value.actualUser.id, 'admin');
+  const administrator = await login(); assert.equal(administrator.value.actor.platformAdmin, true); assert.equal(administrator.value.actualUser.id, '__platform-admin');
   assert.equal(administrator.value.mustChangePassword, false);
   await repository().read(state => { assert.deepEqual(state.users[0].password, legacyHash); assert.ok(!JSON.stringify(state).includes(administrator.cookies.get('jeroc_platform'))); });
   await reopen(); const current = await request('session', undefined, administrator); assert.equal(current.status, 200); assert.equal(current.value.actor.id, 'admin');
   const req = serverReq(current, { 'x-demo-actor': 'lars', 'x-demo-user': 'lars' }); const context = await auth().resolveContext(req);
-  assert.equal(context.actor.businessId, 'admin'); assert.equal(context.user.id, 'admin'); assert.equal(getPlatformContext(req), context);
+  assert.equal(context.actor.businessId, '__platform-admin'); assert.equal(context.user.id, '__platform-admin'); assert.equal(getPlatformContext(req), context);
   assert.ok(administrator.headers.getSetCookie().every(value => value.includes('HttpOnly; SameSite=')));
   assert.ok(administrator.headers.getSetCookie().find(value => value.startsWith('jeroc_platform=')).includes('SameSite=Lax'));
   assert.ok(administrator.headers.getSetCookie().find(value => value.startsWith('jeroc_tenant=')).includes('SameSite=Strict'));
@@ -162,9 +163,9 @@ test('persistent account rate limiting survives restart and expires without leak
 }));
 
 test('current membership and business-account revocations take effect without trusting a cached login', async () => fixture(async ({ login, auth, serverReq, usersByCompany, repository }) => {
-  const administrator = await login(); usersByCompany.get('jeroc-demo')[0].active = false;
+  const administrator = await login(), support = usersByCompany.get('jeroc-demo').find(user => user.id === '__platform-admin'); support.active = false;
   await assert.rejects(auth().resolveContext(serverReq(administrator)), error => error.code === 'platform_account_inactive');
-  usersByCompany.get('jeroc-demo')[0].active = true; await repository().transact(state => { state.users[0].active = false; });
+  support.active = true; await repository().transact(state => { state.users[0].active = false; });
   await assert.rejects(auth().resolveTenantSelector(serverReq(administrator)), error => error.code === 'platform_tenant_selector_invalid');
 }));
 
@@ -207,5 +208,43 @@ test('switching company without an effective user gives platform admin their own
   const administrator = await login(), created = await request('companies', input(), administrator);
   const own = await request('switch', { organisationId: created.value.company.id }, administrator); assert.equal(own.status, 200, own.value.error);
   assert.equal(own.value.user.id, '__platform-admin'); assert.equal(own.value.actualUser.id, '__platform-admin'); assert.equal(own.value.user.level, 'Systemadmin');
-  const legacy = await request('switch', { organisationId: 'jeroc-demo' }, own); assert.equal(legacy.status, 200, legacy.value.error); assert.equal(legacy.value.user.id, 'admin');
+  const legacy = await request('switch', { organisationId: 'jeroc-demo' }, own); assert.equal(legacy.status, 200, legacy.value.error); assert.equal(legacy.value.user.id, '__platform-admin');
+}));
+
+test('old JEROC own sessions resolve to platform authority without rewriting staff scope or the stored session', async () => fixture(async ({ login, request, auth, serverReq, usersByCompany, repository }) => {
+  const administrator = await login(), legacy = usersByCompany.get('jeroc-demo').find(user => user.id === 'admin');
+  legacy.siteIds = ['norrtalje']; const staffBefore = structuredClone(legacy);
+  await repository().transact(state => {
+    const session = state.sessions.find(item => item.userId === 'admin'); session.effectiveUserId = 'admin'; delete session.businessPrincipalVersion;
+  });
+  const storedBefore = await repository().read(state => structuredClone(state.sessions));
+  const fresh = await request('session', undefined, administrator);
+  assert.equal(fresh.status, 200); assert.equal(fresh.value.actor.id, 'admin'); assert.equal(fresh.value.actor.platformAdmin, true);
+  assert.equal(fresh.value.actualUser.id, '__platform-admin'); assert.equal(fresh.value.user.id, '__platform-admin');
+  assert.equal(fresh.value.effectiveUserId, '__platform-admin'); assert.equal(fresh.value.actualUser.siteIds, undefined); assert.equal(fresh.value.user.siteIds, undefined);
+  assert.equal(fresh.value.isSupportSession, false);
+  const context = await auth().resolveContext(serverReq(fresh));
+  assert.equal(context.actualUser.id, '__platform-admin'); assert.equal(context.user.id, '__platform-admin');
+  assert.deepEqual(await repository().read(state => state.sessions), storedBefore); assert.deepEqual(legacy, staffBefore);
+  const changed = await request('change-password', { currentPassword: 'Legacy-Administrator-2026!', newPassword: 'Resolved-Legacy-Own-Password-2026!' }, fresh);
+  assert.equal(changed.status, 200, changed.value.error); assert.equal(changed.value.user.id, '__platform-admin');
+  const rotated = await repository().read(state => state.sessions.find(item => item.userId === 'admin'));
+  assert.equal(rotated.businessPrincipalVersion, 2); assert.equal(rotated.effectiveUserId, '__platform-admin');
+}));
+
+test('new explicit JEROC staff impersonation preserves site limits even for the legacy admin identity', async () => fixture(async ({ login, request, auth, serverReq, usersByCompany, repository }) => {
+  const administrator = await login(), legacy = usersByCompany.get('jeroc-demo').find(user => user.id === 'admin');
+  legacy.siteIds = ['norrtalje']; const original = structuredClone(legacy);
+  const impersonated = await request('switch', { organisationId: 'jeroc-demo', effectiveUserId: 'admin' }, administrator);
+  assert.equal(impersonated.status, 200, impersonated.value.error); assert.equal(impersonated.value.actualUser.id, '__platform-admin');
+  assert.equal(impersonated.value.user.id, 'admin'); assert.deepEqual(impersonated.value.user.siteIds, ['norrtalje']);
+  assert.equal(impersonated.value.effectiveUserId, 'admin'); assert.equal(impersonated.value.isSupportSession, true);
+  const context = await auth().resolveContext(serverReq(impersonated));
+  assert.equal(context.user.id, 'admin'); assert.deepEqual(context.user.siteIds, ['norrtalje']);
+  assert.equal((await repository().read(state => state.sessions.find(item => item.userId === 'admin'))).businessPrincipalVersion, 2);
+  const vd = await request('switch', { organisationId: 'jeroc-demo', effectiveUserId: 'lars' }, impersonated);
+  assert.equal(vd.status, 200, vd.value.error); assert.equal(vd.value.actualUser.id, '__platform-admin'); assert.equal(vd.value.user.level, 'VD');
+  const own = await request('switch', { organisationId: 'jeroc-demo' }, vd);
+  assert.equal(own.status, 200, own.value.error); assert.equal(own.value.actualUser.id, '__platform-admin'); assert.equal(own.value.user.id, '__platform-admin');
+  assert.equal(own.value.user.siteIds, undefined); assert.deepEqual(legacy, original);
 }));

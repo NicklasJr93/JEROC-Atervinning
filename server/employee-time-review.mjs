@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PricingError } from './pricing.mjs';
+import { principalOwnsUser } from './business-identity.mjs';
 import { employeeTimeToday, employeeTimePeriodProjection, employeeTimeIntervalDates,
   assertEmployeeTimeEditable, assertEmployeeTimeRangeEditable } from './employee-time.mjs';
 
@@ -126,7 +127,7 @@ function requirePersonScope(principal, person) {
 }
 function selfApproval(principal, person, review) {
   const owners = new Set([person.userId ?? person.id, snapshotFor(review)?.person?.userId].filter(Boolean));
-  return owners.has(principal.actor.id) || owners.has(principal.user.id);
+  return [...owners].some(userId => principalOwnsUser(principal, userId));
 }
 function periodSiteIds(period) {
   return new Set([...(period.sourceSiteIds ?? []), ...period.days.flatMap(day => [...day.entries, ...day.clockSessions]).map(value => value.siteId).filter(Boolean)]);

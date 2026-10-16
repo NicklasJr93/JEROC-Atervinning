@@ -6,6 +6,7 @@ import { money } from '../model';
 import { amount, can, type OfficeCard, type OfficeUser } from './model';
 import type { TerminalApproval } from './terminal-demo-types';
 import ElectricFocusBorder from './ElectricFocusBorder';
+import { isCurrentUserSelfOwned } from '../platform/self-ownership';
 
 type Props = {
   card: OfficeCard;
@@ -38,7 +39,7 @@ export default function OfficeCardAttest({ card, user, actualUser, users, approv
   const approved = card.customerApproval
     ? (approval ? approval.id === card.customerApproval.id && approval.status === 'approved' : card.customerApproval.status === 'approved')
     : card.status === 'attest'; // Previously prepared demo cards retain their existing attest flow.
-  const ownBlocked = !user.ownAttest && (card.preparedBy === user.id || Boolean(approval && approval.actualUserId === actualUser.id));
+  const ownBlocked = !user.ownAttest && isCurrentUserSelfOwned([card.preparedBy, approval?.actualUserId, approval?.effectiveUserId], user, actualUser);
   const overLimit = !card.financialPending && amount(card) > user.maxAttest;
   const permitted = can(user, 'attest') && can(actualUser, 'attest');
   const receiptPending = receiptStatus === 'required' || receiptStatus === 'checking';

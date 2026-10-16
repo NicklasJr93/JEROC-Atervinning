@@ -12,7 +12,7 @@ export default function PlatformCompanySwitcher({ session, companies, onSwitch, 
   const [loading, setLoading] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
   useEffect(() => {
     setUsers([]);
-    setEffectiveUserId(organisationId === (session.organisationId ?? session.company?.id) && session.user.level !== 'Systemadmin' ? session.effectiveUserId ?? session.user.id : '');
+    setEffectiveUserId(organisationId === (session.organisationId ?? session.company?.id) && session.user.id !== session.actualUser.id ? session.effectiveUserId ?? session.user.id : '');
     setError('');
     if (!session.actor.platformAdmin || !organisationId) { setLoading(false); return; }
     const controller = new AbortController();
@@ -22,7 +22,7 @@ export default function PlatformCompanySwitcher({ session, companies, onSwitch, 
       .catch(failure => { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Användarna kunde inte hämtas.'); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [organisationId, session.actor.id, session.actor.platformAdmin, session.effectiveUserId, session.organisationId, session.company?.id, session.user.id, session.user.level]);
+  }, [organisationId, session.actor.id, session.actor.platformAdmin, session.effectiveUserId, session.organisationId, session.company?.id, session.user.id, session.actualUser.id]);
   return <div className={`platform-switcher${compact ? ' compact' : ''}`}>
     <label><span><Building2 size={15} />{session.actor.platformAdmin ? 'Jobba som bolag' : 'Bolag'}</span>
       <select aria-label="Jobba som bolag" value={organisationId} disabled={busy} onChange={event => setOrganisationId(event.target.value)}>
@@ -32,9 +32,10 @@ export default function PlatformCompanySwitcher({ session, companies, onSwitch, 
     </label>
     {session.actor.platformAdmin && <label><span>Behörighet</span><select aria-label="Jobba som användare" value={effectiveUserId}
       disabled={busy || loading || !organisationId || Boolean(error)} onChange={event => setEffectiveUserId(event.target.value)}>
-      <option value="">{loading ? 'Hämtar användare…' : 'Systemadmin · egen behörighet'}</option>
-      {users.map(user => <option key={user.id} value={user.id}>{user.name} · {user.level}</option>)}
+      <option value="">{loading ? 'Hämtar användare…' : 'Plattformens systemadmin · egen behörighet'}</option>
+      {users.map(user => <option key={user.id} value={user.id}>{user.name}{user.name.toLocaleLowerCase('sv-SE') !== user.level.toLocaleLowerCase('sv-SE') && ` · ${user.level}`} · bolagets konto</option>)}
     </select></label>}
+    {session.actor.platformAdmin && <p className="platform-switcher-help">Egen behörighet ger full åtkomst till bolaget. Välj ett användarkonto för att arbeta med det kontots behörigheter.</p>}
     <button type="button" className="platform-btn" disabled={busy || !organisationId || loading || Boolean(error)} onClick={async () => {
       setBusy(true); setError('');
       try { await onSwitch(organisationId, effectiveUserId || undefined); }

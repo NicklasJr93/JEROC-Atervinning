@@ -5,6 +5,7 @@ import { employeeTimeReviewOwn, employeeTimeReviewDetail, employeeTimeReviewList
   employeeTimeReviewSourceStamp, assertEmployeeTimeReviewSourceStamp } from './employee-time-review.mjs';
 import { ensureEmployeeTime, enrollEmployeeTime, employeeTimeCommand, employeeTimeGate,
   employeeTimeRequirementCommand, employeeClockCommand, refreshEmployeeTimeNorms } from './employee-time.mjs';
+import { withBusinessIdentity } from './business-identity.mjs';
 
 const month = '2026-09';
 const now = '2026-10-01T16:00:00Z';
@@ -146,6 +147,59 @@ test('explicit dual rights, full current and historical site scopes, and every o
   assert.throws(() => employeeTimeReviewStaffCommand(legacy.state, { actor: { ...admin, id: legacy.person.id }, user: boss }, {
     action: 'review.approve', personId: legacy.person.id, month, revision: 1, requestId: 'legacy-self-approve', reason: 'Egen kontroll.',
   }, [], legacy.context), /egen tidrapport/);
+});
+
+test('the trusted JEROC platform administrator cannot approve its current or historically linked personnel report', () => {
+  const virtual = { ...admin, id: '__platform-admin' }, reviewer = { actor: virtual, user: virtual };
+  const trusted = { organisationId: 'jeroc-demo', platformAdmin: true, actualUser: virtual, user: virtual, credentialBusinessId: 'admin' };
+  for (const ownership of ['current', 'snapshot']) {
+    const f = fixture(); f.person.userId = 'admin';
+    employeeTimeReviewEmployeeCommand(f.state, f.person, { action: 'review.submit', month, revision: 0, requestId: `legacy-${ownership}` }, [], {
+      ...f.context, actualUserId: 'admin', effectiveUserId: 'admin',
+    });
+    if (ownership === 'snapshot') f.person.userId = 'relinked-admin';
+    else f.state.employeeTime.reviews[0].snapshots[0].person.userId = 'different-historical-user';
+    assert.equal(employeeTimeReviewDetail(f.state, reviewer, f.person, f.context).capabilities.canApprove, true, 'Without a trusted identity alias the distinct account can approve');
+    const before = JSON.stringify(f.state);
+    withBusinessIdentity(trusted, () => {
+      const detail = employeeTimeReviewDetail(f.state, reviewer, f.person, f.context);
+      assert.equal(detail.review.stale, false);
+      assert.equal(detail.capabilities.canApprove, false, ownership);
+      const listed = employeeTimeReviewList(f.state, reviewer, f.context).people.find(person => person.personId === f.person.id);
+      assert.equal(listed.capabilities.canApprove, false, ownership);
+      assert.throws(() => employeeTimeReviewStaffCommand(f.state, reviewer, {
+        action: 'review.approve', personId: f.person.id, month, revision: detail.review.revision,
+        requestId: `virtual-self-approve-${ownership}`, reason: 'Verkliga timmar granskade.',
+      }, [], f.context), error => error.status === 403 && /egen tidrapport/.test(error.message));
+    });
+    assert.equal(JSON.stringify(f.state), before);
+  }
+});
+
+test('the personnel ownership alias applies only to the trusted JEROC context and permits unrelated reports', () => {
+  const virtual = { ...admin, id: '__platform-admin' }, reviewer = { actor: virtual, user: virtual };
+  const trusted = { organisationId: 'jeroc-demo', platformAdmin: true, actualUser: virtual, user: virtual, credentialBusinessId: 'admin' };
+  for (const scope of [undefined, { ...trusted, organisationId: 'another-company' }, { ...trusted, platformAdmin: false }]) {
+    const f = fixture(); f.person.userId = 'admin';
+    employeeTimeReviewEmployeeCommand(f.state, f.person, { action: 'review.submit', month, revision: 0, requestId: 'legacy-submit' }, [], {
+      ...f.context, actualUserId: 'admin', effectiveUserId: 'admin',
+    });
+    const approve = () => {
+      const detail = employeeTimeReviewDetail(f.state, reviewer, f.person, f.context);
+      assert.equal(detail.capabilities.canApprove, true);
+      return employeeTimeReviewStaffCommand(f.state, reviewer, { action: 'review.approve', personId: f.person.id, month,
+        revision: detail.review.revision, requestId: 'unaliased-approval', reason: 'Verkliga timmar granskade.' }, [], f.context);
+    };
+    assert.equal((scope ? withBusinessIdentity(scope, approve) : approve()).review.status, 'approved');
+  }
+  const unrelated = fixture(); unrelated.send('review.submit');
+  withBusinessIdentity(trusted, () => {
+    assert.equal(employeeTimeReviewDetail(unrelated.state, reviewer, unrelated.person, unrelated.context).capabilities.canApprove, true);
+    const approved = unrelated.act('review.approve', { reason: 'En annan anställds faktiska timmar granskade.' }, reviewer);
+    assert.equal(approved.review.status, 'approved');
+    const snapshot = unrelated.state.employeeTime.reviews[0].snapshots[0];
+    assert.equal(snapshot.approvedBy, virtual.id); assert.equal(snapshot.approvedActualUserId, virtual.id);
+  });
 });
 
 test('current/future months are preview-only; actual open intersecting order/clock or correction blocks ended submission', () => {

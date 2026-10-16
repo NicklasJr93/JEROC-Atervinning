@@ -40,8 +40,13 @@ function runFor(request: SupportRequest, status: 'rejected' | 'unknown' = 'rejec
 }
 
 /** Every API request is fulfilled here; no server DB, credentials or provider is used. */
-async function setup(page: Page, options: { supportReady?: boolean; directPreset?: boolean; onPost?: (request: SupportRequest) => Promise<SupportRun> } = {}) {
-  const data = migrateOffice(seedOffice()), admin = data.users.find(user => user.id === 'admin')!;
+async function setup(page: Page, options: { supportReady?: boolean; directPreset?: boolean; scopedEffective?: boolean; onPost?: (request: SupportRequest) => Promise<SupportRun> } = {}) {
+  const data = migrateOffice(seedOffice()), legacyAdmin = data.users.find(user => user.id === 'admin')!;
+  legacyAdmin.siteIds = ['norrtalje', 'rimbo'];
+  const { siteIds: _legacySites, ...unscopedAdmin } = structuredClone(legacyAdmin);
+  const actualUser = { ...unscopedAdmin, id: '__platform-admin', name: 'Systemadmin' };
+  const user = options.scopedEffective ? legacyAdmin : actualUser;
+  data.users.push(actualUser);
   const supportTemplate: NvvJsonObject = { ...payload(), verksamhetsutovare: '5593593626', verksamhetensNamn: 'JEROC Återvinning AB',
     ombud: '5560000167', ombudetsNamn: 'Testbolag 1', ombudetsKontaktpersonNamn: 'Testkontakt',
     ombudetsKontaktpersonEpost: 'test@example.invalid', ombudetsKontaktpersonTelefonnummer: '0100000000',
@@ -54,9 +59,9 @@ async function setup(page: Page, options: { supportReady?: boolean; directPreset
       issuer: null, validFrom: null, validTo: null, fingerprint256: null },
     supportTest: { ready: options.supportReady !== false, issues: options.supportReady === false ? [certificateIssue] : [], template: supportTemplate } };
   const session: AuthenticatedPlatformSession = { enabled: true, authenticated: true,
-    actor: { id: 'platform-admin', name: 'Systemadmin', username: 'admin', platformAdmin: true }, actualUser: admin, user: admin,
+    actor: { id: 'platform-admin', name: 'Systemadmin', username: 'admin', platformAdmin: true }, actualUser, user,
     company: { id: 'jeroc-demo', name: 'Lokalt NVV-testbolag', organisationNumber: '5593593626', status: 'active' },
-    organisationId: 'jeroc-demo', effectiveUserId: admin.id, isSupportSession: false, mustChangePassword: false,
+    organisationId: 'jeroc-demo', effectiveUserId: user.id, isSupportSession: actualUser.id !== user.id, mustChangePassword: false,
     csrfToken: 'local-platform-fixture', generation: 1, companies: [] };
   const requests: SupportRequest[] = [], businessWrites: string[] = [], externalRequests: string[] = [], errors: string[] = [];
   let reads = 0;
@@ -84,10 +89,10 @@ async function setup(page: Page, options: { supportReady?: boolean; directPreset
     const body = path === '/api/platform/session' ? session
       : path === '/api/application/office' ? { data, revision: 1 }
       : path === '/api/application/revision' ? { revision: 1 }
-      : path === '/api/environment/session' ? { demo: true, actualUserId: admin.id, effectiveUserId: admin.id, user: admin,
+      : path === '/api/environment/session' ? { demo: true, actualUserId: actualUser.id, effectiveUserId: user.id, user,
         csrfToken: 'local-environment-fixture', expiresAt: '2099-01-01T00:00:00.000Z' }
-      : path === '/api/terminal-demo/staff-session' ? { actualUserId: admin.id, effectiveUserId: admin.id }
-      : path === '/api/terminal-demo/state' ? { configured: true, revision: 1, actualUserId: admin.id, effectiveUserId: admin.id,
+      : path === '/api/terminal-demo/staff-session' ? { actualUserId: actualUser.id, effectiveUserId: user.id }
+      : path === '/api/terminal-demo/state' ? { configured: true, revision: 1, actualUserId: actualUser.id, effectiveUserId: user.id,
         sites: [{ id: 'norrtalje', name: 'Norrtälje' }], terminals: [], approvals: [], defaults: [] }
       : path === '/api/pricing/state' ? { version: 'local-nvv-fixture', memoryOnly: false, revision: 1, asOfDate: '2026-10-16',
         metals: [], articles: [], customers: data.customers, users: data.users, customerPrices: [], audit: [] }
@@ -96,8 +101,12 @@ async function setup(page: Page, options: { supportReady?: boolean; directPreset
     return route.fulfill({ status: body ? 200 : 503, json: body ?? { error: 'Detta API ingår inte i den lokala testfixturen.' } });
   });
   await page.goto(testPage + (options.directPreset ? `?preset=${preset}` : ''));
-  await expect(page.getByRole('heading', { name: 'NVV · systemadminstest', exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole('button', { name: prepareLabel, exact: true })).toBeVisible();
+  if (options.scopedEffective) {
+    await expect(page.getByRole('heading', { name: 'NVV-testet kräver systemadmins egen behörighet', exact: true })).toBeVisible({ timeout: 15_000 });
+  } else {
+    await expect(page.getByRole('heading', { name: 'NVV · systemadminstest', exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: prepareLabel, exact: true })).toBeVisible();
+  }
   return { state, requests, businessWrites, externalRequests, errors, reads: () => reads };
 }
 
@@ -205,6 +214,19 @@ test('direktlänken förifyller supportprovet och väntar på uttrycklig sändni
   await expect(page.getByRole('dialog', { name: 'NVV avvisade testet', exact: true })).toBeVisible();
   expect(fixture.requests).toHaveLength(1);
   expect(fixture.requests[0]).toMatchObject({ preset, payload: prepared });
+  expect(fixture.businessWrites).toEqual([]);
+  expect(fixture.externalRequests).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('platsbegränsat effektivt systemadminkonto nekas även via supportlänken utan NVV-anrop', async ({ page }) => {
+  const fixture = await setup(page, { scopedEffective: true, directPreset: true });
+  const denial = page.getByRole('heading', { name: 'NVV-testet kräver systemadmins egen behörighet', exact: true }).locator('..');
+  await expect(denial).toContainText('Jobba som bolag');
+  await expect(page.getByRole('button', { name: prepareLabel, exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: sendLabel, exact: true })).toHaveCount(0);
+  expect(fixture.reads()).toBe(0);
+  expect(fixture.requests).toHaveLength(0);
   expect(fixture.businessWrites).toEqual([]);
   expect(fixture.externalRequests).toEqual([]);
   expect(fixture.errors).toEqual([]);

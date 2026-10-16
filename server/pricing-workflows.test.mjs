@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { createPricingStore, money, PricingError } from './pricing.mjs';
 import { createPricingApi } from './pricing-api.mjs';
+import { withBusinessIdentity } from './business-identity.mjs';
 
 const setup = () => {
   const store = createPricingStore({
@@ -384,6 +385,45 @@ test('correction own-attest checks both creator and submitter and retries preser
     () => store.approveCorrection({ ...request, submittedBy: 'lars' }, lars),
     409,
   );
+});
+
+test('the trusted JEROC platform administrator cannot attest legacy own corrections when own-attest is disabled', () => {
+  const { store, admin, lars } = setup();
+  const users = store.read(admin).users;
+  users.push({ ...users.find(user => user.id === 'admin'), id: '__platform-admin', name: 'Platform administrator', ownAttest: false });
+  store.saveUsers({ users }, admin);
+  const reviewer = store.principal('__platform-admin');
+  const trusted = { organisationId: 'jeroc-demo', platformAdmin: true, actualUser: reviewer.actor, user: reviewer.user, credentialBusinessId: 'admin' };
+  const source = store.restoreLegacySnapshot({ ...original, preparedBy: 'admin' }, lars);
+  const fallback = correction(source.id, { cardId: 'R-own-source', submittedBy: 'anna' }); delete fallback.creatorId;
+  const requests = [
+    correction(source.id, { cardId: 'R-own-creator', creatorId: 'admin', submittedBy: 'anna' }),
+    correction(source.id, { cardId: 'R-own-submitter', creatorId: 'kajsa', submittedBy: 'admin' }),
+    fallback,
+  ];
+  const before = store.read(lars);
+  withBusinessIdentity(trusted, () => {
+    for (const request of requests) fails(() => store.approveCorrection(request, reviewer), 403);
+    assert.deepEqual(store.read(lars), before);
+    const approved = store.approveCorrection(correction(source.id, { cardId: 'R-unrelated', creatorId: 'kajsa', submittedBy: 'anna' }), reviewer);
+    assert.equal(approved.preparedBy, 'kajsa'); assert.equal(approved.submittedBy, 'anna');
+    assert.equal(approved.approvedBy, '__platform-admin'); assert.equal(approved.actor, '__platform-admin');
+  });
+  assert.equal(store.volume(original.customerId, 'copper-1', '2026-10-07'), 50);
+});
+
+test('correction ownership does not alias legacy admin outside the trusted JEROC platform context', () => {
+  for (const scope of [undefined, { organisationId: 'another-company', platformAdmin: true }, { organisationId: 'jeroc-demo', platformAdmin: false }]) {
+    const { store, admin, lars } = setup();
+    const users = store.read(admin).users;
+    users.push({ ...users.find(user => user.id === 'admin'), id: '__platform-admin', name: 'Platform administrator', ownAttest: false });
+    store.saveUsers({ users }, admin);
+    const reviewer = store.principal('__platform-admin'), source = store.restoreLegacySnapshot({ ...original, preparedBy: 'admin' }, lars);
+    const approve = () => store.approveCorrection(correction(source.id, { creatorId: 'admin', submittedBy: 'anna' }), reviewer);
+    const approved = scope ? withBusinessIdentity({ ...scope, actualUser: reviewer.actor, user: reviewer.user, credentialBusinessId: 'admin' }, approve) : approve();
+    assert.equal(approved.approvedBy, '__platform-admin'); assert.equal(approved.preparedBy, 'admin');
+    assert.equal(approved.total, -7731);
+  }
 });
 
 test('signed corrections round negative half cents symmetrically and preserve the first approval on retry', () => {

@@ -50,6 +50,35 @@ försök. **Kontrollera testhistorik** hämtar bara sparat resultat.
 Ett förifyllt formulär är inte en bekräftelse på att NVV accepterar anropet.
 Ett faktiskt nytt svar måste komma från användarens uttryckliga test efter deploy.
 
+### Om systemadmin saknar behörighet till vyn
+
+Kontor **0.29.3** rättar kopplingen mellan plattformens egen behörighet och
+JEROC:s äldre personalkonto `admin`. Personalmigreringen kunde begränsa det
+kontot till en lista med anläggningar; NVV-testet kräver obegränsad
+anläggningsåtkomst. Plattformen använder därför samma separata
+`__platform-admin`-identitet i JEROC som i övriga bolag. Befintliga egna
+plattformssessioner återläses med den identiteten. Personalkontots
+anläggningsåtkomst och lösenord ändras inte.
+Sambandet med den tidigare personidentiteten används fortfarande för
+spärrar mot självattest av tid, avräkningar och rättelser. Det ger ingen
+utökad behörighet åt ett valt personalkonto och ändrar ingen historik.
+
+Ladda om sidan efter deploy. Vid ett tidigare kontobyte, välj **Jobba som bolag
+→ Behörighet → Plattformens systemadmin · egen behörighet**, öppna arbetsytan och därefter
+supportprovet igen. Vid arbete som en annan användare gäller fortfarande
+den användarens roll och anläggningsbegränsning; plattformsinloggningen
+kringgår inte det valda kontots begränsningar. Inget NVV-anrop skickas av
+omladdning eller byte av arbetsyta.
+
+Verifiering av rättningen: riktade behörighets-/NVV-/självattestprov,
+browserprov för testformuläret, kontoväljaren och attestvyn samt produktionsbygge
+passerar. Två äldre fel i `server/accounting-review-flow.test.mjs` kvarstår:
+privatkundsfixturen innehåller ett ogiltigt födelsedatum (422 i stället för 200)
+och ett exportprov väntar 0 poster men får 1. Båda reproducerades mot orörda
+produktionskällor och originaltest från `e626ea95` i en separat HEAD-checkout;
+de är inte orsakade av behörighetsrättningen. Det nya HTTP-provet för
+självattest av rättelser passerar utan ändrat sparat underlag.
+
 ## Alternativ för driftansvarig: Render Shell från projektroten
 
 Efter deploy av denna fil, kör en gång:

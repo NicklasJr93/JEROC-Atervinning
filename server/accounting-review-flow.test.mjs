@@ -12,6 +12,7 @@ import { createTerminalDemoStore } from './terminal-demo.mjs';
 import { createPricingStore } from './pricing.mjs';
 import { createVismaSandbox } from './visma-sandbox.mjs';
 import { accountingExportEligibility, buildAccountingDraft, freezePurchaseAccounting, moneyToCents } from './visma-accounting.mjs';
+import { withBusinessIdentity } from './business-identity.mjs';
 import { amount, approveCorrection, createCorrectionDraft, recordPayment, settlementPreview, submitCorrection } from '../dist-server/domain-models.mjs';
 
 const OFFICE = '/api/application/office', ARTICLE = 'accounting-flow-material', CUSTOMER = 'customer-build';
@@ -22,7 +23,7 @@ const configuration = () => ({ revision: 1, enabled: true, exportMode: 'after_at
   vatCodes: { reverse25: randomUUID(), standard25: randomUUID() }, sites: [{ siteId: 'norrtalje', useDefaults: true, costCenterId: randomUUID(), projectId: randomUUID() }] });
 const balanced = rows => rows.reduce((sum, row) => sum + moneyToCents(row.DebitAmount) - moneyToCents(row.CreditAmount), 0);
 
-async function fixture(run, { enabled = true } = {}) {
+async function fixture(run, { enabled = true, businessIdentity } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'jeroc-accounting-flow-'));
   const env = { JEROC_APPLICATION_DB_PATH: join(directory, 'application.sqlite') };
   const repository = await createApplicationRepository({ env, seed: initialApplicationState });
@@ -34,11 +35,16 @@ async function fixture(run, { enabled = true } = {}) {
   const sourceCustomer = request => repository.read(state => structuredClone(state.office.customers.find(customer => customer.id === request.customer.id)), { domains: ['office'] });
   terminal = createTerminalDemoStore({ repository: terminalRepository, principalStore: app.principalStore, now: () => new Date('2026-10-09T10:00:00Z'),
     accountingSourceProvider: async request => ({ settings: structuredClone(settings), customer: await sourceCustomer(request) }) });
-  const server = createServer((req, res) => void app(req, res, new URL(req.url, 'http://localhost')));
+  const server = createServer((req, res) => {
+    const handle = () => app(req, res, new URL(req.url, 'http://localhost'));
+    // Install the trusted scope at the request boundary; an ALS scope around
+    // the test's fetch would not reach the independently dispatched HTTP handler.
+    void (businessIdentity ? withBusinessIdentity(businessIdentity, handle) : handle());
+  });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  async function api(path, input, actor = 'admin') {
+  async function api(path, input, actor = 'admin', user = actor) {
     const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`, { method: input === undefined ? 'GET' : 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Demo-Actor': actor, 'X-Demo-User': actor }, body: input === undefined ? undefined : JSON.stringify(input), signal: AbortSignal.timeout(5000) });
+      headers: { 'Content-Type': 'application/json', 'X-Demo-Actor': actor, 'X-Demo-User': user }, body: input === undefined ? undefined : JSON.stringify(input), signal: AbortSignal.timeout(5000) });
     return { status: response.status, ...await response.json() };
   }
   const staff = (await terminal.staffSession({ actualUserId: 'admin', effectiveUserId: 'admin' })).token;
@@ -191,6 +197,43 @@ test('VAT-inclusive gross bounds offset, pays only the net and blocks every mana
   assert.deepEqual(await service.processQueuedExports(), { processed: 0 }); assert.deepEqual(await service.processQueuedExports(), { processed: 0 });
   assert.equal((await service.exports(context)).exports.length, 0); assert.equal(providerCalls.length, 0);
 }));
+
+test('office-save rejects a legacy own correction for platform admin working as an independent attestant despite a valid server receipt', async () => fixture(async f => {
+  await f.setArticle('scrap_reverse');
+  const review = await f.review(); await f.approve(review.approval); await f.terminal.attest(review.approval.id, f.staff);
+  const catalog = await f.api('/api/pricing/state');
+  const virtual = { ...catalog.users.find(user => user.id === 'admin'), id: '__platform-admin', name: 'Platform administrator', ownAttest: false };
+  const configured = await f.api('/api/pricing/users', { users: [...catalog.users, virtual] });
+  assert.equal(configured.status, 200, configured.error);
+  let base = (await f.api(OFFICE)).data;
+  const admin = base.users.find(user => user.id === 'admin'), anna = base.users.find(user => user.id === 'anna');
+  assert.equal(base.users.find(user => user.id === '__platform-admin').ownAttest, false);
+  assert.equal(anna.ownAttest, false);
+  await f.saveOffice(base, createCorrectionDraft(base, { cardId: 2053, articleId: ARTICLE, weightDelta: -0.25,
+    reason: 'Legacy administrator correction', document: 'Verified return document' }, { user: admin, now: '2026-10-09T11:00:00Z' }));
+  base = (await f.api(OFFICE)).data; const correction = base.corrections.at(-1);
+  await f.saveOffice(base, submitCorrection(base, correction.id, { user: admin }));
+  base = (await f.api(OFFICE)).data;
+  const submitted = base.corrections.find(row => row.id === correction.id);
+  assert.equal(submitted.actualUserId, 'admin'); assert.equal(submitted.effectiveUserId, 'admin'); assert.equal(submitted.submittedBy, 'admin');
+  const receipt = await f.api('/api/pricing/approved-corrections', { sourceSnapshotId: base.cards.find(card => card.id === 2053).pricingSnapshotId,
+    cardId: correction.serverId, rows: [{ articleId: ARTICLE, weightDelta: -0.25 }], reason: correction.reason,
+    correctedAt: correction.at, creatorId: 'admin', submittedBy: 'admin', document: correction.document }, 'anna');
+  assert.equal(receipt.status, 201, receipt.error); assert.equal(receipt.approvedBy, 'anna');
+  base = (await f.api(OFFICE)).data;
+  const next = approveCorrection(base, correction.id, { actualUser: virtual, user: anna });
+  const before = await f.repository.read(state => structuredClone(state.office));
+  const denied = await f.api(OFFICE, { base, next }, '__platform-admin', 'anna');
+  assert.equal(denied.status, 403, 'A valid independent receipt must not let the same human attest their legacy own correction while working as Anna');
+  assert.match(denied.error, /eget underlag/);
+  const after = await f.repository.read(state => structuredClone(state.office));
+  assert.deepEqual(after, before, 'Failed approval preserves the stored correction status and complete audit history');
+  assert.equal(after.corrections.find(row => row.id === correction.id).status, 'attest');
+  const independent = await f.api(OFFICE, { base, next: approveCorrection(base, correction.id, { user: anna }) }, 'anna');
+  assert.equal(independent.status, 200, independent.error);
+  assert.equal(independent.data.corrections.find(row => row.id === correction.id).status, 'approved', 'The receipt passes the real office validation for the independent attestant');
+}, { enabled: false, businessIdentity: { organisationId: 'jeroc-demo', platformAdmin: true,
+  actualUser: { id: '__platform-admin' }, user: { id: 'anna' }, credentialBusinessId: 'admin' } }));
 
 test('disabled accounting leaves the legacy customer review and terminal settlement flow unchanged', async () => fixture(async f => {
   await f.setArticle('standard_25'); await f.setCustomer({ vatRegistered: undefined });

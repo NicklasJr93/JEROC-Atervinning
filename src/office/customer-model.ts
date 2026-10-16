@@ -1,5 +1,6 @@
 import { demoPrivateIdentityNumber } from '../data';
 import { bankRecipientError, bankRecipientType, phoneNumberError } from '../data-format';
+import { isSelfOwned } from './self-ownership';
 import {
   amount,
   can,
@@ -21,6 +22,7 @@ export type ActorContext = {
   office?: string;
   now?: string;
   actor?: string;
+  selfBusinessUserIds?: readonly string[];
 };
 const money = (value: number) => {
   const result = Math.round((Math.abs(value) + Number.EPSILON) * 100) / 100;
@@ -686,9 +688,8 @@ export function approveCorrection(
     throw new Error('Rättelsen överstiger din attestgräns.');
   if (
     !context.user.ownAttest &&
-    [correction.submittedBy, correction.effectiveUserId].includes(
-      context.user.id,
-    )
+    isSelfOwned([correction.submittedBy, correction.effectiveUserId, correction.actualUserId],
+      [context.user.id, context.actualUser?.id], context.selfBusinessUserIds)
   )
     throw new Error('Du får inte attestera din egen rättelse.');
   const at = time(context);

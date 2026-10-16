@@ -6,6 +6,7 @@ import { afterDatabaseCommit } from './database-runtime.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { freezePurchaseAccounting, AccountingError } from './visma-accounting.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { principalOwnsUser } from './business-identity.mjs';
 import { validateCustomerDetails, normalizeCustomerDetails, normalizePaymentDetails, normalizeOriginAddress,
   normalizeAddress, validPaymentDetails, bankRecipientError, paymentDetailsSchema } from '../dist-server/domain-models.mjs';
 
@@ -610,7 +611,8 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         if (approval.status !== 'approved' || approval.approvedHash !== approval.snapshot.hash) throw new TerminalDemoError('Aktuell avräkningsversion måste vara kundgodkänd före intern attest.', 409, 'customer_approval_required');
         const frozenPayment = approval.snapshot.card.paymentDetails ?? approval.snapshot.customer.paymentProfile;
         if (!validPaymentDetails(frozenPayment)) throw new TerminalDemoError('Den kundgodkända betalningsinstruktionen har ogiltigt format. Skapa en ny granskningsversion före attest.', 422, 'payment_details_invalid');
-        if (!principal.user.ownAttest && (principal.user.id === approval.effectiveUserId || principal.actor.id === approval.actualUserId)) throw new TerminalDemoError('Du får inte attestera ditt eget underlag.', 403, 'own_attest_forbidden');
+        if (!principal.user.ownAttest && [approval.effectiveUserId, approval.actualUserId].some(userId => principalOwnsUser(principal, userId)))
+          throw new TerminalDemoError('Du får inte attestera ditt eget underlag.', 403, 'own_attest_forbidden');
         if (approval.snapshot.gross > principal.user.maxAttest) throw new TerminalDemoError('Beloppet överstiger din attestgräns.', 403, 'attest_limit');
         let bookingConnection;
         if (spirisAction === 'book') {

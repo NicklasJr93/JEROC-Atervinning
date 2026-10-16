@@ -105,12 +105,18 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     if (writes && (!req.headers['x-platform-csrf'] || req.headers['x-platform-csrf'] !== value.session.csrfToken))
       fail('Sessionsskyddet saknas eller har ändrats. Ladda om sidan.', 403, 'platform_csrf_required');
   }
+  const actualBusinessId = value => value.actor.platformAdmin ? '__platform-admin' : value.membership.businessUserId;
+  const credentialBusinessId = value => value.actor.platformAdmin && value.company.id === 'jeroc-demo' ? value.actor.businessId : undefined;
+  // Older JEROC sessions used the administrator's personnel-linked account for
+  // own platform authority. Resolve only that former self identity to the
+  // dedicated principal; explicit impersonation of another account stays scoped.
+  const effectiveBusinessId = value => value.actor.platformAdmin && value.company.id === 'jeroc-demo' && value.session.businessPrincipalVersion === undefined
+    && value.session.effectiveUserId === value.actor.businessId ? '__platform-admin' : value.session.effectiveUserId;
   async function businessUser(value) {
-    const result = await resolveCompanyUser(value.company.id, value.session.effectiveUserId);
-    if (!result || result.active === false || result.id !== value.session.effectiveUserId) fail('Det valda användarkontot är inte aktivt i bolaget.', 403, 'platform_account_inactive');
+    const id = effectiveBusinessId(value), result = await resolveCompanyUser(value.company.id, id);
+    if (!result || result.active === false || result.id !== id) fail('Det valda användarkontot är inte aktivt i bolaget.', 403, 'platform_account_inactive');
     return clone(result);
   }
-  const actualBusinessId = value => value.actor.platformAdmin ? value.company.id === 'jeroc-demo' ? value.actor.businessId : '__platform-admin' : value.membership.businessUserId;
   async function actualBusinessUser(value, user) {
     if (actualBusinessId(value) === user.id) return user;
     const result = await resolveCompanyUser(value.company.id, actualBusinessId(value));
@@ -120,8 +126,9 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
   function sessionDto(value, user, actualUser, state) {
     const accessible = state.companies.filter(company => value.actor.platformAdmin || state.memberships.some(member => member.userId === value.actor.id && member.organisationId === company.id && member.active));
     return { enabled: true, authenticated: true, actor: publicActor(value.actor), user, actualUser,
-      company: publicCompany(value.company), organisationId: value.company.id, effectiveUserId: value.session.effectiveUserId,
-      isSupportSession: Boolean(value.actor.platformAdmin && (value.company.id !== 'jeroc-demo' || value.session.effectiveUserId !== value.actor.businessId)),
+      ...(credentialBusinessId(value) && { selfBusinessUserIds: [actualUser.id, credentialBusinessId(value)] }),
+      company: publicCompany(value.company), organisationId: value.company.id, effectiveUserId: user.id,
+      isSupportSession: Boolean(value.actor.platformAdmin && (value.company.id !== 'jeroc-demo' || user.id !== actualBusinessId(value))),
       mustChangePassword: value.actor.mustChangePassword === true, csrfToken: value.session.csrfToken, generation: value.session.generation,
       expiresAt: value.session.expiresAt, companies: accessible.map(publicCompany) };
   }
@@ -138,23 +145,25 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     // or membership revocation cannot leave a stale authenticated context.
     await repository.read(state => { const current = identity(state, token); if (current.session.generation !== value.session.generation) fail('Bolaget har bytts. Ladda om sidan.', 409, 'platform_context_changed'); });
     return attachPlatformContext(req, Object.freeze({ organisationId: value.company.id, company: clone(value.company), storageSchema: value.company.storageSchema,
+      ...(credentialBusinessId(value) && { credentialBusinessId: credentialBusinessId(value) }),
       actor: { ...publicActor(value.actor), businessId: actualBusinessId(value) }, actualUser,
       user, actorId: value.actor.id, effectiveUserId: user.id, sessionKey: value.session.tokenHash, sessionId: value.session.tokenHash,
       csrfToken: value.session.csrfToken, generation: value.session.generation, expiresAt: value.session.expiresAt, platformAdmin: value.actor.platformAdmin === true,
-      isSupportSession: Boolean(value.actor.platformAdmin && (value.company.id !== 'jeroc-demo' || user.id !== value.actor.businessId)) }));
+      isSupportSession: Boolean(value.actor.platformAdmin && (value.company.id !== 'jeroc-demo' || user.id !== actualBusinessId(value))) }));
   }
   async function session(req) {
     await initialize();
     if (platformCookieToken(req) === undefined) return { enabled: true, authenticated: false };
     const { value, token } = await readSession(req, { allowPasswordChange: true, allowInactiveCompany: true });
-    const user = value.actor.mustChangePassword ? { id: value.session.effectiveUserId, name: value.actor.name, level: value.actor.platformAdmin ? 'Systemadmin' : 'VD', permissions: [], active: true } : await businessUser(value);
+    const user = value.actor.mustChangePassword ? { id: effectiveBusinessId(value), name: value.actor.name, level: value.actor.platformAdmin ? 'Systemadmin' : 'VD', permissions: [], active: true } : await businessUser(value);
     const actualUser = value.actor.mustChangePassword ? { ...user, id: actualBusinessId(value) } : await actualBusinessUser(value, user);
     return repository.read(state => { const current = identity(state, token, { allowPasswordChange: true, allowInactiveCompany: true });
       if (current.session.generation !== value.session.generation) fail('Bolaget har bytts. Ladda om sidan.', 409, 'platform_context_changed');
       return sessionDto(current, user, actualUser, state); });
   }
   function newSession(user, organisationId, effectiveUserId, token, tenantToken) {
-    return { userId: user.id, organisationId, effectiveUserId, tokenHash: hash(token), tenantTokenHash: hash(tenantToken), csrfToken: secret(), generation: randomUUID(), createdAt: at(), expiresAt: new Date(Date.parse(at()) + SESSION_MS).toISOString() };
+    return { userId: user.id, organisationId, effectiveUserId, businessPrincipalVersion: 2,
+      tokenHash: hash(token), tenantTokenHash: hash(tenantToken), csrfToken: secret(), generation: randomUUID(), createdAt: at(), expiresAt: new Date(Date.parse(at()) + SESSION_MS).toISOString() };
   }
   async function login(input, req) {
     await initialize();
@@ -179,7 +188,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       }
       const prior = platformCookieToken(req);
       if (prior) state.sessions = state.sessions.filter(value => value.tokenHash !== hash(prior));
-      const session = newSession(user, membership.organisationId, membership.businessUserId, token, tenantToken);
+      const session = newSession(user, membership.organisationId, user.platformAdmin ? '__platform-admin' : membership.businessUserId, token, tenantToken);
       state.sessions.push(session); user.lastLoginAt = stamp; state.attempts = state.attempts.filter(value => value.key !== key);
       audit(state, user, 'platform.login', { organisationId: session.organisationId, effectiveUserId: session.effectiveUserId, generation: session.generation });
       return { token };
@@ -214,7 +223,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       if (canonicalHash(current.actor.password) !== canonicalHash(password)) fail('Lösenordet har ändrats i en annan session.', 409, 'platform_context_changed');
       current.actor.mustChangePassword = false; delete current.actor.passwordSyncPending; delete current.actor.passwordSyncLeaseUntil; current.actor.passwordChangedAt = at();
       state.sessions = state.sessions.filter(item => item.userId !== current.actor.id);
-      state.sessions.push(newSession(current.actor, current.company.id, current.session.effectiveUserId, nextToken, tenantToken));
+      state.sessions.push(newSession(current.actor, current.company.id, effectiveBusinessId(current), nextToken, tenantToken));
       audit(state, current.actor, 'platform.password_changed', { organisationId: current.company.id }); });
     return { token: nextToken, tenantToken, value: await session({ ...req, headers: { cookie: `${PLATFORM_COOKIE}=${nextToken}` } }) };
   }
@@ -236,7 +245,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       const membership = state.memberships.find(item => item.userId === value.actor.id && item.organisationId === company?.id && item.active);
       if (!company || company.status !== 'active') fail('Bolaget är inte tillgängligt.', 409, 'platform_company_unavailable');
       if (!value.actor.platformAdmin && (!membership || parsed.effectiveUserId && parsed.effectiveUserId !== membership.businessUserId)) fail('Bolaget eller kontot omfattas inte av din inloggning.', 403, 'platform_company_forbidden');
-      return { company: clone(company), effectiveUserId: parsed.effectiveUserId ?? (value.actor.platformAdmin ? company.id === 'jeroc-demo' ? value.actor.businessId : '__platform-admin' : membership.businessUserId) };
+      return { company: clone(company), effectiveUserId: parsed.effectiveUserId ?? (value.actor.platformAdmin ? '__platform-admin' : membership.businessUserId) };
     });
     const selected = await resolveCompanyUser(target.company.id, target.effectiveUserId);
     if (!selected || selected.active === false || selected.id !== target.effectiveUserId) fail('Välj ett aktivt konto i bolaget.', 403, 'platform_account_inactive');

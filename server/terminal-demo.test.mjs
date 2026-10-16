@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { createPricingStore } from './pricing.mjs';
 import { createTerminalDemoRepository, TerminalDemoError } from './terminal-demo-storage.mjs';
 import { createTerminalDemoStore, createTerminalDemoApi } from './terminal-demo.mjs';
+import { withBusinessIdentity } from './business-identity.mjs';
 
 const fail = (operation, status, code) => assert.rejects(async () => operation(), (error) => error.status === status && (!code || error.code === code));
 const customer = { id: 'customer-build', name: 'Bygg & Riv AB', type: 'Företag', number: '5591237895',
@@ -387,6 +388,45 @@ test('attest limits, own-attest and changed effective rights are enforced agains
   await fail(() => f.service.read(f.kajsa), 403);
   const actingAnna = await f.staff('anna', 'admin');
   await fail(() => f.service.createTerminal({ name: 'Too much', username: 'extra', password: 'demolosen123', siteId: 'norrtalje' }, actingAnna), 403);
+}));
+
+test('the trusted platform identity cannot self-attest legacy terminal approvals after the account split', async () => fixture(async f => {
+  const admin = f.pricing.principal('admin'), users = f.pricing.read(admin).users;
+  users.push({ ...admin.user, id: '__platform-admin', name: 'Platform administrator', ownAttest: false });
+  users.push({ ...admin.user, id: 'other-admin', name: 'Other administrator' });
+  f.pricing.saveUsers({ users }, admin);
+  const root = await f.staff('__platform-admin');
+  const context = { organisationId: 'jeroc-demo', platformAdmin: true,
+    actualUser: { id: '__platform-admin' }, user: { id: '__platform-admin' }, credentialBusinessId: 'admin' };
+  const terminal = await f.create(), device = await f.service.login({ username: terminal.username, password: 'demolosen123' });
+  const approve = async (cardId, staff) => {
+    const approval = await f.service.send(f.payload(cardId, terminal.id), staff);
+    await f.service.respond(approval.id, { action: 'id_requested', termsAccepted: true }, device.token);
+    await f.service.confirmId(approval.id, staff);
+    return (await f.service.documentProjections({ approvalId: approval.id }))[0];
+  };
+  const legacy = [
+    await approve(9980, f.admin),
+    await approve(9981, await f.staff('kajsa', 'admin')),
+    await approve(9982, await f.staff('admin', 'other-admin')),
+  ];
+  assert.deepEqual(legacy.map(approval => [approval.actualUserId, approval.effectiveUserId]), [
+    ['admin', 'admin'], ['admin', 'kajsa'], ['other-admin', 'admin'],
+  ]);
+  const unrelated = await approve(9983, f.kajsa);
+  await f.restart();
+  assert.equal(f.pricing.principal('__platform-admin').user.ownAttest, false);
+  for (const approval of legacy) {
+    await fail(() => withBusinessIdentity(context, () => f.service.attest(approval.id, root)), 403, 'own_attest_forbidden');
+    assert.deepEqual((await f.service.documentProjections({ approvalId: approval.id }))[0], approval,
+      'Rejecting self-attest preserves the legacy identities, customer approval and frozen snapshot');
+  }
+  const attested = await withBusinessIdentity(context, () => f.service.attest(unrelated.id, root));
+  assert.equal(attested.status, 'attested');
+  const saved = (await f.service.documentProjections({ approvalId: unrelated.id }))[0];
+  assert.equal(saved.attestedUserId, '__platform-admin');
+  assert.equal(saved.actualUserId, 'kajsa'); assert.equal(saved.effectiveUserId, 'kajsa');
+  assert.deepEqual(saved.snapshot, unrelated.snapshot);
 }));
 
 test('approval read alone never reveals financial snapshots or grants price access', async () => fixture(async (f) => {

@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { principalOwnsUser } from './business-identity.mjs';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { createApplicationRepository } from './application-storage.mjs';
@@ -421,7 +422,7 @@ async function validateOffice(state, base, next, p, approvals, guardMaterialChan
       const delta = Math.round(change.after.weightDelta * price * 100) / 100;
       if (change.before?.status !== 'attest' || !receipt || receipt.total !== delta || change.after.amountDelta !== delta || change.after.unitPrice !== price || !receipt.rows.some(row => row.articleId === change.after.articleId && row.weight === change.after.weightDelta)) fail('Rättelsen måste motsvara ett verifierat prisunderlag och originalpris.');
       if (Math.abs(change.after.amountDelta ?? 0) > p.user.maxAttest) fail('Rättelsen överstiger din attestgräns.', 403);
-      if (!p.user.ownAttest && [change.before?.actualUserId, change.before?.effectiveUserId, change.before?.submittedBy].some(id => id === p.user.id || id === p.actor.id)) fail('Du får inte attestera ditt eget underlag.', 403);
+      if (!p.user.ownAttest && [change.before?.actualUserId, change.before?.effectiveUserId, change.before?.submittedBy].some(id => principalOwnsUser(p, id))) fail('Du får inte attestera ditt eget underlag.', 403);
     }
   }
   const paymentChanges = changedRecords(current.payments, base.payments, next.payments);

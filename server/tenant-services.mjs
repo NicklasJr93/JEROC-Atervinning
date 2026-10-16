@@ -230,8 +230,15 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
         ensureLogistics(state, { sites, ...source });
         // This identity has no password/personnel account and can only be selected
         // by the authenticated platform support administrator.
-        if (env.SCRAPPILOT_ORGANISATION_ID !== 'jeroc-demo' && !state.pricing.users.some(user => user.id === '__platform-admin')) {
-          const user = { id: '__platform-admin', name: 'Systemadmin', level: 'Systemadmin', permissions: [], maxAttest: 0, ownAttest: true, active: true };
+        if (!state.pricing.users.some(user => user.id === '__platform-admin')) {
+          // JEROC previously used its personnel-linked admin for own platform
+          // authority. Retain that account's financial policy as starting values
+          // without changing its staff permissions, site scope or credentials.
+          const legacyAdmin = organisationId === 'jeroc-demo'
+            ? state.pricing.users.find(user => user.id === 'admin' && user.level === 'Systemadmin' && user.active !== false) : undefined;
+          const user = { id: '__platform-admin', name: 'Systemadmin', level: 'Systemadmin', permissions: [],
+            maxAttest: legacyAdmin && Number.isFinite(legacyAdmin.maxAttest) && legacyAdmin.maxAttest >= 0 ? legacyAdmin.maxAttest : 0,
+            ownAttest: legacyAdmin ? legacyAdmin.ownAttest === true : true, active: true };
           state.pricing.users.push(user); state.office.users.push(structuredClone(user));
         }
       });

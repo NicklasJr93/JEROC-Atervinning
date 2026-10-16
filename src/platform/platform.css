@@ -50,6 +50,7 @@
 .platform-switcher { display: flex; align-items: flex-end; gap: 15px; flex-wrap: wrap; }
 .platform-switcher label { flex: 1; min-width: 220px; }
 .platform-switcher label > span { display: flex; align-items: center; gap: 6px; }
+.platform-switcher .platform-switcher-help { flex: 1 0 100%; order: 1; margin: 0; color: #587193; font-size: 12px; line-height: 1.5; }
 .platform-switcher .platform-error { flex: 1 0 100%; }
 .platform-table-wrap { overflow-x: auto; }
 .platform-table { width: 100%; border-collapse: collapse; font-size: 13px; }

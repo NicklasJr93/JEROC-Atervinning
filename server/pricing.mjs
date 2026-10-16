@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
+import { principalOwnsUser } from './business-identity.mjs';
 
 // Calculations stay in the store; application.mjs persists this state through
 // the shared repository without moving calculations into the clients.
@@ -1469,8 +1470,7 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     const preparedBy = request.creatorId ?? source.preparedBy;
     if (
       !principalValue.user.ownAttest &&
-      (preparedBy === principalValue.user.id ||
-        request.submittedBy === principalValue.user.id)
+      [preparedBy, request.submittedBy].some(userId => principalOwnsUser(principalValue, userId))
     )
       throw new PricingError(
         'Du får inte attestera dina egna rättelsekort.',
