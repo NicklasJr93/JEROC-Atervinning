@@ -5,6 +5,7 @@ import type { LogisticsDriverCommand, LogisticsOrderDetail } from '../office/log
 import DriverLogistics from './DriverLogistics';
 import { tenantPublicHeaders } from '../tenant-public-context';
 import { useTenantCompanyName } from '../use-tenant-company';
+import DemoLoginShortcuts from '../portal/DemoLoginShortcuts';
 import './driver.css';
 
 interface DriverSession {
@@ -191,6 +192,7 @@ export default function DriverApp() {
       <label htmlFor="driver-password">Lösenord</label><div className="driver-input"><LockKeyhole size={18} /><input id="driver-password" name="password" type="password" autoComplete="current-password" required disabled={loginBusy} value={password} onChange={event => setPassword(event.target.value)} /></div>
       {error && <p className="driver-error" role="alert">{error}</p>}
       <button className="driver-button primary" disabled={loginBusy}>{loginBusy ? <><LoaderCircle className="driver-spinner" size={18} />Loggar in…</> : 'Logga in'}</button>
+      <DemoLoginShortcuts realm="driver" disabled={loginBusy} onSelect={account => { setUsername(account.username); setPassword(account.password); }} />
     </form><p className="driver-login-help">Ditt konto administreras av {companyName}. <a href="/akeri">Logga in som åkeriets transportledare</a></p></main> : <main className="driver-main">
       <section className="driver-welcome"><div className="driver-avatar">{session.person.name.split(' ').filter(Boolean).map(part => part[0]).slice(0, 2).join('')}</div><div><span className="driver-eyebrow">{session.company.name}</span><h1>Hej, {session.person.name.split(' ')[0]}</h1><p>Här är dina tilldelade uppdrag.</p></div></section>
       <div className="driver-list-heading"><h2>Mina uppdrag</h2><button className="driver-refresh" disabled={ordersLoading || Boolean(busyOrder) || logoutBusy} onClick={() => void refreshOrders(true)} aria-label="Uppdatera uppdrag"><RefreshCw size={18} className={ordersLoading ? 'driver-spinner' : ''} /></button></div>

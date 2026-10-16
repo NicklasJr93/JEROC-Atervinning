@@ -14,11 +14,12 @@ function number(prefix) {
   const sum = [...prefix].reduce((total, value, index) => { let digit = Number(value) * (index % 2 === 0 ? 2 : 1); return total + (digit > 9 ? digit - 9 : digit); }, 0);
   return `${prefix}${(10 - sum % 10) % 10}`;
 }
-async function fixture(run, { privateBootstrap = true, postgres = false } = {}) {
+async function fixture(run, { privateBootstrap = true, postgres = false, demoAutoSession = true, primePortalDemo = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'scrappilot-gateway-'));
   const env = { JEROC_APPLICATION_DB_PATH: join(directory, 'application.sqlite'), JEROC_ENVIRONMENT_DB_PATH: join(directory, 'environment.sqlite'),
     JEROC_TERMINAL_DB_PATH: join(directory, 'terminal.sqlite'), JEROC_DOCUMENT_DB_PATH: join(directory, 'documents.sqlite'),
     JEROC_ARTICLE_MEDIA_DB_PATH: join(directory, 'media.sqlite'), JEROC_PLATFORM_DB_PATH: join(directory, 'platform.sqlite'), JEROC_TENANT_DATA_DIR: directory,
+    JEROC_DEMO_AUTO_SESSION: demoAutoSession ? 'true' : 'false',
     ...(privateBootstrap && { SCRAPPILOT_PLATFORM_ADMIN_PASSWORD: 'Private-Gateway-Fixture-2026!' }) };
   let pool, schema;
   if (postgres) {
@@ -28,6 +29,10 @@ async function fixture(run, { privateBootstrap = true, postgres = false } = {}) 
   }
   let gateway, server;
   try {
+    if (primePortalDemo) {
+      const seeded = await createTenantGateway({ env: { ...env, JEROC_DEMO_AUTO_SESSION: 'true' } });
+      await seeded.close();
+    }
     gateway = await createTenantGateway({ env });
     server = createServer((req, res) => { const url = new URL(req.url, 'http://localhost'); void (async () => {
       if (await gateway.selectPage(req, res, url) || await gateway(req, res, url)) return;
@@ -71,6 +76,114 @@ test('public demo password cannot bootstrap platform; mobile keeps its existing 
   assert.equal((await f.request('/api/employee/demo-config')).status, 200);
   const state = await f.gateway.repository.read(state => state); assert.equal(state.users.length, 0);
 }, { privateBootstrap: false }));
+
+const portalDemoDefaults = [
+  { kind: 'driver', id: 'portal-demo-driver-v1', username: 'demo.chauffor', password: 'ChaufforDemo2026!', subjectId: 'person-oskar' },
+  { kind: 'carrier', id: 'portal-demo-carrier-v1', username: 'demo.akeri', password: 'AkeriDemo2026!', subjectId: 'carrier-roslagen' },
+  { kind: 'customer', id: 'portal-demo-customer-v1', username: 'demo.kund', password: 'KundDemo2026!', subjectId: 'customer-build' },
+];
+
+test('public portal demo configs advertise only working original JEROC fixtures and GET leaves all persisted state unchanged', () => fixture(async f => {
+  const company = await f.gateway.repository.read(state => structuredClone(state.companies.find(value => value.id === 'jeroc-demo')));
+  const service = await f.gateway.bundle(company), repository = await service.applicationApi.getRepository();
+  const before = await repository.read(state => structuredClone(state));
+  const platformBefore = await f.gateway.repository.read(state => structuredClone(state));
+  assert.equal(f.cookies.size, 0);
+  for (const { kind, id, username, password } of portalDemoDefaults) {
+    const config = await f.request(`/api/${kind}/demo-config`);
+    assert.equal(config.status, 200, JSON.stringify(config.body));
+    assert.match(config.response.headers.get('cache-control'), /no-store/);
+    assert.deepEqual(Object.keys(config.body).sort(), ['accounts', 'companyId', 'companyName', 'enabled']);
+    assert.equal(config.body.companyId, 'jeroc-demo'); assert.equal(config.body.companyName, company.name);
+    assert.equal(config.body.enabled, true); assert.equal(config.body.accounts.length, 1);
+    const account = config.body.accounts[0];
+    assert.deepEqual(Object.keys(account).sort(), ['id', 'label', 'password', 'username']);
+    assert.equal(account.id, id);
+    assert.ok(typeof account.label === 'string' && account.label.length > 0);
+    assert.equal(account.username, username); assert.equal(account.password, password);
+  }
+  assert.equal(f.cookies.size, 0, 'Public configuration does not create a session');
+  assert.deepEqual(await repository.read(state => structuredClone(state)), before);
+  assert.deepEqual(await f.gateway.repository.read(state => structuredClone(state)), platformBefore);
+  for (const { kind, id, username, password, subjectId } of portalDemoDefaults) {
+    const result = await f.request(`/api/${kind}/login`, { username, password });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(f.cookies.has('jeroc_platform'), false);
+    const session = await f.request(`/api/${kind}/session`);
+    assert.equal(session.status, 200, JSON.stringify(session.body));
+    if (kind === 'driver') {
+      const account = before.personnelAuth.accounts.find(account => account.username === username);
+      const person = before.personnel.people.find(person => person.id === account.personId);
+      assert.equal(account.id, id); assert.equal(person.id, subjectId);
+      assert.equal(result.body.person.id, subjectId); assert.equal(result.body.person.driverId, 'oskar');
+      assert.equal(result.body.person.companyId, 'carrier-roslagen');
+    } else {
+      const account = before.logisticsAuth.accounts.find(account => account.kind === kind && account.username === username);
+      assert.equal(account.id, id); assert.equal(account.subjectId, subjectId);
+      assert.equal((kind === 'customer' ? result.body.customer : result.body.company).id, subjectId);
+    }
+  }
+}));
+
+test('office account edits preserve portal fixture provenance and existing sessions reject repurposed subjects', () => fixture(async f => {
+  await f.admin();
+  const company = await f.gateway.repository.read(state => structuredClone(state.companies.find(value => value.id === 'jeroc-demo')));
+  const service = await f.gateway.bundle(company), repository = await service.applicationApi.getRepository();
+  const accountFor = (state, kind, id) => (kind === 'driver' ? state.personnelAuth : state.logisticsAuth).accounts.find(account => account.id === id);
+  const sessionsFor = (state, kind) => (kind === 'driver' ? state.personnelAuth : state.logisticsAuth).sessions;
+  for (const { kind, id, username, password, subjectId } of portalDemoDefaults) {
+    const before = await repository.read(state => structuredClone(accountFor(state, kind, id)));
+    assert.equal(before.demoFixture, 'portal-demo-v1');
+    const saved = kind === 'driver'
+      ? await f.request('/api/application/personnel', { action: 'externalAccount.save', personId: subjectId, username, active: true, siteIds: ['norrtalje'] })
+      : await f.request('/api/logistics/office', { action: 'account.save', account: { id, kind, subjectId, username, active: true } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    const after = await repository.read(state => structuredClone(accountFor(state, kind, id)));
+    assert.ok(after); assert.equal(after.id, before.id); assert.equal(after.demoFixture, before.demoFixture);
+    assert.deepEqual(after.password, before.password, 'Editing an account without a password preserves its stored hash');
+    const login = await f.request(`/api/${kind}/login`, { username, password });
+    assert.equal(login.status, 200, JSON.stringify(login.body));
+    const session = await f.request(`/api/${kind}/session`);
+    assert.equal(session.status, 200, JSON.stringify(session.body));
+    const sessions = await repository.read(state => structuredClone(sessionsFor(state, kind)));
+    await repository.transact(state => {
+      const subject = kind === 'driver' ? state.personnel.people.find(person => person.id === subjectId)
+        : kind === 'carrier' ? state.personnel.companies.find(company => company.id === subjectId)
+          : state.office.customers.find(customer => customer.id === subjectId);
+      subject.name = `Repurposed ${kind}`;
+    });
+    const rejected = await f.request(`/api/${kind}/session`);
+    assert.equal(rejected.status, 401, JSON.stringify(rejected.body));
+    assert.deepEqual(await repository.read(state => structuredClone(sessionsFor(state, kind))), sessions,
+      'The session remains stored: rejection comes from rechecking the fixture identity');
+    const config = await f.request(`/api/${kind}/demo-config`);
+    assert.equal(config.status, 200); assert.equal(config.body.enabled, false); assert.deepEqual(config.body.accounts, []);
+  }
+}));
+
+test('disabling public portal demos hides persisted fixtures and rejects their existing passwords without rotating accounts', () => fixture(async f => {
+  const company = await f.gateway.repository.read(state => structuredClone(state.companies.find(value => value.id === 'jeroc-demo')));
+  const service = await f.gateway.bundle(company), repository = await service.applicationApi.getRepository();
+  const before = await repository.read(state => structuredClone(state));
+  for (const { kind, username } of portalDemoDefaults) {
+    const accounts = kind === 'driver' ? before.personnelAuth.accounts : before.logisticsAuth.accounts;
+    assert.ok(accounts.some(account => account.username === username), 'A marked fixture from the enabled startup must survive disabling demos');
+    const config = await f.request(`/api/${kind}/demo-config`);
+    assert.equal(config.status, 200, JSON.stringify(config.body)); assert.equal(config.body.companyId, 'jeroc-demo');
+    assert.equal(config.body.enabled, false); assert.deepEqual(config.body.accounts, []);
+    assert.match(config.response.headers.get('cache-control'), /no-store/);
+  }
+  assert.deepEqual(await repository.read(state => structuredClone(state)), before);
+  for (const { kind, username, password } of portalDemoDefaults) {
+    const result = await f.request(`/api/${kind}/login`, { username, password });
+    assert.equal(result.status, 401, JSON.stringify(result.body));
+  }
+  const after = await repository.read(state => structuredClone(state));
+  assert.deepEqual(after.personnelAuth.accounts, before.personnelAuth.accounts);
+  assert.deepEqual(after.logisticsAuth.accounts, before.logisticsAuth.accounts);
+  assert.deepEqual(after.personnelAuth.sessions, before.personnelAuth.sessions);
+  assert.deepEqual(after.logisticsAuth.sessions, before.logisticsAuth.sessions);
+}, { demoAutoSession: false, primePortalDemo: true }));
 
 test('JEROC platform administrator opens the NVV sandbox through its own unscoped identity while impersonated users remain restricted', () => fixture(async f => {
   const sandboxPath = '/api/environment/nvv/sandbox';
@@ -246,6 +359,19 @@ test('public company link selects a login scope but never grants office, staff, 
   const selected = await f.request(`/mobil?company=${company.company.id}`); assert.equal(selected.status, 303);
   const context = await f.request('/api/platform/tenant-context'); assert.equal(context.body.companyId, company.company.id);
   const config = await f.request('/api/employee/demo-config'); assert.equal(config.body.companyId, company.company.id); assert.equal(config.body.enabled, false);
+  const tenant = await f.gateway.repository.read(state => structuredClone(state.companies.find(value => value.id === company.company.id)));
+  const service = await f.gateway.bundle(tenant), repository = await service.applicationApi.getRepository();
+  const before = await repository.read(state => structuredClone(state));
+  for (const { kind } of portalDemoDefaults) {
+    const portal = await f.request(`/api/${kind}/demo-config`);
+    assert.equal(portal.status, 200, JSON.stringify(portal.body)); assert.equal(portal.body.companyId, company.company.id);
+    assert.equal(portal.body.companyName, company.company.name); assert.equal(portal.body.enabled, false);
+    assert.deepEqual(portal.body.accounts, []); assert.match(portal.response.headers.get('cache-control'), /no-store/);
+  }
+  assert.deepEqual(await repository.read(state => structuredClone(state)), before);
+  for (const { kind, username, password } of portalDemoDefaults) {
+    assert.equal((await f.request(`/api/${kind}/login`, { username, password })).status, 401);
+  }
   for (const path of ['/api/application/office', '/api/environment/session', '/api/terminal-demo/state', '/api/documents/same', `/api/article-media/${randomUUID()}`])
     assert.equal((await f.request(path)).status, 401, path);
   assert.equal((await f.request('/api/carrier/session', undefined, { 'x-client-company': 'jeroc-demo' })).status, 409);

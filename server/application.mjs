@@ -1225,9 +1225,9 @@ export function createApplicationService({ repository, env = process.env, seed =
     } catch { json(res, 503, { error: 'Databasen kunde inte bekräfta ändringen. Försök igen.', memoryOnly: false }); }
     return true;
   }
-  const driverApi = createDriverApi({getRepository:getRepo,readBody:body,json});
+  const driverApi = createDriverApi({getRepository:getRepo,readBody:body,json,env});
   const employeeApi = createMobileEmployeeApi({getRepository:getRepo,readBody:body,json,siteProvider,env});
-  const logisticsApi = createLogisticsApi({getRepository:getRepo,readBody:body,json,siteProvider,environmentProvider});
+  const logisticsApi = createLogisticsApi({getRepository:getRepo,readBody:body,json,siteProvider,environmentProvider,env});
   const officePrincipal = (state, req) => requestPrincipal({ principal: (actor, user) => resolvePricingPrincipal(state.pricing.users, actor, user) }, req);
   const sicknessFilesApi = createSicknessFilesApi({ env, getRepository: getRepo, ownPrincipal: employeeRequestPrincipal, officePrincipal, json });
   const sicknessApi = async (req, res, url) => {

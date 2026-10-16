@@ -7,6 +7,7 @@ import { ensureLogistics, driverOrderView, applyDriverAction, validateLogisticsT
 import { employeeTimeGate, employeeTimeLifecycle } from './employee-time.mjs';
 import { migratePersonnelFacilityAccess, syncPersonnelFacilityAccess, personnelFacilityScope } from './facility-access.mjs';
 import { assertVehiclePlanningChange } from './personnel-vehicles.mjs';
+import { portalDemoConfig, portalDemoAccountAllowed, portalDemoAccountMetadata } from './portal-demo.mjs';
 import { personSchema, companySchema, employmentSchema, salarySchema, scheduleSchema, absenceSchema, competencySchema, personnelPlanIssues, applyTransportChange, transportSchema,
   normalizePhoneNumber, phoneNumberError, normalizeOriginAddress, normalizeAddress, normalizeOrganisationNumber, customerIdentifierError } from '../dist-server/domain-models.mjs';
 
@@ -64,7 +65,7 @@ function saveExternalAccount(state,p,person,input,transactionAudit,siteCatalog) 
   if(state.personnelAuth.accounts.some(a=>a.personId!==person.id && a.username===username))fail('Inloggningsnamnet används redan.',422);
   if(!old && !input.password)fail('Ange ett lösenord för det nya kontot.',422);
   const password=input.password===undefined?old?.password:passwordHash(parse(z.string().min(10).max(200),input.password));
-  const account={personId:person.id,username,active,...(siteIds?{siteIds:[...new Set(siteIds)]}:{}),createdAt:old?.createdAt??stamp(),updatedAt:stamp(),lastLoginAt:old?.lastLoginAt,password};
+  const account={...portalDemoAccountMetadata(old),personId:person.id,username,active,...(siteIds?{siteIds:[...new Set(siteIds)]}:{}),createdAt:old?.createdAt??stamp(),updatedAt:stamp(),lastLoginAt:old?.lastLoginAt,password};
   state.personnelAuth.accounts=state.personnelAuth.accounts.filter(a=>a.personId!==person.id).concat(account);state.personnelAuth.sessions=state.personnelAuth.sessions.filter(s=>s.personId!==person.id);
   state.personnel.externalAccounts=state.personnelAuth.accounts.map(({password,...a})=>a);
   syncPersonnelFacilityAccess(state,{siteCatalog,confirmedExternalPersonIds:siteIds && input.siteIds!==undefined?[person.id]:[]});
@@ -85,7 +86,7 @@ function saveEmployeeAccount(state,p,person,input,transactionAudit) {
   if(state.personnelAuth.accounts.some(account=>account.personId!==person.id && account.username===username))fail('Inloggningsnamnet används redan.',422);
   if(!old && !input.password)fail('Ange ett lösenord för det nya kontot.',422);
   const password=input.password===undefined?old.password:passwordHash(parse(z.string().min(10).max(200),input.password));
-  const account={personId:person.id,username,active,createdAt:old?.createdAt??stamp(),updatedAt:stamp(),lastLoginAt:old?.lastLoginAt,password};
+  const account={...portalDemoAccountMetadata(old),personId:person.id,username,active,createdAt:old?.createdAt??stamp(),updatedAt:stamp(),lastLoginAt:old?.lastLoginAt,password};
   state.personnelAuth.accounts=state.personnelAuth.accounts.filter(value=>value.personId!==person.id).concat(account);
   state.personnelAuth.sessions=state.personnelAuth.sessions.filter(session=>session.personId!==person.id);
   state.personnel.externalAccounts=state.personnelAuth.accounts.map(({password,...value})=>value);
@@ -379,7 +380,7 @@ export function validatePersonnelTransportChange(state,previous,next) {
   }
 }
 
-export function createDriverApi({getRepository,readBody,json}) {
+export function createDriverApi({getRepository,readBody,json,env=process.env}) {
   const cookieName='jeroc_driver';
   const orderView=order=>Object.fromEntries(['id','customerId','customerName','address','city','contact','phone','action','vesselType','material','vesselSize','pickupVessel','replacementVessel','notes','lat','lng','durationMinutes','status','date','startMinute','driverId','vehicleId','requestedDate','updatedAt','bookingVersion','requiredCompetencies','detail'].filter(key=>order[key]!==undefined).map(key=>[key,clone(order[key])]).concat([['audit',[]]]));
   const companyView=company=>({id:company?.id??'jeroc',name:company?.name??'JEROC Återvinning AB'});
@@ -404,6 +405,10 @@ export function createDriverApi({getRepository,readBody,json}) {
       if(!['GET','POST'].includes(req.method))fail('Metoden stöds inte.',405);
       const path=url.pathname.slice('/api/driver/'.length),payload=req.method==='POST'?await readBody(req):null;
       const repository=await getRepository();
+      if(path==='demo-config' && req.method==='GET') {
+        const config=await repository.read(state=>portalDemoConfig(state,'driver',env),{domains:['metadata','pricing','personnel','personnelAuth','transport','office','logistics','logisticsAuth']});
+        res.setHeader('Cache-Control','private, no-store');json(res,200,config);return true;
+      }
       const operate=(state,_,transactionAudit=[])=>{
         ensurePersonnel(state);const auth=state.personnelAuth??={accounts:[],sessions:[],attempts:[]};
         if(req.method==='POST') {
@@ -415,13 +420,13 @@ export function createDriverApi({getRepository,readBody,json}) {
           const input=parse(z.object({username:z.string().trim().toLowerCase().min(1).max(80),password:z.string().min(1).max(200)}),payload),address=hash(req.socket.remoteAddress??'unknown');
           if(auth.attempts.filter(a=>a.address===address).length>=12)fail('För många inloggningsförsök. Vänta 15 minuter.',429);
           const account=auth.accounts.find(a=>a.username===input.username),person=state.personnel.people.find(p=>p.id===account?.personId);
-          if(!account?.active || !enabledPerson(state,person) || !passwordValid(input.password,account.password)){auth.attempts.push({address,at:stamp()});return {failure:'Fel inloggning eller inaktivt konto.'};}
+          if(!account?.active || !enabledPerson(state,person) || !portalDemoAccountAllowed(state,'driver',account,env) || !passwordValid(input.password,account.password)){auth.attempts.push({address,at:stamp()});return {failure:'Fel inloggning eller inaktivt konto.'};}
           const token=randomBytes(32).toString('base64url');auth.sessions.push({tokenHash:hash(token),personId:person.id,companyId:person.companyId,expiresAt:new Date(Date.now()+8*3600000).toISOString()});account.lastLoginAt=stamp();state.personnel.externalAccounts=auth.accounts.map(({password,...a})=>a);
           transactionAudit.push({action:'driver.login',personId:person.id,at:stamp()});
           return {cookie:token,value:sessionView(state,person)};
         }
         const session=auth.sessions.find(s=>s.tokenHash===hash(cookie(req)??'') && Date.parse(s.expiresAt)>Date.now()),person=state.personnel.people.find(p=>p.id===session?.personId),account=auth.accounts.find(a=>a.personId===person?.id);
-        if(!session || !enabledPerson(state,person) || !account?.active || session.companyId!==person.companyId)fail('Logga in som chaufför.',401);
+        if(!session || !enabledPerson(state,person) || !account?.active || !portalDemoAccountAllowed(state,'driver',account,env) || session.companyId!==person.companyId)fail('Logga in som chaufför.',401);
         if(path==='logout' && req.method==='POST'){auth.sessions=auth.sessions.filter(s=>s!==session);return {cookie:'',logout:true,value:{ok:true}};}
         const driver=state.transport.drivers.find(d=>d.id===person.driverId);
         if(!driver || driver.personId!==person.id || driver.companyId!==person.companyId)fail('Kontot saknar en giltig koppling till förare och åkeri.',403);
@@ -463,7 +468,7 @@ export function createDriverApi({getRepository,readBody,json}) {
         fail('Chaufförsidan finns inte.',404);
       };
       const result=req.method==='GET' && repository.read
-        ? await repository.read(operate,{domains:['pricing','personnel','personnelAuth','transport','logistics']})
+        ? await repository.read(operate,{domains:['metadata','pricing','personnel','personnelAuth','transport','logistics']})
         : await repository.transact(operate);
       if(result.failure)json(res,401,{error:result.failure});else {if(result.cookie!==undefined)setCookie(res,result.cookie,req,result.logout?0:8*3600);json(res,200,result.value);}
     } catch(error) {json(res,error instanceof PricingError?error.status:503,{error:error instanceof PricingError?error.message:'Chaufförstjänsten kunde inte nås.',...(error.code?{code:error.code}:{}),...(error.gate?{gate:error.gate}:{})});}

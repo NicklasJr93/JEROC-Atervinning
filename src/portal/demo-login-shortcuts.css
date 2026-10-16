@@ -1,0 +1,10 @@
+.portal-demo-login { margin-top: 20px; padding-top: 18px; border-top: 1px solid #e0e9f5; text-align: left; }
+.portal-demo-login .portal-demo-login-title { margin: 0 0 10px; color: #506b8f; font-size: 12px; font-weight: 650; }
+.portal-demo-login-accounts { display: flex; flex-direction: column; gap: 8px; }
+.portal-demo-login-accounts button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 11px 13px; border: 1px solid #cfdef3; border-radius: 8px; background: #f5f9ff; color: #245186; font: inherit; font-size: 13px; font-weight: 600; line-height: 1.4; text-align: left; cursor: pointer; }
+.portal-demo-login-accounts button svg { flex-shrink: 0; color: #1774dc; }
+.portal-demo-login-accounts button span { min-width: 0; overflow-wrap: anywhere; }
+.portal-demo-login-accounts button:hover:not(:disabled) { border-color: #86b5ed; background: #edf5ff; }
+.portal-demo-login-accounts button:focus-visible { outline: 2px solid #1675e2; outline-offset: 2px; }
+.portal-demo-login-accounts button:disabled { cursor: default; opacity: .5; }
+.portal-demo-login > small { display: block; margin-top: 10px; color: #7186a1; font-size: 11px; line-height: 1.5; }

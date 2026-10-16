@@ -4,7 +4,8 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.12.1. Aktuell kontorsversion: 0.29.3.
+Aktuell mobilwebbversion: 0.12.1. Aktuell kontorsversion: 0.29.4.
+ÄL 125: demoinloggning med förifyllning på Chaufför, Åkeri och Kundportal.
 ÄL 124 är genomförd 2026-10-16: förifyllt NVV-supportprov direkt i kontoret,
 utan Render Shell. Själva nya myndighetsanropet körs från användarens testknapp.
 Behörighetsrättning i 0.29.3: systemadmins egen plattformsbehörighet hålls
@@ -2980,3 +2981,16 @@ Status: Implementerad 2026-10-16 i kontor 0.29.2.
   Valet visar det faktiska kontot, även när ett annat systemadminkonto valts.
   Tidigare personidentitet bevaras för spärrar mot självattest av tid och
   ekonomiska underlag. Kopplingen ger inga extra roller eller anläggningar.
+
+ÄL 125 – Demoinloggning på externa portaler
+Status: Implementerad 2026-10-16 i bygge 0.29.4.
+- Lägg Prova demon-knappar på Chaufför, Åkeri och Kundportal, enligt samma
+  princip som gårdsappen. Knappen fyller användarnamn och lösenord;
+  användaren trycker därefter själv på Logga in.
+- Använd separata fiktiva demokonton i JEROC:s demo. Förifyllningen hämtas
+  från servern för valt bolag och visas bara för tillgängliga demokonton.
+- Skapa demokonton vid uppstart, aldrig vid läsning av inloggningssidan.
+  Bevara befintliga, ändrade och inaktiverade konton samt bolagsisoleringen.
+- Kontoret och plattformens systemadmininloggning omfattas inte.
+- Verifierat: 22 servertester, 10 browserfall och produktionsbygge.
+  Guide: docs/portaler-demoinlogg-2026-10-16.md.

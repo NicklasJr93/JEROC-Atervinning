@@ -15,6 +15,7 @@ import { createOpenPaymentsClient } from './openpayments-client.mjs';
 import { createMailService } from './mail-service.mjs';
 import { createMailApi } from './mail-api.mjs';
 import { getPlatformContext } from './platform-auth.mjs';
+import { ensurePortalDemoAccounts } from './portal-demo.mjs';
 import { can } from '../dist-server/domain-models.mjs';
 
 /** All repositories, queues and provider connections belong to one immutable
@@ -228,6 +229,7 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
       const [sites, source] = await Promise.all([environmentApi.getSites(), environmentApi.getLogisticsSource()]);
       await (await applicationApi.getRepository()).transact(state => {
         ensureLogistics(state, { sites, ...source });
+        ensurePortalDemoAccounts(state, env);
         // This identity has no password/personnel account and can only be selected
         // by the authenticated platform support administrator.
         if (!state.pricing.users.some(user => user.id === '__platform-admin')) {

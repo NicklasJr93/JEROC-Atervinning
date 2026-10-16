@@ -6,6 +6,7 @@ import { ensurePersonnel, refreshStaffingTasks } from './personnel.mjs';
 import { applyTransportChange, personnelPlanIssues, transportSchema, normalizeAddress, addressError,
   normalizePhoneNumber, phoneNumberError, normalizeOrganisationNumber } from '../dist-server/domain-models.mjs';
 import { ensureWorkOrderWeighing, syncWorkOrderWeighing, workOrderWeighing, startWorkOrderWeighing, saveWorkOrderWeighing, completeWorkOrderWeighing } from './work-order-weighing.mjs';
+import { portalDemoConfig, portalDemoAccountAllowed, portalDemoAccountMetadata } from './portal-demo.mjs';
 
 const copy = value => structuredClone(value);
 const stamp = () => new Date().toISOString();
@@ -460,7 +461,7 @@ function saveAccount(state, principal, command, transactionAudit) {
   if (!previous && !input.password) fail('Ange lösenord för det nya kontot.', 422);
   let password = previous?.password;
   if (input.password) { const salt = randomBytes(24).toString('hex'); password = { salt, digest: scryptSync(input.password, salt, 64).toString('hex') }; }
-  const account = { id: previous?.id ?? uid(`${input.kind}-account`), kind: input.kind, subjectId: input.subjectId, username: input.username, active: input.active,
+  const account = { ...portalDemoAccountMetadata(previous), id: previous?.id ?? uid(`${input.kind}-account`), kind: input.kind, subjectId: input.subjectId, username: input.username, active: input.active,
     createdAt: previous?.createdAt ?? stamp(), updatedAt: stamp(), lastLoginAt: previous?.lastLoginAt, password };
   if (previous) accounts[accounts.indexOf(previous)] = account; else accounts.push(account);
   state.logisticsAuth.sessions = state.logisticsAuth.sessions.filter(session => session.accountId !== account.id);
@@ -628,20 +629,24 @@ function carrierCommand(state, company, command, transactionAudit) {
 function passwordValid(password, stored) { if (!stored) return false; const actual = scryptSync(password, stored.salt, 64), expected = Buffer.from(stored.digest, 'hex'); return actual.length === expected.length && timingSafeEqual(actual, expected); }
 function cookieValue(req, name) { return req.headers.cookie?.split(';').map(value => value.trim()).find(value => value.startsWith(`${name}=`))?.slice(name.length + 1); }
 function portalSubject(state, kind, account) { return kind === 'customer' ? state.office.customers.find(customer => customer.id === account?.subjectId) : state.personnel.companies.find(company => company.id === account?.subjectId); }
-function portalSession(state, req, kind) {
+function portalSession(state, req, kind, env) {
   const token = cookieValue(req, `jeroc_${kind}`), session = state.logisticsAuth.sessions.find(session => session.kind === kind && session.tokenHash === hash(token ?? '') && Date.parse(session.expiresAt) > Date.now());
   const account = state.logisticsAuth.accounts.find(account => account.id === session?.accountId && account.kind === kind), subject = portalSubject(state, kind, account);
-  if (!session || !account?.active || !subject || account.subjectId !== session.subjectId) fail('Logga in igen för att fortsätta.', 401);
+  if (!session || !account?.active || !subject || !portalDemoAccountAllowed(state, kind, account, env) || account.subjectId !== session.subjectId) fail('Logga in igen för att fortsätta.', 401);
   return { session, account, subject };
 }
-export function createLogisticsApi({ getRepository, readBody, json, siteProvider = async () => [], environmentProvider = async () => ({ classifications: [], inventory: [] }) }) {
+export function createLogisticsApi({ getRepository, readBody, json, siteProvider = async () => [], environmentProvider = async () => ({ classifications: [], inventory: [] }), env = process.env }) {
   return async (req, res, url) => {
-    const office = url.pathname === '/api/logistics/office', summary = url.pathname === '/api/logistics/summary'; const match = url.pathname.match(/^\/api\/(customer|carrier)\/(session|login|logout|state|assets|orders|requests|actions)$/);
+    const office = url.pathname === '/api/logistics/office', summary = url.pathname === '/api/logistics/summary'; const match = url.pathname.match(/^\/api\/(customer|carrier)\/(demo-config|session|login|logout|state|assets|orders|requests|actions)$/);
     if (!office && !summary && !match) return false;
     try {
       if (!['GET', 'POST'].includes(req.method)) fail('Metoden stöds inte.', 405);
       if (req.method === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) fail('Anropet måste komma från samma webbplats.', 403);
       const repository = await getRepository();
+      if (match?.[2] === 'demo-config' && req.method === 'GET') {
+        const config = await repository.read(state => portalDemoConfig(state, match[1], env), { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth', 'transport', 'office', 'logistics', 'logisticsAuth'] });
+        res.setHeader('Cache-Control', 'private, no-store'); json(res, 200, config); return true;
+      }
       if (summary) {
         if (req.method !== 'GET') fail('Metoden stöds inte.', 405);
         const operate = (state, revision) => {
@@ -693,12 +698,12 @@ export function createLogisticsApi({ getRepository, readBody, json, siteProvider
           const input = parse(z.object({ username: z.string().trim().toLowerCase().min(1).max(80), password: z.string().min(1).max(200) }).strict(), payload), address = hash(req.socket.remoteAddress ?? 'unknown');
           if (auth.attempts.filter(attempt => attempt.kind === kind && attempt.address === address).length >= 12) fail('För många inloggningsförsök. Vänta 15 minuter.', 429);
           const account = auth.accounts.find(account => account.kind === kind && account.username === input.username), subject = portalSubject(state, kind, account);
-          if (!account?.active || !subject || !passwordValid(input.password, account.password)) { auth.attempts.push({ kind, address, at: stamp() }); return { error: 'Fel inloggning eller inaktivt konto.', status: 401 }; }
+          if (!account?.active || !subject || !portalDemoAccountAllowed(state, kind, account, env) || !passwordValid(input.password, account.password)) { auth.attempts.push({ kind, address, at: stamp() }); return { error: 'Fel inloggning eller inaktivt konto.', status: 401 }; }
           const token = randomBytes(32).toString('base64url'); auth.sessions.push({ kind, tokenHash: hash(token), accountId: account.id, subjectId: subject.id, expiresAt: new Date(Date.now() + 8 * 3600000).toISOString() }); account.lastLoginAt = stamp();
           audit(state, { id: `${kind}:${account.id}`, name: account.username }, 'portal.login', { kind, subjectId: subject.id }, transactionAudit);
           return { token, kind, value: kind === 'customer' ? { demo: true, customer: { id: subject.id, name: subject.name } } : { demo: true, company: copy(subject) } };
         }
-        const { session, account, subject } = portalSession(state, req, kind);
+        const { session, account, subject } = portalSession(state, req, kind, env);
         if (path === 'logout' && req.method === 'POST') { auth.sessions = auth.sessions.filter(value => value !== session); return { token: '', kind, value: { ok: true } }; }
         if (path === 'session' && req.method === 'GET') return { value: kind === 'customer' ? { demo: true, customer: { id: subject.id, name: subject.name } } : { demo: true, company: copy(subject) } };
         if (req.method === 'GET' && ['state', 'assets', 'orders'].includes(path)) return { value: kind === 'customer' ? customerState(state, subject) : carrierState(state, subject) };
@@ -712,7 +717,7 @@ export function createLogisticsApi({ getRepository, readBody, json, siteProvider
       // legacy weighing preparation), but ordinary reads never persist it or
       // queue behind the aggregate's global write lock.
       const result = req.method === 'GET' && repository.read
-        ? await repository.read(operate, { domains: ['pricing', 'personnel', 'transport', 'office', 'logistics', 'logisticsAuth', 'workOrderWeighing'] })
+        ? await repository.read(operate, { domains: ['metadata', 'pricing', 'personnel', 'transport', 'office', 'logistics', 'logisticsAuth', 'workOrderWeighing'] })
         : await repository.transact(operate);
       if (result.error) json(res, result.status, { error: result.error });
       else {
