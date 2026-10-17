@@ -3257,3 +3257,17 @@ Status: Implementerad 2026-10-17 i kontor 0.30.4. Mobilwebben kvar på 0.13.0.
   av alla tolv svar och navigering utan falsk varning om osparat arbete.
   Bred serversvit: 1 345 godkända, 45 överhoppade och nio tidigare kända
   fel. Inga externa eller betalda API-anrop i testerna.
+
+ÄL 135 – Återanvändbar SaaS-blueprint och modulärt byggrecept
+Status: Dokumenterad 2026-10-17. Ingen kärna eller modul extraheras av dokumentationen.
+- Samlad GitHub-guide i docs/saas-blueprint/README.md med fyra fördjupningar:
+  SaaS-kärna, valbara moduler, säkerhet/drift och stegvis byggrecept.
+- Servervalt bolag, identitet/medlemskap, systemadmin kontra bolagsadmin/
+  begränsad support, sessionsbyte, menyer, sidmallar, filer, hemligheter,
+  integrationer och databasavgränsning beskrivs som gemensamma kontrakt.
+- HR/tid/stämpel, dispatch/kalender, Fleet, utrustning, inkorg och AI delas
+  i domänmotor, produktadapter och UI. Dagens verkliga korsberoenden anges.
+- Alla 51 säkerhets-/driftkrav har konkreta acceptansprov. Befintlig kod
+  skiljs från framtida mål; ÄL 123 är fortfarande planerad releasehärdning.
+- Framtida starter får egen kodbas och testkit, utan demolösenord, kunddata
+  eller legacy-bolagsfallback. Inga nya drifts- eller kapacitetslöften.
