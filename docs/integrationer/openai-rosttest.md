@@ -533,6 +533,54 @@ samma fall som i [föregående byggkontroll](../fordon-telematik-bygge-2026-10-1
 Tester av mikrofon, WebRTC och OpenAI använder lokala simuleringar; provet
 mot byggd server verifierade även att saknad servernyckel spärrar samtalsstart.
 
+## Grundkunskap för JEROC
+
+Kontor **0.30.4 / ÄL 134** erbjuder ett färdigt paket under **Integrationer →
+AI-kundmottagning → Kunskap → Grundkunskap för JEROC**. Klicka **Granska
+förslagen**, läs svaren och källorna och välj vilka frågor som ska läggas till.
+**Lägg till som utkast** sparar utan att agenten får använda dem. För
+**Godkänn och publicera** behöver kontoret uttryckligen godkänna de valda svaren.
+De används först i ett nytt samtal; ett pågående samtals underlag ändras inte.
+
+Paketets tolv frågor omfattar kabelskrot/kopparkabel, metaller, privatpersoner
+och företag, inlämning, hämtning, container/kärl/storsäck, bilbatterier,
+elektronik, vitvaror, prisbedömning, Norrtäljes vardagstider och kontakt.
+Svaren är sammanfattningar av JEROC:s publika webbplats, kontrollerade
+2026-10-17. De anger inga prisbelopp eller utbetalningslöften. Den offentliga
+återvinningsadressen används, inte exempeladresser från demodatabasen.
+
+Webbplatsens lördagstider skiljer sig mellan sidorna. Användaren har därför
+valt att helt utelämna lördagstiden. Även motstridiga postnummer och aktuell
+Rimbo-mottagning utelämnas. Kontoret kan senare granska och komplettera dem.
+
+Paketet finns endast för det ursprungliga JEROC-bolaget, identifierat med det
+betrodda tenant-id:t `jeroc-demo`. Både verklig och utförande VD/Systemadmin
+behöver global anläggningsåtkomst. Ett bolagsnamn eller ett id som skickas av
+klienten öppnar inte paketet för andra bolag. GET sparar eller publicerar inget.
+
+`POST /api/ai-support/knowledge/from-starter-pack` tar `requestId`,
+`expectedRevision`, `packId`, `packVersion`, `itemIds`, `status` och
+`publicApproved`. Servern hämtar själva svaren och källorna ur den fasta
+versionen. Hela batchen omfattas av en transaktion, versionskontroll,
+idempotens, auditlogg och samma publiceringsgränser som manuella svar.
+Redan importerade frågor skapas inte igen, även om kontoret har ändrat eller
+arkiverat dem. Föregående beslut och egna texter skrivs aldrig över.
+
+Proveniens sparas som `source.type: starter_pack` med paketversion, fråge-id
+och källor. Det är den ursprungliga källan, inte en automatisk kontroll av
+framtida kontorsändringar. Modellen får bara godkänd rubrik och svarstext;
+ingen HTML, källsida eller dold verksamhetsinformation hämtas åt modellen.
+
+Källor och färdiga texter finns i
+[paketmodulen](../../server/ai-support-jeroc-knowledge.mjs).
+
+Verifierat med 91 riktade servertester, fem gatewayfall och nio
+AI-browserfall. Produktionsbygget provades med verklig lokal
+plattformsinloggning, granskning/publicering av alla tolv svar, sparad
+kunskap och fortsatt navigering. Den breda serversviten gav 1 345 godkända,
+45 överhoppade och nio tidigare dokumenterade fel. Testerna gjorde inga
+externa eller betalda API-anrop; hörbart svenskt samtal provas separat.
+
 ## Leverantörens dokumentation
 
 GPT-Live och Realtime är separata API-familjer. Standardvalet i detta bygge

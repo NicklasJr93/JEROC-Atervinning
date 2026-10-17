@@ -3232,3 +3232,28 @@ Status: Implementerad 2026-10-17 i kontor 0.30.3. Mobilwebben kvar på 0.13.0.
   20 browserfall, produktionsbygge och byggd server med verklig lokal
   plattformsinloggning. Bred serversvit: 1 335 godkända, 45 överhoppade
   och nio sedan tidigare dokumenterade fel. Inga betalda API-anrop.
+
+ÄL 134 – Källbelagd grundkunskap för JEROC:s kundmottagare
+Status: Implementerad 2026-10-17 i kontor 0.30.4. Mobilwebben kvar på 0.13.0.
+- Tolv färdiga FAQ-förslag med verifierade publika JEROC-källor: kabelskrot
+  och kopparkabel, metaller, privat/företag, inlämning, hämtning, behållare,
+  bilbatterier, elektronik, vitvaror, prisbedömning, vardagstider och kontakt.
+- Inga prisbelopp, postnummer, demoadresser eller lördagstider. Användaren
+  har uttryckligen valt att utelämna lördagstiden efter motstridiga källor.
+- Grundkunskap för JEROC → Granska förslagen visar alla svar och källor.
+  Välj frågor och lägg till som utkast eller godkänn och publicera. Ett
+  ändrat urval, uppdaterat paket eller bolagsbyte återkallar godkännandet.
+- Endast originalbolaget jeroc-demo med global VD/Systemadmin-åtkomst får
+  paketet. Ingen automatisk seed/publicering och inga skrivningar vid GET.
+- Servern väljer fasta svar/källor från versionerat paket; klienten får
+  inte skicka egna svar eller källor genom paketimporten. CAS, idempotens,
+  godkännande och publiceringshash omfattar hela den atomära batchen.
+  Befintliga importerade, redigerade eller arkiverade svar skrivs inte över.
+- Agenten får endast publicerad text för rätt bolag/anläggning i nästa
+  samtal. Källmetadata och hämtade webbsidor skickas inte till modellen.
+- Guide: docs/integrationer/openai-rosttest.md.
+- Verifierat: 91 riktade servertester, fem gatewayfall, nio AI-browserfall
+  och produktionsbygge med verklig lokal inloggning, beständig publicering
+  av alla tolv svar och navigering utan falsk varning om osparat arbete.
+  Bred serversvit: 1 345 godkända, 45 överhoppade och nio tidigare kända
+  fel. Inga externa eller betalda API-anrop i testerna.

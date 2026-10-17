@@ -4,12 +4,16 @@ import { migrateOffice } from '../src/office/customer-model';
 
 test.use({ viewport: { width: 1440, height: 1100 }, isMobile: false, hasTouch: false, locale: 'sv-SE' });
 
-type Knowledge = { id: string; version: number; title: string; answer: string; category: string; siteIds: string[]; status: 'draft' | 'published' | 'archived'; publicApproved: boolean; createdAt: string; updatedAt: string };
+type PublicSource = { url: string; title: string; verifiedAt?: string };
+type StarterPack = { id: string; version: number; title: string; items: { id: string; title: string; answer: string; category: string; sources: PublicSource[] }[]; importedItemIds: string[] };
+type Knowledge = { id: string; version: number; title: string; answer: string; category: string; siteIds: string[]; status: 'draft' | 'published' | 'archived'; publicApproved: boolean; createdAt: string; updatedAt: string;
+  source?: { type: 'starter_pack'; packId: string; packVersion: number; itemId: string; sources: PublicSource[] } };
 type Settings = { enabled: boolean; companyName: string; greeting: string; voice: string; tone: string; pace: string; pronunciationText: string };
 type Support = { revision: number; settings: Settings; knowledge: Knowledge[]; suggestions: object[]; voices: { id: string; name: string }[]; sites: { id: string; name: string }[];
   articleCandidates: object[]; stats: { total: number; published: number; publishedCharacters: number; maxTotal: number; maxPublished: number; maxPublishedCharacters: number };
   capabilities: { read: boolean; write: boolean; settingsWrite: boolean; globalWrite: boolean };
   runtime?: { engine: 'live' | 'realtime'; model: string; voice: string; previewAvailable: boolean; notice?: string };
+  starterPack?: StarterPack;
   runtimePreview: { siteId: string; siteName: string; items: { id: string; version: number; title: string; answer: string }[]; characters: number; revision: number } | null;
   privateFixture?: object };
 type AudioQA = { plays: string[]; pauses: number; created: string[]; revoked: string[] };
@@ -19,9 +23,9 @@ const secret = 'PRIVATE_AI_SUPPORT_FIXTURE_NEVER_RENDER_OR_SEND';
 const audioBase64 = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 const sites = [{ id: 'norrtalje', name: 'Norrtälje' }, { id: 'rimbo', name: 'Rimbo' }];
 
-async function setup(page: Page, { live = false } = {}) {
+async function setup(page: Page, { live = false, starterPack = false } = {}) {
   const data = migrateOffice(seedOffice()), admin = data.users.find(user => user.id === 'admin')!;
-  let companyId = 'ai-support-fixture', generation = 3, failCommitted = false, sequence = 1;
+  let companyId = starterPack ? 'jeroc-demo' : 'ai-support-fixture', generation = 3, failCommitted = false, sequence = 1;
   const stamp = new Date().toISOString();
   const state: Support = {
     revision: 1,
@@ -32,6 +36,11 @@ async function setup(page: Page, { live = false } = {}) {
     stats: { total: 1, published: 1, publishedCharacters: 0, maxTotal: 100, maxPublished: 20, maxPublishedCharacters: 10000 },
     capabilities: { read: true, write: true, settingsWrite: true, globalWrite: true }, runtimePreview: null,
     ...(live ? { runtime: { engine: 'live' as const, model: 'gpt-live-1', voice: 'marin', previewAvailable: false } } : {}),
+    ...(starterPack ? { starterPack: { id: 'jeroc-public-fixture', version: 1, title: 'Grundkunskap för JEROC', importedItemIds: [], items: [
+      { id: 'contact', title: 'Kontakt med JEROC', answer: 'Kontoret hjälper dig inför ditt besök på mottagningen.', category: 'general', sources: [{ url: 'https://www.jeroc.se/kontakt', title: 'Kontakt – JEROC', verifiedAt: stamp }] },
+      { id: 'materials', title: 'Sortering före besöket', answer: 'Håll olika material åtskilda och kontakta kontoret vid frågor om sortering.', category: 'materials', sources: [{ url: 'https://www.jeroc.se/material', title: 'Material – JEROC', verifiedAt: stamp }] },
+      { id: 'visits', title: 'Planera besöket', answer: 'Stäm av mottagningens aktuella öppettider med kontoret före besöket.', category: 'visits', sources: [{ url: 'https://www.jeroc.se/besok', title: 'Besök – JEROC', verifiedAt: stamp }] },
+    ] } } : {}),
     privateFixture: { apiKey: secret, bankAccount: secret, personNumber: secret },
   };
   const refreshComputed = () => {
@@ -74,6 +83,20 @@ async function setup(page: Page, { live = false } = {}) {
       if (path === '/api/ai-support/settings') {
         const { expectedRevision: _revision, ...settings } = body;
         state.settings = settings as Settings; saved = { settings: true };
+      } else if (path === '/api/ai-support/knowledge/from-starter-pack' && starterPack) {
+        const pack = state.starterPack, itemIds = body.itemIds as string[];
+        if (!pack || body.packId !== pack.id || body.packVersion !== pack.version) return route.fulfill({ status: 409, json: { error: 'Grundpaketet har ändrats.' } });
+        if (body.status === 'published' && body.publicApproved !== true) return route.fulfill({ status: 422, json: { error: 'Förslagen måste granskas före publicering.' } });
+        if (!Array.isArray(itemIds) || !itemIds.length || new Set(itemIds).size !== itemIds.length || itemIds.some(id => !pack.items.some(item => item.id === id) || pack.importedItemIds.includes(id))) return route.fulfill({ status: 422, json: { error: 'Välj nya förslag ur grundpaketet.' } });
+        const knowledgeIds: string[] = [];
+        for (const itemId of itemIds) {
+          const item = pack.items.find(row => row.id === itemId)!, now = new Date().toISOString();
+          const id = `f79d1eb3-c102-4aee-8466-${String(++sequence).padStart(12, '0')}`;
+          state.knowledge.push({ id, version: 1, title: item.title, answer: item.answer, category: item.category, siteIds: [], status: body.status as 'draft' | 'published', publicApproved: body.publicApproved === true, createdAt: now, updatedAt: now,
+            source: { type: 'starter_pack', packId: pack.id, packVersion: pack.version, itemId, sources: structuredClone(item.sources) } });
+          pack.importedItemIds.push(itemId); knowledgeIds.push(id);
+        }
+        saved = { knowledgeIds };
       } else if (path === '/api/ai-support/knowledge') {
         if (body.status === 'published' && body.publicApproved !== true) return route.fulfill({ status: 422, json: { error: 'Informationen måste granskas före publicering.' } });
         const existing = state.knowledge.find(row => row.id === body.id), now = new Date().toISOString();
@@ -106,7 +129,7 @@ async function setup(page: Page, { live = false } = {}) {
   await expect(page.getByRole('tab', { name: 'Kunskap', exact: true })).toBeVisible();
   return { state: () => state, requests, external, errors,
     advanceRevision: () => { state.revision++; refreshComputed(); }, failNextCommittedKnowledge: () => { failCommitted = true; },
-    switchScope: async () => { companyId = 'ai-support-other-company'; generation++; state.knowledge = []; state.settings = { ...state.settings, companyName: 'Nya provbolaget', greeting: 'Hej från nya provbolaget!' }; state.revision++; refreshComputed(); await page.evaluate(() => window.dispatchEvent(new Event('scrappilot:check-platform-session'))); },
+    switchScope: async () => { companyId = 'ai-support-other-company'; generation++; state.knowledge = []; delete state.starterPack; state.settings = { ...state.settings, companyName: 'Nya provbolaget', greeting: 'Hej från nya provbolaget!' }; state.revision++; refreshComputed(); await page.evaluate(() => window.dispatchEvent(new Event('scrappilot:check-platform-session'))); },
   };
 }
 
@@ -280,5 +303,65 @@ test('Live saves Meridian for the next conversation and offers the actual call i
   const settings = fixture.requests.filter(row => row.path === '/api/ai-support/settings' && row.method === 'POST');
   expect(settings).toHaveLength(1); expect(settings[0].body).toMatchObject({ voice: 'meridian', expectedRevision: 1 });
   expect(await page.evaluate(() => window.__aiSupportAudio.plays)).toEqual([]);
+  expect(fixture.external).toEqual([]); expect(fixture.errors).toEqual([]);
+});
+
+test('JEROC starter proposals require renewed approval, import only the selection, and disappear on company change', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const fixture = await setup(page, { starterPack: true });
+  const writes = () => fixture.requests.filter(row => row.path.startsWith('/api/ai-support') && row.method === 'POST');
+  expect(writes()).toEqual([]);
+  const open = page.getByRole('button', { name: 'Granska förslagen', exact: true });
+  await expect(open).toBeVisible();
+  await open.click();
+  const dialog = page.getByRole('dialog', { name: 'Grundkunskap för JEROC', exact: true });
+  await expect(dialog).toBeVisible(); expect(writes()).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const contact = dialog.getByRole('checkbox', { name: 'Lägg till Kontakt med JEROC', exact: true });
+  const material = dialog.getByRole('checkbox', { name: 'Lägg till Sortering före besöket', exact: true });
+  const visit = dialog.getByRole('checkbox', { name: 'Lägg till Planera besöket', exact: true });
+  const approval = dialog.getByRole('checkbox', { name: 'Jag har granskat de valda svaren och godkänner att de får lämnas till kunder', exact: true });
+  const publish = dialog.getByRole('button', { name: 'Godkänn och publicera', exact: true });
+  await expect(contact).toBeChecked(); await expect(material).toBeChecked(); await expect(visit).toBeChecked();
+  await expect(publish).toBeDisabled(); expect(writes()).toEqual([]);
+  await expect(dialog.getByRole('link', { name: 'Kontakt – JEROC', exact: true })).toHaveAttribute('href', 'https://www.jeroc.se/kontakt');
+  await approval.check(); await expect(publish).toBeEnabled();
+  await material.uncheck(); await expect(approval).not.toBeChecked(); await expect(publish).toBeDisabled();
+  await visit.uncheck(); await approval.check(); await publish.click();
+  await expect(dialog).toHaveCount(0);
+  const selected = fixture.state().knowledge.find(row => row.source?.itemId === 'contact')!;
+  expect(selected).toMatchObject({ title: 'Kontakt med JEROC', status: 'published', publicApproved: true,
+    source: { type: 'starter_pack', packId: 'jeroc-public-fixture', packVersion: 1, itemId: 'contact', sources: fixture.state().starterPack!.items[0].sources } });
+  expect(fixture.state().knowledge.filter(row => row.source?.type === 'starter_pack')).toHaveLength(1);
+  expect(fixture.state().runtimePreview?.items.some(row => row.id === selected.id)).toBe(true);
+  expect(writes()).toHaveLength(1);
+  expect(writes()[0].body).toEqual({ requestId: expect.stringMatching(/^[a-f0-9-]{36}$/i), expectedRevision: 1, packId: 'jeroc-public-fixture', packVersion: 1, itemIds: ['contact'], status: 'published', publicApproved: true });
+
+  await page.getByRole('tab', { name: 'Röst & bemötande', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Osparade ändringar', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Spara röst & bemötande', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Kunskap', exact: true }).click();
+
+  await open.click(); await expect(dialog).toBeVisible();
+  await expect(contact).toBeDisabled(); await expect(contact).not.toBeChecked();
+  await expect(material).toBeChecked(); await expect(visit).toBeChecked(); await expect(approval).not.toBeChecked();
+  await visit.uncheck(); await dialog.getByRole('button', { name: 'Lägg till som utkast', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const draft = fixture.state().knowledge.find(row => row.source?.itemId === 'materials')!;
+  expect(draft).toMatchObject({ title: 'Sortering före besöket', status: 'draft', publicApproved: false,
+    source: { itemId: 'materials', sources: fixture.state().starterPack!.items[1].sources } });
+  expect(fixture.state().runtimePreview?.items.some(row => row.id === draft.id)).toBe(false);
+  expect(fixture.state().knowledge.some(row => row.source?.itemId === 'visits')).toBe(false);
+  expect(writes()).toHaveLength(2);
+  expect(writes()[1].body).toMatchObject({ expectedRevision: 2, itemIds: ['materials'], status: 'draft', publicApproved: false });
+
+  await open.click(); await expect(dialog).toBeVisible(); await expect(visit).toBeChecked();
+  const count = writes().length;
+  await fixture.switchScope();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Granska förslagen', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Grundkunskap för JEROC', exact: true })).toHaveCount(0);
+  await expect(page.getByText('Kontakt med JEROC', { exact: true })).toHaveCount(0);
+  expect(writes()).toHaveLength(count);
   expect(fixture.external).toEqual([]); expect(fixture.errors).toEqual([]);
 });

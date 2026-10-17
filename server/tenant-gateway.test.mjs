@@ -143,6 +143,21 @@ test('AI knowledge and guessed object IDs remain isolated between real tenant bu
   assert.equal(await repo.read(state => state.aiSupport.knowledge.find(row => row.id === id).status), 'published');
 }));
 
+test('JEROC starter knowledge requires real approval and CSRF, publishes once and is unavailable to another tenant', () => fixture(async f => {
+  await f.admin(); assert.equal((await f.request('/api/platform/switch', { organisationId: 'jeroc-demo' })).status, 200);
+  const initial = await f.request('/api/ai-support'); assert.equal(initial.status, 200, JSON.stringify(initial.body));
+  const pack = initial.body.starterPack; assert.equal(pack.items.length, 12);
+  const body = { requestId: randomUUID(), expectedRevision: initial.body.revision, packId: pack.id, packVersion: pack.version, itemIds: pack.items.slice(0, 2).map(item => item.id), status: 'published', publicApproved: true };
+  assert.equal((await f.request('/api/ai-support/knowledge/from-starter-pack', body, { 'x-platform-csrf': '' })).status, 403);
+  const denied = await f.request('/api/ai-support/knowledge/from-starter-pack', { ...body, publicApproved: false }); assert.equal(denied.status, 422);
+  const saved = await f.request('/api/ai-support/knowledge/from-starter-pack', body); assert.equal(saved.status, 200, JSON.stringify(saved.body)); assert.equal(saved.body.saved.knowledgeIds.length, 2);
+  const replay = await f.request('/api/ai-support/knowledge/from-starter-pack', body); assert.equal(replay.status, 200); assert.equal(replay.body.replayed, true); assert.equal(replay.body.knowledge.length, 2);
+  assert.equal(saved.body.runtimePreview.items.length, 2); assert.ok(saved.body.knowledge.every(item => item.source.type === 'starter_pack' && item.source.sources.every(source => new URL(source.url).hostname === 'www.jeroc.se')));
+  const other = await f.create('FAQ Beta', '556010005'); assert.equal((await f.request('/api/platform/switch', { organisationId: other.company.id })).status, 200);
+  const foreign = await f.request('/api/ai-support'); assert.equal(foreign.status, 200); assert.equal(foreign.body.starterPack, undefined); assert.deepEqual(foreign.body.knowledge, []);
+  assert.equal((await f.request('/api/ai-support/knowledge/from-starter-pack', { ...body, requestId: randomUUID(), expectedRevision: foreign.body.revision })).status, 404);
+}));
+
 const portalDemoDefaults = [
   { kind: 'driver', id: 'portal-demo-driver-v1', username: 'demo.chauffor', password: 'ChaufforDemo2026!', subjectId: 'person-oskar' },
   { kind: 'carrier', id: 'portal-demo-carrier-v1', username: 'demo.akeri', password: 'AkeriDemo2026!', subjectId: 'carrier-roslagen' },

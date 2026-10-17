@@ -11,6 +11,7 @@ import { resolvePricingPrincipal } from './pricing.mjs';
 import { createAiSupportApi, buildAiSupportContext, AI_SUPPORT_VOICES, AI_SUPPORT_LIMITS } from './ai-support.mjs';
 import { VOICE_TEST_VOICES } from './voice-test-openai.mjs';
 import { VOICE_TEST_LIVE_VOICES, VOICE_TEST_REALTIME_VOICES } from './voice-test-provider.mjs';
+import { getJerocKnowledgePack } from './ai-support-jeroc-knowledge.mjs';
 
 const org = 'fictional-support-company';
 const sites = [{ id: 'north', name: 'Norra gården', active: true, secret: 'PRIVATE-SITE-PERMIT' }, { id: 'south', name: 'Södra gården', active: true }];
@@ -204,4 +205,97 @@ test('Live-only preferences survive a Realtime rollback and unrelated profile sa
   const liveContext = await f.repository.read(state => buildAiSupportContext(state, { organisationId: org, siteId: 'north', engine: 'live' })); assert.equal(liveContext.supportProfile.voice, 'meridian');
   assert.deepEqual(await f.repository.read(state => state.aiSupport.knowledge), wiki);
   assert.deepEqual(await f.repository.read(state => state.aiSupport.voiceSelections), { live: 'meridian', realtime: 'marin' });
+}));
+
+const jerocEnv = { SCRAPPILOT_ORGANISATION_ID: 'jeroc-demo' };
+const packCommand = (overrides = {}) => ({ requestId: randomUUID(), expectedRevision: 0, packId: 'jeroc-customer-faq', packVersion: 1, itemIds: ['cable', 'metals'], status: 'draft', publicApproved: false, ...overrides });
+const importPack = (f, body, options = {}) => f.request('/api/ai-support/knowledge/from-starter-pack', { body, ...options });
+
+test('JEROC starter pack GET is read-only, tenant-specific and available only to both unrestricted privileged identities', async () => fixture(async f => {
+  const original = await f.repository.read(state => state), foreign = await f.request(); assert.equal(foreign.body.starterPack, undefined); assert.equal(foreign.text.includes('Argonvägen'), false);
+  assert.equal((await importPack(f, packCommand())).body.code, 'ai_support_starter_pack_missing');
+  f.use(f.makeApi({ env: jerocEnv })); const result = await f.request(); assert.equal(result.status, 200); assert.equal(result.body.starterPack.items.length, 12); assert.deepEqual(result.body.starterPack.importedItemIds, []);
+  assert.deepEqual(result.body.knowledge, []); assert.deepEqual(result.body.runtimePreview.items, []); assert.deepEqual(await f.repository.read(state => state), original, 'Looking at candidate answers never seeds the wiki');
+  for (const cookie of ['office=north', 'office=north|admin', 'office=admin|north', 'office=empty']) {
+    assert.equal((await f.request(undefined, { cookie })).body.starterPack, undefined);
+    assert.equal((await importPack(f, packCommand(), { cookie })).status, 403);
+  }
+  assert.equal((await importPack(f, packCommand(), { cookie: 'office=employee|admin' })).status, 403);
+  f.use(f.makeApi({ env: {}, companyName: 'JEROC' })); assert.equal((await f.request()).body.starterPack, undefined); assert.equal((await importPack(f, packCommand())).status, 404, 'A missing tenant ID must not inherit the legacy profile fallback');
+  f.use(f.makeApi({ env: { JEROC_TENANT_ID: 'jeroc-demo' } })); assert.ok((await f.request()).body.starterPack);
+  assert.deepEqual(await f.repository.read(state => state), original);
+}));
+
+test('starter pack import strictly validates selection/version/approval and cannot accept client content, provenance or tenant fields', async () => fixture(async f => {
+  f.use(f.makeApi({ env: jerocEnv })); const original = await f.repository.read(state => state);
+  for (const overrides of [{ itemIds: [] }, { itemIds: ['cable', 'cable'] }, { itemIds: ['missing'] }, { packId: 'foreign-pack' }, { answer: 'Client replacement' }, { sources: [{ url: 'https://foreign.invalid' }] }, { organisationId: 'jeroc-demo' }, { siteIds: ['north'] }, { status: 'archived' }]) {
+    const invalid = await importPack(f, packCommand(overrides)); assert.equal(invalid.status, 422, invalid.text);
+  }
+  const oldVersion = await importPack(f, packCommand({ packVersion: 2 })); assert.equal(oldVersion.status, 409); assert.equal(oldVersion.body.code, 'ai_support_starter_pack_version_conflict');
+  const unapproved = await importPack(f, packCommand({ status: 'published', publicApproved: false })); assert.equal(unapproved.body.code, 'ai_support_public_approval_required');
+  const stale = await importPack(f, packCommand({ expectedRevision: 99 })); assert.equal(stale.body.code, 'ai_support_revision_conflict');
+  assert.deepEqual(await f.repository.read(state => state), original, 'Rejected imports leave no wiki, request reservation or audit behind');
+}));
+
+test('selected starter answers publish atomically with frozen provenance and current approval; exact retries precede CAS across runtimes', async () => fixture(async f => {
+  f.use(f.makeApi({ env: jerocEnv }));
+  const input = packCommand({ status: 'published', publicApproved: true }), result = await importPack(f, input);
+  assert.equal(result.status, 200, result.text); assert.equal(result.body.revision, 1); assert.equal(result.body.saved.knowledgeIds.length, 2); assert.equal(result.body.runtimePreview.items.length, 2);
+  assert.deepEqual(result.body.starterPack.importedItemIds, ['cable', 'metals']);
+  const template = getJerocKnowledgePack({ organisationId: 'jeroc-demo' });
+  for (const entry of result.body.knowledge) {
+    const candidate = template.items.find(item => item.id === entry.source.itemId);
+    assert.equal(entry.title, candidate.title); assert.equal(entry.answer, candidate.answer); assert.equal(entry.status, 'published'); assert.equal(entry.publicApproved, true); assert.deepEqual(entry.siteIds, []);
+    assert.deepEqual(entry.source, { type: 'starter_pack', packId: template.id, packVersion: template.version, itemId: candidate.id, sources: candidate.sources });
+  }
+  const stored = await f.repository.read(state => state.aiSupport);
+  assert.equal(stored.requests.length, 1); assert.equal(stored.audit.length, 1); assert.equal(stored.audit[0].action, 'ai_support.starter_pack_imported'); assert.equal(stored.audit[0].actualUserId, 'admin');
+  for (const entry of stored.knowledge) { assert.equal(entry.approvedVersion, entry.version); assert.match(entry.approvedHash, /^[a-f0-9]{64}$/); }
+  const south = await f.repository.read(state => buildAiSupportContext(state, { organisationId: 'jeroc-demo', siteId: 'south' }));
+  assert.equal(south.knowledge.length, 2); assert.match(south.text, /köper kabelskrot/); assert.equal(JSON.stringify(south).includes('www.jeroc.se'), false); assert.equal(JSON.stringify(south).includes('PRIVATE-'), false);
+  assert.equal(south.knowledge.some(entry => entry.title.includes('vitvaror')), false, 'Only selected answers enter customer context');
+  f.use(f.makeApi({ env: jerocEnv })); const retry = await importPack(f, input);
+  assert.equal(retry.status, 200); assert.equal(retry.body.replayed, true); assert.deepEqual(retry.body.saved, result.body.saved); assert.equal(retry.body.revision, 1); assert.deepEqual(await f.repository.read(state => state.aiSupport), stored);
+  assert.equal((await importPack(f, { ...input, itemIds: ['prices'] })).body.code, 'ai_support_request_conflict');
+  assert.equal((await importPack(f, input, { cookie: 'office=admin|vd' })).body.code, 'ai_support_request_conflict');
+  assert.equal((await importPack(f, { ...input, requestId: randomUUID() })).body.code, 'ai_support_revision_conflict');
+  f.use(f.makeApi()); const wrongTenant = await f.request(); assert.equal(wrongTenant.status, 403); assert.equal(wrongTenant.text.includes('kabelskrot'), false);
+  assert.equal(f.provider.previews.length, 0);
+}));
+
+test('draft imports cannot reach runtime and later imports preserve edited and archived answers while adding only new items', async () => fixture(async f => {
+  f.use(f.makeApi({ env: jerocEnv }));
+  const imported = await importPack(f, packCommand({ itemIds: ['cable'], publicApproved: true })); assert.equal(imported.status, 200); const id = imported.body.saved.knowledgeIds[0];
+  assert.equal(imported.body.knowledge[0].publicApproved, false); assert.deepEqual(imported.body.runtimePreview.items, []);
+  const edited = await f.upsert({ id, answer: 'Kontorets eget ännu inte godkända kabelsvar.', siteIds: [], status: 'draft', publicApproved: false }); assert.equal(edited.status, 200);
+  const archived = await f.request(`/api/ai-support/knowledge/${id}/archive`, { body: { requestId: randomUUID(), expectedRevision: edited.body.revision } }); assert.equal(archived.status, 200);
+  const preserved = await f.repository.read(state => state.aiSupport), duplicate = await importPack(f, packCommand({ itemIds: ['cable'], expectedRevision: archived.body.revision }));
+  assert.equal(duplicate.status, 409); assert.equal(duplicate.body.code, 'ai_support_starter_pack_already_imported'); assert.deepEqual(await f.repository.read(state => state.aiSupport), preserved);
+  const mixed = await importPack(f, packCommand({ expectedRevision: archived.body.revision, status: 'published', publicApproved: true })); assert.equal(mixed.status, 200); assert.equal(mixed.body.saved.knowledgeIds.length, 1);
+  assert.equal(mixed.body.knowledge.find(entry => entry.id === id).answer, 'Kontorets eget ännu inte godkända kabelsvar.'); assert.equal(mixed.body.knowledge.find(entry => entry.id === id).status, 'archived');
+  assert.deepEqual(await f.repository.read(state => state.aiSupport.knowledge.find(entry => entry.id === id)), preserved.knowledge.find(entry => entry.id === id));
+  assert.equal(mixed.body.runtimePreview.items.length, 1); assert.match(mixed.body.runtimePreview.items[0].title, /metaller/); assert.deepEqual(mixed.body.starterPack.importedItemIds, ['cable', 'metals']);
+}));
+
+test('starter batch count and storage limits roll back every entry, request key, revision and audit record', async () => fixture(async f => {
+  f.use(f.makeApi({ env: jerocEnv }));
+  const created = await f.upsert({ siteIds: [], status: 'published', publicApproved: true }); assert.equal(created.status, 200);
+  await f.repository.transact(state => { const sample = state.aiSupport.knowledge[0]; while (state.aiSupport.knowledge.length < 19) state.aiSupport.knowledge.push({ ...structuredClone(sample), id: randomUUID() }); });
+  const before = await f.repository.read(state => state.aiSupport), input = packCommand({ expectedRevision: before.revision, status: 'published', publicApproved: true });
+  const countLimit = await importPack(f, input); assert.equal(countLimit.body.code, 'ai_support_publication_limit'); assert.deepEqual(await f.repository.read(state => state.aiSupport), before);
+  await f.repository.transact(state => { for (const entry of state.aiSupport.knowledge) { entry.status = 'archived'; entry.publicApproved = false; } const sample = state.aiSupport.knowledge[0]; while (state.aiSupport.knowledge.length < 99) state.aiSupport.knowledge.push({ ...structuredClone(sample), id: randomUUID() }); });
+  const full = await f.repository.read(state => state.aiSupport), storageLimit = await importPack(f, { ...input, status: 'draft', publicApproved: false }); assert.equal(storageLimit.body.code, 'ai_support_total_limit'); assert.deepEqual(await f.repository.read(state => state.aiSupport), full);
+  // A failed transaction has not consumed its requestId: after freeing fixture
+  // capacity the exact same approved command can be deliberately retried.
+  await f.repository.transact(state => { state.aiSupport.knowledge = state.aiSupport.knowledge.slice(0, 1); });
+  const retry = await importPack(f, input); assert.equal(retry.status, 200); assert.equal(retry.body.saved.knowledgeIds.length, 2); assert.equal(retry.body.replayed, undefined);
+}));
+
+test('starter batch character budget never partly publishes or silently truncates approved answers', async () => fixture(async f => {
+  f.use(f.makeApi({ env: jerocEnv }));
+  for (const letter of ['A', 'B', 'C']) assert.equal((await f.upsert({ siteIds: [], title: `Befintligt svar ${letter}`, answer: letter.repeat(3000), status: 'published', publicApproved: true })).status, 200);
+  const before = await f.repository.read(state => state.aiSupport), pack = getJerocKnowledgePack({ organisationId: 'jeroc-demo' });
+  const rejected = await importPack(f, packCommand({ expectedRevision: before.revision, itemIds: pack.items.map(item => item.id), status: 'published', publicApproved: true }));
+  assert.equal(rejected.body.code, 'ai_support_publication_limit'); assert.deepEqual(await f.repository.read(state => state.aiSupport), before);
+  assert.equal((await f.request()).body.runtimePreview.items.length, 3);
 }));

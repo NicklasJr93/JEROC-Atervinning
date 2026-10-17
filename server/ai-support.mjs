@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { createVoiceTestProvider, voiceTestProviderConfig, VOICE_TEST_LIVE_VOICES, VOICE_TEST_REALTIME_VOICES } from './voice-test-provider.mjs';
+import { getJerocKnowledgePack } from './ai-support-jeroc-knowledge.mjs';
 
 export const AI_SUPPORT_POLICY_VERSION = 1;
 // Validate stored profiles against the union so a rollback never destroys a
@@ -21,6 +22,7 @@ const settingsInput = z.object({ expectedRevision: revision, ...profileFields })
 const knowledgeInput = z.object({ requestId: id.min(8), expectedRevision: revision, id: id.optional(), title: z.string().trim().min(1).max(160), answer: z.string().trim().min(1).max(3000), category, siteIds, status: z.enum(['draft', 'published']), publicApproved: z.boolean() }).strict();
 const archiveInput = z.object({ requestId: id.min(8), expectedRevision: revision }).strict();
 const articleInput = z.object({ requestId: id.min(8), expectedRevision: revision, articleId: id, siteIds }).strict();
+const starterPackInput = z.object({ requestId: id.min(8), expectedRevision: revision, packId: id, packVersion: z.number().int().positive().safe(), itemIds: z.array(id).min(1).max(100).refine(value => new Set(value).size === value.length), status: z.enum(['draft', 'published']), publicApproved: z.boolean() }).strict();
 const previewInput = z.object({ voice, profile: z.object({ greeting: profileFields.greeting.optional(), tone: tone.optional(), pace: pace.optional(), pronunciationText: profileFields.pronunciationText.optional() }).strict().optional() }).strict();
 const parse = (schema, value) => { const result = schema.safeParse(value); if (!result.success) fail('AI-supportuppgifterna innehåller ogiltiga eller okända fält.'); return result.data; };
 const privileged = user => Boolean(user?.id) && user.active !== false && ['Systemadmin', 'VD'].includes(user.level);
@@ -134,6 +136,9 @@ export function createAiSupportApi({ env = {}, getRepository, officePrincipal, s
   if (typeof getRepository !== 'function' || typeof officePrincipal !== 'function') throw new TypeError('AI-support behöver bolagets databas och verifierad kontorssession.');
   const runtimeConfig = voiceTestProviderConfig(env);
   const options = { organisationId: env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo', companyName, defaultVoice: runtimeConfig.defaultVoice, engine: runtimeConfig.engine };
+  // The legacy profile fallback is not proof of tenant identity for a branded
+  // knowledge pack. Require an explicitly configured, trusted organisation ID.
+  const packOptions = { organisationId: env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID };
   let providerPromise, closed = false, closePromise; const previewing = new Set(), previewTasks = new Set();
   const getProvider = () => providerPromise ??= suppliedProvider ? Promise.resolve(suppliedProvider) : createVoiceTestProvider({ env });
   const timestamp = () => new Date(now()).toISOString();
@@ -157,7 +162,9 @@ export function createAiSupportApi({ env = {}, getRepository, officePrincipal, s
     const value = readDomain(state, options), visible = value.knowledge.filter(entry => entryVisible(entry, principal)), published = visible.filter(approved), site = sites.find(site => site.active !== false && allows(principal, site.id));
     const context = site ? buildAiSupportContext(state, { ...options, siteId: site.id }) : null;
     const effective = effectiveProfile(value, options);
+    const starterPack = globalWrite(principal) ? getJerocKnowledgePack(packOptions) : null;
     return { revision: value.revision, policyVersion: AI_SUPPORT_POLICY_VERSION, settings: effective.settings, knowledge: visible.map(knowledgeView), suggestions: clone(suggestions), voices: runtimeConfig.voices.map(id => ({ id, name: id[0].toUpperCase() + id.slice(1) })), sites: sites.filter(site => site.active !== false && allows(principal, site.id)).map(site => ({ id: site.id, name: site.name })), articleCandidates: articleCandidates(state),
+      ...(starterPack ? { starterPack: { id: starterPack.id, version: starterPack.version, title: starterPack.title, items: starterPack.items.map(({ id, title, answer, category, sources }) => ({ id, title, answer, category, sources })), importedItemIds: [...new Set(value.knowledge.filter(entry => entry.source?.type === 'starter_pack' && entry.source.packId === starterPack.id).map(entry => entry.source.itemId))] } } : {}),
       runtime: { engine: runtimeConfig.engine, model: runtimeConfig.model, voice: effective.settings.voice, previewAvailable: runtimeConfig.previewAvailable, ...(effective.notice ? { notice: effective.notice } : {}) },
       stats: { total: visible.length, published: published.length, publishedCharacters: published.reduce((sum, item) => sum + charactersOf(item), 0), ...AI_SUPPORT_LIMITS }, capabilities: { read: true, write: true, settingsWrite: globalWrite(principal), globalWrite: globalWrite(principal), previewAvailable: runtimeConfig.previewAvailable },
       runtimePreview: context ? { siteId: site.id, siteName: site.name, items: context.knowledge.map(({ id, version, title, answer }) => ({ id, version, title, answer })), characters: context.text.length, revision: context.revision, policyVersion: context.policyVersion } : null };
@@ -212,16 +219,21 @@ export function createAiSupportApi({ env = {}, getRepository, officePrincipal, s
       if (get) { sendJson(res, 200, await read(state => view(state, principal, sites)), req.method === 'HEAD'); return true; }
       const body = await readJson(req);
       if (section === 'preview' && !target && !action) { const work = runPreview(req, parse(previewInput, body)); previewTasks.add(work); try { sendJson(res, 200, await work); } finally { previewTasks.delete(work); } return true; }
-      const kind = section === 'settings' && !target && !action ? 'settings' : section === 'knowledge' && target === 'from-article' && !action ? 'article' : section === 'knowledge' && target && action === 'archive' ? 'archive' : section === 'knowledge' && !target && !action ? 'knowledge' : null;
+      const kind = section === 'settings' && !target && !action ? 'settings' : section === 'knowledge' && target === 'from-article' && !action ? 'article' : section === 'knowledge' && target === 'from-starter-pack' && !action ? 'starter_pack' : section === 'knowledge' && target && action === 'archive' ? 'archive' : section === 'knowledge' && !target && !action ? 'knowledge' : null;
       if (!kind) fail('AI-supportadressen är ogiltig.', 404, 'ai_support_route_missing');
-      const input = parse(kind === 'settings' ? settingsInput : kind === 'article' ? articleInput : kind === 'archive' ? archiveInput : knowledgeInput, body);
+      const input = parse(kind === 'settings' ? settingsInput : kind === 'article' ? articleInput : kind === 'starter_pack' ? starterPackInput : kind === 'archive' ? archiveInput : knowledgeInput, body);
       const response = await (await getRepository()).transact(async (state, _revision, changes = []) => {
-        const fresh = await principalFor(state, req), value = ensureAiSupport(state, options), requestHash = hash({ kind, target: kind === 'archive' ? target : undefined, input });
+        const fresh = await principalFor(state, req);
+        if (kind === 'starter_pack') {
+          if (!getJerocKnowledgePack(packOptions)) fail('Det finns inget tillgängligt kunskapspaket för bolaget.', 404, 'ai_support_starter_pack_missing');
+          if (!globalWrite(fresh)) fail('Bolagsgemensam kunskap kräver obegränsad anläggningsåtkomst för båda kontona.', 403, 'ai_support_site_forbidden');
+        }
+        const value = ensureAiSupport(state, options), requestHash = hash({ kind, target: kind === 'archive' ? target : undefined, input });
         const previous = input.requestId && value.requests.find(item => item.requestId === input.requestId);
         if (previous) {
           if (previous.actualUserId !== fresh.actor.id || previous.effectiveUserId !== fresh.user.id || previous.hash !== requestHash) fail('Försöksnyckeln har redan använts för andra uppgifter.', 409, 'ai_support_request_conflict');
-          const entry = value.knowledge.find(item => item.id === previous.knowledgeId); if (entry) demandEntryAccess(fresh, entry);
-          return { ...view(state, fresh, sites), saved: { knowledgeId: previous.knowledgeId }, replayed: true };
+          const entries = value.knowledge.filter(item => item.id === previous.knowledgeId || previous.knowledgeIds?.includes(item.id)); for (const entry of entries) demandEntryAccess(fresh, entry);
+          return { ...view(state, fresh, sites), saved: { ...(previous.knowledgeId ? { knowledgeId: previous.knowledgeId } : {}), ...(previous.knowledgeIds ? { knowledgeIds: [...previous.knowledgeIds] } : {}) }, replayed: true };
         }
         if (value.revision !== input.expectedRevision) fail('AI-supportuppgifterna har ändrats. Läs in senaste versionen före sparande.', 409, 'ai_support_revision_conflict');
         let saved;
@@ -229,6 +241,32 @@ export function createAiSupportApi({ env = {}, getRepository, officePrincipal, s
           if (!globalWrite(fresh)) fail('Bolagets AI-profil kräver obegränsad anläggningsåtkomst för båda kontona.', 403, 'ai_support_site_forbidden');
           if (!runtimeConfig.voices.includes(input.voice)) fail('Välj en röst som stöds av den aktuella röstmotorn.', 422, 'ai_support_voice_unavailable');
           const { expectedRevision, ...profile } = input; demandSafe(`${profile.companyName}\n${profile.greeting}\n${profile.pronunciationText}`); rememberVoice(value, profile.voice, runtimeConfig.engine); value.settings = profile; value.revision++; audit(value, fresh, 'ai_support.settings_saved', { revision: value.revision }, changes); saved = { settings: true };
+        } else if (kind === 'starter_pack') {
+          const pack = getJerocKnowledgePack(packOptions);
+          if (input.packId !== pack.id) fail('Välj bolagets tillgängliga kunskapspaket.', 422, 'ai_support_starter_pack_invalid');
+          if (input.packVersion !== pack.version) fail('Kunskapspaketet har ändrats. Läs in och granska den senaste versionen före import.', 409, 'ai_support_starter_pack_version_conflict');
+          const selected = input.itemIds.map(itemId => pack.items.find(item => item.id === itemId));
+          if (selected.some(item => !item)) fail('Urvalet innehåller en okänd fråga från kunskapspaketet.', 422, 'ai_support_starter_pack_invalid');
+          if (input.status === 'published' && !input.publicApproved) fail('Godkänn uttryckligen att de valda svaren får användas i kundsamtal före publicering.', 422, 'ai_support_public_approval_required');
+          // Provenance survives edits and archiving. Re-importing must never
+          // overwrite an office decision or restore an intentionally retired FAQ.
+          const imported = new Set(value.knowledge.filter(entry => entry.source?.type === 'starter_pack' && entry.source.packId === pack.id).map(entry => entry.source.itemId));
+          const candidates = selected.filter(item => !imported.has(item.id));
+          if (!candidates.length) fail('Alla valda frågor har redan importerats. Redigera de sparade posterna i kunskapsbanken.', 409, 'ai_support_starter_pack_already_imported');
+          const at = timestamp(), knowledgeIds = [];
+          for (const candidate of candidates) {
+            demandSafe(`${candidate.title}\n${candidate.answer}`);
+            const entry = { id: randomUUID(), version: 1, title: candidate.title, answer: candidate.answer, category: candidate.category, siteIds: [], status: input.status, publicApproved: input.status === 'published' && input.publicApproved,
+              source: { type: 'starter_pack', packId: pack.id, packVersion: pack.version, itemId: candidate.id, sources: clone(candidate.sources) }, createdAt: at, updatedAt: at, history: [] };
+            if (entry.publicApproved) { entry.approvedVersion = entry.version; entry.approvedHash = hash(contentOf(entry)); entry.approvedAt = at; entry.approvedBy = { actualUserId: fresh.actor.id, effectiveUserId: fresh.user.id }; }
+            value.knowledge.push(entry); knowledgeIds.push(entry.id);
+          }
+          // One transaction/revision/audit covers the whole batch. A budget
+          // failure rolls back the entries and idempotency reservation together.
+          demandBudget(value); value.revision++;
+          audit(value, fresh, 'ai_support.starter_pack_imported', { packId: pack.id, packVersion: pack.version, knowledgeIds: [...knowledgeIds], itemIds: candidates.map(item => item.id), status: input.status, revision: value.revision }, changes);
+          value.requests.push({ requestId: input.requestId, actualUserId: fresh.actor.id, effectiveUserId: fresh.user.id, hash: requestHash, knowledgeIds: [...knowledgeIds], at });
+          saved = { knowledgeIds };
         } else {
           let entry = kind === 'archive' ? value.knowledge.find(item => item.id === target) : kind === 'knowledge' && input.id ? value.knowledge.find(item => item.id === input.id) : null;
           if ((kind === 'archive' || kind === 'knowledge' && input.id) && !entry) fail('Kunskapsposten finns inte.', 404, 'ai_support_knowledge_missing');
