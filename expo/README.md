@@ -2,6 +2,9 @@
 
 Expo-projektet öppnar mobilappen **0.10.0** i en React Native WebView på iPhone eller Android. Samma vyer och vägningslogik används som i mobilwebben. De fyra gemensamma flikarna är **Hem, Schema, Tid och Profil**; Gårdsarbete och Mina uppdrag öppnas från Hem efter behörighet. Expo-delen hanterar telefonens skärmytor, laddning, anslutningsfel och Androids bakåtknapp. [Personlig inloggning, timkrav och provflöde](../docs/employee-mobile.md).
 
+[Återanvänd lösningen i ett annat projekt](../docs/expo-go-ateranvandning.md):
+arkitektur, QR-sida, Render-variabler och ett färdigt instruktionsexempel för Codex.
+
 Den blå/gröna ScrapPilot-loggan används på anslutningsskärmen. Appikon,
 Androids adaptiva ikon och startbild är konfigurerade i `app.json` för nästa
 eget nativebygge. Expo Go behåller sin egen appikon. Original och exporter

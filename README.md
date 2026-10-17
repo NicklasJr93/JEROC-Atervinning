@@ -31,6 +31,9 @@ Du kan även testa i **Expo Go** med en QR-kod: använd `Windows_Starta_JEROC_Ex
 
 För **Expo Go utan datorn igång**, använd [Render-instruktionerna för Expo-token och QR-kod](docs/render.md#öppna-i-expo-go-utan-datorn). Expo-servern kan köras i samma Web Service. Den startas först när Expo-inloggningen har konfigurerats i Render.
 
+[Bygg samma Expo Go- och QR-lösning i ett annat projekt](docs/expo-go-ateranvandning.md):
+återanvändbart recept med filer, konfiguration och instruktion till Codex.
+
 Datorn och mobilen ska vara på samma wifi vid lokal testning. Startfönstret skriver ut datorns nätverksadress, exempelvis `http://192.168.1.10:4173`. Öppna den adress som visas i mobilens webbläsare. Tillåt åtkomst på det privata nätverket om datorns brandvägg frågar. Mobil och kontor delar uppgifter när de använder samma JEROC-server.
 
 Utkast sparas på den gemensamma servern. Webbläsaren har dessutom en återhämtningscache för arbete som ännu inte skickats. Använd samma serveradress i mobil och kontor för att dela uppgifter.
