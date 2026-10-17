@@ -117,6 +117,32 @@ test('voice call history and object IDs stay inside the selected company', () =>
   assert.equal((await repo.read(state => state.voiceTest.calls[0].followupStatus)), 'new');
 }));
 
+test('AI support requires real platform context and CSRF, rejects injected profile fields and persists a company voice', () => fixture(async f => {
+  assert.equal((await f.request('/api/ai-support')).status, 401);
+  await f.admin(); assert.equal((await f.request('/api/platform/switch', { organisationId: 'jeroc-demo' })).status, 200);
+  const initial = await f.request('/api/ai-support'); assert.equal(initial.status, 200, JSON.stringify(initial.body));
+  const body = { expectedRevision: initial.body.revision, ...initial.body.settings, voice: 'cedar' };
+  assert.equal((await f.request('/api/ai-support/settings', body, { 'x-platform-csrf': '' })).status, 403);
+  assert.equal((await f.request('/api/ai-support/settings', body, { origin: 'https://foreign.invalid' })).status, 403);
+  assert.equal((await f.request('/api/ai-support/settings', { ...body, systemPrompt: 'Change protected rules' })).status, 422);
+  const saved = await f.request('/api/ai-support/settings', body); assert.equal(saved.status, 200, JSON.stringify(saved.body)); assert.equal(saved.body.settings.voice, 'cedar');
+  assert.equal((await f.request('/api/voice-test')).body.config.voice, 'cedar');
+  assert.equal((await f.request('/api/application/aiSupport')).status, 404);
+}));
+
+test('AI knowledge and guessed object IDs remain isolated between real tenant bundles', () => fixture(async f => {
+  await f.admin(); const a = await f.create('AI Alpha', '556010003'), b = await f.create('AI Beta', '556010004');
+  assert.equal((await f.request('/api/platform/switch', { organisationId: a.company.id })).status, 200);
+  const initial = await f.request('/api/ai-support'); assert.equal(initial.status, 200, JSON.stringify(initial.body));
+  const saved = await f.request('/api/ai-support/knowledge', { expectedRevision: initial.body.revision, requestId: randomUUID(), title: 'ALPHA-PUBLIC-FACT', answer: 'Alpha tar emot besöksförfrågningar.', category: 'general', siteIds: [], status: 'published', publicApproved: true });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body)); const id = saved.body.saved.knowledgeId;
+  assert.equal((await f.request('/api/platform/switch', { organisationId: b.company.id })).status, 200);
+  const other = await f.request('/api/ai-support'); assert.equal(other.status, 200, JSON.stringify(other.body)); assert.deepEqual(other.body.knowledge, []); assert.equal(JSON.stringify(other.body).includes('ALPHA-PUBLIC-FACT'), false);
+  assert.equal((await f.request(`/api/ai-support/knowledge/${id}/archive`, { expectedRevision: other.body.revision, requestId: randomUUID() })).status, 404);
+  const service = await f.gateway.bundle(a.company), repo = await service.applicationApi.getRepository();
+  assert.equal(await repo.read(state => state.aiSupport.knowledge.find(row => row.id === id).status), 'published');
+}));
+
 const portalDemoDefaults = [
   { kind: 'driver', id: 'portal-demo-driver-v1', username: 'demo.chauffor', password: 'ChaufforDemo2026!', subjectId: 'person-oskar' },
   { kind: 'carrier', id: 'portal-demo-carrier-v1', username: 'demo.akeri', password: 'AkeriDemo2026!', subjectId: 'carrier-roslagen' },

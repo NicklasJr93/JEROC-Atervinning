@@ -9,6 +9,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createApplicationRepository } from './application-storage.mjs';
 import { resolvePricingPrincipal } from './pricing.mjs';
 import { createVoiceTestApi, VOICE_TEST_LIMITS } from './voice-test.mjs';
+import { createAiSupportApi } from './ai-support.mjs';
 
 const sdp = 'v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=Voice test\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n';
 const org = 'fictional-voice-company';
@@ -38,7 +39,8 @@ async function fixture(run, options = {}) {
   const apis = [], makeApi = (extra = {}) => { const instance = createVoiceTestApi({ getRepository: async () => repository, officePrincipal: principal, siteProvider: async () => sites,
     companyName: 'Fiktivt Skrot AB', env, provider, now: () => clock, ...options.api, ...extra }); apis.push(instance); return instance; };
   api = makeApi();
-  const server = createServer((req, res) => void api(req, res, new URL(req.url, 'http://localhost')).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }));
+  const aiApi = createAiSupportApi({ getRepository: async () => repository, officePrincipal: principal, siteProvider: async () => sites, companyName: 'Fiktivt Skrot AB', env, provider, now: () => clock });
+  const server = createServer((req, res) => void (async () => await aiApi(req, res, new URL(req.url, 'http://localhost')) || await api(req, res, new URL(req.url, 'http://localhost')))().then(handled => { if (!handled) { res.writeHead(404); res.end(); } }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   const request = async (path = '/api/voice-test', { body, raw, cookie = 'office=admin', method = body === undefined && raw === undefined ? 'GET' : 'POST', headers = {} } = {}) => {
@@ -49,8 +51,38 @@ async function fixture(run, options = {}) {
   const start = async (extra = {}) => request('/api/voice-test/calls', { body: { requestId: randomUUID(), sdp, ...extra } });
   try { await run({ request, start, repository, provider, env, api, clock: value => { clock = new Date(value); }, makeApi,
     use: value => { api = value; }, providerUse: value => { provider = value; } }); }
-  finally { for (const instance of apis) await instance.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await repository.close(); await rm(directory, { recursive: true, force: true }); }
+  finally { await aiApi.close(); for (const instance of apis) await instance.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await repository.close(); await rm(directory, { recursive: true, force: true }); }
 }
+
+test('voice context freezes reviewed tenant and site knowledge and never reads private ERP data into provider input', async () => fixture(async f => {
+  let result = await f.request('/api/ai-support'); assert.equal(result.status, 200, result.text);
+  result = await f.request('/api/ai-support/settings', { body: { expectedRevision: result.body.revision, ...result.body.settings, voice: 'cedar', greeting: 'Välkommen till vår mottagning!', tone: 'calm' } }); assert.equal(result.status, 200, result.text);
+  for (const entry of [
+    { title: 'Kopparkabel', answer: 'Beskriv kabeln och om isoleringen sitter kvar. Kontoret bekräftar villkoren.', siteIds: ['north'], status: 'published', publicApproved: true },
+    { title: 'DRAFT-CANARY', answer: 'DRAFT-PRIVATE-CANARY', siteIds: [], status: 'draft', publicApproved: false },
+    { title: 'SOUTH-CANARY', answer: 'SOUTH-PRIVATE-CANARY', siteIds: ['south'], status: 'published', publicApproved: true },
+  ]) { result = await f.request('/api/ai-support/knowledge', { body: { requestId: randomUUID(), expectedRevision: result.body.revision, category: 'materials', ...entry } }); assert.equal(result.status, 200, result.text); }
+  await f.repository.transact(state => {
+    state.personnel = { salaries: 'PAYROLL-PRIVATE-CANARY' };
+    state.office.customers = [{ banking: 'CUSTOMER-BANK-PRIVATE-CANARY' }];
+    state.pricing.customerPrices = 'CUSTOMER-PRICE-PRIVATE-CANARY';
+    state.aiSupport.knowledge[0].hiddenCanary = 'EXTRA-FIELD-PRIVATE-CANARY';
+  });
+  const call = await f.start(); assert.equal(call.status, 200, call.text);
+  const input = f.provider.requests[0], safeInput = JSON.stringify({ companyName: input.companyName, supportProfile: input.supportProfile, instructions: input.instructions });
+  assert.equal(input.supportProfile.voice, 'cedar'); assert.equal(input.supportProfile.tone, 'calm'); assert.match(input.instructions, /Kopparkabel/);
+  for (const hidden of ['DRAFT-PRIVATE', 'SOUTH-PRIVATE', 'PAYROLL-PRIVATE', 'CUSTOMER-BANK-PRIVATE', 'CUSTOMER-PRICE-PRIVATE', 'EXTRA-FIELD-PRIVATE', 'PRIVATE-FAKE-KEY', 'DO-NOT-EXPOSE']) assert.equal(safeInput.includes(hidden), false, hidden);
+  assert.equal(call.body.call.aiSupportSnapshot.voice, 'cedar'); assert.equal(call.body.call.aiSupportSnapshot.knowledgeIds.length, 1); assert.match(call.body.call.aiSupportSnapshot.contextHash, /^[a-f0-9]{64}$/);
+  result = await f.request('/api/ai-support/settings', { body: { expectedRevision: result.body.revision, ...result.body.settings, voice: 'marin' } }); assert.equal(result.status, 200, result.text);
+  assert.equal(input.supportProfile.voice, 'cedar'); assert.equal((await f.request()).body.config.voice, 'marin');
+}));
+
+test('disabled company support profile blocks provider work and does not reserve a paid call', async () => fixture(async f => {
+  let result = await f.request('/api/ai-support');
+  result = await f.request('/api/ai-support/settings', { body: { expectedRevision: result.body.revision, ...result.body.settings, enabled: false } }); assert.equal(result.status, 200, result.text);
+  const denied = await f.start(); assert.equal(denied.status, 503); assert.equal(f.provider.starts, 0); assert.equal((await f.request()).body.config.available, false);
+  assert.equal((await f.repository.read(state => state.voiceTest))?.calls.length ?? 0, 0);
+}));
 
 test('voice HTTP requires both active privileged identities, scopes real sites and returns safe immutable configuration', async () => fixture(async f => {
   const before = await f.repository.read(state => state), result = await f.request();

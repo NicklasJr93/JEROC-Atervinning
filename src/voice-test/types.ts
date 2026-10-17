@@ -9,10 +9,12 @@ export interface VoiceCall {
   createdBy: { actualUserId: string; effectiveUserId: string; name: string };
   transcript: VoiceTurn[]; transcriptComplete?: boolean; providerConfirmed?: boolean; followupStatus: VoiceFollowup; summary?: string;
   summaryStatus?: 'pending' | 'generated' | 'fallback'; topic?: string | null; callbackRequested?: boolean | null; summaryModel?: string;
+  aiSupportSnapshot?: { revision: number; policyVersion: number; voice: string; knowledgeIds: string[]; contextHash: string };
   endReason?: string; error?: string;
 }
 export interface VoiceConfig {
   enabled: boolean; keyPresent: boolean; model: string; companyName?: string; callerNumber: string; callerLabel: string;
+  voice?: string; knowledgeRevision?: number;
   maxDurationSeconds: number; available: boolean; reason?: string;
   site?: { id: string; name: string };
 }

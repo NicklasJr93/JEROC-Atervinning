@@ -1,16 +1,22 @@
 # Svenskt röstmottagningstest med OpenAI
 
-Kontor **0.30.1**, ÄL 131. Mobilwebben ligger kvar på **0.13.0**.
+Kontor **0.30.2**, ÄL 131–132. Mobilwebben ligger kvar på **0.13.0**.
 Datum: 2026-10-17.
 
-Testet öppnas på **`/rosttest`**, direkt eller från **Integrationer → Svensk
-röstmottagning**. Du spelar en inkommande kund och pratar med mottagaren genom
-webbläsarens mikrofon. Samtalet får alltid testnumret **`+46700000000`**, märkt
+Testet öppnas på **`/rosttest`**, direkt eller med **Testa samtal** i
+AI-supportens inställningar. Du spelar en inkommande kund och pratar med
+mottagaren genom webbläsarens mikrofon. Samtalet får alltid testnumret
+**`+46700000000`**, märkt
 **TEST**. Numret är ingen verifierad kundidentitet och används inte för att ringa.
 
 Detta är ett webbläsartest. Det ansluter ingen telefonväxel och skickar inte
 mejl eller SMS. Det skapar inga arbetsordrar, bokningar eller betalningar.
 Testets uppföljningspost sparas däremot på riktigt i det valda bolagets databas.
+
+AI-supportens bolagsinställningar öppnas under **Integrationer → AI-kundmottagning**,
+på `/kontor#/integrations?service=ai-support`. Där hanteras röstval och den
+granskade kunskap som får användas i nästa testsamtal. Själva samtalet
+genomförs fortfarande på `/rosttest`.
 
 ## Förbered Render
 
@@ -24,11 +30,153 @@ för detta test; det använder bolagets befintliga beständiga lagring.
 | `VOICE_TEST_ENABLED` | Valfri avstängning. Standard är på; `false` eller `0` stänger av nya tester. |
 | `VOICE_TEST_MODEL` | Valfri serverinställning. Standard `gpt-realtime-2.1`. Modellåtkomsten måste fungera för projektet. |
 | `VOICE_TEST_SUMMARY_MODEL` | Valfri modell för sammanfattning. Standard `gpt-6-luna`. |
-| `VOICE_TEST_VOICE` | Valfri röst. Standard `marin`; svenska styrs även av serverns instruktion och transkriptionsspråk `sv`. |
+| `VOICE_TEST_VOICE` | Serverns reservval när bolaget inte har sparat en egen röst. Standard `marin`; svenska styrs även av instruktion och transkriptionsspråk `sv`. |
 
 Lägg inte nyckeln i GitHub, chatten, något `VITE_`-fält eller i formuläret.
 Webbläsaren får varken serverns API-nyckel eller en egen leverantörsnyckel.
 Nyckeln gäller serverns OpenAI-projekt; detta är ingen OAuth-anslutning per kund.
+
+## Bolagsprofil, röstval och lyssningsprov
+
+Både det verkliga och det utförande kontot behöver vara aktiva **Systemadmin
+eller VD** i det valda bolaget. För att ändra bolagsprofilen eller
+bolagsgemensam kunskap behöver båda kontona ha obegränsad anläggningsåtkomst.
+Anläggningsbegränsade administratörer kan hantera kunskap för aktiva
+anläggningar inom båda kontonas åtkomst. Ett svar för **Alla anläggningar**
+är bolagsgemensamt, inte ett svar utan anläggningsåtkomst.
+
+Under **Röst & bemötande** finns följande inställningar:
+
+| Fält | Användning |
+| --- | --- |
+| AI-kundmottagningen är aktiv | Kan stänga av nya samtal för bolaget. Serverns avstängningsflagga gäller också. |
+| Bolagsnamn | Det kundvända namnet, högst 160 tecken. |
+| Hälsningsfras | Inledningen i nästa samtal, högst 500 tecken. |
+| Röst | Ett av de tio tillåtna röstnamnen nedan. |
+| Ton | Vänlig, Professionell eller Lugn. |
+| Tempo | Lugnt, Normalt eller Raskt. |
+| Uttal och förkortningar | Uttalsanvisningar, högst 2 000 tecken. Inga nya behörigheter eller faktakällor. |
+
+Välj **Spara röst & bemötande** när profilen är granskad. Profilen har inget
+separat utkaststeg: sparat bolagsnamn, hälsning och uttal är kundvända
+uppgifter som kan skickas till modellen i nästa samtal. Lägg därför inte
+in privata uppgifter eller interna instruktioner i dem.
+
+Rösten sparas **per bolag**. De tillåtna rösterna är `alloy`, `ash`,
+`ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin` och `cedar`.
+Spara valet innan du börjar ett nytt samtal. Ett redan pågående samtal
+behåller sin röst; ändringen gäller nästa samtal. Ingen Render-ändring
+behövs för att växla mellan dessa röster i bolaget.
+
+Lyssningsprovet är ett separat **text-till-tal-anrop**, inte ett kort
+Realtime-samtal. Det använder `gpt-4o-mini-tts` och den fasta svenska texten:
+
+> Hej! Det här är ett svenskt röstprov. Välkommen, vad kan jag hjälpa dig med?
+
+Välj **Provlyssna** för önskad röst. Provet använder röst, ton och tempo,
+men skickar inte bolagsnamnet, den egna hälsningsfrasen eller uttalslistan
+till TTS-tjänsten. Dessa delar behöver bedömas i ett nytt Realtime-samtal.
+Provlyssning sparar inte automatiskt ditt röstval.
+
+Att begära provet använder OpenAI:s API och kan kosta pengar. Det kräver
+serverns API-nyckel men ingen mikrofon. Fri provtext stöds inte. Svaret är
+en kort MP3 som spelas i webbläsaren; appen skapar ingen beständig ljudfil.
+Anropet har åtta sekunders tidsgräns och högst 512 KiB ljudsvar. Vid fel
+görs inget automatiskt återförsök.
+
+Samma röstnamn kan låta annorlunda i Realtime än i detta TTS-prov. Gör
+därför också ett riktigt testsamtal på `/rosttest` när röstvalet ska bedömas
+för svensk dialog, turtagning och uttal.
+
+## Kunskap som får användas i kundsamtal
+
+AI-supportens wiki skiljer **utkast** från **publicerat innehåll**. Dessutom
+krävs ett uttryckligt godkännande för kundsvar. Att spara text, skapa ett
+projektförslag eller importera en artikel innebär inte att innehållet får
+användas i ett samtal.
+
+Arbeta i denna ordning:
+
+1. Öppna **Kunskap** och välj **Nytt svar**, eller redigera ett befintligt
+   svar. Välj vilka anläggningar svaret gäller och använd **Spara utkast**.
+2. Kontrollera att texten är riktig, aktuell och lämplig att återge för en
+   kund. Ta bort interna anteckningar, personuppgifter och uppgifter som
+   mottagaren inte ska lämna ut.
+3. Markera **Jag har kontrollerat att informationen får lämnas till kunder**
+   och välj **Publicera svar** eller **Spara och publicera** när granskningen
+   är klar. Publiceringsmarkeringen är kontorets beslut; den är ingen
+   automatisk kontroll av textens riktighet eller säkerhet.
+4. Gör ett nytt testsamtal och kontrollera att mottagaren använder uppgiften
+   rätt och hänvisar till personalen när underlag saknas.
+
+Godkännandet binds till just textversionen och dess anläggningar med en
+innehållskontrollsumma. Redigering kräver nytt godkännande innan den nya
+versionen publiceras. Att spara ett tidigare publicerat svar som utkast tar
+bort det från nya samtal. **Arkivera** tar också bort svaret från nya samtal;
+tidigare versioner och samtalsloggar bevaras. Ändringar påverkar inte ett
+redan startat samtals underlag.
+
+Under **Bra att lära kundmottagningen** finns fasta projektförslag om
+materialfrågor, hämtning och öppettider/besök. De är starttexter, inte
+automatisk AI-läsning av projektfiler eller databasen. Att välja ett förslag
+gör inget OpenAI-anrop; det fyller en osparad utkasttext i formuläret.
+Kontrollera texten mot det egna bolagets verkliga arbetssätt och spara som
+utkast. Ett generellt förslag är inget löfte om bolagets tjänster,
+öppettider, priser eller tillstånd.
+
+Välj **Från artikel → Skapa artikelutkast** för att importera en aktiv
+artikels namn, beskrivning och texter om vad som ingår eller inte ingår.
+Priser, kundpriser och andra interna registerfält följer inte med. Importen
+sparar ett fristående **utkast** utan kundgodkännande. Senare ändringar i
+artikelregistret uppdaterar inte den importerade texten automatiskt.
+Granska och godkänn varje version separat före publicering.
+
+Öppna **Vad kundmottagningen får se** för att kontrollera det aktuella
+godkända wikiunderlaget för den anläggning som förhandsvisningen anger.
+
+| Kunskapsgräns per bolag | Värde |
+| --- | --- |
+| Sparade svar, inklusive utkast och arkiverade | 100 |
+| Publicerade, kundgodkända svar | 20 |
+| Sammanlagda tecken i publicerade rubriker och svar | 10 000 |
+| Rubrik / svar per post | Högst 160 / 3 000 tecken |
+
+Arkivering frigör publiceringsutrymme men tar inte bort en sparad post.
+Ingen automatisk radering ingår. Samtidiga ändringar skyddas med
+versionskontroll; välj **Hämta aktuell version** vid konflikt och granska
+texten innan du sparar igen.
+
+### Vad modellen faktiskt får se
+
+Servern bygger en uttryckligt tillåten kontext för det valda bolaget:
+den sparade kundvända profilen, anläggningens namn och de wikifält som både
+är publicerade och godkända för kundsvar. Det är denna begränsade datamängd
+som skickas som kunskap till modellen, inte en fri fråga mot hela databasen.
+
+Modellen har inga verktyg som får söka i den allmänna databasen, läsa HR,
+löner, bankuppgifter eller kundregister, eller skapa verksamhetsåtgärder.
+Samtalets kunskapsbyggare läser bara AI-supportens godkända fält; den slår
+inte upp levande artikel- eller prisregister. Artikelimporten använder ett
+separat, begränsat fälturval och behöver utkastgranskningen ovan.
+
+Servern avvisar vissa tydliga hemligheter, personnummer, privata
+betalningsuppgifter och manipulerande instruktioner redan vid sparande,
+även i profil och utkast. Den kontrollen kan inte identifiera allt känsligt
+innehåll. Allmän, godkänd information om exempelvis Swish eller kontant
+betalning kan vara kundinformation; privata bank- eller kundspecifika
+betalningsuppgifter är det inte.
+
+Wikitext skickas som data, med separata fasta instruktioner för mottagaren.
+Det minskar risken att en text tolkas som nya kommandon. Det finns ändå
+ingen utlovad **100-procentig säkerhet mot promptinjektion eller påhittade
+svar**. Att servern begränsar vilken information och vilka verktyg modellen
+får tillgång till skyddar de faktiska datavägarna; det garanterar inte att
+varje mening som modellen säger är riktig.
+
+Kontoret behöver därför granska texten som publiceras och testa svaren.
+Publicera inte hemligheter eller känsliga uppgifter i en kundgodkänd wiki.
+Det användaren själv säger i mikrofonen skickas fortfarande till OpenAI;
+kunskapsfiltreringen tar inte bort uppgifter ur det inkommande talet.
 
 ## Prova som operatör
 
@@ -75,6 +223,17 @@ avtal om hur riktiga kundsamtal får behandlas.
 | 30 starter per kalenderdag och bolag | Dygnet följer `Europe/Stockholm`, inte ett rullande 24-timmarsfönster. |
 | 300 sparade samtal per bolag | När testjournalen är full spärras nya starter. Historiken gallras inte automatiskt. |
 
+Röstprov har egna kvoter, skilda från testsamtalen:
+
+| Gräns för TTS-röstprov | Vad den innebär |
+| --- | --- |
+| Tio prov per rullande timme och konto i bolaget | Kontrolleras för både verkligt och utförande konto. |
+| 50 prov per kalenderdag och bolag | Dygnet följer `Europe/Stockholm`. |
+| Ett pågående prov per bolag | Databasen reserverar provet i högst tio sekunder. Leverantörsanropet avbryts senast efter åtta sekunder; serverns övergripande gräns är nio sekunder. |
+
+Reserverade röstprov räknas även om leverantörsanropet sedan misslyckas.
+Att ladda om sidan eller byta roll återställer inte kvoten.
+
 Ett försök som reserverats men sedan misslyckas hos leverantören räknas.
 Avvisad inloggning, felaktig förfrågan, saknad nyckel eller redan nådd kvot
 före reservation skapar däremot inte ett nytt samtalsförsök.
@@ -112,6 +271,11 @@ flowchart LR
   via `POST https://api.openai.com/v1/realtime/calls`, med multipart-fälten
   `sdp` och serverägd sessionskonfiguration. Instruktion, modell, röst och
   transkriptionsspråk kan inte bytas genom webbläsarens startformulär.
+- Starten hämtar en avgränsad kopia av bolagets sparade profil och de
+  godkända svar som gäller för samtalets anläggning. Samtalsjournalen
+  kopplar underlaget till kunskapsrevision, policyversion, röst,
+  kunskapsposternas ID:n och innehållskontrollsumma. Senare ändringar av
+  profil eller wiki förändrar inte det pågående samtalet.
 - Webbläsaren använder det återlämnade SDP-svaret för WebRTC. När svaret är
   installerat skickas ett uttryckligt `ready`; först då begär servern den
   inledande hälsningen. Ljudet går mellan webbläsaren och OpenAI.
@@ -129,16 +293,25 @@ flowchart LR
   den bevarade utskriften. Råtext och uppföljningspost får inte försvinna.
   Vid serveravstängning används reservunderlag utan ett nytt AI-anrop.
 
-Leverantörens HTTP-anrop har 20 sekunders tidsgräns och anslutningen av
-serverns WebSocket 10 sekunder. Avslut försöker även stänga leverantörens
-samtal via dess hangup-gränssnitt; lokal media och serverjournal behöver
-ändå hantera att en anslutning redan är bruten.
+Realtime-adapterns HTTP-anrop har normalt 20 sekunders tidsgräns och
+anslutningen av serverns WebSocket 10 sekunder. TTS-röstprovet och
+sammanfattningsanropet har den kortare gränsen åtta sekunder. Avslut försöker
+även stänga leverantörens samtal via dess hangup-gränssnitt; lokal media och
+serverjournal behöver ändå hantera att en anslutning redan är bruten.
 
 Journalen ligger i den privata bolagsdomänen `voiceTest` i samma
 databasarkitektur som övriga bolagsuppgifter. PostgreSQL används där den
 befintliga Render-installationen är konfigurerad för det. Lokala tester kan
 använda repositoryts SQLite-adapter. Det levande ljudsamtalets anslutningar
 är tillfälliga; samtalspost, text och status är beständiga.
+
+Profil, wiki, versionshistorik, godkännanden, ändringslogg och
+röstprovsreservationer ligger i bolagets privata domän `aiSupport`.
+Godkännanden binder textens version och kontrollsumma till verkligt och
+utförande konto. Modellens kunskapsbyggare läser bara denna domän;
+administrationens separata artikelimport använder det begränsade fälturvalet
+ovan. Varken hela bolagsdatabasen eller administrativa API-svar skickas
+som modellkontext.
 
 Sparade uppgifter omfattar samtals-ID, försöks-ID, tid, status,
 TEST-nummer, anläggningssnapshot, verklig och utförande användare,
@@ -160,13 +333,36 @@ innan fler tester kan tillåtas; det finns ingen raderingsknapp i röstvyn.
 | `POST /api/voice-test/calls/:id/end` | Avsluta idempotent och färdigställ underlaget. |
 | `POST /api/voice-test/calls/:id/status` | Spara `new`, `in_progress` eller `done` för testuppföljningen. |
 
+AI-supportens separata gränssnitt använder samma verifierade bolagskontext:
+
+| Gränssnitt | Syfte |
+| --- | --- |
+| `GET /api/ai-support` | Profil, synliga wikiposter, röster, förslag, artikelval och exakt kunskapsförhandsvisning. |
+| `POST /api/ai-support/settings` | Spara kundvänd profil med `expectedRevision`. |
+| `POST /api/ai-support/knowledge` | Skapa eller versionsändra ett utkast/publicerat svar. |
+| `POST /api/ai-support/knowledge/from-article` | Skapa ett artikelutkast med `articleId` och tillåtna `siteIds`. |
+| `POST /api/ai-support/knowledge/:id/archive` | Arkivera utan att radera historiken. |
+| `POST /api/ai-support/preview` | Begär fast TTS-röstprov; svar innehåller MP3 som Base64, MIME-typ och röst. |
+
+Wikiändringar kräver `expectedRevision` och stabilt `requestId`.
+Publicering kräver `status: published` och ett uttryckligt
+`publicApproved: true` för aktuell text. Inställnings- och wiki-anrop
+accepterar högst 32 KiB JSON. Servern kontrollerar bolag, båda kontonas
+roller, anläggningsscope och CSRF; webbklienten kan inte sätta egna
+systeminstruktioner eller ge modellen fler verktyg.
+
 Ingen av dessa vägar är en telefon-, mejl-, SMS- eller orderadapter.
 
 ## Kontroll efter deploy och felsökning
 
 | Symtom | Kontrollera |
 | --- | --- |
-| Starten är spärrad | Serverns nyckel/avstängningsflagga, aktiv anläggning och båda kontonas roll och åtkomst. |
+| Starten är spärrad | Serverns nyckel/avstängningsflagga, bolagsprofilens aktivering, aktiv anläggning och båda kontonas roll och åtkomst. |
+| Röstvalet går inte att spara | Båda kontona behöver obegränsad anläggningsåtkomst för bolagsprofilen. Vid versionskonflikt: hämta aktuell version och granska dina ändringar. |
+| Röstprovet misslyckas | Nyckel, TTS-modellåtkomst, nätanslutning och röstprovets egen tim-/dygnskvot. Ingen automatisk ny beställning görs. |
+| Hälsning eller uttal hörs inte i provlyssningen | Provet använder ett fast manus. Spara profilen och bedöm dessa fält i ett nytt Realtime-samtal. |
+| Wikisvaret används inte | Kontrollera publicering, godkännande av aktuell version, anläggningsval och förhandsvisningen. Starta ett nytt samtal. |
+| Importerad artikeltext är gammal | Importen är en fristående textversion. Uppdatera och granska den; levande artikeländringar skickas inte automatiskt till modellen. |
 | AI-anslutningsprovet misslyckas | Projektets API-nyckel och åtkomst till den konfigurerade modellen; serverns HTTPS-anslutning till OpenAI. |
 | Ingen mikrofon | HTTPS, webbläsarens mikrofontillstånd och vald ljudenhet. Ingen reserverad OpenAI-start ska krävas om mikrofontillstånd nekas först. |
 | Anslutet men inget ljud | Webbläsarens ljuduppspelning, högtalare/hörlurar, WebRTC-nätet och ett riktigt ljudprov. Ett lyckat nyckelprov räcker inte. |
@@ -187,7 +383,32 @@ svenska, ljudfördröjning, leverantörskostnad eller beteendet i Render-nätet.
 Ingen godkänd faktisk ljudanslutning ska rapporteras förrän provet har körts
 med projektets nyckel och en riktig mikrofon.
 
-Lokalt verifierat 2026-10-17: **32/32** riktade server-/adaptertester,
+Aktuellt bygge **0.30.2 / ÄL 132** verifierades på den återskapade koden
+2026-10-17 efter att molnmiljön hade återställts till en äldre snapshot:
+
+- **54/54** riktade AI-support-, röst- och adaptertester.
+- Två nya gatewayfall för riktig plattformsautentisering, CSRF och
+  bolagsisolering samt två befintliga röst-gatewayfall passerar.
+- **Sju olika AI-supportfall** i webbläsaren: publicering/arkivering,
+  versionskonflikt, återförsök efter förlorad lagringskvittens,
+  röstinställningar och ljudrensning, återkallad behörighet, sent ljudsvar
+  efter bolagsbyte samt skydd mot dubbla lyssningsbeställningar.
+  **Tio befintliga browserfall** för röstsamtal passerar också.
+- Produktionsbygget och den byggda webbservern provades med riktig
+  plattformsinloggning och bolagsval. Profil och publicerad kunskap
+  återläses från databasen; utkast saknas i samtalsunderlaget. Alla tre
+  inställningsflikar öppnas och vald röst visas inför nästa samtal.
+  Saknad OpenAI-nyckel spärrar samtalsstart.
+- Den breda serversviten gav **1 307 godkända, 45 överhoppade och nio fel**.
+  Felen är sedan tidigare dokumenterade i
+  [föregående byggkontroll](../fordon-telematik-bygge-2026-10-16.md).
+  Hela serversviten är alltså inte grön.
+
+Dessa prov använder simulerad OpenAI-leverantör. Inga betalda modell- eller
+TTS-anrop gjordes och den verkliga röstkvaliteten är inte verifierad av dem.
+
+Föregående bygge **0.30.1 / ÄL 131** verifierades lokalt 2026-10-17:
+**32/32** riktade server-/adaptertester,
 **10 browserfall** (nio i gemensam körning och en separat regression för ett
 sent svar efter återkallad behörighet), produktionsbygge och ett prov mot den
 byggda webbservern med riktig plattformsinloggning och bolagsval. Den breda
@@ -197,6 +418,25 @@ Tester av mikrofon, WebRTC och OpenAI använder lokala simuleringar; provet
 mot byggd server verifierade även att saknad servernyckel spärrar samtalsstart.
 
 ## Leverantörens dokumentation
+
+Playground-vyn **Live** kan visa `gpt-live-1`, rösten Meridian och en
+**Delegated model**. Det är en annan API-familj än denna integration.
+GPT-Live använder `/v1/live/sessions`; vårt samtal använder
+`/v1/realtime/calls`. Ett byte av `VOICE_TEST_MODEL` till `gpt-live-1`
+räcker därför inte. Portalen erbjuder i denna version profil, godkända
+Realtime-röster, kunskap och fasta säkerhetsgränser. Modellval, GPT-Live-
+röstdesign, delegering och webbsökning ingår inte.
+
+En delegerad modell arbetar med resonemang och eventuella verktyg under
+själva samtalet. Den ska inte förväxlas med vår separat konfigurerade
+modell som sammanfattar samtalet efteråt. Vid en framtida GPT-Live-
+integration behöver även röstprov, verktygsåtkomst, kostnad och livscykel
+anpassas; en sparad GPT-Live-röst kan inte skickas till nuvarande TTS-prov.
+
+- [GPT-Live och vilka API:er modellen stöder](https://developers.openai.com/api/docs/models/gpt-live-1).
+- [GPT-Live-röster](https://developers.openai.com/api/docs/guides/live-conversations#voice-options).
+- [Delegering under samtalet](https://developers.openai.com/api/docs/guides/live-delegation).
+- [Egna röster och stöd per API](https://developers.openai.com/api/docs/guides/custom-voices).
 
 - [WebRTC och SDP-utbyte](https://developers.openai.com/api/docs/guides/realtime-webrtc).
 - [Serverkontroll och separat serveranslutning](https://developers.openai.com/api/docs/guides/realtime-server-controls).

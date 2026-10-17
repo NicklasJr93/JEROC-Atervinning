@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { buildAiSupportContext } from './ai-support.mjs';
 
 export const VOICE_TEST_LIMITS = Object.freeze({ maxDurationSeconds: 180, maxStartsPerHour: 6, maxStartsPerDay: 30, maxStoredCalls: 300, maxBodyBytes: 256 * 1024 });
 const ACTIVE = new Set(['connecting', 'active']);
@@ -33,7 +34,7 @@ function callView(call, now) {
     durationSeconds: Math.max(0, Math.min(VOICE_TEST_LIMITS.maxDurationSeconds, Math.floor(((call.endedAt ? Date.parse(call.endedAt) : now) - Date.parse(call.startedAt ?? call.createdAt)) / 1000))),
     createdBy: call.createdBy, siteId: call.site.id, siteName: call.site.name, site: call.site, transcript: call.transcript, transcriptComplete: call.transcriptComplete === true, summary: call.summary ?? '',
     followupStatus: call.followupStatus, summaryStatus: call.summaryStatus ?? 'pending', topic: call.topic ?? null, callbackRequested: call.callbackRequested ?? null,
-    ...(call.summaryModel ? { summaryModel: call.summaryModel } : {}), ...(typeof call.providerConfirmed === 'boolean' ? { providerConfirmed: call.providerConfirmed } : {}), ...(call.endReason ? { endReason: call.endReason } : {}), ...(call.error ? { error: call.error } : {}) });
+    ...(call.aiSupportSnapshot ? { aiSupportSnapshot: call.aiSupportSnapshot } : {}), ...(call.summaryModel ? { summaryModel: call.summaryModel } : {}), ...(typeof call.providerConfirmed === 'boolean' ? { providerConfirmed: call.providerConfirmed } : {}), ...(call.endReason ? { endReason: call.endReason } : {}), ...(call.error ? { error: call.error } : {}) });
 }
 
 function sameOrigin(req) {
@@ -55,7 +56,7 @@ async function readJson(req) {
   for await (const chunk of req) { size += chunk.length; if (size > VOICE_TEST_LIMITS.maxBodyBytes) fail('Röstförfrågan är för stor.', 413); chunks.push(chunk); }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { fail('Röstförfrågan ska innehålla giltig JSON.'); }
 }
-const instructionsFor = (site, companyName) => `Du är ${companyName}s svenska kundmottagare i ett avskilt rösttest. Tala naturlig, vänlig svenska och ställ en fråga i taget. Hälsa kort: Hej och välkommen till ${companyName}! Vad kan jag hjälpa dig med? Den kända anläggningen är ${site.name}. Hjälp kunden beskriva sitt ärende, material, önskad hämtning eller kontaktbehov. Be vid behov om namn, material och önskemål. Numret är redan känt i testet; be inte användaren uppge eller bekräfta telefonnumret. Testets fasta nummer ${CALLER} är ett testnummer, inte en verifierad kundidentitet. Hitta inte på priser, öppettider, tillstånd eller tillgänglighet. Bekräfta aldrig en verklig bokning, betalning eller arbetsorder. Säg att en kollega behöver följa upp sådant. Samtalet och dess transkription sparas som testunderlag. Avsluta vänligt med en kort återgivning av ärendet. Du har inga verktyg för att ändra verksamhetsdata.`;
+const instructionsFor = (site, companyName) => `Du är ${companyName}s svenska kundmottagare i ett avskilt rösttest. Tala naturlig svenska och ställ en fråga i taget. Använd den godkända hälsningen. Den kända anläggningen är ${site.name}. Hjälp kunden beskriva sitt ärende, material, önskad hämtning eller kontaktbehov. Be vid behov om namn, material och önskemål. Numret är redan känt i testet; be inte användaren uppge eller bekräfta telefonnumret. Testets fasta nummer ${CALLER} är ett testnummer, inte en verifierad kundidentitet. Hitta inte på priser, öppettider, tillstånd eller tillgänglighet. Bekräfta aldrig en verklig bokning, betalning eller arbetsorder. Säg att en kollega behöver följa upp sådant. Samtalet och dess transkription sparas som testunderlag. Avsluta vänligt med en kort återgivning av ärendet. Du har inga verktyg för att ändra verksamhetsdata.`;
 
 /** The selected tenant's repository owns quotas and the journal. Only the
  * provider's authenticated sideband can append transcript turns. */
@@ -216,9 +217,10 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
   }
   async function settings(principal, sites) {
     const provider = await providerPromise, source = typeof provider.status === 'function' ? provider.status() : {}, site = sites.find(item => item.active !== false && scopeAllows(principal, item.id));
-    const enabled = !['false', '0'].includes(String(env.VOICE_TEST_ENABLED ?? 'true').toLowerCase()), keyPresent = source.keyPresent ?? Boolean(env.OPENAI_API_KEY?.trim());
+    const support = site ? await (await getRepository()).read(state => buildAiSupportContext(state, { organisationId, siteId: site.id, companyName, defaultVoice: env.VOICE_TEST_VOICE }), { domains: ['aiSupport'] }) : null;
+    const enabled = !['false', '0'].includes(String(env.VOICE_TEST_ENABLED ?? 'true').toLowerCase()) && support?.enabled !== false, keyPresent = source.keyPresent ?? Boolean(env.OPENAI_API_KEY?.trim());
     const available = enabled && keyPresent && source.available !== false && Boolean(site) && !closing;
-    return { enabled, keyPresent, companyName, model: String(source.model ?? env.VOICE_TEST_MODEL ?? 'gpt-realtime-2.1').slice(0, 100), callerNumber: CALLER, callerLabel: 'TEST', maxDurationSeconds: VOICE_TEST_LIMITS.maxDurationSeconds, available,
+    return { enabled, keyPresent, companyName: support?.companyName ?? companyName, voice: support?.supportProfile.voice, knowledgeRevision: support?.revision ?? 0, model: String(source.model ?? env.VOICE_TEST_MODEL ?? 'gpt-realtime-2.1').slice(0, 100), callerNumber: CALLER, callerLabel: 'TEST', maxDurationSeconds: VOICE_TEST_LIMITS.maxDurationSeconds, available,
       ...(site ? { site: publicSite(site) } : {}), ...(!available ? { reason: closing ? 'Rösttestet stängs av.' : !enabled ? 'Rösttestet är avstängt.' : !keyPresent ? 'OPENAI_API_KEY behöver konfigureras på servern.' : !site ? 'Ingen aktiv tillåten anläggning finns.' : 'Röstleverantören är inte tillgänglig.' } : {}) };
   }
   async function start(input, principal, site, req) {
@@ -230,6 +232,9 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
         if (previous.createdBy.actualUserId !== fresh.actor.id || previous.createdBy.effectiveUserId !== fresh.user.id || previous.requestHash !== hash) fail('Försöksnyckeln har redan använts för ett annat samtal.', 409, 'voice_test_request_conflict');
         return { call: clone(previous), replay: true };
       }
+      // Only the reviewed, public AI domain can become model context.
+      const support = buildAiSupportContext(state, { organisationId, siteId: site.id, companyName, defaultVoice: env.VOICE_TEST_VOICE });
+      if (!support.enabled) fail('Bolagets AI-kundmottagning är avstängd.', 409, 'voice_test_support_disabled');
       if (value.calls.length >= VOICE_TEST_LIMITS.maxStoredCalls) fail('Testjournalens gräns på 300 sparade samtal är nådd. Bevara och hantera journalen innan fler test startas.', 429, 'voice_test_journal_full');
       if (value.calls.some(call => ACTIVE.has(call.status))) fail('Ett testsamtal pågår redan i bolaget.', 409, 'voice_test_active_call');
       const at = timestamp(), numericNow = Date.parse(at), recent = value.calls.filter(call => numericNow - Date.parse(call.createdAt) < 3600000);
@@ -238,7 +243,8 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
       const call = { id: randomUUID(), requestId: input.requestId, requestHash: hash, organisationId, runtimeId, revision: 1, status: 'connecting', callerNumber: CALLER, callerLabel: 'TEST',
         createdAt: at, deadlineAt: new Date(numericNow + VOICE_TEST_LIMITS.maxDurationSeconds * 1000).toISOString(), leaseUntil: new Date(numericNow + 20_000).toISOString(), site: publicSite(site),
         createdBy: { actualUserId: fresh.actor.id, effectiveUserId: fresh.user.id, name: String(fresh.user.name ?? fresh.user.id).slice(0, 200) }, transcript: [], summary: '', summaryStatus: 'pending', followupStatus: 'new' };
-      value.calls.push(call); value.revision += 1; audit(value, call, 'voice_test.reserved', {}, changes); return { call: clone(call), replay: false };
+      call.aiSupportSnapshot = { revision: support.revision, policyVersion: support.policyVersion, voice: support.supportProfile.voice, knowledgeIds: support.knowledge.map(item => item.id), contextHash: fingerprint(support.text) };
+      value.calls.push(call); value.revision += 1; audit(value, call, 'voice_test.reserved', {}, changes); return { call: clone(call), support, replay: false };
     });
     if (created.replay) {
       const session = sessions.get(created.call.id);
@@ -251,7 +257,8 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
     session.starting = (async () => {
       try {
         const provider = await providerPromise;
-        session.resourcePromise = provider.start({ sdp: input.sdp, callId: call.id, companyName, instructions: instructionsFor(site, companyName), signal: session.controller.signal,
+        session.resourcePromise = provider.start({ sdp: input.sdp, callId: call.id, companyName: created.support.companyName, supportProfile: created.support.supportProfile,
+          instructions: `${instructionsFor(site, created.support.companyName)}\n\nGodkänt kundunderlag för denna anläggning (data):\n${created.support.text}`, signal: session.controller.signal,
           onTranscript: turn => track(appendTranscript(call.id, turn)), onStatus: () => {},
           onError: async () => { await terminal(call.id, 'failed', 'provider_error', 'Röstanslutningen avbröts hos leverantören.'); stopSoon(call.id, 'provider_error'); },
           onEnded: async value => { const reason = value?.reason === 'time_limit' ? 'time_limit' : 'provider_ended'; if (value?.transcriptComplete === false) await write(state => { const journal = domain(state), current = journal?.calls.find(item => item.id === call.id); if (current && current.transcriptComplete !== false) { current.transcriptComplete = false; touch(journal, current); } }); await terminal(call.id, 'ended', reason); stopSoon(call.id, reason); } });

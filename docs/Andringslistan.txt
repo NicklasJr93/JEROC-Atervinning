@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.13.0. Aktuell kontorsversion: 0.30.1.
+Aktuell mobilwebbversion: 0.13.0. Aktuell kontorsversion: 0.30.2.
 ÄL 125: demoinloggning med förifyllning på Chaufför, Åkeri och Kundportal.
 ÄL 124 är genomförd 2026-10-16: förifyllt NVV-supportprov direkt i kontoret,
 utan Render Shell. Själva nya myndighetsanropet körs från användarens testknapp.
@@ -3153,3 +3153,47 @@ Status: Implementerad 2026-10-17 i kontor 0.30.1. Mobilwebben kvar på 0.13.0.
   Bred serversvit har samma nio tidigare dokumenterade fel kvar.
 - Operatörsflöde, Render-inställningar och arkitektur:
   docs/integrationer/openai-rosttest.md.
+
+
+ÄL 132 – AI-supportinställningar, bolagsröst och granskad kunskapswiki
+Status: Implementerad 2026-10-17 i kontor 0.30.2. Mobilwebben kvar på 0.13.0.
+- Egen inställningsvy i Integrationer på
+  /kontor#/integrations?service=ai-support med skyddad bolagskontext.
+- Bolaget väljer och sparar en tillåten röst för nästa testsamtal.
+  Pågående samtal behåller sin röst; VOICE_TEST_VOICE är reservval.
+  Kundvänd bolagsprofil omfattar även hälsning, ton, tempo och uttal.
+  Profil och gemensam kunskap kräver obegränsad anläggningsåtkomst för
+  både verklig och utförande VD/Systemadmin; begränsad wiki följer scope.
+- Lyssningsprov använder separat TTS med kort fast svensk text och kan
+  medföra API-kostnad. Ingen mikrofon behövs, inget Realtime-samtal skapas
+  och appen sparar ingen beständig ljudfil. Realtime kan låta annorlunda.
+- Wiki skiljer utkast, publicering och uttryckligt godkännande för
+  kundsvar. Kontoret granskar texten; en sparad text blir inte automatiskt
+  användbar för kundmottagaren.
+  Godkännande binds till textversion och anläggningar. Historik bevaras;
+  arkiverade svar används inte i nya samtal. Högst 100 sparade svar,
+  20 publicerade och 10 000 publicerade rubrik-/svarstecken per bolag.
+- Projektkunskap ger fasta förslag att granska. Artikelimport skapar utkast,
+  utan automatisk publicering eller godkännande för kundsvar.
+  Importen tar en fristående kopia av tillåtna beskrivningsfält utan
+  priser. Senare artikeländringar skriver inte om godkänd kundtext.
+- TTS-röstprov har beständiga kvoter: tio per rullande timme/konto,
+  50 per Stockholmsdygn/bolag och ett pågående prov per bolag.
+- Endast serverns tillåtna fält och granskad kundpublicerad kunskap
+  förs till modellen. Ingen allmän databasåtkomst, HR, löner, bankuppgifter
+  eller kundregister hämtas som AI-kontext. Modellen får inga verktyg som
+  skickar meddelanden eller skapar verksamhetsåtgärder.
+- Promptinstruktioner och data avgränsas, men inget löfte om 100-procentig
+  säkerhet mot promptinjektion eller påhittade svar lämnas. Publicerad
+  kundtext och faktiska svar behöver granskas av kontoret.
+- Inga riktiga telefon-, mejl-, SMS-, order- eller bokningskopplingar.
+  Röstprovets TTS-ljud ersätter inte ett acceptansprov av svensk
+  Realtime-dialog med mikrofon, turtagning och hörbart ljud.
+- Guide: docs/integrationer/openai-rosttest.md.
+- Verifierat efter miljöåterställning: 54 riktade server-/adaptertester,
+  två nya gatewayfall för autentisering/bolagsisolering och två befintliga
+  röst-gatewayfall. Sju AI-supportfall och tio röstfall i webbläsaren.
+  Produktionsbygge och byggd server med riktig inloggning, sparad profil,
+  publicering och spärr vid saknad OpenAI-nyckel är lokalt kontrollerade.
+  Bred serversvit: 1 307 godkända, 45 överhoppade och nio kända tidigare fel.
+  Inga verkliga OpenAI-anrop gjordes i dessa verifieringar.

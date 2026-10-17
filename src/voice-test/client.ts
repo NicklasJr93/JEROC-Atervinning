@@ -22,9 +22,10 @@ export const callSchema = z.object({ id: z.string(), requestId: z.string(), revi
   callerNumber: z.string(), callerLabel: z.string(), createdBy: z.object({ actualUserId: z.string(), effectiveUserId: z.string(), name: z.string() }),
   transcript: z.array(z.object({ id: z.string(), role: z.enum(['user', 'assistant']), text: z.string(), at: stamp, interrupted: z.boolean().optional() })), transcriptComplete: z.boolean().optional(), providerConfirmed: z.boolean().optional(),
   followupStatus: z.enum(['new', 'in_progress', 'done']), summary: z.string().optional(), summaryStatus: z.enum(['pending', 'generated', 'fallback']).optional(),
+  aiSupportSnapshot: z.object({ revision: nonnegative.int(), policyVersion: nonnegative.int(), voice: z.string(), knowledgeIds: z.array(z.string()), contextHash: z.string() }).optional(),
   topic: z.string().nullable().optional(), callbackRequested: z.boolean().nullable().optional(), summaryModel: z.string().optional(), endReason: z.string().optional(), error: z.string().optional(),
 });
-const stateSchema = z.object({ revision: nonnegative.int(), config: z.object({ enabled: z.boolean(), keyPresent: z.boolean(), model: z.string(), companyName: z.string().optional(), callerNumber: z.string(), callerLabel: z.string(), maxDurationSeconds: nonnegative, available: z.boolean(), reason: z.string().optional(), site: z.object({ id: z.string(), name: z.string() }).optional() }), calls: z.array(callSchema), currentCall: callSchema.nullable() });
+const stateSchema = z.object({ revision: nonnegative.int(), config: z.object({ enabled: z.boolean(), keyPresent: z.boolean(), model: z.string(), companyName: z.string().optional(), voice: z.string().optional(), knowledgeRevision: nonnegative.int().optional(), callerNumber: z.string(), callerLabel: z.string(), maxDurationSeconds: nonnegative, available: z.boolean(), reason: z.string().optional(), site: z.object({ id: z.string(), name: z.string() }).optional() }), calls: z.array(callSchema), currentCall: callSchema.nullable() });
 const createSchema = z.object({ call: callSchema, answerSdp: z.string().min(1) });
 const checkSchema = z.object({ ok: z.boolean(), model: z.string(), message: z.string(), checkedAt: stamp });
 async function request<T>(scope: VoiceScope, path: string, schema: z.ZodType<T>, body?: unknown, signal?: AbortSignal, timeoutMs = 20_000): Promise<T> {

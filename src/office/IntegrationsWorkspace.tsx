@@ -1,5 +1,5 @@
 import { OfficePageHeader } from './OfficePageHeader';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, ArrowUpRight, Building2, CheckCircle2, ChevronRight, CircleAlert,
@@ -18,6 +18,8 @@ import MailIntegrationPanel from './MailIntegrationPanel';
 import { cacheIntegrationRead, cachedIntegrationRead, clearIntegrationReadCache, integrationReadScope } from './integration-read-cache';
 import './environment.css';
 import './integrations.css';
+
+const AiSupportSettings = lazy(() => import('../ai-support/AiSupportSettings'));
 
 export interface IntegrationProvider {
   id: string;
@@ -217,6 +219,8 @@ export default function IntegrationsWorkspace({ user, actualUser, users, siteId 
   const parallelSwish = selectedId === 'swish' && (!catalog || !!selected?.implemented);
   const parallelBank = selectedId === 'bank' && (!catalog || !!selected?.implemented);
   const parallelMail = selectedId === 'microsoft365';
+  const parallelAi = selectedId === 'ai-support';
+  const mayManageAi = [user, actualUser].every(account => account.active !== false && ['Systemadmin', 'VD'].includes(account.level));
   const selectedPresentation = selected && providerPresentation[selected.id];
   const SelectedIcon = selectedPresentation?.icon ?? PlugZap;
 
@@ -234,14 +238,19 @@ export default function IntegrationsWorkspace({ user, actualUser, users, siteId 
     void loadCatalog(undefined, true);
   }
 
+  function backToIntegrations() {
+    if (parallelAi && !window.dispatchEvent(new Event('scrappilot:before-ai-support-navigation', { cancelable: true }))) return;
+    setSearch({});
+  }
+
   if (!readable) return <section className="integrations-workspace"><div className="office-panel integration-message"><ShieldCheck size={19} /><span>Du saknar behörighet att visa integrationer.</span></div></section>;
 
   return <section className="integrations-workspace">
     <OfficePageHeader>
-      {(parallelSpiris || parallelSwish || parallelBank || parallelMail || selected) && <button type="button" className="office-link integration-back" onClick={() => setSearch({})}><ArrowLeft size={15} />Alla integrationer</button>}
+      {(parallelSpiris || parallelSwish || parallelBank || parallelMail || parallelAi || selected) && <button type="button" className="office-link integration-back" onClick={backToIntegrations}><ArrowLeft size={15} />Alla integrationer</button>}
     <div className="office-title integration-page-title">
-      <div><span className="office-eyebrow">BOLAGETS ANSLUTNINGAR</span><h1>{selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : selectedId === 'swish' ? 'Swish Utbetalning' : selectedId === 'bank' ? 'Bank · Open Payments' : parallelMail ? 'Mejl & inkorgar' : 'Integrationer'}</h1><p>{selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : selectedId === 'swish' ? 'Testutbetalningar och bokföringskoppling för bolaget.' : selectedId === 'bank' ? 'Bankbetalningar, konton och bankmedgivande i sandbox.' : parallelMail ? 'Microsoft 365/Outlook och åtkomst till företagets inkorgar.' : 'Koppla bolaget till myndigheter, ekonomi och andra tjänster.'}</p></div>
-      <button type="button" className="office-btn outline" onClick={() => void update()} disabled={catalogLoading || sessionLoading || nvvLoading}><RefreshCw size={14} />Uppdatera</button>
+      <div><span className="office-eyebrow">BOLAGETS ANSLUTNINGAR</span><h1>{parallelAi ? 'AI-kundmottagning' : selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : selectedId === 'swish' ? 'Swish Utbetalning' : selectedId === 'bank' ? 'Bank · Open Payments' : parallelMail ? 'Mejl & inkorgar' : 'Integrationer'}</h1><p>{parallelAi ? 'Ge kundmottagaren rätt kunskap, röst och tydliga gränser.' : selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : selectedId === 'swish' ? 'Testutbetalningar och bokföringskoppling för bolaget.' : selectedId === 'bank' ? 'Bankbetalningar, konton och bankmedgivande i sandbox.' : parallelMail ? 'Microsoft 365/Outlook och åtkomst till företagets inkorgar.' : 'Koppla bolaget till myndigheter, ekonomi och andra tjänster.'}</p></div>
+      {!parallelAi && <button type="button" className="office-btn outline" onClick={() => void update()} disabled={catalogLoading || sessionLoading || nvvLoading}><RefreshCw size={14} />Uppdatera</button>}
     </div>
     </OfficePageHeader>
     {siteId !== 'all' && <p className="integration-scope"><Building2 size={14} />Anslutningarna är gemensamma för alla anläggningar.</p>}
@@ -250,8 +259,8 @@ export default function IntegrationsWorkspace({ user, actualUser, users, siteId 
       {sessionError ? <CircleAlert size={19} /> : <RefreshCw size={19} />}<span>{sessionError || (sessionLoading ? 'Hämtar anslutningar…' : 'Anslutningarna kunde inte hämtas.')}</span>
       {!sessionLoading && <button type="button" className="office-btn outline" onClick={() => void refreshSession().catch(() => undefined)}>Försök igen</button>}
     </div>}
-    {matchingSession && catalogError && <div className="office-panel integration-message error" role="alert"><CircleAlert size={19} /><span>{catalogError}</span><button type="button" className="office-btn outline" onClick={() => void loadCatalog(undefined, true)} disabled={catalogLoading}>Försök igen</button></div>}
-    {matchingSession && !catalog && !catalogError && !parallelSpiris && !parallelSwish && !parallelBank && !parallelMail && <div className="office-panel integration-message" role="status"><RefreshCw size={19} /><span>Hämtar integrationer…</span></div>}
+    {matchingSession && catalogError && !parallelAi && <div className="office-panel integration-message error" role="alert"><CircleAlert size={19} /><span>{catalogError}</span><button type="button" className="office-btn outline" onClick={() => void loadCatalog(undefined, true)} disabled={catalogLoading}>Försök igen</button></div>}
+    {matchingSession && !catalog && !catalogError && !parallelSpiris && !parallelSwish && !parallelBank && !parallelMail && !parallelAi && <div className="office-panel integration-message" role="status"><RefreshCw size={19} /><span>Hämtar integrationer…</span></div>}
     {matchingSession && parallelSpiris && <>
       <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} />
     </>}
@@ -259,7 +268,9 @@ export default function IntegrationsWorkspace({ user, actualUser, users, siteId 
     {matchingSession && parallelBank && <OpenPaymentsIntegrationPanel user={user} actualUser={actualUser} onNotice={onNotice} />}
     {matchingSession && parallelMail && <MailIntegrationPanel user={user} actualUser={actualUser} users={users} onNotice={onNotice} />}
 
-    {!!catalog && matchingSession && !parallelSpiris && !parallelSwish && !parallelBank && !parallelMail && <>
+    {matchingSession && parallelAi && <Suspense fallback={<div className="office-panel integration-message" role="status">Öppnar AI-inställningar…</div>}><AiSupportSettings /></Suspense>}
+
+    {!!catalog && matchingSession && !parallelSpiris && !parallelSwish && !parallelBank && !parallelMail && !parallelAi && <>
       {selected ? <>
         {selected.id === 'visma' && selected.implemented ? <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} /> : <article className="office-panel integration-detail">
           <div className="integration-detail-heading"><span className={`integration-icon ${selected.id}`}><SelectedIcon size={25} /></span><div><small>{categoryLabel(selected.category)}</small><h2 ref={detailHeading} tabIndex={-1}>{selected.name}</h2><p>{selected.description}</p></div><IntegrationStatus provider={selected} /></div>
@@ -289,13 +300,13 @@ export default function IntegrationsWorkspace({ user, actualUser, users, siteId 
               <span className="integration-card-link">{provider.implemented ? 'Visa anslutning' : 'Visa planerad koppling'}<ArrowUpRight size={15} /></span>
             </button>;
           })}
-          {[user, actualUser].every(account => account.active !== false && ['Systemadmin', 'VD'].includes(account.level)) && <a href="/rosttest" className="office-panel integration-card" aria-label="Svensk röstmottagning · test">
+          {mayManageAi && <button type="button" onClick={() => setSearch({ service: 'ai-support' })} className="office-panel integration-card" aria-label="AI-kundmottagning · inställningar">
             <div className="integration-card-top"><span className="integration-icon"><PhoneCall size={25} /></span><span className="integration-status test">TEST</span></div>
-            <small>Kundkontakt</small><h2>Svensk röstmottagning</h2><p>Prova ett kundsamtal med mikrofonen. Samtalsutskrift och uppföljning sparas i bolagets testvy.</p>
-            <span className="integration-card-link">Öppna rösttestet<ArrowUpRight size={15} /></span>
-          </a>}
+            <small>Kundkontakt</small><h2>AI-kundmottagning</h2><p>Välj röst och godkänn den kunskap som kundmottagaren får använda. Prova samtal och följ upp ärenden.</p>
+            <span className="integration-card-link">Öppna inställningar<ArrowUpRight size={15} /></span>
+          </button>}
         </div>
-        {!providers.length && <div className="office-panel integration-message"><PlugZap size={19} /><span>Inga integrationer är tillgängliga för ditt konto.</span></div>}
+        {!providers.length && !mayManageAi && <div className="office-panel integration-message"><PlugZap size={19} /><span>Inga integrationer är tillgängliga för ditt konto.</span></div>}
       </>}
     </>}
   </section>;
