@@ -1,6 +1,6 @@
 # Publikt JEROC-rösttest utan inloggning
 
-Kontor 0.30.5, ÄL 136. Datum: 17 oktober 2026.
+Kontor 0.30.6, ÄL 136–137. Datum: 17 oktober 2026.
 
 Öppna **`/rosttest`** direkt i mobilens eller datorns webbläsare. Ingen
 kontorsinloggning krävs. Knappen **Starta testsamtal** begär mikrofonåtkomst och
@@ -41,6 +41,24 @@ uppföljning. **Testa samtal** och **Provlyssna i ett testsamtal** från
 AI-inställningarna går till denna skyddade vy, så andra kundbolag provar sin
 egen kunskap och anslutningskontext.
 
+## Samtidiga samtal
+
+Upp till **fem anslutande/aktiva testsamtal per bolag** tillåts samtidigt.
+Olika besökssessioner har egna samtal och transkript. Samma besökssession
+eller inloggade operatörspar (verklig + effektiv användare) får bara ha ett
+pågående samtal. Två flikar med samma besökscookie är samma session.
+
+Publika och privata prov delar kapacitetsgränsen. Den sista kontrollen sker
+atomiskt när journalposten reserveras, så samtidiga starter inte kan ta samma
+plats. Full kapacitet ger en tydlig väntetext och påverkar inte befintliga
+samtal. Att avsluta ett prov avslutar inte andra besökares anslutningar.
+Ett avslutande samtal håller sin plats under den begränsade väntan på
+leverantörsavslut och sluttranskript, så platser inte frigörs för tidigt.
+
+Kontorets historik kan fortsatt visa andra tillåtna samtal. Läsning av en
+sådan historikpost gör den inte till operatörens eget aktiva samtal och
+blockerar inte operatörens startknapp.
+
 ## Startgränser och lagring
 
 Publik besökssession gäller i 15 minuter. Gränserna för startförsök är
@@ -49,8 +67,8 @@ beständiga och reserveras atomiskt före leverantörsanrop:
 | Gräns | Högsta antal |
 | --- | --- |
 | Per besökssession | 2 |
-| Per IP, rullande timme | 2 |
-| Per IP, rullande dygn | 4 |
+| Per IP, rullande timme | 6 |
+| Per IP, rullande dygn | 12 |
 | Publikt totalt, rullande timme | 10 |
 | Publikt totalt, rullande dygn | 30 |
 
@@ -62,10 +80,14 @@ journalens 300 poster. Därför kan gränsen nås tidigare än enbart tabellen a
 När journalen är full stoppas nya prov; automatisk journalgallring införs inte
 av denna ändring.
 
-Ett extra korttidsfilter stoppar fler än 90 publika API-anrop per IP/minut
+Ett extra korttidsfilter stoppar fler än 240 publika API-anrop per IP/minut
 eller 300 totalt per minut/worker innan röstmodulen läser verksamhetsdatabasen.
 Det begränsar även polling och felaktiga anrop. Kostnadskvoterna ovan är
 beständiga; detta trafikfilter är processlokalt och nollställs vid omstart.
+IP-gränserna medger flera olika besökare från samma kontorsnät. De globala
+startkvoterna och två starter per besökssession är oförändrade. Vid en race
+om sista kapacitetsplatsen kan ett reserverat startförsök räknas även om
+leverantörsanslutningen inte hann startas; automatisk återuppringning görs inte.
 
 Samtalet har en lokal tidsvakt på 180 sekunder och servern begär avslut hos
 leverantören. GPT-Live har ingen här verifierad hård remote-TTL vid total
@@ -104,7 +126,7 @@ Se [huvudguiden](openai-rosttest.md) för providerinställningar och den skyddad
 kontorsvyn. Separat [SaaS-blueprint](../saas-blueprint/README.md) beskriver hur
 capabilitybaserade publika moduler kan hållas avgränsade från kontorsidentiteten.
 
-## Verifiering av bygget
+## Verifiering av 0.30.5
 
 103 riktade server-/provider-/AI-tester och fem gatewayfall passerade.
 Webbläsarkontrollerna omfattade elva publika, tolv privata och nio
@@ -115,3 +137,14 @@ publik mobilvy utan login, minimal egen-session-projektion, 401 på privata
 API:er, 404 på publik historikväg, nekat annat ursprung, skyddad privat vy
 och spärrad start när servernyckel saknas. Ingen horisontell overflow eller
 sidkrasch uppstod. Inga externa eller betalda OpenAI-anrop gjordes i testerna.
+
+## Verifiering av 0.30.6
+
+110 riktade röst-/provider-/AI-tester och 13 privata webbläsarfall passerade.
+De omfattar fem samtidiga besökare från samma IP, atomisk kapacitet över
+flera runtimeinstanser, nekad dubbelstart, separata transkript, avslut av
+ett samtal utan påverkan på andra och behållen plats under sluttranskript.
+En separat granskare körde samma 36 core-/publicfall med godkänt resultat.
+Typkontroll, produktionsbygge och prov mot byggd isolerad server passerade;
+publik sida öppnades utan login och privata API:er var fortsatt spärrade.
+Ingen betald leverantörstrafik användes i verifieringen.

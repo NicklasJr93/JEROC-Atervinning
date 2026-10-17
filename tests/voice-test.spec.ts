@@ -12,7 +12,7 @@ type Call = {
   transcript: { id: string; role: 'user' | 'assistant'; text: string; at: string }[];
   summary: string; summaryStatus: 'pending' | 'generated'; transcriptComplete: boolean; followupStatus: 'new' | 'in_progress' | 'done';
 };
-async function setup(page: Page, { configured = true, connectionOk = true, failAfterReservation = false, protocol }: { configured?: boolean; connectionOk?: boolean; failAfterReservation?: boolean; protocol?: 'live' } = {}) {
+async function setup(page: Page, { configured = true, connectionOk = true, failAfterReservation = false, protocol, otherActive = false }: { configured?: boolean; connectionOk?: boolean; failAfterReservation?: boolean; protocol?: 'live'; otherActive?: boolean } = {}) {
   await fakeWebRtc(page);
   const admin = seedOffice().users.find(user => user.id === 'admin')!;
   let companyId = 'voice-fixture', generation = 7, revision = 0;
@@ -21,7 +21,15 @@ async function setup(page: Page, { configured = true, connectionOk = true, failA
   page.on('pageerror', error => pageErrors.push(error.message));
   const config = { enabled: true, keyPresent: configured, model: protocol === 'live' ? 'gpt-live-1' : 'gpt-realtime-mini', ...(protocol ? { protocol } : {}), callerNumber: '+46700000000', callerLabel: 'TEST', maxDurationSeconds: 180,
     available: configured, ...(configured ? {} : { reason: 'OPENAI_API_KEY saknas på servern.' }) };
-  const state = () => { const visible = calls.filter(call => owners.get(call.id) === companyId); return { config, calls: visible, currentCall: visible.find(call => ['connecting', 'active'].includes(call.status)) ?? null, revision }; };
+  if (otherActive) {
+    const call: Call = { id: 'e07661a4-9cb4-46fb-a706-000000000099', requestId: 'other-operator', revision: 1, status: 'active',
+      createdAt: new Date().toISOString(), startedAt: new Date().toISOString(), durationSeconds: 2,
+      callerNumber: config.callerNumber, callerLabel: 'TEST', createdBy: { actualUserId: 'another-admin', effectiveUserId: admin.id, name: 'En annan operatör' },
+      transcript: [], transcriptComplete: false, summary: '', summaryStatus: 'pending', followupStatus: 'new' };
+    calls.push(call); owners.set(call.id, companyId); revision++;
+  }
+  const state = () => { const visible = calls.filter(call => owners.get(call.id) === companyId); return { config, calls: visible,
+    currentCall: visible.find(call => ['connecting', 'active'].includes(call.status) && call.createdBy.actualUserId === admin.id && call.createdBy.effectiveUserId === admin.id) ?? null, revision }; };
   await page.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
     if (url.origin !== 'http://127.0.0.1:5173' && !url.protocol.startsWith('data')) { unexpected.push(url.origin); return route.abort(); }
@@ -79,6 +87,36 @@ test('unconfigured server keeps the desktop test read-only and never requests mi
   await expect(page.getByRole('button', { name: 'Starta testsamtal', exact: true })).toBeDisabled();
   expect(fixture.requests.filter(request => request.method !== 'GET')).toEqual([]);
   expect(await page.evaluate(() => window.__voiceQA.mediaCalls)).toBe(0);
+  expect(fixture.unexpected).toEqual([]); expect(fixture.pageErrors).toEqual([]);
+});
+
+test('another operator’s active history call cannot block this operator or replace their call controls', async ({ page }) => {
+  await page.clock.install();
+  const fixture = await setup(page, { otherActive: true });
+  const other = fixture.calls[0];
+  await expect(page.getByRole('button', { name: `Öppna samtal ${other.id}`, exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Starta testsamtal', exact: true })).toBeEnabled();
+  // The pending summary causes a detail poll even though this call belongs to
+  // somebody else. That response used to promote it to the local currentCall.
+  await page.clock.runFor(2_100);
+  await expect.poll(() => fixture.requests.filter(row => row.method === 'GET' && row.path.endsWith(`/calls/${other.id}`)).length).toBeGreaterThan(0);
+  await expect(page.getByRole('button', { name: 'Starta testsamtal', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Avsluta pågående testsamtal', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Starta testsamtal', exact: true }).click();
+  await expect.poll(() => fixture.requests.filter(row => row.path.endsWith('/ready')).length).toBe(1);
+  const own = fixture.calls.find(call => call.id !== other.id)!;
+  await page.getByRole('button', { name: `Öppna samtal ${other.id}`, exact: true }).click();
+  await page.getByRole('button', { name: 'Uppdatera samtal', exact: true }).click();
+  await page.clock.runFor(2_100);
+  await expect(page.getByRole('button', { name: 'Avsluta samtalet', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Avsluta samtalet', exact: true }).click();
+  await expect.poll(() => own.status).toBe('ended');
+  await expect(page.getByRole('button', { name: 'Starta testsamtal', exact: true })).toBeEnabled();
+  await page.clock.runFor(2_100);
+  await expect(page.getByRole('button', { name: 'Starta testsamtal', exact: true })).toBeEnabled();
+  expect(other.status).toBe('active');
+  expect(fixture.requests.filter(row => row.path.endsWith(`/calls/${other.id}/end`))).toEqual([]);
+  expect(fixture.requests.filter(row => row.path === '/api/voice-test/calls' && row.method === 'POST')).toHaveLength(1);
   expect(fixture.unexpected).toEqual([]); expect(fixture.pageErrors).toEqual([]);
 });
 

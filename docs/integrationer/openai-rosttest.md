@@ -1,6 +1,6 @@
 # Svenskt röstmottagningstest med OpenAI
 
-Kontor **0.30.5**, ÄL 131–134 och 136. Mobilwebben ligger kvar på **0.13.0**.
+Kontor **0.30.6**, ÄL 131–134 och 136–137. Mobilwebben ligger kvar på **0.13.0**.
 Datum: 2026-10-17.
 
 Det inloggade kontorstestet öppnas på **`/kontor/rosttest`**, direkt eller med **Testa samtal** i
@@ -474,7 +474,8 @@ Ingen av dessa vägar är en telefon-, mejl-, SMS- eller orderadapter.
 | Avslutet saknar leverantörskvittens | Lokalt ljud är stoppat, men ett giltigt `session.closed` saknas. Läs den ofullständiga journalen och kontrollera leverantörens användning; starta inte om automatiskt. |
 | Ingen mikrofon | HTTPS, webbläsarens mikrofontillstånd och vald ljudenhet. Ingen reserverad OpenAI-start ska krävas om mikrofontillstånd nekas först. |
 | Anslutet men inget ljud | Webbläsarens ljuduppspelning, högtalare/hörlurar, WebRTC-nätet och ett riktigt ljudprov. Ett lyckat nyckelprov räcker inte. |
-| Ett samtal pågår redan | Öppna den befintliga posten och avsluta den. Starta inte parallella försök för att kringgå spärren. |
+| Du har redan ett samtal pågående | Samma besökssession eller verklig/effektiv operatör har ett eget aktivt prov. Avsluta det innan du startar ett nytt. |
+| Testets samtalsplatser är upptagna | Fem prov pågår redan i bolaget. Vänta tills en plats frigörs; andra besökares prov kan köras samtidigt. |
 | Tim- eller dygnsgränsen är nådd | Vänta tills aktuell kvot åter öppnas. Deploy eller rollbyte ska inte nollställa den beständiga kvoten. |
 | Testjournalen är full | Nya starter stoppas efter 300 sparade samtal. Bevara journalen och samordna dess fortsatta hantering; omladdning eller deploy löser inte gränsen. |
 | Sparad text eller uppföljning saknas efter omladdning | Kontrollera serverfel och att Render använder den avsedda beständiga databasen. Ett synligt lokalt meddelande är inte en lagringskvittens. |

@@ -3296,3 +3296,24 @@ Status: Implementerad 2026-10-17 i kontor 0.30.5. Mobilwebben kvar på 0.13.0.
   tolv privata och nio AI-inställningsfall i webbläsare, typkontroll och
   produktionsbygge. Byggd server provad utan login och med privata API:er
   fortsatt spärrade. Inga externa eller betalda API-anrop i verifieringen.
+
+ÄL 137 – Samtidiga isolerade röstsamtal för olika besökare
+Status: Implementerad 2026-10-17 i kontor 0.30.6. Mobilwebben kvar på 0.13.0.
+- Den ursprungliga spärren ett samtal för hela bolaget ersätts med atomiskt
+  högst fem anslutande/aktiva prov per bolag. Publika och privata delar taket.
+- Högst ett eget pågående prov per besökssession eller exakt verklig/effektiv
+  operatör. Dubbeltryck och upprepade försök har kvar idempotensskyddet.
+- Varje publik besökare ser bara sitt aktuella eget transkript; slut och
+  stängning av ett samtal påverkar inte andra anslutningar. Kontorets
+  egen aktiva status hålls skild från andra samtal i behörig historik.
+- Flera besökare från samma kontorsnät ryms: sex starter/IP/timme,
+  tolv/IP/dygn och 240 API-anrop/IP/minut. Globala startkvoter 10/timme
+  och 30/dygn, två starter/besökssession samt 300 anrop/minut/worker består.
+- Ingen ny obligatorisk Render-variabel och ingen automatisk återuppringning.
+- Guide: docs/integrationer/publik-rosttest.md.
+- Verifierat: 110 riktade röst-/provider-/AI-tester och 13 privata
+  webbläsarfall; separat granskning/körning av 36 core-/publicfall grön.
+  Täcker fem samtidiga på samma IP, atomiskt tak över flera runtimes,
+  egna transkript, dubbelförsök och isolerat avslut/sluttranskript.
+  Typkontroll, produktionsbygge och byggd isolerad server passerade.
+  Inga externa eller betalda API-anrop i verifieringen.

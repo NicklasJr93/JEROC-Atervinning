@@ -3,8 +3,12 @@ import { z } from 'zod';
 import { buildAiSupportContext } from './ai-support.mjs';
 import { createVoiceTestProvider, voiceTestProviderConfig } from './voice-test-provider.mjs';
 
-export const VOICE_TEST_LIMITS = Object.freeze({ maxDurationSeconds: 180, maxStartsPerHour: 6, maxStartsPerDay: 30, maxStoredCalls: 300, maxBodyBytes: 256 * 1024 });
+export const VOICE_TEST_LIMITS = Object.freeze({ maxDurationSeconds: 180, maxConcurrentCalls: 5, maxStartsPerHour: 6, maxStartsPerDay: 30, maxStoredCalls: 300, maxBodyBytes: 256 * 1024 });
 const ACTIVE = new Set(['connecting', 'active']);
+// Terminal status is recorded before provider close drains its final captions.
+// Keep that bounded close grace in the shared cap across all local adapters.
+export const voiceTestCallHoldsSlot = (call, now) => ACTIVE.has(call.status) || !call.transcriptFinalizedAt &&
+  now < Date.parse(call.transcriptGraceUntil ?? new Date(Date.parse(call.endedAt ?? call.createdAt) + 20_000).toISOString());
 const DOMAINS = ['voiceTest', 'metadata', 'pricing', 'personnel', 'personnelAuth'];
 const CALLER = '+46700000000';
 const clone = value => structuredClone(value);
@@ -19,6 +23,7 @@ const liveFragment = z.object({ eventId: z.string().min(1).max(250), startMs: z.
 const transcriptInput = z.object({ id: z.string().min(1).max(200), role: z.enum(['user', 'assistant']), text: z.string().max(24_000), at: z.string().datetime({ offset: true }).optional(), sequence: z.number().int().nonnegative().max(172_800_000).optional(), interrupted: z.boolean().optional(), liveFragments: z.array(liveFragment).max(500).optional(), startMs: z.number().finite().min(0).max(86_400_000).optional(), endMs: z.number().finite().min(0).max(86_400_000).optional() }).strict();
 const parse = (schema, value) => { const parsed = schema.safeParse(value); if (!parsed.success) fail('Testanropet innehåller ogiltiga eller okända uppgifter.'); return parsed.data; };
 const authorizedUser = user => Boolean(user?.id) && user.active !== false && ['Systemadmin', 'VD'].includes(user.level);
+const ownedBy = (call, principal) => call.createdBy.actualUserId === principal.actor.id && call.createdBy.effectiveUserId === principal.user.id;
 export const voiceTestCapabilities = principal => ({ read: authorizedUser(principal?.actor) && authorizedUser(principal?.user), write: authorizedUser(principal?.actor) && authorizedUser(principal?.user) });
 const scopeAllows = (principal, siteId) => [principal.actor, principal.user].every(user => !Array.isArray(user.siteIds) || user.siteIds.includes(siteId));
 const publicSite = site => Object.fromEntries(['id', 'name', 'address', 'postalCode', 'city', 'phone'].filter(key => typeof site?.[key] === 'string').map(key => [key, site[key].slice(0, 300)]));
@@ -249,8 +254,12 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
       const support = buildAiSupportContext(state, { organisationId, siteId: site.id, companyName, defaultVoice: providerConfig.defaultVoice, engine: providerConfig.engine });
       if (!support.enabled) fail('Bolagets AI-kundmottagning är avstängd.', 409, 'voice_test_support_disabled');
       if (value.calls.length >= VOICE_TEST_LIMITS.maxStoredCalls) fail('Testjournalens gräns på 300 sparade samtal är nådd. Bevara och hantera journalen innan fler test startas.', 429, 'voice_test_journal_full');
-      if (value.calls.some(call => ACTIVE.has(call.status))) fail('Ett testsamtal pågår redan i bolaget.', 409, 'voice_test_active_call');
-      const at = timestamp(), numericNow = Date.parse(at), recent = value.calls.filter(call => numericNow - Date.parse(call.createdAt) < 3600000);
+      const at = timestamp(), numericNow = Date.parse(at), reserved = value.calls.filter(call => voiceTestCallHoldsSlot(call, numericNow));
+      if (reserved.some(call => ownedBy(call, fresh))) fail('Du har redan ett pågående testsamtal eller ett samtal som avslutas. Vänta tills det är klart.', 409, 'voice_test_active_call');
+      // The reservation and shared tenant cap belong to the same transaction,
+      // so public/private adapters and different runtimes cannot oversubscribe.
+      if (reserved.length >= VOICE_TEST_LIMITS.maxConcurrentCalls) fail('Alla fem samtalsplatser är upptagna. Försök igen när ett samtal har avslutats.', 429, 'voice_test_capacity');
+      const recent = value.calls.filter(call => numericNow - Date.parse(call.createdAt) < 3600000);
       if (recent.filter(call => call.createdBy.actualUserId === fresh.actor.id).length >= VOICE_TEST_LIMITS.maxStartsPerHour || recent.filter(call => call.createdBy.effectiveUserId === fresh.user.id).length >= VOICE_TEST_LIMITS.maxStartsPerHour) fail('Högst sex testsamtal får startas per timme och konto.', 429, 'voice_test_hour_quota');
       if (value.calls.filter(call => dateInStockholm.format(new Date(call.createdAt)) === dateInStockholm.format(new Date(at))).length >= VOICE_TEST_LIMITS.maxStartsPerDay) fail('Bolagets gräns på 30 testsamtal per dag är nådd.', 429, 'voice_test_day_quota');
       const call = { id: randomUUID(), requestId: input.requestId, requestHash: hash, organisationId, runtimeId, revision: 1, protocol: providerConfig.protocol, status: 'connecting', callerNumber: CALLER, callerLabel: 'TEST',
@@ -311,8 +320,9 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
         const value = await read(state => {
           if (id) return { call: callView(visibleCall(state, principal, id), Date.parse(timestamp())) };
           const source = domain(state), calls = (source?.calls ?? []).filter(call => scopeAllows(principal, call.site.id));
+          const current = calls.find(call => ACTIVE.has(call.status) && ownedBy(call, principal));
           return { revision: source?.revision ?? 0, calls: calls.slice().sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || b.id.localeCompare(a.id)).slice(0, 20).map(call => callView(call, Date.parse(timestamp()))),
-            currentCall: calls.find(call => ACTIVE.has(call.status)) ? callView(calls.find(call => ACTIVE.has(call.status)), Date.parse(timestamp())) : null };
+            currentCall: current ? callView(current, Date.parse(timestamp())) : null };
         });
         if (!id) value.config = await settings(principal, sites);
         sendJson(res, 200, value, req.method === 'HEAD'); return true;

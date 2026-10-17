@@ -162,7 +162,7 @@ test('server sideband transcript is durable, ordered and completed before one su
   assert.equal((await f.request(`/api/voice-test/calls/${id}`, { cookie: 'office=south' })).status, 404);
 }));
 
-test('one company slot and request reservation survive concurrent runtimes without duplicated provider work', async () => fixture(async f => {
+test('one owner slot and request reservation survive concurrent runtimes without duplicated provider work', async () => fixture(async f => {
   const otherProvider = mockProvider(), other = f.makeApi({ provider: otherProvider, runtimeId: 'other-runtime' });
   const results = await Promise.all([f.start(), f.start()]); assert.equal(results.filter(value => value.status === 200).length, 1); assert.equal(results.filter(value => value.status === 409).length, 1); assert.equal(f.provider.starts, 1);
   const id = results.find(value => value.status === 200).body.call.id;
@@ -170,6 +170,57 @@ test('one company slot and request reservation survive concurrent runtimes witho
   assert.equal((await f.request(`/api/voice-test/calls/${id}/ready`, { body: {} })).status, 409);
   assert.equal((await f.request(`/api/voice-test/calls/${id}/end`, { body: {} })).status, 200);
   await f.api.recover(); assert.equal(f.provider.handles[0].closeCount, 1); assert.equal((await f.request()).body.currentCall, null);
+}));
+
+test('independent operators can call concurrently and currentCall selects only the exact actual/effective owner pair', async () => fixture(async f => {
+  const admin = await f.start(); assert.equal(admin.status, 200, admin.text);
+  const request = (cookie, input = { requestId: randomUUID(), sdp }) => f.request('/api/voice-test/calls', { cookie, body: input });
+  assert.equal((await f.request(undefined, { cookie: 'office=vd' })).body.currentCall, null);
+  const director = await request('office=vd'); assert.equal(director.status, 200, director.text);
+  const acting = await request('office=admin|vd'); assert.equal(acting.status, 200, acting.text);
+  assert.equal((await request('office=admin|vd')).body.code, 'voice_test_active_call');
+  assert.equal(f.provider.starts, 3);
+  const adminView = (await f.request()).body, directorView = (await f.request(undefined, { cookie: 'office=vd' })).body;
+  assert.equal(adminView.currentCall.id, admin.body.call.id); assert.equal(directorView.currentCall.id, director.body.call.id);
+  assert.equal((await f.request(undefined, { cookie: 'office=admin|vd' })).body.currentCall.id, acting.body.call.id);
+  assert.equal(adminView.calls.length, 3, 'Authorized office history still includes visible colleagues');
+  await f.request(`/api/voice-test/calls/${director.body.call.id}/end`, { cookie: 'office=vd', body: {} });
+  assert.equal((await f.request(undefined, { cookie: 'office=vd' })).body.currentCall, null);
+  assert.equal((await f.request()).body.currentCall.id, admin.body.call.id); assert.equal(f.provider.handles[0].closeCount, 0);
+}));
+
+test('six simultaneous owner reservations atomically allow only five provider sessions, including a second runtime', async () => fixture(async f => {
+  const owners = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'];
+  await f.repository.transact(state => { state.pricing.users.push(...owners.map(id => user(id, 'VD'))); });
+  const attempt = id => f.request('/api/voice-test/calls', { cookie: `office=${id}`, body: { requestId: randomUUID(), sdp } });
+  const results = await Promise.all(owners.map(attempt));
+  assert.equal(results.filter(item => item.status === 200).length, VOICE_TEST_LIMITS.maxConcurrentCalls);
+  const denied = results.find(item => item.status !== 200); assert.equal(denied.status, 429); assert.equal(denied.body.code, 'voice_test_capacity');
+  assert.equal(f.provider.starts, 5); assert.equal((await f.repository.read(state => state.voiceTest.calls)).length, 5);
+  const otherProvider = mockProvider(), other = f.makeApi({ provider: otherProvider, runtimeId: 'capacity-other-runtime' }); f.use(other);
+  const remote = await f.start(); assert.equal(remote.status, 429); assert.equal(remote.body.code, 'voice_test_capacity'); assert.equal(otherProvider.starts, 0);
+  const freed = results.find(item => item.status === 200).body.call.id;
+  await f.request(`/api/voice-test/calls/${freed}/end`, { body: {} }); await f.api.recover();
+  const next = await f.start(); assert.equal(next.status, 200, next.text); assert.equal(otherProvider.starts, 1);
+  const records = await f.repository.read(state => state.voiceTest.calls); assert.equal(records.filter(item => ['connecting', 'active'].includes(item.status)).length, 5);
+}));
+
+test('a terminal conversation retains its shared slot while another runtime drains provider close', async () => fixture(async f => {
+  const owners = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
+  await f.repository.transact(state => { state.pricing.users.push(...owners.map(id => user(id, 'VD'))); });
+  const results = await Promise.all(owners.map(id => f.request('/api/voice-test/calls', { cookie: `office=${id}`, body: { requestId: randomUUID(), sdp } })));
+  assert.ok(results.every(item => item.status === 200));
+  let release, entered; const reached = new Promise(resolve => { entered = resolve; }), drain = new Promise(resolve => { release = resolve; });
+  f.provider.handles[0].close = async () => { f.provider.handles[0].closeCount++; entered(); await drain; return { providerConfirmed: true, transcriptComplete: true }; };
+  const id = f.provider.requests[0].callId, ending = f.request(`/api/voice-test/calls/${id}/end`, { body: {} }); await reached;
+  try {
+    const otherProvider = mockProvider(); f.use(f.makeApi({ provider: otherProvider, runtimeId: 'close-grace-runtime' }));
+    const denied = await f.start(); assert.equal(denied.status, 429); assert.equal(denied.body.code, 'voice_test_capacity'); assert.equal(otherProvider.starts, 0);
+    const closing = await f.repository.read(state => state.voiceTest.calls.find(call => call.id === id));
+    assert.equal(closing.status, 'ended'); assert.equal(closing.transcriptFinalizedAt, undefined);
+    release(); assert.equal((await ending).status, 200);
+    const next = await f.start(); assert.equal(next.status, 200, next.text); assert.equal(otherProvider.starts, 1);
+  } finally { release(); await ending; }
 }));
 
 test('durable start quotas use actual/effective accounts and Stockholm calendar days, and full journals preserve all existing records', async () => fixture(async f => {

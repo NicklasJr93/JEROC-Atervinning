@@ -1,12 +1,11 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import { createVoiceTestApi, ensureVoiceTest, VOICE_TEST_LIMITS } from './voice-test.mjs';
+import { createVoiceTestApi, ensureVoiceTest, VOICE_TEST_LIMITS, voiceTestCallHoldsSlot } from './voice-test.mjs';
 
-export const PUBLIC_VOICE_LIMITS = Object.freeze({ sessionSeconds: 900, startsPerSession: 2, startsPerIpHour: 2, startsPerIpDay: 4,
+export const PUBLIC_VOICE_LIMITS = Object.freeze({ sessionSeconds: 900, startsPerSession: 2, startsPerIpHour: 6, startsPerIpDay: 12,
   startsPerHour: 10, startsPerDay: 30, sessionsPerIpHour: 6, sessionsPerHour: 100, maxSessions: 200,
-  requestsPerMinute: 90, requestsPerMinuteGlobal: 300, maxIpBuckets: 1000 });
+  requestsPerMinute: 240, requestsPerMinuteGlobal: 300, maxIpBuckets: 1000 });
 const PREFIX = '/api/public/voice-test', COOKIE = 'scrappilot_voice_demo', BINDINGS = new WeakMap();
-const ACTIVE = new Set(['connecting', 'active']);
 const hash = value => createHash('sha256').update(value).digest('hex');
 const copy = value => structuredClone(value);
 const fail = (message, status = 422, code = 'voice_demo_invalid') => { throw Object.assign(new Error(message), { status, code, publicVoiceError: true }); };
@@ -140,7 +139,7 @@ export function createPublicVoiceTestApi({ getRepository, siteProvider = async (
     if (forwarded !== req) BINDINGS.set(forwarded, BINDINGS.get(req));
     await core(forwarded, response, new URL(`http://localhost/api/voice-test${pathname}`));
     if (response.status >= 400) {
-      const safeCodes = new Set(['voice_test_active_call', 'voice_test_hour_quota', 'voice_test_day_quota', 'voice_test_journal_full', 'voice_test_request_conflict', 'voice_test_call_already_started', 'voice_test_call_ended', 'voice_test_start_cancelled']);
+      const safeCodes = new Set(['voice_test_active_call', 'voice_test_capacity', 'voice_test_hour_quota', 'voice_test_day_quota', 'voice_test_journal_full', 'voice_test_request_conflict', 'voice_test_call_already_started', 'voice_test_call_ended', 'voice_test_start_cancelled']);
       const source = response.value ?? {};
       fail(safeCodes.has(source.code) ? source.error : response.status === 503 ? 'Rösttestet är inte tillgängligt just nu. Försök igen senare.' : 'Testsamtalet kunde inte behandlas. Ladda om sidan och försök igen.', response.status, source.code === 'voice_test_unavailable' ? 'voice_demo_unavailable' : source.code ?? 'voice_demo_unavailable');
     }
@@ -151,8 +150,12 @@ export function createPublicVoiceTestApi({ getRepository, siteProvider = async (
       const demo = demoOf(state), at = milliseconds(); clean(demo, at); const session = currentSession(state, req), ip = digestIp(demo, req), signature = hash(input.sdp);
       if (session.currentRequestId === input.requestId) { if (session.requestHash !== signature) fail('Samma försök kan inte ändras.', 409, 'voice_demo_request_conflict'); return; }
       const existing = state.voiceTest.calls.find(call => call.requestId === session.currentRequestId && call.createdBy?.actualUserId === `voice-demo:${session.hash}`);
-      if (session.startingUntil > at || existing && ACTIVE.has(existing.status)) fail('Ditt testsamtal pågår redan.', 409, 'voice_demo_active_call');
-      if (state.voiceTest.calls.some(call => ACTIVE.has(call.status))) fail('Ett annat testsamtal pågår. Försök igen om en stund.', 409, 'voice_demo_busy');
+      if (session.startingUntil > at || existing && voiceTestCallHoldsSlot(existing, at)) fail('Ditt testsamtal pågår redan eller håller på att avslutas.', 409, 'voice_demo_active_call');
+      // Refuse known-full capacity before consuming the anonymous start quota.
+      // Core independently reserves the slot atomically; a cross-runtime race
+      // can still conservatively consume a start attempt, never an extra call.
+      if (state.voiceTest.calls.filter(call => voiceTestCallHoldsSlot(call, at)).length >= VOICE_TEST_LIMITS.maxConcurrentCalls)
+        fail('Alla fem samtalsplatser är upptagna. Försök igen när ett samtal har avslutats.', 429, 'voice_test_capacity');
       const recent = demo.starts.filter(event => at - event.at < 3600000);
       if (session.starts >= PUBLIC_VOICE_LIMITS.startsPerSession || recent.filter(event => event.ip === ip).length >= PUBLIC_VOICE_LIMITS.startsPerIpHour || demo.starts.filter(event => event.ip === ip).length >= PUBLIC_VOICE_LIMITS.startsPerIpDay || recent.length >= PUBLIC_VOICE_LIMITS.startsPerHour || demo.starts.length >= PUBLIC_VOICE_LIMITS.startsPerDay)
         fail('Gränsen för kostnadsfria testsamtal är nådd. Försök igen senare.', 429, 'voice_demo_start_limit');

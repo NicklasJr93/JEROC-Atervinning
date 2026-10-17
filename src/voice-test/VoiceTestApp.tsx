@@ -16,6 +16,9 @@ const failureText = (failure: unknown) => failure instanceof TypeError ? 'Kunde 
 export default function VoiceTestApp() {
   const platform = usePlatformContext(), session = platform?.session ?? currentPlatformSession();
   const scope = useMemo(() => voiceScope(session), [voiceScopeKey(session)]), key = scope.key;
+  const actualUserId = session?.authenticated ? session.actualUser.id : undefined, effectiveUserId = session?.authenticated ? session.user.id : undefined;
+  const ownsCall = useCallback((call?: VoiceCall | null) => !!call && !!actualUserId && !!effectiveUserId
+    && call.createdBy.actualUserId === actualUserId && call.createdBy.effectiveUserId === effectiveUserId, [actualUserId, effectiveUserId]);
   const keyRef = useRef(key); keyRef.current = key;
   const mounted = useRef(true), epoch = useRef(0), reading = useRef<AbortController | null>(null), writing = useRef<AbortController | null>(null), polling = useRef<AbortController | null>(null);
   const [stored, setStored] = useState<{ key: string; data: VoiceState }>(), [selected, setSelected] = useState('');
@@ -46,10 +49,12 @@ export default function VoiceTestApp() {
       const old = previous.data.calls.find(item => item.id === call.id);
       if (old && old.revision > call.revision) return previous;
       const calls = [call, ...previous.data.calls.filter(item => item.id !== call.id)].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20);
-      return { key, data: { ...previous.data, calls, currentCall: ongoing(call) ? call : previous.data.currentCall?.id === call.id ? null : previous.data.currentCall } };
+      // History may contain other operators' active calls. Reading one must
+      // never replace this operator's own microphone/session controls.
+      return { key, data: { ...previous.data, calls, currentCall: ongoing(call) && ownsCall(call) ? call : previous.data.currentCall?.id === call.id ? null : previous.data.currentCall } };
     });
     setSelected(value => value || call.id);
-  }, [key, current]);
+  }, [key, current, ownsCall]);
   const load = useCallback(async () => {
     if (!scope.allowed || reading.current || writing.current) return;
     const controller = new AbortController(), version = epoch.current; reading.current = controller; setLoading(true);
@@ -58,16 +63,16 @@ export default function VoiceTestApp() {
       const value = await readVoice(scope, controller.signal); if (!valid() || controller.signal.aborted) return;
       setStored(previous => {
         if (previous?.key === key && previous.data.revision > value.revision) return previous;
-        if (previous?.key !== key) return { key, data: value };
+        if (previous?.key !== key) return { key, data: { ...value, currentCall: ongoing(value.currentCall) && ownsCall(value.currentCall) ? value.currentCall : null } };
         const calls = value.calls.map(call => { const old = previous.data.calls.find(item => item.id === call.id); return old && old.revision > call.revision ? old : call; });
         const candidate = value.currentCall ? calls.find(call => call.id === value.currentCall?.id) ?? value.currentCall : null;
-        return { key, data: { ...value, calls, currentCall: ongoing(candidate) ? candidate : null } };
+        return { key, data: { ...value, calls, currentCall: ongoing(candidate) && ownsCall(candidate) ? candidate : null } };
       });
       setSelected(previous => previous && value.calls.some(call => call.id === previous) ? previous : value.currentCall?.id ?? value.calls[0]?.id ?? '');
       setError(''); setUncertain(false);
     } catch (value) { if (valid()) failure(value); }
     finally { if (valid()) setLoading(false); if (reading.current === controller) reading.current = null; }
-  }, [scope, key, current, failure]);
+  }, [scope, key, current, failure, ownsCall]);
   const recover = useRef(load); recover.current = load;
   const voice = useVoiceSession(scope, { onCall: acceptCall, onFailure: failure, onUncertain: () => { if (current()) { setUncertain(true); void recover.current(); } } });
   stopAudio.current = voice.stopLocal;
@@ -120,7 +125,7 @@ export default function VoiceTestApp() {
   const unavailable = voiceMediaUnavailable();
   const canStart = !!data?.config.available && online && !unavailable && !active && !local && !uncertain && !loading && !checking && !busy;
   const companyName = data?.config.companyName || (session?.authenticated ? session.company?.name : '') || 'Ditt bolag';
-  const status = active && !voice.localActive ? 'Ett testsamtal pågår i bolaget' : voice.phase === 'idle' && !data?.config.available ? 'Rösttestet är inte tillgängligt' : phaseLabels[voice.phase];
+  const status = active && !voice.localActive ? 'Du har redan ett pågående testsamtal' : voice.phase === 'idle' && !data?.config.available ? 'Rösttestet är inte tillgängligt' : phaseLabels[voice.phase];
   return <main className="voice-test-app"><header className="voice-test-heading"><div><a className="voice-test-back" href="/kontor#/integrations"><ArrowLeft size={15} />Till kontoret</a><span className="voice-test-eyebrow">TESTLABBET · RÖST</span><h1>AI-kundmottagning</h1><p>Prova ett samtal med {companyName}s digitala kundmottagning.</p></div><span className="voice-test-test-badge"><ShieldCheck size={15} />Endast test</span></header>
     <div className="voice-test-settings-note"><span>{data?.config.voice ? `Nästa samtal: ${data.config.protocol === 'live' ? 'GPT-Live · ' : ''}${data.config.voice} · kunskapsversion ${data.config.knowledgeRevision ?? 0}` : 'Röst och kundgodkänd kunskap ställs in för bolaget.'}</span><a href="/kontor#/integrations?service=ai-support">Röst &amp; kunskap <ArrowUpRight size={13} /></a></div>
     {!scope.allowed ? <section className="voice-test-empty" role="alert"><ShieldCheck size={31} /><h2>Behörighet krävs</h2><p>Välj ett bolag och logga in med behörighet att använda rösttestet.</p></section> : <>
