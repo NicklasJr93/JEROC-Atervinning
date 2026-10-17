@@ -27,6 +27,7 @@ import { ensureFleet } from './fleet.mjs';
 import { createFleetApi } from './fleet-api.mjs';
 import { createFleetFilesApi } from './fleet-files.mjs';
 import { createVoiceTestApi } from './voice-test.mjs';
+import { createPublicVoiceTestApi } from './voice-test-public.mjs';
 import { createAiSupportApi } from './ai-support.mjs';
 import { ensureEmployeeSickness, sicknessManagementCommand, sicknessManagementProjection, refreshSicknessAbsences, recordSicknessPayUnderlay } from './employee-sickness.mjs';
 import { createSicknessFilesApi } from './sickness-files.mjs';
@@ -1236,6 +1237,7 @@ export function createApplicationService({ repository, env = process.env, seed =
   const officePrincipal = (state, req) => requestPrincipal({ principal: (actor, user) => resolvePricingPrincipal(state.pricing.users, actor, user) }, req);
   const aiSupportApi = createAiSupportApi({ env, getRepository: getRepo, officePrincipal, siteProvider, companyName: voiceTestCompanyName, reauthorizePreview: reauthorizeVoiceCall });
   const voiceTestApi = createVoiceTestApi({ env, getRepository: getRepo, officePrincipal, siteProvider, reauthorizeCall: reauthorizeVoiceCall, companyName: voiceTestCompanyName });
+  const publicVoiceTestApi = createPublicVoiceTestApi({ env, getRepository: getRepo, siteProvider, companyName: voiceTestCompanyName });
   const sicknessFilesApi = createSicknessFilesApi({ env, getRepository: getRepo, ownPrincipal: employeeRequestPrincipal, officePrincipal, json });
   const fleetApi = createFleetApi({ env, getRepository: getRepo, ownPrincipal: employeeRequestPrincipal, officePrincipal, readBody: body, json, siteProvider });
   const fleetFilesApi = createFleetFilesApi({ env, getRepository: getRepo, ownPrincipal: employeeRequestPrincipal, officePrincipal, json });
@@ -1286,6 +1288,6 @@ export function createApplicationService({ repository, env = process.env, seed =
   };
   const api = async (req, res, url) => await aiSupportApi(req,res,url) || await voiceTestApi(req,res,url) || await fleetFilesApi(req,res,url) || await fleetApi(req,res,url) || await sicknessFilesApi(req,res,url) || await sicknessApi(req,res,url) || await vehiclesApi(req,res,url)
     || await employeeApi(req,res,url) || await logisticsApi(req,res,url) || await driverApi(req,res,url) || await durableApi(req, res, url) || await businessApi(req, res, url);
-  Object.assign(api, { principalStore, withPrincipal, businessApi, durableApi, getRepository: getRepo, close: async () => { await aiSupportApi.close?.(); await voiceTestApi.close(); await fleetFilesApi.close(); await sicknessFilesApi.close(); if (repoPromise) await (await repoPromise).close(); } });
+  Object.assign(api, { principalStore, withPrincipal, businessApi, durableApi, publicVoiceTestApi, getRepository: getRepo, close: async () => { await aiSupportApi.close?.(); await voiceTestApi.close(); await publicVoiceTestApi.close(); await fleetFilesApi.close(); await sicknessFilesApi.close(); if (repoPromise) await (await repoPromise).close(); } });
   return api;
 }

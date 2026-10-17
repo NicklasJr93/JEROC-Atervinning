@@ -1,9 +1,9 @@
 # Svenskt röstmottagningstest med OpenAI
 
-Kontor **0.30.3**, ÄL 131–133. Mobilwebben ligger kvar på **0.13.0**.
+Kontor **0.30.5**, ÄL 131–134 och 136. Mobilwebben ligger kvar på **0.13.0**.
 Datum: 2026-10-17.
 
-Testet öppnas på **`/rosttest`**, direkt eller med **Testa samtal** i
+Det inloggade kontorstestet öppnas på **`/kontor/rosttest`**, direkt eller med **Testa samtal** i
 AI-supportens inställningar. Du spelar en inkommande kund och pratar med
 mottagaren genom webbläsarens mikrofon. Samtalet får alltid testnumret
 **`+46700000000`**, märkt
@@ -16,9 +16,19 @@ Testets uppföljningspost sparas däremot på riktigt i det valda bolagets datab
 AI-supportens bolagsinställningar öppnas under **Integrationer → AI-kundmottagning**,
 på `/kontor#/integrations?service=ai-support`. Där hanteras röstval och den
 granskade kunskap som får användas i nästa testsamtal. Själva samtalet
-genomförs fortfarande på `/rosttest`. Standardmotorn är nu **GPT-Live**,
+genomförs fortfarande på `/kontor/rosttest`. Standardmotorn är nu **GPT-Live**,
 med modellen **`gpt-live-1`**. Den tidigare Realtime-adaptern finns kvar
 som ett uttryckligt serverval.
+
+## Publikt prov utan inloggning
+
+**`/rosttest`** är nu en separat publik JEROC-demo. Besökaren får starta ett
+prov och se sitt eget aktuella transkript; ingen samtalslista, intern
+sammanfattning, uppföljningsstatus eller AI-inställning lämnas ut.
+Kontorets historik och andra bolags egna prov ligger kvar bakom inloggning
+på `/kontor/rosttest`.
+
+Se [publikt rösttest: åtkomst, kvoter och verifiering](publik-rosttest.md).
 
 ## Förbered Render
 
@@ -94,7 +104,7 @@ behövs för att välja en annan röst som den aktiva motorn stöder.
 ### Provlyssning med GPT-Live
 
 För GPT-Live är separat TTS-prov avstängt. Välj **Provlyssna i ett testsamtal**,
-spara först röstvalet och bedöm det i ett riktigt samtal på `/rosttest`.
+spara först röstvalet och bedöm det i ett riktigt samtal på `/kontor/rosttest`.
 Detta provar också hälsning, uttal, svensk dialog och turtagning. Ett
 startat testsamtal använder OpenAI:s API och kan kosta pengar. Knappen
 beställer inte ett TTS-ljud som påstås representera en Live-röst.
@@ -213,7 +223,7 @@ kunskapsfiltreringen tar inte bort uppgifter ur det inkommande talet.
 1. Logga in på plattformen och välj rätt bolag. Både ditt verkliga konto och
    den roll du arbetar som måste vara aktiva **Systemadmin eller VD**.
    En aktiv anläggning inom båda kontonas åtkomst behövs också.
-2. Öppna `/rosttest`. Kontrollera bolag och att sidan visar TEST. Servern
+2. Öppna `/kontor/rosttest`. Kontrollera bolag och att sidan visar TEST. Servern
    väljer en aktiv anläggning inom din åtkomst och sparar dess uppgifter
    tillsammans med samtalet. Om nyckel eller annan förutsättning saknas
    ska starten vara spärrad.

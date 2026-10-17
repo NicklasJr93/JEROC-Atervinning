@@ -188,6 +188,17 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   }
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/')) return false;
+    if (url.pathname.startsWith('/api/public/voice-test')) {
+      // This capability is for the fixed demo tenant, never for a caller's
+      // selected tenant or an arbitrary company supplied in headers/query.
+      try {
+        const company = await auth.getCompany(legacyId);
+        if (!company || company.status !== 'active') throw new PlatformError('Rösttestet är inte tillgängligt.', 503, 'voice_demo_unavailable');
+        const service = await bundle(company);
+        if (await service.applicationApi.publicVoiceTestApi(req, res, url)) return true;
+      } catch { json(res, 503, { error: 'Rösttestet är inte tillgängligt just nu.', code: 'voice_demo_unavailable' }); }
+      return true;
+    }
     if (req.method === 'GET' && url.pathname === '/api/platform/tenant-context') {
       try {
         const context = platformCookieToken(req) !== undefined ? await auth.resolveContext(req, { writes: false }) : undefined;

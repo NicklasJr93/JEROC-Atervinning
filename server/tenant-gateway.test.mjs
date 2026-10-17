@@ -91,6 +91,23 @@ test('voice demo requires platform authentication, a selected company and CSRF b
   assert.equal(fakeEmployee.status, 401);
 }));
 
+test('public voice demo is independent of platform login and tenant selection, without exposing office history or settings', () => fixture(async f => {
+  let demo = await f.request('/api/public/voice-test', undefined, { cookie: '', 'x-client-company': 'forged-company', 'x-demo-actor': 'admin' });
+  assert.equal(demo.status, 200, JSON.stringify(demo.body)); assert.deepEqual(demo.body.calls, []); assert.equal(demo.body.currentCall, null);
+  assert.equal(demo.body.config.companyName, 'JEROC Återvinning AB'); assert.equal(typeof demo.body.csrfToken, 'string');
+  assert.equal(demo.body.config.model, undefined); assert.equal(demo.body.config.keyPresent, undefined);
+  assert.match(demo.response.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/);
+  assert.equal((await f.request('/api/voice-test')).status, 401);
+  assert.equal((await f.request('/api/ai-support')).status, 401);
+  for (const path of ['/api/public/voice-test/history', '/api/public/voice-test/settings', '/api/public/voice-test/calls']) assert.ok((await f.request(path)).status >= 400, path);
+  assert.equal((await f.request('/api/public/voice-test/calls', { requestId: randomUUID(), sdp: 'v=0\r\nm=audio 9 RTP/AVP 0\r\n' })).status, 403);
+  await f.admin(); const company = await f.create('Voice Public Selector', '556010097');
+  await f.request('/api/platform/switch', { organisationId: company.company.id });
+  demo = await f.request('/api/public/voice-test'); assert.equal(demo.status, 200); assert.equal(demo.body.config.companyName, 'JEROC Återvinning AB');
+  assert.equal((await f.request('/api/public/voice-test?organisationId=foreign')).status, 404);
+  assert.equal((await f.request('/api/public/voice-test', undefined, { origin: 'https://foreign.invalid' })).status, 403);
+}));
+
 test('voice call history and object IDs stay inside the selected company', () => fixture(async f => {
   await f.admin();
   const a = await f.create('Voice Alpha', '556010001'), b = await f.create('Voice Beta', '556010002');
@@ -100,7 +117,7 @@ test('voice call history and object IDs stay inside the selected company', () =>
     state.voiceTest = { version: 1, organisationId: a.company.id, revision: 1, audit: [], calls: [{
       id: callId, requestId: randomUUID(), revision: 1, status: 'ended', createdAt: at, endedAt: at,
       site: { id: 'main', name: 'Voice Alpha' }, createdBy: { actualUserId: '__platform-admin', effectiveUserId: '__platform-admin', name: 'Systemadmin' },
-      transcript: [{ id: 'turn-1', role: 'user', text: 'Private Alpha transcript', at }], summary: 'Private Alpha summary', followupStatus: 'new',
+      transcript: [{ id: 'turn-1', role: 'user', text: 'Private Alpha transcript', at }], transcriptFinalizedAt: at, summaryStatus: 'generated', summary: 'Private Alpha summary', followupStatus: 'new',
     }] };
   });
   assert.equal((await f.request('/api/platform/switch', { organisationId: a.company.id })).status, 200);

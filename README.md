@@ -6,7 +6,7 @@ Detta är fortfarande en demo. Mobilappen använder personlig serverinloggning; 
 
 [Gemensam databas och säker import](docs/shared-postgres.md) · [Kontorsversionen](docs/office-demo.md) · [Artikelgrupper och bilder](docs/article-catalog.md) · [Personal](docs/personnel-demo.md) · [Appens schema och tid](docs/employee-mobile.md) · [Terminaler](docs/terminal-demo.md) · [Planerade framtida uppdateringar](docs/planerade-uppdateringar.md). Backup och återställning är planerade enligt ÄL 045, inte byggda här.
 
-[Prova svensk AI-kundmottagning i webbläsaren](docs/integrationer/openai-rosttest.md): skyddad testsida på `/rosttest`, med mikrofon, samtalsutskrift och bolagets sparade testuppföljningar. Ingen riktig telefoni eller externa utskick.
+[Prova svensk AI-kundmottagning i webbläsaren](docs/integrationer/openai-rosttest.md): publik JEROC-demo på `/rosttest`, med mikrofon och endast besökarens eget transkript. Kontorets samtalshistorik och bolagens egna testvyer kräver inloggning på `/kontor/rosttest`. Ingen riktig telefoni eller externa utskick.
 
 [Återanvändbar SaaS-blueprint](docs/saas-blueprint/README.md): byggrecept för
 gemensam kärna, bolagsisolering, systemadmin, säkerhet, menyer och valbara

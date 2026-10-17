@@ -138,7 +138,7 @@ const editor = (page: Page) => ({ title: page.getByRole('textbox', { name: 'Rubr
 test('mobile knowledge stays draft until explicit public approval, then can be published and archived', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const fixture = await setup(page);
-  await expect(page.getByRole('link', { name: 'Testa samtal', exact: true })).toHaveAttribute('href', '/rosttest');
+  await expect(page.getByRole('link', { name: 'Testa samtal', exact: true })).toHaveAttribute('href', '/kontor/rosttest');
   await expect(page.getByRole('link', { name: 'Testa samtal', exact: true })).toHaveAttribute('target', '_blank');
   await page.getByRole('button', { name: 'Nytt svar', exact: true }).click();
   await editor(page).title.fill('Hämtning av mindre mängder');
@@ -294,7 +294,7 @@ test('Live saves Meridian for the next conversation and offers the actual call i
   await expect(page.getByRole('button', { name: 'Provlyssna på Marin', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Provlyssna på Meridian', exact: true })).toBeDisabled();
   const call = page.getByRole('link', { name: 'Provlyssna i ett testsamtal', exact: true });
-  await expect(call).toHaveAttribute('href', '/rosttest'); await expect(call).toHaveAttribute('target', '_blank');
+  await expect(call).toHaveAttribute('href', '/kontor/rosttest'); await expect(call).toHaveAttribute('target', '_blank');
   await page.getByRole('button', { name: 'Välj röst Meridian', exact: true }).click();
   await page.getByRole('button', { name: 'Spara röst & bemötande', exact: true }).click();
   await expect.poll(() => fixture.state().settings.voice).toBe('meridian');

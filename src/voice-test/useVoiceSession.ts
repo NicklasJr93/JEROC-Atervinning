@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createVoiceCall, endVoiceCall, endVoiceOnLeave, readyVoiceCall, voiceScopeKey, type VoiceScope } from './client';
+import { createVoiceCall, endVoiceCall, endVoiceOnLeave, readyVoiceCall, voiceScopeCurrent, type VoiceScope } from './client';
 import type { VoiceCall, VoicePhase } from './types';
 import { createLiveOutputMeter, waitForLiveIce, type LiveOutputMeter, type VoiceProtocol } from './live-browser';
 
@@ -28,7 +28,7 @@ export function useVoiceSession(scope: VoiceScope, handlers: {
   const audio = useRef<HTMLAudioElement>(null), resource = useRef<Resource | undefined>(undefined), mounted = useRef(true), generation = useRef(0);
   const handlerRef = useRef(handlers); handlerRef.current = handlers;
   const scopeRef = useRef(scope.key); scopeRef.current = scope.key;
-  const owned = useCallback((item: Resource) => mounted.current && resource.current === item && scopeRef.current === item.scope.key && voiceScopeKey() === item.scope.key && !item.closing, []);
+  const owned = useCallback((item: Resource) => mounted.current && resource.current === item && scopeRef.current === item.scope.key && voiceScopeCurrent(item.scope) && !item.closing, []);
   const release = useCallback((item?: Resource) => {
     if (!item) return;
     item.closing = true; item.controller.abort();
@@ -65,7 +65,7 @@ export function useVoiceSession(scope: VoiceScope, handlers: {
     item.stream?.getTracks().forEach(track => { track.enabled = false; track.stop(); });
     audio.current?.pause();
     setMuted(false); setNeedsAudio(false); setError(''); setPhase('ending');
-    const current = () => mounted.current && generation.current === version && scopeRef.current === item.scope.key && voiceScopeKey() === item.scope.key;
+    const current = () => mounted.current && generation.current === version && scopeRef.current === item.scope.key && voiceScopeCurrent(item.scope);
     if (!item.callId) {
       release(item);
       if (item.createSent) { handlerRef.current.onUncertain(item.requestId); if (current()) { setError('Ljudet är stängt. Hämta samtalsstatus för att kontrollera om servern hann öppna samtalet.'); setPhase('error'); } }

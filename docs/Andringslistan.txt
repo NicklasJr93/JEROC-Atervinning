@@ -3271,3 +3271,28 @@ Status: Dokumenterad 2026-10-17. Ingen kärna eller modul extraheras av dokument
   skiljs från framtida mål; ÄL 123 är fortfarande planerad releasehärdning.
 - Framtida starter får egen kodbas och testkit, utan demolösenord, kunddata
   eller legacy-bolagsfallback. Inga nya drifts- eller kapacitetslöften.
+
+ÄL 136 – Publikt rösttest med endast besökarens eget transkript
+Status: Implementerad 2026-10-17 i kontor 0.30.5. Mobilwebben kvar på 0.13.0.
+- /rosttest fungerar utan kontorsinloggning och visar bara besökarens
+  aktuella/senaste testsamtal. Ingen samtalslista, intern sammanfattning,
+  uppföljningsstatus, inställning eller teknisk providersnapshot lämnas ut.
+- Separat HttpOnly-besökscapability på 15 minuter, CSRF-/Origin-kontroll,
+  strikt indata, ägarkontroll efter asynkront arbete och fast servervalt JEROC.
+  Ingen personal-, medlemskaps- eller generell administratörsidentitet skapas.
+- Beständiga startkvoter per besök/IP/totalt och korttidsfilter före
+  röstmodulens DB-läsning. Nya cookies återställer inte kostnadskvoterna.
+  Endast GPT-Live med låst klienthändelsekanal får användas publikt.
+- Kontorets historia och bolagens egna prov ligger bakom tidigare
+  autentisering/behörigheter på /kontor/rosttest. AI-inställningarnas
+  provlyssningslänkar går dit. Privat Realtime-fallback fungerar fortsatt.
+- Sista transkriptfragment efterhämtas begränsat efter avslut; fördröjda
+  svar från tidigare prov ska inte ersätta det aktuella egna samtalet.
+- Lokalt 180-sekunderstak och serverstyrt avslut återanvänds; ingen exakt
+  remote-kostnadsgaranti lämnas. Journalens databevarande och 300-posttak
+  består. Besökarens utgångstid raderar inte kontorets skyddade journal.
+- Guide: docs/integrationer/publik-rosttest.md.
+- Verifierat: 103 riktade servertester, fem gatewayfall, elva publika,
+  tolv privata och nio AI-inställningsfall i webbläsare, typkontroll och
+  produktionsbygge. Byggd server provad utan login och med privata API:er
+  fortsatt spärrade. Inga externa eller betalda API-anrop i verifieringen.

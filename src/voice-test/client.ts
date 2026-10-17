@@ -3,7 +3,10 @@ import { currentPlatformSession, platformRequestHeaders } from '../platform/sess
 import type { PlatformSession } from '../platform/types';
 import type { VoiceCall, VoiceCheck, VoiceState } from './types';
 
-export interface VoiceScope { key: string; headers: Readonly<Record<string, string>>; allowed: boolean }
+export interface VoiceScope { key: string; headers: Readonly<Record<string, string>>; allowed: boolean; publicDemo?: boolean }
+export const publicVoiceScope = (csrfToken: string): VoiceScope => ({ key: `public-voice:${csrfToken}`, allowed: !!csrfToken, publicDemo: true, headers: Object.freeze({ 'X-Voice-Demo-CSRF': csrfToken }) });
+export const voiceScopeCurrent = (scope: VoiceScope) => scope.publicDemo || voiceScopeKey() === scope.key;
+const voiceApiPath = (scope: VoiceScope) => scope.publicDemo ? '/api/public/voice-test' : '/api/voice-test';
 export function voiceScopeKey(session = currentPlatformSession()) {
   const identity = (user: { id: string; level: string; active?: boolean; siteIds?: string[] }) => [user.id, user.level, user.active !== false, user.siteIds ? [...user.siteIds].sort() : 'all'];
   return JSON.stringify(session?.authenticated ? [session.organisationId, session.generation, session.mustChangePassword, session.actor.id, identity(session.actualUser), identity(session.user)] : 'signed-out');
@@ -26,36 +29,47 @@ export const callSchema = z.object({ id: z.string(), requestId: z.string(), revi
   topic: z.string().nullable().optional(), callbackRequested: z.boolean().nullable().optional(), summaryModel: z.string().optional(), endReason: z.string().optional(), error: z.string().optional(),
 });
 const stateSchema = z.object({ revision: nonnegative.int(), config: z.object({ enabled: z.boolean(), keyPresent: z.boolean(), model: z.string(), protocol: z.enum(['live', 'realtime']).optional(), backendModel: z.string().optional(), companyName: z.string().optional(), voice: z.string().optional(), knowledgeRevision: nonnegative.int().optional(), callerNumber: z.string(), callerLabel: z.string(), maxDurationSeconds: nonnegative, available: z.boolean(), reason: z.string().optional(), site: z.object({ id: z.string(), name: z.string() }).optional() }), calls: z.array(callSchema), currentCall: callSchema.nullable() });
-const createSchema = z.object({ call: callSchema, answerSdp: z.string().min(1), protocol: z.enum(['live', 'realtime']).optional() });
+// The public API deliberately omits office identity, journal metadata, model
+// configuration and follow-up. Neutral local defaults let the same media hook
+// consume that smaller DTO without requiring those private fields on the wire.
+const publicCallSchema = callSchema.pick({ id: true, requestId: true, revision: true, status: true, protocol: true, createdAt: true, startedAt: true, endedAt: true,
+  durationSeconds: true, transcript: true, transcriptComplete: true, endReason: true }).transform(call => ({ ...call, callerNumber: '', callerLabel: 'TEST',
+    createdBy: { actualUserId: '', effectiveUserId: '', name: 'Testkund' }, followupStatus: 'new' as const }));
+const publicStateSchema = z.object({ csrfToken: z.string().min(1), config: z.object({ companyName: z.string(), protocol: z.enum(['live', 'realtime']), voice: z.string().optional(), maxDurationSeconds: nonnegative,
+  available: z.boolean(), reason: z.string().optional() }), currentCall: publicCallSchema.nullable() }).transform(value => ({ ...value, revision: value.currentCall?.revision ?? 0, calls: [],
+  config: { ...value.config, enabled: true, keyPresent: true, model: '', callerNumber: '', callerLabel: 'TEST' } }));
+const callResponseSchema = (scope: VoiceScope) => z.object({ call: scope.publicDemo ? publicCallSchema : callSchema });
+const createSchema = (scope: VoiceScope) => z.object({ call: scope.publicDemo ? publicCallSchema : callSchema, answerSdp: z.string().min(1), protocol: z.enum(['live', 'realtime']).optional() });
 const checkSchema = z.object({ ok: z.boolean(), model: z.string(), message: z.string(), checkedAt: stamp });
-async function request<T>(scope: VoiceScope, path: string, schema: z.ZodType<T>, body?: unknown, signal?: AbortSignal, timeoutMs = 20_000): Promise<T> {
+async function request<S extends z.ZodTypeAny>(scope: VoiceScope, path: string, schema: S, body?: unknown, signal?: AbortSignal, timeoutMs = 20_000): Promise<z.output<S>> {
   if (!scope.allowed) throw new VoiceApiError('Du saknar behörighet att använda rösttestet.', 403);
   const controller = new AbortController(), abort = () => controller.abort(signal?.reason);
   if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
   const timer = window.setTimeout(() => controller.abort(new DOMException('Servern svarade inte i tid. Kontrollera samtalsstatusen.', 'TimeoutError')), timeoutMs);
   try {
-    const response = await fetch(`/api/voice-test${path}`, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+    const response = await fetch(`${voiceApiPath(scope)}${path}`, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
       headers: { Accept: 'application/json', ...scope.headers, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const result = await response.json().catch(() => null);
     if (controller.signal.aborted) throw controller.signal.reason;
-    if (voiceScopeKey() !== scope.key) throw new VoiceApiError('Bolaget eller inloggningen har ändrats. Samtalet har stängts på den här enheten.', 409, 'PRINCIPAL_CHANGED');
+    if (!voiceScopeCurrent(scope)) throw new VoiceApiError('Bolaget eller inloggningen har ändrats. Samtalet har stängts på den här enheten.', 409, 'PRINCIPAL_CHANGED');
     if (!response.ok) throw new VoiceApiError(typeof result?.error === 'string' ? result.error : result?.error?.message || result?.message || 'Rösttestet kunde inte nås. Försök igen.', response.status, result?.code);
     const parsed = schema.safeParse(result);
     if (!parsed.success) throw new VoiceApiError('Rösttestet gav ett ofullständigt svar. Hämta aktuell samtalsstatus.', 502, 'invalid_response');
     return parsed.data;
   } finally { window.clearTimeout(timer); signal?.removeEventListener('abort', abort); }
 }
+export const readPublicVoice = (signal?: AbortSignal) => request({ key: 'public-voice:bootstrap', allowed: true, publicDemo: true, headers: Object.freeze({}) }, '', publicStateSchema, undefined, signal);
 export const readVoice = (scope: VoiceScope, signal?: AbortSignal): Promise<VoiceState> => request(scope, '', stateSchema, undefined, signal);
-export const readVoiceCall = async (scope: VoiceScope, id: string, signal?: AbortSignal): Promise<VoiceCall> => (await request(scope, `/calls/${encodeURIComponent(id)}`, z.object({ call: callSchema }), undefined, signal)).call;
-export const createVoiceCall = (scope: VoiceScope, requestId: string, sdp: string, signal?: AbortSignal) => request(scope, '/calls', createSchema, { requestId, sdp }, signal, 45_000);
-export const readyVoiceCall = async (scope: VoiceScope, id: string, signal?: AbortSignal) => (await request(scope, `/calls/${encodeURIComponent(id)}/ready`, z.object({ call: callSchema }), {}, signal)).call;
-export const endVoiceCall = async (scope: VoiceScope, id: string, signal?: AbortSignal) => (await request(scope, `/calls/${encodeURIComponent(id)}/end`, z.object({ call: callSchema }), {}, signal, 35_000)).call;
+export const readVoiceCall = async (scope: VoiceScope, id: string, signal?: AbortSignal): Promise<VoiceCall> => (await request(scope, `/calls/${encodeURIComponent(id)}`, callResponseSchema(scope), undefined, signal)).call;
+export const createVoiceCall = (scope: VoiceScope, requestId: string, sdp: string, signal?: AbortSignal) => request(scope, '/calls', createSchema(scope), { requestId, sdp }, signal, 45_000);
+export const readyVoiceCall = async (scope: VoiceScope, id: string, signal?: AbortSignal) => (await request(scope, `/calls/${encodeURIComponent(id)}/ready`, callResponseSchema(scope), {}, signal)).call;
+export const endVoiceCall = async (scope: VoiceScope, id: string, signal?: AbortSignal) => (await request(scope, `/calls/${encodeURIComponent(id)}/end`, callResponseSchema(scope), {}, signal, 35_000)).call;
 export const updateVoiceFollowup = async (scope: VoiceScope, id: string, status: VoiceCall['followupStatus'], signal?: AbortSignal) => (await request(scope, `/calls/${encodeURIComponent(id)}/status`, z.object({ call: callSchema }), { status }, signal)).call;
 export const checkVoiceConnection = (scope: VoiceScope, signal?: AbortSignal): Promise<VoiceCheck> => request(scope, '/connection-test', checkSchema, {}, signal, 30_000);
 
 /** A page close only sends a best-effort, idempotent end with the OLD scope.
  * It can never follow a changed cookie into a different company's call. */
 export function endVoiceOnLeave(scope: VoiceScope, id: string) {
-  void fetch(`/api/voice-test/calls/${encodeURIComponent(id)}/end`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', keepalive: true,
+  void fetch(`${voiceApiPath(scope)}/calls/${encodeURIComponent(id)}/end`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', keepalive: true,
     headers: { ...scope.headers, 'Content-Type': 'application/json' }, body: '{}' }).catch(() => undefined);
 }

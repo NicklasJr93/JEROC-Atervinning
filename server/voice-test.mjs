@@ -140,7 +140,7 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
         if (result?.providerConfirmed === true && Number.isFinite(result.usage?.seconds) && result.usage.seconds >= 0 && result.usage.seconds <= 86_400) providerUsageSeconds = result.usage.seconds;
       } catch { complete = false; providerConfirmed = false; }
       session.controller.abort();
-      await write(state => { const value = domain(state), call = value?.calls.find(item => item.id === id); if (call && !call.transcriptFinalizedAt) { call.transcriptFinalizedAt = timestamp(); call.transcriptComplete = complete && call.transcriptComplete !== false; if (typeof providerConfirmed === 'boolean') call.providerConfirmed = providerConfirmed;
+      await write(state => { const value = domain(state), call = value?.calls.find(item => item.id === id); if (call && !call.transcriptFinalizedAt) { call.transcriptFinalizedAt = timestamp(); delete call.transcriptGraceUntil; call.transcriptComplete = complete && call.transcriptComplete !== false; if (typeof providerConfirmed === 'boolean') call.providerConfirmed = providerConfirmed;
         if (providerUsageSeconds !== undefined) call.providerUsageSeconds = providerUsageSeconds;
         call.summary = summaryOf(call); touch(value, call); } });
       await summarize(id);
@@ -195,7 +195,7 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
         const session = sessions.get(call.id);
         if (!ACTIVE.has(call.status)) {
           if (session) stop.push([call.id, call.endReason ?? 'ended']);
-          else if (!call.transcriptFinalizedAt && numericNow - Date.parse(call.endedAt ?? call.createdAt) >= 20_000) {
+          else if (!call.transcriptFinalizedAt && numericNow >= Date.parse(call.transcriptGraceUntil ?? new Date(Date.parse(call.endedAt ?? call.createdAt) + 20_000).toISOString())) {
             call.transcriptFinalizedAt = current; call.transcriptComplete = false; call.summary = summaryOf(call); touch(value, call); orphaned.push(call.id);
           }
           else if (call.summaryStatus === 'pending' && call.summaryAttemptId && Date.parse(call.summaryDeadlineAt ?? call.endedAt) <= numericNow) {
@@ -212,7 +212,13 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
           if (!checked?.allowed || checked.actorWasLocal && !actor || checked.userWasLocal && !user || !voiceTestCapabilities(local).write || !scopeAllows(local, call.site.id)) reason = 'authorization_revoked';
           if (!reason) call.leaseUntil = new Date(numericNow + 20_000).toISOString();
         }
-        if (reason) { call.status = status; call.endedAt = current; call.endReason = reason; call.summary = summaryOf(call); delete call.leaseUntil; touch(value, call); audit(value, call, `voice_test.${status}`, { reason }, changes); if (session) stop.push([call.id, reason]); else { call.transcriptFinalizedAt = current; call.transcriptComplete = false; orphaned.push(call.id); } }
+        if (reason) {
+          const liveOwner = !session && Date.parse(call.leaseUntil ?? call.createdAt) > numericNow;
+          call.status = status; call.endedAt = current; call.endReason = reason; call.summary = summaryOf(call); delete call.leaseUntil; touch(value, call); audit(value, call, `voice_test.${status}`, { reason }, changes);
+          if (session) stop.push([call.id, reason]);
+          else if (liveOwner) call.transcriptGraceUntil = new Date(numericNow + 30_000).toISOString();
+          else { call.transcriptFinalizedAt = current; call.transcriptComplete = false; orphaned.push(call.id); }
+        }
       }
     });
     await Promise.all(stop.map(([id, reason]) => stopLocal(id, reason)));
@@ -346,6 +352,13 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
     } catch (error) { sendJson(res, error.publicVoiceError ? error.status : 503, { error: error.publicVoiceError ? error.message : 'Rösttestet kunde inte behandla anropet.', code: error.publicVoiceError ? error.code : 'voice_test_unavailable' }, req.method === 'HEAD'); return true; }
   };
   handler.recover = expireAndCheck;
+  // Server-only projections for the public demo adapter. HTTP access still
+  // always traverses principalFor above; these functions are never routes.
+  handler.publicConfiguration = async ({ siteIds }) => {
+    const identity = { siteIds }, values = await siteProvider(), sites = Array.isArray(values) ? values : values?.sites ?? [];
+    return settings({ actor: identity, user: identity }, sites);
+  };
+  handler.publicCall = id => read(state => { const call = domain(state)?.calls.find(item => item.id === id); return call ? callView(call, Date.parse(timestamp())) : null; });
   handler.close = () => {
     shutdownPromise ??= (async () => {
       closing = true; if (heartbeat) cancel(heartbeat); for (const controller of summaryControllers) controller.abort();
