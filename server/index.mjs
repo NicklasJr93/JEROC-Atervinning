@@ -97,7 +97,7 @@ async function handle(req, res) {
     reply(res, 404, 'Not found');
     return;
   }
-  const staticPath = ['/', '/testbil1', '/testbil1/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/kontor/integration/systemadminswishtest.html', '/kontor/integration/systemadminbanktest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
+  const staticPath = ['/', '/testbil1', '/testbil1/', '/rosttest', '/rosttest/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/kontor/integration/systemadminswishtest.html', '/kontor/integration/systemadminbanktest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
   const file = resolve(dist, `.${staticPath}`);
   const within = relative(dist, file);
   if (within.startsWith('..') || isAbsolute(within)) {

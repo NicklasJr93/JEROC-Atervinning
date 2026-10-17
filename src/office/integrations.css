@@ -4,9 +4,9 @@
 .office .integration-page-title > button { flex-shrink: 0; }
 .office .integration-scope { display: flex; align-items: center; gap: 7px; margin: -8px 0 16px; font-size: 11px; }
 .office .integration-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 15px; }
-.office button.integration-card { display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 19px; text-align: left; color: #243d5d; background: #fff; border: 1px solid #e1eaf6; border-radius: 11px; transition: border-color .15s, box-shadow .15s; }
-.office button.integration-card:hover { border-color: #a9caff; box-shadow: 0 4px 15px #1e5aa70b; }
-.office button.integration-card:focus-visible { outline: 2px solid #0965ec; outline-offset: 3px; }
+.office .integration-card { display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 19px; text-align: left; text-decoration: none; color: #243d5d; background: #fff; border: 1px solid #e1eaf6; border-radius: 11px; transition: border-color .15s, box-shadow .15s; }
+.office .integration-card:hover { border-color: #a9caff; box-shadow: 0 4px 15px #1e5aa70b; }
+.office .integration-card:focus-visible { outline: 2px solid #0965ec; outline-offset: 3px; }
 .office .integration-card-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 17px; }
 .office .integration-icon { display: inline-flex; align-items: center; justify-content: center; width: 45px; height: 45px; border-radius: 11px; background: #edf4ff; color: #0965ec; flex-shrink: 0; }
 .office .integration-icon.nvv { color: #198450; background: #eaf8f0; }
@@ -52,7 +52,7 @@
 @media (max-width: 800px) {
   .office .integration-page-title { align-items: flex-start; gap: 12px; }
   .office .integration-grid { gap: 11px; }
-  .office button.integration-card { padding: 15px; }
+  .office .integration-card { padding: 15px; }
   .office .integration-detail-heading { flex-wrap: wrap; }
   .office .integration-detail-heading > div { min-width: 180px; }
   .office .integration-detail-columns { grid-template-columns: 1fr; gap: 18px; }

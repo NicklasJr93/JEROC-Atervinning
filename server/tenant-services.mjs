@@ -30,6 +30,16 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     name: company?.name ?? 'JEROC Återvinning AB', number: company?.organisationNumber ?? company?.number ?? '',
     vat: company?.vat ?? '', address: company?.address ?? '', postalCode: company?.postalCode ?? '', city: company?.city ?? '' });
   const applicationApi = createApplicationService({ env, seed, approvalProvider: () => terminalDemoApi.projections(),
+    voiceTestCompanyName: documentCompany.name,
+    reauthorizeVoiceCall: async (state, call, req) => {
+      const platform = getPlatformContext(req);
+      if (!platform || platform.organisationId !== organisationId || typeof reauthorizeTrustedPrincipal !== 'function')
+        throw new PricingError('En aktiv session i bolaget krävs för rösttestet.', 403);
+      const trusted = await reauthorizeTrustedPrincipal(req);
+      if (trusted.actorId !== platform.actualUser.id || trusted.userId !== platform.user.id || trusted.sessionKey !== platform.sessionKey)
+        throw new PricingError('Röstsamtalets session eller bolag har ändrats.', 403);
+      return resolvePricingPrincipal(state.pricing?.users ?? [], trusted.actorId, trusted.userId);
+    },
     projections: cardId => terminalDemoApi.projections(cardId),
     sendCustomerReview: (payload, principal, req) => terminalDemoApi.sendPrepared(payload, principal, req),
     withMaterialChangeApproval: (input, identity, operation) => terminalDemoApi.withMaterialChangeApproval(input, identity, operation),

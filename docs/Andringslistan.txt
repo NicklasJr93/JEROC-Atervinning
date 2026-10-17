@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.13.0. Aktuell kontorsversion: 0.30.0.
+Aktuell mobilwebbversion: 0.13.0. Aktuell kontorsversion: 0.30.1.
 ÄL 125: demoinloggning med förifyllning på Chaufför, Åkeri och Kundportal.
 ÄL 124 är genomförd 2026-10-16: förifyllt NVV-supportprov direkt i kontoret,
 utan Render Shell. Själva nya myndighetsanropet körs från användarens testknapp.
@@ -3121,3 +3121,35 @@ Status: Implementerad 2026-10-16 i kontor 0.30.0 / mobilwebb 0.13.0.
 - Fysisk puck/SIM/APN/transport, större mottagardrift och förarpanel
   återstår att koppla och verifiera. Inga nya obligatoriska Render-env.
 - Guide: docs/fordon-telematik-bygge-2026-10-16.md.
+
+
+ÄL 131 – Svensk röstmottagning i avskilt OpenAI-test
+Status: Implementerad 2026-10-17 i kontor 0.30.1. Mobilwebben kvar på 0.13.0.
+- Skyddad sida /rosttest via plattformsinloggning, aktivt bolag och
+  faktisk samt utförande Systemadmin/VD. Öppnas även från Integrationer.
+- Webbläsarens mikrofon och WebRTC används för svensk dialog med
+  gpt-realtime-2.1. Fast nummer +46700000000 är alltid märkt TEST;
+  ingen telefonväxel eller verifierad kundidentitet kopplas.
+- OPENAI_API_KEY finns endast på servern. Serverägd SDP/session och
+  autentiserad OpenAI-WebSocket styr hälsning och beständig transkription;
+  webbläsartext får inte utge sig för att vara betrodd samtalsjournal.
+- Beständigt testärende med utskrift, sammanfattning, anläggning,
+  användarspårning och uppföljning Ny/Pågår/Klar. Markerat reservläge vid
+  sammanfattningsfel med bevarad utskrift. Ingen verklig order, bokning,
+  betalning, mejl eller SMS.
+- Max tre minuter från reservation, ett aktivt samtal per bolag,
+  sex starter per rullande timme och konto i bolaget samt 30 per svensk
+  kalenderdag och bolag. Databasen reserverar före leverantörsstart; samma försöks-ID
+  skyddar mot dubbla starter. Avslut är idempotent. Vid 300 sparade samtal
+  spärras nya starter; ingen automatisk gallring eller raderingsknapp.
+- Mikrofon och ljudanslutning stängs vid avslut eller ändrad session.
+  Serverns behörighetskontroll och tidsgräns avslutar övergivna samtal.
+- Samtalsinnehåll skickas till OpenAI. Appen sparar text och metadata,
+  men ingen ljudinspelning. Använd fiktiva kunduppgifter i detta prov.
+- Faktisk OpenAI-/ljudverifiering på Render återstår med projektets nyckel
+  och riktig mikrofon. Simulerade tester är inte ett godkänt ljudprov.
+- Verifierat: 32 riktade server-/adaptertester, tio browserfall,
+  produktionsbygge och lokalt prov med riktig plattformsinloggning.
+  Bred serversvit har samma nio tidigare dokumenterade fel kvar.
+- Operatörsflöde, Render-inställningar och arkitektur:
+  docs/integrationer/openai-rosttest.md.

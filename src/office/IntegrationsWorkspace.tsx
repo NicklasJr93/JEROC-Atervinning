@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, ArrowUpRight, Building2, CheckCircle2, ChevronRight, CircleAlert,
-  Clock3, FileText, Fingerprint, Leaf, Mail, MapPin, PlugZap, RefreshCw,
+  Clock3, FileText, Fingerprint, Leaf, Mail, MapPin, PhoneCall, PlugZap, RefreshCw,
   ShieldCheck, TrendingUp, Wallet, type LucideIcon,
 } from 'lucide-react';
 import { can, type OfficeUser } from './model';
@@ -289,6 +289,11 @@ export default function IntegrationsWorkspace({ user, actualUser, users, siteId 
               <span className="integration-card-link">{provider.implemented ? 'Visa anslutning' : 'Visa planerad koppling'}<ArrowUpRight size={15} /></span>
             </button>;
           })}
+          {[user, actualUser].every(account => account.active !== false && ['Systemadmin', 'VD'].includes(account.level)) && <a href="/rosttest" className="office-panel integration-card" aria-label="Svensk röstmottagning · test">
+            <div className="integration-card-top"><span className="integration-icon"><PhoneCall size={25} /></span><span className="integration-status test">TEST</span></div>
+            <small>Kundkontakt</small><h2>Svensk röstmottagning</h2><p>Prova ett kundsamtal med mikrofonen. Samtalsutskrift och uppföljning sparas i bolagets testvy.</p>
+            <span className="integration-card-link">Öppna rösttestet<ArrowUpRight size={15} /></span>
+          </a>}
         </div>
         {!providers.length && <div className="office-panel integration-message"><PlugZap size={19} /><span>Inga integrationer är tillgängliga för ditt konto.</span></div>}
       </>}

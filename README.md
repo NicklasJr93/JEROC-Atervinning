@@ -6,6 +6,8 @@ Detta är fortfarande en demo. Mobilappen använder personlig serverinloggning; 
 
 [Gemensam databas och säker import](docs/shared-postgres.md) · [Kontorsversionen](docs/office-demo.md) · [Artikelgrupper och bilder](docs/article-catalog.md) · [Personal](docs/personnel-demo.md) · [Appens schema och tid](docs/employee-mobile.md) · [Terminaler](docs/terminal-demo.md) · [Planerade framtida uppdateringar](docs/planerade-uppdateringar.md). Backup och återställning är planerade enligt ÄL 045, inte byggda här.
 
+[Prova svensk AI-kundmottagning i webbläsaren](docs/integrationer/openai-rosttest.md): skyddad testsida på `/rosttest`, med mikrofon, samtalsutskrift och bolagets sparade testuppföljningar. Ingen riktig telefoni eller externa utskick.
+
 ## Starta på Windows eller Mac
 
 1. Ha **Node.js 22.12 eller senare** installerat. Node.js 24 LTS fungerar. npm ska följa med Node.js.

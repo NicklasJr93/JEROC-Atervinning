@@ -77,6 +77,46 @@ test('public demo password cannot bootstrap platform; mobile keeps its existing 
   const state = await f.gateway.repository.read(state => state); assert.equal(state.users.length, 0);
 }, { privateBootstrap: false }));
 
+test('voice demo requires platform authentication, a selected company and CSRF before provider work', () => fixture(async f => {
+  assert.equal((await f.request('/api/voice-test')).status, 401);
+  await f.admin();
+  assert.equal((await f.request('/api/platform/switch', { organisationId: 'jeroc-demo' })).status, 200);
+  const result = await f.request('/api/voice-test');
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.match(result.response.headers.get('cache-control'), /no-store/);
+  assert.equal((await f.request('/api/voice-test/connection-test', {}, { 'x-platform-csrf': '' })).status, 403);
+  assert.equal((await f.request('/api/voice-test/connection-test', {}, { origin: 'https://foreign.invalid' })).status, 403);
+  assert.equal((await f.request('/api/voice-test', undefined, { 'x-platform-generation': 'stale' })).status, 409);
+  const fakeEmployee = await f.request('/api/voice-test', undefined, { cookie: '', 'x-demo-actor': 'admin', 'x-demo-user': 'admin' });
+  assert.equal(fakeEmployee.status, 401);
+}));
+
+test('voice call history and object IDs stay inside the selected company', () => fixture(async f => {
+  await f.admin();
+  const a = await f.create('Voice Alpha', '556010001'), b = await f.create('Voice Beta', '556010002');
+  const service = await f.gateway.bundle(a.company), repo = await service.applicationApi.getRepository();
+  const callId = randomUUID(), at = '2026-10-17T10:00:00.000Z';
+  await repo.transact(state => {
+    state.voiceTest = { version: 1, organisationId: a.company.id, revision: 1, audit: [], calls: [{
+      id: callId, requestId: randomUUID(), revision: 1, status: 'ended', createdAt: at, endedAt: at,
+      site: { id: 'main', name: 'Voice Alpha' }, createdBy: { actualUserId: '__platform-admin', effectiveUserId: '__platform-admin', name: 'Systemadmin' },
+      transcript: [{ id: 'turn-1', role: 'user', text: 'Private Alpha transcript', at }], summary: 'Private Alpha summary', followupStatus: 'new',
+    }] };
+  });
+  assert.equal((await f.request('/api/platform/switch', { organisationId: a.company.id })).status, 200);
+  const own = await f.request(`/api/voice-test/calls/${callId}`);
+  assert.equal(own.status, 200, JSON.stringify(own.body));
+  assert.equal(own.body.call.summary, 'Private Alpha summary');
+  assert.equal((await f.request('/api/application/voiceTest')).status, 404, 'The generic business API must not expose the private call domain');
+  assert.equal((await f.request('/api/platform/switch', { organisationId: b.company.id })).status, 200);
+  const other = await f.request('/api/voice-test');
+  assert.equal(other.status, 200, JSON.stringify(other.body));
+  assert.deepEqual(other.body.calls, []);
+  assert.equal((await f.request(`/api/voice-test/calls/${callId}`)).status, 404);
+  assert.equal((await f.request(`/api/voice-test/calls/${callId}/status`, { status: 'done' })).status, 404);
+  assert.equal((await repo.read(state => state.voiceTest.calls[0].followupStatus)), 'new');
+}));
+
 const portalDemoDefaults = [
   { kind: 'driver', id: 'portal-demo-driver-v1', username: 'demo.chauffor', password: 'ChaufforDemo2026!', subjectId: 'person-oskar' },
   { kind: 'carrier', id: 'portal-demo-carrier-v1', username: 'demo.akeri', password: 'AkeriDemo2026!', subjectId: 'carrier-roslagen' },

@@ -11,12 +11,14 @@ const DriverApp = React.lazy(() => import('./driver/DriverApp'));
 const CustomerApp = React.lazy(() => import('./customer/CustomerApp'));
 const CarrierApp = React.lazy(() => import('./carrier/CarrierApp'));
 const TestCarApp = React.lazy(() => import('./testcar/TestCarApp'));
+const VoiceTestApp = React.lazy(() => import('./voice-test/VoiceTestApp'));
 const pagePath = window.location.pathname.replace(/\/$/, '');
 const nvvTestPage = pagePath === '/kontor/integration/systemadminintegrationtest.html';
 const vismaTestPage = pagePath === '/kontor/integration/systemadminvismatest.html';
 const swishTestPage = pagePath === '/kontor/integration/systemadminswishtest.html';
 const bankTestPage = pagePath === '/kontor/integration/systemadminbanktest.html';
-if (pagePath === '/kontor' || nvvTestPage || vismaTestPage || swishTestPage || bankTestPage) installPlatformFetchGuard();
+const voiceTestPage = pagePath === '/rosttest';
+if (pagePath === '/kontor' || nvvTestPage || vismaTestPage || swishTestPage || bankTestPage || voiceTestPage) installPlatformFetchGuard();
 if ((nvvTestPage || vismaTestPage || swishTestPage || bankTestPage) && !window.location.hash) {
   window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/integrations/${bankTestPage ? 'bank-test' : swishTestPage ? 'swish-test' : vismaTestPage ? 'visma-test' : 'nvv-test'}`);
 }
@@ -26,6 +28,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <HashRouter>
       {pagePath === '/testbil1' ? (
         <React.Suspense fallback={<div role="status">Öppnar testbilen…</div>}><TestCarApp /></React.Suspense>
+      ) : voiceTestPage ? (
+        <React.Suspense fallback={<div role="status">Öppnar rösttestet…</div>}><PlatformGate><VoiceTestApp /></PlatformGate></React.Suspense>
       ) : pagePath === '/terminal' ? (
         <React.Suspense fallback={<div role="status">Öppnar kundterminal…</div>}><TerminalApp /></React.Suspense>
       ) : pagePath === '/chauffor' ? (
