@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { buildAiSupportContext } from './ai-support.mjs';
+import { createVoiceTestProvider, voiceTestProviderConfig } from './voice-test-provider.mjs';
 
 export const VOICE_TEST_LIMITS = Object.freeze({ maxDurationSeconds: 180, maxStartsPerHour: 6, maxStartsPerDay: 30, maxStoredCalls: 300, maxBodyBytes: 256 * 1024 });
 const ACTIVE = new Set(['connecting', 'active']);
@@ -14,7 +15,8 @@ const requestId = z.string().trim().min(8).max(120).regex(/^[a-zA-Z0-9_-]+$/);
 const createInput = z.object({ requestId, sdp: z.string().min(20).max(240 * 1024).refine(value => /^v=0\r?\n/.test(value) && /(?:^|\n)m=audio\s/.test(value), 'En giltig WebRTC-ljudförfrågan krävs.') }).strict();
 const emptyInput = z.object({}).strict();
 const statusInput = z.object({ status: z.enum(['new', 'in_progress', 'done']) }).strict();
-const transcriptInput = z.object({ id: z.string().min(1).max(200), role: z.enum(['user', 'assistant']), text: z.string().max(24_000), at: z.string().datetime({ offset: true }).optional(), sequence: z.number().int().nonnegative().max(100_000).optional(), interrupted: z.boolean().optional() }).strict();
+const liveFragment = z.object({ eventId: z.string().min(1).max(250), startMs: z.number().finite().min(0).max(86_400_000), endMs: z.number().finite().min(0).max(86_400_000), text: z.string().max(20_000), deliveryIndex: z.number().int().min(0).max(9999).optional() }).strict().refine(item => item.endMs >= item.startMs);
+const transcriptInput = z.object({ id: z.string().min(1).max(200), role: z.enum(['user', 'assistant']), text: z.string().max(24_000), at: z.string().datetime({ offset: true }).optional(), sequence: z.number().int().nonnegative().max(172_800_000).optional(), interrupted: z.boolean().optional(), liveFragments: z.array(liveFragment).max(500).optional(), startMs: z.number().finite().min(0).max(86_400_000).optional(), endMs: z.number().finite().min(0).max(86_400_000).optional() }).strict();
 const parse = (schema, value) => { const parsed = schema.safeParse(value); if (!parsed.success) fail('Testanropet innehåller ogiltiga eller okända uppgifter.'); return parsed.data; };
 const authorizedUser = user => Boolean(user?.id) && user.active !== false && ['Systemadmin', 'VD'].includes(user.level);
 export const voiceTestCapabilities = principal => ({ read: authorizedUser(principal?.actor) && authorizedUser(principal?.user), write: authorizedUser(principal?.actor) && authorizedUser(principal?.user) });
@@ -29,12 +31,12 @@ export function ensureVoiceTest(state, organisationId) {
 }
 
 function callView(call, now) {
-  return clone({ id: call.id, requestId: call.requestId, revision: call.revision, status: call.status, callerNumber: CALLER, callerLabel: 'TEST',
+  return clone({ id: call.id, requestId: call.requestId, revision: call.revision, status: call.status, ...(call.protocol ? { protocol: call.protocol } : {}), callerNumber: CALLER, callerLabel: 'TEST',
     createdAt: call.createdAt, ...(call.startedAt ? { startedAt: call.startedAt } : {}), ...(call.endedAt ? { endedAt: call.endedAt } : {}),
     durationSeconds: Math.max(0, Math.min(VOICE_TEST_LIMITS.maxDurationSeconds, Math.floor(((call.endedAt ? Date.parse(call.endedAt) : now) - Date.parse(call.startedAt ?? call.createdAt)) / 1000))),
     createdBy: call.createdBy, siteId: call.site.id, siteName: call.site.name, site: call.site, transcript: call.transcript, transcriptComplete: call.transcriptComplete === true, summary: call.summary ?? '',
     followupStatus: call.followupStatus, summaryStatus: call.summaryStatus ?? 'pending', topic: call.topic ?? null, callbackRequested: call.callbackRequested ?? null,
-    ...(call.aiSupportSnapshot ? { aiSupportSnapshot: call.aiSupportSnapshot } : {}), ...(call.summaryModel ? { summaryModel: call.summaryModel } : {}), ...(typeof call.providerConfirmed === 'boolean' ? { providerConfirmed: call.providerConfirmed } : {}), ...(call.endReason ? { endReason: call.endReason } : {}), ...(call.error ? { error: call.error } : {}) });
+    ...(Number.isFinite(call.providerUsageSeconds) ? { providerUsageSeconds: call.providerUsageSeconds } : {}), ...(call.aiSupportSnapshot ? { aiSupportSnapshot: call.aiSupportSnapshot } : {}), ...(call.summaryModel ? { summaryModel: call.summaryModel } : {}), ...(typeof call.providerConfirmed === 'boolean' ? { providerConfirmed: call.providerConfirmed } : {}), ...(call.endReason ? { endReason: call.endReason } : {}), ...(call.error ? { error: call.error } : {}) });
 }
 
 function sameOrigin(req) {
@@ -65,7 +67,8 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
   if (typeof getRepository !== 'function' || typeof officePrincipal !== 'function') throw new TypeError('Rösttestet behöver bolagets databas och verifierad kontorssession.');
   const organisationId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
   const companyName = String(suppliedCompanyName ?? (organisationId === 'jeroc-demo' ? 'JEROC' : 'företaget')).trim().slice(0, 200) || 'företaget';
-  const providerPromise = suppliedProvider ? Promise.resolve(suppliedProvider) : import('./voice-test-openai.mjs').then(module => module.createVoiceTestProvider({ env }));
+  const providerConfig = voiceTestProviderConfig(env);
+  const providerPromise = suppliedProvider ? Promise.resolve(suppliedProvider) : createVoiceTestProvider({ env });
   const sessions = new Map(), pending = new Set(), summaryControllers = new Set(); let closing = false, heartbeat, shutdownPromise;
   const timestamp = () => { const value = new Date(now()); if (!Number.isFinite(value.getTime())) throw new TypeError('Rösttestets klocka är ogiltig.'); return value.toISOString(); };
   const track = promise => { pending.add(promise); promise.finally(() => pending.delete(promise)).catch(() => {}); return promise; };
@@ -106,12 +109,12 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
   }
   async function appendTranscript(id, input) {
     const turn = parse(transcriptInput, input);
-    if (!turn.text.trim()) return;
+    if (!turn.text.trim() && !turn.liveFragments?.length) return;
     return write((state, _revision, changes = []) => {
       const value = domain(state), call = value?.calls.find(item => item.id === id);
       if (!call || call.runtimeId !== runtimeId || call.transcriptFinalizedAt) return;
       const previous = call.transcript.find(item => item.id === turn.id && item.role === turn.role);
-      const next = { ...turn, text: turn.text.trim(), at: previous?.at ?? turn.at ?? timestamp() };
+      const next = { ...turn, text: turn.liveFragments ? turn.text : turn.text.trim(), at: previous?.at ?? turn.at ?? timestamp() };
       if (JSON.stringify(previous) === JSON.stringify(next)) return;
       const total = call.transcript.reduce((sum, item) => sum + item.text.length, 0) - (previous?.text.length ?? 0) + next.text.length;
       if (call.transcript.length >= 600 && !previous || total > 200_000) fail('Transkriptionen överskrider testets gräns.', 413, 'voice_test_transcript_limit');
@@ -132,10 +135,14 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
     session.stopping = (async () => {
       cancel(session.timer);
       if (!session.handle) { session.controller.abort(); try { await bounded(session.resourcePromise, 3000); } catch {} }
-      let complete = true, providerConfirmed;
-      try { const result = await bounded(closeResource(session, session.handle, reason), reason === 'server_shutdown' ? 5000 : 7000); if (result?.transcriptComplete === false) complete = false; if (typeof result?.providerConfirmed === 'boolean') providerConfirmed = result.providerConfirmed; } catch { complete = false; providerConfirmed = false; }
+      let complete = Boolean(session.handle), providerConfirmed = session.handle ? undefined : false, providerUsageSeconds;
+      try { const result = await bounded(closeResource(session, session.handle, reason), reason === 'server_shutdown' ? 5000 : session.protocol === 'live' ? 18_000 : 7000); if (result?.transcriptComplete === false) complete = false; if (typeof result?.providerConfirmed === 'boolean') providerConfirmed = result.providerConfirmed;
+        if (result?.providerConfirmed === true && Number.isFinite(result.usage?.seconds) && result.usage.seconds >= 0 && result.usage.seconds <= 86_400) providerUsageSeconds = result.usage.seconds;
+      } catch { complete = false; providerConfirmed = false; }
       session.controller.abort();
-      await write(state => { const value = domain(state), call = value?.calls.find(item => item.id === id); if (call && !call.transcriptFinalizedAt) { call.transcriptFinalizedAt = timestamp(); call.transcriptComplete = complete && call.transcriptComplete !== false; if (typeof providerConfirmed === 'boolean') call.providerConfirmed = providerConfirmed; call.summary = summaryOf(call); touch(value, call); } });
+      await write(state => { const value = domain(state), call = value?.calls.find(item => item.id === id); if (call && !call.transcriptFinalizedAt) { call.transcriptFinalizedAt = timestamp(); call.transcriptComplete = complete && call.transcriptComplete !== false; if (typeof providerConfirmed === 'boolean') call.providerConfirmed = providerConfirmed;
+        if (providerUsageSeconds !== undefined) call.providerUsageSeconds = providerUsageSeconds;
+        call.summary = summaryOf(call); touch(value, call); } });
       await summarize(id);
       sessions.delete(id);
     })();
@@ -217,10 +224,10 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
   }
   async function settings(principal, sites) {
     const provider = await providerPromise, source = typeof provider.status === 'function' ? provider.status() : {}, site = sites.find(item => item.active !== false && scopeAllows(principal, item.id));
-    const support = site ? await (await getRepository()).read(state => buildAiSupportContext(state, { organisationId, siteId: site.id, companyName, defaultVoice: env.VOICE_TEST_VOICE }), { domains: ['aiSupport'] }) : null;
+    const support = site ? await (await getRepository()).read(state => buildAiSupportContext(state, { organisationId, siteId: site.id, companyName, defaultVoice: providerConfig.defaultVoice, engine: providerConfig.engine }), { domains: ['aiSupport'] }) : null;
     const enabled = !['false', '0'].includes(String(env.VOICE_TEST_ENABLED ?? 'true').toLowerCase()) && support?.enabled !== false, keyPresent = source.keyPresent ?? Boolean(env.OPENAI_API_KEY?.trim());
     const available = enabled && keyPresent && source.available !== false && Boolean(site) && !closing;
-    return { enabled, keyPresent, companyName: support?.companyName ?? companyName, voice: support?.supportProfile.voice, knowledgeRevision: support?.revision ?? 0, model: String(source.model ?? env.VOICE_TEST_MODEL ?? 'gpt-realtime-2.1').slice(0, 100), callerNumber: CALLER, callerLabel: 'TEST', maxDurationSeconds: VOICE_TEST_LIMITS.maxDurationSeconds, available,
+    return { enabled, keyPresent, protocol: source.protocol ?? providerConfig.protocol, backendModel: source.backendModel, companyName: support?.companyName ?? companyName, voice: support?.supportProfile.voice, knowledgeRevision: support?.revision ?? 0, model: String(source.model ?? providerConfig.model).slice(0, 100), callerNumber: CALLER, callerLabel: 'TEST', maxDurationSeconds: VOICE_TEST_LIMITS.maxDurationSeconds, available,
       ...(site ? { site: publicSite(site) } : {}), ...(!available ? { reason: closing ? 'Rösttestet stängs av.' : !enabled ? 'Rösttestet är avstängt.' : !keyPresent ? 'OPENAI_API_KEY behöver konfigureras på servern.' : !site ? 'Ingen aktiv tillåten anläggning finns.' : 'Röstleverantören är inte tillgänglig.' } : {}) };
   }
   async function start(input, principal, site, req) {
@@ -233,14 +240,14 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
         return { call: clone(previous), replay: true };
       }
       // Only the reviewed, public AI domain can become model context.
-      const support = buildAiSupportContext(state, { organisationId, siteId: site.id, companyName, defaultVoice: env.VOICE_TEST_VOICE });
+      const support = buildAiSupportContext(state, { organisationId, siteId: site.id, companyName, defaultVoice: providerConfig.defaultVoice, engine: providerConfig.engine });
       if (!support.enabled) fail('Bolagets AI-kundmottagning är avstängd.', 409, 'voice_test_support_disabled');
       if (value.calls.length >= VOICE_TEST_LIMITS.maxStoredCalls) fail('Testjournalens gräns på 300 sparade samtal är nådd. Bevara och hantera journalen innan fler test startas.', 429, 'voice_test_journal_full');
       if (value.calls.some(call => ACTIVE.has(call.status))) fail('Ett testsamtal pågår redan i bolaget.', 409, 'voice_test_active_call');
       const at = timestamp(), numericNow = Date.parse(at), recent = value.calls.filter(call => numericNow - Date.parse(call.createdAt) < 3600000);
       if (recent.filter(call => call.createdBy.actualUserId === fresh.actor.id).length >= VOICE_TEST_LIMITS.maxStartsPerHour || recent.filter(call => call.createdBy.effectiveUserId === fresh.user.id).length >= VOICE_TEST_LIMITS.maxStartsPerHour) fail('Högst sex testsamtal får startas per timme och konto.', 429, 'voice_test_hour_quota');
       if (value.calls.filter(call => dateInStockholm.format(new Date(call.createdAt)) === dateInStockholm.format(new Date(at))).length >= VOICE_TEST_LIMITS.maxStartsPerDay) fail('Bolagets gräns på 30 testsamtal per dag är nådd.', 429, 'voice_test_day_quota');
-      const call = { id: randomUUID(), requestId: input.requestId, requestHash: hash, organisationId, runtimeId, revision: 1, status: 'connecting', callerNumber: CALLER, callerLabel: 'TEST',
+      const call = { id: randomUUID(), requestId: input.requestId, requestHash: hash, organisationId, runtimeId, revision: 1, protocol: providerConfig.protocol, status: 'connecting', callerNumber: CALLER, callerLabel: 'TEST',
         createdAt: at, deadlineAt: new Date(numericNow + VOICE_TEST_LIMITS.maxDurationSeconds * 1000).toISOString(), leaseUntil: new Date(numericNow + 20_000).toISOString(), site: publicSite(site),
         createdBy: { actualUserId: fresh.actor.id, effectiveUserId: fresh.user.id, name: String(fresh.user.name ?? fresh.user.id).slice(0, 200) }, transcript: [], summary: '', summaryStatus: 'pending', followupStatus: 'new' };
       call.aiSupportSnapshot = { revision: support.revision, policyVersion: support.policyVersion, voice: support.supportProfile.voice, knowledgeIds: support.knowledge.map(item => item.id), contextHash: fingerprint(support.text) };
@@ -249,10 +256,10 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
     if (created.replay) {
       const session = sessions.get(created.call.id);
       if (session?.starting) return session.starting;
-      if (session?.answerSdp && ACTIVE.has(created.call.status)) return { call: callView(created.call, Date.parse(timestamp())), answerSdp: session.answerSdp };
+      if (session?.answerSdp && ACTIVE.has(created.call.status)) return { call: callView(created.call, Date.parse(timestamp())), answerSdp: session.answerSdp, protocol: created.call.protocol };
       fail('Samtalsförsöket finns redan i journalen. Öppna journalen och starta ett nytt försök vid behov.', 409, 'voice_test_call_already_started');
     }
-    const call = created.call, session = { req, controller: new AbortController() }; sessions.set(call.id, session);
+    const call = created.call, session = { req, protocol: call.protocol, controller: new AbortController() }; sessions.set(call.id, session);
     session.timer = schedule(() => { track(terminal(call.id, 'ended', 'time_limit').then(() => stopLocal(call.id, 'time_limit'))).catch(() => {}); }, Math.max(0, Date.parse(call.deadlineAt) - Date.parse(timestamp()))); session.timer?.unref?.(); scheduleHeartbeat();
     session.starting = (async () => {
       try {
@@ -273,7 +280,7 @@ export function createVoiceTestApi({ getRepository, officePrincipal, siteProvide
           touch(value, current); audit(value, current, 'voice_test.connected', {}, changes); return callView(current, Date.parse(timestamp()));
         });
         if (!saved) { await bounded(closeResource(session, handle, 'start_cancelled'), 7000); fail('Samtalet avslutades under anslutningen. Starta ett nytt försök.', 409, 'voice_test_start_cancelled'); }
-        session.answerSdp = handle.answerSdp; return { call: saved, answerSdp: handle.answerSdp };
+        session.answerSdp = handle.answerSdp; return { call: saved, answerSdp: handle.answerSdp, protocol: call.protocol };
       } catch (error) {
         await terminal(call.id, closing ? 'interrupted' : 'failed', closing ? 'server_shutdown' : 'connection_failed', 'Röstanslutningen kunde inte startas. Inget automatiskt återförsök görs.');
         await stopLocal(call.id, 'connection_failed');

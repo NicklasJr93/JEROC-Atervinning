@@ -32,7 +32,7 @@ function mockProvider() {
     async close() { closes++; } };
 }
 async function fixture(run, options = {}) {
-  const directory = await mkdtemp(join(tmpdir(), 'jeroc-voice-test-')), env = { SCRAPPILOT_ORGANISATION_ID: org, OPENAI_API_KEY: 'PRIVATE-FAKE-KEY-NEVER-RETURN', ...options.env };
+  const directory = await mkdtemp(join(tmpdir(), 'jeroc-voice-test-')), env = { SCRAPPILOT_ORGANISATION_ID: org, VOICE_TEST_ENGINE: 'realtime', OPENAI_API_KEY: 'PRIVATE-FAKE-KEY-NEVER-RETURN', ...options.env };
   let clock = new Date('2026-10-17T10:00:00Z'), provider = options.provider ?? mockProvider(), api;
   const repository = await createApplicationRepository({ filename: join(directory, 'application.sqlite'), seed });
   const principal = (state, req) => { const match = /(?:^|;\s*)office=([a-z]+)(?:\|([a-z]+))?/.exec(req.headers.cookie ?? ''); return match ? resolvePricingPrincipal(state.pricing.users, match[1], match[2] ?? match[1]) : undefined; };
@@ -83,6 +83,32 @@ test('disabled company support profile blocks provider work and does not reserve
   const denied = await f.start(); assert.equal(denied.status, 503); assert.equal(f.provider.starts, 0); assert.equal((await f.request()).body.config.available, false);
   assert.equal((await f.repository.read(state => state.voiceTest))?.calls.length ?? 0, 0);
 }));
+
+test('Live caption fragments retain exact text and timeline through close and reload, with final usage acknowledged once', async () => fixture(async f => {
+  const config = await f.request(); assert.equal(config.body.config.protocol, 'live'); assert.equal(config.body.config.model, 'test-realtime'); assert.equal(config.body.config.voice, 'meridian');
+  const started = await f.start(); assert.equal(started.status, 200, started.text); assert.equal(started.body.protocol, 'live'); assert.equal(started.body.call.protocol, 'live');
+  assert.equal(f.provider.requests[0].supportProfile.voice, 'meridian');
+  const id = started.body.call.id, emit = f.provider.requests[0].onTranscript;
+  const fragments = [{ eventId: 'live-caption-a', startMs: 100, endMs: 200, text: 'vi' }, { eventId: 'live-caption-b', startMs: 200, endMs: 300, text: 'll ' }];
+  const turn = { id: 'live-row', role: 'user', text: 'vill ', sequence: 200, startMs: 100, endMs: 300, liveFragments: fragments };
+  await emit(turn); await emit(turn);
+  f.provider.handles[0].close = async () => {
+    await emit({ id: 'live-whitespace', role: 'user', text: ' ', sequence: 602, startMs: 301, endMs: 302, liveFragments: [{ eventId: 'live-space', startMs: 301, endMs: 302, text: ' ' }] });
+    return { providerConfirmed: true, transcriptComplete: true, usage: { seconds: 12.5 } };
+  };
+  const ended = await f.request(`/api/voice-test/calls/${id}/end`, { body: {} }); assert.equal(ended.status, 200, ended.text);
+  assert.equal(ended.body.call.providerConfirmed, true); assert.equal(ended.body.call.providerUsageSeconds, 12.5); assert.equal(ended.body.call.transcriptComplete, true);
+  assert.equal(ended.body.call.transcript.length, 2); assert.deepEqual(ended.body.call.transcript[0].liveFragments, fragments); assert.equal(ended.body.call.transcript[0].text, 'vill '); assert.equal(ended.body.call.transcript[1].text, ' ');
+  await f.api.close(); f.use(f.makeApi()); const restored = await f.request(`/api/voice-test/calls/${id}`);
+  assert.deepEqual(restored.body.call.transcript, ended.body.call.transcript); assert.equal(restored.body.call.providerUsageSeconds, 12.5);
+}, { env: { VOICE_TEST_ENGINE: 'live' } }));
+
+test('Live transport loss never records an unconfirmed usage snapshot as final', async () => fixture(async f => {
+  const started = await f.start(); assert.equal(started.status, 200);
+  f.provider.handles[0].close = async () => ({ providerConfirmed: false, transcriptComplete: false, usage: { seconds: 99 } });
+  const ended = await f.request(`/api/voice-test/calls/${started.body.call.id}/end`, { body: {} });
+  assert.equal(ended.body.call.providerConfirmed, false); assert.equal(ended.body.call.transcriptComplete, false); assert.equal(ended.body.call.providerUsageSeconds, undefined);
+}, { env: { VOICE_TEST_ENGINE: 'live' } }));
 
 test('voice HTTP requires both active privileged identities, scopes real sites and returns safe immutable configuration', async () => fixture(async f => {
   const before = await f.repository.read(state => state), result = await f.request();

@@ -4,7 +4,7 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.13.0. Aktuell kontorsversion: 0.30.2.
+Aktuell mobilwebbversion: 0.13.0. Aktuell kontorsversion: 0.30.3.
 ÄL 125: demoinloggning med förifyllning på Chaufför, Åkeri och Kundportal.
 ÄL 124 är genomförd 2026-10-16: förifyllt NVV-supportprov direkt i kontoret,
 utan Render Shell. Själva nya myndighetsanropet körs från användarens testknapp.
@@ -3197,3 +3197,38 @@ Status: Implementerad 2026-10-17 i kontor 0.30.2. Mobilwebben kvar på 0.13.0.
   publicering och spärr vid saknad OpenAI-nyckel är lokalt kontrollerade.
   Bred serversvit: 1 307 godkända, 45 överhoppade och nio kända tidigare fel.
   Inga verkliga OpenAI-anrop gjordes i dessa verifieringar.
+
+
+ÄL 133 – GPT-Live som standardmotor för röstmottagningstest
+Status: Implementerad 2026-10-17 i kontor 0.30.3. Mobilwebben kvar på 0.13.0.
+- Gemensam serverägd leverantörsfabrik använder Live med gpt-live-1 som
+  standard. OPENAI_API_KEY återanvänds; inga nya obligatoriska Render-env.
+  VOICE_TEST_ENGINE=realtime väljer uttryckligen tidigare adapter.
+  Ett kvarvarande Realtime-modellnamn gör inte Live till ett Realtime-anrop.
+- Live skapas med server-JSON och browserns WebRTC. Separat autentiserad
+  sidokanal styr journal och avslut. Browserns klientkommandolista är tom
+  redan vid skapandet; inga nycklar, fria instruktioner eller verktyg.
+- Delegerad Responses-modell under samtalet använder som standard
+  gpt-6-luna, VOICE_TEST_LIVE_BACKEND_MODEL och serverfast low-resonemang.
+  Samma frysta, publicerade och kundgodkända underlag; inga databassökningar.
+  Efterföljande sammanfattning har fortsatt separat modellinställning.
+- Live erbjuder 23 förvalda röster, nya profiler har Meridian som reserv.
+  Alla tio tidigare sparade röster är kompatibla och bevaras. Separata
+  motorval bevaras vid återgång. UI visar aktiv motor, modell och röst.
+- TTS-prov är avstängt för Live före leverantörsanrop/kvotreservation.
+  Provlyssna i ett testsamtal öppnar /rosttest. Realtime behåller sitt
+  tydligt separata TTS-prov med fast text och möjlig API-kostnad.
+- Live-journalen bevarar betrodda originalfragment och tidsstämplar.
+  Grupperade rader utges inte för leverantörens färdiga talsvar.
+- Lokal treminutersgräns begär stopp men garanterar inte hårt fjärravslut.
+  Giltig session.closed krävs för leverantörskvittens; annars sparas
+  providerConfirmed=false och ofullständigt transkript. Begränsad väntan
+  för avslut: adapter 14 s, kärna 18 s, peer 20 s och REST-anrop 35 s.
+  Ett osäkert avslut startar aldrig en ny betald session automatiskt.
+- Verklig OpenAI-modellåtkomst, betalt ljudsamtal, svensk dialog och
+  Render-ljudkedja återstår att verifiera med projektets nyckel/mikrofon.
+- Guide: docs/integrationer/openai-rosttest.md.
+- Verifierat: 82 riktade server-/adaptertester, fyra gatewayfall,
+  20 browserfall, produktionsbygge och byggd server med verklig lokal
+  plattformsinloggning. Bred serversvit: 1 335 godkända, 45 överhoppade
+  och nio sedan tidigare dokumenterade fel. Inga betalda API-anrop.

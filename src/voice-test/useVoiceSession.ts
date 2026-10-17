@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createVoiceCall, endVoiceCall, endVoiceOnLeave, readyVoiceCall, voiceScopeKey, type VoiceScope } from './client';
 import type { VoiceCall, VoicePhase } from './types';
+import { createLiveOutputMeter, waitForLiveIce, type LiveOutputMeter, type VoiceProtocol } from './live-browser';
 
 interface Resource {
   scope: VoiceScope; requestId: string; controller: AbortController; peer: RTCPeerConnection;
   stream?: MediaStream; remote?: MediaStream; channel?: RTCDataChannel; callId?: string;
   createSent: boolean; readySent: boolean; closing: boolean; outputActive: boolean;
-  disconnectedTimer?: number; limitTimer?: number;
+  protocol: VoiceProtocol; serverStarted: boolean; outputMeter?: LiveOutputMeter;
+  disconnectedTimer?: number; limitTimer?: number; startedTimer?: number;
 }
 export const voiceMediaUnavailable = () => !window.isSecureContext ? 'Öppna sidan via HTTPS för att använda mikrofonen.'
   : !navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === 'undefined' ? 'Den här webbläsaren saknar stöd för röstsamtal. Prova Safari eller Chrome.' : '';
@@ -32,6 +34,8 @@ export function useVoiceSession(scope: VoiceScope, handlers: {
     item.closing = true; item.controller.abort();
     if (item.disconnectedTimer) window.clearTimeout(item.disconnectedTimer);
     if (item.limitTimer) window.clearTimeout(item.limitTimer);
+    if (item.startedTimer) window.clearTimeout(item.startedTimer);
+    item.outputMeter?.stop();
     item.peer.onconnectionstatechange = null; item.peer.oniceconnectionstatechange = null; item.peer.ontrack = null;
     if (item.channel) { item.channel.onmessage = null; item.channel.onopen = null; item.channel.onclose = null; item.channel.close(); }
     item.stream?.getTracks().forEach(track => track.stop()); item.remote?.getTracks().forEach(track => track.stop());
@@ -68,21 +72,24 @@ export function useVoiceSession(scope: VoiceScope, handlers: {
       else if (current()) setPhase('idle');
       return;
     }
-    const cleanupDeadline = window.setTimeout(() => release(item), 6_000);
+    const cleanupDeadline = window.setTimeout(() => release(item), item.protocol === 'live' ? 20_000 : 6_000);
     try { const call = await endVoiceCall(item.scope, item.callId); if (current()) { handlerRef.current.onCall(call); setPhase('idle'); } }
     catch (failure) { if (current()) { setError('Ljudet är stängt på den här enheten. Hämta samtalsstatus för att kontrollera avslutet.'); setPhase('error'); handlerRef.current.onFailure(failure); handlerRef.current.onUncertain(item.requestId); } }
     finally { window.clearTimeout(cleanupDeadline); release(item); }
   }, [release]);
-  const start = useCallback(async (maxDurationSeconds: number) => {
+  const start = useCallback(async (maxDurationSeconds: number, protocol: VoiceProtocol = 'realtime') => {
     if (resource.current || !scope.allowed) return;
     const unavailable = voiceMediaUnavailable();
     if (unavailable) { setError(unavailable); setPhase('error'); return; }
     const version = ++generation.current;
     let peer: RTCPeerConnection;
     try { peer = new RTCPeerConnection(); } catch (failure) { setError(mediaError(failure)); setPhase('error'); return; }
-    const item: Resource = { scope, requestId: crypto.randomUUID(), controller: new AbortController(), peer, createSent: false, readySent: false, closing: false, outputActive: false };
+    const item: Resource = { scope, requestId: crypto.randomUUID(), controller: new AbortController(), peer, createSent: false, readySent: false, closing: false, outputActive: false, protocol, serverStarted: false };
     resource.current = item; setPhase('microphone'); setError(''); setMuted(false); setNeedsAudio(false);
     const current = () => owned(item) && generation.current === version;
+    if (protocol === 'live') item.outputMeter = createLiveOutputMeter(active => {
+      if (current() && item.serverStarted && item.readySent) { item.outputActive = active; setPhase(active ? 'speaking' : 'listening'); }
+    });
     const failTransport = (message: string) => {
       if (!current()) return;
       const id = item.callId; release(item); setPhase('error'); setError(message);
@@ -90,10 +97,11 @@ export function useVoiceSession(scope: VoiceScope, handlers: {
       handlerRef.current.onUncertain(item.requestId);
     };
     const markReady = () => {
-      if (!current() || !item.callId || item.readySent) return;
+      if (!current() || !item.callId || item.readySent || item.protocol === 'live' && !item.serverStarted) return;
       const connected = peer.connectionState === 'connected' || ['connected', 'completed'].includes(peer.iceConnectionState);
       if (!connected) return;
       item.readySent = true;
+      if (item.startedTimer) window.clearTimeout(item.startedTimer); item.startedTimer = undefined;
       void readyVoiceCall(scope, item.callId, item.controller.signal).then(call => {
         if (!current()) return;
         handlerRef.current.onCall(call); setPhase(previous => ['connecting', 'microphone'].includes(previous) ? 'listening' : previous);
@@ -112,6 +120,7 @@ export function useVoiceSession(scope: VoiceScope, handlers: {
     peer.ontrack = event => {
       if (!current() || !audio.current) return;
       const stream = event.streams[0] ?? new MediaStream([event.track]); item.remote = stream;
+      item.outputMeter?.attach(stream);
       audio.current.srcObject = stream;
       void audio.current.play().then(() => { if (current()) setNeedsAudio(false); }).catch(() => { if (current()) setNeedsAudio(true); });
     };
@@ -119,6 +128,18 @@ export function useVoiceSession(scope: VoiceScope, handlers: {
     channel.onmessage = event => {
       if (!current() || typeof event.data !== 'string') return;
       let message: { type?: string }; try { message = JSON.parse(event.data); } catch { return; }
+      if (!message || typeof message !== 'object') return;
+      if (item.protocol === 'live') {
+        // The restricted Live channel only reports lifecycle. In particular,
+        // captions never become the authoritative journal and no session
+        // instructions, responses, or other client commands are sent here.
+        if (message.type === 'session.started') { item.serverStarted = true; markReady(); }
+        else if (message.type === 'session.closed') {
+          release(item); setPhase('idle'); setMuted(false); setNeedsAudio(false);
+          handlerRef.current.onUncertain(item.requestId);
+        } else if (message.type === 'error') failTransport('Rösttjänsten avbröt anslutningen. Hämta aktuell samtalsstatus.');
+        return;
+      }
       if (message.type === 'output_audio_buffer.started') { item.outputActive = true; setPhase('speaking'); }
       else if (['output_audio_buffer.stopped', 'output_audio_buffer.cleared', 'input_audio_buffer.speech_started'].includes(message.type ?? '')) { item.outputActive = false; setPhase('listening'); }
       else if (message.type === 'response.created') setPhase('thinking');
@@ -126,6 +147,7 @@ export function useVoiceSession(scope: VoiceScope, handlers: {
       // Conversation and transcription events deliberately do not write UI history.
     };
     channel.onopen = markReady;
+    channel.onclose = () => { if (current()) failTransport('Ljudanslutningen stängdes utan bekräftat avslut. Hämta aktuell samtalsstatus.'); };
     try {
       let waiting = true;
       const mediaPromise = navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
@@ -143,12 +165,15 @@ export function useVoiceSession(scope: VoiceScope, handlers: {
       setPhase('connecting');
       const offer = await peer.createOffer(); if (!current()) return;
       await peer.setLocalDescription(offer); if (!current()) return;
+      if (item.protocol === 'live') await waitForLiveIce(peer, item.controller.signal);
+      if (!current()) return;
       const sdp = peer.localDescription?.sdp ?? offer.sdp;
       if (!sdp) throw new Error('Webbläsaren kunde inte skapa en ljudanslutning.');
       item.createSent = true;
       const response = await createVoiceCall(scope, item.requestId, sdp, item.controller.signal);
       if (!current()) { endVoiceOnLeave(scope, response.call.id); return; }
       item.callId = response.call.id; handlerRef.current.onCall(response.call);
+      if (item.protocol === 'live') item.startedTimer = window.setTimeout(() => failTransport('GPT-Live kunde inte bekräfta att samtalet har startat. Ljudet är stängt. Hämta aktuell samtalsstatus.'), 15_000);
       await peer.setRemoteDescription({ type: 'answer', sdp: response.answerSdp });
       if (!current()) return;
       markReady();
@@ -166,7 +191,7 @@ export function useVoiceSession(scope: VoiceScope, handlers: {
   }, [muted, owned]);
   const activateAudio = useCallback(async () => {
     const item = resource.current; if (!item || !owned(item) || !audio.current) return;
-    try { await audio.current.play(); if (owned(item)) { setNeedsAudio(false); setError(''); } }
+    try { await item.outputMeter?.resume().catch(() => undefined); await audio.current.play(); if (owned(item)) { setNeedsAudio(false); setError(''); } }
     catch { if (owned(item)) setError('Ljudet kunde inte startas. Kontrollera enhetens ljudinställningar och försök igen.'); }
   }, [owned]);
   const acceptServerCall = useCallback((call: VoiceCall) => {

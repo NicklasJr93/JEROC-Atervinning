@@ -1,8 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { createVoiceTestProvider, voiceTestProviderConfig, VOICE_TEST_LIVE_VOICES, VOICE_TEST_REALTIME_VOICES } from './voice-test-provider.mjs';
 
 export const AI_SUPPORT_POLICY_VERSION = 1;
-export const AI_SUPPORT_VOICES = Object.freeze(['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse', 'marin', 'cedar']);
+// Validate stored profiles against the union so a rollback never destroys a
+// valid voice preference from another engine. Writes use the current catalog.
+export const AI_SUPPORT_VOICES = Object.freeze([...new Set([...VOICE_TEST_REALTIME_VOICES, ...VOICE_TEST_LIVE_VOICES])]);
 export const AI_SUPPORT_LIMITS = Object.freeze({ maxTotal: 100, maxPublished: 20, maxPublishedCharacters: 10_000, maxBodyBytes: 32 * 1024, maxPreviewPerHour: 10, maxPreviewPerDay: 50 });
 const clone = value => structuredClone(value);
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -28,9 +31,26 @@ const approved = entry => entry.status === 'published' && entry.publicApproved =
 const charactersOf = entry => entry.title.length + entry.answer.length;
 const stockholmDay = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' });
 
-function defaults({ organisationId, companyName, defaultVoice } = {}) {
+function voiceConfig({ engine = 'live', defaultVoice } = {}) {
+  return voiceTestProviderConfig({ VOICE_TEST_ENGINE: engine, ...(defaultVoice ? { VOICE_TEST_VOICE: defaultVoice } : {}) });
+}
+function defaults({ organisationId, companyName, defaultVoice, engine = 'live' } = {}) {
   const name = String(companyName ?? (organisationId === 'jeroc-demo' ? 'JEROC' : 'Företaget')).trim().slice(0, 160) || 'Företaget';
-  return { enabled: true, companyName: name, greeting: `Hej och välkommen till ${name}! Vad kan jag hjälpa dig med?`, voice: AI_SUPPORT_VOICES.includes(defaultVoice) ? defaultVoice : 'marin', tone: 'friendly', pace: 'normal', pronunciationText: '' };
+  return { enabled: true, companyName: name, greeting: `Hej och välkommen till ${name}! Vad kan jag hjälpa dig med?`, voice: voiceConfig({ engine, defaultVoice }).defaultVoice, tone: 'friendly', pace: 'normal', pronunciationText: '' };
+}
+function effectiveProfile(value, options) {
+  const stored = parse(profileSchema, value.settings), config = voiceConfig(options);
+  const selected = value.voiceSelections?.[config.engine] ?? stored.voice;
+  const compatible = config.voices.includes(selected);
+  return { settings: { ...stored, voice: compatible ? selected : config.defaultVoice }, ...(compatible ? {} : { notice: 'Den sparade rösten hör till en annan röstmotor. En kompatibel röst används här; det tidigare valet finns kvar.' }) };
+}
+function rememberVoice(value, selected, engine) {
+  value.voiceSelections ??= {};
+  // The pre-migration voice is usable on every engine whose catalog contains it.
+  for (const [key, voices] of [['live', VOICE_TEST_LIVE_VOICES], ['realtime', VOICE_TEST_REALTIME_VOICES]]) {
+    if (value.voiceSelections[key] === undefined && voices.includes(value.settings.voice)) value.voiceSelections[key] = value.settings.voice;
+  }
+  value.voiceSelections[engine] = selected;
 }
 function sensitive(text) {
   if (/\bsk-(?:proj-)?[a-zA-Z0-9_-]{12,}|\bAKIA[A-Z0-9]{16}\b|-----BEGIN[ A-Z]*PRIVATE KEY-----|\bBearer\s+[a-zA-Z0-9._~+/-]{12,}/i.test(text) || /\b(?:password|lösenord|api[_ -]?key|api[- ]?nyckel|client[_ -]?secret|access[_ -]?token)\s*[:=]\s*\S{6,}/i.test(text))
@@ -63,10 +83,10 @@ function demandBudget(value) {
 
 /** Pure allowlist: no live pricing, article metadata, HR, customer or bank
  * lookup. Article excerpts enter only through a frozen, reviewed wiki version. */
-export function buildAiSupportContext(state, { organisationId, siteId, companyName, defaultVoice } = {}) {
+export function buildAiSupportContext(state, { organisationId, siteId, companyName, defaultVoice, engine = 'live' } = {}) {
   if (!organisationId || !siteId) throw new TypeError('AI-kontext behöver betrott bolag och anläggning.');
-  const value = readDomain(state, { organisationId, companyName, defaultVoice }); demandBudget(value);
-  const settings = parse(profileSchema, value.settings); demandSafe(`${settings.companyName}\n${settings.greeting}\n${settings.pronunciationText}`);
+  const value = readDomain(state, { organisationId, companyName, defaultVoice, engine }); demandBudget(value);
+  const { settings } = effectiveProfile(value, { engine, defaultVoice }); demandSafe(`${settings.companyName}\n${settings.greeting}\n${settings.pronunciationText}`);
   const knowledge = publishedEntries(value).filter(entry => !entry.siteIds.length || entry.siteIds.includes(siteId)).map(entry => {
     demandSafe(`${entry.title}\n${entry.answer}`);
     return { id: entry.id, version: entry.version, title: entry.title, answer: entry.answer, category: entry.category, siteIds: [...entry.siteIds] };
@@ -112,9 +132,10 @@ async function readJson(req) {
 
 export function createAiSupportApi({ env = {}, getRepository, officePrincipal, siteProvider = async () => [], companyName, provider: suppliedProvider, reauthorizePreview, now = () => new Date() } = {}) {
   if (typeof getRepository !== 'function' || typeof officePrincipal !== 'function') throw new TypeError('AI-support behöver bolagets databas och verifierad kontorssession.');
-  const options = { organisationId: env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo', companyName, defaultVoice: env.VOICE_TEST_VOICE };
+  const runtimeConfig = voiceTestProviderConfig(env);
+  const options = { organisationId: env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo', companyName, defaultVoice: runtimeConfig.defaultVoice, engine: runtimeConfig.engine };
   let providerPromise, closed = false, closePromise; const previewing = new Set(), previewTasks = new Set();
-  const getProvider = () => providerPromise ??= suppliedProvider ? Promise.resolve(suppliedProvider) : import('./voice-test-openai.mjs').then(module => module.createVoiceTestProvider({ env }));
+  const getProvider = () => providerPromise ??= suppliedProvider ? Promise.resolve(suppliedProvider) : createVoiceTestProvider({ env });
   const timestamp = () => new Date(now()).toISOString();
   const read = async operation => (await getRepository()).read(operation, { domains: ['aiSupport', 'pricing'] });
   async function principalFor(state, req) {
@@ -135,8 +156,10 @@ export function createAiSupportApi({ env = {}, getRepository, officePrincipal, s
   function view(state, principal, sites) {
     const value = readDomain(state, options), visible = value.knowledge.filter(entry => entryVisible(entry, principal)), published = visible.filter(approved), site = sites.find(site => site.active !== false && allows(principal, site.id));
     const context = site ? buildAiSupportContext(state, { ...options, siteId: site.id }) : null;
-    return { revision: value.revision, policyVersion: AI_SUPPORT_POLICY_VERSION, settings: clone(value.settings), knowledge: visible.map(knowledgeView), suggestions: clone(suggestions), voices: AI_SUPPORT_VOICES.map(id => ({ id, name: id[0].toUpperCase() + id.slice(1) })), sites: sites.filter(site => site.active !== false && allows(principal, site.id)).map(site => ({ id: site.id, name: site.name })), articleCandidates: articleCandidates(state),
-      stats: { total: visible.length, published: published.length, publishedCharacters: published.reduce((sum, item) => sum + charactersOf(item), 0), ...AI_SUPPORT_LIMITS }, capabilities: { read: true, write: true, settingsWrite: globalWrite(principal), globalWrite: globalWrite(principal) },
+    const effective = effectiveProfile(value, options);
+    return { revision: value.revision, policyVersion: AI_SUPPORT_POLICY_VERSION, settings: effective.settings, knowledge: visible.map(knowledgeView), suggestions: clone(suggestions), voices: runtimeConfig.voices.map(id => ({ id, name: id[0].toUpperCase() + id.slice(1) })), sites: sites.filter(site => site.active !== false && allows(principal, site.id)).map(site => ({ id: site.id, name: site.name })), articleCandidates: articleCandidates(state),
+      runtime: { engine: runtimeConfig.engine, model: runtimeConfig.model, voice: effective.settings.voice, previewAvailable: runtimeConfig.previewAvailable, ...(effective.notice ? { notice: effective.notice } : {}) },
+      stats: { total: visible.length, published: published.length, publishedCharacters: published.reduce((sum, item) => sum + charactersOf(item), 0), ...AI_SUPPORT_LIMITS }, capabilities: { read: true, write: true, settingsWrite: globalWrite(principal), globalWrite: globalWrite(principal), previewAvailable: runtimeConfig.previewAvailable },
       runtimePreview: context ? { siteId: site.id, siteName: site.name, items: context.knowledge.map(({ id, version, title, answer }) => ({ id, version, title, answer })), characters: context.text.length, revision: context.revision, policyVersion: context.policyVersion } : null };
   }
   function audit(value, principal, action, details, changes) {
@@ -144,10 +167,12 @@ export function createAiSupportApi({ env = {}, getRepository, officePrincipal, s
   }
   async function runPreview(req, input) {
     if (closed) fail('Röstförhandslyssningen stängs av.', 503, 'ai_support_preview_unavailable');
+    if (!runtimeConfig.voices.includes(input.voice)) fail('Välj en röst som stöds av den aktuella röstmotorn.', 422, 'ai_support_voice_unavailable');
+    if (!runtimeConfig.previewAvailable) fail('GPT-Live stöder inte denna provlyssning. Använd rösttestet för att höra den valda Live-rösten.', 503, 'ai_support_preview_unavailable');
     const provider = await getProvider();
     if (typeof provider.status === 'function' && provider.status().available === false) fail('Röstleverantören är inte tillgänglig. Kontrollera serverns OpenAI-inställningar.', 503, 'ai_support_preview_unavailable');
     const reserved = await (await getRepository()).transact(async (state, _revision, changes = []) => {
-      const principal = await principalFor(state, req), value = ensureAiSupport(state, options), at = timestamp(), current = Date.parse(at), profile = parse(profileSchema, value.settings);
+      const principal = await principalFor(state, req), value = ensureAiSupport(state, options), at = timestamp(), current = Date.parse(at), { settings: profile } = effectiveProfile(value, options);
       const selected = { greeting: profile.greeting, tone: profile.tone, pace: profile.pace, pronunciationText: profile.pronunciationText, ...input.profile }; demandSafe(`${profile.companyName}\n${selected.greeting}\n${selected.pronunciationText}`);
       if (value.previewAttempts.some(attempt => attempt.status === 'pending' && Date.parse(attempt.leaseUntil) > current)) fail('En röstförhandslyssning pågår redan i bolaget.', 429, 'ai_support_preview_busy');
       const recent = value.previewAttempts.filter(attempt => current - Date.parse(attempt.createdAt) < 3_600_000);
@@ -202,7 +227,8 @@ export function createAiSupportApi({ env = {}, getRepository, officePrincipal, s
         let saved;
         if (kind === 'settings') {
           if (!globalWrite(fresh)) fail('Bolagets AI-profil kräver obegränsad anläggningsåtkomst för båda kontona.', 403, 'ai_support_site_forbidden');
-          const { expectedRevision, ...profile } = input; demandSafe(`${profile.companyName}\n${profile.greeting}\n${profile.pronunciationText}`); value.settings = profile; value.revision++; audit(value, fresh, 'ai_support.settings_saved', { revision: value.revision }, changes); saved = { settings: true };
+          if (!runtimeConfig.voices.includes(input.voice)) fail('Välj en röst som stöds av den aktuella röstmotorn.', 422, 'ai_support_voice_unavailable');
+          const { expectedRevision, ...profile } = input; demandSafe(`${profile.companyName}\n${profile.greeting}\n${profile.pronunciationText}`); rememberVoice(value, profile.voice, runtimeConfig.engine); value.settings = profile; value.revision++; audit(value, fresh, 'ai_support.settings_saved', { revision: value.revision }, changes); saved = { settings: true };
         } else {
           let entry = kind === 'archive' ? value.knowledge.find(item => item.id === target) : kind === 'knowledge' && input.id ? value.knowledge.find(item => item.id === input.id) : null;
           if ((kind === 'archive' || kind === 'knowledge' && input.id) && !entry) fail('Kunskapsposten finns inte.', 404, 'ai_support_knowledge_missing');

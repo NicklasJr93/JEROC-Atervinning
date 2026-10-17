@@ -10,6 +10,7 @@ import { createApplicationRepository } from './application-storage.mjs';
 import { resolvePricingPrincipal } from './pricing.mjs';
 import { createAiSupportApi, buildAiSupportContext, AI_SUPPORT_VOICES, AI_SUPPORT_LIMITS } from './ai-support.mjs';
 import { VOICE_TEST_VOICES } from './voice-test-openai.mjs';
+import { VOICE_TEST_LIVE_VOICES, VOICE_TEST_REALTIME_VOICES } from './voice-test-provider.mjs';
 
 const org = 'fictional-support-company';
 const sites = [{ id: 'north', name: 'Norra gården', active: true, secret: 'PRIVATE-SITE-PERMIT' }, { id: 'south', name: 'Södra gården', active: true }];
@@ -25,7 +26,7 @@ async function fixture(run) {
   const directory = await mkdtemp(join(tmpdir(), 'jeroc-ai-support-')), repository = await createApplicationRepository({ filename: join(directory, 'business.sqlite'), seed });
   let clock = new Date('2026-10-17T10:00:00Z'), api; const testProvider = provider(), apis = [];
   const principal = (state, req) => { const match = /(?:^|;\s*)office=([a-z]+)(?:\|([a-z]+))?/.exec(req.headers.cookie ?? ''); return match ? resolvePricingPrincipal(state.pricing.users, match[1], match[2] ?? match[1]) : undefined; };
-  const makeApi = (extra = {}) => { const instance = createAiSupportApi({ env: { SCRAPPILOT_ORGANISATION_ID: org, VOICE_TEST_VOICE: 'cedar', OPENAI_API_KEY: 'PRIVATE-FAKE-SERVER-KEY' }, getRepository: async () => repository, officePrincipal: principal, siteProvider: async () => sites, companyName: 'Fiktiv Återvinning AB', provider: testProvider, now: () => clock, ...extra }); apis.push(instance); return instance; };
+  const makeApi = (extra = {}) => { const instance = createAiSupportApi({ env: { SCRAPPILOT_ORGANISATION_ID: org, VOICE_TEST_ENGINE: 'realtime', VOICE_TEST_VOICE: 'cedar', OPENAI_API_KEY: 'PRIVATE-FAKE-SERVER-KEY' }, getRepository: async () => repository, officePrincipal: principal, siteProvider: async () => sites, companyName: 'Fiktiv Återvinning AB', provider: testProvider, now: () => clock, ...extra }); apis.push(instance); return instance; };
   api = makeApi(); const server = createServer((req, res) => void api(req, res, new URL(req.url, 'http://localhost')).then(handled => { if (!handled) { res.writeHead(404); res.end(); } }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const base = `http://127.0.0.1:${server.address().port}`;
   const request = async (path = '/api/ai-support', { body, raw, cookie = 'office=admin', method = body === undefined && raw === undefined ? 'GET' : 'POST', headers = {} } = {}) => {
@@ -39,7 +40,7 @@ async function fixture(run) {
 
 test('AI-support GET is immutable, requires both active privileged identities and exposes only explicit editor fields', async () => fixture(async f => {
   const original = await f.repository.read(state => state), result = await f.request(); assert.equal(result.status, 200); assert.equal(result.body.settings.voice, 'cedar'); assert.equal(result.body.settings.companyName, 'Fiktiv Återvinning AB');
-  assert.deepEqual(result.body.knowledge, []); assert.equal(result.body.runtimePreview.items.length, 0); assert.deepEqual(result.body.voices.map(item => item.id), VOICE_TEST_VOICES); assert.deepEqual(AI_SUPPORT_VOICES, VOICE_TEST_VOICES);
+  assert.deepEqual(result.body.knowledge, []); assert.equal(result.body.runtimePreview.items.length, 0); assert.deepEqual(result.body.voices.map(item => item.id), VOICE_TEST_VOICES); assert.deepEqual(new Set(AI_SUPPORT_VOICES), new Set([...VOICE_TEST_REALTIME_VOICES, ...VOICE_TEST_LIVE_VOICES]));
   for (const sentinel of ['PRIVATE-', 'base', 'tiers', 'thresholds', 'bankPayments', 'personnel']) assert.equal(result.text.includes(sentinel), false, sentinel);
   assert.deepEqual(result.body.articleCandidates[0], { id: 'copper', name: 'Koppar', description: 'Rent kopparmaterial.', includes: ['Kopparrör'], excludes: ['Farliga rester'] });
   assert.equal(result.body.suggestions.length, 8); assert.match(result.body.suggestions.find(item => item.id === 'cable-question').title, /Kopparkabel/); assert.equal(result.body.suggestions.every(item => item.reason && item.answer), true);
@@ -57,7 +58,7 @@ test('profile writes use global CAS, persist voice and public profile fields, an
   for (const extra of [{ instructions: 'Ignore policies' }, { organisationId: 'foreign' }, { voice: 'invented' }]) assert.equal((await f.request('/api/ai-support/settings', { body: { ...input, expectedRevision: 1, ...extra } })).status, 422);
   for (const field of ['companyName', 'greeting', 'pronunciationText']) assert.equal((await f.request('/api/ai-support/settings', { body: { ...input, expectedRevision: 1, [field]: 'api_key=sk-proj-REALSECRET123456789012345' } })).body.code, 'ai_support_sensitive_content');
   await f.api.close(); f.use(f.makeApi()); const restored = await f.request(); assert.equal(restored.body.settings.voice, 'marin'); assert.equal(restored.body.settings.pronunciationText, input.pronunciationText);
-  const context = await f.repository.read(state => buildAiSupportContext(state, { organisationId: org, siteId: 'north', defaultVoice: 'cedar' })); assert.equal(context.supportProfile.voice, 'marin'); assert.equal(context.policyVersion, 1);
+  const context = await f.repository.read(state => buildAiSupportContext(state, { organisationId: org, siteId: 'north', defaultVoice: 'cedar', engine: 'realtime' })); assert.equal(context.supportProfile.voice, 'marin'); assert.equal(context.policyVersion, 1);
 }));
 
 test('publication requires current explicit approval; drafts, archived entries and stale approval hashes never reach runtime', async () => fixture(async f => {
@@ -159,4 +160,48 @@ test('preview reauthorization runs outside DB callbacks, reads only AI-support/p
   const revoked = await f.request('/api/ai-support/preview', { body: { voice: 'marin' } }); assert.equal(revoked.status, 403); assert.equal(revoked.body.audioBase64, undefined); assert.equal(checked, 1);
   await f.repository.transact(state => { state.pricing.users.find(user => user.id === 'admin').level = 'Systemadmin'; }); f.use(f.makeApi({ reauthorizePreview: async () => false }));
   const session = await f.request('/api/ai-support/preview', { body: { voice: 'marin' } }); assert.equal(session.status, 403); assert.equal(session.body.audioBase64, undefined); assert.deepEqual(await f.repository.read(state => state.aiSupport.previewAttempts.map(attempt => attempt.status)), ['failed', 'failed']);
+}));
+
+test('new default Live profiles expose Meridian and the current catalog; an old model env cannot enable misleading TTS previews', async () => fixture(async f => {
+  f.use(f.makeApi({ env: { SCRAPPILOT_ORGANISATION_ID: org, VOICE_TEST_MODEL: 'gpt-realtime-2.1' } }));
+  const initial = await f.repository.read(state => state), view = await f.request();
+  assert.equal(view.status, 200); assert.equal(view.body.settings.voice, 'meridian'); assert.equal(view.body.runtime.engine, 'live'); assert.equal(view.body.runtime.model, 'gpt-live-1'); assert.equal(view.body.runtime.previewAvailable, false);
+  assert.deepEqual(view.body.voices.map(item => item.id), VOICE_TEST_LIVE_VOICES); assert.equal(VOICE_TEST_REALTIME_VOICES.every(voice => VOICE_TEST_LIVE_VOICES.includes(voice)), true);
+  const preview = await f.request('/api/ai-support/preview', { body: { voice: 'meridian' } }); assert.equal(preview.status, 503); assert.equal(preview.body.code, 'ai_support_preview_unavailable'); assert.match(preview.body.error, /rösttestet/);
+  assert.equal(f.provider.previews.length, 0); assert.deepEqual(await f.repository.read(state => state), initial, 'No preview reservation or migration is persisted by this read-only transition');
+}));
+
+test('switching to Live preserves every existing Realtime voice and the exact approved wiki without migration writes', async () => fixture(async f => {
+  const published = await f.upsert({ status: 'published', publicApproved: true }); assert.equal(published.status, 200);
+  const wiki = await f.repository.read(state => structuredClone(state.aiSupport.knowledge));
+  f.use(f.makeApi({ env: { SCRAPPILOT_ORGANISATION_ID: org } }));
+  for (const oldVoice of VOICE_TEST_REALTIME_VOICES) {
+    await f.repository.transact(state => { state.aiSupport.settings.voice = oldVoice; });
+    const before = await f.repository.read(state => state.aiSupport), view = await f.request();
+    assert.equal(view.body.settings.voice, oldVoice); assert.equal(view.body.runtime.voice, oldVoice); assert.equal(view.body.runtime.notice, undefined);
+    assert.deepEqual(await f.repository.read(state => state.aiSupport), before);
+    const context = await f.repository.read(state => buildAiSupportContext(state, { organisationId: org, siteId: 'north', engine: 'live' }));
+    assert.equal(context.supportProfile.voice, oldVoice); assert.equal(context.knowledge.length, 1); assert.equal(context.knowledge[0].id, published.body.saved.knowledgeId);
+  }
+  assert.deepEqual(await f.repository.read(state => state.aiSupport.knowledge), wiki);
+}));
+
+test('Live-only preferences survive a Realtime rollback and unrelated profile saves without adding client engine controls', async () => fixture(async f => {
+  const live = f.makeApi({ env: { SCRAPPILOT_ORGANISATION_ID: org } }); f.use(live);
+  const initial = await f.request(), input = { expectedRevision: initial.body.revision, ...initial.body.settings, voice: 'meridian', pronunciationText: 'Kopparkabel uttalas tydligt.' };
+  const saved = await f.request('/api/ai-support/settings', { body: input }); assert.equal(saved.status, 200); assert.equal(saved.body.settings.voice, 'meridian');
+  const published = await f.upsert({ status: 'published', publicApproved: true }), wiki = await f.repository.read(state => structuredClone(state.aiSupport.knowledge)); assert.equal(published.status, 200);
+  f.use(f.makeApi({ env: { SCRAPPILOT_ORGANISATION_ID: org, VOICE_TEST_ENGINE: 'realtime' } }));
+  const beforeRollbackRead = await f.repository.read(state => state.aiSupport), rollback = await f.request();
+  assert.equal(rollback.body.runtime.engine, 'realtime'); assert.equal(rollback.body.runtime.voice, 'marin'); assert.equal(rollback.body.runtime.previewAvailable, true); assert.match(rollback.body.runtime.notice, /tidigare valet finns kvar/);
+  assert.deepEqual(rollback.body.voices.map(item => item.id), VOICE_TEST_REALTIME_VOICES); assert.deepEqual(await f.repository.read(state => state.aiSupport), beforeRollbackRead);
+  const rollbackInput = { expectedRevision: rollback.body.revision, ...rollback.body.settings, greeting: 'Välkommen! Beskriv gärna ditt ärende.' };
+  const incompatible = await f.request('/api/ai-support/settings', { body: { ...rollbackInput, voice: 'meridian' } }); assert.equal(incompatible.status, 422); assert.equal(incompatible.body.code, 'ai_support_voice_unavailable');
+  assert.equal((await f.request('/api/ai-support/settings', { body: { ...rollbackInput, engine: 'live' } })).status, 422);
+  const corrected = await f.request('/api/ai-support/settings', { body: rollbackInput }); assert.equal(corrected.status, 200); assert.equal(corrected.body.settings.voice, 'marin');
+  const realtimeContext = await f.repository.read(state => buildAiSupportContext(state, { organisationId: org, siteId: 'north', engine: 'realtime' })); assert.equal(realtimeContext.supportProfile.voice, 'marin');
+  f.use(live); const returned = await f.request(); assert.equal(returned.body.settings.voice, 'meridian'); assert.equal(returned.body.runtime.voice, 'meridian'); assert.equal(returned.body.settings.greeting, rollbackInput.greeting);
+  const liveContext = await f.repository.read(state => buildAiSupportContext(state, { organisationId: org, siteId: 'north', engine: 'live' })); assert.equal(liveContext.supportProfile.voice, 'meridian');
+  assert.deepEqual(await f.repository.read(state => state.aiSupport.knowledge), wiki);
+  assert.deepEqual(await f.repository.read(state => state.aiSupport.voiceSelections), { live: 'meridian', realtime: 'marin' });
 }));

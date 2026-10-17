@@ -9,6 +9,7 @@ type Settings = { enabled: boolean; companyName: string; greeting: string; voice
 type Support = { revision: number; settings: Settings; knowledge: Knowledge[]; suggestions: object[]; voices: { id: string; name: string }[]; sites: { id: string; name: string }[];
   articleCandidates: object[]; stats: { total: number; published: number; publishedCharacters: number; maxTotal: number; maxPublished: number; maxPublishedCharacters: number };
   capabilities: { read: boolean; write: boolean; settingsWrite: boolean; globalWrite: boolean };
+  runtime?: { engine: 'live' | 'realtime'; model: string; voice: string; previewAvailable: boolean; notice?: string };
   runtimePreview: { siteId: string; siteName: string; items: { id: string; version: number; title: string; answer: string }[]; characters: number; revision: number } | null;
   privateFixture?: object };
 type AudioQA = { plays: string[]; pauses: number; created: string[]; revoked: string[] };
@@ -18,7 +19,7 @@ const secret = 'PRIVATE_AI_SUPPORT_FIXTURE_NEVER_RENDER_OR_SEND';
 const audioBase64 = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 const sites = [{ id: 'norrtalje', name: 'Norrtälje' }, { id: 'rimbo', name: 'Rimbo' }];
 
-async function setup(page: Page) {
+async function setup(page: Page, { live = false } = {}) {
   const data = migrateOffice(seedOffice()), admin = data.users.find(user => user.id === 'admin')!;
   let companyId = 'ai-support-fixture', generation = 3, failCommitted = false, sequence = 1;
   const stamp = new Date().toISOString();
@@ -26,13 +27,15 @@ async function setup(page: Page) {
     revision: 1,
     settings: { enabled: true, companyName: 'Provbolaget Återvinning AB', greeting: 'Hej och välkommen till vår mottagning!', voice: 'marin', tone: 'friendly', pace: 'normal', pronunciationText: '' },
     knowledge: [{ id: 'f79d1eb3-c102-4aee-8466-000000000001', version: 1, title: 'Besök på mottagningen', answer: 'Välkommen med sorterat material. Kontakta kontoret om du behöver hjälp före ditt besök.', category: 'visits', siteIds: [], status: 'published', publicApproved: true, createdAt: stamp, updatedAt: stamp }],
-    suggestions: [], voices: [{ id: 'marin', name: 'Marin' }, { id: 'coral', name: 'Coral' }], sites,
+    suggestions: [], voices: [{ id: 'marin', name: 'Marin' }, live ? { id: 'meridian', name: 'Meridian' } : { id: 'coral', name: 'Coral' }], sites,
     articleCandidates: [{ id: 'copper-1', name: 'Koppar klass 1', description: 'Ren koppar utan isolering.', includes: ['Rena kopparrör'], excludes: ['Isolerad kabel'], purchasePrice: secret }],
     stats: { total: 1, published: 1, publishedCharacters: 0, maxTotal: 100, maxPublished: 20, maxPublishedCharacters: 10000 },
     capabilities: { read: true, write: true, settingsWrite: true, globalWrite: true }, runtimePreview: null,
+    ...(live ? { runtime: { engine: 'live' as const, model: 'gpt-live-1', voice: 'marin', previewAvailable: false } } : {}),
     privateFixture: { apiKey: secret, bankAccount: secret, personNumber: secret },
   };
   const refreshComputed = () => {
+    if (state.runtime) state.runtime.voice = state.settings.voice;
     const published = state.knowledge.filter(row => row.status === 'published' && row.publicApproved);
     state.stats = { ...state.stats, total: state.knowledge.length, published: published.length, publishedCharacters: published.reduce((sum, row) => sum + row.answer.length, 0) };
     state.runtimePreview = { siteId: 'norrtalje', siteName: 'Norrtälje', items: published.map(({ id, version, title, answer }) => ({ id, version, title, answer })), characters: state.stats.publishedCharacters, revision: state.revision };
@@ -258,4 +261,24 @@ test('a double click cannot create a second preview request while the first samp
     release(); await expect.poll(() => page.evaluate(() => window.__aiSupportAudio.plays.length)).toBe(1);
     expect(previews).toBe(1); expect(fixture.errors).toEqual([]);
   } finally { release(); }
+});
+
+test('Live saves Meridian for the next conversation and offers the actual call instead of a legacy preview request', async ({ page }) => {
+  const fixture = await setup(page, { live: true });
+  const runtime = page.getByRole('region', { name: 'Aktiv röstmotor', exact: true });
+  await expect(runtime).toContainText('GPT-Live'); await expect(runtime).toContainText('gpt-live-1');
+  await page.getByRole('tab', { name: 'Röst & bemötande', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Provlyssna på Marin', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Provlyssna på Meridian', exact: true })).toBeDisabled();
+  const call = page.getByRole('link', { name: 'Provlyssna i ett testsamtal', exact: true });
+  await expect(call).toHaveAttribute('href', '/rosttest'); await expect(call).toHaveAttribute('target', '_blank');
+  await page.getByRole('button', { name: 'Välj röst Meridian', exact: true }).click();
+  await page.getByRole('button', { name: 'Spara röst & bemötande', exact: true }).click();
+  await expect.poll(() => fixture.state().settings.voice).toBe('meridian');
+  await expect(runtime).toContainText('Meridian');
+  expect(fixture.requests.filter(row => row.path === '/api/ai-support/preview')).toEqual([]);
+  const settings = fixture.requests.filter(row => row.path === '/api/ai-support/settings' && row.method === 'POST');
+  expect(settings).toHaveLength(1); expect(settings[0].body).toMatchObject({ voice: 'meridian', expectedRevision: 1 });
+  expect(await page.evaluate(() => window.__aiSupportAudio.plays)).toEqual([]);
+  expect(fixture.external).toEqual([]); expect(fixture.errors).toEqual([]);
 });

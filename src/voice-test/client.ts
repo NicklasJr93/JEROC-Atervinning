@@ -17,16 +17,16 @@ export function voiceScope(session?: PlatformSession): VoiceScope {
 export class VoiceApiError extends Error { constructor(message: string, public status: number, public code?: string) { super(message); } }
 export const voiceDenied = (failure: unknown) => failure instanceof VoiceApiError && ([401, 403].includes(failure.status) || ['platform_context_changed', 'PRINCIPAL_CHANGED'].includes(failure.code ?? ''));
 const stamp = z.string().refine(value => Number.isFinite(Date.parse(value))), nonnegative = z.number().finite().nonnegative();
-export const callSchema = z.object({ id: z.string(), requestId: z.string(), revision: nonnegative.int(), status: z.enum(['connecting', 'active', 'ended', 'failed', 'interrupted']),
+export const callSchema = z.object({ id: z.string(), requestId: z.string(), revision: nonnegative.int(), status: z.enum(['connecting', 'active', 'ended', 'failed', 'interrupted']), protocol: z.enum(['live', 'realtime']).optional(),
   createdAt: stamp, startedAt: stamp.optional(), endedAt: stamp.optional(), durationSeconds: nonnegative, siteName: z.string().optional(),
   callerNumber: z.string(), callerLabel: z.string(), createdBy: z.object({ actualUserId: z.string(), effectiveUserId: z.string(), name: z.string() }),
-  transcript: z.array(z.object({ id: z.string(), role: z.enum(['user', 'assistant']), text: z.string(), at: stamp, interrupted: z.boolean().optional() })), transcriptComplete: z.boolean().optional(), providerConfirmed: z.boolean().optional(),
+  transcript: z.array(z.object({ id: z.string(), role: z.enum(['user', 'assistant']), text: z.string(), at: stamp, interrupted: z.boolean().optional(), startMs: nonnegative.optional(), endMs: nonnegative.optional(), liveFragments: z.array(z.object({ eventId: z.string(), startMs: nonnegative, endMs: nonnegative, text: z.string(), deliveryIndex: nonnegative.int().max(9999).optional() })).optional() })), transcriptComplete: z.boolean().optional(), providerConfirmed: z.boolean().optional(), providerUsageSeconds: nonnegative.optional(),
   followupStatus: z.enum(['new', 'in_progress', 'done']), summary: z.string().optional(), summaryStatus: z.enum(['pending', 'generated', 'fallback']).optional(),
   aiSupportSnapshot: z.object({ revision: nonnegative.int(), policyVersion: nonnegative.int(), voice: z.string(), knowledgeIds: z.array(z.string()), contextHash: z.string() }).optional(),
   topic: z.string().nullable().optional(), callbackRequested: z.boolean().nullable().optional(), summaryModel: z.string().optional(), endReason: z.string().optional(), error: z.string().optional(),
 });
-const stateSchema = z.object({ revision: nonnegative.int(), config: z.object({ enabled: z.boolean(), keyPresent: z.boolean(), model: z.string(), companyName: z.string().optional(), voice: z.string().optional(), knowledgeRevision: nonnegative.int().optional(), callerNumber: z.string(), callerLabel: z.string(), maxDurationSeconds: nonnegative, available: z.boolean(), reason: z.string().optional(), site: z.object({ id: z.string(), name: z.string() }).optional() }), calls: z.array(callSchema), currentCall: callSchema.nullable() });
-const createSchema = z.object({ call: callSchema, answerSdp: z.string().min(1) });
+const stateSchema = z.object({ revision: nonnegative.int(), config: z.object({ enabled: z.boolean(), keyPresent: z.boolean(), model: z.string(), protocol: z.enum(['live', 'realtime']).optional(), backendModel: z.string().optional(), companyName: z.string().optional(), voice: z.string().optional(), knowledgeRevision: nonnegative.int().optional(), callerNumber: z.string(), callerLabel: z.string(), maxDurationSeconds: nonnegative, available: z.boolean(), reason: z.string().optional(), site: z.object({ id: z.string(), name: z.string() }).optional() }), calls: z.array(callSchema), currentCall: callSchema.nullable() });
+const createSchema = z.object({ call: callSchema, answerSdp: z.string().min(1), protocol: z.enum(['live', 'realtime']).optional() });
 const checkSchema = z.object({ ok: z.boolean(), model: z.string(), message: z.string(), checkedAt: stamp });
 async function request<T>(scope: VoiceScope, path: string, schema: z.ZodType<T>, body?: unknown, signal?: AbortSignal, timeoutMs = 20_000): Promise<T> {
   if (!scope.allowed) throw new VoiceApiError('Du saknar behörighet att använda rösttestet.', 403);
@@ -49,7 +49,7 @@ export const readVoice = (scope: VoiceScope, signal?: AbortSignal): Promise<Voic
 export const readVoiceCall = async (scope: VoiceScope, id: string, signal?: AbortSignal): Promise<VoiceCall> => (await request(scope, `/calls/${encodeURIComponent(id)}`, z.object({ call: callSchema }), undefined, signal)).call;
 export const createVoiceCall = (scope: VoiceScope, requestId: string, sdp: string, signal?: AbortSignal) => request(scope, '/calls', createSchema, { requestId, sdp }, signal, 45_000);
 export const readyVoiceCall = async (scope: VoiceScope, id: string, signal?: AbortSignal) => (await request(scope, `/calls/${encodeURIComponent(id)}/ready`, z.object({ call: callSchema }), {}, signal)).call;
-export const endVoiceCall = async (scope: VoiceScope, id: string, signal?: AbortSignal) => (await request(scope, `/calls/${encodeURIComponent(id)}/end`, z.object({ call: callSchema }), {}, signal)).call;
+export const endVoiceCall = async (scope: VoiceScope, id: string, signal?: AbortSignal) => (await request(scope, `/calls/${encodeURIComponent(id)}/end`, z.object({ call: callSchema }), {}, signal, 35_000)).call;
 export const updateVoiceFollowup = async (scope: VoiceScope, id: string, status: VoiceCall['followupStatus'], signal?: AbortSignal) => (await request(scope, `/calls/${encodeURIComponent(id)}/status`, z.object({ call: callSchema }), { status }, signal)).call;
 export const checkVoiceConnection = (scope: VoiceScope, signal?: AbortSignal): Promise<VoiceCheck> => request(scope, '/connection-test', checkSchema, {}, signal, 30_000);
 

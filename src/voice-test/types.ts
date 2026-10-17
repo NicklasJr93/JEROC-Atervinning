@@ -1,20 +1,20 @@
 export type VoiceCallStatus = 'connecting' | 'active' | 'ended' | 'failed' | 'interrupted';
 export type VoiceFollowup = 'new' | 'in_progress' | 'done';
-export interface VoiceTurn { id: string; role: 'user' | 'assistant'; text: string; at: string; interrupted?: boolean }
+export interface VoiceTurn { id: string; role: 'user' | 'assistant'; text: string; at: string; interrupted?: boolean; startMs?: number; endMs?: number; liveFragments?: { eventId: string; startMs: number; endMs: number; text: string; deliveryIndex?: number }[] }
 export interface VoiceCall {
-  id: string; requestId: string; revision: number; status: VoiceCallStatus;
+  id: string; requestId: string; revision: number; status: VoiceCallStatus; protocol?: 'live' | 'realtime';
   createdAt: string; startedAt?: string; endedAt?: string; durationSeconds: number;
   siteName?: string;
   callerNumber: string; callerLabel: string;
   createdBy: { actualUserId: string; effectiveUserId: string; name: string };
-  transcript: VoiceTurn[]; transcriptComplete?: boolean; providerConfirmed?: boolean; followupStatus: VoiceFollowup; summary?: string;
+  transcript: VoiceTurn[]; transcriptComplete?: boolean; providerConfirmed?: boolean; providerUsageSeconds?: number; followupStatus: VoiceFollowup; summary?: string;
   summaryStatus?: 'pending' | 'generated' | 'fallback'; topic?: string | null; callbackRequested?: boolean | null; summaryModel?: string;
   aiSupportSnapshot?: { revision: number; policyVersion: number; voice: string; knowledgeIds: string[]; contextHash: string };
   endReason?: string; error?: string;
 }
 export interface VoiceConfig {
   enabled: boolean; keyPresent: boolean; model: string; companyName?: string; callerNumber: string; callerLabel: string;
-  voice?: string; knowledgeRevision?: number;
+  voice?: string; knowledgeRevision?: number; protocol?: 'live' | 'realtime'; backendModel?: string;
   maxDurationSeconds: number; available: boolean; reason?: string;
   site?: { id: string; name: string };
 }

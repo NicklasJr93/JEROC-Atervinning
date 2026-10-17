@@ -14,8 +14,9 @@ type Call = {
 type VoiceQA = {
   mediaCalls: number; stoppedTracks: number; peersCreated: number; peersClosed: number;
   offers: string[]; answers: string[]; sent: string[];
-  rejectMicrophone: boolean; delayMicrophone: boolean;
+  rejectMicrophone: boolean; delayMicrophone: boolean; delayIce: boolean;
   resolveMicrophone: () => void; message: (data: object) => void; disconnect: () => void;
+  iceState: () => string; completeIce: () => void;
 };
 declare global { interface Window { __voiceQA: VoiceQA } }
 
@@ -25,10 +26,17 @@ async function fakeWebRtc(page: Page) {
     let finishMicrophone: (() => void) | undefined;
     const qa: VoiceQA = window.__voiceQA = {
       mediaCalls: 0, stoppedTracks: 0, peersCreated: 0, peersClosed: 0,
-      offers: [], answers: [], sent: [], rejectMicrophone: false, delayMicrophone: false,
+      offers: [], answers: [], sent: [], rejectMicrophone: false, delayMicrophone: false, delayIce: false,
       resolveMicrophone: () => finishMicrophone?.(),
       message: data => channels.at(-1)?.emit('message', JSON.stringify(data)),
       disconnect: () => { const peer = peers.at(-1); if (peer) { peer.connectionState = 'failed'; peer.emit('connectionstatechange'); } },
+      iceState: () => peers.at(-1)?.iceGatheringState ?? 'none',
+      completeIce: () => {
+        const peer = peers.at(-1); if (!peer || peer.connectionState === 'closed') return;
+        peer.iceGatheringState = 'complete';
+        if (peer.localDescription) peer.localDescription.sdp += 'a=candidate:qa 1 udp 1 127.0.0.1 49170 typ host\r\n';
+        peer.emit('icegatheringstatechange'); peer.emit('icecandidate');
+      },
     };
     class Channel extends EventTarget {
       readyState = 'connecting'; label = 'oai-events';
@@ -51,16 +59,24 @@ async function fakeWebRtc(page: Page) {
       remoteDescription: { type: string; sdp: string } | null = null;
       onconnectionstatechange: ((event: Event) => void) | null = null;
       oniceconnectionstatechange: ((event: Event) => void) | null = null;
+      onicegatheringstatechange: ((event: Event) => void) | null = null;
+      onicecandidate: ((event: Event) => void) | null = null;
       ontrack: ((event: Event & { streams: MediaStream[] }) => void) | null = null;
       channel?: Channel;
       tracks: MediaStreamTrack[] = [];
       constructor() { super(); qa.peersCreated++; peers.push(this); }
-      emit(type: string) { const event = new Event(type); this.dispatchEvent(event); if (type === 'connectionstatechange') this.onconnectionstatechange?.(event); }
+      emit(type: string) {
+        const event = type === 'icecandidate' ? Object.assign(new Event(type), { candidate: null }) : new Event(type);
+        this.dispatchEvent(event);
+        if (type === 'connectionstatechange') this.onconnectionstatechange?.(event);
+        if (type === 'icegatheringstatechange') this.onicegatheringstatechange?.(event);
+        if (type === 'icecandidate') this.onicecandidate?.(event);
+      }
       addTrack(track: MediaStreamTrack) { this.tracks.push(track); return { track }; }
       getSenders() { return this.tracks.map(track => ({ track })); }
       createDataChannel() { const channel = new Channel(); channels.push(channel); this.channel = channel; return channel; }
       async createOffer() { const sdp = 'v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=Isolated voice browser test\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n'; qa.offers.push(sdp); return { type: 'offer', sdp }; }
-      async setLocalDescription(value: { type: string; sdp: string }) { this.localDescription = value; }
+      async setLocalDescription(value: { type: string; sdp: string }) { this.localDescription = { ...value }; if (qa.delayIce) this.iceGatheringState = 'gathering'; }
       async setRemoteDescription(value: { type: string; sdp: string }) {
         this.remoteDescription = value; qa.answers.push(value.sdp);
         queueMicrotask(() => {
@@ -90,14 +106,14 @@ async function fakeWebRtc(page: Page) {
   });
 }
 
-async function setup(page: Page, { configured = true, connectionOk = true, failAfterReservation = false } = {}) {
+async function setup(page: Page, { configured = true, connectionOk = true, failAfterReservation = false, protocol }: { configured?: boolean; connectionOk?: boolean; failAfterReservation?: boolean; protocol?: 'live' } = {}) {
   await fakeWebRtc(page);
   const admin = seedOffice().users.find(user => user.id === 'admin')!;
   let companyId = 'voice-fixture', generation = 7, revision = 0;
   const calls: Call[] = [], owners = new Map<string, string>(), requests: { path: string; method: string; body?: Record<string, unknown>; headers: Record<string, string> }[] = [];
   const unexpected: string[] = [], pageErrors: string[] = [];
   page.on('pageerror', error => pageErrors.push(error.message));
-  const config = { enabled: true, keyPresent: configured, model: 'gpt-realtime-mini', callerNumber: '+46700000000', callerLabel: 'TEST', maxDurationSeconds: 180,
+  const config = { enabled: true, keyPresent: configured, model: protocol === 'live' ? 'gpt-live-1' : 'gpt-realtime-mini', ...(protocol ? { protocol } : {}), callerNumber: '+46700000000', callerLabel: 'TEST', maxDurationSeconds: 180,
     available: configured, ...(configured ? {} : { reason: 'OPENAI_API_KEY saknas på servern.' }) };
   const state = () => { const visible = calls.filter(call => owners.get(call.id) === companyId); return { config, calls: visible, currentCall: visible.find(call => ['connecting', 'active'].includes(call.status)) ?? null, revision }; };
   await page.route('**/*', async route => {
@@ -124,7 +140,7 @@ async function setup(page: Page, { configured = true, connectionOk = true, failA
         transcript: [], transcriptComplete: false, summary: '', summaryStatus: 'pending', followupStatus: 'new' };
       calls.unshift(call); owners.set(call.id, companyId); revision++;
       if (failAfterReservation) return route.fulfill({ status: 503, json: { error: 'Svaret försvann efter att testsamtalet reserverats.' } });
-      return route.fulfill({ json: { call, answerSdp: 'v=0\r\no=- 2 2 IN IP4 127.0.0.1\r\ns=Isolated answer\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n' } });
+      return route.fulfill({ json: { call, ...(protocol ? { protocol } : {}), answerSdp: 'v=0\r\no=- 2 2 IN IP4 127.0.0.1\r\ns=Isolated answer\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n' } });
     }
     const match = path.match(/^\/api\/voice-test\/calls\/([^/]+)(?:\/(ready|end|status))?$/);
     if (match) {
@@ -316,4 +332,59 @@ test('a forbidden call poll clears private text and a delayed older full read ca
     expect(fixture.requests.filter(request => request.path === '/api/voice-test/calls' && request.method === 'POST')).toHaveLength(1);
     expect(fixture.pageErrors).toEqual([]);
   } finally { releaseRead(); }
+});
+
+test('Live waits for complete ICE and session.started, sends no commands, and closes local media on session.closed', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const fixture = await setup(page, { protocol: 'live' });
+  await page.evaluate(() => { window.__voiceQA.delayIce = true; });
+  await page.getByRole('button', { name: 'Starta testsamtal', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__voiceQA.iceState())).toBe('gathering');
+  expect(fixture.requests.filter(row => row.path === '/api/voice-test/calls' && row.method === 'POST')).toEqual([]);
+  await page.evaluate(() => window.__voiceQA.completeIce());
+  await expect.poll(() => page.evaluate(() => window.__voiceQA.answers.length)).toBe(1);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const create = fixture.requests.filter(row => row.path === '/api/voice-test/calls' && row.method === 'POST');
+  expect(create).toHaveLength(1);
+  expect(create[0].body?.sdp).toContain('a=candidate:qa');
+  expect(fixture.requests.filter(row => row.path.endsWith('/ready'))).toEqual([]);
+  await page.evaluate(() => {
+    window.__voiceQA.message({ type: 'session.created' });
+    window.__voiceQA.message({ type: 'session.updated' });
+    window.__voiceQA.message({ type: 'session.update', session: { instructions: 'UNTRUSTED_LIVE_MESSAGE' } });
+    window.__voiceQA.message({ type: 'conversation.item.input_audio_transcription.completed', transcript: 'UNTRUSTED_LIVE_MESSAGE' });
+  });
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  expect(fixture.requests.filter(row => row.path.endsWith('/ready'))).toEqual([]);
+  await expect(page.getByText('UNTRUSTED_LIVE_MESSAGE', { exact: false })).toHaveCount(0);
+  await page.evaluate(() => window.__voiceQA.message({ type: 'session.started' }));
+  await expect.poll(() => fixture.requests.filter(row => row.path.endsWith('/ready')).length).toBe(1);
+  await page.evaluate(() => window.__voiceQA.message({ type: 'session.started' }));
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  expect(fixture.requests.filter(row => row.path.endsWith('/ready'))).toHaveLength(1);
+  expect(await page.evaluate(() => window.__voiceQA.sent)).toEqual([]);
+  fixture.finishServerCall();
+  await page.evaluate(() => window.__voiceQA.message({ type: 'session.closed' }));
+  await expect.poll(() => page.evaluate(() => window.__voiceQA.stoppedTracks)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__voiceQA.peersClosed)).toBe(1);
+  await expect(page.getByRole('button', { name: 'Starta testsamtal', exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(fixture.unexpected).toEqual([]); expect(fixture.pageErrors).toEqual([]);
+});
+
+test('Live without session.started times out without marking ready or redialling and releases the microphone', async ({ page }) => {
+  await page.clock.install();
+  const fixture = await setup(page, { protocol: 'live' });
+  await page.getByRole('button', { name: 'Starta testsamtal', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__voiceQA.answers.length)).toBe(1);
+  await page.clock.runFor(100);
+  expect(fixture.requests.filter(row => row.path.endsWith('/ready'))).toEqual([]);
+  await page.clock.fastForward(15_100);
+  await expect.poll(() => page.evaluate(() => window.__voiceQA.stoppedTracks)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__voiceQA.peersClosed)).toBe(1);
+  await expect.poll(() => fixture.requests.filter(row => row.path.endsWith('/end')).length).toBe(1);
+  expect(fixture.requests.filter(row => row.path.endsWith('/ready'))).toEqual([]);
+  expect(fixture.requests.filter(row => row.path === '/api/voice-test/calls' && row.method === 'POST')).toHaveLength(1);
+  expect(await page.evaluate(() => window.__voiceQA.sent)).toEqual([]);
+  expect(fixture.unexpected).toEqual([]); expect(fixture.pageErrors).toEqual([]);
 });
