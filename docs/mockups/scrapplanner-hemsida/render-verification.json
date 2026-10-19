@@ -1,0 +1,29 @@
+{
+  "kind": "static-image-mockups",
+  "results": [
+    {
+      "image": "01_Startsida_Dator.png",
+      "width": 1440,
+      "height": 3337,
+      "overflow": false,
+      "brokenImages": 0,
+      "externalRequests": 0
+    },
+    {
+      "image": "02_Startsida_Mobil.png",
+      "width": 390,
+      "height": 3992,
+      "overflow": false,
+      "brokenImages": 0,
+      "externalRequests": 0
+    },
+    {
+      "image": "03_Plattformen_Dator.png",
+      "width": 1440,
+      "height": 3568,
+      "overflow": false,
+      "brokenImages": 0,
+      "externalRequests": 0
+    }
+  ]
+}

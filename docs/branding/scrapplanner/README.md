@@ -29,3 +29,5 @@ Tidigare utkast: [första presentationsbilden](scrapplanner-logo-concept.png) ·
 [första transparenta konceptbilden](scrapplanner-logo-transparent-concept.png).
 
 [Tillbaka till varumärkesmaterialet](../README.md)
+
+[Bildmockuper av ScrapPlanners publika hemsida](../../mockups/scrapplanner-hemsida/README.md)
