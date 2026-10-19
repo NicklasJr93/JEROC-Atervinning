@@ -1,0 +1,38 @@
+services:
+  - type: web
+    runtime: static
+    name: scrapplanner-website
+    branch: main
+    rootDir: website
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "24.19.0"
+      - key: PUBLIC_SITE_URL
+        value: https://scrapplanner.com
+      - key: APP_URL
+        value: https://app.scrapplanner.com
+      - key: MOBILE_URL
+        value: https://mobile.scrapplanner.com
+      - key: CONTACT_EMAIL
+        value: nicklas@endorgroup.se
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=()
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'; upgrade-insecure-requests"
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=3600
