@@ -13,6 +13,10 @@ gemensam kärna, bolagsisolering, systemadmin, säkerhet, menyer och valbara
 HR-/tid-/dispatchmoduler. Skiljer befintlig kod från föreslagen extraktion och
 krav före en säker produktionsstarter.
 
+[Live ScrapPilot – setup för separat installation](LIVE_SCRAPPILOT_SETUP.md):
+överlämning till nytt Codex-projekt med ny server/databas, katalogöverföring
+och kontroller inför första riktiga piloten.
+
 ## Starta på Windows eller Mac
 
 1. Ha **Node.js 22.12 eller senare** installerat. Node.js 24 LTS fungerar. npm ska följa med Node.js.
