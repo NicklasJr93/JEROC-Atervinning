@@ -11,8 +11,14 @@ import { createTenantGateway } from './tenant-gateway.mjs';
 import { createTestCarApi } from './telematics/testcar-api.mjs';
 import { createDemoReceiverRuntime } from './telematics/demo-runtime.mjs';
 import { createServiceTestCar } from './telematics/demo-client.mjs';
+import { readDeploymentProfile } from './deployment-profile.mjs';
+import { applyPilotSecurityHeaders, pilotRequestPolicy } from './pilot-http.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+// Validate pilot settings before any repository or optional demo runtime opens.
+let deployment;
+try { deployment = readDeploymentProfile(process.env); }
+catch (error) { console.error('Driftsinställningarna är inte giltiga:', error.message); process.exit(1); }
 const port = Number(process.env.PORT ?? '3000');
 if (!Number.isInteger(port) || port < 0 || port > 65535) {
   console.error('PORT måste vara ett heltal mellan 0 och 65535.');
@@ -58,6 +64,12 @@ async function handle(req, res) {
     reply(res, 400, 'Invalid URL');
     return;
   }
+  const policy = pilotRequestPolicy(req, url, deployment);
+  if (policy) {
+    if (policy.location) res.setHeader('Location', policy.location);
+    reply(res, policy.status, policy.location ? 'Redirecting' : policy.status === 404 ? 'Not found' : 'Invalid URL');
+    return;
+  }
   // A public, synthetic-only lab has its own bounded browser sessions. It has
   // no capability to select a tenant or write business/production telemetry.
   if (await testCarApi(req, res, url)) return;
@@ -80,6 +92,16 @@ async function handle(req, res) {
       'Cache-Control': 'no-store',
     });
     res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ status: 'ok' }));
+    return;
+  }
+  if (pathname === '/readyz') {
+    let ready = false;
+    try { ready = await tenantGateway.repository.read(() => true); } catch { /* No database details in public readiness output. */ }
+    res.writeHead(ready ? 200 : 503, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    });
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ status: ready ? 'ready' : 'unavailable' }));
     return;
   }
   if (pathname === '/expo/status') {
@@ -130,6 +152,7 @@ async function handle(req, res) {
   else await pipeline(createReadStream(file), res);
 }
 const server = createServer((req, res) => {
+  applyPilotSecurityHeaders(req, res, deployment);
   const started = performance.now();
   const operation = async metrics => {
     if (metrics) {
@@ -153,12 +176,14 @@ const server = createServer((req, res) => {
     else reply(res, 500, 'Server error');
   });
 });
-const testCarRuntime = createDemoReceiverRuntime();
-const testCarApi = createTestCarApi({ factory: callbacks => createServiceTestCar({ createClient: testCarRuntime.createClient, ...callbacks }) });
+const testCarRuntime = deployment.pilot ? { close: async () => {} } : createDemoReceiverRuntime();
+const testCarApi = deployment.pilot ? Object.assign(async () => false, { close: () => {} })
+  : createTestCarApi({ factory: callbacks => createServiceTestCar({ createClient: testCarRuntime.createClient, ...callbacks }) });
 const tenantGateway = await createTenantGateway({ testCarApi });
 let expoGo;
 try {
-  expoGo = startExpoGo({ onFailure: state => { console.error('Expo Go kunde inte förberedas:', state.errorCode, 'Webbappen och dess API fortsätter fungera.'); } });
+  expoGo = deployment.pilot ? { enabled: false, ready: false, state: 'disabled', stop: async () => {} }
+    : startExpoGo({ onFailure: state => { console.error('Expo Go kunde inte förberedas:', state.errorCode, 'Webbappen och dess API fortsätter fungera.'); } });
 } catch {
   console.error('Expo Go-inställningarna kunde inte användas. Kontrollera Expo-konfigurationen i Render.');
   expoGo = { enabled: true, ready: false, state: 'error', compilingPlatform: null, warmedPlatforms: [], errorCode: 'EXPO_CONFIGURATION_ERROR', stop: async () => {} };

@@ -50,10 +50,11 @@ const newCompanySchema = z.object({ requestId: z.string().uuid(), name: z.string
 
 /** Platform identity owns company memberships; business permissions still come
  * from each company's current user register, never from this cookie or JSON. */
-export function createPlatformAuth({ repository, bootstrapLegacy = async () => null, provisionCompany,
+export function createPlatformAuth({ repository, bootstrapLegacy = async () => null, bootstrapPlatform, provisionCompany,
   companyUsers = async () => [], resolveCompanyUser = async () => null, onPasswordChanged = async () => {},
   now = () => new Date(), legacyCompany = { name: 'JEROC Återvinning AB', organisationNumber: '', storageSchema: 'public' } } = {}) {
   if (!repository?.read || !repository?.transact) throw new TypeError('Plattformsregistret krävs.');
+  const standalonePlatform = typeof bootstrapPlatform === 'function';
   const at = () => new Date(now()).toISOString();
   let bootstrapPromise;
   function audit(state, actor, action, values = {}) {
@@ -67,13 +68,23 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
         if (await passwordValid('JerocDemo2026!', existing.password)) fail('Ett privat initialt plattformslösenord krävs innan bolagsadministrationen kan aktiveras.', 503, 'platform_bootstrap_required');
         return;
       }
-      const imported = await bootstrapLegacy();
+      const imported = await (standalonePlatform ? bootstrapPlatform() : bootstrapLegacy());
       if (!imported || !validPasswordHash(imported.password) || imported.active === false) fail('Aktivt befintligt administratörskonto saknas. Ingen ny inloggning har skapats.', 503, 'platform_bootstrap_missing');
       const knownDemoPassword = await passwordValid('JerocDemo2026!', imported.password);
       if (knownDemoPassword) fail('Ett privat initialt plattformslösenord krävs innan bolagsadministrationen kan aktiveras.', 503, 'platform_bootstrap_required');
       await repository.transact(state => {
         if (state.users.some(user => user.platformAdmin)) return;
         const stamp = at(), businessId = imported.userId ?? imported.id ?? 'admin';
+        if (standalonePlatform) {
+          // A new deployment starts at the control plane. No business company,
+          // personnel account or fixture membership is needed to administer it.
+          if (state.users.length || state.companies.length || state.memberships.length)
+            fail('Den nya plattformens register är inte tomt. Kontrollera databasvalet.', 503, 'platform_bootstrap_not_empty');
+          const user = { id: businessId, businessId, name: imported.name ?? 'Systemadmin', username: username(imported.username ?? businessId),
+            email: imported.email ?? '', password: clone(imported.password), platformAdmin: true, active: true, mustChangePassword: true, createdAt: stamp };
+          state.users.push(user); audit(state, user, 'platform.private_admin_created');
+          return;
+        }
         const company = { id: 'jeroc-demo', ...legacyCompany, status: 'active', ownerUserId: businessId, createdAt: stamp };
         if (!state.companies.some(value => value.id === company.id)) state.companies.push(company);
         const user = { id: businessId, businessId, name: imported.name ?? 'Systemadmin', username: username(imported.username ?? businessId),
@@ -92,6 +103,8 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     if (actor.mustChangePassword && !allowPasswordChange) fail('Byt det tillfälliga lösenordet innan du fortsätter.', 423, 'platform_password_change_required');
     const company = state.companies.find(value => value.id === session.organisationId);
     const membership = state.memberships.find(value => value.userId === actor.id && value.organisationId === company?.id && value.active);
+    if (standalonePlatform && actor.platformAdmin && session.organisationId == null && session.effectiveUserId === '__platform-admin')
+      return { session, actor, company: undefined, membership: undefined };
     if (!company || !actor.platformAdmin && !membership) fail('Bolaget omfattas inte av din inloggning.', 403, 'platform_company_forbidden');
     if (company.status !== 'active' && !allowInactiveCompany) fail('Bolaget är inte tillgängligt än.', 409, 'platform_company_unavailable');
     if (!actor.platformAdmin && session.effectiveUserId !== membership.businessUserId) fail('Kontot omfattas inte av din bolagsbehörighet.', 403, 'platform_user_forbidden');
@@ -101,18 +114,20 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     const expected = req.headers['x-platform-generation'];
     if (expected !== undefined && expected !== value.session.generation) fail('Bolag eller konto har bytts i en annan flik. Ladda om sidan.', 409, 'platform_context_changed');
     const expectedOrg = req.headers['x-platform-organisation-id'];
-    if (expectedOrg !== undefined && expectedOrg !== value.company.id) fail('Bolaget har bytts i en annan flik. Ladda om sidan.', 409, 'platform_context_changed');
+    if (expectedOrg !== undefined && expectedOrg !== value.company?.id) fail('Bolaget har bytts i en annan flik. Ladda om sidan.', 409, 'platform_context_changed');
     if (writes && (!req.headers['x-platform-csrf'] || req.headers['x-platform-csrf'] !== value.session.csrfToken))
       fail('Sessionsskyddet saknas eller har ändrats. Ladda om sidan.', 403, 'platform_csrf_required');
   }
   const actualBusinessId = value => value.actor.platformAdmin ? '__platform-admin' : value.membership.businessUserId;
-  const credentialBusinessId = value => value.actor.platformAdmin && value.company.id === 'jeroc-demo' ? value.actor.businessId : undefined;
+  const credentialBusinessId = value => value.actor.platformAdmin && value.company?.id === 'jeroc-demo' ? value.actor.businessId : undefined;
   // Older JEROC sessions used the administrator's personnel-linked account for
   // own platform authority. Resolve only that former self identity to the
   // dedicated principal; explicit impersonation of another account stays scoped.
-  const effectiveBusinessId = value => value.actor.platformAdmin && value.company.id === 'jeroc-demo' && value.session.businessPrincipalVersion === undefined
+  const effectiveBusinessId = value => value.actor.platformAdmin && value.company?.id === 'jeroc-demo' && value.session.businessPrincipalVersion === undefined
     && value.session.effectiveUserId === value.actor.businessId ? '__platform-admin' : value.session.effectiveUserId;
   async function businessUser(value) {
+    if (standalonePlatform && value.actor.platformAdmin && !value.company)
+      return { id: '__platform-admin', name: value.actor.name, level: 'Systemadmin', permissions: [], maxAttest: 0, ownAttest: false, active: true };
     const id = effectiveBusinessId(value), result = await resolveCompanyUser(value.company.id, id);
     if (!result || result.active === false || result.id !== id) fail('Det valda användarkontot är inte aktivt i bolaget.', 403, 'platform_account_inactive');
     return clone(result);
@@ -127,8 +142,8 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     const accessible = state.companies.filter(company => value.actor.platformAdmin || state.memberships.some(member => member.userId === value.actor.id && member.organisationId === company.id && member.active));
     return { enabled: true, authenticated: true, actor: publicActor(value.actor), user, actualUser,
       ...(credentialBusinessId(value) && { selfBusinessUserIds: [actualUser.id, credentialBusinessId(value)] }),
-      company: publicCompany(value.company), organisationId: value.company.id, effectiveUserId: user.id,
-      isSupportSession: Boolean(value.actor.platformAdmin && (value.company.id !== 'jeroc-demo' || user.id !== actualBusinessId(value))),
+      ...(value.company && { company: publicCompany(value.company), organisationId: value.company.id }), effectiveUserId: user.id,
+      isSupportSession: Boolean(value.company && value.actor.platformAdmin && (value.company.id !== 'jeroc-demo' || user.id !== actualBusinessId(value))),
       mustChangePassword: value.actor.mustChangePassword === true, csrfToken: value.session.csrfToken, generation: value.session.generation,
       expiresAt: value.session.expiresAt, companies: accessible.map(publicCompany) };
   }
@@ -139,6 +154,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
   }
   async function resolveContext(req, { writes = !['GET', 'HEAD', 'OPTIONS'].includes(req.method) } = {}) {
     const { value, token } = await readSession(req, { writes });
+    if (!value.company) fail('Välj ett bolag innan du öppnar verksamheten.', 409, 'platform_company_required');
     const user = await businessUser(value);
     const actualUser = await actualBusinessUser(value, user);
     // Recheck after reading the other database so a concurrent company switch
@@ -182,13 +198,13 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
         return { error: new PlatformError('För många inloggningsförsök. Vänta 15 minuter.', 429, 'platform_login_rate_limit') };
       const user = state.users.find(value => value.id === candidate?.id);
       const membership = state.memberships.find(value => value.userId === user?.id && value.active && state.companies.some(company => company.id === value.organisationId && company.status === 'active'));
-      if (!valid || !user?.active || canonicalHash(user.password) !== canonicalHash(candidate.password) || !membership) {
+      if (!valid || !user?.active || canonicalHash(user.password) !== canonicalHash(candidate.password) || !membership && !(standalonePlatform && user.platformAdmin)) {
         state.attempts.push({ address, key, at: stamp }); audit(state, undefined, 'platform.login_rejected', { attemptKey: key });
         return { error: new PlatformError('Fel inloggning eller inaktivt konto.', 401, 'platform_invalid_credentials') };
       }
       const prior = platformCookieToken(req);
       if (prior) state.sessions = state.sessions.filter(value => value.tokenHash !== hash(prior));
-      const session = newSession(user, membership.organisationId, user.platformAdmin ? '__platform-admin' : membership.businessUserId, token, tenantToken);
+      const session = newSession(user, standalonePlatform && user.platformAdmin ? undefined : membership.organisationId, user.platformAdmin ? '__platform-admin' : membership.businessUserId, token, tenantToken);
       state.sessions.push(session); user.lastLoginAt = stamp; state.attempts = state.attempts.filter(value => value.key !== key);
       audit(state, user, 'platform.login', { organisationId: session.organisationId, effectiveUserId: session.effectiveUserId, generation: session.generation });
       return { token };
@@ -199,7 +215,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
   async function logout(req) {
     const { token, value } = await readSession(req, { writes: true, allowPasswordChange: true, allowInactiveCompany: true });
     await repository.transact(state => { const current = identity(state, token, { allowPasswordChange: true, allowInactiveCompany: true }); checkExpected(req, current, true);
-      state.sessions = state.sessions.filter(item => item.tokenHash !== current.session.tokenHash); audit(state, value.actor, 'platform.logout', { organisationId: value.company.id }); });
+      state.sessions = state.sessions.filter(item => item.tokenHash !== current.session.tokenHash); audit(state, value.actor, 'platform.logout', { organisationId: value.company?.id }); });
     return { token: '', tenantToken: '', value: { enabled: true, authenticated: false } };
   }
   async function changePassword(input, req) {
@@ -223,8 +239,8 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       if (canonicalHash(current.actor.password) !== canonicalHash(password)) fail('Lösenordet har ändrats i en annan session.', 409, 'platform_context_changed');
       current.actor.mustChangePassword = false; delete current.actor.passwordSyncPending; delete current.actor.passwordSyncLeaseUntil; current.actor.passwordChangedAt = at();
       state.sessions = state.sessions.filter(item => item.userId !== current.actor.id);
-      state.sessions.push(newSession(current.actor, current.company.id, effectiveBusinessId(current), nextToken, tenantToken));
-      audit(state, current.actor, 'platform.password_changed', { organisationId: current.company.id }); });
+      state.sessions.push(newSession(current.actor, current.company?.id, effectiveBusinessId(current), nextToken, tenantToken));
+      audit(state, current.actor, 'platform.password_changed', { organisationId: current.company?.id }); });
     return { token: nextToken, tenantToken, value: await session({ ...req, headers: { cookie: `${PLATFORM_COOKIE}=${nextToken}` } }) };
   }
   const admin = value => { if (!value.actor.platformAdmin) fail('Plattformsadministratör krävs.', 403, 'platform_admin_required'); };
@@ -256,7 +272,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       if (!current.actor.platformAdmin && !state.memberships.some(item => item.userId === current.actor.id && item.organisationId === company.id && item.businessUserId === selected.id && item.active)) fail('Bolagsbehörigheten har ändrats.', 403, 'platform_company_forbidden');
       state.sessions = state.sessions.filter(item => item.tokenHash !== current.session.tokenHash);
       const next = newSession(current.actor, company.id, selected.id, nextToken, tenantToken); state.sessions.push(next);
-      audit(state, current.actor, current.actor.platformAdmin ? 'platform.support_context_changed' : 'platform.company_changed', { organisationId: company.id, effectiveUserId: selected.id, previousOrganisationId: current.company.id, previousEffectiveUserId: current.session.effectiveUserId, generation: next.generation }); });
+      audit(state, current.actor, current.actor.platformAdmin ? 'platform.support_context_changed' : 'platform.company_changed', { organisationId: company.id, effectiveUserId: selected.id, previousOrganisationId: current.company?.id, previousEffectiveUserId: current.session.effectiveUserId, generation: next.generation }); });
     return { token: nextToken, tenantToken, value: await session({ ...req, headers: { cookie: `${PLATFORM_COOKIE}=${nextToken}` } }) };
   }
   async function createCompany(input, req) {
@@ -381,12 +397,17 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     const { value } = await readSession(req, { writes: write }); return value;
   }
   async function withPlatformAdminTransaction(req, operation, { write = false } = {}) {
-    const context = await resolveContext(req, { writes: write });
-    if (!context.platformAdmin || context.isSupportSession) fail('Öppna systemadministrationen som dig själv för att hantera trackers.', 403, 'platform_fleet_forbidden');
+    if (!standalonePlatform) {
+      const context = await resolveContext(req, { writes: write });
+      if (!context.platformAdmin || context.isSupportSession) fail('Öppna systemadministrationen som dig själv för att hantera trackers.', 403, 'platform_fleet_forbidden');
+    } else {
+      const { value } = await readSession(req, { writes: write });
+      if (!value.actor.platformAdmin || value.company) fail('Öppna systemadministrationen som dig själv för att hantera trackers.', 403, 'platform_fleet_forbidden');
+    }
     const token = platformCookieToken(req);
     return repository[write ? 'transact' : 'read'](state => {
       const current = identity(state, token); checkExpected(req, current, write);
-      if (!current.actor.platformAdmin || current.company.id !== 'jeroc-demo' || effectiveBusinessId(current) !== actualBusinessId(current))
+      if (!current.actor.platformAdmin || (standalonePlatform ? Boolean(current.company) : current.company.id !== 'jeroc-demo') || effectiveBusinessId(current) !== actualBusinessId(current))
         fail('Trackerregistret kräver plattformens egen systemadministratör.', 403, 'platform_fleet_forbidden');
       return operation(state, { actorId: current.actor.id, actorName: current.actor.name, at: at() });
     });

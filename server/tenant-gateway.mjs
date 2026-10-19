@@ -10,6 +10,7 @@ import { withBusinessIdentity } from './business-identity.mjs';
 import { createPlatformFleet } from './platform-fleet.mjs';
 import { applyFleetDeviceAssignment } from './fleet-telematics.mjs';
 import { createFleetSimulatorBridge } from './fleet-simulator.mjs';
+import { readDeploymentProfile } from './deployment-profile.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -39,12 +40,17 @@ function sameOrigin(req) {
  * comes from the platform registry and a server-authenticated session. Public
  * login endpoints select a bundle but still require its own employee/device or
  * partner credentials; a tenant selector is never a permission grant. */
-export async function createTenantGateway({ env = process.env, makeServices = createTenantServices, testCarApi } = {}) {
+export async function createTenantGateway({ env = process.env, makeServices = createTenantServices, testCarApi, platformRepository } = {}) {
+  const profile = readDeploymentProfile(env);
   const bundles = new Map(), streams = new Set();
   const fleetSimulator = createFleetSimulatorBridge({ testCarApi });
-  const repository = await createPlatformStorage({ env });
+  const repository = platformRepository ?? await createPlatformStorage({ env });
   let schemaPool, auth, stopping = false;
-  const defaultCompany = { id: legacyId, name: 'JEROC Återvinning AB', organisationNumber: '5593593626', status: 'active', storageSchema: 'public' };
+  const defaultCompany = profile.pilot ? undefined : { id: legacyId, name: 'JEROC Återvinning AB', organisationNumber: '5593593626', status: 'active', storageSchema: 'public' };
+  if (profile.pilot && await repository.read(state => state.companies.some(company => company.id === legacyId))) {
+    await repository.close();
+    throw new PlatformError('Pilotmiljön får inte använda den befintliga demodatabasen. Välj en ny separat databas.', 503, 'platform_pilot_database_conflict');
+  }
   const trustedPrincipalProvider = req => {
     const context = getPlatformContext(req);
     return context && { actorId: context.actualUser.id, userId: context.user.id, csrfToken: context.csrfToken, expiresAt: context.expiresAt, sessionKey: context.sessionKey };
@@ -63,6 +69,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   }
   async function bundle(company, owner) {
     if (stopping) throw new PlatformError('Servern stängs av.', 503);
+    if (!company || profile.pilot && company.id === legacyId) throw new PlatformError('Välj ett bolag innan du öppnar verksamheten.', 409, 'platform_company_required');
     let pending = bundles.get(company.id);
     if (!pending) {
       pending = (async () => {
@@ -82,8 +89,10 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
     }
     return pending;
   }
-  const legacy = await bundle(defaultCompany);
+  const legacy = profile.pilot ? undefined : await bundle(defaultCompany);
   auth = createPlatformAuth({ repository,
+    ...(profile.pilot && { bootstrapPlatform: async () => ({ id: 'platform-admin', username: 'admin', name: 'Systemadmin', active: true,
+      password: await platformPasswordHash(env.SCRAPPILOT_PLATFORM_ADMIN_PASSWORD) }) }),
     bootstrapLegacy: async () => {
       const imported = await (await legacy.applicationApi.getRepository()).read(state => {
         const user = state.pricing.users.find(value => value.id === 'admin' && value.level === 'Systemadmin' && value.active !== false);
@@ -189,6 +198,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/')) return false;
     if (url.pathname.startsWith('/api/public/voice-test')) {
+      if (profile.pilot) { json(res, 404, { error: 'Rösttestet är inte tillgängligt i pilotmiljön.', code: 'not_found' }); return true; }
       // This capability is for the fixed demo tenant, never for a caller's
       // selected tenant or an arbitrary company supplied in headers/query.
       try {
@@ -203,6 +213,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       try {
         const context = platformCookieToken(req) !== undefined ? await auth.resolveContext(req, { writes: false }) : undefined;
         const company = context?.company ?? (await auth.resolveTenantSelector(req))?.company ?? defaultCompany;
+        if (!company) throw new PlatformError('Öppna bolagets egen inloggningslänk för att fortsätta.', 409, 'platform_company_required');
         json(res, 200, { companyId: company.id, companyName: company.name });
       } catch (error) { json(res, error.status ?? 503, { error: error.message, code: error.code ?? 'tenant_unavailable' }); }
       return true;
@@ -222,6 +233,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
         if (platformCookieToken(req) !== undefined) context = await auth.resolveContext(req, { writes: false });
         company = context?.company ?? (await auth.resolveTenantSelector(req))?.company ?? defaultCompany;
       }
+      if (!company) throw new PlatformError('Öppna bolagets egen inloggningslänk för att fortsätta.', 409, 'platform_company_required');
       return await withBusinessIdentity(context, async () => {
       const expectedCompany = req.headers['x-client-company'] ?? req.headers['x-employee-company'] ?? url.searchParams.get('expectedCompany');
       if (expectedCompany !== undefined && expectedCompany !== null && expectedCompany !== company.id)

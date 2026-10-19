@@ -16,11 +16,14 @@ import { createMailService } from './mail-service.mjs';
 import { createMailApi } from './mail-api.mjs';
 import { getPlatformContext } from './platform-auth.mjs';
 import { ensurePortalDemoAccounts } from './portal-demo.mjs';
+import { createNvvClient } from './nvv-client.mjs';
+import { restrictPilotIntegrationService, handlePilotIntegrationRequest } from './pilot-integrations.mjs';
 import { can } from '../dist-server/domain-models.mjs';
 
 /** All repositories, queues and provider connections belong to one immutable
  * server-selected organisation. A request can never change this bundle's scope. */
 export async function createTenantServices({ env, seed, initialSites, trustedPrincipalProvider, reauthorizeTrustedPrincipal, company } = {}) {
+  const restrictIntegration = (provider, service) => restrictPilotIntegrationService({ env, provider, service });
   const organisationId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
   if (organisationId !== 'jeroc-demo' && (!company || company.id !== organisationId || !company.name?.trim()))
     throw new TypeError('Bolagets dokument behöver dess egen servervalda företagsprofil.');
@@ -67,7 +70,7 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
       throw new PricingError('Välj ett giltigt konto innan du laddar upp en bild.', 401);
     return principalStore.principal(actor, user);
   }) });
-  const vismaService = createVismaSandbox({ env, getRepository: () => applicationApi.getRepository(),
+  const vismaService = restrictIntegration('visma', createVismaSandbox({ env, getRepository: () => applicationApi.getRepository(),
     sourceProvider: request => terminalDemoApi.documentProjections(request), sitesProvider: () => environmentApi.getSites(),
     swishPaymentProvider: async id => (await swishService.readVerifiedPayment(id)) ?? bankService.readVerifiedPayment(id),
     authorizeBookingContext: async (context, { cardId, siteId, write = false } = {}) => {
@@ -96,8 +99,8 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
       if (!canManageVisma(session.actor) || !canManageVisma(session.user) || session.actor.siteIds || session.user.siteIds)
         throw new PricingError('Behörighet att hantera integrationer med åtkomst till företagets samtliga anläggningar krävs.', 403);
     },
-  });
-  const swishService = createSwishPayments({ env, getRepository: () => applicationApi.getRepository(),
+  }));
+  const swishService = restrictIntegration('swish', createSwishPayments({ env, getRepository: () => applicationApi.getRepository(),
     client: createSwishMssClient({ env }),
     sourceProvider: request => terminalDemoApi.documentProjections(request),
     sitesProvider: () => environmentApi.getSites(),
@@ -112,8 +115,8 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     assertPaymentReady: (source, options) => vismaService.assertPaymentReady(source, options),
     onPaymentConfirmed: job => documentsApi.archivePaymentConfirmation(job),
     onVerifiedPayment: (job, options) => vismaService.synchronizeSwishPayment(job.id, options),
-  });
-  const bankService = createBankPayments({ env, getRepository: () => applicationApi.getRepository(),
+  }));
+  const bankService = restrictIntegration('bank', createBankPayments({ env, getRepository: () => applicationApi.getRepository(),
     client: createOpenPaymentsClient({ env }),
     sourceProvider: request => terminalDemoApi.documentProjections(request),
     sitesProvider: () => environmentApi.getSites(),
@@ -127,7 +130,7 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     assertPaymentReady: (source, options) => vismaService.assertPaymentReady(source, options),
     onPaymentConfirmed: job => documentsApi.archivePaymentConfirmation(job),
     onVerifiedPayment: (job, options) => vismaService.synchronizeSwishPayment(job.id, options),
-  });
+  }));
   const resolveMailContext = async req => {
     const platform = getPlatformContext(req);
     if (!platform || platform.organisationId !== organisationId || typeof reauthorizeTrustedPrincipal !== 'function')
@@ -142,15 +145,16 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     };
     await context.reauthorize(); return context;
   };
-  const mailService = createMailService({ env, getRepository: () => applicationApi.getRepository(),
+  const mailService = restrictIntegration('mail', createMailService({ env, getRepository: () => applicationApi.getRepository(),
     authorizeContext: async context => {
       if (context.organisationId !== organisationId || typeof context.reauthorize !== 'function') throw new PricingError('En verifierad mejlsession krävs.', 403);
       const principal = await context.reauthorize();
       if (principal.actor.id !== context.actorId || principal.user.id !== context.effectiveUserId) throw new PricingError('Mejlsessionen har ändrats.', 403);
     },
-  });
+  }));
   const mailApi = createMailApi({ service: mailService, organisationId, resolveContext: resolveMailContext });
   const environmentApi = createEnvironmentApi({ env, initialSites, trustedPrincipalProvider: reauthorizeTrustedPrincipal ?? trustedPrincipalProvider, principalStore,
+    ...(env.SCRAPPLANNER_DEPLOYMENT_MODE === 'pilot' && { nvvClient: createNvvClient({ env: {} }) }),
     vismaService, swishService, bankService, mailService,
     approvalGuard: (input, operation) => terminalDemoApi.withApprovedCard(input, operation),
     outboundProvider: async () => (await applicationApi.getRepository()).read(state =>
@@ -263,6 +267,7 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     }
     return { applicationApi, articleMediaApi, vismaService, swishService, bankService, mailService, resolveMailContext, environmentApi, terminalDemoApi, documentsApi, close,
       async handle(req, res, url) {
+        if (handlePilotIntegrationRequest(env, req, res, url)) return true;
         if (await mailApi(req, res, url)) return true;
         if (await articleMediaApi(req, res, url)) return true;
         if (await applicationApi(req, res, url)) return true;

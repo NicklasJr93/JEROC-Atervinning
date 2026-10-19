@@ -51,6 +51,11 @@ Publicera riktiga företags- och kontaktuppgifter när de är bestämda. Produkt
 
 ## Render – separat Static Site
 
+För **hemsidan, appen/API:t och en ny databas tillsammans**, använd i stället
+Blueprint Path **`render.scrapplanner.yaml`** enligt
+[guiden för hela pilotmiljön](../docs/deployment/scrapplanner-render.md).
+Stegen nedan gäller när bara hemsidan ska skapas.
+
 Projektets [render.yaml](render.yaml) skapar bara marknadswebbplatsen. Den ändrar inte den befintliga SaaS-tjänsten, databasen eller demomiljön.
 
 Skapa **New → Static Site** i rätt Render-workspace och välj GitHub-repot. Använd:

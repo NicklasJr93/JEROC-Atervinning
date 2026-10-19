@@ -1,0 +1,36 @@
+name: ScrapPlanner pilot bootstrap
+
+on:
+  push:
+    branches: [main]
+    paths: ['server/**', 'src/**', 'scripts/**', 'package*.json', 'render.scrapplanner.yaml', '.github/workflows/pilot.yml']
+  pull_request:
+    paths: ['server/**', 'src/**', 'scripts/**', 'package*.json', 'render.scrapplanner.yaml', '.github/workflows/pilot.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+      - run: npm ci --include=dev --no-audit --no-fund
+      - run: npm run build
+      - name: Verify pilot startup, isolation and delivery guards
+        run: >-
+          node --test
+          server/deployment-profile.test.mjs
+          server/pilot-http.test.mjs
+          server/pilot-platform.test.mjs
+          server/pilot-application.test.mjs
+          server/pilot-integrations.test.mjs
+          server/platform-auth.test.mjs
+          server/platform-fleet.test.mjs
+          server/tenant-gateway.test.mjs
+          server/tenant-runtime.test.mjs
+          server/application.test.mjs

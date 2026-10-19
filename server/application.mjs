@@ -550,6 +550,12 @@ export function createApplicationService({ repository, env = process.env, seed =
   projections ??= approvalProvider;
   const mobilePricingProjection = createMobilePricingProjection();
   const context = new AsyncLocalStorage(); let fallback = createPricingStore(); let repoPromise;
+  const rejectPilotLegacyImport = () => {
+    if (env.SCRAPPLANNER_DEPLOYMENT_MODE !== 'pilot') return;
+    const error = new PricingError('Import av äldre webbläsardata är avstängd i pilotmiljön. Skapa uppgifterna i den nya miljön i stället.', 403);
+    error.code = 'pilot_legacy_import_disabled';
+    throw error;
+  };
   if (typeof seed !== 'function') throw new TypeError('Verksamhetsdatans startvärden behöver en servervald fabrik.');
   const getRepo = () => repoPromise ??= (repository ? Promise.resolve(repository) : createApplicationRepository({ env, seed }))
     .then(async value => {
@@ -930,6 +936,7 @@ export function createApplicationService({ repository, env = process.env, seed =
       }
       if (domain === 'import-pricing') {
         if (req.method !== 'POST') fail('Metoden stöds inte.', 405);
+        rejectPilotLegacyImport();
         const payload = await body(req);
         const result = await (await getRepo()).transact((state, _, audit) => {
           const pricing = createPricingStore({ initialState: state.pricing }); const p = requestPrincipal(pricing, req);
@@ -961,6 +968,11 @@ export function createApplicationService({ repository, env = process.env, seed =
       if (!['GET', 'POST'].includes(req.method)) fail('Metoden stöds inte.', 405);
       if (mobilePricesOnly && req.method !== 'GET') fail('Kundpriserna är en läsvy.', 405);
       let payload = req.method === 'POST' ? await body(req) : null;
+      // A browser can still hold the old demo's complete localStorage state.
+      // Reject every legacy import spelling before any repository or adapter
+      // mutation; normal server-authorized commands remain available.
+      if (payload && typeof payload === 'object' && (['import', 'archive'].includes(payload.kind)
+        || Object.hasOwn(payload, 'importData') || Object.hasOwn(payload, 'archiveData'))) rejectPilotLegacyImport();
       const compactMobileWrite = payload?.kind === 'records';
       if (compactMobileWrite) {
         if (domain !== 'mobile') fail('Postkommandot gäller bara mobilens vägningar.', 422);

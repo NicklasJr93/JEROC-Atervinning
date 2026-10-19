@@ -1,0 +1,90 @@
+# Full ScrapPlanner pilot environment. This does not change the old demo.
+# Import this file as ONE Blueprint in the new ScrapPlanner Live workspace.
+# Set the Blueprint's Auto Sync to No as well as keeping service auto-deploy off.
+services:
+  - type: web
+    runtime: static
+    name: scrapplanner-website
+    branch: main
+    autoDeployTrigger: 'off'
+    rootDir: website
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build
+    staticPublishPath: dist
+    domains:
+      - scrapplanner.com
+    envVars:
+      - key: NODE_VERSION
+        value: "24.19.0"
+      - key: PUBLIC_SITE_URL
+        value: https://scrapplanner.com
+      - key: APP_URL
+        value: https://app.scrapplanner.com
+      - key: MOBILE_URL
+        value: https://mobile.scrapplanner.com
+      - key: CONTACT_EMAIL
+        value: nicklas@endorgroup.se
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=()
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'; upgrade-insecure-requests"
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=3600
+
+  - type: web
+    runtime: node
+    name: scrapplanner-app
+    branch: main
+    autoDeployTrigger: 'off'
+    region: frankfurt
+    plan: 0.5c-512mb
+    numInstances: 1
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build
+    startCommand: npm start
+    healthCheckPath: /readyz
+    domains:
+      - app.scrapplanner.com
+      - mobile.scrapplanner.com
+    envVars:
+      - key: NODE_VERSION
+        value: "24.19.0"
+      - key: NODE_ENV
+        value: production
+      - key: SCRAPPLANNER_DEPLOYMENT_MODE
+        value: pilot
+      - key: APP_URL
+        value: https://app.scrapplanner.com
+      - key: MOBILE_URL
+        value: https://mobile.scrapplanner.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: scrapplanner-db
+          property: connectionString
+      - key: SCRAPPILOT_PLATFORM_ADMIN_PASSWORD
+        generateValue: true
+      - key: JEROC_DEMO_AUTO_SESSION
+        value: "false"
+      - key: EXPO_GO_ENABLED
+        value: "false"
+
+databases:
+  - name: scrapplanner-db
+    region: frankfurt
+    plan: 0.1c-256mb
+    postgresMajorVersion: "17"
+    databaseName: scrapplanner
+    user: scrapplanner
+    diskSizeGB: 1
+    ipAllowList: []
