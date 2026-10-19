@@ -1,5 +1,9 @@
 # ScrapPilot
 
+[Nytt loggförslag: ScrapPlanner](scrapplanner/README.md) — mörk marinblå och
+dämpad skogsgrön, med sloganen *Simplifying your recycling business.*
+Bildmockup för granskning inför den nya produktidentiteten.
+
 ![ScrapPilot](scrappilot-logo-vector.png)
 
 Den aktuella blå/gröna produktloggan infördes 2026-10-13 i kontor 0.22.2
