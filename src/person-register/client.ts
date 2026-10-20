@@ -19,13 +19,14 @@ export class PersonLookupError extends Error {
   constructor(message: string, public code: string, public status = 0) { super(message); }
 }
 
-/** Keep the supplied century. Ten digits must never silently become twelve. */
+/** Transport keeps the supplied century; new-customer UI visibly completes ten digits first. */
 export function normalizePersonLookupNumber(value: string): string {
   return value.normalize('NFKC').trim().replace(/[\s+-]/g, '');
 }
 export function personLookupNumberError(value: string): string | null {
   const inspected = inspectCustomerIdentifier(value), number = normalizePersonLookupNumber(value);
   if (inspected.kind === 'coordination') return 'Samordningsnummer fylls i manuellt tills vidare.';
+  if (/^\d{10}$/.test(number) && inspected.kind === 'person') return 'Århundradet kompletteras automatiskt när du skrivit klart eller lämnar fältet. Du kan också ange alla 12 siffror själv.';
   if (!/^\d{12}$/.test(number)) return 'Ange personnumret med 12 siffror, inklusive födelseår med fyra siffror, för att hämta uppgifter. Du kan också fylla i uppgifterna manuellt.';
   if (inspected.kind !== 'person') return inspected.error || 'Ange ett giltigt personnummer eller fyll i uppgifterna manuellt.';
   const birth = `${number.slice(0, 4)}-${number.slice(4, 6)}-${number.slice(6, 8)}`;

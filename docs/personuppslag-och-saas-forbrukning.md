@@ -8,10 +8,28 @@ eget register. Befintliga kundkort gör inga automatiska externa uppslag
 när de redigeras.
 
 Ett giltigt personnummer med **tolv siffror**, inklusive århundrade,
-krävs för personuppslag. Tio siffror ger hjälp att komplettera numret;
-systemet gissar inte århundrade. Samordningsnummer fylls i manuellt tills
-vidare. Numrets typ styr tjänsten, även när en enskild firma använder
-personnummer. Organisationsnummer hanteras fortsatt av SCB.
+krävs för personuppslag på servern. I nya kundformulär kompletteras
+ett giltigt tiosiffrigt personnummer automatiskt efter en kort paus
+eller när användaren lämnar fältet. Det fullständiga numret visas och
+kan ändras innan uppgifterna sparas. Samordningsnummer fylls i manuellt
+tills vidare. Numrets typ styr tjänsten, även när en enskild firma
+använder personnummer. Organisationsnummer hanteras fortsatt av SCB.
+
+Kompletteringen väljer det senaste giltiga födelsedatumet som inte ligger
+i framtiden, räknat med dagens datum i Stockholm. Plustecken betyder att
+hundraårsåret redan inträffat eller infaller i år. Kontrollsiffran ensam
+kan inte avgöra århundradet; personer över hundra år behöver ange plus
+eller sitt fullständiga nummer. Skottår kontrolleras för det valda året.
+Ett uttryckligt tolvsiffrigt nummer och befintliga sparade kundkort
+ändras inte automatiskt.
+
+Skriver användaren tolv siffror ska kompletteringen inte bryta in efter
+den tionde. Ett tvetydigt prefix som kan vara början av YYYYMMDDNNNN
+väntar därför tills fältet lämnas. Markering, pågående textinmatning
+och ändringar mitt i numret får inte avbrytas av en timer. Enter/spara
+kompletterar först så att validering och sparande ser samma nummer som
+fältet. Roaring får endast det färdiga numret; inga extra århundraden
+provas genom köpta uppslag.
 
 SMS- och terminalformulären fyller tomma, orörda fält automatiskt.
 Personalen granskar en träff i kontorets och mobilens nykundsformulär

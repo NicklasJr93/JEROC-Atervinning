@@ -3806,3 +3806,26 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
   matchning, byte mellan personer, frysta priser, omstart, samtidighet,
   verklig gatewaybehörighet och CSV kontrolleras. Roaring simuleras;
   inga verkliga personuppslag, meddelanden eller fakturor skickas i prov.
+
+
+ÄL 153 – Automatisk komplettering av århundrade vid ny kund
+Status: Genomförd och lokalt verifierad 2026-10-20.
+- Giltiga tiosiffriga personnummer kompletteras synligt till tolv siffror
+  i kontorets nya kundkort/snabbval, mobilen och SMS-/terminalformulär.
+  Organisationsnummer behåller sitt SCB-flöde, även när de börjar på
+  andra siffror än 5. Samordningsnummer behåller manuell hantering.
+- Datumregeln väljer senaste giltiga födelsedatum som inte är i framtiden
+  enligt svensk tid. Plustecken hanteras med kalenderåret för hundra år;
+  verklig skottdag kontrolleras. Det kompletterade numret kan ändras.
+- Kort inmatningspaus eller blur kompletterar. Ett möjligt prefix till
+  tolv siffror, aktiv markering eller redigering mitt i numret lämnas
+  ifred under inmatningen. Enter kompletterar före formulärets validering.
+- Servern får bara ett fullständigt nummer till det vanliga uppslaget.
+  Inga alternativa århundraden provas med köpta anrop. Sparade kundkort
+  och uttryckligt angivna tolv siffror ändras inte automatiskt.
+- Dokumentation: docs/personuppslag-och-saas-forbrukning.md.
+- Verifiering: 45 serverprov, 19 rena funktionsprov och 37 browserfall
+  passerar, liksom produktionsbygge och Expo-typkontroll. Proven omfattar
+  datumgränser, plustecken, skottdag, pågående tolvsiffrig inmatning,
+  Enter/blur, SCB, bevarade kunduppgifter och ett uppslag per identitet.
+  Leverantörer simuleras; inga verkliga personuppslag eller utskick görs.

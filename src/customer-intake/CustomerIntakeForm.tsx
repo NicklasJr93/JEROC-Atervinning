@@ -208,7 +208,7 @@ export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupPers
     <fieldset disabled={blocked} className="customer-intake-fields">
       {step === 1 && <section className="customer-intake-section" aria-labelledby={`${id}-step-title`}>
         <h2 id={`${id}-step-title`} ref={headingRef} tabIndex={-1}>{customer.type === 'Privatperson' ? <UserRound size={20} /> : <Building2 size={20} />}Dina uppgifter</h2>
-        <CustomerIdentityInput inputRef={identityRef} value={customer.number} type={customer.type} disabled={blocked} autoDetect={!initialValues?.number}
+        <CustomerIdentityInput inputRef={identityRef} value={customer.number} type={customer.type} disabled={blocked} autoDetect={!initialValues?.number} completeCentury
           onChange={value => change('number', value)} onTypeChange={value => change('type', value)} />
         {(customer.type === 'Privatperson' || personalIdentity) && lookupPerson && !personEligible && <p className="customer-intake-help">{personLookupNumberError(customer.number)}</p>}
         {eligibleLookup && <div className={`customer-intake-lookup ${activeLookup?.phase ?? ''}`} aria-live="polite" role="status">

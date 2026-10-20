@@ -312,7 +312,7 @@ export function NewCustomerPage() {
       <Header title="Ny kund" back={`/weigh/${draft.id}/customer`} />
       <main className="page-body">
         <form className="stack" onSubmit={submit}>
-          <CustomerIdentityInput key={draft.id} value={number} type={type}
+          <CustomerIdentityInput key={draft.id} value={number} type={type} completeCentury
             onChange={value => { setNumber(value); setError(''); }}
             onTypeChange={value => { setType(value as Customer['type']); setError(''); }} />
           {duplicates.length > 0 && <section className="customer-card" role="status">

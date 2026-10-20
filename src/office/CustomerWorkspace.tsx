@@ -1515,6 +1515,7 @@ function CustomerDetails({
                   value={draft.number}
                   type={draft.type}
                   autoDetect={fresh && !preserveInitialType}
+                  completeCentury={fresh}
                   disabled={!edit || busy}
                   error={edit && checkedFields.includes('number') ? customerIdentifierError(draft.type, draft.number) ?? undefined : undefined}
                   onChange={(number) => {

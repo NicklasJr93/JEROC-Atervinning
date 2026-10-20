@@ -140,6 +140,7 @@ export default function QuickCustomerModal({
             value={draft.number}
             type={draft.type}
             autoDetect={!initialDraft}
+            completeCentury
             disabled={busy || !allowed}
             error={checkedFields.includes('number') ? customerIdentifierError(draft.type, draft.number) ?? undefined : undefined}
             onChange={(number) => {

@@ -54,3 +54,27 @@ export function customerTypeFromIdentifier(value: string): 'Företag' | 'Privatp
   if (kind === 'person' || kind === 'coordination') return 'Privatperson';
   return undefined;
 }
+
+/** Registration assistance only. The ten-digit checksum does not establish
+ * a century: choose the latest real birth date not later than Stockholm today.
+ * A plus sign uses the Swedish calendar-year convention for turning 100.
+ * Explicit centuries, companies and manual-only identities are never changed. */
+export function completeCustomerIdentifier(value: string, now = new Date()): string {
+  const inspection = inspectCustomerIdentifier(value);
+  if (inspection.kind !== 'person' || inspection.normalized.length !== 10 || !Number.isFinite(now.getTime())) return value;
+  // YYYYMMDD-NN is still an unfinished twelve-digit input, not YYMMDD-NNNN.
+  if (!/^(?:\d{10}|\d{6}[-+]\d{4})$/.test(value.normalize('NFKC').replace(/\s/g, ''))) return value;
+  const parts = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+  const part = (name: Intl.DateTimeFormatPartTypes) => Number(parts.find(value => value.type === name)?.value);
+  const currentYear = part('year'), currentMonth = part('month'), currentDay = part('day');
+  const ten = inspection.normalized, shortYear = Number(ten.slice(0, 2)), month = Number(ten.slice(2, 4)), day = Number(ten.slice(4, 6));
+  const centuryYearLimit = currentYear - (value.normalize('NFKC').includes('+') ? 100 : 0);
+  const today = currentYear * 10_000 + currentMonth * 100 + currentDay;
+  const years = [2100, 2000, 1900, 1800].map(century => century + shortYear);
+  const year = years.find(candidate => {
+    if (candidate > centuryYearLimit || candidate * 10_000 + month * 100 + day > today) return false;
+    const date = new Date(Date.UTC(candidate, month - 1, day));
+    return date.getUTCFullYear() === candidate && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  });
+  return year === undefined ? value : `${String(year).padStart(4, '0')}${ten.slice(2)}`;
+}

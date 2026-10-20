@@ -6,6 +6,7 @@ import type { PersonRegisterPerson } from '../src/person-register/client';
 import type { TerminalSessionState } from '../src/office/terminal-demo-types';
 import { emptyEmployeeFleet } from './helpers/employee-fleet';
 import { testPersonalNumber } from './helpers/customer-identity';
+import { inspectCustomerIdentifier } from '../src/customer-identity';
 
 test.use({ viewport: { width: 1440, height: 1050 }, isMobile: false, hasTouch: false, locale: 'sv-SE' });
 // Synthetic identities and completely intercepted HTTP: these tests never query
@@ -20,12 +21,24 @@ const privateCanary = 'PRIVATE_PROVIDER_FIELD_NEVER_DISPLAY';
 const token = 'p'.repeat(43), publicPath = '/api/public/customer-intake';
 const expiresAt = () => new Date(Date.now() + 30 * 60_000).toISOString();
 const result = (value: PersonRegisterPerson = person) => ({ existing: false, person: { ...value, phone: privateCanary, email: privateCanary, privateProviderField: privateCanary } });
-const matchingResult = (request: Request) => result(request.postDataJSON().personalNumber === otherPerson.personalNumber ? otherPerson : person);
+const matchingResult = (request: Request) => {
+  const personalNumber = request.postDataJSON().personalNumber;
+  return result(personalNumber === otherPerson.personalNumber ? otherPerson : { ...person, personalNumber });
+};
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+function syntheticAmbiguousFullNumber() {
+  for (let suffix = 0; suffix < 1000; suffix++) {
+    const firstEleven = `19010101${String(suffix).padStart(3, '0')}`;
+    const sum = [...firstEleven.slice(2)].reduce((total, digit, index) => { const product = Number(digit) * (index % 2 === 0 ? 2 : 1); return total + (product > 9 ? product - 9 : product); }, 0);
+    const full = firstEleven + String((10 - sum % 10) % 10);
+    if (inspectCustomerIdentifier(full.slice(0, 10)).kind === 'person') return full;
+  }
+  throw new Error('The synthetic prefix fixture could not be constructed.');
+}
 
 async function officeFixture(page: Page, { quick = false, existing = false } = {}) {
   const office = migrateOffice(seedOffice()), user = office.users.find(value => value.id === 'admin')!;
-  const customer = { ...office.customers[0], id: 'person-existing', type: 'Privatperson' as const, number: person.personalNumber,
+  const customer = { ...office.customers[0], id: 'person-existing', type: 'Privatperson' as const, number: person.personalNumber.slice(2),
     name: 'Befintlig kund', phone: '+46722002220', email: 'befintlig@example.test' };
   office.customers = existing ? [customer] : [];
   const template = office.cards.find(card => card.id === 2051)!;
@@ -60,16 +73,19 @@ async function officeFixture(page: Page, { quick = false, existing = false } = {
   return { lookups, companyLookups, writes, errors };
 }
 
-for (const quick of [false, true]) test(`${quick ? 'snabbkund för enskild firma' : 'full nykund för privatperson'} visar Roaring-träff för tolv siffror och fyller endast efter aktivt val`, async ({ page }) => {
+for (const quick of [false, true]) test(`${quick ? 'snabbkund för enskild firma' : 'full nykund för privatperson'} kompletterar tio siffror efter paus och fyller Roaring-träffen endast efter aktivt val`, async ({ page }) => {
   const f = await officeFixture(page, { quick });
   const form = quick ? page.getByRole('dialog', { name: 'Ny kund', exact: true }) : page.locator('body');
   if (quick) await page.getByLabel('Kundtyp', { exact: true }).selectOption('Företag');
   const nameLabel = quick ? 'Företagsnamn' : 'Namn';
   const number = page.getByLabel('Organisations-/personnummer', { exact: true });
+  await page.clock.install();
   await number.fill(person.personalNumber.slice(2));
   await expect(page.getByRole('region', { name: 'Personuppslag', exact: true })).toContainText('12 siffror');
-  await number.focus(); await page.clock.install(); await page.clock.fastForward(500); expect(f.lookups).toHaveLength(0);
-  await number.fill(person.personalNumber); await page.clock.fastForward(500);
+  await page.clock.fastForward(600); expect(f.lookups).toHaveLength(0); await expect(number).toHaveValue(person.personalNumber.slice(2));
+  await page.clock.fastForward(150); await expect(number).toHaveValue(person.personalNumber);
+  expect(await number.evaluate(element => { const input = element as HTMLInputElement; return [input.selectionStart, input.selectionEnd]; })).toEqual([12, 12]);
+  await page.clock.fastForward(400);
   const lookup = page.getByRole('region', { name: 'Personuppslag', exact: true });
   await expect(lookup.getByText(person.name, { exact: true })).toBeVisible();
   await expect(page.getByLabel(nameLabel, { exact: true })).toHaveValue('');
@@ -115,12 +131,40 @@ for (const quick of [false, true]) test(`${quick ? 'snabbkund' : 'full nykund'} 
   expect(f.writes).toHaveLength(0); expect(f.errors).toEqual([]);
 });
 
+for (const pause of [0, 1000]) test(`${pause ? 'en paus i ett tvetydigt tioprefix' : 'snabb tolvsiffrig inmatning'} ändrar inte ett uttryckligt äldre födelseår eller skapar dubbla uppslag`, async ({ page }) => {
+  const f = await officeFixture(page), full = syntheticAmbiguousFullNumber();
+  const number = page.getByLabel('Organisations-/personnummer', { exact: true });
+  await page.clock.install();
+  expect(inspectCustomerIdentifier(full.slice(0, 10)).kind).toBe('person');
+  await number.pressSequentially(full.slice(0, 10), { delay: 5 });
+  if (pause) {
+    await page.clock.fastForward(pause);
+    await expect(number).toHaveValue(full.slice(0, 10)); expect(f.lookups).toHaveLength(0);
+  }
+  await number.pressSequentially(full.slice(10), { delay: 5 }); await page.clock.fastForward(400);
+  await expect(number).toHaveValue(full);
+  await expect(page.getByRole('button', { name: 'Använd personuppgifter', exact: true })).toBeVisible();
+  expect(f.lookups).toHaveLength(1); expect(f.lookups[0].postDataJSON().personalNumber).toBe(full);
+  await page.clock.fastForward(1500); await expect(number).toHaveValue(full);
+  expect(f.lookups).toHaveLength(1); expect(f.companyLookups).toHaveLength(0); expect(f.writes).toHaveLength(0);
+});
+
+test('blur kompletterar nya kundens personnummer direkt före 700 ms utan extra uppslag', async ({ page }) => {
+  const f = await officeFixture(page), number = page.getByLabel('Organisations-/personnummer', { exact: true });
+  await page.clock.install(); await number.fill(person.personalNumber.slice(2)); await page.clock.fastForward(100);
+  await expect(number).toHaveValue(person.personalNumber.slice(2)); expect(f.lookups).toHaveLength(0);
+  await number.press('Tab'); await expect(number).toHaveValue(person.personalNumber);
+  await page.clock.fastForward(400); await expect(page.getByRole('button', { name: 'Använd personuppgifter', exact: true })).toBeVisible();
+  expect(f.lookups).toHaveLength(1); expect(f.lookups[0].postDataJSON().personalNumber).toBe(person.personalNumber);
+});
+
 test('befintligt kundkort gör inget personuppslag vid öppning eller redigering', async ({ page }) => {
   const f = await officeFixture(page, { existing: true });
   await expect(page.getByLabel('Namn', { exact: true })).toHaveValue('Befintlig kund');
   await page.getByRole('button', { name: 'Redigera kund', exact: true }).click();
   await expect(page.getByLabel('Organisations-/personnummer', { exact: true })).toBeEnabled();
-  await page.clock.install(); await page.clock.fastForward(600);
+  await page.clock.install(); await page.clock.fastForward(1500);
+  await expect(page.getByLabel('Organisations-/personnummer', { exact: true })).toHaveValue(person.personalNumber.slice(2));
   await expect(page.getByRole('region', { name: 'Personuppslag', exact: true })).toHaveCount(0);
   expect(f.lookups).toHaveLength(0); expect(f.writes).toHaveLength(0);
 });
@@ -146,7 +190,10 @@ test('mobilens nya privatkund förhandsvisar personuppgifter med medarbetarens f
     return route.fulfill({ json: { revision: 1 } });
   });
   await page.goto('/#/weigh/person-register-draft/customer/new');
-  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill(person.personalNumber);
+  await page.clock.install();
+  const number = page.getByLabel('Organisations-/personnummer', { exact: true });
+  await number.fill(person.personalNumber.slice(2)); await page.clock.fastForward(600); expect(lookups).toHaveLength(0);
+  await page.clock.fastForward(150); await expect(number).toHaveValue(person.personalNumber); await page.clock.fastForward(400);
   await expect(page.getByRole('button', { name: 'Använd personuppgifter', exact: true })).toBeVisible();
   await expect(page.getByLabel('Namn', { exact: true })).toHaveValue('');
   await page.getByRole('button', { name: 'Använd personuppgifter', exact: true }).click();
@@ -158,6 +205,7 @@ test('mobilens nya privatkund förhandsvisar personuppgifter med medarbetarens f
   await page.getByLabel('Telefon (valfritt)', { exact: true }).fill('0722002220');
   await page.getByLabel('E-post (valfritt)', { exact: true }).fill('mobil-manuell@example.test');
   await page.getByLabel('Organisations-/personnummer', { exact: true }).fill(otherPerson.personalNumber);
+  await page.clock.fastForward(400);
   await expect(page.getByLabel('Namn', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Gatuadress (valfritt)', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Postnummer (valfritt)', { exact: true })).toHaveValue(''); await expect(page.getByLabel('Ort (valfritt)', { exact: true })).toHaveValue('');
@@ -193,7 +241,7 @@ test('SMS-guiden återanvänder samma sök-ID och skyddar manuellt namn när ett
   await page.goto(`/kunduppgifter/#token=${token}`); await page.clock.install();
   const number = page.getByLabel('Organisations-/personnummer', { exact: true });
   await number.fill(person.personalNumber.slice(2)); await page.clock.fastForward(600); expect(lookups).toHaveLength(0);
-  await number.fill(person.personalNumber); await page.clock.fastForward(600);
+  await page.clock.fastForward(150); await expect(number).toHaveValue(person.personalNumber); await page.clock.fastForward(400);
   await expect(page.getByRole('button', { name: 'Sök igen', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Sök igen', exact: true }).click(); await page.clock.fastForward(10);
   await expect.poll(() => lookups.length).toBe(2); await page.getByLabel('Namn', { exact: true }).fill('Manuellt namn före svar'); release();
@@ -209,6 +257,33 @@ test('SMS-guiden återanvänder samma sök-ID och skyddar manuellt namn när ett
   await expect(page.getByRole('heading', { name: 'Tack! Dina uppgifter är skickade', exact: true })).toBeVisible();
   expect(submissions).toHaveLength(1); expect(submissions[0].postDataJSON().customer).toMatchObject({ name: 'Manuellt namn före svar', address: person.address, phone: '', email: '' });
   expect(JSON.stringify(submissions[0].postDataJSON())).not.toContain(privateCanary); expect(page.url()).not.toContain(token); expect(lookups).toHaveLength(2);
+});
+
+test('Enter i SMS-guiden kompletterar synkront före nästa steg och skickar fullständigt personnummer', async ({ page }) => {
+  const lookups: Request[] = [], submissions: Request[] = [];
+  await page.route('**/api/**', async route => {
+    const request = route.request(), path = new URL(request.url()).pathname;
+    if (path === `${publicPath}/person-lookup`) { lookups.push(request); return route.fulfill({ json: matchingResult(request) }); }
+    if (path === publicPath || path === `${publicPath}/submit`) {
+      if (path.endsWith('/submit')) submissions.push(request);
+      return route.fulfill({ json: { company: { name: 'Syntetiskt Enter-prov AB' }, intake: { id: 'enter-person-intake', status: path.endsWith('/submit') ? 'submitted' : 'waiting', expiresAt: expiresAt() } } });
+    }
+    return route.fulfill({ status: 401, json: { error: 'Det här testet använder endast kundlänken.' } });
+  });
+  await page.goto(`/kunduppgifter/#token=${token}`); await page.clock.install();
+  await page.getByLabel('Namn', { exact: true }).fill('Manuellt namn före Enter');
+  const number = page.getByLabel('Organisations-/personnummer', { exact: true });
+  await number.fill(person.personalNumber.slice(2)); await number.press('Enter');
+  await expect(page.getByText('Steg 2 av 4', { exact: true })).toBeVisible();
+  // Less than 700 ms has elapsed: this request proves the submit capture flushed
+  // the twelve-digit identity rather than relying on the later idle timer.
+  await page.clock.fastForward(400); await expect.poll(() => lookups.length).toBe(1);
+  expect(lookups[0].postDataJSON().personalNumber).toBe(person.personalNumber);
+  await page.getByRole('button', { name: 'Hoppa över kontaktuppgifter', exact: true }).click();
+  await page.getByRole('button', { name: 'Hoppa över bankuppgifter', exact: true }).click();
+  await page.getByRole('button', { name: 'Hoppa över och skicka', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Tack! Dina uppgifter är skickade', exact: true })).toBeVisible();
+  expect(submissions).toHaveLength(1); expect(submissions[0].postDataJSON().customer.number).toBe(person.personalNumber); expect(lookups).toHaveLength(1);
 });
 
 test('kundterminalens automatiska personuppslag använder bara den aktuella parkopplade reservationen', async ({ page }) => {
@@ -231,8 +306,10 @@ test('kundterminalens automatiska personuppslag använder bara den aktuella park
     if (path === '/api/terminal-demo/customer-intake') return route.fulfill({ json: { company: { name: 'Terminalprov AB' }, intake: { id: intakeId, status: 'waiting', expiresAt: expiresAt() } } });
     return route.fulfill({ status: 404, json: { error: 'Endast terminalens eget formulär ingår.' } });
   });
-  await page.goto('/terminal'); await expect(page.getByRole('heading', { name: 'Fyll i dina uppgifter', exact: true })).toBeVisible();
-  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill(person.personalNumber);
+  await page.goto('/terminal'); await expect(page.getByRole('heading', { name: 'Fyll i dina uppgifter', exact: true })).toBeVisible(); await page.clock.install();
+  const number = page.getByLabel('Organisations-/personnummer', { exact: true });
+  await number.fill(person.personalNumber.slice(2)); await page.clock.fastForward(600); expect(lookups).toHaveLength(0);
+  await page.clock.fastForward(150); await expect(number).toHaveValue(person.personalNumber); await page.clock.fastForward(400);
   await expect(page.getByLabel('Namn', { exact: true })).toHaveValue(person.name);
   await expect(page.getByLabel('Postadress', { exact: true })).toHaveValue(person.address);
   await expect(page.getByRole('button', { name: 'Använd personuppgifter', exact: true })).toHaveCount(0);
