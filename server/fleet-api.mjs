@@ -3,6 +3,7 @@ import { fleetProjection, fleetCommand, employeeFleetProjection, employeeFleetCo
 import { fleetTelematicsProjection, fleetTelematicsCommand, fleetEmployeeTelematicsProjection } from './fleet-telematics.mjs';
 import { fleetExportSelection, renderFleetCsv, renderFleetPdf } from './fleet-export.mjs';
 import { assertFleetFileReferences } from './fleet-files.mjs';
+import { mobileSupportIdentity } from './mobile-support-identity.mjs';
 
 const domains = ['metadata', 'pricing', 'personnel', 'personnelAuth', 'transport', 'fleet'];
 const allowedStatus = new Set(['all', 'active', 'incomplete', 'pending', 'complete', 'completed', 'review']);
@@ -111,6 +112,8 @@ export function createFleetApi({ getRepository, officePrincipal, ownPrincipal, r
         const org = organisationId(state, env), now = new Date().toISOString(), options = { ...filters, now, siteCatalog, organisationId: org };
         let person;
         if (own) {
+          if (mobileSupportIdentity(req))
+            fail('Din systemadminsession har ingen egen körjournal i bolaget.', 403, 'mobile_support_personal_unavailable');
           const people = (state.personnel?.people ?? []).filter(value => value.active !== false && value.kind === 'employee'
             && (value.userId ? value.userId === principal.user.id : value.id === principal.user.id));
           if (people.length !== 1) fail('Ditt konto saknar en entydig aktiv personkoppling.', 403, 'fleet_identity_invalid');

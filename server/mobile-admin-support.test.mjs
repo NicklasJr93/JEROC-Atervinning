@@ -137,6 +137,14 @@ test('a real platform administrator selects either tenant and performs isolated 
     assert.equal(selected.body.person.id, '__platform-admin');
     assert.equal(selected.body.capabilities.yardWork, true); assert.equal(selected.body.capabilities.employeeTime, false);
     assert.ok(selected.body.support.csrfToken); assert.ok(selected.body.support.generation);
+    const ownFleet = await mobile.request('/api/employee/fleet');
+    assert.equal(ownFleet.status, 403); assert.equal(ownFleet.body.code, 'mobile_support_personal_unavailable');
+    assert.equal(ownFleet.body.trips, undefined); assert.equal(ownFleet.body.pendingTrips, undefined);
+    const ownAction = await mobile.request('/api/employee/fleet/actions', {
+      action: 'trip.complete', tripId: 'another-persons-trip', classification: 'private', expectedTripRevision: 0,
+      requestId: randomUUID(), expectedRevision: 0,
+    });
+    assert.equal(ownAction.status, 403); assert.equal(ownAction.body.code, 'mobile_support_personal_unavailable');
     const saved = await mobile.request('/api/application/mobile', records(customer(name)));
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     const snapshot = await mobile.request('/api/application/mobile');

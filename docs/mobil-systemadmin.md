@@ -17,6 +17,8 @@ Systemadmin behöver ingen egen anställning, personalsida eller mobilkontopost 
 
 Operativa arbetsflöden, till exempel gårdsarbete och vägning, får skriva i det valda bolaget med ordinarie verksamhetskontroller. Personliga funktioner som egen sjukfrånvaro, eget lösenordsbyte för en anställd och egen stämpling bygger på ett verkligt personalkonto och används inte som administratörens egen personalprofil. Systemadminens lösenord hanteras av plattformens konto.
 
+Den egna förarens körjournal och fordonsvy hör också till personalkontot. Supportläget hämtar inte dessa uppgifter och öppnar inte dialogen för att komplettera egna resor. Direkta personliga fordonslänkar återgår till startsidan. Vanliga medarbetares körjournalsspärr och kontroller vid nätfel är kvar; bolagets gemensamma fordonsadministration finns i kontorsvyn.
+
 ## Session och bolagsisolering
 
 - Inloggningen och bolagsbytet använder plattformens befintliga privata sessioner.

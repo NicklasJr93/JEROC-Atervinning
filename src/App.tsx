@@ -77,8 +77,8 @@ export function App() {
           <Route path="/time/sickness" element={employee.session?.support ? <Navigate to="/" replace /> : <EmployeeSicknessPage />} />
           <Route path="/time/review" element={employee.session?.support ? <Navigate to="/" replace /> : <EmployeeTimeReview />} />
           <Route path="/assignments" element={<EmployeeAssignmentsPage />} />
-          <Route path="/my-vehicle" element={<EmployeeFleetPage view="vehicle" />} />
-          <Route path="/my-trips" element={<EmployeeFleetPage view="trips" />} />
+          <Route path="/my-vehicle" element={employee.session?.support ? <Navigate to="/" replace /> : <EmployeeFleetPage view="vehicle" />} />
+          <Route path="/my-trips" element={employee.session?.support ? <Navigate to="/" replace /> : <EmployeeFleetPage view="trips" />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="/drafts" element={yardPage(<DraftsPage />)} />
           <Route path="/prices" element={yardPage(<PricesPage />)} />

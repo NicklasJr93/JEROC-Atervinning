@@ -3658,6 +3658,12 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
   bolagsval. Utloggning fungerar även innan lösenordet har bytts.
 - Befintlig Expo/Render-konfiguration återanvänds utan nya hemligheter.
   Dokumentation: docs/mobil-systemadmin.md.
+- Rättning efter mobilprov: supportläget ska inte hämta en egen förares
+  körjournal eller öppna dess kompletteringsspärr utan personalprofil.
+  Personliga fordonslänkar återgår till startsidan. Servern nekar egna
+  förar-API:er för support; ordinarie förares personkontroll och resespärr
+  är kvar. Regressionen använder ett verkligt nekande API-svar och provar
+  att invägning fortfarande kan sparas utan nya personalposter.
 - Verifiering: produktionsbygge och 19 browserfall passerar, inklusive
   mobilens riktiga vägningsflöde, vanligt personalkonto, bolagsbyte,
   fördröjda svar, utloggning och föreskrivet lösenordsbyte. Sex isolerade
@@ -3665,3 +3671,7 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
   personalposter och rollback vid återkallad bolagskontext. Även 39 extra
   integrations-/lagringsprov passerar; 12 PostgreSQL-prov kräver separat
   testdatabas och hoppas över lokalt. Skarp kontroll görs efter deployment.
+- Efter körjournalsrättningen passerar nytt produktionsbygge, 10 riktade
+  browserfall för systemadmin och förare samt 16 serverprov för fleet och
+  support. Systemadmin sparar en invägning utan att hämta egna förarresor;
+  en vanlig förare är fortsatt spärrad vid okänd status eller saknat syfte.

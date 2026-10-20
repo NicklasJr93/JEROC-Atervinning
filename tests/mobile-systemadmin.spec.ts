@@ -3,7 +3,6 @@ import type { Article } from '../src/data';
 import type { DemoData } from '../src/model';
 import type { EmployeeOverview } from '../src/employee/types';
 import type { AuthenticatedPlatformSession, PlatformCompany } from '../src/platform/types';
-import { emptyEmployeeFleet } from './helpers/employee-fleet';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
@@ -120,7 +119,10 @@ async function supportFixture(page: Page, options: { authenticated?: boolean; mu
       }
       return send(route, projection);
     }
-    if (path === '/api/employee/fleet') return send(route, emptyEmployeeFleet(personId));
+    // A support identity has no employee/driver association. Mirror the real
+    // endpoint instead of inventing an empty own-person fleet that hides errors.
+    if (/^\/api\/employee\/fleet(?:\/|$)/.test(path)) return send(route,
+      { error: 'Din systemadminsession har ingen egen körjournal i bolaget.', code: 'mobile_support_personal_unavailable' }, 403);
     if (path === '/api/application/mobile') {
       if (request.method() === 'POST') {
         const previous = records.get(company.id)!;
@@ -176,6 +178,8 @@ test('systemadmin loggar in utan personalpost, väljer bolag och kan spara en ri
   expect(operationalRequests(fixture.requests)).toEqual([]);
   expect(fixture.requests.some(request => request.path === '/api/platform/tenant-context')).toBe(false);
   await chooseCompany(page);
+  await expect(page.getByRole('dialog', { name: 'Komplettera din resa', exact: true })).toHaveCount(0);
+  expect(fixture.requests.some(request => /^\/api\/employee\/fleet(?:\/|$)/.test(request.path))).toBe(false);
   const selection = fixture.requests.find(request => request.path === '/api/employee/company')!;
   expect(selection.headers).toMatchObject({ 'x-platform-csrf': 'browser-admin-csrf-1', 'x-platform-generation': '1' });
   const navigation = page.getByRole('navigation', { name: 'Huvudmeny', exact: true });
@@ -202,6 +206,29 @@ test('systemadmin loggar in utan personalpost, väljer bolag och kan spara en ri
   await expect(page.getByText('Testadministratör', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /Kontaktuppgifter|Byt lösenord|Min utrustning|Timkrav/ })).toHaveCount(0);
   expect(fixture.requests.some(request => /^\/api\/employee\/(time|clock|sickness|equipment|requirements|accounts)(?:\/|$)/.test(request.path))).toBe(false);
+  expect(fixture.requests.some(request => /^\/api\/employee\/fleet(?:\/|$)/.test(request.path))).toBe(false);
+  await expect(page.getByRole('dialog', { name: 'Komplettera din resa', exact: true })).toHaveCount(0);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('systemadminens egna fordonslänkar och återanslutning öppnar inga förarresor eller personspärrar', async ({ page }) => {
+  const fixture = await supportFixture(page, { authenticated: true });
+  await page.goto('/mobil/');
+  await chooseCompany(page);
+  for (const route of ['/my-vehicle', '/my-trips']) {
+    await page.evaluate(path => { window.location.hash = path; }, route);
+    await expect(page).toHaveURL(/\/mobil\/#\/$/);
+    await expect(page.getByRole('region', { name: 'Administrationsläge', exact: true })).toContainText(companies[0].name);
+    await expect(page.getByRole('dialog', { name: 'Komplettera din resa', exact: true })).toHaveCount(0);
+  }
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('jeroc:employee-fleet-changed'));
+  });
+  await page.getByRole('button', { name: 'Gårdsarbete', exact: true }).first().click();
+  await expect(page.getByRole('button', { name: /Starta invägning/ })).toBeEnabled();
+  expect(fixture.requests.some(request => /^\/api\/employee\/fleet(?:\/|$)/.test(request.path))).toBe(false);
+  await expect(page.getByRole('dialog', { name: 'Komplettera din resa', exact: true })).toHaveCount(0);
   expect(fixture.errors).toEqual([]);
 });
 

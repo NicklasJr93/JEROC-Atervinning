@@ -23,13 +23,14 @@ interface FleetContext {
 const Context = createContext<FleetContext | null>(null);
 export function useEmployeeFleet() { const value = useContext(Context); if (!value) throw new Error('EmployeeFleetProvider saknas.'); return value; }
 
-/** One own-person snapshot shared by pages and the blocking completion dialog. */
+/** One own-person snapshot shared by pages and the blocking completion dialog.
+ * Platform support has no driver/person record and must never enter this flow. */
 export function EmployeeFleetProvider({ children }: { children: ReactNode }) {
   const { session, sessionGeneration } = useEmployee();
   const companyId = employeeCompanyId(session?.companyId), personId = session?.person.id;
   const boundSession = useRef({ session, generation: sessionGeneration });
   if (boundSession.current.session !== session) boundSession.current = { session, generation: sessionGeneration };
-  const readable = Boolean(session && boundSession.current.generation === sessionGeneration);
+  const readable = Boolean(session && !session.support && boundSession.current.generation === sessionGeneration);
   const scope = JSON.stringify([companyId, personId, sessionGeneration, readable]);
   const scopeRef = useRef(scope); scopeRef.current = scope;
   const mounted = useRef(true), sequence = useRef(0), readController = useRef<AbortController | null>(null), writeController = useRef<AbortController | null>(null), retry = useRef<Retry | null>(null);
