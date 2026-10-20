@@ -3854,3 +3854,30 @@ Status: Genomförd och dokumentationskontrollerad 2026-10-20.
   246 lokala länkar/rubriklänkar i 23 Markdown-filer kontrollerade samt
   git diff --check. Endast dokument ändras; inga nya appprov eller
   driftåtgärder påstås. docs/manual/README.md och docs/README.md är startpunkter.
+
+
+ÄL 155 – Inloggad handbok på /wiki och valbart hjälpläge
+Status: Förslag dokumenterat 2026-10-20; inte implementerat.
+- En sökbar onlinehandbok på /wiki, med kapitelmeny, läsyta,
+  innehållsförteckning och stabila direktlänkar till avsnitt. Mobilen får
+  en utfällbar kapitelmeny. Återanvänd befintligt UI och docs/manual som
+  gemensam innehållskälla, inte en separat manuellt underhållen kopia.
+- Hjälp på/av i den befintliga kontorsraden, personligt val som börjar
+  avstängt. Aktiv hjälp visar små frågetecken vid inställningarnas etiketter.
+  På sikt täcks alla moduler och inställningar med faktisk beskrivning.
+- Klick, touch och tangentbord öppnar en kort förklaring av inställningens
+  verkan, när den används och länk till rätt kapitel. Hjälpen ska fungera
+  även när ett fält är skrivskyddat. Användaren ska kunna läsa vidare i
+  sidopanel eller ny flik utan att förlora ett osparat formulär.
+- Exempel: Skicka vägt underlag till e-post → skickar en PDF-kopia till
+  angivna kontorsadresser efter intern attest, med länk till hela flödet.
+- Första föreslagna etapp: bok/sökning och gemensam hjälpkomponent samt
+  företagsinställningar, personalbehörigheter och kunduppgifter. Därefter
+  vägning/attest, anläggningar, artiklar, transporter och övriga moduler.
+- Användarinnehåll kräver inloggning. Sökning och själva innehållsleveransen
+  följer rätt roll; systemadmin- och privata driftinstruktioner får inte
+  hamna i publika webbpaket eller vanliga användares sökresultat.
+- Stabilt hjälp-ID kopplar varje inställning till kortförklaring och
+  kapitel/ankare. Ändrat beteende uppdaterar hjälp och manual i samma leverans.
+- Eventuell bildmockup publiceras i GitHub och återanvänder befintligt UI.
+  Förslaget ändrar inga appvyer eller inställningar i denna leverans.
