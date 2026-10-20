@@ -10,6 +10,14 @@ const commandSchema = z.object({
     .refine(value => phoneNumberError(value, { required: true }) === null).transform(value => normalizePhoneNumber(value)),
   requestId: z.string().uuid().toLowerCase(),
 }).strict();
+const customerApprovalSchema = commandSchema.extend({
+  companyName: z.string().min(1).max(200).refine(value => !/[\u0000-\u001f\u007f]/.test(value))
+    .transform(value => value.normalize('NFKC').trim().replace(/\s+/g, ' ')).pipe(z.string().min(1).max(200)),
+  approvalUrl: z.string().min(1).max(2048).refine(value => !/[\u0000-\u0020\u007f]/.test(value)),
+  createdAt: z.string().max(40).datetime({ offset: true }).transform(value => new Date(value).toISOString()),
+  expiresAt: z.string().max(40).datetime({ offset: true }).transform(value => new Date(value).toISOString()),
+}).strict().refine(value => Date.parse(value.expiresAt) > Date.parse(value.createdAt)
+  && Date.parse(value.expiresAt) - Date.parse(value.createdAt) <= 24 * 60 * 60_000);
 const receiptSchema = z.object({ id: z.string().regex(/^s[a-f0-9]{32}$/), status: z.enum(['created', 'sent', 'delivered', 'failed']) });
 
 export class SystemSmsError extends Error {
@@ -18,7 +26,26 @@ export class SystemSmsError extends Error {
   }
 }
 const fail = (status, code, message, outcome = 'not_sent') => { throw new SystemSmsError(status, code, message, outcome); };
-const unknownOutcome = () => fail(503, 'system_sms_outcome_unknown', 'SMS-testets resultat kunde inte bekräftas. Kontrollera utskicksloggen hos 46elks innan du gör ett nytt försök.', 'unknown');
+const unknownOutcome = (purpose = 'test') => fail(503, 'system_sms_outcome_unknown', purpose === 'customer-approval'
+  ? 'Kundgodkännandets SMS-utskick kunde inte bekräftas. Kontrollera utskicksloggen hos 46elks innan du gör ett nytt försök.'
+  : 'SMS-testets resultat kunde inte bekräftas. Kontrollera utskicksloggen hos 46elks innan du gör ett nytt försök.', 'unknown');
+
+function customerApprovalLink(value, configuredAppUrl) {
+  try {
+    const app = new URL(configuredAppUrl ?? 'https://app.scrapplanner.com'), link = new URL(value);
+    if (app.protocol !== 'https:' || app.username || app.password || app.pathname !== '/' || app.search || app.hash
+      || link.protocol !== 'https:' || link.origin !== app.origin || link.username || link.password
+      || link.pathname !== '/godkann/' || link.search || !/^#token=[A-Za-z0-9_-]{43}$/.test(link.hash)) return undefined;
+    return link.href;
+  } catch { return undefined; }
+}
+function customerApprovalMessage(companyName, approvalUrl) {
+  // Keep this fixed template GSM-friendly. Company names are presentation only;
+  // the full original name is shown on the authenticated approval page.
+  const company = companyName.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9 &.,'-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 32).trim() || 'Foretaget';
+  return `${company}: Godkann underlaget: ${approvalUrl} /ScrapPlanner`;
+}
 
 function withSignal(promise, signal) {
   return new Promise((resolve, reject) => {
@@ -53,16 +80,19 @@ async function readJson(response, signal) {
   }
 }
 
-function providerFailure(status) {
+function providerFailure(status, purpose = 'test') {
+  const subject = purpose === 'customer-approval' ? 'kundgodkännandets SMS' : 'SMS-testet';
   if ([401, 403].includes(status))
-    fail(503, 'system_sms_credentials_rejected', '46elks nekade SMS-testet. Kontrollera ELKS_API_USERNAME, ELKS_API_PASSWORD och kontots utskicksbehörighet.');
+    fail(503, 'system_sms_credentials_rejected', `46elks nekade ${subject}. Kontrollera ELKS_API_USERNAME, ELKS_API_PASSWORD och kontots utskicksbehörighet.`);
   if (status === 402)
-    fail(503, 'system_sms_balance_required', '46elks nekade SMS-testet. Kontrollera kontots saldo och betalningsmetod.');
+    fail(503, 'system_sms_balance_required', `46elks nekade ${subject}. Kontrollera kontots saldo och betalningsmetod.`);
   if (status === 429)
-    fail(429, 'system_sms_rate_limited', '46elks begränsar utskicken just nu. Vänta innan du provar SMS-testet igen.');
+    fail(429, 'system_sms_rate_limited', purpose === 'customer-approval'
+      ? '46elks begränsar utskicken för kundgodkännande just nu. Vänta innan du försöker igen.'
+      : '46elks begränsar utskicken just nu. Vänta innan du provar SMS-testet igen.');
   if (status >= 400 && status < 500 && ![408, 409].includes(status))
-    fail(503, 'system_sms_rejected', '46elks nekade SMS-testet. Kontrollera mottagarnummer, avsändarregler och kontots inställningar.');
-  unknownOutcome();
+    fail(503, 'system_sms_rejected', `46elks nekade ${subject}. Kontrollera mottagarnummer, avsändarregler och kontots inställningar.`);
+  unknownOutcome(purpose);
 }
 
 /** Fixed-template 46elks adapter. There is no documented provider idempotency
@@ -75,11 +105,12 @@ export function createSystemSmsProvider({ env = process.env, fetchImpl = fetch, 
   const apiUsername = typeof env.ELKS_API_USERNAME === 'string' ? env.ELKS_API_USERNAME.trim() : '';
   const apiPassword = typeof env.ELKS_API_PASSWORD === 'string' ? env.ELKS_API_PASSWORD.trim() : '';
   const configured = Boolean(apiUsername && apiPassword);
-  async function sendTest(input, { signal: callerSignal } = {}) {
-    const parsed = commandSchema.safeParse(input);
-    if (!parsed.success) fail(422, 'system_sms_invalid', 'Ange ett giltigt telefonnummer och test-ID.');
-    if (!configured) fail(503, 'system_sms_not_configured', 'SMS-testet är inte konfigurerat. Spara ELKS_API_USERNAME och ELKS_API_PASSWORD i appserverns miljöinställningar.');
-    if (callerSignal?.aborted) fail(499, 'system_sms_cancelled', 'SMS-testet avbröts innan utskicket påbörjades.');
+  async function send(to, message, purpose, callerSignal) {
+    if (!configured) fail(503, 'system_sms_not_configured', purpose === 'customer-approval'
+      ? 'SMS-utskick för kundgodkännande är inte konfigurerade. Kontakta systemadministratören.'
+      : 'SMS-testet är inte konfigurerat. Spara ELKS_API_USERNAME och ELKS_API_PASSWORD i appserverns miljöinställningar.');
+    if (callerSignal?.aborted) fail(499, 'system_sms_cancelled', purpose === 'customer-approval'
+      ? 'Kundgodkännandets SMS-utskick avbröts innan utskicket påbörjades.' : 'SMS-testet avbröts innan utskicket påbörjades.');
     const signal = callerSignal ? AbortSignal.any([callerSignal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
     try {
       signal.throwIfAborted();
@@ -87,20 +118,33 @@ export function createSystemSmsProvider({ env = process.env, fetchImpl = fetch, 
         method: 'POST', redirect: 'error', signal,
         headers: { Authorization: `Basic ${Buffer.from(`${apiUsername}:${apiPassword}`, 'utf8').toString('base64')}`,
           Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ from: SYSTEM_SMS_FROM, to: parsed.data.to, message: SYSTEM_SMS_TEST_MESSAGE, dontlog: 'message' }).toString(),
+        body: new URLSearchParams({ from: SYSTEM_SMS_FROM, to, message, dontlog: 'message' }).toString(),
       }), signal);
       if (!response.ok) {
         void response.body?.cancel().catch(() => {});
-        providerFailure(response.status);
+        providerFailure(response.status, purpose);
       }
       const receipt = receiptSchema.safeParse(await readJson(response, signal));
-      if (!receipt.success) unknownOutcome();
-      if (receipt.data.status === 'failed') fail(502, 'system_sms_delivery_failed', '46elks meddelar att SMS-testet inte kunde levereras. Kontrollera numret och utskicksloggen.');
+      if (!receipt.success) unknownOutcome(purpose);
+      if (receipt.data.status === 'failed') fail(502, 'system_sms_delivery_failed', purpose === 'customer-approval'
+        ? '46elks meddelar att kundgodkännandets SMS inte kunde levereras. Kontrollera numret och utskicksloggen.'
+        : '46elks meddelar att SMS-testet inte kunde levereras. Kontrollera numret och utskicksloggen.');
       return { providerId: receipt.data.id, providerStatus: receipt.data.status };
     } catch (error) {
       if (error instanceof SystemSmsError) throw error;
-      unknownOutcome();
+      unknownOutcome(purpose);
     }
   }
-  return Object.freeze({ configured, sendTest });
+  async function sendTest(input, { signal } = {}) {
+    const parsed = commandSchema.safeParse(input);
+    if (!parsed.success) fail(422, 'system_sms_invalid', 'Ange ett giltigt telefonnummer och test-ID.');
+    return send(parsed.data.to, SYSTEM_SMS_TEST_MESSAGE, 'test', signal);
+  }
+  async function sendCustomerApproval(input, { signal } = {}) {
+    const parsed = customerApprovalSchema.safeParse(input);
+    const approvalUrl = parsed.success && customerApprovalLink(parsed.data.approvalUrl, env.APP_URL);
+    if (!parsed.success || !approvalUrl) fail(422, 'system_sms_invalid', 'Utskicket för kundgodkännande innehåller ogiltiga uppgifter.');
+    return send(parsed.data.to, customerApprovalMessage(parsed.data.companyName, approvalUrl), 'customer-approval', signal);
+  }
+  return Object.freeze({ configured, sendTest, sendCustomerApproval });
 }

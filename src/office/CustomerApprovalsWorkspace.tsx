@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, Clock3, FileSearch, MessageSquare, Monitor, Search, X } from 'lucide-react';
+import { CheckCircle2, Clock3, FileSearch, Mail, MessageSquare, Monitor, Search, X } from 'lucide-react';
 import { activeApprovalStatuses, approvalLabels, type ApprovalStatus, type PublicSettlement, type TerminalApproval, type TerminalDemoState } from './terminal-demo-types';
 import { TerminalServiceNotice } from './TerminalWorkspace';
 import { SettlementView } from '../terminal/SettlementView';
@@ -103,7 +103,7 @@ export default function CustomerApprovalsWorkspace({ state, siteId, onOpenCard, 
         <td><WeightCardLink className="office-link approval-card-link" cardId={approval.cardId} to={to} onOpen={onOpenCard} label={latest.get(approval.cardId)?.id !== approval.id ? `Öppna aktuellt kort INV-${approval.cardId}` : `Öppna viktkort ${approval.cardId}`}>INV-{approval.cardId}</WeightCardLink><strong>{approval.snapshot.customer.name}</strong><small>Version {approval.version}{approval.snapshot.reference ? ` · ${approval.snapshot.reference}` : ''}</small></td>
         <td>{state?.sites.find(site => site.id === approval.siteId)?.name ?? approval.siteId}</td>{canSeeMoney && <td className="approval-amount">{money(approval.snapshot.net)}</td>}
         <td><span className={`approval-status approval-${approval.status}`}>{approvalLabels[approval.status]}</span>{approval.status === 'change_requested' && <small className="approval-change-comment">{approval.comment}</small>}{latest.get(approval.cardId)?.id !== approval.id && <small>Tidigare version</small>}</td>
-        <td><span className="approval-terminal-name"><Monitor size={14} />Kundterminal</span><small>{state?.terminals.find(terminal => terminal.id === approval.terminalId)?.name ?? 'Terminal'}</small></td>
+        <td><span className="approval-terminal-name">{approval.channel === 'email' ? <><Mail size={14} />E-post</> : approval.channel === 'sms' ? <><MessageSquare size={14} />SMS</> : <><Monitor size={14} />Kundterminal</>}</span><small>{approval.channel === 'email' || approval.channel === 'sms' ? approval.recipient : state?.terminals.find(terminal => terminal.id === approval.terminalId)?.name ?? 'Terminal'}</small></td>
         <td>{time(approval.createdAt)}<small>{approval.sentBy}</small></td>{canSeeMoney && <td><div className="approval-version-actions"><button className="office-link" aria-label={`Granska avräkningsversion ${approval.version} för invägning ${approval.cardId}`} onClick={() => setPreview(approval)}><FileSearch size={14} />Granska version</button></div></td>}
       </WeightCardRow>;
       })}</tbody></table></div></WeightCardRows>

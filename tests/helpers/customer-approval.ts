@@ -37,7 +37,7 @@ export async function approveCustomerCard(request: APIRequestContext, input: Rev
     rows: rows.map((row: { articleId: string; weight: number; price: number }) => ({ articleId: row.articleId, name: row.articleId, weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })),
     offset: 0, correctionIds: [], idempotencyKey: randomUUID() });
   await post(`/api/terminal-demo/approvals/${sent.id}/respond`, { action: 'id_requested', termsAccepted: true });
-  return post(`/api/terminal-demo/approvals/${sent.id}/confirm-id`, {});
+  return post(`/api/terminal-demo/approvals/${sent.id}/confirm-id`, { idChecked: true });
 }
 export async function approveCurrentOfficeCard(page: Page, cardId: number): Promise<TerminalApproval> {
   const response = await page.request.get('/api/application/office', { headers: { 'X-Demo-Actor': 'admin', 'X-Demo-User': 'admin' } });

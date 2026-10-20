@@ -3562,3 +3562,50 @@ Status: Genomförd i kod 2026-10-20.
   tests/platform-office-header.spec.ts täcker VD/medarbetare/bolagsadmin,
   verklig plattformsadmin med vald VD/medarbetare samt smal vy och profilretur.
   Verifieringen använder syntetiska sessioner och ändrar inga levande konton.
+
+
+ÄL 144 – Kundgodkännandelänkar via e-post/SMS med fysisk ID-kontroll
+Status: Genomförd i kod 2026-10-20. Driftsatt prov sker efter deployment.
+- Viktkortets befintliga godkännanderuta får verkliga kanalval för kundterminal,
+  e-post och SMS. Mottagarens sparade kontaktuppgift förifylls när den finns,
+  kan ändras för utskicket och valideras. Personalen väljer uttryckligen Skicka.
+  E-post/SMS kräver ingen ansluten eller ledig kundterminal.
+- Kunden får en personlig länk till ett fryst vägt underlag utan krav på
+  kundkonto/inloggning. Länken gäller i 24 timmar, har en unik slumpad token
+  i URL-fragmentet och är serverbundet till rätt aktivt bolag, granskning,
+  underlagsversion och innehållshash. Beständig lagring använder tokenhash.
+  Ersatt, återkallad eller utgången länk ger inget åtkomligt kundunderlag.
+- Kunden granskar underlaget och accepterar villkoren. Godkänn skickar direkt
+  begäran id_requested och visar därefter Visa din legitimation/Inväntar
+  personalens bekräftelse. Kunden kan i stället begära rättelse med kommentar.
+  Detta är manuell legitimation på plats; BankID-knapp och missvisande
+  BankID-/demobesked tas bort från flödet.
+- Personalen måste uttryckligen markera Jag har kontrollerat kundens
+  legitimation på plats innan kontroll och godkännande kan bekräftas.
+  Servern kräver idChecked: true och godkänner samma frysta underlag.
+  Intern attest är fortsatt ett separat behörighetskontrollerat steg efter
+  kundgodkännandet. PDF-kopia till kontoret efter attest behåller sitt flöde.
+- Kundterminalen använder samma direkta Godkänn -> väntan på ID-kontroll,
+  utan ett extra inledande Okej-klick. Fel eller obesvarat nätanrop får inte
+  visas som ett färdigt godkännande. Sena svar, kundbyte och avmonterade sidor
+  får inte överföra ett gammalt resultat till nästa kund eller version.
+- E-post skickas via Resend från noreply@scrapplanner.com; SMS via 46elks
+  med avsändare ScrapPlan. APP_URL, RESEND_API_KEY, ELKS_API_USERNAME och
+  ELKS_API_PASSWORD används; inga nya miljövariabler behövs för länkflödet.
+- Leveransstatus reserved/sending/sent/failed/unknown skiljs från kundens
+  godkännandestatus. Accepterat av leverantören är inte bevis på mottagen
+  eller läst leverans. Reservation och stabil begäran skyddar mot dubbla
+  utskick. Inga automatiska omförsök görs, heller inte vid timeout/unknown.
+  Kontrollera leverantörens logg innan ett nytt uttryckligt utskick övervägs;
+  föregående granskning ska avslutas eller ersättas så dess länk återkallas.
+- Publika GET /api/public/customer-approval och POST på /respond tar token
+  endast i Authorization: Bearer. Kunden får ingen bolagsväljare, historik
+  eller åtkomst till andra underlag. Sidan sparar inte token i lokal lagring
+  och rensar adressfältet efter inläsning. Frekvens-/storleksgränser samt
+  bolags-, versions-, giltighets- och behörighetskontroller sker på servern.
+- Transportaviseringar och automatiska påminnelser är fortsatt förberedda.
+  Plattformens separata testknappar skickar inga verksamhetsgodkännanden.
+- Underlag: docs/kundgodkannande-lankar.md och uppdaterad
+  docs/integrationer/systemutskick.md. Automatiska server- och browserprov
+  använder syntetiska leverantörssvar och skickar inga verkliga mejl/SMS.
+  Exakta kontrollresultat redovisas med leveransen.

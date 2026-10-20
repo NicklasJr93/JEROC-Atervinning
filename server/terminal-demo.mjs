@@ -7,6 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { freezePurchaseAccounting, AccountingError } from './visma-accounting.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { principalOwnsUser } from './business-identity.mjs';
+import { customerApprovalChannel } from './customer-approval-channel.mjs';
 import { validateCustomerDetails, normalizeCustomerDetails, normalizePaymentDetails, normalizeOriginAddress,
   normalizeAddress, validPaymentDetails, bankRecipientError, paymentDetailsSchema } from '../dist-server/domain-models.mjs';
 
@@ -54,7 +55,8 @@ const settlementRow = z.object({
   price: z.number().finite().nonnegative().max(1e9), amount: z.number().finite().nonnegative().max(1e15),
 }).strict();
 const sendSchema = z.object({
-  card: cardSchema, customer: customerSchema, terminalId: id, siteId,
+  card: cardSchema, customer: customerSchema, terminalId: id.optional(), siteId,
+  channel: z.enum(['terminal', 'email', 'sms']).optional(), recipient: z.string().max(200).optional(),
   rows: z.array(settlementRow).min(1).max(100), offset: z.number().finite().nonnegative().max(1e15),
   correctionIds: z.array(z.number().int().nonnegative()).max(100), idempotencyKey: id,
 }).strict();
@@ -117,11 +119,18 @@ function cleanup(state, now, sites) {
   state.terminalSessions = state.terminalSessions.filter((session) => Date.parse(session.expiresAt) > now.getTime());
   state.loginAttempts = state.loginAttempts.filter((attempt) => Date.parse(attempt.at) > now.getTime() - 10 * 60 * 1000);
   for (const approval of state.approvals.filter((value) => ACTIVE.includes(value.status))) {
+    const remote = ['email', 'sms'].includes(approval.channel);
     const terminal = state.terminals.find((value) => value.id === approval.terminalId);
-    if (Date.parse(approval.expiresAt) <= now.getTime() || !terminal?.active
+    if (Date.parse(approval.expiresAt) <= now.getTime() || !remote && !terminal?.active
       || !sites.some((site) => site.id === approval.siteId && site.active !== false)
-      || (terminal.lastSeen && now.getTime() - Date.parse(terminal.lastSeen) > DISCONNECT_AGE)) {
+      || (!remote && terminal?.lastSeen && now.getTime() - Date.parse(terminal.lastSeen) > DISCONNECT_AGE)) {
       releaseApproval(state, approval, 'expired', now, undefined, 'Kundvisningen har gått ut. Skicka en ny kundvisning.');
+    }
+    if (remote && ['reserved', 'sending'].includes(approval.delivery?.status)
+      && now.getTime() - Date.parse(approval.delivery.attemptedAt ?? approval.createdAt) > 120000) {
+      const status = approval.delivery.status === 'sending' ? 'unknown' : 'failed';
+      approval.delivery = { ...approval.delivery, status, errorCode: status === 'unknown' ? 'delivery_outcome_unknown' : 'delivery_not_started' };
+      audit(state, now, `approval.delivery_${status}`, undefined, { approvalId: approval.id });
     }
   }
 }
@@ -139,6 +148,7 @@ function approvalDTO(approval, principal, revision) {
   if (approval.status === 'attested') result.spirisAction = approval.spirisAction ?? 'draft';
   if (revision !== undefined) result.revision = revision;
   delete result.expiresAt; delete result.correctionIds; delete result.approvedHash; delete result.approvedMethod; delete result.siteSnapshot; delete result.companySnapshot;
+  delete result.remote;
   // The original persisted review snapshot is never mutated. These OfficeCard
   // fields form a workflow projection for existing office queues only.
   result.snapshot.card.status = approval.status === 'approved' ? 'attest'
@@ -150,7 +160,7 @@ function approvalDTO(approval, principal, revision) {
   result.snapshot.card.audit = [
     ...result.snapshot.card.audit,
     { at: approval.createdAt, actor: approval.sentBy, actualUserId: approval.actualUserId, effectiveUserId: approval.effectiveUserId,
-      text: `Avräkning version ${approval.version} fryst och visad för kund på terminal.` },
+      text: `Avräkning version ${approval.version} fryst för kundgodkännande${approval.channel === 'email' ? ' via e-post' : approval.channel === 'sms' ? ' via SMS' : ' på terminal'}.` },
     ...(approval.approvedAt ? [{ at: approval.approvedAt, actor: approval.approvedBy,
       text: `Kundgodkännande version ${approval.version} bekräftat efter kontroll av fysisk legitimation.` }] : []),
     ...(approval.attestedAt ? [{ at: approval.attestedAt, actor: approval.attestedBy,
@@ -187,9 +197,12 @@ function publicApproval(approval, revision) {
 /** A shared DEMO service: office identities are deliberately selected demo users,
  * not production authentication. Terminal passwords and sessions are real, and
  * business state always commits to the configured durable database. */
-export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, companyProfileProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
+export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, companyProfileProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, remoteDelivery, remoteConfigured, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
   if (!repository) throw new Error('A durable terminal repository is required.');
   const presenceTimers = new Map();
+  // Tokens never enter durable state, command payloads, staff DTOs or logs.
+  // Only the process preparing a new approval can make its one provider call.
+  const pendingRemote = new Map();
   const schedulePresenceExpiry = terminalId => {
     const previous=presenceTimers.get(terminalId);
     if(previous){clearTimeout(previous.offline);clearTimeout(previous.disconnected);}
@@ -265,6 +278,19 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     const approval = activeApproval(state, terminalId);
     if (approval) releaseApproval(state, approval, 'cancelled', time, principal, reason);
   };
+  const remoteApproval = (state, bearer, time, catalog) => {
+    const invalid = () => { throw new TerminalDemoError('Kundlänken är ogiltig, ersatt eller har gått ut. Be företaget om en ny länk.', 410, 'customer_approval_expired'); };
+    if (typeof bearer !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(bearer)) return invalid();
+    const digest = hash(bearer), approval = state.approvals.find(value => value.remote?.tokenHash === digest);
+    const current = approval && state.approvals.filter(value => value.cardId === approval.cardId).at(-1);
+    if (!approval || current?.id !== approval.id || !['waiting', 'id_requested', 'approved', 'attested', 'change_requested'].includes(approval.status)
+      || Date.parse(approval.expiresAt) <= time.getTime() || !catalog.some(site => site.id === approval.siteId && site.active !== false)
+      || !['sending', 'sent', 'unknown'].includes(approval.delivery?.status)
+      || approval.remote.version !== approval.version || approval.remote.sourceHash !== approval.snapshot.hash) return invalid();
+    return approval;
+  };
+  const remoteDTO = (approval, revision) => ({ companyName: approval.companySnapshot?.name ?? 'Företaget', expiresAt: approval.expiresAt,
+    approval: publicApproval(approval, revision) });
   const service = {
     projections: cardId => readOperation(state => state.approvals.map(approval => approvalDTO(approval, {user: {level: "Systemadmin"}},state.revision)),{projections:true,...(cardId===undefined?{}:{cardId})}),
     // Internal document source only. Never return confirmation hashes or private
@@ -445,7 +471,7 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
       if(needed)await transaction(()=>{});
     },
     async staffValidity(staffToken) {return readOperation((state,time)=>{const p=staff(state,staffToken,time);demand(p,'customerApprovalRead');return {actualUserId:p.actor.id,effectiveUserId:p.user.id};},{staffHash:hash(staffToken??'')});},
-    close() {for(const timers of presenceTimers.values()){clearTimeout(timers.offline);clearTimeout(timers.disconnected);}presenceTimers.clear();},
+    close() {for(const timers of presenceTimers.values()){clearTimeout(timers.offline);clearTimeout(timers.disconnected);}presenceTimers.clear();pendingRemote.clear();},
     logout(deviceToken) {
       return transaction((state, time, catalog) => {
         const terminal = device(state, deviceToken, time);
@@ -455,13 +481,23 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     },
     async send(payload, staffToken, preparedIdentity, requireStaffSession = false) {
       const request = validate(sendSchema, payload);
+      let channel;
+      try { channel = customerApprovalChannel(request); } catch (error) { throw new TerminalDemoError(error.message, 422, 'recipient_invalid'); }
+      const remote = ['email', 'sms'].includes(channel.channel);
+      if (remote && (!remoteDelivery || !remoteConfigured?.(channel.channel)))
+        throw new TerminalDemoError('Utskick via vald kanal är inte konfigurerat.', 503, 'customer_approval_delivery_unavailable');
+      if (remote && !preparedIdentity) throw new TerminalDemoError('Skicka avräkningen från det aktuella invägningskortet.', 409, 'prepared_review_required');
+      let createdToken;
       // Capture the company before taking the terminal reservation lock. A
       // delayed PDF job must keep this profile even after a settings change.
       const companySnapshot = companyProfileProvider ? copy(await companyProfileProvider()) : undefined;
-      return transaction(async (state, time, catalog) => {
+      const result = await transaction(async (state, time, catalog) => {
         const principal = preparedIdentity && !requireStaffSession ? principalStore.principal(preparedIdentity.actorId,preparedIdentity.userId) : staff(state, staffToken, time);
         if (preparedIdentity && (principal.actor.id !== preparedIdentity.actorId || principal.user.id !== preparedIdentity.userId)) throw new TerminalDemoError('Kontorets aktiva användare har ändrats. Försök igen i den aktuella vyn.',409,'staff_identity_changed');
         demand(principal, 'prepare', 'customerApprovalRead'); demandMoney(principal); demandSite(principal, request.siteId, catalog);
+        if (remote) {
+          demand({ user: principal.actor }, 'prepare', 'customerApprovalRead'); demandSite({ user: principal.actor }, request.siteId, catalog);
+        }
         const fingerprint = hash(JSON.stringify(request));
         const existingRequest = state.requests.find((entry) => entry.key === request.idempotencyKey && entry.userId === principal.user.id);
         if (existingRequest) {
@@ -474,13 +510,13 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         const previous = state.approvals.filter((entry) => entry.cardId === request.card.id).at(-1);
         if (previous?.status === 'attested' || ['ready', 'paid', 'balance'].includes(request.card.status)) throw new TerminalDemoError('Ett attesterat eller avslutat kort kan inte ersättas. Använd rättelseflödet.', 409, 'card_locked');
         if (request.card.kind === 'correction') throw new TerminalDemoError('Rättelser använder fortfarande det befintliga rättelseflödet.', 409, 'correction_flow');
-        const terminal = findTerminal(state, request.terminalId, principal, catalog);
-        const terminalView = terminalDTO(state, terminal, time, catalog);
+        const terminal = remote ? undefined : findTerminal(state, request.terminalId, principal, catalog);
+        const terminalView = terminal && terminalDTO(state, terminal, time, catalog);
         const selectedSite = catalog.find((site) => site.id === request.siteId);
         const cardMatchesSite = request.card.siteId ? request.card.siteId === request.siteId : request.card.yard === selectedSite?.name;
-        if (!terminal.active || terminal.siteId !== request.siteId || !cardMatchesSite) throw new TerminalDemoError('Kort och terminal måste tillhöra samma anläggning.', 409, 'site_mismatch');
-        if (!terminalView.online) throw new TerminalDemoError('Terminalen är offline. Logga in på terminalen eller välj en annan.', 409, 'terminal_offline');
-        const busy = activeApproval(state, terminal.id);
+        if (!cardMatchesSite || terminal && (!terminal.active || terminal.siteId !== request.siteId)) throw new TerminalDemoError('Kort och mottagare måste tillhöra samma anläggning.', 409, 'site_mismatch');
+        if (terminal && !terminalView.online) throw new TerminalDemoError('Terminalen är offline. Logga in på terminalen eller välj en annan.', 409, 'terminal_offline');
+        const busy = terminal && activeApproval(state, terminal.id);
         if (busy && busy.cardId !== request.card.id) throw new TerminalDemoError('Terminal upptagen. Välj en annan terminal.', 409, 'terminal_busy');
         if (request.card.customerId !== request.customer.id) throw new TerminalDemoError('Kunden stämmer inte med invägningskortet.');
         const pricing = principalStore.getSnapshotForApproval?.(request.card.pricingSnapshotId);
@@ -542,14 +578,90 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         // Cancel the old session only after all validation succeeds. Reservation
         // and supersession happen atomically under the repository's DB lock.
         if (previous && previous.status !== 'cancelled') releaseApproval(state, previous, 'cancelled', time, principal, 'Ersatt av en ny granskningsversion.');
-        const approval = { id: randomUUID(), cardId: request.card.id, siteId: request.siteId, terminalId: terminal.id,
+        if (remote) {
+          const recent = state.approvals.filter(value => ['email', 'sms'].includes(value.channel) && Date.parse(value.createdAt) > time.getTime() - 15 * 60000);
+          if (recent.length >= 100 || recent.filter(value => value.actualUserId === principal.actor.id).length >= 30
+            || recent.filter(value => value.recipient === channel.recipient).length >= 5)
+            throw new TerminalDemoError('För många kundutskick. Vänta en stund innan du skickar igen.', 429, 'customer_approval_rate_limit');
+          createdToken = token();
+          for (const [key, value] of pendingRemote) if (Date.parse(value.expiresAt) <= time.getTime()) pendingRemote.delete(key);
+        }
+        const approval = { id: randomUUID(), cardId: request.card.id, siteId: request.siteId, ...(terminal && { terminalId: terminal.id }),
           version: (previous?.version ?? 0) + 1, status: 'waiting', createdAt: time.toISOString(), updatedAt: time.toISOString(),
-          expiresAt: new Date(time.getTime() + approvalAge).toISOString(), sentBy: principal.user.name,
+          expiresAt: new Date(time.getTime() + (remote ? 24 * 60 * 60000 : approvalAge)).toISOString(), sentBy: principal.user.name,
           actualUserId: principal.actor.id, effectiveUserId: principal.user.id, correctionIds: request.correctionIds, siteSnapshot: copy(selectedSite), ...(companySnapshot && { companySnapshot }), snapshot };
+        if (remote) Object.assign(approval, { channel: channel.channel, recipient: channel.recipient,
+          delivery: { status: 'reserved' }, remote: { tokenHash: hash(createdToken), requestId: randomUUID(), version: approval.version, sourceHash: snapshot.hash } });
         state.approvals.push(approval);
         state.requests.push({ key: request.idempotencyKey, userId: principal.user.id, fingerprint, approvalId: approval.id });
-        audit(state, time, 'approval.sent', principal, { approvalId: approval.id, cardId: approval.cardId, terminalId: terminal.id, version: approval.version });
+        audit(state, time, 'approval.sent', principal, { approvalId: approval.id, cardId: approval.cardId, ...(terminal && { terminalId: terminal.id }), version: approval.version, ...(remote && { channel: channel.channel }) });
         return approvalDTO(approval, principal,state.revision);
+      });
+      if (createdToken) pendingRemote.set(result.id, { token: createdToken, expiresAt: new Date(now().getTime() + 24 * 60 * 60000).toISOString() });
+      return result;
+    },
+    async deliverRemote(approvalId, staffToken, preparedIdentity) {
+      const pending = pendingRemote.get(approvalId);
+      const claim = await transaction((state, time, catalog) => {
+        const principal = staff(state, staffToken, time);
+        demand(principal, 'prepare', 'customerApprovalRead'); demandMoney(principal);
+        demand({ user: principal.actor }, 'prepare', 'customerApprovalRead');
+        const approval = getApproval(state, approvalId, principal, catalog);
+        demandSite({ user: principal.actor }, approval.siteId, catalog);
+        if (preparedIdentity && (principal.actor.id !== preparedIdentity.actorId || principal.user.id !== preparedIdentity.userId))
+          throw new TerminalDemoError('Kontorets aktiva konto har ändrats.', 409, 'staff_identity_changed');
+        if (!approval.remote || approval.delivery?.status !== 'reserved' || !pending || hash(pending.token) !== approval.remote.tokenHash
+          || !ACTIVE.includes(approval.status) || Date.parse(approval.expiresAt) <= time.getTime())
+          return { result: approvalDTO(approval, principal, state.revision) };
+        approval.delivery = { status: 'sending', attemptedAt: time.toISOString() };
+        audit(state, time, 'approval.delivery_started', principal, { approvalId: approval.id, channel: approval.channel, requestId: approval.remote.requestId });
+        return { job: { approvalId: approval.id, channel: approval.channel, to: approval.recipient,
+          requestId: approval.remote.requestId, tokenHash: approval.remote.tokenHash, token: pending.token,
+          companyName: approval.companySnapshot?.name ?? 'Företaget', createdAt: approval.createdAt, expiresAt: approval.expiresAt } };
+      });
+      if (!claim.job) return claim.result;
+      pendingRemote.delete(approvalId);
+      let outcome;
+      try { outcome = await remoteDelivery(claim.job); }
+      catch { outcome = { status: 'unknown', errorCode: 'customer_approval_outcome_unknown' }; }
+      return transaction((state, time, catalog) => {
+        const approval = state.approvals.find(value => value.id === approvalId);
+        if (!approval?.remote || approval.remote.requestId !== claim.job.requestId)
+          throw new TerminalDemoError('Kundvisningen har ändrats.', 409, 'stale_approval');
+        if (['sending', 'unknown'].includes(approval.delivery.status)) {
+          const status = ['sent', 'failed', 'unknown'].includes(outcome?.status) ? outcome.status : 'unknown';
+          approval.delivery = { ...approval.delivery, status,
+            ...(status === 'sent' ? { sentAt: time.toISOString() } : { errorCode: status === 'unknown' ? 'customer_approval_outcome_unknown' : 'customer_approval_send_failed' }) };
+          audit(state, time, `approval.delivery_${status}`, undefined, { approvalId, requestId: claim.job.requestId, channel: approval.channel });
+        }
+        const principal = staff(state, staffToken, time); demand(principal, 'customerApprovalRead'); demandMoney(principal); demandSite(principal, approval.siteId, catalog);
+        return approvalDTO(approval, principal, state.revision);
+      });
+    },
+    remoteRead(bearer) {
+      return readOperation((state, time, catalog) => remoteDTO(remoteApproval(state, bearer, time, catalog), state.revision));
+    },
+    remoteRespond(bearer, payload) {
+      const request = validate(z.object({ action: z.enum(['id_requested', 'change_requested']),
+        termsAccepted: z.boolean(), comment: z.string().trim().max(2000).optional() }).strict(), payload);
+      return transaction((state, time, catalog) => {
+        const approval = remoteApproval(state, bearer, time, catalog);
+        if (request.action === 'id_requested' && !request.termsAccepted)
+          throw new TerminalDemoError('Bekräfta säljarens intygande först.', 422, 'terms_required');
+        if (request.action === 'change_requested' && !request.comment)
+          throw new TerminalDemoError('Beskriv vad som behöver ändras.', 422, 'comment_required');
+        if (approval.status === 'id_requested' && request.action === 'id_requested') return remoteDTO(approval, state.revision);
+        if (!ACTIVE.includes(approval.status)) {
+          if (request.action === 'id_requested' && ['approved', 'attested'].includes(approval.status)) return remoteDTO(approval, state.revision);
+          throw new TerminalDemoError('Kundgodkännandet är redan avslutat.', 409, 'stale_approval');
+        }
+        approval.status = request.action; approval.updatedAt = time.toISOString();
+        approval.displayedAt ??= time.toISOString();
+        if (request.comment) approval.comment = request.comment;
+        if (request.action === 'id_requested') approval.termsAcceptedAt = time.toISOString();
+        audit(state, time, `approval.${request.action}`, undefined,
+          { approvalId: approval.id, version: approval.version, channel: approval.channel, hash: approval.snapshot.hash });
+        return remoteDTO(approval, state.revision);
       });
     },
     respond(approvalId, payload, deviceToken) {
@@ -586,14 +698,19 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         return approvalDTO(approval, principal,state.revision);
       });
     },
-    confirmId(approvalId, staffToken) {
+    confirmId(approvalId, staffToken, proof) {
       return transaction((state, time, catalog) => {
         const principal = staff(state, staffToken, time); demand(principal, 'prepare', 'verifyId'); demandMoney(principal);
         const approval = getApproval(state, approvalId, principal, catalog);
+        if ((proof !== undefined || approval.remote) && !z.object({ idChecked: z.literal(true) }).strict().safeParse(proof).success)
+          throw new TerminalDemoError('Bekräfta att du har kontrollerat kundens fysiska legitimation.', 422, 'id_check_required');
+        if (approval.remote) {
+          demand({ user: principal.actor }, 'prepare', 'verifyId'); demandSite({ user: principal.actor }, approval.siteId, catalog);
+        }
         if (approval.status === 'approved') return approvalDTO(approval, principal,state.revision);
-        if (approval.status !== 'id_requested') throw new TerminalDemoError('Kunden måste först välja legitimation och bekräfta intygandet på terminalen.', 409, 'id_not_requested');
+        if (approval.status !== 'id_requested') throw new TerminalDemoError('Kunden måste först bekräfta intygandet och begära legitimationskontroll.', 409, 'id_not_requested');
         approval.status = 'approved'; approval.approvedBy = principal.user.name; approval.approvedAt = time.toISOString();
-        approval.approvedMethod = 'staff_checked_id_demo'; approval.approvedHash = approval.snapshot.hash; approval.updatedAt = time.toISOString();
+        approval.approvedMethod = proof?.idChecked ? 'staff_checked_physical_id' : 'staff_checked_id_demo'; approval.approvedHash = approval.snapshot.hash; approval.updatedAt = time.toISOString();
         audit(state, time, 'approval.approved_by_staff', principal, { approvalId, version: approval.version, hash: approval.snapshot.hash, method: approval.approvedMethod });
         return approvalDTO(approval, principal,state.revision);
       });
@@ -698,13 +815,13 @@ async function body(req) {
   catch { throw new TerminalDemoError('Ogiltig JSON.'); }
 }
 
-export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, companyProfileProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, onAttested, onApprovalChanged, trustedPrincipalProvider, env = process.env, now = () => new Date(), approvalAge } = {}) {
+export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, companyProfileProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, remoteDelivery, remoteConfigured, onAttested, onApprovalChanged, trustedPrincipalProvider, env = process.env, now = () => new Date(), approvalAge } = {}) {
   let repositoryPromise, storePromise, jobsRunning, jobTimer, maintenanceTimer, backgroundStarted = false, closed = false;
   const eventStreams = new Set();
   const getStore = () => {
     if (!storePromise) {
       repositoryPromise = repository ? Promise.resolve(repository) : createTerminalDemoRepository({ env });
-      storePromise = repositoryPromise.then(value => createTerminalDemoStore({ repository: value, principalStore, siteProvider, companyProfileProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, now, approvalAge }));
+      storePromise = repositoryPromise.then(value => createTerminalDemoStore({ repository: value, principalStore, siteProvider, companyProfileProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, remoteDelivery, remoteConfigured, now, approvalAge }));
       const attempt = storePromise;
       attempt.then(() => afterDatabaseCommit(startBackground), () => {
         if (storePromise === attempt) { storePromise = undefined; repositoryPromise = undefined; }
@@ -850,7 +967,7 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
           const result = action === 'respond' ? await store.respond(approval[1], value, deviceToken)
             : action === 'displayed' ? await store.displayed(approval[1],value,deviceToken)
               : action === 'cancel' ? await store.cancel(approval[1], staffToken)
-                : action === 'confirm-id' ? await store.confirmId(approval[1], staffToken) : await store.attest(approval[1], staffToken, value);
+                : action === 'confirm-id' ? await store.confirmId(approval[1], staffToken, value) : await store.attest(approval[1], staffToken, value);
           scheduleJobs();
           if (action === 'attest' && onAttested) afterDatabaseCommit(() => setImmediate(() => { void Promise.resolve(onAttested(result)).catch(() => console.warn('Spiris-överföringen väntar i kön.')); }));
           json(res, 200, result);
@@ -876,6 +993,14 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
     const expected=req?{actualUserId:req.headers['x-terminal-actual-user']??identity.actorId,effectiveUserId:req.headers['x-terminal-effective-user']??identity.userId,trustedPrincipal:trustedPrincipalProvider?.(req)}:undefined;
     const result=await expectedStaffIdentity.run(expected,async()=>(await getStore()).send(payload,req?cookie(req,STAFF_COOKIE):undefined,identity,Boolean(req)));
     scheduleJobs();return result;
+  };
+  api.deliverPrepared = async (approvalId, req) => {
+    const expected = { actualUserId: req.headers['x-terminal-actual-user'], effectiveUserId: req.headers['x-terminal-effective-user'], trustedPrincipal: trustedPrincipalProvider?.(req) };
+    return expectedStaffIdentity.run(expected, () => getStore().then(store => store.deliverRemote(approvalId, cookie(req, STAFF_COOKIE))));
+  };
+  api.remoteRead = async bearer => (await getStore()).remoteRead(bearer);
+  api.remoteRespond = async (bearer, payload) => {
+    const result = await (await getStore()).remoteRespond(bearer, payload); scheduleJobs(); return result;
   };
   api.withApprovedCard = async (input, operation) => (await getStore()).withApprovedCard(input, operation);
   api.withMaterialChangeApproval = async (input, identity, operation) => (await getStore()).withMaterialChangeApproval(input, identity, operation);

@@ -1,8 +1,8 @@
-# Systemutskick – mejltest, SMS-test och planerade aviseringar
+# Systemutskick – mejltest, SMS-test och kundgodkännande
 
 Systemutskick hanteras på plattformsnivå. Det första verkliga utskicket är ett manuellt testmejl via Resend från **ScrapPlanner <noreply@scrapplanner.com>**. Testet ligger i systemadministrationen och använder inga uppgifter eller mallar från ett SaaS-bolag.
 
-Samma panel har nu ett separat **SMS-test via 46elks**, med fast avsändare **ScrapPlan**. SMS-testet skickar först efter administratörens knapptryck. Kundgodkännande och transportaviseringar är fortfarande förberedda underlag utan automatiska utskick.
+Samma panel har ett separat **SMS-test via 46elks**, med fast avsändare **ScrapPlan**. SMS-testet skickar först efter administratörens knapptryck. Kontoret kan också skicka verkliga **kundgodkännanden via e-post eller SMS** efter eget kanalval och mottagarkontroll. Transportaviseringar är fortsatt förberedda underlag utan automatiska utskick. Kundlänkens flöde och säkerhetsregler beskrivs i [Kundgodkännande via länkar](../kundgodkannande-lankar.md).
 
 ## Prova ett mejlutskick
 
@@ -31,7 +31,7 @@ Deploya appen efter konfigurationsändringen. Appens automatiska deployment är 
 
 ## API och skydd
 
-- `GET /api/platform/communications` visar mejlkonfigurationen och SMS-status `{ "configured": true|false, "provider": "46elks", "from": "ScrapPlan", "useCases": [...] }`. `sms.configured` anger om båda SMS-variablerna finns, inte om kontot, saldot eller leveransen har verifierats. De förberedda verksamhetsändamålen är `customer_approval` och `transport_notification`. Nycklar och lösenord lämnas aldrig ut.
+- `GET /api/platform/communications` visar mejlkonfigurationen och SMS-status `{ "configured": true|false, "provider": "46elks", "from": "ScrapPlan", "useCases": [...] }`. `sms.configured` anger om båda SMS-variablerna finns, inte om kontot, saldot eller leveransen har verifierats. Ändamålskatalogen innehåller `customer_approval` och `transport_notification`; själva kundgodkännandet har ett separat behörighetskontrollerat verksamhetsflöde. Nycklar och lösenord lämnas aldrig ut.
 - `POST /api/platform/communications/test-email`, JSON `{ "requestId": "<uuid>", "to": "mottagare@example.com" }`, begär ett testmejl till en enda giltig e-postadress.
 - `POST /api/platform/communications/test-sms`, JSON `{ "requestId": "<uuid>", "to": "+46701234567" }`, begär ett test-SMS till ett giltigt telefonnummer.
 - `POST /api/platform/communications/review-sms`, med samma JSON-fält, bekräftar administratörens manuella logggranskning för mottagarnumret. Åtgärden skickar inget SMS.
@@ -53,11 +53,11 @@ Gränssnittet behåller omförsökets ID medan samma formulär är öppet. Efter
 
 Felkoder har prefixet `system_email_` och fasta, säkra texter för bland annat saknad konfiguration, nekad leverans, frekvensgräns och osäkert resultat. Ett rått leverantörsfel lämnas inte vidare till webbläsaren.
 
-## Kommande mejlflöden
+## Verksamhetsmejl och fortsatt avgränsning
 
-Den gemensamma leverantörskopplingen kan senare användas för exempelvis kontoinbjudningar, återställningslänkar, avräkningar och transportaviseringar. De flödena behöver egna rättighetskontroller, mottagarregler, mallar och verksamhetshändelser innan de aktiveras. Testknappen aktiverar dem inte.
+Den gemensamma leverantörskopplingen används även för kontoinbjudningar, återställningslänkar, kontorets PDF-kopia av vägt underlag efter attest och kundgodkännandelänkar. Dessa funktioner har egna mottagarregler och behörighetskontroller; testknappen skickar inte deras meddelanden och aktiverar inte deras verksamhetshändelser. Transportaviseringar och automatiska påminnelser är fortsatt framtida flöden.
 
-Bolagets sparade aviseringsmottagare under **Företagsinställningar** är fortfarande mottagarinställningar. De skapar inga automatiska utskick genom denna leverans.
+Bolagets allmänna sparade aviseringsmottagare under **Företagsinställningar** aktiverar inte i sig nya utskick. Den separata inställningen för PDF-kopia efter attest styr sitt redan implementerade flöde. Kundgodkännandelänken skickas uttryckligen från det aktuella viktkortet till den mottagare personalen har kontrollerat.
 
 Befintlig Microsoft 365-integration används för att läsa mejl. Gmail är planerat. En ansluten inkorg betyder inte att portalen redan kan skicka som den användaren. Framtida utskick från Outlook eller Gmail behöver separat sändningsimplementation och leverantörens sändningsbehörighet. Önskat framtida flöde är bolagets egen anslutna avsändare när den stöds; annars tydlig sändning via ScrapPlanner med bolagets mall och logga.
 
@@ -70,7 +70,7 @@ Ett **46elks-konto** finns. Spara dess API-uppgifter privat under **Render → s
 | `ELKS_API_USERNAME` | API-användarnamnet från 46elks. |
 | `ELKS_API_PASSWORD` | API-lösenordet från 46elks, inte kontots vanliga inloggningslösenord. |
 
-Värdena ska inte skickas i chatt eller läggas i Git/klientkod. SMS-testets serveradapter läser nu båda variablerna. Den separata hjälpen för kund-/transportunderlag använder inga leverantörsuppgifter.
+Värdena ska inte skickas i chatt eller läggas i Git/klientkod. Serveradaptern läser båda variablerna för SMS-test och uttryckliga kundgodkännandeutskick. Den äldre separata hjälpen för inaktiva kund-/transportunderlag använder inga leverantörsuppgifter.
 
 1. Deploya senaste commit manuellt på **scrapplanner-app** efter att API-uppgifterna sparats.
 2. Öppna **Systemadmin → Systemutskick → Testa SMS-utskick** utanför bolagets arbetsyta.
@@ -99,13 +99,13 @@ Det separata revisionsspåret innehåller aktör, tid, begärans-ID, pseudonym m
 
 `server/system-sms-provider.mjs` anropar endast `https://api.46elks.com/a1/sms` med HTTPS, HTTP Basic-autentisering och formulärfält enligt leverantörens API. Det finns ingen påhittad idempotensparameter eller automatisk omförsöksloop. Hela anropet, inklusive kvittot, har åtta sekunders timeout och kvittot får högst vara 16 KiB. Alla råa leverantörsfel hålls på servern; klienten får fasta feltexter och koder med prefixet `system_sms_`.
 
-## Förberedda verksamhets-SMS
+## Kundgodkännande och förberedda transportaviseringar
 
-Användaren har valt **kundgodkännande och transportaviseringar** som de två första verksamhetsflödena. De är förberedda som inaktiva underlag och kopplas inte automatiskt till utskick av att SMS-testet konfigureras.
+**Kundgodkännande** har nu verkliga, uttryckliga utskick från kontoret via e-post och SMS. **Transportaviseringar** är fortfarande inaktiva underlag. Att SMS-testet konfigureras startar inga automatiska verksamhetsutskick.
 
 | Flöde | Exempel | Kanalval |
 | --- | --- | --- |
-| Kundgodkännande | En kund får en länk till sitt aktuella viktunderlag när terminalen inte används. | Valt; SMS-underlag förberett. |
+| Kundgodkännande | En kund får en personlig länk till den frysta versionen av sitt viktunderlag. | Implementerat: kontoret väljer e-post eller SMS och kontrollerar mottagaren före utskick. Ingen ansluten kundterminal krävs. |
 | Transportavisering | Bekräftad hämtning, ändrad tid eller besked om att chauffören är på väg. | Valt; SMS-underlag förberett för `booked`, `time_changed` och `on_the_way`. |
 | Chaufförsuppdrag | Nytt, ändrat eller återkallat uppdrag som kräver snabb uppmärksamhet. | Framtida förslag. Appavisering i första hand; SMS vid uttryckligt behov. |
 | Påminnelse | Ett kundgodkännande väntar fortfarande på svar. | Framtida förslag. Schemalagd och begränsad påminnelse efter verksamhetsbeslut. |
@@ -113,15 +113,17 @@ Användaren har valt **kundgodkännande och transportaviseringar** som de två f
 
 Vanliga dokument, inbjudningar och systembesked passar normalt som mejl. Allmän marknadsföring ingår inte i de föreslagna SMS-flödena.
 
-`server/system-sms.mjs` innehåller katalogen `SYSTEM_SMS_USE_CASES` och serverhjälpen `prepareSystemSms`. Hjälpen skapar ett inaktivt SMS-underlag med `deliveryEnabled: false` och `deliveryStatus: 'not_configured'`. Den normaliserar telefonnummer och binder underlaget till bolag, mottagare, ändamål, händelse-ID och aktuell objektsversion. En stabil idempotensnyckel skiljer även de olika transportbeskeden åt. Ingen ny kö, sändningshook eller publik SMS-endpoint skapas.
+Det implementerade kundgodkännandet använder egna beständiga granskningsposter och leveransstatusar samt `sendCustomerApproval` i mejl- och SMS-adaptrarna. Länken gäller i 24 timmar, kräver ingen kundinloggning och är bunden till rätt bolag och underlagsversion. Kundens **Godkänn** leder till väntan på personalens fysiska ID-kontroll. Personalen måste bekräfta kontrollen uttryckligen innan underlaget blir kundgodkänt; intern attest sker separat. Utskick som accepterats av leverantören är inte bevis för mottagen eller läst leverans. Osäkra resultat ger ingen automatisk omsändning. Se [hela kundgodkännandeflödet](../kundgodkannande-lankar.md).
+
+`server/system-sms.mjs` innehåller fortfarande katalogen `SYSTEM_SMS_USE_CASES` och den äldre serverhjälpen `prepareSystemSms`. Hjälpen skapar ett inaktivt SMS-underlag med `deliveryEnabled: false` och `deliveryStatus: 'not_configured'`; den är inte sändningsvägen för de nya kundgodkännandelänkarna. Den normaliserar telefonnummer och binder underlaget till bolag, mottagare, ändamål, händelse-ID och aktuell objektsversion. En stabil idempotensnyckel skiljer även de olika transportbeskeden åt. Hjälpen startar ingen kö, sändningshook eller publik SMS-endpoint.
 
 Anroparen måste först behörighetskontrollera verksamhetsobjektet och tillhandahålla en redan utfärdad och kontrollerad kundportallänk. Hjälpen kontrollerar att denna betrodda kontext stämmer med bolag, mottagare, ändamål, händelse och version, samt att HTTPS-länken hör till rätt kundportal och inte har gått ut. Hjälpen utfärdar inga länkar eller åtkomsttoken och autentiserar inte tokeninnehållet. Ett klientpåstående om att länken är godkänd är inte en betrodd kontext.
 
-En framtida kanaladapter kan använda dessa underlag och samma modell för spårning och leverantörsresultat som mejlen. En bolagsadministratör ska aldrig kunna välja ett annat bolags avsändare, mottagarregister eller underlag.
+En framtida transportkoppling kan använda dessa underlag och en egen modell för spårning och leverantörsresultat. En bolagsadministratör ska aldrig kunna välja ett annat bolags avsändare, mottagarregister eller underlag.
 
-SMS ska innehålla kort information och vid behov en skyddad länk. Personuppgifter från HR, lön, sjukfrånvaro eller bankkonton ska inte skrivas i meddelandet. Innan svarslänkar aktiveras behöver deras behörighet, giltighetstid, återkallning och koppling till rätt underlagsversion vara implementerade och testade. Utgångna eller ersatta godkännanden får inte godkännas via en gammal länk.
+SMS innehåller kort information och vid behov en skyddad länk. Personuppgifter från HR, lön, sjukfrånvaro eller bankkonton ska inte skrivas i meddelandet. Kundgodkännandelänkens behörighet, giltighetstid, återkallning och koppling till rätt underlagsversion är implementerade. Utgångna, återkallade eller ersatta godkännanden kan inte godkännas via en gammal länk.
 
-Automatiska verksamhetsutskick kräver fortsatt koppling till behörighetskontrollerade verksamhetshändelser, mottagarregler, begränsning av kostnad/utskicksfrekvens samt verifierad hantering av leveransbesked. Inga verksamhets-SMS skickas genom mejltestet eller underlagshjälpen. Den manuella SMS-testknappen använder den separata testadaptern.
+Automatiska transportutskick och påminnelser kräver fortsatt egna verksamhetshändelser, mottagarregler, begränsning av kostnad/utskicksfrekvens samt verifierad hantering av leveransbesked. Inga verksamhets-SMS skickas genom mejltestet, SMS-testknappen eller underlagshjälpen. Testflödenas särskilda register och gränser ska inte förväxlas med kundgodkännandets egen sändningshantering.
 
 ## Verifiering
 
@@ -134,7 +136,7 @@ npm run build
 
 Automatiska prov använder syntetiska leverantörssvar och skickar inga verkliga mejl eller SMS. Ett lyckat lokalt prov bevisar inte att nycklar, kontobehörigheter, saldo eller leverans fungerar i Render. De manuella testknapparna används för de separata driftsatta proven.
 
-Leveranskontroll 20 oktober 2026: produktionsbygget samt **75 skilda backendfall och 15 browserfall passerar** i de relevanta körningarna. Kontrollerna omfattar både mejl och SMS, verkliga plattformssessioner, frekvensgränser, beständiga reservationer, sena kvitton efter granskning och skydd för osäkra SMS-resultat. Inget skarpt utskick görs av de automatiska proven.
+Tidigare leveranskontroll för de separata testfunktionerna, 20 oktober 2026: produktionsbygget samt **75 skilda backendfall och 15 browserfall passerade** i de relevanta körningarna. Kontrollerna omfattade både mejl och SMS, verkliga plattformssessioner, frekvensgränser, beständiga reservationer, sena kvitton efter granskning och skydd för osäkra SMS-resultat. Inget skarpt utskick gjordes av de automatiska proven. Kundgodkännandets nya prov och slutliga kontrollresultat redovisas separat med den leveransen.
 
 ## Källor
 

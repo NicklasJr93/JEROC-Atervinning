@@ -33,7 +33,7 @@ async function fixture(run, { failHook = false, hookGate } = {}) {
       assert.equal(job.sourceHash, approval.snapshot.hash);
       if (job.stage === 'reviewed' || job.stage === 'final') {
         assert.equal(approval.approvedHash, approval.snapshot.hash);
-        assert.equal(approval.approvedMethod, 'staff_checked_id_demo');
+        assert.equal(approval.approvedMethod, 'staff_checked_physical_id');
       }
       hooks.push({ id: approval.id, status: approval.status, stage: job.stage, hash: approval.snapshot.hash });
       if (hookGate) await hookGate;
@@ -80,7 +80,7 @@ test('terminal actions durably queue preliminary, customer-approved and final PD
   assert.deepEqual((await readArchiveDirectly()).map(record => record.stage), ['preliminary']);
   const id = sent.value.id;
   assert.equal((await request(`/approvals/${id}/respond`, { action: 'id_requested', termsAccepted: true }, device)).status, 200);
-  assert.equal((await request(`/approvals/${id}/confirm-id`, {}, staff.kajsa)).status, 200);
+  assert.equal((await request(`/approvals/${id}/confirm-id`, { idChecked: true }, staff.kajsa)).status, 200);
   await terminal.drainDocumentJobs();
   assert.deepEqual(new Set((await readArchiveDirectly()).map(record => record.stage)), new Set(['preliminary', 'reviewed']));
   assert.equal((await request(`/approvals/${id}/attest`, {}, staff.anna)).status, 200);
@@ -104,7 +104,7 @@ test('PDF outage leaves durable retry jobs and never reverts successful customer
     assert.equal(sent.status, 201); const id = sent.value.id;
     await terminal.drainDocumentJobs();
     assert.equal((await request(`/approvals/${id}/respond`, { action: 'id_requested', termsAccepted: true }, device)).status, 200);
-    assert.equal((await request(`/approvals/${id}/confirm-id`, {}, staff.kajsa)).status, 200);
+    assert.equal((await request(`/approvals/${id}/confirm-id`, { idChecked: true }, staff.kajsa)).status, 200);
     assert.equal((await request(`/approvals/${id}/attest`, {}, staff.anna)).status, 200);
     await terminal.drainDocumentJobs();
     const persisted = (await terminal.documentProjections()).find(value => value.id === id);
@@ -128,12 +128,12 @@ test('slow PDF work never delays terminal replies, and cancelling later preserve
       assert.equal(sent.status,201,'The request must reply while archive worker is blocked');
       const id=sent.value.id;
       assert.equal((await request(`/approvals/${id}/respond`,{action:'id_requested',termsAccepted:true},device)).status,200);
-      assert.equal((await request(`/approvals/${id}/confirm-id`,{},staff.kajsa)).status,200);
+      assert.equal((await request(`/approvals/${id}/confirm-id`,{idChecked:true},staff.kajsa)).status,200);
       assert.equal((await request(`/approvals/${id}/cancel`,{},staff.kajsa)).status,200);
       unblock(); await terminal.drainDocumentJobs();
       const originals=await documentRepository.transact(database=>database.documents('settlement','9201'));
       assert.deepEqual(new Set(originals.map(record=>record.stage)),new Set(['preliminary','reviewed']));
-      assert.equal(originals.find(record=>record.stage==='reviewed').snapshot.approval.method,'staff_checked_id_demo');
+      assert.equal(originals.find(record=>record.stage==='reviewed').snapshot.approval.method,'staff_checked_physical_id');
       assert.equal((await terminal.documentProjections()).find(value=>value.id===id).status,'cancelled');
     },{hookGate:gate});
   } finally { unblock(); }
@@ -147,7 +147,7 @@ test('queued PDF milestones freeze company branding before an outage or a later 
   await terminal.drainDocumentJobs();
   setCompany({ id: 'company-hook', name: 'Senare företagsnamn AB', number: '5593593626', footerText: 'Senare sidfot' });
   assert.equal((await request(`/approvals/${sent.value.id}/respond`, { action: 'id_requested', termsAccepted: true }, device)).status, 200);
-  assert.equal((await request(`/approvals/${sent.value.id}/confirm-id`, {}, staff.kajsa)).status, 200);
+  assert.equal((await request(`/approvals/${sent.value.id}/confirm-id`, { idChecked: true }, staff.kajsa)).status, 200);
   assert.equal((await request(`/approvals/${sent.value.id}/attest`, {}, staff.anna)).status, 200);
   recover(); advance(10000); await terminal.drainDocumentJobs();
   const records = await documentRepository.transact(database => database.documents('settlement', '9201'));

@@ -1,0 +1,8 @@
+.customer-approval-app .terminal-header { justify-content: space-between; }
+.customer-approval-company { color: #48627e; font-size: 13px; line-height: 1.4; text-align: right; max-width: 50%; overflow-wrap: anywhere; }
+.customer-approval-app .terminal-customer-actions { grid-template-columns: 1fr; }
+.customer-approval-app .terminal-customer-actions > :last-child { grid-column: auto; }
+.customer-approval-app .terminal-safe-note { margin: 12px 0 0; padding-top: 0; }
+.customer-approval-id-backdrop .terminal-dialog { outline: none; }
+@media (min-width: 800px) { .customer-approval-app .terminal-customer-actions { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 520px) { .customer-approval-company { font-size: 12px; } }

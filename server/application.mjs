@@ -544,7 +544,7 @@ function requestPrincipal(store, req) {
   return store.principal(actor, user);
 }
 
-export function createApplicationService({ repository, env = process.env, seed = initialApplicationState, projections, approvalProvider = async () => [], sendCustomerReview,
+export function createApplicationService({ repository, env = process.env, seed = initialApplicationState, projections, approvalProvider = async () => [], sendCustomerReview, finishCustomerReview,
   withMaterialChangeApproval, guardMaterialChange, siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider,
   accountingSettingsProvider, accountingCardStatusProvider, validateArticleMedia, managedPaymentGuard, reauthorizeVoiceCall, voiceTestCompanyName, companyProfileProvider } = {}) {
   projections ??= approvalProvider;
@@ -774,6 +774,11 @@ export function createApplicationService({ repository, env = process.env, seed =
         }, { committedRevision: true });
         const started = performance.now();
         const { result, metrics } = await measureDatabaseWork(() => repository.runInTransaction ? repository.runInTransaction(run) : run());
+        // Email/SMS provider I/O and cross-tenant routing registration happen
+        // only after the application's outer durable transaction committed.
+        if (finishCustomerReview && ['email', 'sms'].includes(result.approval?.channel)) {
+          result.approval = await finishCustomerReview(result.approval.id, req);
+        }
         res.setHeader('Server-Timing', [`review;dur=${(performance.now() - started).toFixed(1)}`,
           `db_pool;dur=${metrics.poolWaitMs.toFixed(1)}`, `db_sql;dur=${metrics.sqlMs.toFixed(1)}`,
           `db_lock_query;dur=${metrics.lockQueryMs.toFixed(1)}`, `db_commit;dur=${metrics.commitMs.toFixed(1)}`,

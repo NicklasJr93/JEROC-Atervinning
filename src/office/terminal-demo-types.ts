@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { officeSchema, type OfficeCard, type OfficeCustomer } from './model';
 
 export type ApprovalStatus = 'waiting' | 'id_requested' | 'approved' | 'change_requested' | 'cancelled' | 'expired' | 'attested';
+export type ApprovalChannel = 'terminal' | 'email' | 'sms';
+export type ApprovalTarget = { channel: ApprovalChannel; siteId: string; terminalId?: string; recipient?: string };
 export interface DemoSite { id: string; name: string; active?: boolean }
 export interface DemoTerminal {
   id: string; name: string; username: string; siteId: string; active: boolean;
@@ -16,7 +18,9 @@ export interface PublicSettlement {
   tax?: { baseTotal: number; sellerVat: number; treatments: string[] };
 }
 export interface TerminalApproval {
-  id: string; cardId: number; siteId: string; terminalId: string; version: number;
+  id: string; cardId: number; siteId: string; terminalId?: string; version: number;
+  channel?: ApprovalChannel; recipient?: string;
+  delivery?: { status: 'reserved' | 'sending' | 'sent' | 'failed' | 'unknown'; attemptedAt?: string; sentAt?: string; errorCode?: string };
   status: ApprovalStatus; createdAt: string; updatedAt: string; sentBy: string;
   actualUserId: string; effectiveUserId: string; comment?: string;
   approvedBy?: string; approvedAt?: string; attestedBy?: string; attestedAt?: string;
@@ -44,7 +48,7 @@ export interface TerminalSessionState {
   revision?: number; connectionId?: string;
 }
 export interface CustomerReviewCommand {
-  cardId: number; terminalId: string; siteId: string; expectedCard: OfficeCard; idempotencyKey: string;
+  cardId: number; terminalId?: string; channel?: ApprovalChannel; recipient?: string; siteId: string; expectedCard: OfficeCard; idempotencyKey: string;
 }
 export interface CustomerReviewResult {
   approval: TerminalApproval; cardProjection: OfficeCard; revision: number;
@@ -55,7 +59,7 @@ export interface ApprovalSend {
 }
 export const approvalLabels: Record<ApprovalStatus, string> = {
   waiting: 'Inväntar kund', id_requested: 'Inväntar ID-kontroll', approved: 'Godkänd av kund',
-  change_requested: 'Ändring begärd', cancelled: 'Avbruten', expired: 'Utgången', attested: 'JEROC-attesterad',
+  change_requested: 'Ändring begärd', cancelled: 'Avbruten', expired: 'Utgången', attested: 'Internt attesterad',
 };
 export const activeApprovalStatuses: ApprovalStatus[] = ['waiting', 'id_requested', 'change_requested', 'expired'];
 
@@ -84,7 +88,10 @@ export const publicApprovalSchema = z.object({
   }),
 });
 export const terminalApprovalSchema = z.object({
-  id: z.string().min(1), cardId: z.number().int(), siteId: z.string().min(1), terminalId: z.string().min(1),
+  id: z.string().min(1), cardId: z.number().int(), siteId: z.string().min(1), terminalId: z.string().min(1).optional(),
+  channel: z.enum(['terminal', 'email', 'sms']).optional(), recipient: z.string().optional(),
+  delivery: z.object({ status: z.enum(['reserved', 'sending', 'sent', 'failed', 'unknown']),
+    attemptedAt: z.string().optional(), sentAt: z.string().optional(), errorCode: z.string().optional() }).optional(),
   version: z.number().int().positive(), status: approvalStatusSchema, createdAt: z.string(), updatedAt: z.string(), sentBy: z.string(),
   actualUserId: z.string(), effectiveUserId: z.string(), displayedAt: z.string().optional(), revision: z.number().int().nonnegative().optional(),
   approvedBy: z.string().optional(), approvedAt: z.string().optional(), attestedBy: z.string().optional(), attestedAt: z.string().optional(),

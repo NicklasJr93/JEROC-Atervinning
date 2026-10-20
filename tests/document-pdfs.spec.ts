@@ -112,7 +112,7 @@ test('kundgranskning och attest arkiverar riktiga PDF-original som kan väljas o
   await dialog.getByRole('button', { name: 'Stäng underlag', exact: true }).click();
 
   await post(request, `/api/terminal-demo/approvals/${approval.id}/respond`, { action: 'id_requested', termsAccepted: true });
-  await post(request, `/api/terminal-demo/approvals/${approval.id}/confirm-id`, {});
+  await post(request, `/api/terminal-demo/approvals/${approval.id}/confirm-id`, { idChecked: true });
   const reviewed = await archive(request, 'settlement', fixture.cardId);
   expect(reviewed.map(document => document.stage).sort()).toEqual(['preliminary', 'reviewed']);
   await post(request, `/api/terminal-demo/approvals/${approval.id}/attest`, {});

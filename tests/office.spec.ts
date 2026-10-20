@@ -116,6 +116,7 @@ test('granskning och prishistorik följs av kundgodkännande, intern attest och 
     expect(approval.snapshot.rows[0].price).toBe(50);
     expect((await request.post(`/api/terminal-demo/approvals/${approval.id}/respond`, { data: { action: 'id_requested', termsAccepted: true } })).ok()).toBeTruthy();
     await page.getByRole('button', { name: 'Bekräfta legitimation & godkännande', exact: true }).click();
+    await page.getByRole('dialog').getByRole('checkbox', { name: 'Jag har kontrollerat kundens legitimation på plats', exact: true }).check();
     await page.getByRole('dialog').getByRole('button', { name: 'Bekräfta kontroll & godkännande', exact: true }).click();
     await expect(page.locator('.approval-controls')).toContainText('Godkänd av kund');
     await expect(
@@ -173,7 +174,7 @@ test('attestgräns stoppar ekonomi, VD får attestera och får inte ändra syste
   const state = await (await request.get('/api/terminal-demo/state')).json();
   const approval = state.approvals.find((item: { cardId: number }) => item.cardId === cardId);
   expect((await request.post(`/api/terminal-demo/approvals/${approval.id}/respond`, { data: { action: 'id_requested', termsAccepted: true } })).ok()).toBeTruthy();
-  expect((await request.post(`/api/terminal-demo/approvals/${approval.id}/confirm-id`, { data: {} })).ok()).toBeTruthy();
+  expect((await request.post(`/api/terminal-demo/approvals/${approval.id}/confirm-id`, { data: { idChecked: true } })).ok()).toBeTruthy();
   await changeUser(page, 'Anna Nilsson');
   await page
     .getByRole('button', { name: `Öppna viktkort ${cardId}`, exact: true })
@@ -257,6 +258,7 @@ test('behörigheter och egen attest styrs av VD och rättelseutkast bevarar lås
       expect(approval.effectiveUserId).toBe('kajsa');
       expect((await request.post(`/api/terminal-demo/approvals/${approval.id}/respond`, { data: { action: 'id_requested', termsAccepted: true } })).ok()).toBeTruthy();
       await page.getByRole('button', { name: 'Bekräfta legitimation & godkännande', exact: true }).click();
+      await page.getByRole('dialog').getByRole('checkbox', { name: 'Jag har kontrollerat kundens legitimation på plats', exact: true }).check();
       await page.getByRole('dialog').getByRole('button', { name: 'Bekräfta kontroll & godkännande', exact: true }).click();
       await expect(page.locator('.approval-controls')).toContainText('Godkänd av kund');
       await saved(page);

@@ -22,6 +22,7 @@ import { createSystemSmsProvider } from './system-sms-provider.mjs';
 import { createPlatformPasswordReset } from './platform-password-reset.mjs';
 import { initialAdminProfileForDeployment } from './deployment-profile-seeds.mjs';
 import { createStaffInvitations, validateStaffInvitationTarget } from './staff-invitations.mjs';
+import { createPublicCustomerApproval } from './public-customer-approval.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -56,6 +57,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const bundles = new Map(), streams = new Set();
   const fleetSimulator = createFleetSimulatorBridge({ testCarApi });
   const repository = platformRepository ?? await createPlatformStorage({ env });
+  const customerApprovalLinks = createPublicCustomerApproval({ repository, env, openCompany: company => bundle(company) });
   let schemaPool, auth, stopping = false;
   const defaultCompany = profile.pilot ? undefined : { id: legacyId, name: 'JEROC Återvinning AB', organisationNumber: '5593593626', status: 'active', storageSchema: 'public' };
   if (profile.pilot && await repository.read(state => state.companies.some(company => company.id === legacyId))) {
@@ -89,6 +91,8 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
         const registeredOwner = owner ?? (company.id !== legacyId ? await repository.read(state => structuredClone(state.users.find(user => user.id === company.ownerUserId))) : undefined);
         if (company.id !== legacyId && !registeredOwner) throw new PlatformError('Bolagets VD-konto saknas.', 503);
         return makeServices({ env: scopedEnv, company,
+          customerApprovalEmail: systemEmail, customerApprovalSms: systemSms,
+          registerCustomerApprovalLink: input => customerApprovalLinks.register(company.id, input),
           ...(registeredOwner && { seed: () => createTenantApplicationState({ tenant: company, owner: {
             id: registeredOwner.id, personId: `person-${registeredOwner.id}`, name: registeredOwner.name, username: registeredOwner.username,
             email: registeredOwner.email, passwordHash: registeredOwner.password, mustChangePassword: registeredOwner.mustChangePassword,
@@ -332,6 +336,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
     env, authorize: req => authorizeAssistance(req, true) });
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/')) return false;
+    if (await customerApprovalLinks.handle(req, res, url)) return true;
     if (await companyRegisterApi(req, res, url)) return true;
     if (await addressAssistanceApi(req, res, url)) return true;
     if (url.pathname.startsWith('/api/public/voice-test')) {

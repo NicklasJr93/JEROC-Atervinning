@@ -4,6 +4,10 @@ import { createSystemSmsProvider, SYSTEM_SMS_FROM, SYSTEM_SMS_TEST_MESSAGE, ELKS
 
 const env = { ELKS_API_USERNAME: 'synthetic-api-username', ELKS_API_PASSWORD: 'synthetic-private-password' };
 const input = { to: '+46722002220', requestId: '2181c90e-90fb-4bcb-a2ed-9e3fef20f135' };
+const approvalToken = 'A'.repeat(43);
+const approvalInput = { ...input, companyName: 'Återvinning & Miljö AB',
+  approvalUrl: `https://app.scrapplanner.com/godkann/#token=${approvalToken}`,
+  createdAt: '2026-10-20T10:00:00.000Z', expiresAt: '2026-10-21T10:00:00.000Z' };
 const receipt = (status = 'created') => ({ id: 's70df59406a1b4643b96f3f91e0bfb7b0', status, to: input.to,
   from: SYSTEM_SMS_FROM, direction: 'outgoing', message: 'RAW-PRIVATE-TEXT', private: env.ELKS_API_PASSWORD });
 const response = (body = receipt(), status = 201, headers) => new Response(JSON.stringify(body), { status, headers });
@@ -131,4 +135,128 @@ test('cancellation before a provider call is unsent; cancellation after starting
   const provider = client(async () => { calls++; queueMicrotask(() => during.abort()); return new Promise(() => {}); });
   await rejects(provider.sendTest(input, { signal: during.signal }), 'system_sms_outcome_unknown', 'unknown', 503);
   assert.equal(calls, 1);
+});
+
+test('customer approval SMS uses a fixed GSM-friendly company message, opaque link and no pretend provider idempotency', async () => {
+  let calls = 0;
+  const provider = client(async (url, options) => {
+    calls++;
+    assert.equal(url, ELKS_SMS_URL); assert.equal(options.method, 'POST'); assert.equal(options.redirect, 'error');
+    assert.equal(options.headers['Idempotency-Key'], undefined);
+    const body = Object.fromEntries(new URLSearchParams(options.body));
+    assert.equal(body.from, 'ScrapPlan'); assert.equal(body.to, input.to); assert.equal(body.dontlog, 'message');
+    assert.equal(body.message, `Atervinning & Miljo AB: Godkann underlaget: ${approvalInput.approvalUrl} /ScrapPlanner`);
+    assert.match(body.message, /^[\x20-\x7e]+$/); assert.ok(body.message.length <= 160);
+    assert.ok(!body.message.includes(input.to)); assert.ok(!body.message.includes(input.requestId));
+    assert.deepEqual(Object.keys(body).sort(), ['dontlog', 'from', 'message', 'to']);
+    return response();
+  });
+  assert.deepEqual(await provider.sendCustomerApproval({ ...approvalInput, to: '072-200 22 20' }), {
+    providerId: receipt().id, providerStatus: 'created',
+  });
+  assert.equal(calls, 1);
+});
+
+test('customer approval SMS sanitizes display-only company names and never accepts arbitrary content', async () => {
+  const names = ['🚛 Återvinning <AB>\u2028”proffs”', '🚛', 'Ä'.repeat(200)];
+  let calls = 0;
+  const provider = client(async (_url, options) => {
+    const message = new URLSearchParams(options.body).get('message');
+    assert.match(message, /^[\x20-\x7e]+$/); assert.ok(message.length <= 160);
+    assert.ok(message.includes(approvalInput.approvalUrl)); calls++; return response();
+  });
+  for (const companyName of names) await provider.sendCustomerApproval({ ...approvalInput, companyName });
+  assert.equal(calls, names.length);
+  const invalidProvider = client(() => assert.fail('must not fetch'));
+  for (const invalid of [null, {}, [],
+    { ...approvalInput, to: '1234' }, { ...approvalInput, to: '+46722002220,+46722002221' },
+    { ...approvalInput, requestId: 'not-a-uuid' }, { ...approvalInput, createdAt: 'yesterday' },
+    { ...approvalInput, expiresAt: 'tomorrow' }, { ...approvalInput, expiresAt: approvalInput.createdAt },
+    { ...approvalInput, expiresAt: '2026-10-20T09:59:59.000Z' }, { ...approvalInput, expiresAt: '2026-10-21T10:00:01.000Z' },
+    ...['', ' ', 'Unsafe\nHeader', 'x'.repeat(201), 'ﬀ'.repeat(101)].map(companyName => ({ ...approvalInput, companyName })),
+    { ...approvalInput, message: 'ARBITRARY-CONTENT' }, { ...approvalInput, from: 'Spoof' },
+    { ...approvalInput, customerName: 'Private Name' }, { ...approvalInput, bankAccount: 'PRIVATE-BANK-ACCOUNT' },
+  ]) await rejects(invalidProvider.sendCustomerApproval(invalid), 'system_sms_invalid', 'not_sent', 422);
+  assert.deepEqual(await client(async () => response()).sendCustomerApproval({ ...approvalInput,
+    expiresAt: '2026-10-20T10:01:00.000Z' }), { providerId: receipt().id, providerStatus: 'created' });
+});
+
+test('customer approval SMS requires the configured HTTPS origin, public path and one fragment token', async () => {
+  const provider = client(() => assert.fail('must not fetch'));
+  for (const approvalUrl of [
+    approvalInput.approvalUrl.replace('https:', 'http:'),
+    approvalInput.approvalUrl.replace('app.scrapplanner.com', 'attacker.example'),
+    approvalInput.approvalUrl.replace('app.scrapplanner.com', 'app.scrapplanner.com.attacker.example'),
+    approvalInput.approvalUrl.replace('app.scrapplanner.com', 'app.scrapplanner.com:444'),
+    approvalInput.approvalUrl.replace('app.scrapplanner.com', 'user:password@app.scrapplanner.com'),
+    approvalInput.approvalUrl.replace('/godkann/', '/kontor/'),
+    approvalInput.approvalUrl.replace('/godkann/', '/godkann/?company=untrusted'),
+    approvalInput.approvalUrl.replace('#token=', '?token='),
+    `${approvalInput.approvalUrl}&token=${approvalToken}`, `${approvalInput.approvalUrl}&company=untrusted`,
+    `${approvalInput.approvalUrl}A`, approvalInput.approvalUrl.slice(0, -1), `${approvalInput.approvalUrl}\n`,
+    'javascript:alert(1)',
+  ]) await rejects(provider.sendCustomerApproval({ ...approvalInput, approvalUrl }), 'system_sms_invalid', 'not_sent', 422);
+  for (const APP_URL of ['http://app.scrapplanner.com', 'https://user:password@app.scrapplanner.com',
+    'https://app.scrapplanner.com/kontor/', 'https://app.scrapplanner.com?next=bad', 'https://app.scrapplanner.com/#bad', 'not-a-url']) {
+    const invalidOrigin = createSystemSmsProvider({ env: { ...env, APP_URL }, fetchImpl: () => assert.fail('must not fetch') });
+    await rejects(invalidOrigin.sendCustomerApproval(approvalInput), 'system_sms_invalid', 'not_sent', 422);
+  }
+  const custom = createSystemSmsProvider({ env: { ...env, APP_URL: 'https://pilot.example.invalid' },
+    fetchImpl: async (_url, options) => {
+      assert.ok(new URLSearchParams(options.body).get('message').includes('https://pilot.example.invalid/godkann/#token='));
+      return response();
+    } });
+  await rejects(custom.sendCustomerApproval(approvalInput), 'system_sms_invalid', 'not_sent', 422);
+  assert.deepEqual(await custom.sendCustomerApproval({ ...approvalInput,
+    approvalUrl: approvalInput.approvalUrl.replace('app.scrapplanner.com', 'pilot.example.invalid') }), {
+    providerId: receipt().id, providerStatus: 'created',
+  });
+});
+
+test('customer approval SMS safely distinguishes rejected, failed and unknown outcomes without retries or bearer leaks', async () => {
+  const privateData = `${env.ELKS_API_PASSWORD} ${input.to} ${approvalInput.approvalUrl} RAW-PRIVATE-TEXT`;
+  for (const [makeResponse, code, outcome, status] of [
+    [() => response({ message: privateData }, 401), 'system_sms_credentials_rejected', 'not_sent', 503],
+    [() => response({ message: privateData }, 402), 'system_sms_balance_required', 'not_sent', 503],
+    [() => response({ message: privateData }, 403), 'system_sms_credentials_rejected', 'not_sent', 503],
+    [() => response({ message: privateData }, 422), 'system_sms_rejected', 'not_sent', 503],
+    [() => response({ message: privateData }, 429), 'system_sms_rate_limited', 'not_sent', 429],
+    [() => response(receipt('failed')), 'system_sms_delivery_failed', 'not_sent', 502],
+    [() => response({ message: privateData }, 500), 'system_sms_outcome_unknown', 'unknown', 503],
+    [() => response({ message: privateData }, 408), 'system_sms_outcome_unknown', 'unknown', 503],
+    [() => new Response(privateData), 'system_sms_outcome_unknown', 'unknown', 503],
+    [() => response({ ...receipt(), id: 'untrusted-id' }), 'system_sms_outcome_unknown', 'unknown', 503],
+    [() => response({ ...receipt(), extra: 'x'.repeat(17000) }), 'system_sms_outcome_unknown', 'unknown', 503],
+    [() => response(receipt(), 201, { 'content-length': '1000000' }), 'system_sms_outcome_unknown', 'unknown', 503],
+    [() => { throw new Error(privateData); }, 'system_sms_outcome_unknown', 'unknown', 503],
+  ]) {
+    let calls = 0;
+    await assert.rejects(client(async () => { calls++; return makeResponse(); }).sendCustomerApproval(approvalInput), error => {
+      assert.ok(error instanceof SystemSmsError); assert.equal(error.code, code); assert.equal(error.outcome, outcome); assert.equal(error.status, status);
+      for (const secret of [env.ELKS_API_USERNAME, env.ELKS_API_PASSWORD, input.to, approvalInput.approvalUrl, approvalToken, 'RAW-PRIVATE-TEXT']) {
+        assert.ok(!error.message.includes(secret)); assert.ok(!JSON.stringify(error).includes(secret));
+      }
+      assert.ok(!/sms-test|test-sms/i.test(error.message));
+      return true;
+    });
+    assert.equal(calls, 1);
+  }
+});
+
+test('customer approval SMS preserves missing credentials, timeout and before/after cancellation semantics', async () => {
+  await rejects(createSystemSmsProvider({ env: {}, fetchImpl: () => assert.fail('must not fetch') })
+    .sendCustomerApproval(approvalInput), 'system_sms_not_configured', 'not_sent', 503);
+  const before = new AbortController(); before.abort();
+  await rejects(client(() => assert.fail('must not fetch')).sendCustomerApproval(approvalInput, { signal: before.signal }), 'system_sms_cancelled', 'not_sent', 499);
+  const during = new AbortController(); let calls = 0;
+  await rejects(client(async () => { calls++; queueMicrotask(() => during.abort()); return new Promise(() => {}); })
+    .sendCustomerApproval(approvalInput, { signal: during.signal }), 'system_sms_outcome_unknown', 'unknown', 503);
+  assert.equal(calls, 1);
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    calls = 0;
+    await rejects(createSystemSmsProvider({ env, timeoutMs: 20, fetchImpl: () => { calls++; return new Promise(() => {}); } })
+      .sendCustomerApproval(approvalInput), 'system_sms_outcome_unknown', 'unknown', 503);
+    assert.equal(calls, 1);
+  } finally { clearTimeout(keepAlive); }
 });

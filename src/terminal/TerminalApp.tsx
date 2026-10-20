@@ -8,7 +8,6 @@ import './terminal.css';
 import { tenantPublicEventUrl } from '../tenant-public-context';
 import { useTenantCompanyName } from '../use-tenant-company';
 
-type Dialog = 'id' | 'bankid' | null;
 const changeReasons = ['Fel vikt', 'Fel artikel', 'Fel pris', 'Saknat material', 'Annat'];
 const errorLabel = (error: unknown) => error instanceof Error ? error.message : 'Något gick fel. Försök igen.';
 
@@ -70,7 +69,6 @@ export default function TerminalApp() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [dialog, setDialog] = useState<Dialog>(null);
   const [changeOpen, setChangeOpen] = useState(false);
   const [changeReason, setChangeReason] = useState('');
   const [comment, setComment] = useState('');
@@ -82,12 +80,14 @@ export default function TerminalApp() {
   const refreshFlight = useRef<{ generation: number; promise: Promise<void>; controller: AbortController } | undefined>(undefined);
   const displayedRef = useRef('');
   const previousApprovalRef = useRef<PublicApproval | null>(null);
+  const respondingRef = useRef('');
   const terminalId = session?.terminal.id;
   const approval = connected ? session?.approval ?? null : null;
   const approvalKey = approval ? `${approval.id}:${approval.version}` : null;
 
   const clearCustomer = useCallback(() => {
-    setTermsAccepted(false); setDialog(null); setChangeOpen(false); setChangeReason(''); setComment(''); setResponding(false); setError('');
+    respondingRef.current = '';
+    setTermsAccepted(false); setChangeOpen(false); setChangeReason(''); setComment(''); setResponding(false); setError('');
   }, []);
   const markDisconnected = useCallback(() => {
     requestSequence.current += 1;
@@ -236,28 +236,36 @@ export default function TerminalApp() {
   };
 
   const respond = async (action: 'id_requested' | 'change_requested') => {
-    if (!approval || responding || !connected) return;
+    if (!approval || respondingRef.current || !connected) return;
     const currentGeneration = generation.current;
+    const actionKey = `${currentGeneration}/${session?.terminal.id}/${approval.id}/${approval.version}/${approval.snapshot.hash}`;
+    respondingRef.current = actionKey;
+    const current = () => {
+      const currentSession = sessionRef.current;
+      return currentGeneration === generation.current && respondingRef.current === actionKey && currentSession !== null
+        && currentSession.terminal.id === session?.terminal.id && currentSession.approval?.id === approval.id
+        && currentSession.approval.version === approval.version && currentSession.approval.snapshot.hash === approval.snapshot.hash;
+    };
     setResponding(true); setError('');
     try {
       const response = publicApprovalSchema.parse(await terminalDemoApi.respond(approval.id, { action, termsAccepted, ...(action === 'change_requested' ? { comment: [changeReason, comment.trim()].filter(Boolean).join(': ') } : {}) }));
-      if (currentGeneration !== generation.current) return;
-      setDialog(null); setChangeOpen(false);
+      if (!current()) return;
+      if (response.id !== approval.id || response.version !== approval.version || response.snapshot.hash !== approval.snapshot.hash)
+        throw new Error('Avräkningen har ändrats. Läs in den aktuella versionen igen.');
+      setChangeOpen(false);
       if (action === 'change_requested') setNotice('Din ändringsbegäran är skickad till personalen.');
       const previous = sessionRef.current;
       if (previous?.approval?.id === approval.id && previous.approval.version === approval.version)
         acceptSession({ ...previous, approval: response, revision: response.revision ?? previous.revision }, currentGeneration);
     } catch (caught) {
-      if (currentGeneration !== generation.current) return;
+      if (!current()) return;
       if (caught instanceof TerminalDemoError && (caught.status === 401 || caught.code === 'company_selection_changed')) { sessionRef.current = null; setSession(null); clearCustomer(); }
       else { setError(errorLabel(caught)); void refresh(); }
-    } finally { if (currentGeneration === generation.current) setResponding(false); }
+    } finally { if (respondingRef.current === actionKey) { respondingRef.current = ''; if (currentGeneration === generation.current) setResponding(false); } }
   };
 
-  const closeDialog = useCallback(() => { if (!responding) setDialog(null); }, [responding]);
   const idle = !approval || ['cancelled', 'expired', 'attested'].includes(approval.status);
   const waitingForId = !idle && approval?.status === 'id_requested';
-  const visibleDialog = approval?.status === 'waiting' ? dialog : null;
 
   return <div className="terminal-app">
     <header className="terminal-header"><img src="/images/scrapplanner-logo.png" alt="ScrapPlanner" />
@@ -277,16 +285,14 @@ export default function TerminalApp() {
         <div className="terminal-heading"><div><span className="terminal-eyebrow">AVRÄKNINGSNOTA</span><h1>Granska och godkänn din avräkning</h1><p className="terminal-intro">Kontrollera material, vikt och belopp innan du godkänner.</p></div></div>
         <SettlementView settlement={approval.snapshot} />
         <button className="terminal-print" onClick={() => window.print()}><Printer size={16} /> Skriv ut preliminärt underlag</button>
-        <section className="terminal-terms"><h2><ShieldCheck size={23} /> Säljarens intygande</h2><p>Genom att godkänna avräkningen intygar jag att:</p><ul><li><Check size={16} />Jag äger materialet eller har rätt att sälja det.</li><li><Check size={16} />Materialet har lagligt ursprung.</li><li><Check size={16} />Uppgifterna jag lämnat är riktiga och jag har granskat artiklar, vikter och priser.</li><li><Check size={16} />Jag har informerat {companyName} om farligt innehåll och annat som kan påverka hanteringen.</li><li><Check size={16} />Om jag säljer för ett företag har jag rätt att företräda företaget.</li></ul><p className="terminal-terms-note">En ändrad avräkning behöver granskas och godkännas på nytt.</p><label className="terminal-accept"><input type="checkbox" checked={termsAccepted} onChange={event => { setTermsAccepted(event.target.checked); setError(''); }} /><span>Jag har granskat avräkningen och bekräftar intygandet.</span></label><span className="terminal-hint">Demovillkor {approval.snapshot.termsVersion} · avräkningsversion {approval.version}</span></section>
+        <section className="terminal-terms"><h2><ShieldCheck size={23} /> Säljarens intygande</h2><p>Genom att godkänna avräkningen intygar jag att:</p><ul><li><Check size={16} />Jag äger materialet eller har rätt att sälja det.</li><li><Check size={16} />Materialet har lagligt ursprung.</li><li><Check size={16} />Uppgifterna jag lämnat är riktiga och jag har granskat artiklar, vikter och priser.</li><li><Check size={16} />Jag har informerat {companyName} om farligt innehåll och annat som kan påverka hanteringen.</li><li><Check size={16} />Om jag säljer för ett företag har jag rätt att företräda företaget.</li></ul><p className="terminal-terms-note">En ändrad avräkning behöver granskas och godkännas på nytt.</p><label className="terminal-accept"><input type="checkbox" checked={termsAccepted} onChange={event => { setTermsAccepted(event.target.checked); setError(''); }} /><span>Jag har granskat avräkningen och bekräftar intygandet.</span></label><span className="terminal-hint">Intygande {approval.snapshot.termsVersion} · avräkningsversion {approval.version}</span></section>
         {error && <p className="terminal-error" role="alert">{error}</p>}
-        <div className="terminal-customer-actions"><button className="terminal-button green" disabled={responding} onClick={() => setDialog('bankid')}><ShieldCheck size={20} /> Godkänn med BankID</button><button className="terminal-button outline green-outline" disabled={responding} onClick={() => { if (!termsAccepted) { setError('Bekräfta att du har granskat avräkningen och intygandet först.'); return; } setDialog('id'); }}><IdCard size={20} /> Godkänn med legitimation</button><button className="terminal-button outline" disabled={responding} onClick={() => { setChangeOpen(true); setError(''); window.scrollTo({ top: 0, behavior: 'instant' }); }}>Begär ändring</button></div>
+        <div className="terminal-customer-actions"><button className="terminal-button green" disabled={responding} onClick={() => { if (!termsAccepted) { setError('Bekräfta att du har granskat avräkningen och intygandet först.'); return; } void respond('id_requested'); }}><IdCard size={20} />{responding ? 'Skickar till personal…' : 'Godkänn'}</button><button className="terminal-button outline" disabled={responding} onClick={() => { setChangeOpen(true); setError(''); window.scrollTo({ top: 0, behavior: 'instant' }); }}>Begär ändring</button></div>
       </>}
     </main>}
-    <footer className="terminal-footer"><span>DEMO · Inga riktiga betalningar eller BankID-signeringar</span>{session && <small>{session.terminal.name}</small>}</footer>
-    {approval && (waitingForId || visibleDialog) && <TerminalDialog key={`terminal-dialog:${approvalKey}`}
-      title={waitingForId ? 'Visa din legitimation' : visibleDialog === 'id' ? 'Manuell verifiering' : 'BankID – demoläge'}
-      onClose={waitingForId ? undefined : closeDialog} busy={responding}>
-      {waitingForId ? <><div className="terminal-dialog-icon"><IdCard size={36} /></div><h2>Visa din legitimation</h2><h3 className="terminal-dialog-waiting-title">Inväntar personalens bekräftelse</h3><p>Visa din legitimation för kontoristen. Personalen kontrollerar identiteten och registrerar godkännandet på sin skärm.</p><div className="terminal-waiting" role="status"><LoaderCircle size={18} className="terminal-spinner" /> Kontoristen fortsätter på sin skärm</div><p className="terminal-dialog-method">Fysisk legitimation · avräkningsversion {approval.version}</p></> : visibleDialog === 'id' ? <><div className="terminal-dialog-icon"><IdCard size={36} /></div><h2>Manuell verifiering</h2><p>Visa din legitimation för kontoristen så att identiteten kan kontrolleras.</p><div className="terminal-dialog-info"><ShieldCheck size={22} /><span>Godkännandet registreras först när personalen har kontrollerat legitimationen och bekräftat på sin skärm.</span></div><p className="terminal-dialog-method">Fysisk legitimation · avräkningsversion {approval.version}</p>{error && <p className="terminal-error" role="alert">{error}</p>}<button className="terminal-button green" disabled={responding} onClick={() => void respond('id_requested')}>{responding ? 'Skickar till personal…' : 'Okej'}</button><button className="terminal-button outline" disabled={responding} onClick={closeDialog}>Avbryt</button></> : <><div className="terminal-dialog-icon"><ShieldCheck size={37} /></div><span className="terminal-demo-label">DEMO</span><h2>BankID är inte anslutet</h2><p>I den färdiga kopplingen signerar du med BankID på din egen mobil. Här utförs ingen signering eller identitetskontroll.</p><div className="terminal-dialog-info"><IdCard size={22} /><span>För att prova terminalflödet väljer du Godkänn med legitimation. Personalen fortsätter sedan från kontorets vy.</span></div><button className="terminal-button outline" onClick={closeDialog}>Tillbaka till avräkningen</button></>}
+    <footer className="terminal-footer"><span>Legitimationen kontrolleras av personalen innan kundgodkännandet registreras.</span>{session && <small>{session.terminal.name}</small>}</footer>
+    {approval && waitingForId && <TerminalDialog key={`terminal-dialog:${approvalKey}`} title="Visa din legitimation" busy={responding}>
+      <div className="terminal-dialog-icon"><IdCard size={36} /></div><h2>Visa din legitimation</h2><h3 className="terminal-dialog-waiting-title">Inväntar personalens bekräftelse</h3><p>Visa din legitimation för kontoristen. Personalen kontrollerar identiteten och registrerar godkännandet på sin skärm.</p><div className="terminal-waiting" role="status"><LoaderCircle size={18} className="terminal-spinner" /> Kontoristen fortsätter på sin skärm</div><p className="terminal-dialog-method">Fysisk legitimation · avräkningsversion {approval.version}</p>
     </TerminalDialog>}
   </div>;
 }

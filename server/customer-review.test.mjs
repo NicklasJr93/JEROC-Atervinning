@@ -60,7 +60,7 @@ test('one review command freezes canonical prices and replays the same session w
   const first = await f.api('/api/application/customer-review', input);
   assert.equal(first.status, 200, first.error); assert.equal(first.cardProjection.status, 'customer');
   assert.equal(first.cardProjection.rows[0].price, 84); assert.equal(first.approval.snapshot.gross, 6048);
-  const again = await f.api('/api/application/customer-review', input);
+  const again = await f.api('/api/application/customer-review', { ...input, channel: 'terminal' });
   assert.equal(again.status, 200, again.error); assert.equal(again.approval.id, first.approval.id);
   assert.equal((await f.api('/api/pricing/snapshots?cardId=2053')).snapshots.length, 1);
   const changedKey = { ...input, terminalId: 'different-terminal' };

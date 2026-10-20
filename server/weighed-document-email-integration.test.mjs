@@ -87,7 +87,7 @@ async function sendAndApprove(f) {
   assert.equal(f.sent.length, 0, 'A preliminary PDF must never email the office');
   const id = created.value.id;
   assert.equal((await f.request(`/approvals/${id}/respond`, { action: 'id_requested', termsAccepted: true }, f.device)).status, 200);
-  const approved = await f.request(`/approvals/${id}/confirm-id`, {}, f.staff.kajsa);
+  const approved = await f.request(`/approvals/${id}/confirm-id`, { idChecked: true }, f.staff.kajsa);
   assert.equal(approved.status, 200, JSON.stringify(approved.value));
   await f.service.terminalDemoApi.drainDocumentJobs();
   await f.service.weighedDocumentEmailService.processQueuedWeighedDocumentEmails();

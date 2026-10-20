@@ -4,6 +4,7 @@ import { PricingError, createPricingStore, money } from './pricing.mjs';
 import { officeSchema, validPaymentDetails, settlementPreview, normalizeCustomerDetails, validateCustomerDetails,
   normalizePaymentDetails, normalizeOriginAddress, normalizeAddress } from '../dist-server/domain-models.mjs';
 import { freezePurchaseAccounting } from './visma-accounting.mjs';
+import { customerApprovalChannel } from './customer-approval-channel.mjs';
 
 const fail = (message, status = 409) => { throw new PricingError(message, status); };
 const copy = structuredClone;
@@ -22,16 +23,21 @@ const expectedVersion = card => canonical(Object.fromEntries([
  * one commit and all roll back when the terminal is busy or validation fails. */
 export async function prepareCustomerReview({ state, input, principal, send, runWithPricing, reflectApprovals, officeView, revision, audit, accountingSettings, accountingSettingsProvider }) {
   if (!input || !Number.isSafeInteger(input.cardId) || input.cardId <= 0 ||
-    !['terminalId', 'siteId', 'idempotencyKey'].every(key => typeof input[key] === 'string' && input[key].trim() && input[key].length <= 200))
-    fail('Ange kort, terminal, anläggning och utskicks-ID.', 422);
+    !['siteId', 'idempotencyKey'].every(key => typeof input[key] === 'string' && input[key].trim() && input[key].length <= 200))
+    fail('Ange kort, anläggning och sätt att skicka kundgodkännandet.', 422);
+  let delivery;
+  try { delivery = customerApprovalChannel(input); } catch (error) { fail(error.message, 422); }
   const expected = officeSchema.shape.cards.element.parse(input.expectedCard);
   if (expected.id !== input.cardId) fail('Kortets identitet stämmer inte.', 422);
   if (!['view', 'prepare', 'customerApprovalRead'].every(right => can(principal, right))) fail('Du saknar behörighet att skicka för kundgodkännande.', 403);
+  if (delivery.channel && delivery.channel !== 'terminal' && !['view', 'prepare', 'customerApprovalRead'].every(right => can({ user: principal.actor }, right)))
+    fail('Både faktiskt och effektivt konto behöver behörighet att skicka kundgodkännande.', 403);
   const card = state.office.cards.find(card => card.id === input.cardId);
   if (!card) fail('Invägningskortet finns inte.', 404);
   const siteId = card.siteId ?? (card.yard === 'Rimbo' ? 'rimbo' : 'norrtalje');
-  if (siteId !== input.siteId || principal.user.siteIds && !principal.user.siteIds.includes(siteId)) fail('Du saknar åtkomst till kortets anläggning.', 403);
-  const fingerprint = createHash('sha256').update(JSON.stringify(canonical({ card: expectedVersion(expected), terminalId: input.terminalId, siteId: input.siteId }))).digest('hex');
+  if (siteId !== input.siteId || principal.user.siteIds && !principal.user.siteIds.includes(siteId)
+    || delivery.channel && delivery.channel !== 'terminal' && principal.actor.siteIds && !principal.actor.siteIds.includes(siteId)) fail('Du saknar åtkomst till kortets anläggning.', 403);
+  const fingerprint = createHash('sha256').update(JSON.stringify(canonical({ card: expectedVersion(expected), ...delivery, siteId: input.siteId }))).digest('hex');
   const registry = state.customerReviewCommands ??= [];
   const previous = registry.find(command => command.key === input.idempotencyKey && command.actualUserId === principal.actor.id && command.effectiveUserId === principal.user.id);
   if (previous && previous.fingerprint !== fingerprint) fail('Utskickets ID används för ett annat underlag.');
@@ -76,7 +82,7 @@ export async function prepareCustomerReview({ state, input, principal, send, run
     if (accountingSettings?.enabled) frozen.accounting = freezePurchaseAccounting({ settings: accountingSettings, customer, rows: accountingRows, siteId });
     const settlement = settlementPreview({ ...state.office, cards: state.office.cards.map(value => value.id === card.id ? { ...frozen, status: 'ready' } : value) }, card.id);
     if (frozen.accounting) frozen.accounting = freezePurchaseAccounting({ settings: accountingSettings, customer, rows: accountingRows, siteId, offset: settlement.offset });
-    payload = { card: frozen, customer: copy(customer), terminalId: input.terminalId, siteId,
+    payload = { card: frozen, customer: copy(customer), ...delivery, siteId,
       rows: rows.map(row => ({ articleId: row.articleId, name: row.articleName ?? row.articleId, weight: row.weight,
         price: row.price, amount: money(row.weight * row.price) })),
       offset: settlement.offset, correctionIds: settlement.negativeCorrectionIds,

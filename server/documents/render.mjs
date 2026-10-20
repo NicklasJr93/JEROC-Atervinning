@@ -222,10 +222,10 @@ export async function renderPdf(snapshot, { logoBytes } = {}) {
     const approval = snapshot.approval;
     const matching = approval?.at && approval.version === snapshot.version;
     const approved = matching && approval.method && approval.person && ['reviewed', 'final'].includes(snapshot.status);
-    const manualIdCheck = ['staff_checked_id_demo', 'manual_id_demo'].includes(approval?.method);
+    const manualIdCheck = ['staff_checked_physical_id', 'staff_checked_id_demo', 'manual_id_demo'].includes(approval?.method);
     const approvalBody = approved
       ? manualIdCheck
-        ? [`Kund: ${show(snapshot.customer?.name)}`, 'Legitimation kontrollerad på plats · demo', `${date(approval.at, true)} · Kontrollerat av: ${show(approval.verifiedBy ?? approval.person)}`, `Dokumentversion ${snapshot.version}`]
+        ? [`Kund: ${show(snapshot.customer?.name)}`, `Legitimation kontrollerad på plats${approval.method === 'staff_checked_physical_id' ? '' : ' · demo'}`, `${date(approval.at, true)} · Kontrollerat av: ${show(approval.verifiedBy ?? approval.person)}`, `Dokumentversion ${snapshot.version}`]
         : [show(approval.person), `${show(approval.method)} · ${date(approval.at, true)}`, `Registrerat av: ${show(approval.verifiedBy)}`, `Dokumentversion ${snapshot.version}`]
       : ['Inväntar godkännande', 'Ingen registrerad accept av denna version.'];
     const attest = snapshot.attest;

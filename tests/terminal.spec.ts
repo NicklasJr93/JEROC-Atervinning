@@ -191,15 +191,12 @@ test('två terminaler visar egna frysta avräkningar och personalens kontroll f�
     const cookie = (await first.context.cookies()).find(item => item.name === 'jeroc_terminal_demo_device');
     expect(cookie).toMatchObject({ httpOnly: true, sameSite: 'Strict' });
 
-    await first.page.getByRole('button', { name: 'Godkänn med BankID', exact: true }).click();
-    await expect(first.page.getByRole('dialog', { name: 'BankID – demoläge' })).toContainText('BankID är inte anslutet');
-    await first.page.getByRole('button', { name: 'Tillbaka till avräkningen', exact: true }).click();
+    await expect(first.page.getByRole('button', { name: /BankID/ })).toHaveCount(0);
     expect((await approvalOf(page, cards[0].id)).status).toBe('waiting');
-    await first.page.getByRole('button', { name: 'Godkänn med legitimation', exact: true }).click();
+    await first.page.getByRole('button', { name: 'Godkänn', exact: true }).click();
     await expect(first.page.getByRole('alert')).toContainText('Bekräfta att du har granskat');
     await first.page.getByRole('checkbox').check();
-    await first.page.getByRole('button', { name: 'Godkänn med legitimation', exact: true }).click();
-    await first.page.getByRole('dialog', { name: 'Manuell verifiering' }).getByRole('button', { name: 'Okej', exact: true }).click();
+    await first.page.getByRole('button', { name: 'Godkänn', exact: true }).click();
     await expect(first.page.getByRole('heading', { name: 'Inväntar personalens bekräftelse', exact: true })).toBeVisible();
     expect((await page.request.post(`${service}/approvals/${sent.id}/attest`, { data: {} })).status()).toBe(409);
 
@@ -214,13 +211,14 @@ test('två terminaler visar egna frysta avräkningar och personalens kontroll f�
 
     await page.goto(`/kontor#/customer-approvals/${cards[0].id}`);
     await page.getByRole('button', { name: 'Bekräfta legitimation & godkännande', exact: true }).click();
+    await page.getByRole('dialog').getByRole('checkbox', { name: 'Jag har kontrollerat kundens legitimation på plats', exact: true }).check();
     await page.getByRole('dialog').getByRole('button', { name: 'Bekräfta kontroll & godkännande', exact: true }).click();
     await expect(first.page.getByRole('heading', { name: 'Invänta personal', exact: true })).toBeVisible();
     await expect(first.page.locator('.terminal-material-table')).toHaveCount(0);
     const approved = await approvalOf(page, cards[0].id);
     expect(approved).toMatchObject({ status: 'approved', approvedBy: 'Systemadmin' });
     expect(approved.snapshot.hash).toBe(sent.snapshot.hash);
-    expect((await page.request.post(`${service}/approvals/${sent.id}/confirm-id`, { data: {} })).status()).toBe(200);
+    expect((await page.request.post(`${service}/approvals/${sent.id}/confirm-id`, { data: { idChecked: true } })).status()).toBe(200);
     await expect(page.getByRole('button', { name: 'Attestera', exact: true })).toBeEnabled();
     const beforeAttest = page.url();
     await page.getByRole('button', { name: 'Attestera', exact: true }).click();
@@ -467,7 +465,7 @@ test('attestbehörighet utan läsning av kundgodkännandekön kan attestera en v
     const sent = await sendToTerminal(page, cards[0].id, terminal);
     approvalId = sent.id;
     expect((await mobile.page.request.post(`${service}/approvals/${sent.id}/respond`, { data: { action: 'id_requested', termsAccepted: true } })).ok()).toBeTruthy();
-    expect((await page.request.post(`${service}/approvals/${sent.id}/confirm-id`, { data: {} })).ok()).toBeTruthy();
+    expect((await page.request.post(`${service}/approvals/${sent.id}/confirm-id`, { data: { idChecked: true } })).ok()).toBeTruthy();
     await expect(page.locator('.approval-controls')).toContainText('Godkänd av kund');
     await expect.poll(async () => page.evaluate(id => JSON.parse(localStorage.getItem('jeroc.office.demo.v1')!).cards.find((card: { id: number }) => card.id === id)?.customerApproval?.status, cards[0].id)).toBe('approved');
     await page.getByRole('button', { name: 'Byt demokonto', exact: true }).click();

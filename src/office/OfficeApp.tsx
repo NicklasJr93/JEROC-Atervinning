@@ -70,7 +70,7 @@ import CardSpirisStatusPanel, { CardSpirisTrackingProvider, CardAuditTimeline } 
 import EnvironmentWorkspace from './EnvironmentWorkspace';
 import { useTerminalDemo } from './useTerminalDemo';
 import { terminalDemoApi } from './terminal-demo-client';
-import type { TerminalApproval } from './terminal-demo-types';
+import type { ApprovalTarget, TerminalApproval } from './terminal-demo-types';
 const TransportWorkspace = lazy(() => import('./transport/TransportWorkspace'));
 const FacilitiesWorkspace = lazy(() => import('./FacilitiesWorkspace'));
 const CompanySettingsWorkspace = lazy(() => import('./CompanySettingsWorkspace'));
@@ -640,7 +640,7 @@ export function OfficeApp() {
       setPriceBusy(false);
     }
   }
-  async function prepareCard(card: OfficeCard, terminal: { id: string; siteId: string }) {
+  async function prepareCard(card: OfficeCard, target: ApprovalTarget) {
     if (!user || !actualUser || !can(user, 'prepare') || !can(user, 'customerApprovalRead') ||
         priceBusy || blocked || !['new', 'complement'].includes(card.status) || !card.customerId || !card.rows.length ||
         !(validPaymentDetails(card.paymentDetails) || Boolean(card.payment.trim()))) return false;
@@ -658,10 +658,11 @@ export function OfficeApp() {
       const current = dataRef.current.cards.find(item => item.id === card.id);
       if (!current || !['new', 'complement'].includes(current.status)) throw new Error('Kortet har ändrats. Läs in det och försök igen.');
       const expectedCard = structuredClone(current);
-      const fingerprint = JSON.stringify({ principalId, expectedCard, terminal });
+      const fingerprint = JSON.stringify({ principalId, expectedCard, target });
       if (reviewRequestRef.current?.fingerprint !== fingerprint) reviewRequestRef.current = { fingerprint, key: `review-${crypto.randomUUID()}` };
       const result = await terminalDemoApi.customerReview({
-        cardId: card.id, terminalId: terminal.id, siteId: terminal.siteId,
+        cardId: card.id, channel: target.channel, siteId: target.siteId,
+        ...(target.channel === 'terminal' ? { terminalId: target.terminalId } : { recipient: target.recipient }),
         expectedCard, idempotencyKey: reviewRequestRef.current.key,
       }, actualUser.id, user.id);
       if (principalRef.current !== principalId) return false;
@@ -669,9 +670,13 @@ export function OfficeApp() {
       const projection = officeSchema.shape.cards.element.parse(result.cardProjection);
       shared.applyConfirmed(live => ({ ...live, cards: live.cards.map(item => item.id === projection.id ? projection : item) }), result.revision);
       terminalDemo.applyApproval(result.approval);
-      setMessage(result.approval.displayedAt
+      setMessage(target.channel === 'terminal' ? result.approval.displayedAt
         ? 'Avräkningen visas på kundterminalen. Inväntar kundens svar.'
-        : 'Avräkningen är skickad till kundterminalen. Inväntar kundens svar.');
+        : 'Avräkningen är skickad till kundterminalen. Inväntar kundens svar.'
+        : result.approval.delivery?.status === 'sent' ? `Länken för kundgodkännande är skickad via ${target.channel === 'email' ? 'e-post' : 'SMS'}.`
+          : result.approval.delivery?.status === 'failed' ? 'Utskicket nekades. Ingen leverans har bekräftats. Avsluta kundgodkännandet innan du skickar en ny länk.'
+            : result.approval.delivery?.status === 'unknown' ? 'Utskickets resultat är okänt. Kontrollera status innan du skapar ett nytt utskick.'
+              : 'Avräkningen är sparad. Utskicket väntar på bekräftelse.');
       // Other queue totals can reconcile independently of this committed result.
       void shared.refresh();
       return true;
@@ -1791,19 +1796,22 @@ export function OfficeApp() {
                     )}
                   </section>
                   {(can(user, 'customerApprovalRead') || can(user, 'prepare')) && <ApprovalControls
+                    cardId={selected.id}
                     principal={{ actualUserId: actualUser!.id, effectiveUserId: user.id }}
                     guidance={panelGuidance('approval')}
                     approval={selectedApproval}
                     state={terminalDemo.state}
                     siteId={selectedSiteId}
                     terminalId={preferredTerminalId}
+                    customerEmail={selectedCustomer?.email}
+                    customerPhone={selectedCustomer?.phone}
                     canSend={Boolean(editable) && !approvalDisabledReason}
                     disabledReason={approvalDisabledReason}
                     onPreview={selectedApproval && approvalMoneyVisible(user) ? () => setApprovalPreview(selectedApproval) : undefined}
                     canConfirmId={can(user, 'prepare') && can(user, 'verifyId')}
                     canCancel={can(user, 'prepare')}
                     canSeeMoney={approvalMoneyVisible(user)}
-                    onSend={(terminalId, siteId) => prepareCard(selected, { id: terminalId, siteId })}
+                    onSend={target => prepareCard(selected, target)}
                     onRefresh={terminalDemo.refresh}
                     onBeforeAction={shared.flush}
                     onConfirmed={applyConfirmedApproval}

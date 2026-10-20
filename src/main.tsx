@@ -13,6 +13,7 @@ const CarrierApp = React.lazy(() => import('./carrier/CarrierApp'));
 const TestCarApp = React.lazy(() => import('./testcar/TestCarApp'));
 const VoiceTestApp = React.lazy(() => import('./voice-test/VoiceTestApp'));
 const PublicVoiceTestApp = React.lazy(() => import('./voice-test/PublicVoiceTestApp'));
+const CustomerApprovalApp = React.lazy(() => import('./customer-approval/CustomerApprovalApp'));
 const pagePath = window.location.pathname.replace(/\/$/, '');
 const nvvTestPage = pagePath === '/kontor/integration/systemadminintegrationtest.html';
 const vismaTestPage = pagePath === '/kontor/integration/systemadminvismatest.html';
@@ -28,7 +29,9 @@ if ((nvvTestPage || vismaTestPage || swishTestPage || bankTestPage) && !window.l
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <HashRouter>
-      {pagePath === '/testbil1' ? (
+      {pagePath === '/godkann' ? (
+        <React.Suspense fallback={<div role="status">Öppnar kundgodkännandet…</div>}><CustomerApprovalApp /></React.Suspense>
+      ) : pagePath === '/testbil1' ? (
         <React.Suspense fallback={<div role="status">Öppnar testbilen…</div>}><TestCarApp /></React.Suspense>
       ) : voiceTestPage ? (
         <React.Suspense fallback={<div role="status">Öppnar rösttestet…</div>}><PublicVoiceTestApp /></React.Suspense>

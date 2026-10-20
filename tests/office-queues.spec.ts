@@ -181,7 +181,7 @@ test('attest flyttar kortet till utbetalningskön och kontorets historik visar s
   const state = await (await request.get('/api/terminal-demo/state')).json();
   const approval = state.approvals.find((item: { cardId: number }) => item.cardId === cardId);
   expect((await request.post(`/api/terminal-demo/approvals/${approval.id}/respond`, { data: { action: 'id_requested', termsAccepted: true } })).ok()).toBeTruthy();
-  expect((await request.post(`/api/terminal-demo/approvals/${approval.id}/confirm-id`, { data: {} })).ok()).toBeTruthy();
+  expect((await request.post(`/api/terminal-demo/approvals/${approval.id}/confirm-id`, { data: { idChecked: true } })).ok()).toBeTruthy();
   await page.getByRole('button', { name: 'Byt demokonto', exact: true }).click();
   await page.getByRole('button', { name: /Anna Nilsson/ }).click();
   await expect(page.locator('.office-main')).toHaveAttribute('aria-busy', 'false');

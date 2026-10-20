@@ -25,10 +25,12 @@ import { createCompanyLogoService } from './company-logo.mjs';
 import { createCompanyLogoApi } from './company-logo-api.mjs';
 import { createSystemEmail } from './system-email.mjs';
 import { createWeighedDocumentEmail } from './weighed-document-email.mjs';
+import { createSystemSmsProvider } from './system-sms-provider.mjs';
 
 /** All repositories, queues and provider connections belong to one immutable
  * server-selected organisation. A request can never change this bundle's scope. */
-export async function createTenantServices({ env, seed, initialSites, trustedPrincipalProvider, reauthorizeTrustedPrincipal, company, companySettingsAuthorize, weighedDocumentEmailSender } = {}) {
+export async function createTenantServices({ env, seed, initialSites, trustedPrincipalProvider, reauthorizeTrustedPrincipal, company, companySettingsAuthorize, weighedDocumentEmailSender,
+  registerCustomerApprovalLink, customerApprovalEmail, customerApprovalSms } = {}) {
   const restrictIntegration = (provider, service) => restrictPilotIntegrationService({ env, provider, service });
   const organisationId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
   if (organisationId !== 'jeroc-demo' && (!company || company.id !== organisationId || !company.name?.trim()))
@@ -51,6 +53,7 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     },
     projections: cardId => terminalDemoApi.projections(cardId),
     sendCustomerReview: (payload, principal, req) => terminalDemoApi.sendPrepared(payload, principal, req),
+    finishCustomerReview: (approvalId, req) => terminalDemoApi.deliverPrepared(approvalId, req),
     withMaterialChangeApproval: (input, identity, operation) => terminalDemoApi.withMaterialChangeApproval(input, identity, operation),
     guardMaterialChange: (input, operation) => environmentApi.guardMaterialChange(input, operation),
     siteProvider: () => environmentApi.getSites(),
@@ -183,7 +186,22 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
         .map(row => ({ id: row.id, siteId: row.siteId, articleId: row.articleId, wasteCode: row.wasteCode,
           weight: row.kg, receivedAt: row.at, kind: 'outbound', sourceId: row.sourceId })), { domains: ['logistics'] }),
   });
+  const remoteProviders = { email: customerApprovalEmail ?? createSystemEmail({ env }), sms: customerApprovalSms ?? createSystemSmsProvider({ env }) };
   const terminalDemoApi = createTerminalDemoApi({ env, trustedPrincipalProvider, principalStore, companyProfileProvider: documentCompany, siteProvider: () => environmentApi.getSites(),
+    remoteConfigured: channel => Boolean(registerCustomerApprovalLink && remoteProviders[channel]?.configured && typeof remoteProviders[channel]?.sendCustomerApproval === 'function'),
+    remoteDelivery: async job => {
+      try { await registerCustomerApprovalLink({ tokenHash: job.tokenHash, approvalId: job.approvalId, expiresAt: job.expiresAt }); }
+      catch { return { status: 'failed', errorCode: 'customer_approval_link_registration_failed' }; }
+      const approvalUrl = new URL('/godkann/', env.APP_URL || 'https://app.scrapplanner.com'); approvalUrl.hash = `token=${job.token}`;
+      try {
+        await remoteProviders[job.channel].sendCustomerApproval({ to: job.to, requestId: job.requestId, companyName: job.companyName,
+          approvalUrl: approvalUrl.href, createdAt: job.createdAt, expiresAt: job.expiresAt });
+        return { status: 'sent' };
+      } catch (error) {
+        const certain = typeof error?.code === 'string' && /^system_(email|sms)_/.test(error.code) && !error.code.includes('outcome_unknown');
+        return { status: certain ? 'failed' : 'unknown' };
+      }
+    },
     environmentApprovalCheck: approval => environmentApi.assertReceiptForAttest(approval),
     accountingSourceProvider: async request => {
       const customer = await (await applicationApi.getRepository()).read(state => structuredClone(state.office.customers.find(value => value.id === request.customer.id)), { domains: ['office'] });

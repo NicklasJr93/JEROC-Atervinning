@@ -80,16 +80,18 @@ test('preliminary and mismatched versions never claim customer approval, attest 
   assert.match(unverified, /Momsbehandling ej verifierad/);
 });
 test('manual ID checks show the customer and checking employee without inventing a seller signer', { skip: !canExtract }, async () => {
-  for (const method of ['staff_checked_id_demo', 'manual_id_demo']) {
+  for (const method of ['staff_checked_physical_id', 'staff_checked_id_demo', 'manual_id_demo']) {
     const s = sample();
     s.approval = { ...s.approval, method, person: 'Anna Berg', verifiedBy: 'Anna Berg' };
     const pdf = await renderPdf(s), text = await extracted(pdf);
     assert.equal(pages(pdf), 1);
     assert.match(text, /Kundgodkännande/);
     assert.match(text, /Kund: Hasses Rör AB/);
-    assert.match(text, /Legitimation kontrollerad på plats · demo/);
+    assert.match(text, /Legitimation kontrollerad på plats/);
+    if (method === 'staff_checked_physical_id') assert.doesNotMatch(text, /Legitimation kontrollerad på plats · demo/);
+    else assert.match(text, /Legitimation kontrollerad på plats · demo/);
     assert.match(text, /Kontrollerat av: Anna Berg/);
-    assert.doesNotMatch(text, /staff_checked_id_demo|manual_id_demo|Säljarens godkännande|Hasse Nilsson/);
+    assert.doesNotMatch(text, /staff_checked_physical_id|staff_checked_id_demo|manual_id_demo|Säljarens godkännande|Hasse Nilsson/);
     assert.equal((text.match(/Anna Berg/g) ?? []).length, 1);
   }
 });

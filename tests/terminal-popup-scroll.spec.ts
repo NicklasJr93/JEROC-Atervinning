@@ -54,14 +54,14 @@ async function fixture(page: Page) {
   return { update, count: () => responseCount, holdResponse: () => { let release = () => {}; responseGate = new Promise<void>(resolve => { release = resolve; }); return release; } };
 }
 
-async function openIdAtBottom(page: Page) {
+async function approveAtBottom(page: Page) {
   await page.getByRole('checkbox').check();
-  const action = page.getByRole('button', { name: 'Godkänn med legitimation', exact: true });
+  const action = page.getByRole('button', { name: 'Godkänn', exact: true });
   await action.scrollIntoViewIfNeeded();
   const originalY = await page.evaluate(() => window.scrollY);
   expect(originalY).toBeGreaterThan(3000);
   await action.click();
-  const dialog = page.getByRole('dialog', { name: 'Manuell verifiering', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Visa din legitimation', exact: true });
   await expect(dialog).toBeVisible();
   await expectViewportDialog(page, dialog);
   return { dialog, originalY };
@@ -79,30 +79,32 @@ async function expectViewportDialog(page: Page, dialog: Locator) {
   expect(await dialog.evaluate(element => element.parentElement?.parentElement === document.body)).toBe(true);
 }
 
-test('ID-popupen följer skärmen på ett långt underlag och Avbryt återställer scroll och fokus', async ({ page }) => {
+test('Godkänn öppnar ID-väntan efter serversvaret, även under en transformerad lång sida', async ({ page }) => {
   const state = await fixture(page);
   // Reproduce a containing block created by a parent transform/animation.
   await page.locator('.terminal-app').evaluate(element => { element.style.transform = 'translateY(0)'; });
-  const { dialog, originalY } = await openIdAtBottom(page);
+  await expect(page.getByRole('button', { name: /BankID/ })).toHaveCount(0);
+  const { dialog } = await approveAtBottom(page);
   await expect(page.locator('body')).toHaveCSS('position', 'fixed');
-  await dialog.getByRole('button', { name: 'Avbryt', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: /Okej|Avbryt|Stäng/ })).toHaveCount(0);
+  expect(state.count()).toBe(1);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await state.update(customerApproval('next-customer'));
   await expect(dialog).toHaveCount(0);
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(originalY);
-  await expect(page.getByRole('button', { name: 'Godkänn med legitimation', exact: true })).toBeFocused();
-  expect(state.count()).toBe(0);
-  // Each opening starts at the top of the dialog's own scroll area.
-  await page.getByRole('button', { name: 'Godkänn med legitimation', exact: true }).click();
-  await expectViewportDialog(page, page.getByRole('dialog', { name: 'Manuell verifiering', exact: true }));
+  await expect(page.locator('body')).not.toHaveCSS('position', 'fixed');
+  await expect(page.getByRole('checkbox')).not.toBeChecked();
+  await expect(page.getByText('Invägningskort INV-4002', { exact: true })).toBeAttached();
 });
 
 test('ID-väntan ligger mitt i skärmen utan dubbla anrop och nästa kund släpper scrolllåset', async ({ page }) => {
   const state = await fixture(page);
   const release = state.holdResponse();
-  const { dialog } = await openIdAtBottom(page);
-  await dialog.getByRole('button', { name: 'Okej', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Skickar till personal…', exact: true })).toBeDisabled();
-  await page.keyboard.press('Escape');
-  await expect(dialog).toBeVisible();
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Godkänn', exact: true }).click();
+  await expect.poll(() => state.count()).toBe(1);
+  await expect(page.getByRole('button', { name: /Godkänn|Skickar/, exact: false }).first()).toBeDisabled();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   release();
   const waiting = page.getByRole('dialog', { name: 'Visa din legitimation', exact: true });
   await expect(waiting.getByRole('heading', { name: 'Inväntar personalens bekräftelse', exact: true })).toBeVisible();
@@ -122,7 +124,7 @@ test('ID-väntan ligger mitt i skärmen utan dubbla anrop och nästa kund släpp
   await expect(page.locator('body')).not.toHaveCSS('position', 'fixed');
   await expect(page.getByRole('checkbox')).not.toBeChecked();
   await expect(page.getByText('Invägningskort INV-4002', { exact: true })).toBeAttached();
-  await page.getByRole('button', { name: 'Godkänn med legitimation', exact: true }).click();
+  await page.getByRole('button', { name: 'Godkänn', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Bekräfta att du har granskat');
 });
 
