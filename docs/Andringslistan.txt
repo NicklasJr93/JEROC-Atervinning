@@ -3523,3 +3523,37 @@ automatiskt inkopplade. Resends felutredning ändras inte genom detta arbete.
   browserfallen finns i tests/platform-communications.spec.ts. Automatiska
   prov använder syntetiska leverantörssvar och skickar inga verkliga SMS.
   Samlade resultat redovisas vid leveransen.
+
+
+ÄL 143 – Visa översta plattformsraden bara för plattformens systemadmin
+Status: Planerad 2026-10-20. Endast dokumentation; implementation avvaktar beställning.
+- Ta bort hela översta raden med logga, företagsnamn, användarnamn/profil och
+  Logga ut för verksamhetens inloggade användare, inklusive VD, medarbetare och
+  bolagsintern administratör. Bolagets logga visas redan i vänstermenyn och
+  användare/utloggning finns längst ned i samma meny.
+- Plattformens verkliga systemadmin behåller plattformsraden och befintlig
+  information om support-/Jobba som-sammanhang när ett bolag öppnas. Regeln
+  ska utgå från den autentiserade aktörens session.actor.platformAdmin,
+  även när systemadmin arbetar som ett konto med VD-/medarbetarroll.
+  En bolagsroll med namnet Systemadmin ger inte i sig denna plattformsrad.
+- Samla Min profil, Logga ut och vid behov Byt bolag i den befintliga
+  profilmenyn längst ned till vänster. Min profil och bolagsbyte måste vara
+  nåbara även när plattformsraden inte visas. Återanvänd befintligt UI.
+- Behåll kontorets ordinarie arbetsyta med vänstermeny, brödsmulor, sökning,
+  anläggningsval och terminalval. Detta gäller den översta globala raden,
+  inte kontorets eget sidhuvud eller verksamhetens logga i vänstermenyn.
+- Arbetsytan flyttas upp när raden försvinner. Ingen tom remsa eller felaktig
+  sticky-/sidomenyförskjutning får bli kvar. Höjdmätning och CSS-variablerna
+  --platform-header-height/--platform-topbar-height ska hantera frånvarande
+  rad som 0 px, även vid omladdning, storleksbyte och byte av sammanhang.
+- Avgränsning: kontorets inloggade skal, även i smal webbläsare. Mobilappen,
+  chaufförs-, åkeri- och kundportalens egna gränssnitt ändras inte av punkten.
+  Autentisering, sessioner, bolagsisolering och behörigheter behåller sina
+  befintliga kontroller; detta är en förenkling av presentation/navigation.
+- Verifiera vid genomförande: VD och vanlig bolagsanvändare saknar översta
+  raden; profil/utloggning och eventuellt bolagsbyte fungerar via menyn;
+  plattformens systemadmin behåller raden både med egen behörighet och i
+  Jobba som-läge; inga tomma höjdreserver eller överlapp i bred/smal vy.
+- Kodunderlag för kommande implementation: src/platform/PlatformGate.tsx
+  (platform-topbar och ResizeObserver) samt kontorets befintliga profilmeny
+  i src/office/OfficeApp.tsx och tillhörande layoutstilar.
