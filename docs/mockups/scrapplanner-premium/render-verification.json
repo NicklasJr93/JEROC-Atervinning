@@ -1,0 +1,26 @@
+[
+  {
+    "image": "01_Startsida_Dator.png",
+    "width": 1440,
+    "height": 3712,
+    "overflow": false,
+    "brokenImages": 0,
+    "externalRequests": 0
+  },
+  {
+    "image": "02_Startsida_Mobil.png",
+    "width": 390,
+    "height": 4669,
+    "overflow": false,
+    "brokenImages": 0,
+    "externalRequests": 0
+  },
+  {
+    "image": "03_Forsta_intrycket.png",
+    "width": 1440,
+    "height": 3712,
+    "overflow": false,
+    "brokenImages": 0,
+    "externalRequests": 0
+  }
+]
