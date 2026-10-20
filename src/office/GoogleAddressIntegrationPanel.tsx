@@ -59,17 +59,17 @@ function GoogleAddressPanel({ scope, mayTest, refreshKey }: { scope: CompanyLook
           <div className="integration-detail-columns">
             <div><h3>Serverns inställningar</h3><ul className="integration-functions">
               <li>{config.browserConfigured ? <Check size={15} aria-hidden="true" /> : <CircleAlert size={15} aria-hidden="true" />}<span>Webbläsarnyckel för adressförslag: <strong>{config.browserConfigured ? 'Registrerad' : 'Saknas'}</strong></span></li>
-              <li>{config.validationConfigured ? <Check size={15} aria-hidden="true" /> : <CircleAlert size={15} aria-hidden="true" />}<span>Servernyckel för adresskontroll: <strong>{config.validationConfigured ? 'Registrerad' : 'Saknas'}</strong></span></li>
-            </ul><p>Konfigurationen visar vilka nycklar som finns. Prova adresshjälpen för att kontrollera att Google svarar med era inställningar.</p></div>
-            <div><h3>Det här ingår</h3><ul className="integration-functions"><li><MapPin size={14} aria-hidden="true" /><span>Adressförslag i kund- och ursprungsfält.</span></li><li><Check size={14} aria-hidden="true" /><span>Granskning och bekräftelse av gata, postnummer och ort.</span></li><li><ShieldCheck size={14} aria-hidden="true" /><span>Formuläret sparas separat. Manuell adressinmatning finns alltid kvar.</span></li></ul></div>
+              <li>{config.validationConfigured ? <Check size={15} aria-hidden="true" /> : <CircleAlert size={15} aria-hidden="true" />}<span>Servernyckel för extra adresskontroll (valfri): <strong>{config.validationConfigured ? 'Registrerad' : 'Saknas'}</strong></span></li>
+            </ul><p>Konfigurationen visar vilka nycklar som finns. Postnummer och ort hämtas från den valda Google Places-adressen. Extra adresskontroll krävs inte för att fylla i fälten.</p></div>
+            <div><h3>Det här ingår</h3><ul className="integration-functions"><li><MapPin size={14} aria-hidden="true" /><span>Adressförslag i kund- och ursprungsfält.</span></li><li><Check size={14} aria-hidden="true" /><span>Gata, postnummer och ort fylls i när du väljer en komplett adress.</span></li><li><ShieldCheck size={14} aria-hidden="true" /><span>Formuläret sparas separat. Manuell adressinmatning finns alltid kvar.</span></li></ul></div>
           </div>
-          <details><summary>Så konfigureras adresshjälpen</summary><div><p>Lägg två separata nycklar i Render → scrapplanner-app → Environment och deploya appen.</p><ul className="integration-setup">
+          <details><summary>Så konfigureras adresshjälpen</summary><div><p>Lägg webbläsarnyckeln i Render → scrapplanner-app → Environment och deploya appen. Extra serverkontroll använder en separat, valfri nyckel.</p><ul className="integration-setup">
             <li><code>GOOGLE_MAPS_BROWSER_API_KEY</code>: Maps JavaScript API och Places API (New). Begränsa nyckeln till era webbplatser, exempelvis <code>https://app.scrapplanner.com/*</code> och <code>https://mobile.scrapplanner.com/*</code>.</li>
-            <li><code>GOOGLE_ADDRESS_VALIDATION_API_KEY</code>: endast Address Validation API. Begränsa nyckeln till appserverns utgående IP-adresser.</li>
+            <li><code>GOOGLE_ADDRESS_VALIDATION_API_KEY</code> (valfri): aktivera Address Validation API i samma Google Cloud-projekt som nyckeln. Begränsa nyckeln till endast detta API och appserverns utgående IP-adresser.</li>
           </ul><p>Kontrollen ovan verifierar inte begränsningar eller fakturering i Google Cloud. Nycklarnas värden visas inte här.</p></div></details>
           {!mayTest && <p>Du behöver behörighet att hantera integrationer för att prova adresshjälpen här.</p>}
           <p><button className="office-btn" type="button" disabled={!config.configured || !mayTest} aria-expanded={testing} aria-controls={`${id}-test`} onClick={() => setTesting(value => !value)}><MapPin size={15} aria-hidden="true" />{testing ? 'Stäng adressprovet' : 'Testa adresshjälpen'}</button></p>
-          {!config.configured && <p>Lägg till båda nycklarna för att aktivera adressförslagen. Kundkortens adressfält kan fyllas i manuellt under tiden.</p>}
+          {!config.configured && <p>Lägg till webbläsarnyckeln för att aktivera adressförslagen. Kundkortens adressfält kan fyllas i manuellt under tiden.</p>}
         </>}
 
     {testing && !loading && config?.configured && mayTest && <section id={`${id}-test`} aria-labelledby={`${id}-test-title`}>

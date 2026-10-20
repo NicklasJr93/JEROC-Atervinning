@@ -47,8 +47,21 @@ test('config exposes only the browser key to a fresh authorized scope, with no-s
   assert.equal(f.calls, 0); assert.equal(f.authorizations, 2);
 }));
 
-test('missing server or browser configuration leaves manual entry available without exposing keys', async () => {
-  for (const options of [{ configured: false }, { env: { GOOGLE_ADDRESS_VALIDATION_API_KEY: 'server-private-key' } }])
+test('browser-only configuration enables Places independently of the unavailable server check', () => fixture(async f => {
+  const result = await f.request({ route: configPath, body: {} });
+  assert.equal(result.status, 200, result.text);
+  assert.deepEqual(result.body, { configured: true, browserConfigured: true, browserApiKey: 'browser-public-key', validationConfigured: false, countryCode: 'SE' });
+  assert.ok(!result.text.includes('server-private-key'));
+  assert.equal(f.calls, 0);
+  const validation = await f.request();
+  assert.equal(validation.status, 503);
+  assert.equal(validation.body.code, 'address_validation_not_configured');
+  assert.ok(!validation.text.includes(address.address));
+  assert.equal(f.calls, 0);
+}, { configured: false, env: { GOOGLE_MAPS_BROWSER_API_KEY: 'browser-public-key' } }));
+
+test('missing browser configuration leaves manual entry available without exposing server keys', async () => {
+  for (const options of [{ env: { GOOGLE_ADDRESS_VALIDATION_API_KEY: 'server-private-key' } }, { configured: false, env: {} }])
     await fixture(async f => {
       const result = await f.request({ route: configPath, body: {} });
       assert.equal(result.status, 200); assert.equal(result.body.configured, false);

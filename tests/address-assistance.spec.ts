@@ -8,7 +8,7 @@ const validation = { address: confirmedAddress, verdict: { addressComplete: true
 
 test('adresskontrakt behåller bara svenska strukturerade fält och kräver aktiv bekräftelse', () => {
   expect(parseAddressConfig({ configured: false, browserConfigured: true, validationConfigured: false, countryCode: 'SE', browserApiKey: 'must-not-leak' })).toEqual({ configured: false, browserConfigured: true, validationConfigured: false, countryCode: 'SE' });
-  expect(() => parseAddressConfig({ configured: true, validationConfigured: false, countryCode: 'SE', browserApiKey: 'browser-key' })).toThrow();
+  expect(parseAddressConfig({ configured: true, browserConfigured: true, validationConfigured: false, countryCode: 'SE', browserApiKey: 'browser-key' })).toEqual({ configured: true, browserConfigured: true, validationConfigured: false, countryCode: 'SE', browserApiKey: 'browser-key' });
   expect(parseAddressValidation({ ...validation, address: { ...confirmedAddress, postalCode: '761 41', lat: 59, lng: 18 }, raw: { secret: true } })).toEqual(validation);
   expect(() => parseAddressValidation({ ...validation, verdict: { ...validation.verdict, requiresConfirmation: false } })).toThrow();
   expect(() => parseAddressValidation({ ...validation, address: { ...confirmedAddress, postalCode: '1234' } })).toThrow();
@@ -28,6 +28,7 @@ test('Google-träff måste innehålla svensk gata, postnummer och postort utan a
 
 interface AddressFixtureOptions {
   configured?: boolean;
+  validationConfigured?: boolean;
   deferValidation?: boolean;
   validationError?: { status: number; message: string; code: string };
   detailsFailure?: boolean;
@@ -73,7 +74,7 @@ async function customerAddress(page: Page, options: AddressFixtureOptions = {}) 
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/address-assistance/config') return route.fulfill({ json: options.configured === false
       ? { configured: false, validationConfigured: false, countryCode: 'SE' }
-      : { configured: true, browserApiKey: 'public-browser-key', validationConfigured: true, countryCode: 'SE' } });
+      : { configured: true, browserApiKey: 'public-browser-key', validationConfigured: options.validationConfigured !== false, countryCode: 'SE' } });
     if (path === '/api/address-assistance/validate') {
       validations.push(request);
       await validationGate;
@@ -109,23 +110,35 @@ async function customerAddress(page: Page, options: AddressFixtureOptions = {}) 
   return { street, postcode, city, suggestions, validations, stats, releaseValidation };
 }
 
-test('val av komplett adress fyller det vanliga adressfältet, postnummer och ort efter serverkontroll utan extra knapp', async ({ page }) => {
+test('komplett Places-adress fyller alla vanliga adressfält direkt utan separat servervalidering', async ({ page }) => {
+  // A blocked/unavailable validation service cannot delay usable Places details.
   const fixture = await customerAddress(page, { deferValidation: true });
   await fixture.street.fill('Testgatan');
   await fixture.suggestions.getByRole('option').click();
-  await expect.poll(() => fixture.validations.length).toBe(1);
-  await expect(fixture.street).toHaveValue('Testgatan');
-  await expect(fixture.postcode).toHaveValue('');
-  await expect(fixture.city).toHaveValue('');
-  expect(fixture.validations[0].postDataJSON()).toEqual({ address: confirmedAddress });
-  expect(fixture.validations[0].headers()).toMatchObject({ 'x-employee-company': 'jeroc-demo', 'x-employee-person': 'address-assistance-person' });
-  fixture.releaseValidation();
   await expect(fixture.street).toHaveValue(confirmedAddress.address);
   await expect(fixture.postcode).toHaveValue(confirmedAddress.postalCode);
   await expect(fixture.city).toHaveValue(confirmedAddress.city);
+  expect(fixture.validations).toHaveLength(0);
   await expect(page.getByRole('button', { name: 'Sök och komplettera adress', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Adressen stämmer – använd adressen', exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Ny kund', exact: true })).toBeVisible();
+  expect(fixture.stats.customerWrites).toBe(0);
+});
+
+for (const validationConfigured of [false, true]) test(`komplett Places-adress fungerar när Address Validation ${validationConfigured ? 'nekas av Google' : 'saknar servernyckel'}`, async ({ page }) => {
+  const fixture = await customerAddress(page, { validationConfigured,
+    validationError: { status: 503, code: 'address_validation_api_disabled', message: 'Address Validation API är inte aktiverat.' } });
+  await fixture.street.fill('Testgatan 12');
+  await fixture.suggestions.getByRole('option').click();
+  await expect(fixture.street).toHaveValue('Testgatan 12');
+  await expect(fixture.postcode).toHaveValue('76141');
+  await expect(fixture.city).toHaveValue('Norrtälje');
+  expect(fixture.validations).toHaveLength(0);
+  // Keep manual corrections; no optional async validation may overwrite them.
+  await fixture.postcode.fill('99999');
+  await fixture.city.fill('Min postort');
+  await expect(fixture.postcode).toHaveValue('99999');
+  await expect(fixture.city).toHaveValue('Min postort');
   expect(fixture.stats.customerWrites).toBe(0);
 });
 
@@ -146,7 +159,7 @@ test('val av gata behåller fokus för husnummer och gissar inte postnummer frå
   await fixture.suggestions.getByRole('option', { name: 'Testgatan 12, Norrtälje, Sverige', exact: true }).click();
   await expect(fixture.postcode).toHaveValue('76141');
   await expect(fixture.city).toHaveValue('Norrtälje');
-  expect(fixture.validations).toHaveLength(1);
+  expect(fixture.validations).toHaveLength(0);
   expect(await page.evaluate(() => (window as Window & { __addressQueries?: string[] }).__addressQueries)).toContain('Testgatan 12, Norrtälje');
 });
 
@@ -170,6 +183,17 @@ test('numrerad Googleträff utan postnummer går vidare till servern som komplet
   await expect(fixture.postcode).toHaveValue('76141');
   await expect(fixture.city).toHaveValue('Norrtälje');
   expect(fixture.validations[0].postDataJSON()).toEqual({ address: { ...confirmedAddress, postalCode: '' } });
+  expect(fixture.validations[0].headers()).toMatchObject({ 'x-employee-company': 'jeroc-demo', 'x-employee-person': 'address-assistance-person' });
+});
+
+test('ofullständig Places-träff behåller kända fält utan att anropa en okonfigurerad validerare', async ({ page }) => {
+  const fixture = await customerAddress(page, { missingPostcode: true, validationConfigured: false });
+  await fixture.street.fill('Testgatan 12');
+  await fixture.suggestions.getByRole('option').click();
+  await expect(fixture.street).toHaveValue('Testgatan 12');
+  await expect(fixture.postcode).toHaveValue('');
+  await expect(fixture.city).toHaveValue('Norrtälje');
+  expect(fixture.validations).toHaveLength(0);
 });
 
 test('tangentbordets piltangent och Enter väljer adressen utan att skicka kundformuläret', async ({ page }) => {
@@ -188,7 +212,7 @@ test('tangentbordets piltangent och Enter väljer adressen utan att skicka kundf
 
 for (const changedField of ['street', 'postcode'] as const) {
   test(`manuell ändring av ${changedField === 'street' ? 'gatuadress' : 'postnummer'} förkastar ett sent kontrollsvar`, async ({ page }) => {
-    const fixture = await customerAddress(page, { deferValidation: true });
+    const fixture = await customerAddress(page, { deferValidation: true, missingPostcode: true });
     await fixture.street.fill('Testgatan');
     await fixture.suggestions.getByRole('option').click();
     await expect.poll(() => fixture.validations.length).toBe(1);
@@ -226,15 +250,15 @@ test('saknad Googlekonfiguration lämnar det vanliga adressfältet tillgängligt
   await expect(fixture.suggestions).toHaveCount(0);
 });
 
-test('nekad servernyckel visas som anslutningsfel utan att skuldbelägga adressen eller fylla övriga fält', async ({ page }) => {
+test('saknat postnummer gissas inte när den separata adresskontrollen nekas', async ({ page }) => {
   const message = 'Google nekade serverns adresskontroll. Kontrollera servernyckeln, API-begränsningen och Render-IP-adresserna.';
-  const fixture = await customerAddress(page, { validationError: { status: 403, message, code: 'address_validation_credentials_rejected' } });
+  const fixture = await customerAddress(page, { missingPostcode: true, validationError: { status: 403, message, code: 'address_validation_credentials_rejected' } });
   await fixture.street.fill('Testgatan');
   await fixture.suggestions.getByRole('option').click();
-  await expect(page.getByText(message, { exact: true })).toBeVisible();
-  await expect(fixture.street).toHaveValue('Testgatan');
+  await expect(fixture.street).toHaveValue('Testgatan 12');
   await expect(fixture.postcode).toHaveValue('');
-  await expect(fixture.city).toHaveValue('');
+  await expect(fixture.city).toHaveValue('Norrtälje');
+  await expect(page.getByText('Gatuadressen är ifylld. Google-träffen saknar postnummer eller ort och kunde inte kompletteras. Fyll i de tomma fälten manuellt.', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Adressen stämmer – använd adressen', exact: true })).toHaveCount(0);
 });
 

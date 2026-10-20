@@ -29,7 +29,7 @@ export function parseAddressConfig(input: unknown): AddressConfig {
   const value = input as Partial<AddressConfig> | null;
   if (!value || typeof value !== 'object' || typeof value.configured !== 'boolean'
     || typeof value.validationConfigured !== 'boolean' || value.countryCode !== 'SE'
-    || (value.configured && (typeof value.browserApiKey !== 'string' || !value.browserApiKey.trim() || !value.validationConfigured)))
+    || (value.configured && (typeof value.browserApiKey !== 'string' || !value.browserApiKey.trim())))
     throw new AddressAssistanceError('Adresshjälpen gav ett ofullständigt svar.', 'address_response_invalid', 502);
   return { configured: value.configured, browserConfigured: typeof value.browserConfigured === 'boolean' ? value.browserConfigured : Boolean(value.browserApiKey), validationConfigured: value.validationConfigured, countryCode: 'SE',
     ...(value.configured ? { browserApiKey: value.browserApiKey } : {}) };

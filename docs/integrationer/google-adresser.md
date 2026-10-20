@@ -7,8 +7,8 @@ Implementerad 20 oktober 2026 enligt ÄL 087 och uppdaterad till adressförslag 
 1. Skriv direkt i det vanliga **Postadress/Gatuadress**-fältet. Efter minst tre tecken och 350 ms söker webbläsaren svenska adresser med Places API (New), högst fem förslag åt gången. Förslagen visas under samma fält.
 2. Välj en gatuträff utan nummer för att fylla i gatunamnet och fortsätta med husnummer i samma fält. En gata kan ha flera postnummer; något postnummer gissas inte innan rätt adress är känd.
 3. Välj en komplett adress. Bara adresskomponenter och formaterad adress hämtas; inga koordinater, omdömen eller andra företagsuppgifter importeras.
-4. Servern kontrollerar adressen med Address Validation API. Efter lyckad kontroll förs postadress, postnummer och ort över tillsammans till de befintliga fälten. Den kompletta adressen behöver inte väljas igen i en separat sökruta eller godkännas med en generell extra knapp.
-5. Granska uppgifterna i de synliga, redigerbara fälten och använd formulärets vanliga **Spara** för att bekräfta dem. Om valideringen föreslår ändringar behöver dessa framgå så att användaren kan granska eller rätta dem; de ska inte tyst räknas som användarens bekräftade adress.
+4. När Places-träffen innehåller gata, husnummer, postnummer och ort fylls dessa direkt i de befintliga fälten. Ingen servervalidering krävs eller inväntas för detta. En avstängd Address Validation API kan därför inte blockera en komplett Places-träff.
+5. Granska uppgifterna i de synliga, redigerbara fälten och använd formulärets vanliga **Spara** för att bekräfta dem. Automatisk ifyllnad är inte en garanti om postleverans eller en separat verifiering. Den valfria serverkontrollen kan komplettera saknade uppgifter; sena förslag får aldrig skriva över en adress som användaren hunnit ändra.
 
 Saknad nyckel, kvot, nätfel eller ofullständig träff stoppar inte manuell inmatning. Användaren kan ange exempelvis en hämtplats bakom en lada. Om man ändrar adressfält, konto, bolag eller aktuellt utkast förkastas sena förslag. `selectionFromGooglePlace` skiljer en användbar svensk gatuträff från en komplett adress; saknade postnummer och husnummer lämnas tomma i stället för att stoppa gatunamnsvalet eller hittas på.
 
@@ -16,12 +16,12 @@ Kundens SCB-postadress blir inte automatiskt materialets ursprung. Kopiering til
 
 ## Nycklar och Render
 
-Båda variablerna läggs i **Render → scrapplanner-app → Environment**, utan citattecken eller extra frågetecken. Deploya appen efter ändring.
+Variablerna läggs i **Render → scrapplanner-app → Environment**, utan citattecken eller extra frågetecken. Webbläsarnyckeln räcker för adressförslag och ifyllnad från kompletta Places-träffar. Servernyckeln är valfri och används för en separat adresskontroll. Deploya appen efter ändring.
 
 | Variabel | Google-begränsning | Tillåtna API:er |
 | --- | --- | --- |
 | `GOOGLE_MAPS_BROWSER_API_KEY` | Websites: `https://app.scrapplanner.com/*` och `https://mobile.scrapplanner.com/*` | Maps JavaScript API och Places API (New) |
-| `GOOGLE_ADDRESS_VALIDATION_API_KEY` | IP addresses: appens aktuella utgående IP-intervall | Endast Address Validation API |
+| `GOOGLE_ADDRESS_VALIDATION_API_KEY` (valfri) | IP addresses: appens aktuella utgående IP-intervall | Endast Address Validation API |
 
 Hämta serverns IP-intervall i **scrapplanner-app → Connect → Outbound**. Kopiera samtliga intervall inklusive `/24` eller annat CIDR-suffix. De är delade Render-intervall, inte dedikerade IP-adresser; uppdatera begränsningarna om Render ändrar dem. Använd aldrig webbplatsens DNS/A-post som serverns utgående IP.
 
@@ -29,11 +29,11 @@ Webbläsarnyckeln är avsedd att kunna skickas till Google-biblioteket i en inlo
 
 Google Cloud-projektet behöver aktiverad fakturering och dessa API:er. Sätt faktiska kvoter och budgetlarm. Ett budgetlarm stänger inte av debitering. Webbläsarens Google-anrop begränsas av Googles kvoter, inte av serverns valideringsbegränsning.
 
-**Integrationer → Google adresser** visar om respektive nyckel finns och innehåller ett adressprov utan kundsparande. **Konfigurerad** betyder att nycklarna finns; det är inte ett påstående att Google har godkänt nycklar, fakturering eller begränsningar. Prova en verklig adress efter deployment.
+**Integrationer → Google adresser** visar om respektive nyckel finns och innehåller ett adressprov utan kundsparande. **Konfigurerad** betyder att webbläsarnyckeln finns; den separata servernyckeln visas oberoende. Det är inte ett påstående att Google har godkänt nycklar, fakturering eller begränsningar. Prova en verklig adress efter deployment.
 
 ## API och behörighet
 
-- `POST /api/address-assistance/config`, JSON `{}`: autentiserad konfiguration med närvaroflaggor; endast den avsiktligt offentliga webbläsarnyckeln kan lämnas ut när båda kopplingarna är konfigurerade.
+- `POST /api/address-assistance/config`, JSON `{}`: autentiserad konfiguration med separata närvaroflaggor. `configured` och `browserConfigured` anger om webbläsarnyckeln finns; `validationConfigured` anger om serverkontrollens nyckel finns. Endast den avsiktligt offentliga webbläsarnyckeln lämnas ut, oberoende av servernyckeln.
 - `POST /api/address-assistance/validate`, JSON `{ "address": { "address": "Testgatan 12", "postalCode": "76141", "city": "Norrtälje", "countryCode": "SE" } }`: svensk adresskontroll. Svaret innehåller ett adressförslag och begränsade kvalitetsflaggor. Alla förslag kräver användarens bekräftelse; inte en garanti om att post kan levereras.
 
 Båda kontrollerar verklig plattforms-/personalsession och bolagskontext, samma ursprung och aktuell behörighet före svar. Plattformsanrop kräver CSRF. Förfalskade användar-/bolagsheaders ger ingen åtkomst. Läsbehörighet för integrationer räcker för konfigurationsstatus; validering kräver rätt att redigera ett relevant verksamhetsflöde.
@@ -46,7 +46,7 @@ Vanligt Places-innehåll får enligt Googles EES-villkor inte användas tillsamm
 
 Google Address Validation-villkor §1.4 medger tillfällig lagring av bland annat `postalAddress`, `formattedAddress` och komponentnamn i 30 dagar. Därefter ska innehållet raderas eller ersättas med **"End User data provided through End User confirmation or correction"**. Villkoret föreskriver inte en separat bekräftelseknapp. I ett vanligt redigerbart formulär kan det ordinarie, uttryckliga sparandet bekräfta de adressfält användaren har sett och kunnat rätta.
 
-Googles officiella valideringsvägledning skiljer även mellan `ACCEPT`, där en adress med hög säkerhet kan användas utan ytterligare kundinteraktion, och `CONFIRM`, där exempelvis härledda, ersatta eller stavningskorrigerade komponenter behöver granskas. Vägledningen ersätter inte lagringsvillkoren. Den nya inmatningen behåller serverkontrollen och synliga, redigerbara resultat; någon generell permanent råcache för Places-svar, valideringshistorik eller koordinater införs inte.
+Googles officiella valideringsvägledning skiljer även mellan `ACCEPT`, där en adress med hög säkerhet kan användas utan ytterligare kundinteraktion, och `CONFIRM`, där exempelvis härledda, ersatta eller stavningskorrigerade komponenter behöver granskas. Vägledningen ersätter inte lagringsvillkoren. Inmatningen visar redigerbara resultat och kan använda den separata serverkontrollen för ofullständiga träffar; någon generell permanent råcache för Places-svar, valideringshistorik eller koordinater införs inte.
 
 Äldre flöden som sparar utkast automatiskt behöver fortsatt skilja ett tillfälligt förslag från adressdata som användaren har bekräftat. Att visa fält direkt är inte i sig bevis på bekräftelse för obegränsad lagring. Denna ändring påstår inte att alla äldre automatiskt sparade utkast har en verifierad 30-dagars gallringsrutin. Tysta senare Google-korrigeringar ska inte ersätta redan bekräftade uppgifter.
 
@@ -91,7 +91,7 @@ Servern läser nu även Googles strukturerade `google.rpc.ErrorInfo` vid HTTP 40
 
 En ogiltig nyckel kan ge HTTP 400 och ska då inte beskrivas som en felaktig postadress. Okända, ofullständiga eller felaktigt formaterade leverantörsfel behåller den generella feltexten. Även felsvar omfattas av max 64 KiB och anropets timeout. Råa felmeddelanden, metadata, nycklar, projekt-ID och IP-adresser lämnas inte vidare eller loggas.
 
-Deploya ändringen och gör ett nytt adressprov för att se eventuell närmare orsak. Lokala tester använder syntetiska svar; de bekräftar inte vilken inställning som nekar det verkliga Render-anropet. För komplett automatisk ifyllnad krävs lyckad serverkontroll. Fälten är därefter synliga och redigerbara, och ordinarie sparande bekräftar användarens adressuppgifter.
+Deploya ändringen och gör ett nytt adressprov för att se eventuell närmare orsak. Lokala tester använder syntetiska svar; de bekräftar inte vilken inställning som nekar det verkliga Render-anropet. Kompletta Places-träffar fyller adress, postnummer och ort direkt utan serverkontroll. Om Google nekar den valfria serverkontrollen behålls redan tillgängliga fält; saknade uppgifter gissas inte. Fälten är synliga och redigerbara, och ordinarie sparande bekräftar användarens adressuppgifter.
 
 ## Källor
 

@@ -29,7 +29,7 @@ test('catalog scopes every adapter call to the authenticated organisation and re
 test('Google address adapter reports actual scoped key configuration without claiming verified connection or exposing keys', async () => {
   const browserKey = 'SYNTHETIC-BROWSER-KEY', serverKey = 'SYNTHETIC-SERVER-KEY';
   for (const [env, configured] of [
-    [{}, false], [{ GOOGLE_MAPS_BROWSER_API_KEY: browserKey }, false],
+    [{}, false], [{ GOOGLE_MAPS_BROWSER_API_KEY: browserKey }, true],
     [{ GOOGLE_ADDRESS_VALIDATION_API_KEY: serverKey }, false],
     [{ GOOGLE_MAPS_BROWSER_API_KEY: ' ', GOOGLE_ADDRESS_VALIDATION_API_KEY: serverKey }, false],
     [{ GOOGLE_MAPS_BROWSER_API_KEY: browserKey, GOOGLE_ADDRESS_VALIDATION_API_KEY: serverKey }, true],

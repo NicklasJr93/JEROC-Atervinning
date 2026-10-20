@@ -37,6 +37,7 @@ export default function AddressField({ value, textValue, onChange, onApply, scop
   const [choices, setChoices] = useState<Choices>({ identity: '', signature: '', items: [] });
   const [active, setActive] = useState(-1);
   const places = useRef<GooglePlacesLibrary | null>(null), session = useRef<object | null>(null);
+  const validationAvailable = useRef(false);
   const sequence = useRef(0), selectionAbort = useRef<AbortController | null>(null);
   const edited = useRef(false), ownEdit = useRef<string | undefined>(undefined);
   const street = useRef<{ name: string; city: string } | undefined>(undefined);
@@ -53,7 +54,7 @@ export default function AddressField({ value, textValue, onChange, onApply, scop
   useEffect(() => {
     sequence.current++; selectionAbort.current?.abort(); clearChoices();
     edited.current = false; ownEdit.current = undefined; street.current = undefined;
-    places.current = null; session.current = null;
+    places.current = null; session.current = null; validationAvailable.current = false;
     return () => { sequence.current++; selectionAbort.current?.abort(); };
   }, [identity]);
 
@@ -79,6 +80,7 @@ export default function AddressField({ value, textValue, onChange, onApply, scop
       const library = await loadGooglePlaces(config.browserApiKey);
       if (controller.signal.aborted || latest.current.identity !== identity || !available()) return;
       places.current = library; session.current = new library.AutocompleteSessionToken();
+      validationAvailable.current = config.validationConfigured;
       setReady(version => version + 1); setStatus({ identity, phase: 'idle' });
     }).catch(() => {
       if (!controller.signal.aborted && latest.current.identity === identity)
@@ -133,6 +135,7 @@ export default function AddressField({ value, textValue, onChange, onApply, scop
     selectionAbort.current?.abort(); const controller = new AbortController(); selectionAbort.current = controller;
     edited.current = false; clearChoices(); setStatus({ identity: key, phase: 'validating' });
     let stage: AddressSelectionStage = 'details';
+    let selectedAddress: AddressValue | undefined;
     try {
       const place = prediction.toPlace();
       await withAddressTimeout(place.fetchFields({ fields: ['addressComponents', 'formattedAddress'] }));
@@ -140,6 +143,7 @@ export default function AddressField({ value, textValue, onChange, onApply, scop
       session.current = new places.current!.AutocompleteSessionToken();
       stage = 'components';
       const selected = selectionFromGooglePlace(place);
+      selectedAddress = selected.address;
       if (!selected.hasHouseNumber) {
         street.current = { name: selected.address.address, city: selected.address.city };
         // A street can cross several postal areas, even if Places returns a
@@ -152,16 +156,36 @@ export default function AddressField({ value, textValue, onChange, onApply, scop
         });
         return;
       }
+      // Places already returns the selected address's structured details. A
+      // separate validation service must never block those editable fields.
+      // No validation request is started for a complete Places address, so a
+      // delayed provider response cannot later replace manual corrections.
+      if (selected.complete) {
+        ownEdit.current = undefined; street.current = undefined;
+        latest.current.onApply({ ...selected.address });
+        setStatus({ identity: key, phase: 'idle', message: 'Postnummer och ort är ifyllda. Kontrollera adressen innan du sparar.' });
+        return;
+      }
+      if (!validationAvailable.current) {
+        latest.current.onApply({ ...selected.address });
+        setStatus({ identity: key, phase: 'idle', message: 'Google-träffen saknar postnummer eller ort. Komplettera de tomma fälten eller välj en mer exakt adress.' });
+        return;
+      }
       stage = 'validation'; await validate(selected.address, key, version, number, controller);
     } catch (failure) {
-      if (current(key, version, number) && !controller.signal.aborted)
-        setStatus({ identity: key, phase: 'idle', message: addressSelectionFailure(failure, stage) });
+      if (current(key, version, number) && !controller.signal.aborted) {
+        // Keep the usable Places fields even if optional completion is down.
+        if (stage === 'validation' && selectedAddress) {
+          latest.current.onApply({ ...selectedAddress });
+          setStatus({ identity: key, phase: 'idle', message: 'Gatuadressen är ifylld. Google-träffen saknar postnummer eller ort och kunde inte kompletteras. Fyll i de tomma fälten manuellt.' });
+        } else setStatus({ identity: key, phase: 'idle', message: addressSelectionFailure(failure, stage) });
+      }
     }
   }
 
   function validateTypedNumber() {
     const selected = street.current, currentValue = latest.current;
-    if (!selected || !available()) return;
+    if (!selected || !available() || !validationAvailable.current) return;
     const address = currentValue.text.split(',')[0].trim();
     if (!address.startsWith(selected.name) || !/\d/.test(address.slice(selected.name.length))) return;
     const key = currentValue.identity, version = currentValue.signature, number = ++sequence.current;

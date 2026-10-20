@@ -96,9 +96,14 @@ export function createAddressAssistanceApi({ validator, authorize, env = process
       captured = await freshScope();
       const value = await input(req, config);
       let result;
-      if (config) result = { configured: Boolean(browserApiKey && validator.configured), browserConfigured: Boolean(browserApiKey), validationConfigured: validator.configured === true,
-        ...(browserApiKey && validator.configured ? { browserApiKey } : {}), countryCode: 'SE' };
+      // Places autocomplete and the optional server-side postal check are
+      // independent capabilities. A missing validation key must not hide the
+      // browser key or disable selection of a complete Places address.
+      if (config) result = { configured: Boolean(browserApiKey), browserConfigured: Boolean(browserApiKey), validationConfigured: validator.configured === true,
+        ...(browserApiKey ? { browserApiKey } : {}), countryCode: 'SE' };
       else {
+        if (!validator.configured)
+          fail('Den separata adresskontrollen är inte aktiverad. Du kan fortfarande använda adressförslagen och kontrollera adressfälten innan du sparar.', 503, 'address_validation_not_configured');
         consume(captured);
         result = await validator.validate(value.address, { signal: controller.signal, sessionToken: value.sessionToken });
       }
