@@ -19,10 +19,17 @@ test('unrestricted access is an explicit dual-admin grant; omitted legacy scope 
   assert.deepEqual(pricing.exportState().users.find(user => user.id === target.id).siteIds, ['norrtalje']);
   pricing.saveUsers({ users, allSiteUserIds: [target.id] }, principal);
   assert.equal(pricing.exportState().users.find(user => user.id === target.id).siteIds, undefined);
-  assert.throws(() => pricing.saveUsers({ users, allSiteUserIds: [target.id] }, { ...principal, user: { ...principal.user, siteIds: ['norrtalje'] } }), error => error.status === 403);
+  // The store re-resolves principals by ID. Put the restriction in the trusted
+  // catalogue rather than only forging a stale caller's principal object.
+  users = pricing.exportState().users;
+  users.push({ ...structuredClone(principal.user), id: 'scoped-admin', name: 'Scoped fixture administrator', siteIds: ['norrtalje'] });
+  pricing.saveUsers({ users }, principal);
+  const scoped = pricing.principal('admin', 'scoped-admin');
+  assert.throws(() => pricing.saveUsers({ users, allSiteUserIds: [target.id] }, scoped), error => error.status === 403);
+  assert.throws(() => pricing.saveUsers({ users, allSiteUserIds: [target.id] }, pricing.principal('scoped-admin', 'admin')), error => error.status === 403);
   assert.throws(() => pricing.saveUsers({ users, allSiteUserIds: ['unknown'] }, principal), error => error.status === 422);
   const crossSiteUsers = structuredClone(users); crossSiteUsers.find(user => user.id === target.id).siteIds = ['rimbo'];
-  assert.throws(() => pricing.saveUsers({ users: crossSiteUsers }, { ...principal, user: { ...principal.user, siteIds: ['norrtalje'] } }), error => error.status === 403);
+  assert.throws(() => pricing.saveUsers({ users: crossSiteUsers }, scoped), error => error.status === 403);
 });
 
 test('real application routes commit own sickness, preserve identity boundaries, export a versioned underlay and protect certificate files', async () => {

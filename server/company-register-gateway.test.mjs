@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTenantGateway } from './tenant-gateway.mjs';
 import { createPlatformStorage } from './platform-storage.mjs';
+import { createPlatformUsageStorage } from './platform-usage-storage.mjs';
 
 const path = '/api/company-register/lookup';
 const lookupBody = { organisationNumber: '5593593626' };
@@ -25,11 +26,13 @@ async function fixture(run, { pilot = false } = {}) {
   let gateway, server, calls = 0, addressCalls = 0;
   const failures = [];
   try {
-    // The pilot bootstrap test uses the injected local platform repository and
-    // creates no tenant bundle, so no network/database connection is opened.
+    // This bootstrap/controller test injects both local control-plane stores.
+    // The pilot DATABASE_URL only satisfies profile validation; no tenant
+    // bundle or real network connection is opened by a pre-company lookup.
     const platformRepository = pilot ? await createPlatformStorage({ env }) : undefined;
+    const platformUsageStorage = pilot ? await createPlatformUsageStorage({ env }) : undefined;
     gateway = await createTenantGateway({ env: pilot ? { ...env, SCRAPPLANNER_DEPLOYMENT_MODE: 'pilot', DATABASE_URL: 'postgresql://unused.example.test/company_lookup_fixture' } : env,
-      ...(platformRepository && { platformRepository }), companyRegister: { configured: true, async lookup(number, { signal }) {
+      ...(platformRepository && { platformRepository, platformUsageStorage }), companyRegister: { configured: true, async lookup(number, { signal }) {
         assert.equal(number, lookupBody.organisationNumber); assert.ok(signal instanceof AbortSignal);
         calls++; return structuredClone(result);
       } }, addressValidation: { configured: true, async validate(address) {

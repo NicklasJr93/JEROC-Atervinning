@@ -226,7 +226,10 @@ test('derived origin fields cannot mutate an attested original or append choices
   assert.deepEqual(stored.cards[0], original); assert.deepEqual(stored.customers, base.customers);
 }));
 
-test('legacy transport saves canonicalize changed address/phone fields and keep partial or invalid writes out', async () => fixture(async ({ api }) => {
+test('legacy transport saves canonicalize changed address/phone fields and keep partial or invalid writes out', async () => fixture(async ({ app, api }) => {
+  // This legacy all-transport endpoint intentionally requires all facilities.
+  // Give this fixture that scope after startup migration, not production users.
+  await (await app.getRepository()).transact(state => { delete state.pricing.users.find(user => user.id === 'admin').siteIds; });
   const path = '/api/application/transport', base = (await api(path)).data, next = structuredClone(base), order = next.orders[0];
   order.address = 'Testgatan 1, 761 41 Norrtälje'; order.city = 'Norrtälje'; order.phone = '0722002220';
   const saved = await api(path, { base, next }); assert.equal(saved.status, 200, saved.error);

@@ -1,18 +1,67 @@
-name: ScrapPlanner pilot bootstrap
+name: ScrapPlanner application quality
 
 on:
   push:
     branches: [main]
-    paths: ['server/**', 'src/**', 'scripts/**', 'package*.json', 'render.scrapplanner.yaml', '.github/workflows/pilot.yml']
+    paths: ['server/**', 'src/**', 'scripts/**', 'tests/**', 'expo/**', 'public/**', 'package*.json', '*.config.*', 'tsconfig*.json', 'index.html', 'render*.yaml', '.github/workflows/pilot.yml']
   pull_request:
-    paths: ['server/**', 'src/**', 'scripts/**', 'package*.json', 'render.scrapplanner.yaml', '.github/workflows/pilot.yml']
+    paths: ['server/**', 'src/**', 'scripts/**', 'tests/**', 'expo/**', 'public/**', 'package*.json', '*.config.*', 'tsconfig*.json', 'index.html', 'render*.yaml', '.github/workflows/pilot.yml']
 
 permissions:
   contents: read
 
+concurrency:
+  group: application-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
+    name: Build, Expo and server quality with PostgreSQL
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: scrapplanner_test
+          POSTGRES_USER: scrapplanner_test
+          POSTGRES_PASSWORD: ci-test-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U scrapplanner_test -d scrapplanner_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      JEROC_TEST_DATABASE_URL: postgresql://scrapplanner_test:ci-test-only@127.0.0.1:5432/scrapplanner_test
+      JEROC_TEST_POSTGRES_URL: postgresql://scrapplanner_test:ci-test-only@127.0.0.1:5432/scrapplanner_test
+      EXPO_GO_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            expo/package-lock.json
+      - run: npm ci --include=dev --no-audit --no-fund
+      - run: npm --prefix expo ci --include=dev --no-audit --no-fund
+      - run: npm run build
+      - run: npm run expo:check
+      - name: Require the isolated PostgreSQL service
+        run: >-
+          node --input-type=module -e
+          "import pg from 'pg'; const pool = new pg.Pool({connectionString: process.env.JEROC_TEST_DATABASE_URL});
+          try { await pool.query('SELECT 1'); } finally { await pool.end(); }"
+      - name: Verify all server files, including PostgreSQL transaction paths
+        run: node --test --test-concurrency=2 server/*.test.mjs
+
+  browser:
+    name: Isolated business workflow browser checks
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,23 +70,27 @@ jobs:
           cache: npm
       - run: npm ci --include=dev --no-audit --no-fund
       - run: npm run build
-      - name: Verify pilot startup, isolation and delivery guards
+      - run: npx playwright install --with-deps chromium
+      - name: Verify customer, staff, settings and billing workflows
         run: >-
-          node --test
-          server/deployment-profile.test.mjs
-          server/pilot-http.test.mjs
-          server/pilot-platform.test.mjs
-          server/pilot-application.test.mjs
-          server/pilot-integrations.test.mjs
-          server/platform-auth.test.mjs
-          server/platform-fleet.test.mjs
-          server/scb-company-register.test.mjs
-          server/company-register-api.test.mjs
-          server/company-register-gateway.test.mjs
-          server/tenant-gateway.test.mjs
-          server/tenant-runtime.test.mjs
-          server/application.test.mjs
-      - name: Install browser for company lookup form checks
-        run: npx playwright install --with-deps chromium
-      - name: Verify company lookup previews and explicit form application
-        run: npx playwright test tests/company-register-entrypoints.spec.ts tests/customer-form.spec.ts --workers=2
+          npx playwright test
+          tests/company-register-entrypoints.spec.ts
+          tests/customer-form.spec.ts
+          tests/customer-intake.spec.ts
+          tests/person-register-entrypoints.spec.ts
+          tests/company-settings.spec.ts
+          tests/delegated-user-management.spec.ts
+          tests/platform-usage.spec.ts
+          tests/transport-availability-recovery.spec.ts
+          tests/shared-postgres.spec.ts
+          tests/staff-invitations.spec.ts
+          tests/mobile-systemadmin.spec.ts
+          --workers=1
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

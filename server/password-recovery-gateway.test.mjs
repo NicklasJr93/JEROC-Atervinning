@@ -137,7 +137,13 @@ test('office password recovery preserves a deliberately disabled linked employee
   assert.equal((await publicClient.request('/api/platform/login', { username: 'admin', password: replacement })).status, 200);
   const account = await repository.read(state => state.personnelAuth.accounts.find(value => value.username === 'admin'));
   assert.equal(account.active, false);
-  assert.equal((await f.client().request('/api/employee/login?view=bootstrap', { username: 'admin', password: replacement })).status, 401);
+  // The disabled employee remains disabled. The active platform administrator
+  // can separately enter the documented support picker, not that employee.
+  const support = await f.client().request('/api/employee/login?view=bootstrap', { username: 'admin', password: replacement });
+  assert.equal(support.status, 200, JSON.stringify(support.body));
+  assert.equal(support.body.kind, 'platform-admin');
+  assert.equal(support.body.platformSession.actor.platformAdmin, true);
+  assert.equal(await repository.read(state => state.personnelAuth.accounts.find(value => value.username === 'admin').active), false);
 }));
 
 test('own profile HTTP endpoint requires session, CSRF and password and never accepts a target user', () => fixture(async f => {

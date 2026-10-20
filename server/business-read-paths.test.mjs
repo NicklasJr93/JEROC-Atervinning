@@ -105,8 +105,10 @@ test('personnel and full logistics views do not persist derived work or acquire 
   const logistics = await request('/api/logistics/office');
   assert.equal(logistics.status, 200, logistics.value.error);
   assert.equal(writes.length, 0); assert.equal(revision(), beforeRevision); assert.deepEqual(state, before);
-  assert.ok(reads.every(domains => !domains.includes('integrationHistory') && !domains.includes('employeeTime')));
-  assert.deepEqual(reads[0], ['pricing', 'personnel', 'transport']);
+  assert.ok(reads.every(domains => !domains.includes('integrationHistory')));
+  // Presence/sickness projections need the account and time domains to filter
+  // current eligibility. They remain read-only: no revisions or stored data change.
+  assert.deepEqual(reads[0], ['metadata', 'pricing', 'personnel', 'personnelAuth', 'employeeTime', 'employeeSickness', 'transport']);
   // A later real command derives the same task id, so selecting a task from a
   // read-only page is safe even before its first durable maintenance command.
   refreshStaffingTasks(state);

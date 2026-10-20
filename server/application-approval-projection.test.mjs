@@ -88,7 +88,7 @@ test('genuine first customer review binds pending prices and the frozen snapshot
   assert.equal(current.rows[0].pricePending, false); assert.equal(current.financialPending, false); assert.equal(current.pricingRowsPending, false);
   assert.equal(current.pricingSnapshotId, review.snapshot.card.pricingSnapshotId); assert.equal(current.pricingTotal, 6048);
   assert.equal(current.preparedBy, preparer.id);
-  assert.equal(current.audit.filter(event => event.text.includes('fryst och visad')).length, 1);
+  assert.equal(current.audit.filter(event => event.text.includes('fryst för kundgodkännande')).length, 1);
   await f.approve(review); assert.equal((await f.api(office)).data.cards.find(c => c.id === input.card.id).status, 'attest');
   const base = (await f.api(office)).data, tampered = structuredClone(base); tampered.cards.find(c => c.id === input.card.id).rows[0].price = 85;
   tampered.cards.find(c => c.id === input.card.id).status = 'complement'; assert.equal((await f.api(office, { base, next: tampered })).status, 409);
@@ -98,7 +98,7 @@ test('genuine first customer review binds pending prices and the frozen snapshot
   const other = await f.instance(), paid = (await other.api(office)).data.cards.find(c => c.id === input.card.id);
   assert.equal(paid.status, 'paid'); assert.equal(paid.rows[0].price, 84); assert.equal(paid.pricingSnapshotId, review.snapshot.card.pricingSnapshotId);
   assert.equal(paid.approvedBy, 'admin');
-  assert.equal(paid.audit.filter(event => event.text.includes('fryst och visad')).length, 1);
+  assert.equal(paid.audit.filter(event => event.text.includes('fryst för kundgodkännande')).length, 1);
   assert.equal(paid.audit.filter(event => event.text.includes('Kundgodkännande version')).length, 1);
   assert.equal(paid.audit.filter(event => event.text.includes('internt attesterad')).length, 1);
   assert.equal(paid.audit.filter(event => event.text.includes('Demoutbetalning')).length, 1);

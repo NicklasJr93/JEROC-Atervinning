@@ -53,12 +53,13 @@ async function fixture(run) {
   }
 }
 
-test('new mobile drafts require captured active tenant sites permitted by both employee and account', async () => fixture(async ({ request, login, repository }) => {
+test('new mobile drafts require captured active tenant sites from the authoritative linked account', async () => fixture(async ({ request, login, repository }) => {
   const employee = await login();
   const missing = draft(); delete missing.siteId;
   assert.equal((await request(mobile, records(missing), employee.cookie)).status, 422);
-  for (const siteId of ['inactive', 'unknown', 'third-yard'])
+  for (const siteId of ['inactive', 'unknown'])
     assert.equal((await request(mobile, records(draft({ siteId })), employee.cookie)).status, 403);
+  assert.ok(employee.sites.some(site => site.id === 'third-yard'), 'The linked account grants the third facility despite an older person scope.');
   await repository.transact(state => { state.pricing.users.find(value => value.id === 'mobile-demo').siteIds = ['norrtalje']; });
   assert.equal((await request(mobile, records(draft()), employee.cookie)).status, 403);
   const saved = await request(mobile, records(draft({ siteId: 'norrtalje' })), employee.cookie);

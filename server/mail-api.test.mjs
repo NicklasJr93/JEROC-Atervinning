@@ -107,6 +107,9 @@ test('private mail domain is excluded from generic business views and cannot be 
   const app = createApplicationService({ env: { JEROC_APPLICATION_DB_PATH: join(directory, 'application.sqlite') },
     seed: () => ({ ...initialApplicationState(), mailIntegration: { organisationId: 'jeroc-demo',
       connection: { refreshToken: 'private-refresh-fixture' }, message: { body: 'private-email-body-fixture' } } }) });
+  // The transport projection in this privacy test needs an explicitly
+  // all-facility principal after the safe startup migration.
+  await (await app.getRepository()).transact(state => { delete state.pricing.users.find(user => user.id === 'admin').siteIds; });
   const server = createServer(async (req, res) => { if (!await app(req, res, new URL(req.url, 'http://localhost'))) { res.writeHead(404); res.end(); } });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   try {

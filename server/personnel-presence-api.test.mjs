@@ -116,7 +116,13 @@ test('presence HTTP access requires explicit permissions on both principals and 
   assert.equal(scoped.people.some(person => ['presence-outside', 'presence-mixed'].includes(person.personId)), false);
   assert.deepEqual(scoped.sites.map(site => site.id), ['norrtalje']);
   assert.equal((await request(`${presence}?siteId=rimbo`, undefined, { actor: 'kajsa' })).status, 403);
-  assert.equal((await request(`${presence}?siteId=unknown`)).status, 404);
+  assert.equal((await request(`${presence}?siteId=unknown`)).status, 403, 'Scoped principals cannot probe facility existence.');
+  await repo.transact(state => {
+    const principal = structuredClone(state.pricing.users.find(user => user.id === 'admin'));
+    delete principal.siteIds;
+    state.pricing.users.push({ ...principal, id: 'presence-all-facilities', name: 'Presence test administrator' });
+  });
+  assert.equal((await request(`${presence}?siteId=unknown`, undefined, { actor: 'presence-all-facilities' })).status, 404);
   assert.equal((await request(`${presence}?siteId=../norrtalje`)).status, 422);
   assert.equal((await request(`${presence}?personId=presence-outside`)).status, 422);
   assert.equal((await request(presence, {}, { method: 'POST' })).status, 405);

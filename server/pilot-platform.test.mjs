@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createPlatformStorage } from './platform-storage.mjs';
+import { createPlatformUsageStorage } from './platform-usage-storage.mjs';
 import { createPlatformAuth, platformPasswordHash } from './platform-auth.mjs';
 import { createTenantApplicationState } from './tenant-runtime.mjs';
 import { createTenantGateway } from './tenant-gateway.mjs';
@@ -214,7 +215,11 @@ test('pilot gateway starts without business services and never falls back to the
   let gateway, server, starts = 0;
   try {
     const makeServices = async () => { starts++; throw new Error('No company may be auto-created'); };
-    gateway = await createTenantGateway({ env, platformRepository: await createPlatformStorage({ env: storageEnv }), makeServices });
+    // Inject every control-plane store: this test proves that no business
+    // service is opened, not connectivity to the synthetic profile URL.
+    gateway = await createTenantGateway({ env,
+      platformRepository: await createPlatformStorage({ env: storageEnv }),
+      platformUsageStorage: await createPlatformUsageStorage({ env: storageEnv }), makeServices });
     server = createServer((req, res) => { void gateway(req, res, new URL(req.url, 'http://localhost')).then(handled => {
       if (!handled) { res.writeHead(404); res.end(); }
     }).catch(() => { res.writeHead(500); res.end(); }); });
