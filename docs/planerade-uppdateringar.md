@@ -26,6 +26,21 @@ Underlag: [Ändringslistan, ÄL 138](Andringslistan.txt),
 [SCB-uppslaget](integrationer/scb-foretagsregister.md) och
 [godkänd elektrisk fokusram](mockups/kortfokus-elektrisk/README.md).
 
+## Kontaktförslag från SCB
+
+Status: Planerad enligt **ÄL 139**, samordnas med **ÄL 138**. Ingen appkod ändrad.
+
+- Visa företagets telefonnummer och e-post i SCB-träffen med källa och tid.
+- Använd företagsuppgifter fyller även kontaktfält som är tomma vid det aktiva
+  valet. Befintliga eller nyligen manuellt angivna uppgifter behålls.
+- Kontaktpersonens namn anges manuellt. Företagets växel/info-adress ska inte
+  behandlas som en namngiven kontaktpersons eller VD:s verifierade uppgift.
+- VD-kontots namn och inloggningsmejl anges fortsatt separat vid Skapa bolag.
+  Kontaktförslagen påverkar inte betalningsprofil eller låsta underlag.
+
+Underlag: [Ändringslistan, ÄL 139](Andringslistan.txt) och
+[SCB-uppslaget](integrationer/scb-foretagsregister.md).
+
 ## FTC134 och egen körjournal
 
 Status: första fristående backendgrund levererad 2026-10-16 enligt ÄL 127.

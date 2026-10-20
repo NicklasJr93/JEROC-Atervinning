@@ -37,6 +37,12 @@ Samma uppslag kan anslutas till bolagsuppgifter samt registrering av leverantör
 
 Namn-/delsträngssökning är en separat senare funktion. Denna version gör exakt uppslag på organisationsnummer; ingen bolagslista laddas ned.
 
+### Planerade kontaktförslag, ÄL 139
+
+Nästa komplettering är att visa företagets telefonnummer och e-post i träffen och låta **Använd företagsuppgifter** fylla kontaktfält som är tomma vid det aktiva valet. Befintliga och nyligen manuellt angivna uppgifter ska behållas. Kontaktpersonens namn samt VD-kontots namn och inloggningsmejl anges fortfarande manuellt; företagets generella kontaktuppgifter bevisar inte en viss persons identitet. Kontaktförslagen ska inte ändra betalningsprofil eller låsta underlag.
+
+Detta är **planering**, inte dagens beteende. Samordnas med **ÄL 138**, där organisations-/personnummer blir första fältet och kundtyp föreslås med möjlighet till manuell ändring. Full beställning finns i [Ändringslistan](../Andringslistan.txt).
+
 ## ScrapPlanners interna API
 
 ```http

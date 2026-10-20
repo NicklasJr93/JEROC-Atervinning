@@ -3322,6 +3322,8 @@ Status: Implementerad 2026-10-17 i kontor 0.30.6. Mobilwebben kvar på 0.13.0.
 Status: Planerad 2026-10-20. Endast dokumentation; implementation beställs separat.
 - Börja med en tydlig ruta för organisations-/personnummer, före kundtyp,
   kundnummer och namn. Kundtyp blir ett automatiskt förslag som kan ändras.
+  Nummerfältet tar första positionen där Kundtyp står i dag; Kundtyp flyttas
+  efter nummerfältet. Samordna kontaktförslagen från SCB med ÄL 139.
   Samma grundordning ska användas i kontorets fullständiga kundformulär,
   snabbregistreringen på viktkort och mobilens Ny kund.
 - Identifiera numret först när det är komplett och giltigt. Använd inte
@@ -3356,3 +3358,34 @@ Status: Planerad 2026-10-20. Endast dokumentation; implementation beställs sepa
 - Underlag: docs/integrationer/scb-foretagsregister.md och
   docs/mockups/kortfokus-elektrisk/README.md. Detta är ett kommande formulärflöde,
   inte besked om att framtida personuppslag eller UI-ändringen är levererade.
+
+ÄL 139 – Föreslå företagets telefon och e-post från SCB
+Status: Planerad 2026-10-20. Endast dokumentation; ingen appkod ändras av denna punkt.
+- Utöka SCB-träffen med företagets telefonnummer och e-postadress när de finns.
+  Märk dem som företagets kontaktuppgifter från SCB, med källa och hämtningstid.
+  En växel eller info-adress är inte automatiskt en viss kontaktpersons uppgift.
+- Visa förslagen före användning. Samma aktiva val Använd företagsuppgifter
+  ska kunna fylla även telefon/e-post i kundens kontaktruta; ingen extra knapp
+  eller automatisk kundsparning behövs.
+- Fyll bara tomma kontaktfält. Kontrollera aktuella formulärvärden vid själva
+  användningen, så att manuellt angivet telefonnummer eller e-post inte skrivs
+  över medan ett långsamt registeranrop pågår. Saknade SCB-värden tömmer inget.
+- Använd gemensam telefon-/e-postvalidering vid införandet och befintlig
+  normalisering inför sparande. Ogiltiga registervärden får inte bli godkända
+  kontaktuppgifter enbart för att de kommer från SCB.
+- Kontaktpersonens namn anges manuellt. SCB-uppslaget innehåller inget VD-namn
+  och ska inte gissa vem som är kontaktperson utifrån bolagsnamn eller e-post.
+- På Skapa bolag anges VD-kontots namn och inloggningsmejl fortfarande separat.
+  En generell företagsadress får inte automatiskt användas för att skapa eller
+  ändra VD-konto, mottagare för engångslösenord eller andra kontobehörigheter.
+- Kontaktförslagen ändrar inte betalningsprofil, Swish-mottagare eller låsta
+  underlag. Befintliga kundkort uppdateras först efter uttryckligt sparande.
+- Samma beteende ska gälla kontorets fullständiga kundformulär,
+  snabbregistreringen på viktkort och mobilens Ny kund. Samordnas med ÄL 138:
+  organisations-/personnummer först, därefter kundtyp och övriga uppgifter.
+- Acceptans: tomma fält fylls efter aktivt val; ett eller två befintliga
+  kontaktfält bevaras; manuell ändring under pågående sökning behålls; saknade
+  eller ogiltiga SCB-värden hanteras; fel bolag/nummer och gammal session avvisas;
+  kontaktpersonsnamn, VD-inloggning och betalningsuppgifter förblir orörda.
+- Underlag: docs/integrationer/scb-foretagsregister.md. Dagens implementation
+  lämnar ännu inte vidare SCB:s telefon-/e-postfält; detta beskriver nästa ändring.
