@@ -20,6 +20,11 @@ för kvitton och information om inlämningen, utan reklam, och att ett
 sparat bankkonto kan återanvändas vid kommande utbetalningar.
 Swish visas utgråat med **Kommer snart** och kan inte väljas.
 
+Organisations-/personnummerfältet får fokus direkt när ett nytt formulär
+öppnas, även när terminalen byter kund. Vid Tillbaka till första steget
+markeras det befintliga numret. Mobilens webbläsare kan kräva ett tryck
+för att öppna skärmtangentbordet.
+
 När sista siffran ger ett komplett och giltigt organisationsnummer
 hämtas företagsnamn, postadress och tillgängliga kontaktuppgifter från
 SCB automatiskt. Manuellt ändrade fält behålls; sena svar för ett annat

@@ -78,6 +78,7 @@ test('SMS-länken visar endast kundformulär, förklarar e-post/bank och skickar
   await expect(page.getByRole('heading', { name: 'Dina kunduppgifter', exact: true })).toBeVisible();
   await expect(page.getByText('Intagstest Återvinning AB', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Steg 1 av 4', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Organisations-/personnummer', { exact: true })).toBeFocused();
   await page.screenshot({ path: test.info().outputPath('customer-step1.png'), fullPage: true });
   await expect(page.getByLabel('E-postadress', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Fortsätt', exact: true }).click();
@@ -182,6 +183,11 @@ test('SCB söker bara kompletta företagsnummer och sena svar skriver inte över
   await expect(page.getByLabel('E-postadress', { exact: true })).toHaveValue(company.email);
   await page.getByLabel('E-postadress', { exact: true }).fill('manual@example.test');
   await page.getByRole('button', { name: 'Tillbaka', exact: true }).click();
+  await expect(number).toBeFocused();
+  await expect.poll(() => number.evaluate(element => {
+    const input = element as HTMLInputElement;
+    return [input.selectionStart, input.selectionEnd];
+  })).toEqual([0, proposal.number.length]);
   await number.fill('5560000167');
   await page.clock.fastForward(500);
   await expect.poll(() => lookups.length).toBe(2);
@@ -289,6 +295,7 @@ test('en avbruten SMS-länk hindrar inte en ny länk i samma öppna sida och nä
   await page.evaluate(value => { window.location.hash = `token=${value}`; }, nextToken);
   await expect(page.getByRole('heading', { name: 'Dina kunduppgifter', exact: true })).toBeVisible();
   await expect(page.getByText('Steg 1 av 4', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Organisations-/personnummer', { exact: true })).toBeFocused();
   await expect(page.getByLabel('Organisations-/personnummer', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Namn', { exact: true })).toHaveValue('');
   expect(requests.some(request => request.headers().authorization === `Bearer ${nextToken}`)).toBe(true);
@@ -470,6 +477,7 @@ test('kundterminalen hämtar företagsuppgifter och rensar namn och bankfält in
   });
   await page.goto('/terminal');
   await expect(page.getByRole('heading', { name: 'Fyll i dina uppgifter', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Organisations-/personnummer', { exact: true })).toBeFocused();
   await expect(page.getByRole('heading', { name: 'Granska och godkänn din avräkning', exact: true })).toHaveCount(0);
   await page.getByLabel('Organisations-/personnummer', { exact: true }).fill(proposal.number);
   await expect(page.getByText('Hämtar företagsuppgifter från SCB…', { exact: true })).toBeVisible();
@@ -497,6 +505,7 @@ test('kundterminalen hämtar företagsuppgifter och rensar namn och bankfält in
     host.intakeStreams.at(-1)?.dispatchEvent(new MessageEvent('state', { data: JSON.stringify(value) }));
   }, session);
   await expect(page.getByRole('heading', { name: 'Fyll i dina uppgifter', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Organisations-/personnummer', { exact: true })).toBeFocused();
   await expect(page.getByLabel('Organisations-/personnummer', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Namn', { exact: true })).toHaveValue('');
   await expect(page.getByText('Steg 1 av 4', { exact: true })).toBeVisible();

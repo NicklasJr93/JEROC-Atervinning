@@ -3761,6 +3761,8 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
   namn och adress; kontakt; bank; referens och materialets ursprung.
 - Kontakt, bank och sista steget kan hoppas över. Tillbaka bevarar
   inmatningen. Ursprungsadressen föreslås från kundens postadress.
+- Nummerfältet får fokus direkt när SMS-länk eller terminalformulär
+  öppnas och markeras när kunden går tillbaka till första steget.
 - Komplett giltigt organisationsnummer startar SCB-uppslag automatiskt.
   Namn, adress och tillgängliga kontaktuppgifter fylls i utan att skriva
   över kundens egna ändringar. Personnummer skickas inte till SCB.

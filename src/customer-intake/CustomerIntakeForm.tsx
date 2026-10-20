@@ -46,6 +46,7 @@ export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupCont
   const [lookup, setLookup] = useState<{ key: string; phase: 'loading' | 'filled' | 'failed'; message?: string }>();
   const [retry, setRetry] = useState(0);
   const errorRef = useRef<HTMLParagraphElement>(null), headingRef = useRef<HTMLHeadingElement>(null);
+  const identityRef = useRef<HTMLInputElement>(null);
   const flight = useRef(false), mounted = useRef(true), id = useId();
   const touched = useRef(new Set<AutoField>(autoFields.filter(field => Boolean(initialValues?.[field]))));
   const filled = useRef<Partial<Record<AutoField, string>>>({}), filledKey = useRef('');
@@ -60,7 +61,12 @@ export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupCont
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; lookupEpoch.current++; lookupController.current?.abort(); }; }, []);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
-  useEffect(() => { headingRef.current?.focus({ preventScroll: true }); headingRef.current?.scrollIntoView({ block: 'nearest' }); }, [step]);
+  useEffect(() => {
+    const target = step === 1 ? identityRef.current : headingRef.current;
+    target?.focus({ preventScroll: true });
+    if (step === 1) identityRef.current?.select();
+    target?.scrollIntoView({ block: 'nearest' });
+  }, [step]);
   useEffect(() => {
     const generation = ++lookupEpoch.current, controller = new AbortController(); lookupController.current = controller;
     if (filledKey.current !== lookupKey) {
@@ -172,7 +178,7 @@ export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupCont
     <fieldset disabled={blocked} className="customer-intake-fields">
       {step === 1 && <section className="customer-intake-section" aria-labelledby={`${id}-step-title`}>
         <h2 id={`${id}-step-title`} ref={headingRef} tabIndex={-1}>{customer.type === 'Privatperson' ? <UserRound size={20} /> : <Building2 size={20} />}Dina uppgifter</h2>
-        <CustomerIdentityInput value={customer.number} type={customer.type} disabled={blocked} autoDetect={!initialValues?.number}
+        <CustomerIdentityInput inputRef={identityRef} value={customer.number} type={customer.type} disabled={blocked} autoDetect={!initialValues?.number}
           onChange={value => change('number', value)} onTypeChange={value => change('type', value)} />
         {eligibleLookup && lookupCompany && <div className={`customer-intake-lookup ${activeLookup?.phase ?? ''}`} aria-live="polite" role="status">
           <span>{activeLookup?.phase === 'loading' ? <LoaderCircle size={17} className="customer-intake-spinner" /> : <Building2 size={17} />}

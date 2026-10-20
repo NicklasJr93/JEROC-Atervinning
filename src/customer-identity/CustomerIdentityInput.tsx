@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState, type Ref } from 'react';
 import { customerTypeFromIdentifier, inspectCustomerIdentifier, type CustomerIdentifierInspection } from '../customer-identity';
 import ElectricFocusBorder from '../office/ElectricFocusBorder';
 import './customer-identity.css';
@@ -12,6 +12,7 @@ export interface CustomerIdentityInputProps {
   autoDetect?: boolean;
   disabled?: boolean;
   error?: string;
+  inputRef?: Ref<HTMLInputElement>;
 }
 
 function identityHelp(inspection: CustomerIdentifierInspection, automatic: boolean, type: string): string {
@@ -27,7 +28,7 @@ function identityHelp(inspection: CustomerIdentifierInspection, automatic: boole
 }
 
 /** Identity-first assistance only: no lookup, persistence or changes to saved customers. */
-export default function CustomerIdentityInput({ value, onChange, type, onTypeChange, autoDetect = true, disabled = false, error }: CustomerIdentityInputProps) {
+export default function CustomerIdentityInput({ value, onChange, type, onTypeChange, autoDetect = true, disabled = false, error, inputRef }: CustomerIdentityInputProps) {
   const id = useId();
   const [automatic, setAutomatic] = useState(autoDetect);
   const inspection = inspectCustomerIdentifier(value);
@@ -45,7 +46,7 @@ export default function CustomerIdentityInput({ value, onChange, type, onTypeCha
     <div className="customer-identity-number">
       <label htmlFor={`${id}-number`}>Organisations-/personnummer</label>
       <div className={`customer-identity-number-outline${!disabled && !complete ? ' is-active' : ''}`}>
-        <input id={`${id}-number`} value={value} onChange={event => onChange(event.target.value)}
+        <input ref={inputRef} id={`${id}-number`} value={value} onChange={event => onChange(event.target.value)}
           type="text" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={30} disabled={disabled}
           aria-invalid={invalid || undefined} aria-describedby={`${id}-help`} />
         <ElectricFocusBorder active={!disabled && !complete} />
