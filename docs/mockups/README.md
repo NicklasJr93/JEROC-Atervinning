@@ -12,6 +12,7 @@ Bilderna är statiska designförslag. Aktuell implementationsstatus framgår på
 
 ## Övriga områden
 
+- [Vågvikt direkt till vägningsutkast – kontor och mobil](vagkoppling/README.md)
 - [JEROC – arbetsorder och kundportal för kärl](arbetsorder-kundportal/README.md)
 - [Avräkningsnota – reviderad A4-mockup](avrakning/README.md)
 - [JEROC – arbetsorder för egna chaufförer och externa åkerier](externa-arbetsordrar/README.md)
