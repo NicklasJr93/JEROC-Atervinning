@@ -7,11 +7,18 @@ export class PlatformRequestError extends Error {
   }
 }
 
+const recoverySignal = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+async function recoveryRequest(path: string, data: unknown, signal?: AbortSignal): Promise<{ ok: true }> {
+  const result = await request<{ ok?: unknown }>(path, data, recoverySignal(signal));
+  if (result?.ok !== true) throw new PlatformRequestError('Åtgärdens resultat kunde inte bekräftas. Försök igen.', 'platform_response_invalid', 502);
+  return { ok: true };
+}
+
 async function request<T>(path: string, data?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`/api/platform/${path}`, {
     method: data === undefined ? 'GET' : 'POST',
     credentials: 'same-origin', cache: 'no-store', signal,
-    headers: { ...(['session', 'login'].includes(path) ? {} : platformRequestHeaders()), ...(data === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    headers: { ...(['session', 'login'].includes(path) || path.startsWith('password-reset/') ? {} : platformRequestHeaders()), ...(data === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
   const body = await response.json().catch(() => undefined);
@@ -26,6 +33,8 @@ async function request<T>(path: string, data?: unknown, signal?: AbortSignal): P
 export const platformApi = {
   session: (signal?: AbortSignal) => request<PlatformSession>('session', undefined, signal),
   login: (username: string, password: string) => request<AuthenticatedPlatformSession>('login', { username: username.trim(), password }),
+  requestPasswordReset: (email: string, signal?: AbortSignal, username?: string) => recoveryRequest('password-reset/request', { email, ...(username?.trim() ? { username: username.trim() } : {}) }, signal),
+  confirmPasswordReset: (data: { token: string; newPassword: string; confirmPassword: string }, signal?: AbortSignal) => recoveryRequest('password-reset/confirm', data, signal),
   changePassword: (currentPassword: string, newPassword: string) => request<AuthenticatedPlatformSession>('change-password', { currentPassword, newPassword }),
   logout: () => request<{ ok: boolean }>('logout', {}),
   openAdministration: () => request<AuthenticatedPlatformSession>('open-administration', {}),

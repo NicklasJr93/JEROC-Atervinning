@@ -4,6 +4,8 @@ import { createSystemEmail, SystemEmailError, SYSTEM_EMAIL_FROM, RESEND_EMAIL_UR
 
 const key = 'PRIVATE-RESEND-API-KEY';
 const request = { to: 'test@example.invalid', requestId: '1cf1eef4-d17d-4cc6-9cff-2412660166af', createdAt: '2026-10-20T10:00:00.000Z' };
+const resetToken = 'A'.repeat(43);
+const resetRequest = { ...request, expiresAt: '2026-10-20T10:30:00.000Z', resetUrl: `https://app.scrapplanner.com/kontor/#/reset-password?token=${resetToken}` };
 const providerId = '99d645f5-b788-45c5-a733-9f84bcb1727e';
 const client = (fetchImpl, extra = {}) => createSystemEmail({ env: { RESEND_API_KEY: key }, fetchImpl, ...extra });
 const response = (value = { id: providerId }, status = 200, headers) => new Response(JSON.stringify(value), { status, headers });
@@ -96,5 +98,109 @@ test('timeout bounds request and streamed response, and cancellation never leaks
     const controller = new AbortController(); controller.abort(new Error(key));
     await rejects(client(() => assert.fail('must not fetch')).sendTest(request, { signal: controller.signal }), 'system_email_outcome_unknown');
     await rejects(client(async () => { throw new Error(`${key} PRIVATE-PROVIDER-DATA`); }).sendTest(request), 'system_email_outcome_unknown');
+  } finally { clearTimeout(keepAlive); }
+});
+
+test('password reset uses the fixed sender and a single-use Swedish link without generating or including a password', async () => {
+  const calls = [];
+  const adapter = client(async (url, options) => {
+    assert.equal(url, RESEND_EMAIL_URL); assert.equal(options.redirect, 'error');
+    calls.push({ body: options.body, key: options.headers['Idempotency-Key'] });
+    const message = JSON.parse(options.body);
+    assert.equal(message.from, SYSTEM_EMAIL_FROM); assert.deepEqual(message.to, [request.to]);
+    assert.equal(message.subject, 'Återställ ditt lösenord');
+    assert.match(message.text, /30 minuter/); assert.match(message.text, /bara användas en gång/);
+    assert.match(message.text, /Om du inte begärde detta kan du ignorera mejlet/);
+    assert.match(message.html, /EndorGroup/);
+    assert.ok(message.text.includes(resetRequest.resetUrl));
+    assert.ok(message.html.includes(`href="${resetRequest.resetUrl}"`));
+    assert.deepEqual(Object.keys(message).sort(), ['from', 'html', 'subject', 'text', 'to']);
+    assert.ok(!options.body.includes('newPassword')); assert.ok(!options.body.includes('temporaryPassword'));
+    return response();
+  });
+  assert.deepEqual(await adapter.sendPasswordReset(resetRequest), { providerId });
+  assert.deepEqual(await adapter.sendPasswordReset({ ...resetRequest }), { providerId });
+  assert.deepEqual(calls[0], calls[1]);
+  assert.equal(calls[0].key, `password-reset/${request.requestId}`);
+});
+
+test('reset links stay in the trusted HTTPS application origin and fixed route', async () => {
+  const adapter = client(() => assert.fail('must not fetch'));
+  for (const resetUrl of [
+    `http://app.scrapplanner.com/kontor/#/reset-password?token=${resetToken}`,
+    `https://attacker.example/kontor/#/reset-password?token=${resetToken}`,
+    `https://app.scrapplanner.com.attacker.example/kontor/#/reset-password?token=${resetToken}`,
+    `https://app.scrapplanner.com:444/kontor/#/reset-password?token=${resetToken}`,
+    `https://user:password@app.scrapplanner.com/kontor/#/reset-password?token=${resetToken}`,
+    `https://app.scrapplanner.com/kund/#/reset-password?token=${resetToken}`,
+    `https://app.scrapplanner.com/kontor/?next=https://attacker.example#/reset-password?token=${resetToken}`,
+    `https://app.scrapplanner.com/kontor/#/reset-password?token=${resetToken}&next=https://attacker.example`,
+    `https://app.scrapplanner.com/kontor/#/reset-password?token=${resetToken.slice(1)}`,
+    `https://app.scrapplanner.com/kontor/#/reset-password?token=${resetToken}A`,
+    `https://app.scrapplanner.com/kontor/#/reset-password?token=${'A'.repeat(42)}<`,
+    `${resetRequest.resetUrl}\n`, `${resetRequest.resetUrl}" onclick="alert(1)`,
+    '<a href="https://attacker.example">Reset</a>', 'javascript:alert(1)',
+  ]) await rejects(adapter.sendPasswordReset({ ...resetRequest, resetUrl }), 'system_email_invalid', 422);
+  const configured = createSystemEmail({ env: { RESEND_API_KEY: key, APP_URL: 'https://office.example.invalid' }, fetchImpl: async (_url, options) => {
+    const message = JSON.parse(options.body);
+    assert.ok(message.html.includes('href="https://office.example.invalid/kontor/#/reset-password?token='));
+    assert.ok(!message.html.includes('<script>'));
+    return response();
+  } });
+  await rejects(configured.sendPasswordReset(resetRequest), 'system_email_invalid', 422);
+  assert.deepEqual(await configured.sendPasswordReset({ ...resetRequest, resetUrl: resetRequest.resetUrl.replace('app.scrapplanner.com', 'office.example.invalid') }), { providerId });
+});
+
+test('password reset validates recipient, timestamps, lifespan and fixed content before provider access', async () => {
+  const adapter = client(() => assert.fail('must not fetch'));
+  for (const invalid of [null, {}, [], { ...resetRequest, to: 'Name <user@example.invalid>' },
+    { ...resetRequest, to: 'a@example.invalid\r\nBcc:b@example.invalid' }, { ...resetRequest, requestId: 'not-a-uuid' },
+    { ...resetRequest, createdAt: 'yesterday' }, { ...resetRequest, expiresAt: 'tomorrow' },
+    { ...resetRequest, expiresAt: '2026-10-20T10:00:00.000Z' }, { ...resetRequest, expiresAt: '2026-10-20T11:00:00.000Z' },
+    { ...resetRequest, expiresAt: '2026-10-20T10:29:59.000Z' }, { ...resetRequest, password: 'Never-In-Email' },
+    { ...resetRequest, subject: 'untrusted HTML' }, { ...resetRequest, from: 'attacker@example.invalid' },
+  ]) await rejects(adapter.sendPasswordReset(invalid), 'system_email_invalid', 422);
+  for (const APP_URL of ['http://app.scrapplanner.com', 'https://user:password@app.scrapplanner.com',
+    'https://app.scrapplanner.com/kontor/', 'https://app.scrapplanner.com?next=bad', 'not-a-url']) {
+    const invalidOrigin = createSystemEmail({ env: { RESEND_API_KEY: key, APP_URL }, fetchImpl: () => assert.fail('must not fetch') });
+    await rejects(invalidOrigin.sendPasswordReset(resetRequest), 'system_email_invalid', 422);
+  }
+});
+
+test('reset mail shares bounded provider classification without leaking recipient, token, URL or provider contents', async () => {
+  const secretProviderData = `${key} ${resetRequest.to} ${resetRequest.resetUrl} PRIVATE-PROVIDER-DATA`;
+  for (const [makeResponse, code, status] of [
+    [() => response({ message: secretProviderData }, 403), 'system_email_rejected', 503],
+    [() => response({ message: secretProviderData }, 429), 'system_email_rate_limited', 429],
+    [() => response({ name: 'invalid_idempotent_request', message: secretProviderData }, 409), 'system_email_idempotency_conflict', 409],
+    [() => response({ message: secretProviderData }, 500), 'system_email_outcome_unknown', 503],
+    [() => new Response('<html>PRIVATE-PROVIDER-DATA</html>', { status: 403 }), 'system_email_rejected', 503],
+    [() => response({ id: providerId, ignored: 'x'.repeat(16384) }), 'system_email_outcome_unknown', 503],
+    [() => response({ id: providerId }, 200, { 'content-length': '999999' }), 'system_email_outcome_unknown', 503],
+  ]) {
+    let calls = 0;
+    const adapter = client(async () => { calls++; return makeResponse(); });
+    await assert.rejects(adapter.sendPasswordReset(resetRequest), error => {
+      assert.ok(error instanceof SystemEmailError); assert.equal(error.code, code); assert.equal(error.status, status);
+      for (const secret of [key, resetRequest.to, resetToken, resetRequest.resetUrl, 'PRIVATE-PROVIDER-DATA']) {
+        assert.ok(!error.message.includes(secret)); assert.ok(!JSON.stringify(error).includes(secret));
+      }
+      assert.ok(!error.message.includes('testmejl'));
+      return true;
+    });
+    assert.equal(calls, 1);
+  }
+  await rejects(createSystemEmail({ env: {}, fetchImpl: () => assert.fail('must not fetch') }).sendPasswordReset(resetRequest), 'system_email_not_configured');
+});
+
+test('reset mail is cancelled and timed out without retrying or exposing raw errors', async () => {
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    let calls = 0;
+    const adapter = client(() => { calls++; return new Promise(() => {}); }, { timeoutMs: 20 });
+    await rejects(adapter.sendPasswordReset(resetRequest), 'system_email_outcome_unknown');
+    assert.equal(calls, 1);
+    const controller = new AbortController(); controller.abort(new Error(resetRequest.resetUrl));
+    await rejects(client(() => assert.fail('must not fetch')).sendPasswordReset(resetRequest, { signal: controller.signal }), 'system_email_outcome_unknown');
   } finally { clearTimeout(keepAlive); }
 });

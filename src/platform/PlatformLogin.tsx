@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { ArrowRight, LockKeyhole } from 'lucide-react';
 import ProductBrand from './ProductBrand';
 import { platformApi } from './client';
@@ -29,6 +30,7 @@ export default function PlatformLogin({ onSession }: { onSession: (session: Auth
         {error && <p className="platform-error" role="alert">{error}</p>}
         <button className="platform-btn" type="submit" disabled={busy}><LockKeyhole size={17} />{busy ? 'Loggar in…' : 'Logga in'}<ArrowRight size={17} /></button>
       </form>
+      <Link className="platform-text-btn" to="/forgot-password">Glömt lösenord?</Link>
     </section>
   </main>;
 }

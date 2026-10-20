@@ -40,7 +40,7 @@ function setCookies(req, res, result, env) {
 }
 
 /** The API never exposes hashes, schema names or credentials on reads. */
-export function createPlatformApi({ auth, fleet, communications, env = process.env } = {}) {
+export function createPlatformApi({ auth, fleet, communications, passwordReset, env = process.env } = {}) {
   if (!auth) throw new TypeError('Plattformsautentisering krävs.');
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/platform/')) return false;
@@ -52,6 +52,11 @@ export function createPlatformApi({ auth, fleet, communications, env = process.e
       const reset = path.match(/^companies\/([a-zA-Z0-9-]{1,100})\/reset-initial-password$/);
       let result;
       if (read && path === 'session') result = { value: await auth.session(req) };
+      else if (!read && path === 'password-reset/request' && passwordReset) result = { value: await passwordReset.request(await body(req), req) };
+      else if (!read && path === 'password-reset/confirm' && passwordReset) {
+        const value = await passwordReset.confirm(await body(req), req);
+        result = { token: '', tenantToken: '', value };
+      }
       else if (path === 'communications' && communications && read) result = { value: await communications.read(req) };
       else if (path === 'communications/test-email' && communications && !read) result = { value: await communications.sendTest(await body(req), req) };
       else if (path === 'communications/test-sms' && communications && !read) result = { value: await communications.sendTestSms(await body(req), req) };

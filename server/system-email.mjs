@@ -8,6 +8,10 @@ const commandSchema = z.object({
   requestId: z.string().uuid().transform(value => value.toLowerCase()),
   createdAt: z.string().max(40).datetime({ offset: true }).transform(value => new Date(value).toISOString()),
 }).strict();
+const resetCommandSchema = commandSchema.extend({
+  expiresAt: z.string().max(40).datetime({ offset: true }).transform(value => new Date(value).toISOString()),
+  resetUrl: z.string().min(1).max(2048).refine(value => !/[\u0000-\u0020\u007f]/.test(value)),
+}).strict().refine(value => Date.parse(value.expiresAt) - Date.parse(value.createdAt) === 30 * 60_000);
 const providerIdSchema = z.string().uuid();
 
 export class SystemEmailError extends Error {
@@ -16,7 +20,9 @@ export class SystemEmailError extends Error {
   }
 }
 const fail = (status, code, message) => { throw new SystemEmailError(status, code, message); };
-const unknownOutcome = () => fail(503, 'system_email_outcome_unknown', 'Utskickets resultat kunde inte bekräftas. Kontrollera testets status innan ett nytt test skapas.');
+const unknownOutcome = (purpose = 'test') => fail(503, 'system_email_outcome_unknown', purpose === 'password-reset'
+  ? 'Återställningsmejlets utskick kunde inte bekräftas. Försök begära en ny länk senare.'
+  : 'Utskickets resultat kunde inte bekräftas. Kontrollera testets status innan ett nytt test skapas.');
 
 function withSignal(promise, signal) {
   return new Promise((resolve, reject) => {
@@ -51,15 +57,42 @@ async function readJson(response, signal) {
   }
 }
 
-function providerFailure(status, data) {
+function providerFailure(status, data, purpose = 'test') {
   if ([400, 401, 403, 422].includes(status))
-    fail(503, 'system_email_rejected', 'Resend nekade testmejlet. Kontrollera API-nyckelns utskicksbehörighet och att scrapplanner.com är verifierad för utskick.');
+    fail(503, 'system_email_rejected', purpose === 'password-reset'
+      ? 'Mejltjänsten nekade återställningsutskicket.'
+      : 'Resend nekade testmejlet. Kontrollera API-nyckelns utskicksbehörighet och att scrapplanner.com är verifierad för utskick.');
   if (status === 429)
-    fail(429, 'system_email_rate_limited', 'Resend begränsar utskicken just nu. Vänta en stund innan samma test provas igen.');
+    fail(429, 'system_email_rate_limited', purpose === 'password-reset'
+      ? 'Mejltjänsten begränsar utskicken just nu. Försök igen senare.'
+      : 'Resend begränsar utskicken just nu. Vänta en stund innan samma test provas igen.');
   if (status === 409 && data?.name === 'invalid_idempotent_request')
-    fail(409, 'system_email_idempotency_conflict', 'Testets utskicks-ID har redan använts med ett annat innehåll. Kontrollera testets status innan ett nytt test skapas.');
-  if (status === 409 || status >= 500) unknownOutcome();
+    fail(409, 'system_email_idempotency_conflict', purpose === 'password-reset'
+      ? 'Återställningsutskickets ID har redan använts med annat innehåll.'
+      : 'Testets utskicks-ID har redan använts med ett annat innehåll. Kontrollera testets status innan ett nytt test skapas.');
+  if (status === 409 || status >= 500) unknownOutcome(purpose);
   fail(503, 'system_email_unavailable', 'Systemets mejltjänst kan inte användas just nu. Försök igen senare.');
+}
+
+function resetLink(value, configuredAppUrl) {
+  try {
+    const app = new URL(configuredAppUrl ?? 'https://app.scrapplanner.com');
+    const link = new URL(value);
+    if (app.protocol !== 'https:' || app.username || app.password || app.pathname !== '/' || app.search || app.hash
+      || link.protocol !== 'https:' || link.origin !== app.origin || link.username || link.password
+      || link.pathname !== '/kontor/' || link.search || !/^#\/reset-password\?token=[A-Za-z0-9_-]{43}$/.test(link.hash)) return undefined;
+    return link.href;
+  } catch { return undefined; }
+}
+const escapeHtml = value => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+
+function passwordResetMessage({ to, resetUrl }) {
+  const link = escapeHtml(resetUrl);
+  return {
+    from: SYSTEM_EMAIL_FROM, to: [to], subject: 'Återställ ditt lösenord',
+    text: `Du har begärt att återställa lösenordet till ditt ScrapPlanner-konto.\n\nÖppna länken nedan för att välja och bekräfta ett nytt lösenord:\n${resetUrl}\n\nLänken gäller i 30 minuter och kan bara användas en gång.\n\nOm du inte begärde detta kan du ignorera mejlet. Ditt lösenord ändras först när du väljer ett nytt via länken. Dela inte länken med någon annan.\n\nScrapPlanner – en produkt av EndorGroup`,
+    html: `<html lang="sv"><body style="margin:0;background:#f5f7fa;color:#16334e;font-family:Arial,sans-serif"><div style="max-width:560px;margin:32px auto;padding:32px;background:#ffffff;border:1px solid #dde6ee;border-radius:12px"><p style="margin:0 0 24px;font-size:24px;font-weight:bold;color:#16334e">ScrapPlanner<span style="color:#288557">.</span></p><h1 style="font-size:22px;line-height:1.3">Återställ ditt lösenord</h1><p>Du har begärt att återställa lösenordet till ditt ScrapPlanner-konto.</p><p>Välj och bekräfta ett nytt lösenord via länken:</p><p style="margin:24px 0"><a href="${link}" style="display:inline-block;padding:12px 20px;background:#16334e;color:#fff;text-decoration:none;border-radius:7px">Välj nytt lösenord</a></p><p>Länken gäller i <strong>30 minuter</strong> och kan bara användas en gång.</p><p>Om du inte begärde detta kan du ignorera mejlet. Ditt lösenord ändras först när du väljer ett nytt via länken. Dela inte länken med någon annan.</p><p style="font-size:12px;overflow-wrap:anywhere">Om knappen inte fungerar, kopiera länken till webbläsaren:<br><a href="${link}">${link}</a></p><hr style="border:0;border-top:1px solid #dde6ee;margin:24px 0"><p style="font-size:12px;color:#5c6f80">ScrapPlanner – en produkt av EndorGroup</p></div></body></html>`,
+  };
 }
 
 function testMessage({ to, requestId, createdAt }) {
@@ -79,9 +112,7 @@ export function createSystemEmail({ env = process.env, fetchImpl = fetch, timeou
     throw new TypeError('Invalid system email configuration.');
   const apiKey = typeof env.RESEND_API_KEY === 'string' ? env.RESEND_API_KEY.trim() : '';
   const configured = Boolean(apiKey);
-  async function sendTest(input, { signal: callerSignal } = {}) {
-    const parsed = commandSchema.safeParse(input);
-    if (!parsed.success) fail(422, 'system_email_invalid', 'Ange en giltig e-postadress och ett giltigt test-ID.');
+  async function send(message, idempotencyKey, purpose, callerSignal) {
     if (!configured) fail(503, 'system_email_not_configured', 'Systemutskick är inte konfigurerade. Lägg till RESEND_API_KEY i appserverns miljöinställningar.');
     const signal = callerSignal ? AbortSignal.any([callerSignal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
     try {
@@ -89,20 +120,31 @@ export function createSystemEmail({ env = process.env, fetchImpl = fetch, timeou
       const response = await withSignal(fetchImpl(RESEND_EMAIL_URL, {
         method: 'POST', redirect: 'error', signal,
         headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json', 'Content-Type': 'application/json',
-          'Idempotency-Key': `platform-test-email/${parsed.data.requestId}` },
-        body: JSON.stringify(testMessage(parsed.data)),
+          'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify(message),
       }), signal);
       let data;
       try { data = await readJson(response, signal); }
-      catch { if (!response.ok) providerFailure(response.status); throw new Error('provider_acceptance_unconfirmed'); }
-      if (!response.ok) providerFailure(response.status, data);
+      catch { if (!response.ok) providerFailure(response.status, undefined, purpose); throw new Error('provider_acceptance_unconfirmed'); }
+      if (!response.ok) providerFailure(response.status, data, purpose);
       const id = providerIdSchema.safeParse(data?.id);
-      if (!id.success) unknownOutcome();
+      if (!id.success) unknownOutcome(purpose);
       return { providerId: id.data };
     } catch (error) {
       if (error instanceof SystemEmailError) throw error;
-      unknownOutcome();
+      unknownOutcome(purpose);
     }
   }
-  return Object.freeze({ configured, sendTest });
+  async function sendTest(input, { signal } = {}) {
+    const parsed = commandSchema.safeParse(input);
+    if (!parsed.success) fail(422, 'system_email_invalid', 'Ange en giltig e-postadress och ett giltigt test-ID.');
+    return send(testMessage(parsed.data), `platform-test-email/${parsed.data.requestId}`, 'test', signal);
+  }
+  async function sendPasswordReset(input, { signal } = {}) {
+    const parsed = resetCommandSchema.safeParse(input);
+    const resetUrl = parsed.success && resetLink(parsed.data.resetUrl, env.APP_URL);
+    if (!parsed.success || !resetUrl) fail(422, 'system_email_invalid', 'Återställningsutskicket innehåller ogiltiga uppgifter.');
+    return send(passwordResetMessage({ ...parsed.data, resetUrl }), `password-reset/${parsed.data.requestId}`, 'password-reset', signal);
+  }
+  return Object.freeze({ configured, sendTest, sendPasswordReset });
 }

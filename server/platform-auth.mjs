@@ -52,9 +52,12 @@ const newCompanySchema = z.object({ requestId: z.string().uuid(), name: z.string
  * from each company's current user register, never from this cookie or JSON. */
 export function createPlatformAuth({ repository, bootstrapLegacy = async () => null, bootstrapPlatform, provisionCompany,
   companyUsers = async () => [], resolveCompanyUser = async () => null, onPasswordChanged = async () => {},
+  platformAdminEmail,
   now = () => new Date(), legacyCompany = { name: 'JEROC Återvinning AB', organisationNumber: '', storageSchema: 'public' } } = {}) {
   if (!repository?.read || !repository?.transact) throw new TypeError('Plattformsregistret krävs.');
   const standalonePlatform = typeof bootstrapPlatform === 'function';
+  const configuredAdminEmail = platformAdminEmail === undefined || platformAdminEmail === '' ? undefined
+    : parse(z.string().trim().max(254).email().transform(username), platformAdminEmail);
   const at = () => new Date(now()).toISOString();
   let bootstrapPromise;
   function audit(state, actor, action, values = {}) {
@@ -66,6 +69,15 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       const existing = await repository.read(state => clone(state.users.find(user => user.platformAdmin)));
       if (existing) {
         if (await passwordValid('JerocDemo2026!', existing.password)) fail('Ett privat initialt plattformslösenord krävs innan bolagsadministrationen kan aktiveras.', 503, 'platform_bootstrap_required');
+        if (configuredAdminEmail) await repository.transact(state => {
+          const administrators = state.users.filter(user => user.platformAdmin && user.active);
+          if (administrators.length !== 1 || administrators[0].id !== existing.id)
+            fail('Systemadministratörens återställningsadress kan inte väljas entydigt.', 503, 'platform_admin_email_ambiguous');
+          if (administrators[0].email !== configuredAdminEmail) {
+            administrators[0].email = configuredAdminEmail;
+            audit(state, administrators[0], 'platform.recovery_email_configured');
+          }
+        });
         return;
       }
       const imported = await (standalonePlatform ? bootstrapPlatform() : bootstrapLegacy());
@@ -81,14 +93,14 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
           if (state.users.length || state.companies.length || state.memberships.length)
             fail('Den nya plattformens register är inte tomt. Kontrollera databasvalet.', 503, 'platform_bootstrap_not_empty');
           const user = { id: businessId, businessId, name: imported.name ?? 'Systemadmin', username: username(imported.username ?? businessId),
-            email: imported.email ?? '', password: clone(imported.password), platformAdmin: true, active: true, mustChangePassword: true, createdAt: stamp };
+            email: configuredAdminEmail ?? imported.email ?? '', password: clone(imported.password), platformAdmin: true, active: true, mustChangePassword: true, createdAt: stamp };
           state.users.push(user); audit(state, user, 'platform.private_admin_created');
           return;
         }
         const company = { id: 'jeroc-demo', ...legacyCompany, status: 'active', ownerUserId: businessId, createdAt: stamp };
         if (!state.companies.some(value => value.id === company.id)) state.companies.push(company);
         const user = { id: businessId, businessId, name: imported.name ?? 'Systemadmin', username: username(imported.username ?? businessId),
-          email: imported.email ?? '', password: clone(imported.password), platformAdmin: true, active: true, mustChangePassword: imported.privateBootstrap === true, createdAt: stamp };
+          email: configuredAdminEmail ?? imported.email ?? '', password: clone(imported.password), platformAdmin: true, active: true, mustChangePassword: imported.privateBootstrap === true, createdAt: stamp };
         state.users.push(user); state.memberships.push({ userId: user.id, organisationId: company.id, businessUserId: businessId, active: true });
         audit(state, user, 'platform.legacy_admin_imported', { organisationId: company.id });
       });
@@ -100,6 +112,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     const session = token && state.sessions.find(value => value.tokenHash === hash(token) && value.expiresAt > stamp);
     const actor = state.users.find(value => value.id === session?.userId && value.active);
     if (!session || !actor) fail('Logga in för att använda systemet.', 401, 'platform_session_required');
+    if (actor.passwordRecoveryPending) fail('Lösenordet håller på att återställas. Slutför återställningen från mejllänken.', 423, 'platform_password_sync_pending');
     if (actor.mustChangePassword && !allowPasswordChange) fail('Byt det tillfälliga lösenordet innan du fortsätter.', 423, 'platform_password_change_required');
     const company = state.companies.find(value => value.id === session.organisationId);
     const membership = state.memberships.find(value => value.userId === actor.id && value.organisationId === company?.id && value.active);
@@ -198,7 +211,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
         return { error: new PlatformError('För många inloggningsförsök. Vänta 15 minuter.', 429, 'platform_login_rate_limit') };
       const user = state.users.find(value => value.id === candidate?.id);
       const membership = state.memberships.find(value => value.userId === user?.id && value.active && state.companies.some(company => company.id === value.organisationId && company.status === 'active'));
-      if (!valid || !user?.active || canonicalHash(user.password) !== canonicalHash(candidate.password) || !membership && !(standalonePlatform && user.platformAdmin)) {
+      if (!valid || !user?.active || user.passwordRecoveryPending || canonicalHash(user.password) !== canonicalHash(candidate.password) || !membership && !(standalonePlatform && user.platformAdmin)) {
         state.attempts.push({ address, key, at: stamp }); audit(state, undefined, 'platform.login_rejected', { attemptKey: key });
         return { error: new PlatformError('Fel inloggning eller inaktivt konto.', 401, 'platform_invalid_credentials') };
       }
@@ -242,6 +255,127 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       state.sessions.push(newSession(current.actor, current.company?.id, effectiveBusinessId(current), nextToken, tenantToken));
       audit(state, current.actor, 'platform.password_changed', { organisationId: current.company?.id }); });
     return { token: nextToken, tenantToken, value: await session({ ...req, headers: { cookie: `${PLATFORM_COOKIE}=${nextToken}` } }) };
+  }
+
+  const recoveryEmail = user => typeof user?.email === 'string' ? username(user.email) : '';
+  const recoveryFingerprint = user => user ? canonicalHash({ id: user.id, email: recoveryEmail(user), password: user.password }) : '';
+  const recoveryMembershipFingerprint = (state, userId) => canonicalHash(state.memberships.filter(item => item.userId === userId && item.active)
+    .map(item => ({ organisationId: item.organisationId, businessUserId: item.businessUserId,
+      companyStatus: state.companies.find(company => company.id === item.organisationId)?.status ?? null }))
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))));
+  const recoveryEligible = (state, user) => Boolean(user?.active && validPasswordHash(user.password)
+    && (standalonePlatform && user.platformAdmin || state.memberships.some(member => member.userId === user.id && member.active
+      && state.companies.some(company => company.id === member.organisationId && company.status === 'active'))));
+  /** Called only by the control-plane recovery service while holding its
+   * transaction. A contact address on a company/person is never an authority. */
+  function passwordRecoveryCandidate(state, email, loginName) {
+    const matches = state.users.filter(user => recoveryEmail(user) === email
+      && (loginName === undefined || user.username === username(loginName)));
+    if (matches.length !== 1 || !recoveryEligible(state, matches[0])) return undefined;
+    if (matches[0].passwordRecoveryPending && matches[0].passwordSyncLeaseUntil > at()) return undefined;
+    return { userId: matches[0].id, recipient: recoveryEmail(matches[0]), fingerprint: recoveryFingerprint(matches[0]) };
+  }
+  async function completePasswordRecovery({ tokenHash, newPassword, confirmPassword }) {
+    parse(passwordSchema, newPassword);
+    if (newPassword !== confirmPassword) fail('De nya lösenorden stämmer inte överens.', 422, 'password_reset_password_mismatch');
+    if (newPassword === 'JerocDemo2026!') fail('Välj ett privat lösenord. Det offentliga demolösenordet får inte användas.');
+    const invalid = () => fail('Återställningslänken är ogiltig eller har gått ut. Begär en ny länk.', 422, 'password_reset_invalid');
+    const initial = await repository.read(state => {
+      const record = state.passwordRecovery?.requests.find(item => item.tokenHash === tokenHash);
+      const user = state.users.find(item => item.id === record?.userId);
+      if (!record || !['sent', 'sync_failed', 'synchronizing'].includes(record.status) || record.expiresAt <= at()
+        || !recoveryEligible(state, user)) return invalid();
+      const expected = record.status === 'sent' ? record.fingerprint : record.appliedFingerprint;
+      if (recoveryFingerprint(user) !== expected) return invalid();
+      if (record.status === 'synchronizing' && record.leaseUntil > at())
+        fail('Återställningen behandlas redan. Vänta en stund innan du försöker igen.', 409, 'password_reset_in_progress');
+      return { user: clone(user), record: clone(record), membershipFingerprint: recoveryMembershipFingerprint(state, user.id) };
+    });
+    const retry = initial.record.status !== 'sent';
+    const samePassword = await passwordValid(newPassword, retry ? initial.record.targetPassword : initial.user.password);
+    if (retry && !samePassword) invalid();
+    if (!retry && samePassword) fail('Välj ett annat lösenord än ditt nuvarande.', 422, 'password_reset_password_unchanged');
+    const password = retry ? initial.record.targetPassword : await platformPasswordHash(newPassword), attemptId = randomUUID();
+    const pending = await repository.transact(state => {
+      const record = state.passwordRecovery?.requests.find(item => item.tokenHash === tokenHash);
+      const user = state.users.find(item => item.id === record?.userId);
+      if (!record || record.expiresAt <= at() || !recoveryEligible(state, user)
+        || !['sent', 'sync_failed', 'synchronizing'].includes(record.status)
+        || recoveryFingerprint(user) !== recoveryFingerprint(initial.user)
+        || recoveryMembershipFingerprint(state, user.id) !== initial.membershipFingerprint) return invalid();
+      if (record.status === 'synchronizing' && record.leaseUntil > at()
+        || user.passwordSyncPending && user.passwordSyncLeaseUntil > at())
+        fail('Återställningen behandlas redan. Vänta en stund innan du försöker igen.', 409, 'password_reset_in_progress');
+      if (record.status === 'sent' && record.fingerprint !== recoveryFingerprint(user)
+        || record.status !== 'sent' && record.appliedFingerprint !== recoveryFingerprint(user)) return invalid();
+      if (record.initialPasswordChange === undefined) {
+        // A recovery retry itself forces mustChangePassword. Never mistake
+        // that safety lock for permission to activate a disabled staff account.
+        const previous = user.passwordRecoveryPending && [...state.passwordRecovery.requests].reverse().find(item => item !== record
+          && item.userId === user.id && item.appliedFingerprint === recoveryFingerprint(user)
+          && typeof item.initialPasswordChange === 'boolean');
+        record.initialPasswordChange = user.passwordRecoveryPending ? previous?.initialPasswordChange === true : user.mustChangePassword === true;
+      }
+      user.mustChangePassword = true;
+      user.passwordSyncPending = true; user.passwordRecoveryPending = true;
+      user.passwordSyncLeaseUntil = new Date(Date.parse(at()) + 120_000).toISOString();
+      record.status = 'synchronizing'; record.attemptId = attemptId; record.leaseUntil = user.passwordSyncLeaseUntil;
+      record.targetPassword = clone(password);
+      record.appliedFingerprint = recoveryFingerprint(user);
+      state.sessions = state.sessions.filter(item => item.userId !== user.id);
+      // Invalidate all sibling links before crossing into tenant storage.
+      for (const sibling of state.passwordRecovery.requests)
+        if (sibling.userId === user.id && sibling !== record) sibling.status = 'superseded';
+      audit(state, user, 'platform.password_recovery_started', { requestId: record.requestId });
+      const companyMemberships = state.memberships.filter(item => item.userId === user.id && item.active)
+        .map(item => ({ organisationId: item.organisationId, businessUserId: item.businessUserId }));
+      return { user: clone(user), companyIds: companyMemberships.map(item => item.organisationId), companyMemberships,
+        fingerprint: record.appliedFingerprint, membershipFingerprint: initial.membershipFingerprint,
+        requestId: record.requestId, initialPasswordChange: record.initialPasswordChange };
+    });
+    const assertCurrent = async () => repository.read(state => {
+      const record = state.passwordRecovery?.requests.find(item => item.tokenHash === tokenHash), user = state.users.find(item => item.id === pending.user.id);
+      if (record?.attemptId !== attemptId || record.status !== 'synchronizing' || !recoveryEligible(state, user)
+        || recoveryFingerprint(user) !== pending.fingerprint
+        || recoveryMembershipFingerprint(state, user.id) !== pending.membershipFingerprint) invalid();
+    });
+    try {
+      await assertCurrent();
+      await onPasswordChanged({ ...pending, password, recovery: true, phase: 'revoke', assertCurrent });
+      await assertCurrent();
+      pending.fingerprint = await repository.transact(state => {
+        const record = state.passwordRecovery?.requests.find(item => item.tokenHash === tokenHash), user = state.users.find(item => item.id === pending.user.id);
+        if (record?.attemptId !== attemptId || record.status !== 'synchronizing' || !recoveryEligible(state, user)
+          || recoveryFingerprint(user) !== pending.fingerprint
+          || recoveryMembershipFingerprint(state, user.id) !== pending.membershipFingerprint) return invalid();
+        // Revoke every old employee credential first. A failed revoke does not
+        // change the platform password; a failed apply can only expose new ones.
+        user.password = clone(password); record.appliedFingerprint = recoveryFingerprint(user);
+        return record.appliedFingerprint;
+      });
+      await onPasswordChanged({ ...pending, user: { ...pending.user, mustChangePassword: false }, password, recovery: true, phase: 'apply', assertCurrent });
+      await assertCurrent();
+    } catch {
+      await repository.transact(state => {
+        const record = state.passwordRecovery?.requests.find(item => item.tokenHash === tokenHash), user = state.users.find(item => item.id === pending.user.id);
+        if (record?.attemptId !== attemptId || recoveryFingerprint(user) !== pending.fingerprint) return;
+        record.status = 'sync_failed'; record.leaseUntil = at(); user.passwordSyncLeaseUntil = at();
+        audit(state, user, 'platform.password_recovery_sync_failed', { requestId: pending.requestId });
+      });
+      fail('Lösenordet kunde inte färdigställas. Försök igen med samma länk och samma nya lösenord. Kontot är spärrat tills återställningen är klar.', 503, 'platform_password_sync_failed');
+    }
+    await repository.transact(state => {
+      const record = state.passwordRecovery?.requests.find(item => item.tokenHash === tokenHash), user = state.users.find(item => item.id === pending.user.id);
+      if (record?.attemptId !== attemptId || record.status !== 'synchronizing' || !recoveryEligible(state, user)
+        || recoveryFingerprint(user) !== pending.fingerprint
+        || recoveryMembershipFingerprint(state, user.id) !== pending.membershipFingerprint) return invalid();
+      user.mustChangePassword = false; delete user.passwordSyncPending; delete user.passwordSyncLeaseUntil; delete user.passwordRecoveryPending;
+      user.passwordChangedAt = at(); record.status = 'used'; record.usedAt = at(); delete record.leaseUntil; delete record.targetPassword;
+      state.sessions = state.sessions.filter(item => item.userId !== user.id);
+      state.attempts = state.attempts.filter(item => item.key !== hash(user.username));
+      audit(state, user, 'platform.password_recovered', { requestId: pending.requestId });
+    });
+    return { ok: true };
   }
   const admin = value => { if (!value.actor.platformAdmin) fail('Plattformsadministratör krävs.', 403, 'platform_admin_required'); };
   async function companies(req) { const { value } = await readSession(req); return repository.read(state => ({ companies: state.companies.filter(company => value.actor.platformAdmin || state.memberships.some(member => member.userId === value.actor.id && member.organisationId === company.id && member.active))
@@ -357,6 +491,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       const company = state.companies.find(item => item.id === organisationId && item.status === 'active');
       const user = state.users.find(item => item.id === company?.ownerUserId && item.active);
       if (!company || !user || user.platformAdmin) fail('Bolagets VD-konto kunde inte väljas.', 404, 'platform_account_inactive');
+      if (user.passwordRecoveryPending) fail('VD-kontots återställning behöver slutföras från mejllänken.', 409, 'platform_password_sync_pending');
       state.initialPasswordResets ??= [];
       const existing = state.initialPasswordResets.find(item => item.actorId === current.actor.id && item.organisationId === organisationId && item.requestId === parsed.requestId);
       if (existing?.status === 'completed') return { completed: true, company: clone(company), user: clone(user) };
@@ -399,7 +534,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       const session = state.sessions.find(item => item.tenantTokenHash === hash(token) && item.expiresAt > at());
       const actor = state.users.find(item => item.id === session?.userId && item.active);
       const company = state.companies.find(item => item.id === session?.organisationId && item.status === 'active');
-      if (!session || !actor || actor.mustChangePassword || !company || !actor.platformAdmin && !state.memberships.some(item => item.userId === actor.id && item.organisationId === company.id && item.active))
+      if (!session || !actor || actor.mustChangePassword || actor.passwordRecoveryPending || !company || !actor.platformAdmin && !state.memberships.some(item => item.userId === actor.id && item.organisationId === company.id && item.active))
         fail('Bolagsvalet är inte giltigt längre. Logga in igen.', 401, 'platform_tenant_selector_invalid');
       return { organisationId: company.id, company: clone(company), storageSchema: company.storageSchema };
     });
@@ -446,6 +581,6 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     });
   }
   return { initialize, login, logout, session, changePassword, resolveContext, checkRequest, resolveTenantSelector, selectTenant, companies, users, switchCompany, openAdministration, createCompany, resetInitialPassword,
-    withPlatformAdminTransaction,
+    withPlatformAdminTransaction, passwordRecoveryCandidate, completePasswordRecovery,
     getCompany: organisationId => repository.read(state => clone(state.companies.find(item => item.id === organisationId))), repository };
 }

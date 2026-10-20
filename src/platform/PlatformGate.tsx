@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Building2, LogOut, Settings2, ShieldCheck } from 'lucide-react';
 import { platformApi } from './client';
 import { setCurrentPlatformSession } from './session';
@@ -8,6 +8,7 @@ import CompanyBrand from './CompanyBrand';
 import { useCompanyDefaults, type CompanyDefaultsSnapshot } from '../company-settings-defaults';
 import PlatformLogin from './PlatformLogin';
 import PlatformPasswordChange from './PlatformPasswordChange';
+import PlatformPasswordRecovery from './PlatformPasswordRecovery';
 import PlatformAdmin from './PlatformAdmin';
 import PlatformCompanySwitcher from './PlatformCompanySwitcher';
 import type { AuthenticatedPlatformSession, PlatformSession } from './types';
@@ -32,8 +33,9 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
   const openingAdministration = useRef<Promise<void> | undefined>(undefined);
   const initialSession = useRef<{ attempt: number; promise: Promise<PlatformSession> } | undefined>(undefined);
   const location = useLocation(), navigate = useNavigate();
+  const recoveryMode = location.pathname === '/forgot-password' ? 'request' : location.pathname === '/reset-password' ? 'reset' : undefined;
   const sessionKey = session?.authenticated ? `${session.organisationId}/${session.generation}` : '';
-  const companyBranding = useCompanyDefaults({ enabled: Boolean(session?.authenticated && session.company && !session.mustChangePassword),
+  const companyBranding = useCompanyDefaults({ enabled: Boolean(!recoveryMode && session?.authenticated && session.company && !session.mustChangePassword),
     scopeKey: sessionKey, refreshOnSave: true });
   useEffect(() => {
     const element = shell.current, bar = element?.querySelector<HTMLElement>('.platform-topbar'), strip = element?.querySelector<HTMLElement>('.platform-support-strip');
@@ -69,6 +71,7 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
       .finally(() => setChecking(false));
   }
   useEffect(() => {
+    if (recoveryMode) { initialSession.current = undefined; return; }
     let live = true; setChecking(true); setError('');
     // StrictMode can remount an effect. Share the whole initialization so a
     // company link cannot submit two switches with the same prior generation.
@@ -79,17 +82,17 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
       .catch(failure => { if (live) setError(failure instanceof Error ? failure.message : 'Inloggningen kunde inte kontrolleras.'); })
       .finally(() => { if (live) setChecking(false); });
     return () => { live = false; };
-  }, [attempt]);
+  }, [attempt, recoveryMode]);
   useEffect(() => {
     const check = () => {
-      if (checkingSession.current) return;
+      if (recoveryMode || checkingSession.current) return;
       checkingSession.current = platformApi.session().then(accept)
         .catch(failure => setError(failure instanceof Error ? failure.message : 'Inloggningen kunde inte kontrolleras.'))
         .finally(() => { checkingSession.current = undefined; });
     };
     window.addEventListener('scrappilot:check-platform-session', check);
     return () => window.removeEventListener('scrappilot:check-platform-session', check);
-  }, []);
+  }, [recoveryMode]);
   async function refresh() { accept(await platformApi.session()); }
   async function logout() {
     await platformApi.logout();
@@ -117,12 +120,15 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
     }).catch(failure => setError(failure instanceof Error ? failure.message : 'Systemadministrationen kunde inte öppnas.'))
       .finally(() => { openingAdministration.current = undefined; setChecking(false); });
   };
+  if (recoveryMode) return <PlatformPasswordRecovery key={recoveryMode} mode={recoveryMode} onCompleted={() => {
+    setCurrentPlatformSession(undefined); setSession({ enabled: true, authenticated: false }); setError('');
+  }} />;
   if (checking) return <main className="platform-auth-screen"><div className="platform-loading" role="status"><ProductBrand large /><span className="platform-spinner" /><p>Öppnar din arbetsyta…</p></div></main>;
   if (!session || error) return <main className="platform-auth-screen"><section className="platform-auth-card"><ProductBrand large /><h1>Arbetsytan kunde inte öppnas</h1><p className="platform-error" role="alert">{error || 'Inloggningstjänsten är inte tillgänglig.'}</p><button type="button" className="platform-btn" onClick={() => setAttempt(value => value + 1)}>Försök igen</button>{new URLSearchParams(window.location.search).has('company') && <button className="platform-text-btn" type="button" onClick={() => {
     const query = new URLSearchParams(window.location.search); query.delete('company');
     window.history.replaceState(null, '', `${window.location.pathname}${query.size ? `?${query}` : ''}${window.location.hash}`);
     setAttempt(value => value + 1);
-  }}>Öppna min arbetsyta</button>}</section></main>;
+  }}>Öppna min arbetsyta</button>}<Link className="platform-text-btn" to="/forgot-password">Glömt lösenord?</Link></section></main>;
   if (!session.authenticated) return <PlatformLogin onSession={authenticated} />;
   if (session.mustChangePassword) return <PlatformPasswordChange session={session} onSession={authenticated} onLogout={logout} />;
   const showAdmin = session.actor.platformAdmin && (!session.company || location.pathname === '/platform-admin');

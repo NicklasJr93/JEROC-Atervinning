@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import pg from 'pg';
 
-export const initialPlatformState = () => ({ version: 1, companies: [], users: [], memberships: [], sessions: [], selections: [], attempts: [], creations: [], initialPasswordResets: [], audit: [] });
+export const initialPlatformState = () => ({ version: 1, companies: [], users: [], memberships: [], sessions: [], selections: [], attempts: [], creations: [], initialPasswordResets: [], passwordRecovery: { requests: [], attempts: [] }, audit: [] });
 const clone = value => structuredClone(value);
 const unpack = value => {
   const result = typeof value === 'string' ? JSON.parse(value) : value;

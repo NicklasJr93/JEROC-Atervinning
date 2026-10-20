@@ -1,5 +1,6 @@
 import { bankRequestContext } from './bank-http.mjs';
 import pg from 'pg';
+import { createHash } from 'node:crypto';
 import { createPlatformStorage } from './platform-storage.mjs';
 import { createPlatformAuth, getPlatformContext, platformCookieToken, PlatformError, PLATFORM_TENANT_COOKIE, platformPasswordHash } from './platform-auth.mjs';
 import { createPlatformApi } from './platform-api.mjs';
@@ -18,6 +19,7 @@ import { createGoogleAddressValidation } from './google-address-validation.mjs';
 import { createSystemEmail } from './system-email.mjs';
 import { createPlatformCommunications } from './platform-communications.mjs';
 import { createSystemSmsProvider } from './system-sms-provider.mjs';
+import { createPlatformPasswordReset } from './platform-password-reset.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -98,7 +100,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
     return pending;
   }
   const legacy = profile.pilot ? undefined : await bundle(defaultCompany);
-  auth = createPlatformAuth({ repository,
+  auth = createPlatformAuth({ repository, platformAdminEmail: env.SCRAPPLANNER_PLATFORM_ADMIN_EMAIL,
     ...(profile.pilot && { bootstrapPlatform: async () => ({ id: 'platform-admin', username: 'admin', name: 'Systemadmin', active: true,
       password: await platformPasswordHash(env.SCRAPPILOT_PLATFORM_ADMIN_PASSWORD) }) }),
     bootstrapLegacy: async () => {
@@ -139,14 +141,46 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       const business = await service.applicationApi.getRepository();
       return business.readProjection(state => structuredClone(state.pricing.users.find(value => value.id === userId) ?? null), { domain: 'pricing', paths: [['users']] });
     },
-    onPasswordChanged: async ({ user, password, companyIds }) => {
+    onPasswordChanged: async ({ user, password, companyIds, recovery = false, phase, requestId, initialPasswordChange = false, companyMemberships = [], assertCurrent }) => {
       for (const companyId of companyIds) {
+        await assertCurrent?.();
         const company = await auth.getCompany(companyId), service = await bundle(company);
-        await (await service.applicationApi.getRepository()).transact(state => {
-          const person = state.personnel.people.find(value => value.userId === user.businessId);
+        await (await service.applicationApi.getRepository()).transact(async state => {
+          await assertCurrent?.();
+          const businessUserId = companyMemberships.find(value => value.organisationId === companyId)?.businessUserId ?? user.businessId;
+          const person = state.personnel.people.find(value => value.userId === businessUserId);
           const account = person && state.personnelAuth.accounts.find(value => value.personId === person.id);
           if (!account) throw new PlatformError('Personalkontot saknas. Lösenordet har inte ändrats.', 409);
-          account.password = structuredClone(password); account.active = user.mustChangePassword !== true; account.updatedAt = new Date().toISOString();
+          // Recovery revokes every linked account first, before any new hash
+          // is activated. A partial failure can never leave an old password
+          // active after a successful reset.
+          if (recovery) {
+            const linked = state.pricing.users.find(value => value.id === businessUserId);
+            const fingerprint = () => createHash('sha256').update(JSON.stringify([person.id, person.userId, person.active,
+              linked?.active, account.username, account.active, account.password, account.updatedAt])).digest('hex');
+            // Private auth metadata stays outside the public account list. It
+            // preserves deliberate deactivation across retries and detects an
+            // administrator editing the account while recovery is running.
+            const markers = state.personnelAuth.passwordRecoveries ??= [];
+            let marker = markers.find(value => value.personId === person.id);
+            if (phase === 'revoke') {
+              const unchanged = marker?.fingerprint === fingerprint();
+              if (marker?.requestId === requestId && !unchanged)
+                throw new PlatformError('Personalkontot ändrades under återställningen. Kontakta systemadmin.', 409);
+              const saved = { personId: person.id, requestId,
+                wasActive: unchanged ? marker.wasActive : account.active === true,
+                allowInitialActivation: unchanged ? marker.allowInitialActivation : initialPasswordChange };
+              account.active = false; account.updatedAt = new Date().toISOString();
+              marker = { ...saved, fingerprint: fingerprint() };
+              state.personnelAuth.passwordRecoveries = markers.filter(value => value.personId !== person.id).concat(marker);
+            } else {
+              if (phase !== 'apply' || marker?.requestId !== requestId || marker.fingerprint !== fingerprint())
+                throw new PlatformError('Personalkontot ändrades under återställningen. Kontakta systemadmin.', 409);
+              account.password = structuredClone(password);
+              account.active = Boolean((marker.wasActive || marker.allowInitialActivation) && person.active && linked?.active !== false);
+              account.updatedAt = new Date().toISOString(); marker.fingerprint = fingerprint();
+            }
+          } else { account.password = structuredClone(password); account.active = user.mustChangePassword !== true; account.updatedAt = new Date().toISOString(); }
           state.personnelAuth.sessions = state.personnelAuth.sessions.filter(value => value.personId !== person.id);
         });
       }
@@ -162,8 +196,10 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       applyFleetDeviceAssignment(state, device, { organisationId: company.id });
     });
   } });
-  const communications = createPlatformCommunications({ auth, email: systemEmail ?? createSystemEmail({ env }), sms: systemSms ?? createSystemSmsProvider({ env }), repository });
-  const platformApi = createPlatformApi({ auth, fleet: platformFleet, communications, env });
+  const email = systemEmail ?? createSystemEmail({ env });
+  const communications = createPlatformCommunications({ auth, email, sms: systemSms ?? createSystemSmsProvider({ env }), repository });
+  const passwordReset = createPlatformPasswordReset({ auth, email, repository, env });
+  const platformApi = createPlatformApi({ auth, fleet: platformFleet, communications, passwordReset, env });
   const fleetTimer = setInterval(() => { void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.')); }, 30_000);
   fleetTimer.unref();
   void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.'));
