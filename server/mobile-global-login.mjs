@@ -64,7 +64,7 @@ export function createGlobalEmployeeLogin({ repository, auth, openCompany, fallb
     for (const [key, value] of attempts) if (value.at <= cutoff) attempts.delete(key);
     const keys = [`ip:${employeeLoginAddress(req, env)}`, `name:${hash(identifier)}`, 'worker'];
     if (running >= 4 || attempts.size >= 10_000 || keys.some(key => {
-      const value = attempts.get(key); return value && value.count >= (key === 'worker' ? 240 : 12);
+      const value = attempts.get(key); return value && value.count >= (key === 'worker' ? 240 : key.startsWith('ip:') ? 120 : 12);
     })) throw new PlatformError('För många inloggningsförsök. Vänta 15 minuter.', 429, 'employee_login_rate_limit');
     for (const key of keys) { const old = attempts.get(key); attempts.set(key, { at: old?.at ?? at, count: (old?.count ?? 0) + 1 }); }
     running += 1;
@@ -99,6 +99,10 @@ export function createGlobalEmployeeLogin({ repository, auth, openCompany, fallb
                 throw new PlatformError('Bolaget har bytts i en annan flik. Logga in igen.', 409, 'company_selection_changed');
           },
           finish: async () => {
+            // The original public demo personnel accounts predate platform
+            // bootstrap. Keep that implicit demo scope independent; live and
+            // explicitly selected company accounts still receive a selector.
+            if (!found.userId && selected.id === 'jeroc-demo' && fallbackCompany?.id === 'jeroc-demo') return;
             if (found.userId) await repository.read(state => assertTarget(state, found, input.username));
             const result = await auth.selectTenant(selected.id, { ...req, headers: { ...req.headers, cookie: '' } });
             const secure = env.RENDER || req.socket?.encrypted || req.headers['x-forwarded-proto'] === 'https';

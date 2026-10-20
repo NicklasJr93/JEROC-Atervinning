@@ -37,3 +37,18 @@ test('global login bounds concurrent expensive work before opening a tenant or i
   assert.equal(reads, 4); assert.equal(opened, 0);
   for (const { res } of inflight) { assert.equal(res.status, 401); assert.deepEqual(res.cookies, []); assert.equal(res.value.code, 'employee_login_failed'); }
 });
+
+test('a shared yard IP permits thirteen distinct logins while each identifier stays bounded', async () => {
+  const company = { id: 'selected-company' };
+  const api = createGlobalEmployeeLogin({ repository: { read: async operation => operation({ users: [] }) },
+    auth: { resolveTenantSelector: async () => ({ company }) }, openCompany: async () => ({ handle: async (req, res) => { res.status = 200; return true; } }),
+    sameOrigin: () => {}, json: (res, status) => { res.status = status; } });
+  const login = async username => {
+    const req = Readable.from([Buffer.from(JSON.stringify({ username, password: 'Shared-yard-private-2026!' }))]);
+    Object.assign(req, { method: 'POST', headers: { 'content-type': 'application/json' }, socket: { remoteAddress: '192.0.2.10' } });
+    const res = {}; await api.handle(req, res, new URL('http://localhost/api/employee/login?view=bootstrap')); return res.status;
+  };
+  for (let index = 0; index < 13; index++) assert.equal(await login(`yard.worker.${index}`), 200);
+  for (let index = 0; index < 12; index++) assert.equal(await login('same.worker'), 200);
+  assert.equal(await login('same.worker'), 429);
+});

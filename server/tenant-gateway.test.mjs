@@ -74,8 +74,22 @@ test('public demo password cannot bootstrap platform; mobile keeps its existing 
   assert.equal((await f.request('/api/platform/session')).status, 503);
   assert.equal((await f.request('/api/application/office', undefined, { 'x-demo-actor': 'admin', 'x-demo-user': 'admin' })).status, 503);
   assert.equal((await f.request('/api/employee/demo-config')).status, 200);
+  for (const [username, password] of [['admin', 'JerocDemo2026!'], ['niklas', 'Demo123!']]) {
+    const login = await f.request('/api/employee/login?view=bootstrap', { username, password });
+    assert.equal(login.status, 200, JSON.stringify(login.body)); assert.equal(login.body.companyId, 'jeroc-demo');
+    assert.equal((await f.request('/api/employee/session?view=bootstrap')).status, 200);
+  }
   const state = await f.gateway.repository.read(state => state); assert.equal(state.users.length, 0);
 }, { privateBootstrap: false }));
+
+test('private platform bootstrap retires the public admin fixture while retaining the independent Niklas demo', () => fixture(async f => {
+  const config = await f.request('/api/employee/demo-config');
+  assert.equal(config.body.accounts.admin, false); assert.equal(config.body.accounts.niklas, true);
+  assert.equal((await f.request('/api/employee/login?view=bootstrap', { username: 'admin', password: 'JerocDemo2026!' })).status, 401);
+  const login = await f.request('/api/employee/login?view=bootstrap', { username: 'niklas', password: 'Demo123!' });
+  assert.equal(login.status, 200, JSON.stringify(login.body)); assert.equal(login.body.companyId, 'jeroc-demo');
+  assert.equal((await f.request('/api/employee/session?view=bootstrap')).status, 200);
+}));
 
 test('voice demo requires platform authentication, a selected company and CSRF before provider work', () => fixture(async f => {
   assert.equal((await f.request('/api/voice-test')).status, 401);
