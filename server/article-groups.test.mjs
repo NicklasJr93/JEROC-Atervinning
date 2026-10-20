@@ -116,7 +116,7 @@ test('media references accept demo indices and immutable UUIDs but not arbitrary
   assert.deepEqual(getArticleMediaReferences('articles', { photos: [0, uploaded, uploaded] }), [uploaded]);
   assert.deepEqual(getArticleMediaReferences('article-groups', { group: { photo: uploaded } }), [uploaded]);
   assert.deepEqual(getArticleMediaReferences('lme', { photo: uploaded }), []);
-  for (const photos of [[40], [-1], ['https://example.org/image.jpg'], [uploaded, uploaded]])
+  for (const photos of [[72], [-1], ['https://example.org/image.jpg'], [uploaded, uploaded]])
     fails(() => store.saveArticle({ ...article, photos }, admin), 400);
   fails(() => store.saveArticleGroup({ group: group({ photo: 'javascript:alert(1)' }) }, admin), 400);
 });

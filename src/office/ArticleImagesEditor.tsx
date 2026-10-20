@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Check, ImagePlus, LoaderCircle, Star, Trash2 } f
 import type { ArticleImage } from '../catalog-types';
 import type { OfficeUser } from './model';
 import { CatalogImage } from './CatalogImage';
+import { BUILT_IN_ARTICLE_IMAGE_COUNT } from '../catalog-images';
 import './article-images-editor.css';
 
 export type ArticleImagesEditorProps = {
@@ -163,7 +164,7 @@ export function ArticleImagesEditor({ images, onChange, user, actualUser, disabl
       </li>)}
     </ol>}
     {picker && <div className="office-article-images-library" aria-label="Befintliga exempelbilder">
-      {Array.from({ length: 40 }, (_, image) => {
+      {Array.from({ length: BUILT_IN_ARTICLE_IMAGE_COUNT }, (_, image) => {
         const selected = images.includes(image);
         return <button type="button" key={image} className={selected ? 'selected' : ''} disabled={locked || (!selected && images.length >= max)} aria-label={`Referensbild ${image + 1}`} aria-pressed={selected} onClick={() => onChange(selected ? images.filter(item => item !== image) : [...images, image])}>
           <CatalogImage image={image} alt={`Referensbild ${image + 1}`} />{selected && <Check size={14} aria-hidden="true" />}

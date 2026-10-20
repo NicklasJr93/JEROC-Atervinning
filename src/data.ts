@@ -2,6 +2,7 @@ import type { ArticleTaxCategory } from './office/pricing-client';
 import { z } from 'zod';
 import type { ArticleGroup, ArticleImage } from './catalog-types';
 import { activeArticleGroups } from './catalog-types';
+import { BUILT_IN_ARTICLE_IMAGE_COUNT } from './catalog-images';
 
 export type Category = {
   id: string;
@@ -321,7 +322,7 @@ export function demoCustomerPrice(customerId: string, article: Article) {
   };
 }
 
-const imageReferenceSchema = z.union([z.number().int().min(0).max(39), z.string().uuid()]);
+const imageReferenceSchema = z.union([z.number().int().min(0).max(BUILT_IN_ARTICLE_IMAGE_COUNT - 1), z.string().uuid()]);
 const mobileArticleSchema = z.object({
   id: z.string().min(1), active: z.boolean().optional(), category: z.string(),
   name: z.string(), description: z.string(), includes: z.string(), excludes: z.string(),

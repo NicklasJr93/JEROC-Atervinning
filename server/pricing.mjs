@@ -108,7 +108,8 @@ const deliveredAt = z.union([
     ),
 ]);
 const tier = z.enum(['A', 'B', 'C']);
-const articleImageSchema = z.union([z.number().int().min(0).max(39), z.string().uuid()]);
+// IDs 0–71 are the stable built-in library, matching src/catalog-images.ts.
+const articleImageSchema = z.union([z.number().int().min(0).max(71), z.string().uuid()]);
 const articleImagesSchema = z.array(articleImageSchema).max(6).refine(images => new Set(images).size === images.length, 'Välj varje bild bara en gång.');
 const articleGroupSchema = z.object({
   id: id.optional(),
