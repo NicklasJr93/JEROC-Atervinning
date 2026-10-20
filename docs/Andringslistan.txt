@@ -3479,3 +3479,47 @@ och verifierad Resend-domän/nyckel. SMS-leverans är inte aktiverad.
   server/system-sms.test.mjs och tests/platform-communications.spec.ts.
   54 serverfall och 11 skilda browserfall passerar. Automatiska prov skickar
   inga verkliga mejl eller SMS; driftsatt mejlprov görs efter deployment.
+
+
+ÄL 142 – Manuellt SMS-test från systemadministrationen via 46elks
+Status: Implementerad i kod 2026-10-20. Verkligt SMS-prov kräver manuell
+deployment och giltiga 46elks-API-uppgifter. Verksamhetsaviseringar är inte
+automatiskt inkopplade. Resends felutredning ändras inte genom detta arbete.
+- Systemutskick får Testa SMS-utskick bredvid mejltestet. Eget systemadminkonto
+  utanför bolagets arbetsyta krävs, liksom verklig session, aktuell kontext,
+  samma ursprung och CSRF. Bolags-VD och Jobba som-sessioner får inte skicka.
+- ELKS_API_USERNAME och ELKS_API_PASSWORD används nu av SMS-testets backend.
+  Det gäller API-lösenordet, inte kontoinloggningen. Uppgifterna sparas privat
+  i Render och lämnas aldrig till klienten. Konfigurerad betyder att båda
+  variablerna finns, inte att konto, saldo eller leverans har verifierats.
+- SMS skickas med 46elks native API, fast avsändare ScrapPlan och fast
+  testtext på 113 GSM-7-tecken. HTTPS/Basic-autentisering och dontlog=message
+  används. Anrop/kvittoläsning har åtta sekunders timeout och högst 16 KiB.
+  Ingen påhittad leverantörsidempotens eller automatisk omsändning används.
+- Leverantörens kvitto måste vara giltigt. created/sent betyder accepterat
+  för utskick; endast ett uttryckligt delivered-kvitto visas som levererat.
+  Negativt kvitto och avvisningar ger säkra fel utan rå leverantörsdata.
+- Ett separat beständigt SMS-register reserverar atomärt före utskick.
+  Accepterat UUID kan läsas igen utan nytt SMS. Osäkra/pågående försök spärrar
+  mottagarnumret även med nytt UUID, annan admin, omladdning eller omstart.
+- Vid osäkert resultat ska administratören kontrollera 46elks utskickslogg.
+  Bekräftad granskning via review-sms skickar ingenting; därefter kan ett nytt
+  uttryckligt test få nytt UUID. Under de första 30 sekunderna av ett pågående
+  försök är granskning/upplåsning förbjuden. Definitivt ej skickat kan provas
+  igen uttryckligen. Timeout, nätavbrott och serverfel utlöser inget omförsök.
+- SMS-gränserna är separata: 10 försök/aktör/timme, 3/mottagare/timme och
+  50 totalt/timme. Detaljer behålls normalt 48 timmar, men osäkra/pågående
+  ogranskade poster sparas tills de har granskats. Utgångna UUID behålls som
+  kompakta SHA-256-avtryck utan mottagare. Tak 10 000 kända ID stoppar nya test.
+- Testregister/revisionsspår använder pseudonyma telefonhashar, inte
+  klartextnummer, SMS-text eller API-hemligheter. Revisionsspårets befintliga
+  lagringsregler gäller separat. Leverantören får mottagarnumret för utskicket.
+- GET communications visar SMS-leverantör, ScrapPlan, konfiguration och de
+  förberedda ändamålen. POST test-sms begär utskick; POST review-sms markerar
+  manuell logggranskning. Kundgodkännande-/transportunderlag är fortsatt
+  förberedda och skickas inte automatiskt av testknappen.
+- Underlag: docs/integrationer/systemutskick.md. Nya tester finns i
+  server/system-sms-provider.test.mjs och server/platform-sms-test.test.mjs;
+  browserfallen finns i tests/platform-communications.spec.ts. Automatiska
+  prov använder syntetiska leverantörssvar och skickar inga verkliga SMS.
+  Samlade resultat redovisas vid leveransen.

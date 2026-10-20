@@ -1,6 +1,8 @@
-# Systemutskick – mejl och planerade SMS
+# Systemutskick – mejltest, SMS-test och planerade aviseringar
 
 Systemutskick hanteras på plattformsnivå. Det första verkliga utskicket är ett manuellt testmejl via Resend från **ScrapPlanner <noreply@scrapplanner.com>**. Testet ligger i systemadministrationen och använder inga uppgifter eller mallar från ett SaaS-bolag.
+
+Samma panel har nu ett separat **SMS-test via 46elks**, med fast avsändare **ScrapPlan**. SMS-testet skickar först efter administratörens knapptryck. Kundgodkännande och transportaviseringar är fortfarande förberedda underlag utan automatiska utskick.
 
 ## Prova ett mejlutskick
 
@@ -29,13 +31,15 @@ Deploya appen efter konfigurationsändringen. Appens automatiska deployment är 
 
 ## API och skydd
 
-- `GET /api/platform/communications` visar om mejlleverantören är konfigurerad, den fasta avsändaren och SMS-status `{ "configured": false, "useCases": [...] }`. De förberedda SMS-ändamålen är `customer_approval` och `transport_notification`. Nyckeln lämnas aldrig ut.
+- `GET /api/platform/communications` visar mejlkonfigurationen och SMS-status `{ "configured": true|false, "provider": "46elks", "from": "ScrapPlan", "useCases": [...] }`. `sms.configured` anger om båda SMS-variablerna finns, inte om kontot, saldot eller leveransen har verifierats. De förberedda verksamhetsändamålen är `customer_approval` och `transport_notification`. Nycklar och lösenord lämnas aldrig ut.
 - `POST /api/platform/communications/test-email`, JSON `{ "requestId": "<uuid>", "to": "mottagare@example.com" }`, begär ett testmejl till en enda giltig e-postadress.
+- `POST /api/platform/communications/test-sms`, JSON `{ "requestId": "<uuid>", "to": "+46701234567" }`, begär ett test-SMS till ett giltigt telefonnummer.
+- `POST /api/platform/communications/review-sms`, med samma JSON-fält, bekräftar administratörens manuella logggranskning för mottagarnumret. Åtgärden skickar inget SMS.
 - `POST /api/platform/open-administration` återgår till det egna plattformssammanhanget. **Systemadmin**-knappen använder denna väg innan systemadministrationen visas.
 
 Åtkomst kräver plattformens verkliga systemadministratör i den egna systemadminvyn. Bolagets VD, en vanlig bolagsadministratör eller en systemadmin som arbetar inne hos ett bolag får inte använda testet. Kontrollerna sker på servern; att dölja knappen är inte åtkomstskyddet. Skrivande anrop omfattas av befintligt skydd för session, aktuellt administratörssammanhang, samma ursprung och CSRF.
 
-Utskick reserveras atomärt i plattformsregistret innan leverantören anropas. Samma begäran har ett stabilt `requestId` och en stabil idempotensnyckel hos leverantören, så dubbelklick eller osäkra nätverkssvar inte ska ge en ny fristående sändning. UUID normaliseras till gemener, så olika bokstavsstorlek inte skapar ett nytt test. En avsiktlig ny sändning efter ett lyckat test får ett nytt ID. Testflödet gör inga automatiska omförsök.
+För mejltestet reserveras utskicket atomärt i plattformsregistret innan leverantören anropas. Samma begäran har ett stabilt `requestId` och en stabil idempotensnyckel hos Resend, så dubbelklick eller osäkra nätverkssvar inte ska ge en ny fristående sändning. UUID normaliseras till gemener, så olika bokstavsstorlek inte skapar ett nytt test. En avsiktlig ny sändning efter ett lyckat test får ett nytt ID. Testflödet gör inga automatiska omförsök. SMS har ett separat skydd utan antagen leverantörsidempotens, beskrivet nedan.
 
 Testfunktionen tillåter högst **10 leverantörsförsök per aktör och timme**, **3 per mottagare och timme** och **50 totalt per timme**. Begränsningarna och reservationerna ligger i det gemensamma plattformsregistret och delas därmed mellan appinstanser som använder samma register. Pågående försök reserveras i 30 sekunder. Försöksräknare gäller en timme och begäransdetaljer behålls i 48 timmar; städning sker när ett nytt test begärs.
 
@@ -57,20 +61,47 @@ Bolagets sparade aviseringsmottagare under **Företagsinställningar** är fortf
 
 Befintlig Microsoft 365-integration används för att läsa mejl. Gmail är planerat. En ansluten inkorg betyder inte att portalen redan kan skicka som den användaren. Framtida utskick från Outlook eller Gmail behöver separat sändningsimplementation och leverantörens sändningsbehörighet. Önskat framtida flöde är bolagets egen anslutna avsändare när den stöds; annars tydlig sändning via ScrapPlanner med bolagets mall och logga.
 
-## Förberedda SMS-flöden
+## Prova ett SMS-utskick
 
-Användaren har valt **kundgodkännande och transportaviseringar** som de två första SMS-flödena och har skapat ett **46elks-konto**. SMS är ännu inte aktiverat: någon sändningsadapter eller automatiska verksamhetsutskick är inte inkopplade genom denna förberedelse.
-
-46elks är en svensk leverantör med SMS-API, leveransbesked och betalning efter förbrukning. En alfanumerisk SMS-avsändare får ha högst 11 tecken. `ScrapPlanner` har 12 tecken; exempelvis **ScrapPlan** kan användas som avsändarnamn och hela varumärket skrivas i meddelandet när leverantörskopplingen byggs. Någon sådan avsändare är ännu inte registrerad eller satt i drift.
-
-Följande variabelnamn är överenskomna och reserverade för den kommande kopplingen. Spara värdena privat under **Render → scrapplanner-app → Environment**:
+Ett **46elks-konto** finns. Spara dess API-uppgifter privat under **Render → scrapplanner-app → Environment**:
 
 | Key | Value |
 | --- | --- |
 | `ELKS_API_USERNAME` | API-användarnamnet från 46elks. |
 | `ELKS_API_PASSWORD` | API-lösenordet från 46elks, inte kontots vanliga inloggningslösenord. |
 
-Värdena ska inte skickas i chatt eller läggas i Git/klientkod. Dessa namn är en förberedd konvention; den aktuella SMS-hjälpen läser dem inte och enbart sparade värden aktiverar ingen SMS-sändning. Statusen är därför fortfarande `configured: false` även om uppgifterna har lagts in i Render.
+Värdena ska inte skickas i chatt eller läggas i Git/klientkod. SMS-testets serveradapter läser nu båda variablerna. Den separata hjälpen för kund-/transportunderlag använder inga leverantörsuppgifter.
+
+1. Deploya senaste commit manuellt på **scrapplanner-app** efter att API-uppgifterna sparats.
+2. Öppna **Systemadmin → Systemutskick → Testa SMS-utskick** utanför bolagets arbetsyta.
+3. Ange mottagarnumret, exempelvis ett svenskt `07…`-nummer eller internationellt `+46…`, och välj **Skicka test-SMS**.
+4. Kontrollera telefonen och vid behov utskicksloggen hos 46elks. Om kontot nekar utskick visas ett säkert fel om exempelvis API-uppgifter, saldo eller utskicksregler.
+
+SMS:et har fast avsändare **ScrapPlan** och fast text:
+
+> Test från ScrapPlanner. En systemadministratör har begärt detta test-SMS till ditt nummer. Du behöver inte svara.
+
+Texten är 113 tecken och använder GSM-7. Den innehåller inga kunduppgifter, länkar eller uppgifter från bolaget. 46elks tillåter högst 11 tecken i en alfanumerisk avsändare; `ScrapPlanner` har 12 tecken, så **ScrapPlan** används medan hela varumärket står i meddelandet.
+
+Leverantörskvittot kontrolleras på servern. `created` och `sent` visas som accepterat för utskick; de bekräftar inte leverans till telefonen. Endast om 46elks uttryckligen rapporterar `delivered` visas levererat. Ett negativt kvitto behandlas som fel. Portalen gör inga bakgrundsuppslag eller tar emot senare leveranswebhooks i detta testflöde.
+
+### SMS-testets dubbelsändningsskydd
+
+46elks-anropet har ingen antagen leverantörsidempotens. Servern reserverar varje test atomärt före nätanropet och lagrar utfallet i ett separat SMS-register. Ett redan accepterat UUID återlämnar tidigare resultat utan nytt SMS. Telefonnumret normaliseras innan det får en pseudonym SHA-256-identitet.
+
+Ett osäkert svar, exempelvis efter timeout, nätavbrott eller leverantörens serverfel, kan betyda att SMS:et redan skickats. Därför spärras **mottagarnumret** för nya tester, även med nytt UUID, efter omladdning, serveromstart eller från ett annat systemadminkonto. Ingen automatisk omsändning görs. Under ett pågående tests första 30 sekunder tillåts inte heller manuell upplåsning.
+
+Efter ett osäkert resultat behöver administratören kontrollera 46elks utskickslogg, markera **Jag har kontrollerat utskicksloggen** och välja **Tillåt ett nytt SMS-test**. Detta markerar de osäkra posterna för numret som granskade och skickar inget SMS. Först ett efterföljande uttryckligt **Skicka test-SMS** gör ett nytt försök med ett nytt UUID. En definitiv leverantörsavvisning som bekräftar att ingen sändning gjorts kan däremot provas igen uttryckligen utan sådan logggranskning.
+
+SMS-testet har egna gränser: högst **10 leverantörsförsök per aktör och timme**, **3 per mottagarnummer och timme** och **50 totalt per timme**. Dessa räknare är separata från mejltestet. Begäransdetaljer behålls normalt i 48 timmar; osäkra och ogranskade pågående poster behålls tills administratören har granskat dem. Utgångna UUID behålls som permanenta kompakta SHA-256-avtryck utan mottagare, så gamla ID inte åter blir nya sändningar. Taket är 10 000 kända SMS-test-ID totalt; vid fullt register stoppas nya tester.
+
+Det separata revisionsspåret innehåller aktör, tid, begärans-ID, pseudonym mottagarhash och säkra resultatkoder enligt plattformens befintliga lagringsregler. Klartextnummer, SMS-text och API-lösenord lagras inte i testregistret eller revisionsspåret. Leverantören får numret för utskicket; `dontlog=message` begär att själva meddelandetexten inte lagras i 46elks meddelandelogg.
+
+`server/system-sms-provider.mjs` anropar endast `https://api.46elks.com/a1/sms` med HTTPS, HTTP Basic-autentisering och formulärfält enligt leverantörens API. Det finns ingen påhittad idempotensparameter eller automatisk omförsöksloop. Hela anropet, inklusive kvittot, har åtta sekunders timeout och kvittot får högst vara 16 KiB. Alla råa leverantörsfel hålls på servern; klienten får fasta feltexter och koder med prefixet `system_sms_`.
+
+## Förberedda verksamhets-SMS
+
+Användaren har valt **kundgodkännande och transportaviseringar** som de två första verksamhetsflödena. De är förberedda som inaktiva underlag och kopplas inte automatiskt till utskick av att SMS-testet konfigureras.
 
 | Flöde | Exempel | Kanalval |
 | --- | --- | --- |
@@ -90,20 +121,20 @@ En framtida kanaladapter kan använda dessa underlag och samma modell för spår
 
 SMS ska innehålla kort information och vid behov en skyddad länk. Personuppgifter från HR, lön, sjukfrånvaro eller bankkonton ska inte skrivas i meddelandet. Innan svarslänkar aktiveras behöver deras behörighet, giltighetstid, återkallning och koppling till rätt underlagsversion vara implementerade och testade. Utgångna eller ersatta godkännanden får inte godkännas via en gammal länk.
 
-En verklig SMS-leverans kräver leverantörskoppling, kontrollerad avsändaridentitet, koppling till behörighetskontrollerade verksamhetshändelser, begränsning av kostnad/utskicksfrekvens samt verifierad hantering av leveransbesked. Inga SMS skickas genom mejltestet eller SMS-hjälpen.
+Automatiska verksamhetsutskick kräver fortsatt koppling till behörighetskontrollerade verksamhetshändelser, mottagarregler, begränsning av kostnad/utskicksfrekvens samt verifierad hantering av leveransbesked. Inga verksamhets-SMS skickas genom mejltestet eller underlagshjälpen. Den manuella SMS-testknappen använder den separata testadaptern.
 
 ## Verifiering
 
 ```sh
 node scripts/build-domain-models.mjs
-node --test server/system-email.test.mjs server/platform-communications.test.mjs server/system-sms.test.mjs
+node --test server/system-email.test.mjs server/platform-communications.test.mjs server/system-sms.test.mjs server/system-sms-provider.test.mjs server/platform-sms-test.test.mjs
 npx playwright test tests/platform-communications.spec.ts --workers=1
 npm run build
 ```
 
-Automatiska prov använder syntetiska leverantörssvar och skickar inga verkliga mejl eller SMS. Ett lyckat lokalt prov bevisar inte att Resend-nyckel, DNS, domänrättigheter eller leverans fungerar i Render. Testknappen används för det separata driftsatta mejlprovet.
+Automatiska prov använder syntetiska leverantörssvar och skickar inga verkliga mejl eller SMS. Ett lyckat lokalt prov bevisar inte att nycklar, kontobehörigheter, saldo eller leverans fungerar i Render. De manuella testknapparna används för de separata driftsatta proven.
 
-Leveranskontroll 20 oktober 2026: **54 serverfall och 11 skilda browserfall passerar**, och produktionsbygget passerar. Testresultaten gäller ovanstående testflöden; något skarpt mejl- eller SMS-utskick har inte genomförts av de automatiska proven.
+Leveranskontroll 20 oktober 2026: produktionsbygget samt **75 skilda backendfall och 15 browserfall passerar** i de relevanta körningarna. Kontrollerna omfattar både mejl och SMS, verkliga plattformssessioner, frekvensgränser, beständiga reservationer, sena kvitton efter granskning och skydd för osäkra SMS-resultat. Inget skarpt utskick görs av de automatiska proven.
 
 ## Källor
 

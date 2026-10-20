@@ -11,8 +11,9 @@ const config = { email: { configured: true, provider: 'resend', from }, sms: { c
 const accepted = (body: { requestId: string; to: string }) => ({ ...body, from, provider: 'resend', status: 'accepted',
   providerId: '6b15ec84-6868-41b9-bd02-2d550e5e231e', acceptedAt: '2026-10-20T12:00:00.000Z' });
 
-async function fixture(page: Page, options: { configured?: boolean; failFirst?: boolean; defer?: boolean; support?: boolean; malformed?: boolean } = {}) {
-  const sends: Request[] = [], configRequests: Request[] = [], returns: Request[] = [];
+async function fixture(page: Page, options: { configured?: boolean; failFirst?: boolean; defer?: boolean; support?: boolean; malformed?: boolean;
+  smsConfigured?: boolean; smsUnknown?: boolean; smsDelivered?: boolean } = {}) {
+  const sends: Request[] = [], configRequests: Request[] = [], returns: Request[] = [], smsSends: Request[] = [], smsReviews: Request[] = [];
   const company = { id: 'test-company', name: 'Testbolaget', organisationNumber: '5593593626', status: 'active' };
   let current: Record<string, unknown> = options.support
     ? { ...own, company, organisationId: company.id, isSupportSession: true, companies: [company] } : own;
@@ -26,7 +27,8 @@ async function fixture(page: Page, options: { configured?: boolean; failFirst?: 
     if (path === '/api/platform/telematics') return route.fulfill({ json: { version: 1, revision: 0, devices: [], events: [], requests: [] } });
     if (path === '/api/platform/communications') {
       configRequests.push(request);
-      return route.fulfill({ json: options.malformed ? {} : { ...config, email: { ...config.email, configured: options.configured !== false } } });
+      return route.fulfill({ json: options.malformed ? {} : { ...config, email: { ...config.email, configured: options.configured !== false },
+        sms: { configured: options.smsConfigured === true, provider: '46elks', from: 'ScrapPlan' } } });
     }
     if (path === '/api/platform/communications/test-email') {
       sends.push(request); await gate;
@@ -38,11 +40,22 @@ async function fixture(page: Page, options: { configured?: boolean; failFirst?: 
       returns.push(request); current = { ...own, generation: 2, csrfToken: 'new-csrf' };
       return route.fulfill({ json: current });
     }
+    if (path === '/api/platform/communications/test-sms') {
+      smsSends.push(request); await gate;
+      if (options.smsUnknown && smsReviews.length === 0)
+        return route.fulfill({ status: 503, json: { error: 'SMS-testets resultat är osäkert. Kontrollera utskicksloggen hos 46elks.', code: 'system_sms_outcome_unknown' } });
+      return route.fulfill({ json: { ...request.postDataJSON(), from: 'ScrapPlan', provider: '46elks', status: 'accepted',
+        providerId: 's70df59406a1b4643b96f3f91e0bfb7b0', providerStatus: options.smsDelivered ? 'delivered' : 'created',
+        acceptedAt: '2026-10-20T12:00:00.000Z' } }).catch(() => {});
+    }
+    if (path === '/api/platform/communications/review-sms') {
+      smsReviews.push(request); return route.fulfill({ json: { reviewed: true } });
+    }
     return route.fulfill({ json: {} });
   });
   await page.goto('/kontor#/platform-admin');
   await expect(page.getByRole('heading', { name: 'Bolag', exact: true })).toBeVisible();
-  return { sends, configRequests, returns, release };
+  return { sends, configRequests, returns, release, smsSends, smsReviews };
 }
 
 test('systemadmin sends one explicit fixed-sender test with CSRF and sees provider acceptance', async ({ page }) => {
@@ -101,4 +114,67 @@ test('support context cannot see email test; returning to own systemadmin enable
   expect(f.returns[0].postDataJSON()).toEqual({});
   expect(f.returns[0].headers()['x-platform-csrf']).toBe('communications-csrf');
   expect(f.sends).toHaveLength(0);
+});
+
+test('SMS button is beside email test and sends one explicit normalized SMS with session protection', async ({ page }) => {
+  const f = await fixture(page, { smsConfigured: true, defer: true });
+  const panel = page.getByRole('region', { name: 'Systemutskick', exact: true });
+  const emailToggle = panel.getByRole('button', { name: 'Testa mejlutskick', exact: true });
+  const smsToggle = panel.getByRole('button', { name: 'Testa SMS-utskick', exact: true });
+  await expect(smsToggle).toBeVisible();
+  expect(await smsToggle.evaluate(element => element.parentElement?.querySelectorAll('button').length)).toBe(2);
+  await expect(emailToggle).toBeVisible(); expect(f.smsSends).toHaveLength(0);
+  await smsToggle.click();
+  await panel.getByLabel('Mottagarens telefonnummer', { exact: true }).fill('070 123 45 67');
+  expect(f.smsSends).toHaveLength(0);
+  await panel.getByRole('button', { name: 'Skicka test-SMS', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Skickar SMS…', exact: true })).toBeDisabled();
+  await expect(emailToggle).toBeDisabled();
+  expect(f.smsSends).toHaveLength(1);
+  expect(f.smsSends[0].postDataJSON()).toEqual({ requestId: expect.stringMatching(/^[a-f0-9-]{36}$/), to: '+46701234567' });
+  expect(f.smsSends[0].headers()).toMatchObject({ 'x-platform-csrf': 'communications-csrf', 'x-platform-generation': '1' });
+  f.release();
+  await expect(panel.getByRole('status')).toContainText('46elks har tagit emot test-SMS:et');
+  await expect(panel).toContainText('Leveransen till telefonen är ännu inte bekräftad');
+  expect(f.sends).toHaveLength(0);
+});
+
+test('SMS missing credentials disables only SMS and leaves email usable', async ({ page }) => {
+  const f = await fixture(page);
+  const panel = page.getByRole('region', { name: 'Systemutskick', exact: true });
+  await expect(panel.getByRole('button', { name: 'Testa SMS-utskick', exact: true })).toBeDisabled();
+  await expect(panel.getByRole('button', { name: 'Testa mejlutskick', exact: true })).toBeEnabled();
+  await expect(panel).toContainText('ELKS_API_USERNAME och ELKS_API_PASSWORD');
+  expect(f.smsSends).toHaveLength(0);
+});
+
+test('uncertain SMS result requires explicit provider log review and never sends during review', async ({ page }) => {
+  const f = await fixture(page, { smsConfigured: true, smsUnknown: true });
+  const panel = page.getByRole('region', { name: 'Systemutskick', exact: true });
+  await panel.getByRole('button', { name: 'Testa SMS-utskick', exact: true }).click();
+  await panel.getByLabel('Mottagarens telefonnummer', { exact: true }).fill('070 123 45 67');
+  await panel.getByRole('button', { name: 'Skicka test-SMS', exact: true }).click();
+  await expect(panel.getByRole('alert')).toContainText('osäkert');
+  await expect(panel.getByRole('button', { name: 'Skicka test-SMS', exact: true })).toBeDisabled();
+  await expect(panel.getByRole('button', { name: 'Tillåt ett nytt SMS-test', exact: true })).toBeDisabled();
+  expect(f.smsSends).toHaveLength(1); expect(f.smsReviews).toHaveLength(0);
+  await panel.getByLabel('Jag har kontrollerat utskicksloggen', { exact: true }).check();
+  await panel.getByRole('button', { name: 'Tillåt ett nytt SMS-test', exact: true }).click();
+  await expect(panel.getByRole('status')).toContainText('Inget SMS skickades');
+  expect(f.smsSends).toHaveLength(1); expect(f.smsReviews).toHaveLength(1);
+  expect(f.smsReviews[0].headers()['x-platform-csrf']).toBe('communications-csrf');
+  await panel.getByRole('button', { name: 'Skicka test-SMS', exact: true }).click();
+  await expect(panel.getByText(/46elks har tagit emot test-SMS:et/)).toBeVisible();
+  expect(f.smsSends).toHaveLength(2);
+  expect(f.smsSends[1].postDataJSON().requestId).not.toBe(f.smsSends[0].postDataJSON().requestId);
+});
+
+test('delivery is reported only when the provider explicitly confirms delivered', async ({ page }) => {
+  await fixture(page, { smsConfigured: true, smsDelivered: true });
+  const panel = page.getByRole('region', { name: 'Systemutskick', exact: true });
+  await panel.getByRole('button', { name: 'Testa SMS-utskick', exact: true }).click();
+  await panel.getByLabel('Mottagarens telefonnummer', { exact: true }).fill('+46701234567');
+  await panel.getByRole('button', { name: 'Skicka test-SMS', exact: true }).click();
+  await expect(panel.getByRole('status')).toContainText('46elks rapporterar att test-SMS:et');
+  await expect(panel.getByRole('status')).toContainText('är levererat');
 });

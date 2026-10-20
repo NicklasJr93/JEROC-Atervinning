@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { PlatformError } from './platform-auth.mjs';
 import { SYSTEM_EMAIL_FROM, SystemEmailError } from './system-email.mjs';
 import { SYSTEM_SMS_USE_CASES } from './system-sms.mjs';
+import { SYSTEM_SMS_FROM } from './system-sms-provider.mjs';
+import { createPlatformSmsTest } from './platform-sms-test.mjs';
 
 const HOUR = 3_600_000, RETENTION = 48 * HOUR, RETRY_WINDOW = 23 * HOUR, LEASE = 30_000;
 const commandSchema = z.object({ requestId: z.string().uuid().toLowerCase(), to: z.string().trim().max(254).email().toLowerCase() }).strict();
@@ -16,10 +18,11 @@ const publicResult = (record, to) => ({ requestId: record.requestId, to, from: S
  * use platform storage; provider calls run outside its database transaction.
  * Raw recipient addresses/content are not stored in the platform registry.
  */
-export function createPlatformCommunications({ auth, email, repository = auth?.repository, now = () => new Date() } = {}) {
+export function createPlatformCommunications({ auth, email, sms = { configured: false, sendTest: async () => { throw new Error('SMS not configured'); } }, repository = auth?.repository, now = () => new Date() } = {}) {
   if (!auth?.withPlatformAdminTransaction || !repository?.transact || typeof email?.sendTest !== 'function')
     throw new TypeError('Systemutskick kräver plattformsautentisering, lagring och mejlleverantör.');
   const authorize = (req, operation, write = false) => auth.withPlatformAdminTransaction(req, operation, { write, purpose: 'communications' });
+  const smsTest = createPlatformSmsTest({ auth, sms, repository, now });
   function audit(state, actorId, action, record) {
     state.audit.push({ id: randomUUID(), at: new Date(now()).toISOString(), actorId, action,
       requestId: record.requestId, channel: 'email', purpose: 'platform_test', recipientHash: record.recipientHash,
@@ -27,7 +30,7 @@ export function createPlatformCommunications({ auth, email, repository = auth?.r
   }
   async function read(req) {
     return authorize(req, () => ({ email: { configured: email.configured, provider: 'resend', from: SYSTEM_EMAIL_FROM },
-      sms: { configured: false, useCases: SYSTEM_SMS_USE_CASES } }));
+      sms: { configured: sms.configured, provider: '46elks', from: SYSTEM_SMS_FROM, useCases: SYSTEM_SMS_USE_CASES } }));
   }
   async function sendTest(input, req) {
     await authorize(req, () => true, true);
@@ -108,5 +111,5 @@ export function createPlatformCommunications({ auth, email, repository = auth?.r
     });
     return authorize(req, () => saved, true);
   }
-  return { read, sendTest };
+  return { read, sendTest, sendTestSms: smsTest.sendTest, reviewSms: smsTest.review };
 }

@@ -41,7 +41,7 @@ export type CompanyCreated = {
 
 export type PlatformCommunicationsConfig = {
   email: { configured: boolean; provider: 'resend'; from: string };
-  sms: { configured: false };
+  sms: { configured: boolean; provider?: '46elks'; from?: string; useCases?: { id: string; label: string; state: 'prepared' }[] };
 };
 
 export type PlatformTestEmailResult = {
@@ -50,6 +50,17 @@ export type PlatformTestEmailResult = {
   from: string;
   provider: 'resend';
   status: 'accepted';
+  providerId: string;
+  acceptedAt: string;
+};
+
+export type PlatformTestSmsResult = {
+  requestId: string;
+  to: string;
+  from: 'ScrapPlan';
+  provider: '46elks';
+  status: 'accepted';
+  providerStatus: 'created' | 'sent' | 'delivered';
   providerId: string;
   acceptedAt: string;
 };

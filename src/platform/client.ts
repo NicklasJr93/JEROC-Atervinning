@@ -1,5 +1,11 @@
 import { platformRequestHeaders } from './session';
-import type { AuthenticatedPlatformSession, CompanyCreated, PlatformCompany, PlatformCompanyUser, PlatformSession, PlatformCommunicationsConfig, PlatformTestEmailResult } from './types';
+import type { AuthenticatedPlatformSession, CompanyCreated, PlatformCompany, PlatformCompanyUser, PlatformSession, PlatformCommunicationsConfig, PlatformTestEmailResult, PlatformTestSmsResult } from './types';
+
+export class PlatformRequestError extends Error {
+  constructor(message: string, public readonly code?: string, public readonly status?: number) {
+    super(message); this.name = 'PlatformRequestError';
+  }
+}
 
 async function request<T>(path: string, data?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`/api/platform/${path}`, {
@@ -11,7 +17,8 @@ async function request<T>(path: string, data?: unknown, signal?: AbortSignal): P
   const body = await response.json().catch(() => undefined);
   if (!response.ok) {
     const message = typeof body?.error === 'string' ? body.error : body?.error?.message ?? body?.message;
-    throw new Error(typeof message === 'string' ? message : 'Åtgärden kunde inte slutföras. Försök igen.');
+    throw new PlatformRequestError(typeof message === 'string' ? message : 'Åtgärden kunde inte slutföras. Försök igen.',
+      typeof body?.code === 'string' ? body.code : undefined, response.status);
   }
   return body as T;
 }
@@ -28,6 +35,8 @@ export const platformApi = {
   resetInitialPassword: (id: string, requestId: string) => request<CompanyCreated>(`companies/${encodeURIComponent(id)}/reset-initial-password`, { requestId }),
   communications: (signal?: AbortSignal) => request<PlatformCommunicationsConfig>('communications', undefined, signal),
   sendTestEmail: (data: { requestId: string; to: string }, signal?: AbortSignal) => request<PlatformTestEmailResult>('communications/test-email', data, signal),
+  sendTestSms: (data: { requestId: string; to: string }, signal?: AbortSignal) => request<PlatformTestSmsResult>('communications/test-sms', data, signal),
+  reviewTestSms: (data: { requestId: string; to: string }, signal?: AbortSignal) => request<{ reviewed: true }>('communications/review-sms', data, signal),
   switchCompany: (organisationId: string, effectiveUserId?: string) => request<AuthenticatedPlatformSession>('switch', {
     organisationId, ...(effectiveUserId ? { effectiveUserId } : {}),
   }),

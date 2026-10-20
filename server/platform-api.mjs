@@ -54,6 +54,8 @@ export function createPlatformApi({ auth, fleet, communications, env = process.e
       if (read && path === 'session') result = { value: await auth.session(req) };
       else if (path === 'communications' && communications && read) result = { value: await communications.read(req) };
       else if (path === 'communications/test-email' && communications && !read) result = { value: await communications.sendTest(await body(req), req) };
+      else if (path === 'communications/test-sms' && communications && !read) result = { value: await communications.sendTestSms(await body(req), req) };
+      else if (path === 'communications/review-sms' && communications && !read) result = { value: await communications.reviewSms(await body(req), req) };
       else if (path === 'telematics' && fleet) result = { value: read ? await fleet.read(req) : await fleet.mutate(await body(req), req) };
       else if (read && path === 'companies') result = { value: await auth.companies(req) };
       else if (read && users) result = { value: await auth.users(users[1], req) };
