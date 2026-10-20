@@ -1,6 +1,10 @@
-# Planerade framtida uppdateringar
+# Planer och leveransreferenser
 
 Senast uppdaterad: 2026-10-20.
+
+Detta dokument innehåller både kvarstående planer och äldre leveransreferenser.
+För dagens arbetsgång, använd [manualen](manual/README.md). Senare ÄL-poster
+och respektive [ämnesguide](README.md) gäller före äldre statusbesked här.
 
 Utbetalningsbuntar/betalfil och dashboards avvaktar fortsatt enligt
 användarens beslut. Mejlinkorgens nya bildmockuper är klara enligt ÄL 111;
@@ -21,7 +25,9 @@ Status: Genomförd i kod **20 oktober 2026** enligt **ÄL 138** tillsammans med 
   använder personnummer och för BRF. Befintliga kunders typ bevaras.
 - Nummersteget har samma blå elektriska fokusram som nya viktkort, med stilla
   kontur vid minskad rörelse. SCB används bara för juridiska organisationsnummer;
-  personuppslag/SPAR är inte implementerat.
+  personnummer skickas inte dit. Separat personuppslag via Roaring är
+  levererat enligt ÄL 152, med synlig århundradeskomplettering enligt ÄL 153;
+  se [personuppslag och SaaS-förbrukning](personuppslag-och-saas-forbrukning.md).
 
 Underlag: [Ändringslistan, ÄL 138](Andringslistan.txt),
 [SCB-uppslaget](integrationer/scb-foretagsregister.md) och

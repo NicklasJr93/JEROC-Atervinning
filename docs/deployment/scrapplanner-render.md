@@ -1,5 +1,10 @@
 # ScrapPlanner på Render: hemsida, app och databas
 
+> **Ursprunglig installationsguide.** Stegen beskriver skapande och bootstrap
+> av pilotmiljön. För löpande drift i den redan skapade installationen, börja
+> med [driftguiden](../drift/README.md). Äldre leveranskontroller och uppgifter
+> om ännu ej skapade resurser nedan är observationer från installationstillfället.
+
 Blueprinten [render.scrapplanner.yaml](../../render.scrapplanner.yaml) skapar en
 separat pilotmiljö i **ScrapPlanner Live**. Hemsidan presenterar ScrapPlanner som
 en produkt av **EndorGroup**, med kontaktadress **nicklas@endorgroup.se**.

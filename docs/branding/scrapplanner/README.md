@@ -1,8 +1,8 @@
-# ScrapPlanner – loggförslag
+# ScrapPlanner – aktuell produktlogga
 
 **Simplifying your recycling business.**
 
-![Loggförslag för ScrapPlanner – korrigerad a-kontur](scrapplanner-logo-concept-v2.png)
+![ScrapPlanner – korrigerad a-kontur](scrapplanner-logo-concept-v2.png)
 
 [Öppna korrigerad presentationsbild](scrapplanner-logo-concept-v2.png)
 

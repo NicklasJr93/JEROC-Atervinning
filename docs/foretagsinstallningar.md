@@ -9,7 +9,7 @@ Implementerad 20 oktober 2026 enligt ÄL 140. [Bildmockup och UI-beslut](mockups
 - **Företaget:** namn, postadress, telefon, publikt kundmejl, fakturamejl, kontaktperson och webbplats.
 - **Logga & dokument:** uppladdad logga, dokumentförhandsvisning och sidfot. Organisationsnummer är bolagets låsta juridiska identitet.
 - **Standardval:** betalningsdagar för nya kunder, eller tomt värde för integrationens standard. Sverige, SEK, svenska och Europe/Stockholm följer nuvarande systemstöd; inga språkval visas som om de vore översatta funktioner.
-- **Aviseringar:** mottagarlistor för kundförfrågningar, bokningar och integrationsfel. Detta är lagrad konfiguration; inställningarna startar inte ett nytt mejlutskick eller någon leveranskö. Respektive framtida aviseringsflöde behöver anslutas uttryckligen.
+- **Aviseringar:** välj **Skicka vägt underlag till e-post** och mottagare för kontorets PDF-kopia efter intern attest; se [utskicksflödet](integrationer/vagt-underlag-epost.md). Övriga mottagarlistor för kundförfrågningar, bokningar och integrationsfel är lagrad konfiguration; deras aviseringsflöden behöver anslutas separat.
 
 Bank, bokföring, mejlkopplingar och behörigheter hanteras genom genvägar till befintliga arbetsytor. Uppgifterna dubbleras inte.
 
@@ -37,7 +37,7 @@ PNG, JPEG och WebP upp till 1 MiB accepteras. Dekodning, pixelgräns, omkodning 
 
 En uppladdad logga väljs först när formuläret sparas. Befintliga bildversioner behålls eftersom frysta dokument kan referera till dem. Dokumentgenereringen använder dokumentets egen företagsprofil och loggversion. Saknad bild ersätts inte tyst med en ny logga eller ett annat bolags identitet.
 
-Den sparade loggan visas även i kontorets vänstermeny och i sidhuvudet för bolagets vanliga användare. Plattformsadministratören behåller produktloggan i den översta raden, ovanför bolagets logga. Uppladdning och borttagning i ett osparat utkast påverkar bara förhandsvisningen. Efter lyckat sparande hämtas de minimala varumärkesuppgifterna på nytt; interna inställningar behöver inte exponeras för medarbetare. Vid bolagsbyte rensas den gamla loggan direkt. Om ingen logga finns eller bildfilen inte kan läsas visas produktloggan i gränssnittet.
+Den sparade loggan visas i kontorets vänstermeny. Bolagets vanliga användare har ingen extra översta produkt-/kontorad; profil och Logga ut finns nere i vänstermenyn enligt ÄL 143. Plattformsadministratören behåller produktloggan i den översta raden, ovanför bolagets logga. Under bolagsloggan visas inte dubblerad bolagstext eller Kontorsöversikt. Om logga saknas eller inte kan läsas visas produktloggan och företagsnamnet som reserv. Uppladdning och borttagning i ett osparat utkast påverkar bara förhandsvisningen. Efter lyckat sparande hämtas de minimala varumärkesuppgifterna på nytt; interna inställningar behöver inte exponeras för medarbetare. Vid bolagsbyte rensas den gamla loggan direkt.
 
 ## Google-adressprovet
 

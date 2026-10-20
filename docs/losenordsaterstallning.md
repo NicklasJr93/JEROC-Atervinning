@@ -14,7 +14,7 @@ Adress och lösenord kan inte väljas via ett annat bolags kontaktinställningar
 
 ## Min profil
 
-Öppna **Min profil** i den översta raden. Där visas den inloggades namn, användarnamn och registrerade e-postadress. Samma sida används av systemadmin och VD. Under **Jobba som** gäller profilen fortfarande den inloggades eget plattformskonto, inte kundbolagets valda användare.
+Öppna profilmenyn längst ner till vänster och välj **Min profil**. Systemadmin har även profilåtkomst i sin översta rad; vanliga verksamhetsanvändare har ingen sådan extra rad. Där visas den inloggades namn, användarnamn och registrerade e-postadress. Samma sida används av systemadmin och VD. Under **Jobba som** gäller profilen fortfarande den inloggades eget plattformskonto, inte kundbolagets valda användare.
 
 Ange e-postadress och bekräfta med ditt nuvarande lösenord för att spara. Det krävs inte någon ändring i Render. Formuläret använder sessionens skydd och en profilversion för att avvisa samtidiga eller föråldrade ändringar. E-postadressen ändrar inte användarnamn, lösenord eller bolagsbehörighet. Äldre återställningslänkar blir ogiltiga efter en adressändring.
 

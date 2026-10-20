@@ -1,5 +1,11 @@
 # Gemensam verksamhetsdatabas – kontor 0.11.0 / mobil 0.3.0
 
+> **Teknisk referens från en äldre leverans.** Datamodellerna beskrivs nedan,
+> men besked om demoautentisering, kommande mobilinloggning och inga utskick
+> är historiska. Aktuell bolags-/driftmodell finns i [driftguiden](drift/README.md);
+> dagens arbetsgång finns i [manualen](manual/README.md). Äldre demoimport är
+> inte en instruktion att importera data i pilotprofilen.
+
 Render använder befintlig `DATABASE_URL`. Migrationen körs automatiskt när
 servern börjar använda lagringen. Den raderar inga befintliga tabeller.
 Terminal- och miljöregistren använder fortsatt sina befintliga migrationer.

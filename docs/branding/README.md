@@ -1,12 +1,18 @@
-# ScrapPilot
+# ScrapPlanner – varumärke och historik
 
-[Nytt loggförslag: ScrapPlanner](scrapplanner/README.md) — mörk marinblå och
-dämpad skogsgrön, med sloganen *Simplifying your recycling business.*
-Bildmockup för granskning inför den nya produktidentiteten.
+[Aktuell ScrapPlanner-logga och exportinstruktion](scrapplanner/README.md),
+med sloganen *Simplifying your recycling business.* Den används på hemsidan
+och i appens produktidentitet. Företagens egna loggor hanteras separat under
+[Företagsinställningar](../foretagsinstallningar.md).
+
+## Tidigare ScrapPilot-original
+
+Filerna och exportkommandot nedan är historiska designresurser från
+ScrapPilot-versionen. Använd ScrapPlanner-guiden ovan för nya app-/webbexporter.
 
 ![ScrapPilot](scrappilot-logo-vector.png)
 
-Den aktuella blå/gröna produktloggan infördes 2026-10-13 i kontor 0.22.2
+Den tidigare blå/gröna produktloggan infördes 2026-10-13 i kontor 0.22.2
 och mobilwebb 0.8.1. Rundade konturer och bokstäver är vektorbanor,
 utan inbäddade rasterbilder eller beroende av typsnitt.
 
@@ -23,10 +29,9 @@ utan inbäddade rasterbilder eller beroende av typsnitt.
 - [Logga i PNG](scrappilot-logo-vector.png) och [symbol i PNG](scrappilot-symbol-vector.png) — transparenta exporter från samma SVG.
 - [Förberedd bildreferens](scrappilot-logo-prepared.png) — transparent bildvariant av den nya loggan; SVG-masterfilerna styr produktionens jämna tvåfärgsexporter.
 
-Appens gemensamma resurser finns i `public/images/scrappilot-logo.svg` och
-`scrappilot-symbol.svg`. Samma original används av kontor, inloggning,
-plattformsadministration, mobilwebb, terminal, kund- och chaufförsportaler.
-Expo-wrappern använder PNG-exporten på anslutningsskärmen.
+De tidigare appresurserna finns i `public/images/scrappilot-logo.svg` och
+`scrappilot-symbol.svg`. Dessa filnamn och original dokumenteras här för
+spårbarhet; de ska inte återinföras som aktuell produktlogga.
 
 Favicon finns som SVG, ICO med 16/32/48 px och PNG. Apple-hemskärmsikonen
 är 180 px. Ikoner i 192/512 px finns för framtida webbinstallation.
@@ -35,7 +40,7 @@ extra marginal för Androids ikonmasker och `splash.png` som startbild.
 Ikonerna är konfigurerade för nästa eget nativebygge; Expo Go behåller sin
 egen launcherikon. Favicon-länkar är versionerade för att undvika gammal cache.
 
-Generera om alla produktionsexporter från SVG-masterfilerna:
+För att återskapa de tidigare ScrapPilot-exporterna från SVG-masterfilerna:
 
 ```sh
 node scripts/export-brand-assets.mjs
@@ -50,5 +55,6 @@ påverkas inte av byte av produktlogga.
 
 Tidigare `scrappilot-logo-rounded.png`, `scrappilot-logo.png` och
 `*-recycling-green.*` är historiska designreferenser. Använd masterfilerna
-ovan för nya exporter och tryck. Behåll proportionerna och ett lugnt utrymme
+ovan för historiska exporter. Följ ScrapPlanner-guiden för aktuella original.
+Behåll proportionerna och ett lugnt utrymme
 runt loggan; vid liten brodyr passar SP-symbolen bättre än hela ordmärket.

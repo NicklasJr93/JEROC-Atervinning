@@ -1,5 +1,9 @@
 # JEROC kontorsdemo 0.17.0
 
+> **Tidigare kontorsleveranser.** Versionsbeskrivningar och demoinstruktioner
+> nedan är historiska referenser. Börja med [användarmanualen](manual/README.md)
+> för dagens arbetsgång och [driftguiden](drift/README.md) för pilotens konfiguration.
+
 ## Nytt i 0.17.0 – artikelgrupper, egna bilder och terminalens ID-popup
 
 Artikelöversiktens rubrik, flikar och sök/filter ligger kvar när artikellistan

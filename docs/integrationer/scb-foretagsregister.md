@@ -21,11 +21,12 @@ Första versionen använder samma komponent och behörighetsskyddade serverkoppl
 - Kontorets **Skapa kund** och redigering av företags-/BRF-kundens uppgifter.
 - Kontorets **Ny kund** i snabbregistreringen på ett viktkort.
 - Mobilens **Ny kund** för företag och BRF.
+- Kundens självservice via SMS och kundterminal, med en särskilt begränsad publik serverkoppling.
 - Systemadmins **Skapa bolag**, även innan det första bolaget finns.
 
 När ett komplett nummer har giltigt format och korrekt kontrollsiffra startar uppslaget efter 350 ms. Formuläret accepterar bindestreck och blanksteg; ett `16`-prefix normaliseras bort för uppslaget. Numret skickas aldrig för varje knapptryckning och personnummer skickas inte till SCB.
 
-En träff visas med källa och hämtningstid. Användaren väljer **Använd företagsuppgifter** för att fylla formuläret och sparar därefter som vanligt. På Skapa bolag fylls endast namn och organisationsnummer; VD:s namn och e-post anges separat. Ingen kund, något bolag eller VD-konto skapas av uppslaget.
+I kontorets och mobilens registreringsformulär visas en träff med källa och hämtningstid. Användaren väljer **Använd företagsuppgifter** för att fylla formuläret och sparar därefter som vanligt. På Skapa bolag fylls endast namn och organisationsnummer; VD:s namn och e-post anges separat. I kundens SMS-/terminalformulär fylls förslag direkt i redigerbara fält som kunden granskar före inskick; personalen granskar sedan de inskickade kunduppgifterna. Ingen kund, något bolag eller VD-konto skapas av själva uppslaget.
 
 Adressuppgifterna är företagets **postadress**, inklusive eventuell c/o-rad. De blir inte automatiskt materialets ursprungsadress, hämtningsadress eller en anläggningsadress. Tomma adressfält i SCB tömmer inte redan angivna uppgifter. Befintlig telefon och e-post behålls; giltiga kontaktförslag fyller bara fält som fortfarande är tomma när användaren väljer att använda träffen. Betalningsuppgifter, kontaktperson, referenser och kommersiella villkor behålls.
 
@@ -41,11 +42,11 @@ Namn-/delsträngssökning är en separat senare funktion. Denna version gör exa
 
 ### Nummer först och valbar kundtyp, ÄL 138
 
-Kontorets fullständiga kundformulär, snabbregistreringen på viktkort och mobilens Ny kund börjar med **Organisations-/personnummer**, följt av **Kundtyp**. Samma komponent kontrollerar format, kalenderdatum och Luhn innan den föreslår Företag eller Privatperson. Personnummer med tio/tolv siffror och samordningsnummer stöds; århundrade gissas inte. Prefix `16` på juridiska organisationsnummer normaliseras till tio siffror även vid sparande.
+Kontorets fullständiga kundformulär, snabbregistreringen på viktkort och mobilens Ny kund börjar med **Organisations-/personnummer**, följt av **Kundtyp**. Samma komponent kontrollerar format, kalenderdatum och Luhn innan den föreslår Företag eller Privatperson. Vid ny kund kompletteras giltiga tiosiffriga personnummer synligt till tolv enligt ÄL 153, efter en kort paus eller när fältet lämnas. Föreslaget födelseår kan ändras; uttryckliga tolv siffror och sparade kundnummer ändras inte. Samordningsnummer fylls i manuellt. Prefix `16` på juridiska organisationsnummer normaliseras till tio siffror även vid sparande. Se [personuppslag och nummerregler](../personuppslag-och-saas-forbrukning.md).
 
 Ett manuellt val **Företag**, **Privatperson** eller **BRF** behålls tills användaren själv väljer **Automatiskt** igen. Personnummer kan höra till en enskild firma; numret avgör inte affärsrollen. Befintliga kunders valda typ bevaras. BRF väljs manuellt. Den blå elektriska fokusramen återanvänder viktkortets komponent, blir stilla vid minskad rörelse och släcks vid komplett giltigt nummer eller skrivskydd.
 
-Person- och samordningsnummer skickas aldrig till företagsregistret. **SPAR/personuppslag är inte implementerat**; personuppgifter kan anges manuellt. Fullt underlag finns i [Ändringslistan](../Andringslistan.txt).
+Person- och samordningsnummer skickas aldrig till SCB. Personuppslag för nya kunder använder i stället Roaring enligt ÄL 152; det är ingen SPAR-anslutning. Manuell inmatning finns kvar. Befintlig kundmatchning görs internt utan köpt personuppslag. Fullt underlag finns i [Ändringslistan](../Andringslistan.txt).
 
 ### Kontaktförslag, ÄL 139
 
@@ -125,7 +126,7 @@ Detta är registeruppgifter, inte ett nytt beslut om hur en invägning eller utb
 ## Avgränsningar och fel
 
 - Exakt uppslag på komplett, giltigt organisationsnummer. Ingen delsträngssökning, namnlista eller nedladdning av hela registret.
-- Juridiska personer, inklusive BRF, omfattas. Privatpersoner och enskild firmas personnummer skickas inte till detta uppslag. SPAR är en separat kommande koppling.
+- Juridiska personer, inklusive BRF, omfattas. Privatpersoner och enskild firmas personnummer skickas inte till SCB. Separat personuppslag via Roaring beskrivs i [personuppslagsguiden](../personuppslag-och-saas-forbrukning.md).
 - Endast bekräftad HTTP **404** från SCB visas som ingen träff. Nätfel, timeout, nekad API-nyckel och driftavbrott visas som anslutningsfel med möjlighet till manuell inmatning.
 - Fast officiell HTTPS-adress och `redirect: error`; användaren kan inte ange annan värd eller skicka nyckeln till en annan server.
 - Timeout högst åtta sekunder i normal konfigurering, även om svarskroppen stannar. Svar större än 64 KiB eller med oväntad struktur avvisas.

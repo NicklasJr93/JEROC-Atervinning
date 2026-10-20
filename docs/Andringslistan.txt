@@ -4,7 +4,10 @@ Syfte
 Här samlas planerade ändringar så att de kan genomföras tillsammans vid
 nästa uttryckligen beställda koduppdatering.
 
-Aktuell mobilwebbversion: 0.13.0. Aktuell kontorsversion: 0.30.3.
+Aktuell mobilwebbversion: 0.13.0. Aktuell kontorsversion: 0.30.6.
+Aktuell användarmanual: docs/manual/README.md. Drift: docs/drift/README.md.
+Denna lista är beslut och leveranshistorik; äldre versionsbesked nedan
+beskriver vad som gällde då. Senare poster och aktuella ämnesguider styr.
 ÄL 125: demoinloggning med förifyllning på Chaufför, Åkeri och Kundportal.
 ÄL 124 är genomförd 2026-10-16: förifyllt NVV-supportprov direkt i kontoret,
 utan Render Shell. Själva nya myndighetsanropet körs från användarens testknapp.
@@ -24,7 +27,8 @@ Byggets innehåll: docs/sticky-viktkort-anlaggningsval-2026-10-13.md.
 Punkterna 001–051 är genomförda utom 045, som är uppskjuten;
 031 avser förberedelse utan utskick.
 084–086 och 088–095 är genomförda i bygge 2026-10-12 enligt beställningen
-av de sex första områdena. 087 väntar på Google-uppgifter.
+av de sex första områdena. 087 är senare genomförd 2026-10-20;
+aktuellt adressflöde: docs/integrationer/google-adresser.md.
 Byggets innehåll och verifiering: docs/bygge-kunddata-och-spiris-2026-10-12.md.
 Nästa nya feedback läggs till som planerad ändring och kodas först på beställning.
 ÄL 123 är planerad som Before demo release: rättningar och verifiering av
@@ -3829,3 +3833,24 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
   datumgränser, plustecken, skottdag, pågående tolvsiffrig inmatning,
   Enter/blur, SCB, bevarade kunduppgifter och ett uppslag per identitet.
   Leverantörer simuleras; inga verkliga personuppslag eller utskick görs.
+
+
+ÄL 154 – Samlad dokumentation och användarmanual
+Status: Genomförd och dokumentationskontrollerad 2026-10-20.
+- README är en kort ingång till manual, dokumentationsöversikt, drift,
+  utveckling, ÄL och godkända mockuper.
+- Praktisk manual för kontoret/VD, personal och konton, kundregistrering,
+  material-/fordonsvägning, SMS-/terminaluppgifter, kundgodkännande,
+  legitimationskontroll, attest, PDF-kopia och systemadmin/förbrukning.
+- Aktuell driftguide samlar miljö, privata konfigurationer, deployment,
+  Expo, felsökning och gränserna för backup/återställning. Separat
+  utvecklarguide beskriver lokala kommandon, kodstruktur och kontroller.
+- Centrala gamla besked om SMS/mejl, personuppslag, Google, SaaS,
+  företagslogga/profilrad och varumärke är rättade. Äldre leveransguider
+  är märkta med hänvisning till aktuell information; sökvägarna bevaras.
+- Arbetsgång uppdateras i manualen, teknik i befintlig ämnes-/driftguide
+  och leveranser i ÄL. Vanliga ändringar skapar inte nya parallella rapporter.
+- Verifiering: användar- och driftinstruktioner granskade mot koden,
+  246 lokala länkar/rubriklänkar i 23 Markdown-filer kontrollerade samt
+  git diff --check. Endast dokument ändras; inga nya appprov eller
+  driftåtgärder påstås. docs/manual/README.md och docs/README.md är startpunkter.

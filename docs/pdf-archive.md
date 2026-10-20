@@ -1,5 +1,10 @@
 # PDF och dokumentarkiv – kontorsdemo 0.11.0
 
+> **Teknisk referens från en äldre leverans.** Dokumentmodeller och dåtidens
+> kontroller beskrivs nedan. Använd [manualen](manual/vagning-och-kunduppgifter.md)
+> för dagens godkännande-/attestflöde och [PDF-kopians guide](integrationer/vagt-underlag-epost.md)
+> för det senare tillkomna mejlutskicket. Se [driftguiden](drift/README.md) för lagring.
+
 ## Dokument i denna version
 
 Avräkningsnota och transportdokument använder samma servermotor för A4-PDF.

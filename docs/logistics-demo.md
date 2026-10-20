@@ -1,5 +1,9 @@
 # Arbetsorder, lager och kundportal – kontorsdemo 0.12.1
 
+> **Tidigare logistikleverans.** Funktionerna och avgränsningarna nedan
+> avser den angivna versionen. Se [dokumentationsöversikten](README.md) och
+> [integrationsöversikten](integrationer/README.md) för senare kompletteringar.
+
 Den befintliga JEROC-appen har nu gemensamma arbetsorder för **Hämtning**,
 **Byte**, **Utställning** och **Utleverans**. Kontoret, planeraren, kundportalen,
 åkeriet och chauffören använder samma order-ID. Inga externa mejl-, NVV-,

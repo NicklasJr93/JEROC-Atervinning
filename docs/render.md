@@ -1,5 +1,10 @@
 # Publicera mobilappens demo på Render
 
+> **Äldre demoguide.** Instruktioner och konton nedan gäller den separata
+> JEROC-demon. För den befintliga ScrapPlanner-installationen, börja med
+> [driftguiden](drift/README.md). För nya pilotresurser, se
+> [ScrapPlanners installationsguide](deployment/scrapplanner-render.md).
+
 [Öppna Render med projektet](https://dashboard.render.com/blueprint/new?repo=https%3A%2F%2Fgithub.com%2FNicklasJr93%2FJEROC-Atervinning)
 
 1. Logga in på ditt Render-konto via länken ovan.

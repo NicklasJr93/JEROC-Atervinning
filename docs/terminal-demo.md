@@ -1,5 +1,11 @@
 # JEROC kundterminaldemo – kontor 0.13.0
 
+> **Tidigare terminalleveranser.** Tekniska versionsbeskrivningar finns kvar
+> nedan. För dagens flöde med terminal, SMS och mejl, se
+> [manualen](manual/vagning-och-kunduppgifter.md),
+> [kunduppgifter](kunduppgifter-terminal-sms.md) och
+> [kundgodkännande](kundgodkannande-lankar.md).
+
 ## Samlat utskick, realtid och PDF-jobb i 0.13.0
 
 Prissnapshot, kundgranskning, terminalreservation och preliminärt PDF-jobb

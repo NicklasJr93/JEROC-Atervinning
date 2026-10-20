@@ -1,68 +1,62 @@
-# Integrationer – kontorsdemo 0.16.0
+# Integrationer
 
-**Integrationer** finns i kontorets vänstermeny. Kortgrid och detaljvy återanvänder
-kontorets design. Naturvårdsverket har en TEST-adapter. Spiris/Visma eEkonomi
-har ett separat sandboxverktyg med OAuth och redigerbara API-test.
-Fortnox, Microsoft 365/Outlook, BankID, SMS/e-post, Google Maps och LME
-visas som planerade.
+Översikt granskad **20 oktober 2026**. [Manual](../manual/README.md) ·
+[Drift och konfiguration](../drift/README.md) · [Alla ämnesguider](../README.md).
 
-NVV-inställningar ligger under **Integrationer → Naturvårdsverket**. Rapportkö,
-rättelser och kvittenser ligger kvar under **Miljörapportering**.
-Se [NVV:s provflöde och Renderinställningar](naturvardsverket/nvv-test-demo.md).
-Spiris sandbox, inköpsflöde och möjlig betalfil för Roslagens/Swedbank finns i
-[förstudien av API och betalfil](spiris-visma/forstudie.md).
-Se [Spiris sandbox och Render-inställningar](spiris-visma/sandbox-setup.md)
-och [testformulärets API-fält](spiris-visma/api-testfalt.md).
-API-granskning, myndighetens oförändrade OpenAPI-definition och tidigare
-mockupmatchning finns i [NVV:s anslutningsunderlag](naturvardsverket/README.md).
-API-nycklar, lösenord, privata nycklar och leveransbrev förvaras separat
-från dokumentationen och GitHub.
+**Integrationer** i kontorets vänstermeny samlar bolagets anslutningar.
+Plattformens mejl-/SMS-test och förbrukningsunderlag ligger i systemadminvyn.
+En funktion kan vara byggd utan att en viss installation eller ett bolag har
+anslutit leverantören. **Registrerad/Konfigurerad** är inte ett leveransbevis.
 
-## Gemensam adaptergrund
+## Hitta rätt anslutning
 
-`server/integrations.mjs` ger ett serverägt leverantörsregister med säkra
-statusprojektioner, adapterkontroller och förberedda händelseidentiteter.
-Det bygger inte en andra NVV-motor: NVV-adaptern återanvänder befintlig
-beständig rapportering, inställningshistorik och anslutningskontroll.
+| Område | Byggt stöd och avgränsning | Guide |
+| --- | --- | --- |
+| Systemmejl · Resend | Testmejl, kontoinbjudningar, återställning, kundgodkännande och valbar PDF-kopia efter attest | [Systemutskick](systemutskick.md) · [PDF-kopia](vagt-underlag-epost.md) |
+| SMS · 46elks | Test-SMS, kunduppgiftslänk och kundgodkännande. Automatiska transportaviseringar återstår. | [Systemutskick](systemutskick.md) · [Kunduppgifter](../kunduppgifter-terminal-sms.md) |
+| Företagsuppslag · SCB | Exakt organisationsnummer, förslag på företagsuppgifter, känd momsstatus och tillgängliga kontakter | [SCB](scb-foretagsregister.md) |
+| Personuppslag · Roaring | Nya kunder, intern matchning före köpt uppslag, journal per bolag och månadsunderlag | [Personuppslag och förbrukning](../personuppslag-och-saas-forbrukning.md) |
+| Google-adresser | Places-förslag direkt i adressfältet, postnummer/ort från komplett träff och valfri separat servervalidering | [Google-adresser](google-adresser.md) |
+| Microsoft 365 / Outlook | Första läsversion för anslutna inkorgar; OAuth, åtkomst och verkligt anslutningsprov hanteras separat | [Microsoft 365](microsoft365-mejl.md) |
+| Spiris / Visma eEkonomi | Sandbox för inköps-/bokföringsflöde och uppföljning. Produktionsanslutning återstår. | [Sandbox](spiris-visma/sandbox-setup.md) · [Bokföringsuppföljning](spiris-visma/bokforingsuppfoljning.md) |
+| Naturvårdsverket | TEST-adapter och rapportflöde; faktisk produktionsanslutning återstår | [NVV-underlag](naturvardsverket/README.md) · [Testflöde](naturvardsverket/nvv-test-demo.md) |
+| Swish Utbetalning | MSS-simulator, inte skarp utbetalning. Kundens uppgiftsformulär visar Swish som Kommer snart. | [Swish-test](swish-mss-bygge-2026-10-13.md) |
+| Bank · Open Payments | Sandbox för betalning och kontoinformation. Produktionsbank och utbetalningsbuntar kräver fortsatt arbete. | [Bankmotor](openpayments-bygge-2026-10-13.md) · [Utbetalningsplan](utbetalningar-plan.md) |
+| GPS och telematik | Mottagargrund, digitala prov och enhetskoppling; fysisk tracker och skarp drift verifieras separat | [Telematik](telematik/README.md) |
+| Fysisk våg | UI-förslag och tekniska alternativ; ännu ingen direkt viktanslutning | [Vågkoppling](vagar.md) |
 
-- Varje adapteranrop får en ny betrodd kontext med organisation, inloggad
-  och utförande användare samt läs-/administrationsrättighet.
-- Organisationsmedlemskap kontrolleras före adapteranrop. En adapter kan
-  bindas till bestämda organisationer; JEROC:s NVV-anslutning är bunden till
-  `jeroc-demo` och får inte lämna dess inställningar till en annan organisation.
-- Katalogen innehåller valda statusfält. API-hemligheter, token, certifikat,
-  personuppgifter i rapportören och leverantörens råa fel lämnas inte där.
-- Händelseförberedelsen skapar en nyckel per organisation, leverantör,
-  händelse, objekt och version, samt hash av underlaget. Konflikthjälparen
-  avvisar återanvänd nyckel med ändrat underlag. Den skickar inga händelser
-  och ersätter inte en beständig utkorg.
-- Läsning av katalogen och öppnande av ett kort ansluter aldrig automatiskt
-  till en leverantör. Anslutningsprov och NVV-sändning är uttryckliga åtgärder.
+BankID, Fortnox, Gmail och extern LME-prisleverantör är fortsatt planerade.
+Det aktuella kundgodkännandet använder kundens **Godkänn** och personalens
+fysiska legitimationskontroll, se [godkännandeflödet](../kundgodkannande-lankar.md).
 
-Katalogen nås via `GET /api/environment/integrations/catalog`, en cookie-
-autentiserad fasad över det fristående registret. Den kräver
-`integrationsRead`; servern kontrollerar även sessionens aktuella användare.
-`integrationsManage` förbereder administrationsrättigheten. Aktuella globala
-NVV-inställningar kräver dessutom faktisk och utförande Systemadmin,
-`environmentIntegration` och åtkomst till alla anläggningar.
+NVV:s anslutning hanteras under **Integrationer → Naturvårdsverket**.
+Rapporter, rättelser och kvittenser hanteras under **Miljörapportering**.
+Tekniska testverktyg ska läsas med den miljö som anges i respektive guide;
+en sandbox eller simulator ska inte behandlas som skarp anslutning.
 
-## SaaS-gränsen
+## Bolag och behörighet
 
-Den nuvarande demon har **en organisation** och demoautentisering för personal.
-Servern tilldelar `jeroc-demo`; klientens query, JSON eller header får inte
-välja organisation. Organisationsbundna anrop är testade i den gemensamma
-motorn, men flera riktiga SaaS-kunder är inte aktiverade i resten av systemet.
+Pilotinstallationen använder plattforms- och personalsessioner med servervalt
+bolag. **Jobba som** kan öppna ett bolag för behörig systemadmin, men klientens
+bolags-ID eller användarheaders väljer inte serverns behörighet.
+Integrationsmodulerna kontrollerar bolag, faktisk/utförande användare och
+relevanta rättigheter. En gammal adapterbeskrivning för `jeroc-demo` är inte
+ett påstående att dess inställningar automatiskt kan delas med andra bolag.
 
-Före SaaS-drift behövs riktiga användarsessioner/organisationsmedlemskap,
-organisationsnycklar på berörda databasobjekt, isolerade dokument och
-integrationers inställningar, krypterad tokenlagring samt leverantörernas
-verifierade OAuth- och avtalsspecifika flöden. Varje sådan adapter ska använda
-en beständig utkorg och journal, inte endast denna händelseförberedelse.
-Spiris sandbox har organisationsbunden krypterad tokenlagring och en journal
-för uttryckliga testförsök; automatisk ekonomiexport är en senare etapp.
-NVV:s nuvarande inställningar och Render-hemligheter är en organisations
-anslutning och måste få tenantlagring innan flera kunder kan aktivera NVV.
+Läsning av integrationskatalogen ansluter inte automatiskt en leverantör eller
+skickar ett meddelande. Varje verksamhetsflöde har egen sändnings-, versions-
+och felhantering. Samma journal eller omförsöksregel gäller inte automatiskt
+för både mejl, SMS, bokföring och betalning.
 
-Utbetalningar är fortfarande manuella. Spiris sandbox skapar endast
-uttryckliga testleverantörer och fakturautkast. Fortnox, Outlook, BankID,
-SMS/e-post, Google och någon LME-leverantör är inte anslutna.
+API-nycklar, lösenord, privata certifikat och OAuth-token hålls på servern.
+Google-webbläsarnyckeln är ett särskilt undantag som begränsas till avsedda
+webbplatser/API:er. Se [driftguiden](../drift/README.md) för variabelnamn och
+skillnaden mellan sparad konfiguration och verifierad funktion.
+
+## Historiska testunderlag
+
+Daterade byggplaner, API-test och supportprotokoll behåller sina sökvägar.
+De beskriver angiven version och miljö och ersätter inte respektive aktuell
+ämnesguide. [Dokumentationsöversikten](../README.md) skiljer manual, drift,
+planer och historik åt. För leveranser och kvarstående beställningar, se
+[Ändringslistan](../Andringslistan.txt).

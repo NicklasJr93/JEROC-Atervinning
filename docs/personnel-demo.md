@@ -1,5 +1,10 @@
 # JEROC Personal – kontorsdemo 0.11.0
 
+> **Tidigare personalleverans.** Ämnesbeskrivningarna nedan kompletteras av
+> [kontorsmanualen](manual/kontoret.md), [personalinbjudningar](personal-inbjudningar.md)
+> och [delegerad användarhantering](delegerad-anvandarhantering.md).
+> Äldre demoadresser och kontoinstruktioner gäller inte pilotens inloggning.
+
 Implementerat 2026-10-09 enligt de godkända [personalmockuperna](mockups/personal/README.md).
 Utseendet följer befintliga kontoret. Formulären är funktionella och sparas med
 samma PostgreSQL-anslutning som resten av verksamhetsdemon.
