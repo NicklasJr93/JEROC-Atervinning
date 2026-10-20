@@ -1,10 +1,9 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Building2, LogOut, Settings2, ShieldCheck, UserRound } from 'lucide-react';
 import { platformApi } from './client';
 import { setCurrentPlatformSession } from './session';
 import ProductBrand from './ProductBrand';
-import CompanyBrand from './CompanyBrand';
 import { useCompanyDefaults, type CompanyDefaultsSnapshot } from '../company-settings-defaults';
 import PlatformLogin from './PlatformLogin';
 import PlatformPasswordChange from './PlatformPasswordChange';
@@ -36,19 +35,22 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
   const location = useLocation(), navigate = useNavigate();
   const recoveryMode = location.pathname === '/forgot-password' ? 'request' : location.pathname === '/reset-password' ? 'reset' : location.pathname === '/activate-account' ? 'activate' : undefined;
   const sessionKey = session?.authenticated ? `${session.organisationId}/${session.generation}` : '';
+  const showPlatformBar = Boolean(session?.authenticated && session.actor.platformAdmin);
   const companyBranding = useCompanyDefaults({ enabled: Boolean(!recoveryMode && session?.authenticated && session.company && !session.mustChangePassword),
     scopeKey: sessionKey, refreshOnSave: true });
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = shell.current, bar = element?.querySelector<HTMLElement>('.platform-topbar'), strip = element?.querySelector<HTMLElement>('.platform-support-strip');
-    if (!element || !bar) return;
+    if (!element) return;
     const measure = () => {
-      element.style.setProperty('--platform-topbar-height', `${bar.getBoundingClientRect().height}px`);
-      element.style.setProperty('--platform-header-height', `${bar.getBoundingClientRect().height + (strip?.getBoundingClientRect().height ?? 0)}px`);
+      const barHeight = bar?.getBoundingClientRect().height ?? 0;
+      element.style.setProperty('--platform-topbar-height', `${barHeight}px`);
+      element.style.setProperty('--platform-header-height', `${barHeight + (strip?.getBoundingClientRect().height ?? 0)}px`);
     };
     measure();
-    const observer = new ResizeObserver(measure); observer.observe(bar); if (strip) observer.observe(strip);
+    if (!bar && !strip) return;
+    const observer = new ResizeObserver(measure); if (bar) observer.observe(bar); if (strip) observer.observe(strip);
     return () => observer.disconnect();
-  }, [sessionKey, location.pathname]);
+  }, [sessionKey, showPlatformBar, checking, error, recoveryMode, location.pathname]);
   function accept(value: PlatformSession) {
     setCurrentPlatformSession(value); setSession(value); setError('');
   }
@@ -135,20 +137,20 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
   const showAdmin = session.actor.platformAdmin && (!session.company || location.pathname === '/platform-admin');
   const showProfile = location.pathname === '/profile';
   const context: PlatformContextValue = { session, refresh, logout, switchCompany, openAdministration, companyBranding };
-  return <Context.Provider value={context}><div ref={shell} className={`platform-shell${showAdmin ? ' admin' : ' platform-office'}`}>
-    <header className="platform-topbar">
-      {session.actor.platformAdmin ? <ProductBrand /> : <CompanyBrand branding={companyBranding} className="platform-brand" />}
+  return <Context.Provider value={context}><div ref={shell} className={`platform-shell${showAdmin ? ' admin' : ' platform-office'}${showPlatformBar ? ' has-platform-topbar' : ''}`}>
+    {showPlatformBar && <header className="platform-topbar">
+      <ProductBrand />
       <span className="platform-company-name">{showProfile ? <><UserRound size={16} />Mitt konto</> : showAdmin ? <><ShieldCheck size={16} />Systemadministration</> : <><Building2 size={16} />{companyBranding?.profile.name ?? session.company?.name ?? 'Välj bolag'}</>}</span>
       <div className="platform-topbar-actions">
         {session.actor.platformAdmin && !showAdmin && <button type="button" className="platform-text-btn" onClick={openAdministration}><Settings2 size={16} />Systemadmin</button>}
         {showAdmin && session.isSupportSession && <button type="button" className="platform-text-btn" onClick={openAdministration}><ShieldCheck size={16} />Avsluta Jobba som</button>}
-        {!showAdmin && (session.actor.platformAdmin || session.companies.length > 1) && <button type="button" className="platform-text-btn" aria-expanded={switcherOpen} onClick={() => setSwitcherOpen(value => !value)}><Building2 size={16} />{session.actor.platformAdmin ? 'Jobba som bolag' : 'Byt bolag'}</button>}
+        {!showAdmin && <button type="button" className="platform-text-btn" aria-expanded={switcherOpen} onClick={() => setSwitcherOpen(value => !value)}><Building2 size={16} />Jobba som bolag</button>}
         <Link className="platform-text-btn" aria-label="Min profil" aria-current={showProfile ? 'page' : undefined} to="/profile"><UserRound size={16} /><span className="platform-actor">{session.actor.name}</span>Min profil</Link>
         <button type="button" className="platform-text-btn" onClick={() => void logout().catch(failure => setError(failure instanceof Error ? failure.message : 'Utloggningen misslyckades.'))}><LogOut size={16} />Logga ut</button>
       </div>
-    </header>
-    {switcherOpen && <section className="platform-context-menu" aria-label="Byt bolag eller behörighet"><PlatformCompanySwitcher session={session} companies={session.companies} onSwitch={switchCompany} compact /></section>}
-    {session.isSupportSession && !showAdmin && <div className="platform-support-strip"><ShieldCheck size={15} />{session.actor.name} arbetar som {session.user.name} i {session.company?.name}. Historiken sparar både inloggad och vald användare.</div>}
+    </header>}
+    {showPlatformBar && switcherOpen && <section className="platform-context-menu" aria-label="Byt bolag eller behörighet"><PlatformCompanySwitcher session={session} companies={session.companies} onSwitch={switchCompany} compact /></section>}
+    {showPlatformBar && session.isSupportSession && !showAdmin && <div className="platform-support-strip"><ShieldCheck size={15} />{session.actor.name} arbetar som {session.user.name} i {session.company?.name}. Historiken sparar både inloggad och vald användare.</div>}
     {showProfile ? <PlatformProfile key={`${session.actor.id}/${session.organisationId ?? ''}/${session.generation}/${session.user.id}`} session={session} /> : showAdmin ? <PlatformAdmin session={session} onSwitch={switchCompany} /> : !session.company ? <main className="platform-admin"><section className="platform-panel"><h1>Välj bolag</h1><PlatformCompanySwitcher session={session} companies={session.companies} onSwitch={switchCompany} /></section></main>
       : <div className="platform-office-body" key={`${session.organisationId}/${session.generation}`}>{children}</div>}
   </div></Context.Provider>;

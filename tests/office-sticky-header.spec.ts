@@ -8,9 +8,10 @@ import { createPricingStore } from '../server/pricing.mjs';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 
-async function fixture(page: Page, support = false) {
+async function fixture(page: Page, support = false, platformAdmin = true) {
   const data = migrateOffice(seedOffice());
   const admin = data.users.find(user => user.id === 'admin')!;
+  if (!platformAdmin) { admin.level = 'VD'; admin.name = 'Bolagets VD'; }
   const user = support ? { ...admin, id: 'support-colleague', name: 'Behörig kollega' } : admin;
   if (support) data.users.push(user);
   const template = data.cards.find(card => card.id === 2051)!;
@@ -22,7 +23,7 @@ async function fixture(page: Page, support = false) {
   const firstArticle = pricing.articles[0];
   pricing.articles = Array.from({ length: 75 }, (_, index) => ({ ...firstArticle, id: `sticky-article-${index}`, category: pricing.groups?.[0]?.id ?? firstArticle.category, name: index === 0 ? 'Ett långt materialnamn som bryts på mindre skärmar' : `Material ${index}` }));
   const session = {
-    enabled: true, authenticated: true, actor: { id: 'global-admin', name: 'Systemadmin', username: 'admin', platformAdmin: true },
+    enabled: true, authenticated: true, actor: { id: 'global-admin', name: admin.name, username: 'admin', platformAdmin },
     actualUser: admin, user, company: { id: 'jeroc-demo', name: 'Testbolaget', organisationNumber: '5560000000', status: 'active' },
     organisationId: 'jeroc-demo', effectiveUserId: user.id, isSupportSession: support,
     mustChangePassword: false, csrfToken: 'sticky-test', generation: 1, companies: [],
@@ -50,12 +51,25 @@ async function scroll(page: Page, top: number) {
 async function expectBelowShell(page: Page) {
   const shell = (await page.locator('.office-sticky-shell').boundingBox())!;
   const heading = (await page.locator('.office-page-header').boundingBox())!;
-  const platform = (await page.locator('.platform-topbar').boundingBox())!;
+  const bar = page.locator('.platform-topbar');
+  const platform = await bar.count() ? await bar.boundingBox() : null;
   const strip = page.locator('.platform-support-strip');
   const support = await strip.count() ? await strip.boundingBox() : null;
-  expect(shell.y).toBeCloseTo((support ?? platform).y + (support ?? platform).height, 0);
+  const banner = support ?? platform;
+  expect(shell.y).toBeCloseTo(banner ? banner.y + banner.height : 0, 0);
   expect(heading.y).toBeCloseTo(shell.y + shell.height, 0);
 }
+
+test('VD utan plattformslist behåller en nollställd stickyposition när artikelvyn rullas', async ({ page }) => {
+  await fixture(page, false, false);
+  await page.goto('/kontor#/prices');
+  await page.getByRole('button', { name: 'Redigera Ett långt materialnamn som bryts på mindre skärmar', exact: true }).click();
+  await expect(page.locator('.platform-topbar')).toHaveCount(0);
+  await scroll(page, 650);
+  await expectBelowShell(page);
+  await expect(page.locator('.office-sticky-shell')).toHaveCSS('top', '0px');
+  await expect(page.locator('.office-page-header').getByRole('button', { name: 'Till artikelöversikten', exact: true })).toBeVisible();
+});
 
 test('article detail and new article keep title, breadcrumbs and back together while forms scroll', async ({ page }) => {
   await fixture(page);
@@ -173,6 +187,8 @@ test('weight card detail keeps back, title and primary document/payment actions 
   await expectBelowShell(page);
   await expect(header.getByRole('button', { name: 'Till utbetalningar', exact: true })).toBeVisible();
   await expect(header.getByRole('button', { name: 'Avräkningsnota', exact: true })).toBeVisible();
-  await expect(header.getByRole('button', { name: 'Registrera demoutbetalning', exact: true })).toBeVisible();
+  const payment = header.getByRole('button', { name: 'Betala ut', exact: true });
+  await expect(payment).toBeVisible();
+  await expect(payment).toBeDisabled(); // The layout fixture has no successful Spiris booking.
   await page.screenshot({ path: '/tmp/jeroc-sticky-desktop.png' });
 });

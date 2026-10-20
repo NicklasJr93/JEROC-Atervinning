@@ -132,19 +132,19 @@ test('loggauppladdning ändrar bara utkastet tills företagsinställningarna spa
   expect(f.value().documents.logoId).toBeUndefined();
   await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
   await expect(sidebarCaption).toHaveText(stored.profile.name);
-  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
+  await expect(page.locator('.platform-topbar')).toHaveCount(0);
   await page.getByRole('button', { name: 'Spara ändringar', exact: true }).click();
   await expect.poll(() => f.value().documents.logoId).toBe(logoId);
   await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
   await expect(sidebarCaption).toHaveCount(0);
-  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  await expect(page.locator('.platform-topbar')).toHaveCount(0);
   await page.getByRole('button', { name: 'Ta bort logga', exact: true }).click();
   await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
   await expect(sidebarCaption).toHaveCount(0);
   await page.getByRole('button', { name: 'Spara ändringar', exact: true }).click();
   await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
   await expect(sidebarCaption).toHaveText(stored.profile.name);
-  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
+  await expect(page.locator('.platform-topbar')).toHaveCount(0);
 });
 
 test('systemadmin behåller produktloggan ovanför bolagets sparade logga', async ({ page }) => {
@@ -157,7 +157,7 @@ test('systemadmin behåller produktloggan ovanför bolagets sparade logga', asyn
 
 test('vanlig medarbetare får företagets logga via minimala uppgifter utan att läsa företagsinställningar', async ({ page }) => {
   const f = await fixture(page, { logo: true, readOnly: true, basicOnly: true });
-  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  await expect(page.locator('.platform-topbar')).toHaveCount(0);
   await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
   expect(f.reads()).toBe(0);
 });
@@ -165,7 +165,7 @@ test('vanlig medarbetare får företagets logga via minimala uppgifter utan att 
 test('saknad loggafil visar produktloggan utan en trasig bild', async ({ page }) => {
   await fixture(page, { logo: true, brokenLogo: true });
   await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
-  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
+  await expect(page.locator('.platform-topbar')).toHaveCount(0);
   await expect(page.locator('.office-sidebar > .office-eyebrow')).toHaveText(stored.profile.name);
 });
 
@@ -184,7 +184,7 @@ test('bolagsbyte visar aldrig det förra bolagets logga medan nästa profil häm
   try {
     await page.evaluate(() => window.dispatchEvent(new Event('scrappilot:check-platform-session')));
     await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
-    await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
+    await expect(page.locator('.platform-topbar')).toHaveCount(0);
     await expect(page.locator('.office-sidebar > .office-eyebrow')).toHaveText('Nästa bolag AB');
   } finally { release(); }
   await expect(page.locator('.office-sidebar').getByText('Nästa bolag AB', { exact: true }).first()).toBeVisible();

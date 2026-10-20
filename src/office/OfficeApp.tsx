@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Scale,
   Users,
+  UserRound,
   BadgeCheck,
   Wallet,
   History,
@@ -1271,16 +1272,24 @@ export function OfficeApp() {
             </summary>
             <div className="office-profile-dropdown">
               <strong>{user.name}</strong><p>{user.level} · {platform ? companyName : 'Kontor Norrtälje'}</p>
-              {platform?.session.actor.platformAdmin && <>
-                <label className="office-work-as">Jobba som bolag
-                  <select aria-label="Jobba som bolag" value={platform.session.organisationId ?? ''} onChange={event => {
+              {platform && <button type="button" title={`Profil för ${platform.session.actor.name}`} onClick={event => {
+                if (section === 'company-settings' && !window.dispatchEvent(new Event('scrappilot:before-company-settings-navigation', { cancelable: true }))) return;
+                if (!window.dispatchEvent(new Event('scrappilot:before-ai-support-navigation', { cancelable: true }))) return;
+                const menu = event.currentTarget.closest('details');
+                if (menu) menu.open = false;
+                navigate('/profile');
+              }}><UserRound size={16} />Min profil</button>}
+              {platform && (platform.session.actor.platformAdmin || platform.session.companies.length > 1) &&
+                <label className="office-work-as">{platform.session.actor.platformAdmin ? 'Jobba som bolag' : 'Byt bolag'}
+                  <select aria-label={platform.session.actor.platformAdmin ? 'Jobba som bolag' : 'Byt bolag'} value={platform.session.organisationId ?? ''} onChange={event => {
+                    if (section === 'company-settings' && !window.dispatchEvent(new Event('scrappilot:before-company-settings-navigation', { cancelable: true }))) return;
+                    if (!window.dispatchEvent(new Event('scrappilot:before-ai-support-navigation', { cancelable: true }))) return;
                     void platform.switchCompany(event.target.value).catch(failure => setError(failure instanceof Error ? failure.message : 'Bolaget kunde inte öppnas.'));
                   }}>
                     {platform.session.companies.filter(company => company.status === 'active').map(company => <option key={company.id} value={company.id}>{company.name}</option>)}
                   </select>
-                </label>
-                <button onClick={platform.openAdministration}><Building2 size={16} />Bolagsadministration</button>
-              </>}
+                </label>}
+              {platform?.session.actor.platformAdmin && <button onClick={platform.openAdministration}><Building2 size={16} />Bolagsadministration</button>}
               {mayWorkAs && <label className="office-work-as">Jobba som
                 <select aria-label="Jobba som" value={acting ? user.id : ''} onChange={event => {
                   const menu = event.currentTarget.closest('details');
