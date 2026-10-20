@@ -127,6 +127,84 @@ test('pilot admin provisions the first empty company, while VD and support stay 
     error => error.code === 'platform_admin_required');
 }));
 
+test('opening system administration ends pilot support, rotates the session and clears tenant selection', () => fixture(async f => {
+  const admin = await f.activate();
+  const created = await f.auth.createCompany({ requestId: randomUUID(), name: 'Pilotbolaget', organisationNumber: '5593593626',
+    vdName: 'VD', vdEmail: 'vd@example.test' }, serverRequest(admin, 'POST'));
+  const support = await f.auth.switchCompany({ organisationId: created.company.id, effectiveUserId: created.user.id }, serverRequest(admin, 'POST'));
+  assert.equal((await f.auth.resolveContext(serverRequest(support))).isSupportSession, true);
+  const own = await f.auth.openAdministration(serverRequest(support, 'POST'));
+  assert.equal(own.value.company, undefined); assert.equal(own.value.organisationId, undefined);
+  assert.equal(own.value.user.id, '__platform-admin'); assert.equal(own.value.actualUser.id, '__platform-admin');
+  assert.equal(own.value.isSupportSession, false); assert.equal(own.tenantToken, '');
+  assert.notEqual(own.token, support.token); assert.notEqual(own.value.generation, support.value.generation);
+  assert.notEqual(own.value.csrfToken, support.value.csrfToken);
+  await assert.rejects(f.auth.session(serverRequest(support)), error => error.code === 'platform_session_required');
+  await assert.rejects(f.auth.resolveTenantSelector(serverRequest(support)), error => error.code === 'platform_tenant_selector_invalid');
+  await assert.rejects(f.auth.resolveContext(serverRequest(own)), error => error.code === 'platform_company_required');
+  assert.equal(await f.auth.withPlatformAdminTransaction(serverRequest(own), () => true, { purpose: 'communications' }), true);
+  const state = await f.repository.read(state => state);
+  const session = state.sessions.find(item => item.generation === own.value.generation);
+  assert.equal(session.tenantTokenHash, undefined);
+  assert.equal(state.audit.at(-1).action, 'platform.administration_opened');
+  assert.equal(state.audit.at(-1).previousOrganisationId, created.company.id);
+  assert.equal(state.audit.at(-1).previousEffectiveUserId, created.user.id);
+}));
+
+test('returning to administration requires the real administrator, current generation and CSRF', () => fixture(async f => {
+  const initial = await f.login();
+  await assert.rejects(f.auth.openAdministration(serverRequest(initial, 'POST')), error => error.code === 'platform_password_change_required');
+  const admin = await f.auth.changePassword({ newPassword: changedPassword }, serverRequest(initial, 'POST'));
+  await assert.rejects(f.auth.openAdministration(serverRequest(admin, 'POST', { 'x-platform-csrf': '' })), error => error.code === 'platform_csrf_required');
+  await assert.rejects(f.auth.openAdministration(serverRequest(admin, 'POST', { 'x-platform-generation': 'stale' })), error => error.code === 'platform_context_changed');
+  const created = await f.auth.createCompany({ requestId: randomUUID(), name: 'Pilotbolaget', organisationNumber: '5593593626',
+    vdName: 'VD', vdEmail: 'vd@example.test' }, serverRequest(admin, 'POST'));
+  const owner = await f.login(created.temporaryCredentials.username, created.temporaryCredentials.password);
+  const ownerActive = await f.auth.changePassword({ newPassword: 'Owner-New-Private-Password-2026!' }, serverRequest(owner, 'POST'));
+  await assert.rejects(f.auth.openAdministration(serverRequest(ownerActive, 'POST', { 'x-demo-actor': 'platform-admin', 'x-demo-user': '__platform-admin' })),
+    error => error.code === 'platform_admin_required');
+  assert.equal((await f.auth.session(serverRequest(ownerActive))).company.id, created.company.id);
+  const support = await f.auth.switchCompany({ organisationId: created.company.id }, serverRequest(admin, 'POST'));
+  await assert.rejects(f.auth.withPlatformAdminTransaction(serverRequest(support), () => true, { purpose: 'communications' }), error => error.code === 'platform_communications_forbidden');
+  await f.repository.transact(state => { state.users.find(user => user.id === support.value.actor.id).active = false; });
+  await assert.rejects(f.auth.openAdministration(serverRequest(support, 'POST')), error => error.code === 'platform_session_required');
+}));
+
+test('an inactive support tenant or tenant user cannot trap an active platform administrator', () => fixture(async f => {
+  const admin = await f.activate();
+  const created = await f.auth.createCompany({ requestId: randomUUID(), name: 'Pilotbolaget', organisationNumber: '5593593626',
+    vdName: 'VD', vdEmail: 'vd@example.test' }, serverRequest(admin, 'POST'));
+  const support = await f.auth.switchCompany({ organisationId: created.company.id, effectiveUserId: created.user.id }, serverRequest(admin, 'POST'));
+  await f.repository.transact(state => { state.companies.find(company => company.id === created.company.id).status = 'inactive'; });
+  f.companyStates.get(created.company.id).pricing.users.find(user => user.id === created.user.id).active = false;
+  const own = await f.auth.openAdministration(serverRequest(support, 'POST'));
+  assert.equal(own.value.isSupportSession, false); assert.equal(own.value.company, undefined);
+  assert.equal(own.value.user.id, '__platform-admin');
+}));
+
+test('legacy administration returns to its dedicated principal without impersonating the staff admin account', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'scrapplanner-legacy-admin-return-'));
+  const repository = await createPlatformStorage({ env: { JEROC_PLATFORM_DB_PATH: join(directory, 'platform.sqlite') } });
+  try {
+    const auth = createPlatformAuth({ repository,
+      bootstrapLegacy: async () => ({ userId: 'legacy-staff-admin', username: 'admin', name: 'Systemadmin', active: true,
+        password: await platformPasswordHash(changedPassword) }),
+      resolveCompanyUser: async (_company, id) => ['__platform-admin', 'staff'].includes(id)
+        ? { id, name: id, level: id === '__platform-admin' ? 'Systemadmin' : 'VD', active: true, permissions: [] } : undefined,
+    });
+    const admin = await auth.login({ username: 'admin', password: changedPassword }, serverRequest());
+    const companyId = randomUUID();
+    await repository.transact(state => { state.companies.push({ id: companyId, name: 'Annat bolag', status: 'active' }); });
+    const support = await auth.switchCompany({ organisationId: companyId, effectiveUserId: 'staff' }, serverRequest(admin, 'POST'));
+    const own = await auth.openAdministration(serverRequest(support, 'POST'));
+    assert.equal(own.value.company.id, 'jeroc-demo'); assert.equal(own.value.isSupportSession, false);
+    assert.equal(own.value.user.id, '__platform-admin'); assert.equal(own.value.actualUser.id, '__platform-admin');
+    assert.ok(own.tenantToken); assert.notEqual(own.tenantToken, support.tenantToken);
+    assert.equal(await auth.withPlatformAdminTransaction(serverRequest(own), () => true, { purpose: 'communications' }), true);
+    await assert.rejects(auth.session(serverRequest(support)), error => error.code === 'platform_session_required');
+  } finally { await repository.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('pilot gateway starts without business services and never falls back to the JEROC demo', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'scrapplanner-pilot-gateway-'));
   const storageEnv = { JEROC_PLATFORM_DB_PATH: join(directory, 'platform.sqlite') };

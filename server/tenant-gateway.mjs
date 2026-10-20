@@ -15,6 +15,8 @@ import { createScbCompanyRegister } from './scb-company-register.mjs';
 import { createCompanyRegisterApi } from './company-register-api.mjs';
 import { createAddressAssistanceApi } from './address-assistance-api.mjs';
 import { createGoogleAddressValidation } from './google-address-validation.mjs';
+import { createSystemEmail } from './system-email.mjs';
+import { createPlatformCommunications } from './platform-communications.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -44,7 +46,7 @@ function sameOrigin(req) {
  * comes from the platform registry and a server-authenticated session. Public
  * login endpoints select a bundle but still require its own employee/device or
  * partner credentials; a tenant selector is never a permission grant. */
-export async function createTenantGateway({ env = process.env, makeServices = createTenantServices, testCarApi, platformRepository, companyRegister, addressValidation } = {}) {
+export async function createTenantGateway({ env = process.env, makeServices = createTenantServices, testCarApi, platformRepository, companyRegister, addressValidation, systemEmail } = {}) {
   const profile = readDeploymentProfile(env);
   const bundles = new Map(), streams = new Set();
   const fleetSimulator = createFleetSimulatorBridge({ testCarApi });
@@ -159,7 +161,8 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       applyFleetDeviceAssignment(state, device, { organisationId: company.id });
     });
   } });
-  const platformApi = createPlatformApi({ auth, fleet: platformFleet, env });
+  const communications = createPlatformCommunications({ auth, email: systemEmail ?? createSystemEmail({ env }), repository });
+  const platformApi = createPlatformApi({ auth, fleet: platformFleet, communications, env });
   const fleetTimer = setInterval(() => { void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.')); }, 30_000);
   fleetTimer.unref();
   void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.'));

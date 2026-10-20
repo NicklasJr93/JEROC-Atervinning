@@ -40,7 +40,7 @@ function setCookies(req, res, result, env) {
 }
 
 /** The API never exposes hashes, schema names or credentials on reads. */
-export function createPlatformApi({ auth, fleet, env = process.env } = {}) {
+export function createPlatformApi({ auth, fleet, communications, env = process.env } = {}) {
   if (!auth) throw new TypeError('Plattformsautentisering krävs.');
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/platform/')) return false;
@@ -52,12 +52,15 @@ export function createPlatformApi({ auth, fleet, env = process.env } = {}) {
       const reset = path.match(/^companies\/([a-zA-Z0-9-]{1,100})\/reset-initial-password$/);
       let result;
       if (read && path === 'session') result = { value: await auth.session(req) };
+      else if (path === 'communications' && communications && read) result = { value: await communications.read(req) };
+      else if (path === 'communications/test-email' && communications && !read) result = { value: await communications.sendTest(await body(req), req) };
       else if (path === 'telematics' && fleet) result = { value: read ? await fleet.read(req) : await fleet.mutate(await body(req), req) };
       else if (read && path === 'companies') result = { value: await auth.companies(req) };
       else if (read && users) result = { value: await auth.users(users[1], req) };
       else if (!read && path === 'login') result = await auth.login(await body(req), req);
       else if (!read && path === 'select-tenant') result = await auth.selectTenant(await body(req), req);
       else if (!read && path === 'logout') { empty(await body(req)); result = await auth.logout(req); }
+      else if (!read && path === 'open-administration') { empty(await body(req)); result = await auth.openAdministration(req); }
       else if (!read && path === 'change-password') result = await auth.changePassword(await body(req), req);
       else if (!read && path === 'switch') result = await auth.switchCompany(await body(req), req);
       else if (!read && path === 'companies') result = { value: await auth.createCompany(await body(req), req) };

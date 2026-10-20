@@ -38,3 +38,18 @@ export type CompanyCreated = {
   temporaryCredentials?: { username: string; password: string; mustChangePassword: true };
   credentialsRevealed: boolean;
 };
+
+export type PlatformCommunicationsConfig = {
+  email: { configured: boolean; provider: 'resend'; from: string };
+  sms: { configured: false };
+};
+
+export type PlatformTestEmailResult = {
+  requestId: string;
+  to: string;
+  from: string;
+  provider: 'resend';
+  status: 'accepted';
+  providerId: string;
+  acceptedAt: string;
+};

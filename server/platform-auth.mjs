@@ -253,6 +253,34 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     const result = await companyUsers(organisationId);
     return { users: result.filter(user => user.active !== false && user.id !== '__platform-admin').map(user => ({ id: user.id, name: user.name, level: user.level, active: user.active !== false })) };
   }
+  async function openAdministration(req) {
+    // Leaving support must depend on the real platform identity, never the
+    // impersonated tenant user. An inactive tenant must not trap that identity.
+    const { value, token } = await readSession(req, { writes: true, allowInactiveCompany: true });
+    admin(value);
+    if (!standalonePlatform) {
+      const user = await resolveCompanyUser('jeroc-demo', '__platform-admin');
+      if (!user || user.active === false || user.id !== '__platform-admin' || user.level !== 'Systemadmin')
+        fail('Plattformens eget administratörskonto är inte aktivt.', 403, 'platform_account_inactive');
+    }
+    const nextToken = secret(), tenantToken = standalonePlatform ? '' : secret();
+    await repository.transact(state => {
+      const current = identity(state, token, { allowInactiveCompany: true });
+      checkExpected(req, current, true); admin(current);
+      const company = standalonePlatform ? undefined : state.companies.find(item => item.id === 'jeroc-demo');
+      if (!standalonePlatform && company?.status !== 'active')
+        fail('Plattformens arbetsyta är inte tillgänglig.', 409, 'platform_company_unavailable');
+      const next = newSession(current.actor, company?.id, '__platform-admin', nextToken, tenantToken);
+      if (standalonePlatform) delete next.tenantTokenHash;
+      state.sessions = state.sessions.filter(item => item.tokenHash !== current.session.tokenHash);
+      state.sessions.push(next);
+      audit(state, current.actor, 'platform.administration_opened', {
+        previousOrganisationId: current.company?.id, previousEffectiveUserId: current.session.effectiveUserId,
+        generation: next.generation,
+      });
+    });
+    return { token: nextToken, tenantToken, value: await session({ ...req, headers: { cookie: `${PLATFORM_COOKIE}=${nextToken}` } }) };
+  }
   async function switchCompany(input, req) {
     const parsed = parse(z.object({ organisationId: userIdSchema, effectiveUserId: userIdSchema.optional() }).strict(), input);
     const { value, token } = await readSession(req, { writes: true });
@@ -396,23 +424,28 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
   async function checkRequest(req, { write = !['GET', 'HEAD', 'OPTIONS'].includes(req.method) } = {}) {
     const { value } = await readSession(req, { writes: write }); return value;
   }
-  async function withPlatformAdminTransaction(req, operation, { write = false } = {}) {
+  async function withPlatformAdminTransaction(req, operation, { write = false, purpose = 'fleet' } = {}) {
+    const communications = purpose === 'communications';
+    const forbiddenCode = communications ? 'platform_communications_forbidden' : 'platform_fleet_forbidden';
+    const ownContextMessage = communications
+      ? 'Öppna systemadministrationen som dig själv för att hantera systemutskick.'
+      : 'Öppna systemadministrationen som dig själv för att hantera trackers.';
     if (!standalonePlatform) {
       const context = await resolveContext(req, { writes: write });
-      if (!context.platformAdmin || context.isSupportSession) fail('Öppna systemadministrationen som dig själv för att hantera trackers.', 403, 'platform_fleet_forbidden');
+      if (!context.platformAdmin || context.isSupportSession) fail(ownContextMessage, 403, forbiddenCode);
     } else {
       const { value } = await readSession(req, { writes: write });
-      if (!value.actor.platformAdmin || value.company) fail('Öppna systemadministrationen som dig själv för att hantera trackers.', 403, 'platform_fleet_forbidden');
+      if (!value.actor.platformAdmin || value.company) fail(ownContextMessage, 403, forbiddenCode);
     }
     const token = platformCookieToken(req);
     return repository[write ? 'transact' : 'read'](state => {
       const current = identity(state, token); checkExpected(req, current, write);
       if (!current.actor.platformAdmin || (standalonePlatform ? Boolean(current.company) : current.company.id !== 'jeroc-demo') || effectiveBusinessId(current) !== actualBusinessId(current))
-        fail('Trackerregistret kräver plattformens egen systemadministratör.', 403, 'platform_fleet_forbidden');
+        fail(communications ? 'Systemutskick kräver plattformens egen systemadministratör.' : 'Trackerregistret kräver plattformens egen systemadministratör.', 403, forbiddenCode);
       return operation(state, { actorId: current.actor.id, actorName: current.actor.name, at: at() });
     });
   }
-  return { initialize, login, logout, session, changePassword, resolveContext, checkRequest, resolveTenantSelector, selectTenant, companies, users, switchCompany, createCompany, resetInitialPassword,
+  return { initialize, login, logout, session, changePassword, resolveContext, checkRequest, resolveTenantSelector, selectTenant, companies, users, switchCompany, openAdministration, createCompany, resetInitialPassword,
     withPlatformAdminTransaction,
     getCompany: organisationId => repository.read(state => clone(state.companies.find(item => item.id === organisationId))), repository };
 }

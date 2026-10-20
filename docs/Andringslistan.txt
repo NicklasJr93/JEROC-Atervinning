@@ -3434,3 +3434,48 @@ Status: Implementerad i kod 2026-10-20. Driftsatt prov följer efter deployment.
 - Underlag: docs/foretagsinstallningar.md och
   docs/mockups/foretagsinstallningar/README.md. Tester och begränsningar
   dokumenteras tillsammans med leveransen; inga skarpa nycklar används lokalt.
+
+
+ÄL 141 – Test av systemmejl och förberedda kund-/transport-SMS
+Status: Implementerad i kod 2026-10-20. Verkligt mejlprov kräver deployment
+och verifierad Resend-domän/nyckel. SMS-leverans är inte aktiverad.
+- Systemadministrationen får Systemutskick med ett mottagarfält och knappen
+  Skicka testmejl. Testet ligger utanför bolagens arbetsytor och skickar från
+  ScrapPlanner <noreply@scrapplanner.com> med fast svensk testtext.
+- Plattformens eget systemadminkonto krävs. Bolags-VD och Jobba som-sessioner
+  får inte skicka. Systemadmin-knappen återgår till plattformens egna
+  sammanhang via POST /api/platform/open-administration.
+- Resend används genom RESEND_API_KEY, privat sparad på backend i Render.
+  Ingen hemlig nyckel lämnas ut, och avsändare eller meddelandetext kan inte
+  ändras genom testformuläret. Bolagsmallar och kunduppgifter ingår inte.
+- Accepterat av Resend skiljs från levererat till inkorgen. Råa leverantörsfel
+  visas inte. Timeout kan betyda osäkert resultat och utlöser inget automatiskt
+  omförsök. Utskicksresultat lagras även om webbläsaren byter sammanhang.
+- Atomära reservationer, gemensamma frekvensgränser och stabilt begärans-ID
+  skyddar mot dubbelutskick. Gränser: 10 försök/aktör/timme,
+  3 försök/mottagare/timme och 50 försök totalt/timme. Begäransdetaljer behålls
+  i 48 timmar; uttryckligt omförsök med samma ID tillåts inom 23 timmar.
+  Utgångna ID behålls som kompakta SHA-256-avtryck utan mottagare, så samma
+  UUID aldrig blir en ny sändning efter städning. UUID normaliseras till
+  gemener. Taket är 10 000 kända ID totalt; nya tester stoppas när taket nås.
+  UI behåller omförsökets ID medan formuläret är öppet. Efter omladdning ska
+  osäkra tidigare resultat kontrolleras i Resend innan ett nytt test startas.
+- Mottagare lagras som pseudonymt SHA-256-hashvärde i begäran/revisionsspår,
+  inte som klartext. Mejlkropp och leverantörshemligheter lagras inte där.
+- De första SMS-flödena är kundgodkännande och transportavisering:
+  bokad transport, ändrad tid och chaufför på väg. Ett 46elks-konto finns.
+  ELKS_API_USERNAME och ELKS_API_PASSWORD är överenskomna Render-variabler
+  för framtida koppling; lösenordet är API-lösenordet, inte kontoinloggningen.
+  Aktuell SMS-hjälp läser inte dessa variabler. Någon sändningsadapter eller
+  automatisk SMS-sändning är ännu inte inkopplad.
+- Serverhjälp skapar inaktiva SMS-underlag bundna till bolag, mottagare,
+  ändamål, händelse och version. Den kräver en redan behörighetskontrollerad,
+  giltig HTTPS-kundportallänk och utfärdar inga egna token eller länkar.
+  Ingen ny kö, publik SMS-endpoint eller verksamhetshook skapas.
+- Chaufförsuppdrag, påminnelser och viktiga driftfel kvarstår som framtida
+  SMS-förslag. Vanliga dokument och systembesked hör främst hemma i mejl.
+- Underlag: docs/integrationer/systemutskick.md. Tester omfattar
+  server/system-email.test.mjs, server/platform-communications.test.mjs,
+  server/system-sms.test.mjs och tests/platform-communications.spec.ts.
+  54 serverfall och 11 skilda browserfall passerar. Automatiska prov skickar
+  inga verkliga mejl eller SMS; driftsatt mejlprov görs efter deployment.

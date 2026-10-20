@@ -1,5 +1,5 @@
 import { platformRequestHeaders } from './session';
-import type { AuthenticatedPlatformSession, CompanyCreated, PlatformCompany, PlatformCompanyUser, PlatformSession } from './types';
+import type { AuthenticatedPlatformSession, CompanyCreated, PlatformCompany, PlatformCompanyUser, PlatformSession, PlatformCommunicationsConfig, PlatformTestEmailResult } from './types';
 
 async function request<T>(path: string, data?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`/api/platform/${path}`, {
@@ -21,10 +21,13 @@ export const platformApi = {
   login: (username: string, password: string) => request<AuthenticatedPlatformSession>('login', { username: username.trim(), password }),
   changePassword: (currentPassword: string, newPassword: string) => request<AuthenticatedPlatformSession>('change-password', { currentPassword, newPassword }),
   logout: () => request<{ ok: boolean }>('logout', {}),
+  openAdministration: () => request<AuthenticatedPlatformSession>('open-administration', {}),
   companies: (signal?: AbortSignal) => request<{ companies: PlatformCompany[] }>('companies', undefined, signal),
   companyUsers: (id: string, signal?: AbortSignal) => request<{ users: PlatformCompanyUser[] }>(`companies/${encodeURIComponent(id)}/users`, undefined, signal),
   createCompany: (data: { requestId: string; name: string; organisationNumber: string; vdName: string; vdEmail: string }) => request<CompanyCreated>('companies', data),
   resetInitialPassword: (id: string, requestId: string) => request<CompanyCreated>(`companies/${encodeURIComponent(id)}/reset-initial-password`, { requestId }),
+  communications: (signal?: AbortSignal) => request<PlatformCommunicationsConfig>('communications', undefined, signal),
+  sendTestEmail: (data: { requestId: string; to: string }, signal?: AbortSignal) => request<PlatformTestEmailResult>('communications/test-email', data, signal),
   switchCompany: (organisationId: string, effectiveUserId?: string) => request<AuthenticatedPlatformSession>('switch', {
     organisationId, ...(effectiveUserId ? { effectiveUserId } : {}),
   }),

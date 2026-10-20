@@ -6,6 +6,7 @@ import { normalizeCompanyLookupNumber } from '../company-register/client';
 import { platformApi } from './client';
 import PlatformCompanySwitcher from './PlatformCompanySwitcher';
 import PlatformFleet from './PlatformFleet';
+import PlatformCommunications from './PlatformCommunications';
 import type { AuthenticatedPlatformSession, CompanyCreated, PlatformCompany } from './types';
 
 const companyStatus = { active: 'Aktivt', inactive: 'Inaktivt', provisioning: 'Förbereds', failed: 'Behöver åtgärdas' };
@@ -99,6 +100,7 @@ export default function PlatformAdmin({ session, onSwitch }: {
     <div className="platform-page-heading"><div><span className="platform-eyebrow">SYSTEMADMINISTRATION</span><h1>Bolag</h1><p>Hantera bolag och öppna arbetsytan med rätt behörighet.</p></div>
       <button className="platform-btn" type="button" onClick={() => setCreating(true)} disabled={busy || Boolean(resetting)}><Plus size={18} />Skapa bolag</button></div>
     <div className="platform-stats"><div><Building2 size={22} /><span>Registrerade bolag<strong>{companies.length}</strong></span></div><div><ShieldCheck size={22} /><span>Aktiva bolag<strong>{companies.filter(company => company.status === 'active').length}</strong></span></div></div>
+    <PlatformCommunications session={session} />
     {created?.temporaryCredentials && <TemporaryCredentials credentials={created.temporaryCredentials} reset={passwordReset} onClose={() => setCreated(undefined)} />}
     {created && !created.temporaryCredentials && <p className="platform-info" role="status">Bolaget {created.company.name} finns registrerat. Tillfälliga inloggningsuppgifter har redan visats och hämtas inte igen.</p>}
     {creating && <section className="platform-panel">

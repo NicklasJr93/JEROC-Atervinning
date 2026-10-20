@@ -26,6 +26,7 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
   const [checking, setChecking] = useState(true), [attempt, setAttempt] = useState(0), [switcherOpen, setSwitcherOpen] = useState(false);
   const shell = useRef<HTMLDivElement>(null);
   const checkingSession = useRef<Promise<void> | undefined>(undefined);
+  const openingAdministration = useRef<Promise<void> | undefined>(undefined);
   const initialSession = useRef<{ attempt: number; promise: Promise<PlatformSession> } | undefined>(undefined);
   const location = useLocation(), navigate = useNavigate();
   const sessionKey = session?.authenticated ? `${session.organisationId}/${session.generation}` : '';
@@ -96,7 +97,21 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
     // page. No business data from the previous tenant remains in component state.
     window.history.replaceState(null, '', '/kontor#/dashboard'); window.location.reload();
   }
-  const openAdministration = () => { setSwitcherOpen(false); navigate('/platform-admin'); };
+  const openAdministration = () => {
+    setSwitcherOpen(false);
+    if (!session?.authenticated || !session.actor.platformAdmin) return;
+    if (!session.isSupportSession && (!session.company || session.company.id === 'jeroc-demo')) {
+      navigate('/platform-admin'); return;
+    }
+    if (openingAdministration.current) return;
+    setChecking(true); setError('');
+    openingAdministration.current = platformApi.openAdministration().then(value => {
+      accept(value);
+      // Discard mounted forms and caches from the tenant we just left.
+      window.history.replaceState(null, '', '/kontor#/platform-admin'); window.location.reload();
+    }).catch(failure => setError(failure instanceof Error ? failure.message : 'Systemadministrationen kunde inte öppnas.'))
+      .finally(() => { openingAdministration.current = undefined; setChecking(false); });
+  };
   if (checking) return <main className="platform-auth-screen"><div className="platform-loading" role="status"><ProductBrand large /><span className="platform-spinner" /><p>Öppnar din arbetsyta…</p></div></main>;
   if (!session || error) return <main className="platform-auth-screen"><section className="platform-auth-card"><ProductBrand large /><h1>Arbetsytan kunde inte öppnas</h1><p className="platform-error" role="alert">{error || 'Inloggningstjänsten är inte tillgänglig.'}</p><button type="button" className="platform-btn" onClick={() => setAttempt(value => value + 1)}>Försök igen</button>{new URLSearchParams(window.location.search).has('company') && <button className="platform-text-btn" type="button" onClick={() => {
     const query = new URLSearchParams(window.location.search); query.delete('company');
@@ -113,6 +128,7 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
       <span className="platform-company-name">{showAdmin ? <><ShieldCheck size={16} />Systemadministration</> : <><Building2 size={16} />{session.company?.name ?? 'Välj bolag'}</>}</span>
       <div className="platform-topbar-actions">
         {session.actor.platformAdmin && !showAdmin && <button type="button" className="platform-text-btn" onClick={openAdministration}><Settings2 size={16} />Systemadmin</button>}
+        {showAdmin && session.isSupportSession && <button type="button" className="platform-text-btn" onClick={openAdministration}><ShieldCheck size={16} />Avsluta Jobba som</button>}
         {!showAdmin && (session.actor.platformAdmin || session.companies.length > 1) && <button type="button" className="platform-text-btn" aria-expanded={switcherOpen} onClick={() => setSwitcherOpen(value => !value)}><Building2 size={16} />{session.actor.platformAdmin ? 'Jobba som bolag' : 'Byt bolag'}</button>}
         <span className="platform-actor">{session.actor.name}</span>
         <button type="button" className="platform-text-btn" onClick={() => void logout().catch(failure => setError(failure instanceof Error ? failure.message : 'Utloggningen misslyckades.'))}><LogOut size={16} />Logga ut</button>

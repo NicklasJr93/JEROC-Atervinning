@@ -109,3 +109,11 @@
   .platform-page-heading { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { .platform-spinner { animation: none; } }
+.platform-communications-sender { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 16px 0 20px; }
+.platform-communications-sender > span:first-child { display: flex; flex-direction: column; gap: 5px; min-width: 0; color: #7388a5; font-size: 12px; }
+.platform-communications-sender strong { color: #213c60; font-size: 13px; overflow-wrap: anywhere; }
+.platform-email-test-form { max-width: 580px; padding-top: 4px; }
+.platform-email-test-help, .platform-communications-sms { color: #7b8fa9; font-size: 12px; line-height: 1.6; }
+.platform-email-test-form .platform-form-actions { justify-content: flex-start; margin-top: 0; }
+.platform-email-test-result, .platform-communications > .platform-error { margin-top: 18px; }
+.platform-communications-sms { border-top: 1px solid #edf1f7; padding-top: 16px; margin-top: 22px; }
