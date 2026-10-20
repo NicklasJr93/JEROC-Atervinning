@@ -12,15 +12,23 @@
 
 Adress och lösenord kan inte väljas via ett annat bolags kontaktinställningar. Systemadmin återställs genom sin egen återställningsadress, även när kontot tidigare har arbetat i ett kundbolag.
 
+## Min profil
+
+Öppna **Min profil** i den översta raden. Där visas den inloggades namn, användarnamn och registrerade e-postadress. Samma sida används av systemadmin och VD. Under **Jobba som** gäller profilen fortfarande den inloggades eget plattformskonto, inte kundbolagets valda användare.
+
+Ange e-postadress och bekräfta med ditt nuvarande lösenord för att spara. Det krävs inte någon ändring i Render. Formuläret använder sessionens skydd och en profilversion för att avvisa samtidiga eller föråldrade ändringar. E-postadressen ändrar inte användarnamn, lösenord eller bolagsbehörighet. Äldre återställningslänkar blir ogiltiga efter en adressändring.
+
+Den uttryckligen begärda adressen för ägaren förbereds genom en engångsregistrering för den namngivna befintliga Render-tjänsten och dess appadress. Den gäller bara det matchande adminkontot om dess profiladress saknas. Andra installationer och bolagskonton får ingen sådan standardadress. Registreringen skriver inte över en senare sparad profil.
+
 ## Render
 
 I **scrapplanner-app → Environment**:
 
 - `RESEND_API_KEY`: den befintliga fungerande systemnyckeln används även här.
 - `APP_URL`: `https://app.scrapplanner.com`. Servern bygger länken från denna betrodda adress, aldrig från anropets `Host` eller användarens formulär.
-- `SCRAPPLANNER_PLATFORM_ADMIN_EMAIL`: ange den e-postadress som ska få återställningslänkar för plattformens systemadmin. Det är en separat uppgift från publikt kontaktmejl och bolagens adresser. Start utan värdet fungerar fortsatt, men ett adminkonto utan registrerad adress kan inte återställas via mejl.
+- `SCRAPPLANNER_PLATFORM_ADMIN_EMAIL`: äldre, valfri bootstrapinställning. Behövs inte för att ändra adress via **Min profil**. Om den redan finns fungerar den bara som initial reserv för ett konto utan registrerad profiladress.
 
-Efter ändrad adminadress och deploy uppdateras det befintliga adminkontots återställningsadress utan att lösenord eller behörigheter byts. Om flera plattformsadministratörer skulle finnas måste adresserna hanteras individuellt; den gemensamma bootstrapinställningen får inte tilldelas godtyckliga konton.
+En sparad profiladress har företräde framför äldre miljöinställningar och bevaras efter omstart eller deploy. Om flera plattformsadministratörer skulle finnas hanterar var och en sin egen profil; en gemensam bootstrapinställning får inte tilldelas godtyckliga konton.
 
 VD-konton använder den e-postadress som angavs när bolaget skapades. En delad e-postadress väljer aldrig ett godtyckligt konto: ange även rätt användarnamn. Konton som saknar registrerad adress behöver hjälp av systemadmin.
 

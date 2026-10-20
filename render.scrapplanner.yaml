@@ -74,8 +74,6 @@ services:
           property: connectionString
       - key: SCRAPPILOT_PLATFORM_ADMIN_PASSWORD
         generateValue: true
-      - key: SCRAPPLANNER_PLATFORM_ADMIN_EMAIL
-        sync: false
       - key: JEROC_DEMO_AUTO_SESSION
         value: "false"
       - key: EXPO_GO_ENABLED

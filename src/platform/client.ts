@@ -1,5 +1,5 @@
 import { platformRequestHeaders } from './session';
-import type { AuthenticatedPlatformSession, CompanyCreated, PlatformCompany, PlatformCompanyUser, PlatformSession, PlatformCommunicationsConfig, PlatformTestEmailResult, PlatformTestSmsResult } from './types';
+import type { AuthenticatedPlatformSession, CompanyCreated, PlatformCompany, PlatformCompanyUser, PlatformProfile, PlatformSession, PlatformCommunicationsConfig, PlatformTestEmailResult, PlatformTestSmsResult } from './types';
 
 export class PlatformRequestError extends Error {
   constructor(message: string, public readonly code?: string, public readonly status?: number) {
@@ -12,6 +12,17 @@ async function recoveryRequest(path: string, data: unknown, signal?: AbortSignal
   const result = await request<{ ok?: unknown }>(path, data, recoverySignal(signal));
   if (result?.ok !== true) throw new PlatformRequestError('Åtgärdens resultat kunde inte bekräftas. Försök igen.', 'platform_response_invalid', 502);
   return { ok: true };
+}
+
+async function profileRequest(data?: { expectedVersion: number; email: string; currentPassword: string }, signal?: AbortSignal): Promise<PlatformProfile> {
+  const result = await request<Partial<PlatformProfile>>('profile', data, recoverySignal(signal));
+  if (!result || typeof result.id !== 'string' || !result.id || result.id.length > 100
+    || typeof result.name !== 'string' || result.name.length > 200
+    || typeof result.username !== 'string' || !result.username || result.username.length > 254
+    || typeof result.email !== 'string' || result.email.length > 254 || /[\u0000-\u001f\u007f]/.test(result.email)
+    || !Number.isInteger(result.version) || Number(result.version) < 0)
+    throw new PlatformRequestError('Profilen gav ett ofullständigt svar. Försök igen.', 'platform_response_invalid', 502);
+  return { id: result.id, name: result.name, username: result.username, email: result.email, version: Number(result.version) };
 }
 
 async function request<T>(path: string, data?: unknown, signal?: AbortSignal): Promise<T> {
@@ -33,6 +44,8 @@ async function request<T>(path: string, data?: unknown, signal?: AbortSignal): P
 export const platformApi = {
   session: (signal?: AbortSignal) => request<PlatformSession>('session', undefined, signal),
   login: (username: string, password: string) => request<AuthenticatedPlatformSession>('login', { username: username.trim(), password }),
+  profile: (signal?: AbortSignal) => profileRequest(undefined, signal),
+  updateProfile: (data: { expectedVersion: number; email: string; currentPassword: string }, signal?: AbortSignal) => profileRequest(data, signal),
   requestPasswordReset: (email: string, signal?: AbortSignal, username?: string) => recoveryRequest('password-reset/request', { email, ...(username?.trim() ? { username: username.trim() } : {}) }, signal),
   confirmPasswordReset: (data: { token: string; newPassword: string; confirmPassword: string }, signal?: AbortSignal) => recoveryRequest('password-reset/confirm', data, signal),
   changePassword: (currentPassword: string, newPassword: string) => request<AuthenticatedPlatformSession>('change-password', { currentPassword, newPassword }),

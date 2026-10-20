@@ -20,6 +20,7 @@ import { createSystemEmail } from './system-email.mjs';
 import { createPlatformCommunications } from './platform-communications.mjs';
 import { createSystemSmsProvider } from './system-sms-provider.mjs';
 import { createPlatformPasswordReset } from './platform-password-reset.mjs';
+import { initialAdminProfileForDeployment } from './deployment-profile-seeds.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -101,6 +102,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   }
   const legacy = profile.pilot ? undefined : await bundle(defaultCompany);
   auth = createPlatformAuth({ repository, platformAdminEmail: env.SCRAPPLANNER_PLATFORM_ADMIN_EMAIL,
+    initialAdminProfile: initialAdminProfileForDeployment(env),
     ...(profile.pilot && { bootstrapPlatform: async () => ({ id: 'platform-admin', username: 'admin', name: 'Systemadmin', active: true,
       password: await platformPasswordHash(env.SCRAPPILOT_PLATFORM_ADMIN_PASSWORD) }) }),
     bootstrapLegacy: async () => {

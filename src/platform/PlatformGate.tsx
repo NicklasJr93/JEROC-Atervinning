@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Building2, LogOut, Settings2, ShieldCheck } from 'lucide-react';
+import { Building2, LogOut, Settings2, ShieldCheck, UserRound } from 'lucide-react';
 import { platformApi } from './client';
 import { setCurrentPlatformSession } from './session';
 import ProductBrand from './ProductBrand';
@@ -9,6 +9,7 @@ import { useCompanyDefaults, type CompanyDefaultsSnapshot } from '../company-set
 import PlatformLogin from './PlatformLogin';
 import PlatformPasswordChange from './PlatformPasswordChange';
 import PlatformPasswordRecovery from './PlatformPasswordRecovery';
+import PlatformProfile from './PlatformProfile';
 import PlatformAdmin from './PlatformAdmin';
 import PlatformCompanySwitcher from './PlatformCompanySwitcher';
 import type { AuthenticatedPlatformSession, PlatformSession } from './types';
@@ -132,22 +133,23 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
   if (!session.authenticated) return <PlatformLogin onSession={authenticated} />;
   if (session.mustChangePassword) return <PlatformPasswordChange session={session} onSession={authenticated} onLogout={logout} />;
   const showAdmin = session.actor.platformAdmin && (!session.company || location.pathname === '/platform-admin');
+  const showProfile = location.pathname === '/profile';
   const context: PlatformContextValue = { session, refresh, logout, switchCompany, openAdministration, companyBranding };
   return <Context.Provider value={context}><div ref={shell} className={`platform-shell${showAdmin ? ' admin' : ' platform-office'}`}>
     <header className="platform-topbar">
       {session.actor.platformAdmin ? <ProductBrand /> : <CompanyBrand branding={companyBranding} className="platform-brand" />}
-      <span className="platform-company-name">{showAdmin ? <><ShieldCheck size={16} />Systemadministration</> : <><Building2 size={16} />{companyBranding?.profile.name ?? session.company?.name ?? 'Välj bolag'}</>}</span>
+      <span className="platform-company-name">{showProfile ? <><UserRound size={16} />Mitt konto</> : showAdmin ? <><ShieldCheck size={16} />Systemadministration</> : <><Building2 size={16} />{companyBranding?.profile.name ?? session.company?.name ?? 'Välj bolag'}</>}</span>
       <div className="platform-topbar-actions">
         {session.actor.platformAdmin && !showAdmin && <button type="button" className="platform-text-btn" onClick={openAdministration}><Settings2 size={16} />Systemadmin</button>}
         {showAdmin && session.isSupportSession && <button type="button" className="platform-text-btn" onClick={openAdministration}><ShieldCheck size={16} />Avsluta Jobba som</button>}
         {!showAdmin && (session.actor.platformAdmin || session.companies.length > 1) && <button type="button" className="platform-text-btn" aria-expanded={switcherOpen} onClick={() => setSwitcherOpen(value => !value)}><Building2 size={16} />{session.actor.platformAdmin ? 'Jobba som bolag' : 'Byt bolag'}</button>}
-        <span className="platform-actor">{session.actor.name}</span>
+        <Link className="platform-text-btn" aria-label="Min profil" aria-current={showProfile ? 'page' : undefined} to="/profile"><UserRound size={16} /><span className="platform-actor">{session.actor.name}</span>Min profil</Link>
         <button type="button" className="platform-text-btn" onClick={() => void logout().catch(failure => setError(failure instanceof Error ? failure.message : 'Utloggningen misslyckades.'))}><LogOut size={16} />Logga ut</button>
       </div>
     </header>
     {switcherOpen && <section className="platform-context-menu" aria-label="Byt bolag eller behörighet"><PlatformCompanySwitcher session={session} companies={session.companies} onSwitch={switchCompany} compact /></section>}
     {session.isSupportSession && !showAdmin && <div className="platform-support-strip"><ShieldCheck size={15} />{session.actor.name} arbetar som {session.user.name} i {session.company?.name}. Historiken sparar både inloggad och vald användare.</div>}
-    {showAdmin ? <PlatformAdmin session={session} onSwitch={switchCompany} /> : !session.company ? <main className="platform-admin"><section className="platform-panel"><h1>Välj bolag</h1><PlatformCompanySwitcher session={session} companies={session.companies} onSwitch={switchCompany} /></section></main>
+    {showProfile ? <PlatformProfile key={`${session.actor.id}/${session.organisationId ?? ''}/${session.generation}/${session.user.id}`} session={session} /> : showAdmin ? <PlatformAdmin session={session} onSwitch={switchCompany} /> : !session.company ? <main className="platform-admin"><section className="platform-panel"><h1>Välj bolag</h1><PlatformCompanySwitcher session={session} companies={session.companies} onSwitch={switchCompany} /></section></main>
       : <div className="platform-office-body" key={`${session.organisationId}/${session.generation}`}>{children}</div>}
   </div></Context.Provider>;
 }

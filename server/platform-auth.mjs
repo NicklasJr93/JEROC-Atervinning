@@ -22,6 +22,10 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 const canonicalHash = value => hash(JSON.stringify(value));
 const username = value => value.normalize('NFKC').trim().toLowerCase();
 const passwordSchema = z.string().min(12, 'Lösenordet måste innehålla minst 12 tecken.').max(200);
+const profileEmailSchema = z.string().max(254).refine(value => !/[\u0000-\u001f\u007f]/.test(value), 'Ange en giltig e-postadress.')
+  .transform(username).pipe(z.string().email('Ange en giltig e-postadress.').max(254));
+const profileUpdateSchema = z.object({ expectedVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER - 1),
+  email: profileEmailSchema, currentPassword: z.string().min(1).max(200) }).strict();
 const parse = (schema, value) => { const parsed = schema.safeParse(value); if (!parsed.success) fail(parsed.error.issues.map(issue => issue.message).join(' ')); return parsed.data; };
 const validPasswordHash = value => value && /^[a-f0-9]{32,128}$/i.test(value.salt ?? '') && /^[a-f0-9]{128}$/i.test(value.digest ?? '');
 export async function platformPasswordHash(password) {
@@ -52,16 +56,30 @@ const newCompanySchema = z.object({ requestId: z.string().uuid(), name: z.string
  * from each company's current user register, never from this cookie or JSON. */
 export function createPlatformAuth({ repository, bootstrapLegacy = async () => null, bootstrapPlatform, provisionCompany,
   companyUsers = async () => [], resolveCompanyUser = async () => null, onPasswordChanged = async () => {},
-  platformAdminEmail,
+  platformAdminEmail, initialAdminProfile,
   now = () => new Date(), legacyCompany = { name: 'JEROC Återvinning AB', organisationNumber: '', storageSchema: 'public' } } = {}) {
   if (!repository?.read || !repository?.transact) throw new TypeError('Plattformsregistret krävs.');
   const standalonePlatform = typeof bootstrapPlatform === 'function';
   const configuredAdminEmail = platformAdminEmail === undefined || platformAdminEmail === '' ? undefined
-    : parse(z.string().trim().max(254).email().transform(username), platformAdminEmail);
+    : parse(profileEmailSchema, platformAdminEmail);
+  const initialProfile = initialAdminProfile === undefined ? undefined : parse(z.object({
+    id: userIdSchema, email: profileEmailSchema, seedId: z.string().min(1).max(100).regex(/^[a-zA-Z0-9._:-]+$/),
+  }).strict(), initialAdminProfile);
   const at = () => new Date(now()).toISOString();
   let bootstrapPromise;
   function audit(state, actor, action, values = {}) {
     state.audit.push({ id: randomUUID(), at: at(), actorId: actor?.id, action, ...values });
+  }
+  function seedInitialProfile(state) {
+    if (!initialProfile || state.initialProfileSeeds?.some(value => value.seedId === initialProfile.seedId)) return;
+    const actor = state.users.find(user => user.id === initialProfile.id && user.platformAdmin && user.active);
+    if (!actor) return;
+    const missing = !actor.profileEmailManaged && !(typeof actor.email === 'string' && actor.email.trim());
+    if (missing) {
+      actor.email = initialProfile.email;
+      audit(state, actor, 'platform.profile_email_seeded', { seedId: initialProfile.seedId });
+    }
+    (state.initialProfileSeeds ??= []).push({ seedId: initialProfile.seedId, userId: actor.id, at: at(), applied: missing });
   }
   async function initialize() {
     if (bootstrapPromise) return bootstrapPromise;
@@ -69,13 +87,17 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       const existing = await repository.read(state => clone(state.users.find(user => user.platformAdmin)));
       if (existing) {
         if (await passwordValid('JerocDemo2026!', existing.password)) fail('Ett privat initialt plattformslösenord krävs innan bolagsadministrationen kan aktiveras.', 503, 'platform_bootstrap_required');
-        if (configuredAdminEmail) await repository.transact(state => {
-          const administrators = state.users.filter(user => user.platformAdmin && user.active);
-          if (administrators.length !== 1 || administrators[0].id !== existing.id)
-            fail('Systemadministratörens återställningsadress kan inte väljas entydigt.', 503, 'platform_admin_email_ambiguous');
-          if (administrators[0].email !== configuredAdminEmail) {
-            administrators[0].email = configuredAdminEmail;
-            audit(state, administrators[0], 'platform.recovery_email_configured');
+        if (configuredAdminEmail || initialProfile) await repository.transact(state => {
+          seedInitialProfile(state);
+          if (configuredAdminEmail && !existing.profileEmailManaged && !existing.email?.trim()) {
+            const administrators = state.users.filter(user => user.platformAdmin && user.active);
+            if (administrators.length !== 1 || administrators[0].id !== existing.id)
+              fail('Systemadministratörens återställningsadress kan inte väljas entydigt.', 503, 'platform_admin_email_ambiguous');
+            const actor = administrators[0];
+            if (!actor.profileEmailManaged && !actor.email?.trim()) {
+              actor.email = configuredAdminEmail;
+              audit(state, actor, 'platform.recovery_email_configured');
+            }
           }
         });
         return;
@@ -94,7 +116,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
             fail('Den nya plattformens register är inte tomt. Kontrollera databasvalet.', 503, 'platform_bootstrap_not_empty');
           const user = { id: businessId, businessId, name: imported.name ?? 'Systemadmin', username: username(imported.username ?? businessId),
             email: configuredAdminEmail ?? imported.email ?? '', password: clone(imported.password), platformAdmin: true, active: true, mustChangePassword: true, createdAt: stamp };
-          state.users.push(user); audit(state, user, 'platform.private_admin_created');
+          state.users.push(user); audit(state, user, 'platform.private_admin_created'); seedInitialProfile(state);
           return;
         }
         const company = { id: 'jeroc-demo', ...legacyCompany, status: 'active', ownerUserId: businessId, createdAt: stamp };
@@ -102,6 +124,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
         const user = { id: businessId, businessId, name: imported.name ?? 'Systemadmin', username: username(imported.username ?? businessId),
           email: configuredAdminEmail ?? imported.email ?? '', password: clone(imported.password), platformAdmin: true, active: true, mustChangePassword: imported.privateBootstrap === true, createdAt: stamp };
         state.users.push(user); state.memberships.push({ userId: user.id, organisationId: company.id, businessUserId: businessId, active: true });
+        seedInitialProfile(state);
         audit(state, user, 'platform.legacy_admin_imported', { organisationId: company.id });
       });
     })();
@@ -255,6 +278,55 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       state.sessions.push(newSession(current.actor, current.company?.id, effectiveBusinessId(current), nextToken, tenantToken));
       audit(state, current.actor, 'platform.password_changed', { organisationId: current.company?.id }); });
     return { token: nextToken, tenantToken, value: await session({ ...req, headers: { cookie: `${PLATFORM_COOKIE}=${nextToken}` } }) };
+  }
+
+  const profileVersion = user => Number.isSafeInteger(user.profileVersion) && user.profileVersion >= 0 ? user.profileVersion : 0;
+  const profileDto = user => ({ id: user.id, name: user.name, username: user.username,
+    email: typeof user.email === 'string' ? username(user.email) : '', version: profileVersion(user) });
+  async function profile(req) {
+    const { token, value } = await readSession(req, { allowInactiveCompany: true });
+    return repository.read(state => {
+      const current = identity(state, token, { allowInactiveCompany: true }); checkExpected(req, current);
+      if (current.session.generation !== value.session.generation)
+        fail('Bolag eller konto har bytts. Öppna din profil igen.', 409, 'platform_context_changed');
+      return profileDto(current.actor);
+    });
+  }
+  async function updateProfile(input, req) {
+    const { token, value } = await readSession(req, { writes: true, allowInactiveCompany: true });
+    const parsed = parse(profileUpdateSchema, input);
+    const conflict = () => fail('Din profil ändrades i en annan session. Hämta den senaste versionen innan du sparar.', 409, 'platform_profile_conflict');
+    if (profileVersion(value.actor) !== parsed.expectedVersion) return conflict();
+    const stamp = at(), address = hash(req.socket?.remoteAddress ?? 'unknown');
+    // A stolen session must not get unlimited guesses at the current password.
+    // Reservations are durable and made before the expensive password check.
+    await repository.transact(state => {
+      const current = identity(state, token, { allowInactiveCompany: true }); checkExpected(req, current, true);
+      if (profileVersion(current.actor) !== parsed.expectedVersion) return conflict();
+      state.profileEmailAttempts = (state.profileEmailAttempts ?? []).filter(item => Date.parse(item.at) > Date.parse(stamp) - ATTEMPT_MS);
+      if (state.profileEmailAttempts.filter(item => item.actorId === current.actor.id).length >= 6
+        || state.profileEmailAttempts.filter(item => item.address === address).length >= 60)
+        fail('För många försök att ändra e-postadressen. Vänta 15 minuter och försök igen.', 429, 'platform_profile_rate_limit');
+      state.profileEmailAttempts.push({ actorId: current.actor.id, address, at: stamp });
+    });
+    if (!await passwordValid(parsed.currentPassword, value.actor.password))
+      fail('Det nuvarande lösenordet stämmer inte.', 403, 'platform_password_mismatch');
+    return repository.transact(state => {
+      const current = identity(state, token, { allowInactiveCompany: true }); checkExpected(req, current, true);
+      if (current.session.generation !== value.session.generation
+        || canonicalHash(current.actor.password) !== canonicalHash(value.actor.password))
+        fail('Kontot eller lösenordet har ändrats. Öppna din profil igen.', 409, 'platform_context_changed');
+      if (profileVersion(current.actor) !== parsed.expectedVersion) return conflict();
+      current.actor.email = parsed.email; current.actor.profileVersion = parsed.expectedVersion + 1;
+      current.actor.profileEmailManaged = true; current.actor.profileUpdatedAt = at();
+      // Fingerprint validation also rejects these links; mark them explicitly
+      // so an old in-flight email acknowledgement cannot reactivate one.
+      for (const record of state.passwordRecovery?.requests ?? [])
+        if (record.userId === current.actor.id && ['sending', 'sent'].includes(record.status)) record.status = 'superseded';
+      state.profileEmailAttempts = state.profileEmailAttempts.filter(item => item.actorId !== current.actor.id);
+      audit(state, current.actor, 'platform.profile_email_changed', { profileVersion: current.actor.profileVersion });
+      return profileDto(current.actor);
+    });
   }
 
   const recoveryEmail = user => typeof user?.email === 'string' ? username(user.email) : '';
@@ -580,7 +652,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       return operation(state, { actorId: current.actor.id, actorName: current.actor.name, at: at() });
     });
   }
-  return { initialize, login, logout, session, changePassword, resolveContext, checkRequest, resolveTenantSelector, selectTenant, companies, users, switchCompany, openAdministration, createCompany, resetInitialPassword,
+  return { initialize, login, logout, session, changePassword, profile, updateProfile, resolveContext, checkRequest, resolveTenantSelector, selectTenant, companies, users, switchCompany, openAdministration, createCompany, resetInitialPassword,
     withPlatformAdminTransaction, passwordRecoveryCandidate, completePasswordRecovery,
     getCompany: organisationId => repository.read(state => clone(state.companies.find(item => item.id === organisationId))), repository };
 }

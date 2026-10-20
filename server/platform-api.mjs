@@ -52,6 +52,7 @@ export function createPlatformApi({ auth, fleet, communications, passwordReset, 
       const reset = path.match(/^companies\/([a-zA-Z0-9-]{1,100})\/reset-initial-password$/);
       let result;
       if (read && path === 'session') result = { value: await auth.session(req) };
+      else if (path === 'profile') result = { value: read ? await auth.profile(req) : await auth.updateProfile(await body(req), req) };
       else if (!read && path === 'password-reset/request' && passwordReset) result = { value: await passwordReset.request(await body(req), req) };
       else if (!read && path === 'password-reset/confirm' && passwordReset) {
         const value = await passwordReset.confirm(await body(req), req);

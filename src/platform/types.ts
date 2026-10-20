@@ -32,6 +32,13 @@ export type PlatformSession = AuthenticatedPlatformSession | {
 };
 
 export type PlatformCompanyUser = Pick<OfficeUser, 'id' | 'name' | 'level' | 'active'>;
+export type PlatformProfile = {
+  id: string;
+  name: string;
+  username: string;
+  email: string;
+  version: number;
+};
 export type CompanyCreated = {
   company: PlatformCompany;
   user: PlatformCompanyUser;

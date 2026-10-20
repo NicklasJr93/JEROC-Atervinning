@@ -139,3 +139,27 @@ test('office password recovery preserves a deliberately disabled linked employee
   assert.equal(account.active, false);
   assert.equal((await f.client().request('/api/employee/login?view=bootstrap', { username: 'admin', password: replacement })).status, 401);
 }));
+
+test('own profile HTTP endpoint requires session, CSRF and password and never accepts a target user', () => fixture(async f => {
+  const admin = f.client(), anonymous = f.client();
+  assert.equal((await anonymous.request('/api/platform/profile')).status, 401);
+  await admin.request('/api/platform/login', { username: 'admin', password: original });
+  const password = 'Profile-Activated-Private-2026!';
+  assert.equal((await admin.request('/api/platform/change-password', { currentPassword: original, newPassword: password })).status, 200);
+  const before = await admin.request('/api/platform/profile');
+  assert.equal(before.status, 200); assert.equal(before.body.email, adminEmail);
+  assert.match(before.headers.get('cache-control'), /no-store/);
+  const input = { expectedVersion: before.body.version, email: 'changed-profile@example.test', currentPassword: password };
+  assert.equal((await admin.request('/api/platform/profile', input, { 'x-platform-csrf': '' })).status, 403);
+  assert.equal((await admin.request('/api/platform/profile', input, { origin: 'https://foreign.invalid' })).status, 403);
+  assert.equal((await admin.request('/api/platform/profile', { ...input, userId: 'another-user' })).status, 422);
+  assert.equal((await admin.request('/api/platform/profile', { ...input, currentPassword: 'Wrong-Private-Password' })).status, 403);
+  const saved = await admin.request('/api/platform/profile', input);
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.deepEqual(saved.body, { ...before.body, email: input.email, version: before.body.version + 1 });
+  assert.ok(!JSON.stringify(saved.body).includes(password));
+  const session = await admin.request('/api/platform/session');
+  assert.equal(session.status, 200); assert.equal(session.body.actor.username, 'admin');
+  assert.ok(!JSON.stringify(session.body.actor).includes(input.email));
+  assert.equal((await admin.request('/api/platform/profile', input)).status, 409);
+}));
