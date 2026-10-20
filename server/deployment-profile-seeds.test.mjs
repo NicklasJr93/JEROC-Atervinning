@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { initialAdminProfileForDeployment } from './deployment-profile-seeds.mjs';
 
 test('requested owner profile is confined to the named existing deployment', () => {
-  const env = { RENDER_SERVICE_ID: 'srv-dbba71yf3r2c7384cm7g', SCRAPPLANNER_DEPLOYMENT_MODE: 'pilot', APP_URL: 'https://app.scrapplanner.com' };
+  const env = { RENDER_SERVICE_ID: 'srv-dbba71vf3r2c7384cm7g', SCRAPPLANNER_DEPLOYMENT_MODE: 'pilot', APP_URL: 'https://app.scrapplanner.com' };
   const seed = initialAdminProfileForDeployment(env);
   assert.equal(seed.id, 'platform-admin'); assert.equal(seed.email, 'nicklas@endorgroup.se');
   for (const changed of [{ RENDER_SERVICE_ID: 'another-service' }, { RENDER_SERVICE_ID: undefined },
