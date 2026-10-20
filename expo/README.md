@@ -46,7 +46,7 @@ Det verifierar inte Expo-inloggningen eller att appen öppnats i din telefon.
 ### Med utvecklingsserver på din dator
 
 1. Installera senaste **Expo Go** från App Store eller Google Play.
-2. Använd hela, uppackade GitHub-projektet på datorn. **Node.js 24 LTS, minst 24.3**, rekommenderas. Node.js 22.13 eller senare i 22-serien fungerar också.
+2. Använd hela, uppackade GitHub-projektet på datorn med **Node.js 24 LTS, minst 24.19.0 och lägre än 25**. Samma versionskrav gäller rootprojektet, Expo och hemsidan; `.nvmrc` anger 24.19.0.
 3. Dubbelklicka på `Windows_Starta_JEROC_Expo.cmd` eller `Mac_Starta_JEROC_Expo.command` i projektets huvudmapp. De installerar beroenden och startar både mobilappens server och Expo.
 4. Ha datorn och mobilen på samma wifi. På iPhone skannar du terminalens QR-kod med Kamera; på Android använder du Expo Go.
 5. Logga in i appen. I det förvalda fiktiva demot används **niklas / Demo123!**; för kontohantering och timkrav finns **admin / JerocDemo2026!**. Egna personalkonton kopplas till personalregistret och får egna lösenord.

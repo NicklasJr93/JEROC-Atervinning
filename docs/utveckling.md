@@ -5,7 +5,9 @@ Granskad 20 oktober 2026 mot projektets kommandon och kataloger.
 
 ## Starta lokalt
 
-Node.js **22.12 eller senare** krävs; Render-konfigurationen anger Node.js 24.19.0.
+Använd **Node.js 24 LTS, minst 24.19.0 och lägre än 25**, för rootprojektet,
+Expo och hemsidan. `.nvmrc`, CI och Render anger 24.19.0. Äldre uppgifter om
+Node 22 gäller inte detta verifierade runtimekontrakt.
 Använd projektets låsfiler och en lokal testmiljö. Kör följande i repots rot:
 
 ```sh

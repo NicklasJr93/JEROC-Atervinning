@@ -4,7 +4,8 @@ Ett fristående hemsideprojekt för **ScrapPlanner**, en produkt från **EndorGr
 
 ## Kör lokalt
 
-Node.js **24.19.0** rekommenderas; lägsta version är **22.12**.
+Använd **Node.js 24 LTS, minst 24.19.0 och lägre än 25**, enligt projektets
+gemensamma runtimekontrakt. `.nvmrc` i repots rot anger 24.19.0.
 
 ```sh
 cd website
