@@ -73,6 +73,8 @@ export const permissionNames = {
   competenciesWrite: 'Hantera kompetenser och fordonsbehörighet',
   staffingWrite: 'Lösa bemanningsuppgifter',
   externalAccounts: 'Hantera externa chaufförskonton',
+  companySettingsRead: 'Läsa företagsinställningar',
+  companySettingsWrite: 'Ändra företagsinställningar',
   users: 'Hantera användare',
 } as const;
 export type Permission = keyof typeof permissionNames;
@@ -266,7 +268,10 @@ export const statusNames = {
 };
 export const sensitivePersonnelPermissions: Permission[] = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage', 'bookSpiris', 'mailRead', 'equipmentRead', 'equipmentWrite', 'personnelPresenceRead', 'personnelTimeReviewRead', 'personnelTimeApprove'];
 export const can = (user: OfficeUser, right: Permission) =>
-  sensitivePersonnelPermissions.includes(right)
+  right === 'companySettingsRead' || right === 'companySettingsWrite'
+    ? user.active !== false && (['Systemadmin', 'VD'].includes(user.level) || user.permissions.includes(right)
+      || right === 'companySettingsRead' && user.permissions.includes('companySettingsWrite'))
+    : sensitivePersonnelPermissions.includes(right)
     ? user.level === 'Systemadmin' || user.permissions.includes(right)
     : right === 'users'
     ? user.level !== 'Medarbetare'

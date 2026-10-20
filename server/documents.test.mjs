@@ -180,7 +180,7 @@ test('settlement list reads existing archive metadata and signals pending milest
 
 test('durable PDF job uses its frozen facility and approval without rereading mutable business stores', async () => serviceFixture(async ({ options, sources, repository }) => {
   const frozen = structuredClone(sources.approvals[0]);
-  const job = { stage: 'preliminary', sourceHash: frozen.snapshot.hash, siteSnapshot: structuredClone(sources.sites[0]) };
+  const job = { stage: 'preliminary', sourceHash: frozen.snapshot.hash, siteSnapshot: structuredClone(sources.sites[0]), companySnapshot: structuredClone(sources.company) };
   sources.office.cards[0].rows[0].weight = 999;
   sources.sites[0].name = 'Changed live facility';
   const service = createDocumentService({ ...options, sourceProvider: () => { throw new Error('A current durable PDF job needs no source reread'); } });
@@ -677,4 +677,106 @@ test('cross-origin requests and stale transport updates fail through the HTTP AP
   assert.equal(latest.draft.version, 1);
   assert.equal(latest.draft.driver, initial.draft.driver);
   assert.deepEqual(latest.documents, []);
+}));
+
+
+test('company address, logo and footer freeze per settlement version while a new version uses the updated profile', async () => serviceFixture(async ({ service, sources }) => {
+  const firstProfile = { id: 'company-profile', name: 'Profilbolaget AB', number: '5591234567',
+    address: 'Bolagsvägen 12', postalCode: '12345', city: 'Postorten', countryCode: 'SE',
+    logoId: '00000000-0000-4000-8000-000000000001', phone: '+46812345678', email: 'a@example.test', footerText: 'Ursprunglig sidfot' };
+  sources.company = structuredClone(firstProfile);
+  const first = (await service.generateSettlement(3010, {}, admin)).document;
+  const old = (await service.download(first.id, admin)).snapshot;
+  assert.equal(old.company.address, firstProfile.address, 'The company postal address is separate from the receiving facility.');
+  assert.equal(old.site.address, sources.sites[0].address);
+  for (const field of ['logoId', 'phone', 'email', 'footerText']) assert.equal(old.company[field], firstProfile[field]);
+  Object.assign(sources.company, { name: 'Nytt profilnamn AB', logoId: '00000000-0000-4000-8000-000000000002',
+    phone: '+46898765432', email: 'b@example.test', footerText: 'Ny sidfot' });
+  attest(sources.approvals[0]);
+  const final = (await service.generateSettlement(3010, {}, admin)).document;
+  assert.deepEqual((await service.download(final.id, admin)).snapshot.company, old.company);
+  assert.deepEqual((await service.download(first.id, admin)).snapshot.company, old.company);
+  const next = structuredClone(sources.approvals[0]);
+  next.id = 'profile-approval-2'; next.version = 2; next.status = 'waiting'; next.snapshot.hash = digest('profile-version-two');
+  delete next.approvedAt; delete next.approvedHash; delete next.attestedAt;
+  sources.approvals.push(next);
+  const current = (await service.generateSettlement(3010, {}, admin)).document;
+  const updated = (await service.download(current.id, admin)).snapshot;
+  assert.equal(updated.company.name, sources.company.name);
+  assert.equal(updated.company.logoId, sources.company.logoId);
+  assert.equal(updated.company.footerText, sources.company.footerText);
+}));
+
+test('managed transport branding remains frozen across repeat PDF generation and departure', async () => serviceFixture(async ({ service, sources }) => {
+  sources.company = { id: 'company-profile', name: 'Profilbolaget AB', number: '5591234567', footerText: 'Första sidfoten', logoId: '00000000-0000-4000-8000-000000000001' };
+  const from = { name: 'Kundens plats', number: '5591234567', address: 'Kundvägen 1', postalCode: '12345', city: 'Kundorten' };
+  const to = { name: 'Mottagningen', number: '5591234567', address: 'Mottagarvägen 1', postalCode: '76141', city: 'Norrtälje' };
+  const frozen = { from, to, driverId: 'driver-1', vehicleId: 'vehicle-1', rows: [{ name: 'Järn', wasteCode: '170405', plannedKg: 10, hazardous: false }], handling: '' };
+  sources.logistics = { details: { 'AO-1042': { siteId: 'norrtalje', from, to, materialRows: frozen.rows,
+    execution: { stage: 'planned' }, document: { version: 1, hash: documentHash(frozen), snapshot: frozen,
+      preparedAt: '2026-10-10T09:00:00.000Z', signatures: [] } } } };
+  const initial = (await service.generateTransport('AO-1042', admin)).document;
+  const first = (await service.download(initial.id, admin)).snapshot;
+  Object.assign(sources.company, { name: 'Nytt namn', footerText: 'Andra sidfoten', logoId: '00000000-0000-4000-8000-000000000002' });
+  sources.sites[0].address = 'Ny anläggningsadress';
+  assert.equal((await service.generateTransport('AO-1042', admin)).document.id, initial.id);
+  Object.assign(sources.logistics.details['AO-1042'].execution, { stage: 'departed', departedAt: '2026-10-10T11:00:00.000Z' });
+  const final = (await service.generateTransport('AO-1042', admin)).document;
+  const issued = (await service.download(final.id, admin)).snapshot;
+  assert.deepEqual(issued.company, first.company); assert.deepEqual(issued.site, first.site);
+  assert.equal((await service.generateTransport('AO-1042', admin)).document.id, final.id);
+  assert.deepEqual((await service.download(initial.id, admin)).snapshot.company, first.company);
+}));
+
+
+test('legacy locked approvals and old durable jobs use the initial company profile rather than edited live settings', async () => serviceFixture(async ({ service, sources }) => {
+  sources.initialCompany = { id: 'company-legacy', name: 'Ursprungligt bolag AB', number: '5591234567', footerText: 'Ursprungliga företagsuppgifter' };
+  sources.company = { ...sources.initialCompany, name: 'Ny profil som inte gäller äldre underlag', footerText: 'Ny sidfot' };
+  const preliminary = (await service.generateSettlement(3010, {}, admin)).document;
+  const saved = await service.download(preliminary.id, admin);
+  assert.equal(saved.snapshot.company.name, sources.initialCompany.name);
+  assert.equal(saved.snapshot.company.footerText, sources.initialCompany.footerText);
+  const next = structuredClone(sources.approvals[0]);
+  next.id = 'legacy-durable-2'; next.version = 2; next.snapshot.hash = digest('legacy-durable-version-two');
+  const job = { stage: 'preliminary', sourceHash: next.snapshot.hash, siteSnapshot: structuredClone(sources.sites[0]) };
+  const oldJob = await service.archiveApprovalJob(next, job);
+  assert.equal((await service.download(oldJob.id, admin)).snapshot.company.name, sources.initialCompany.name);
+  assert.doesNotMatch(JSON.stringify((await service.download(oldJob.id, admin)).snapshot.company), /JEROC/);
+  // A captured company remains authoritative even if an older job still needs
+  // to resolve its facility from the source adapter.
+  next.version = 3; next.snapshot.hash = digest('captured-company-missing-site');
+  const capturedCompany = { ...sources.initialCompany, name: 'Infångat bolag vid jobbet' };
+  const withCompany = await service.archiveApprovalJob(next, { stage: 'preliminary', sourceHash: next.snapshot.hash, companySnapshot: capturedCompany });
+  assert.equal((await service.download(withCompany.id, admin)).snapshot.company.name, capturedCompany.name);
+}));
+
+test('a managed transport captures its own company profile before PDF generation even when initial and live profiles differ', async () => serviceFixture(async ({ service, sources }) => {
+  sources.initialCompany = { id: 'company-profile', name: 'Första företagsnamnet AB', number: '5591234567' };
+  sources.company = { ...sources.initialCompany, name: 'Senare redigerat namn' };
+  const captured = { ...sources.initialCompany, name: 'Namnet vid förberedelse', footerText: 'Infångad sidfot', logoId: '00000000-0000-4000-8000-000000000001' };
+  const place = { name: 'Kundens plats', number: '5591234567', address: 'Kundvägen 1', postalCode: '12345', city: 'Kundorten' };
+  const frozen = { from: place, to: place, rows: [{ name: 'Järn', plannedKg: 10, hazardous: false }], handling: '' };
+  sources.logistics = { details: { 'AO-1042': { siteId: 'norrtalje', from: place, to: place, materialRows: frozen.rows,
+    execution: { stage: 'planned' }, document: { version: 1, hash: documentHash(frozen), snapshot: frozen,
+      companySnapshot: captured, preparedAt: '2026-10-10T09:00:00.000Z', signatures: [] } } } };
+  const result = (await service.generateTransport('AO-1042', admin)).document;
+  const issued = (await service.download(result.id, admin)).snapshot;
+  assert.equal(issued.company.name, captured.name);
+  assert.equal(issued.company.logoId, captured.logoId);
+  assert.equal(issued.company.footerText, captured.footerText);
+}));
+
+test('saving an unmanaged transport freezes branding privately before its first PDF is requested', async () => serviceFixture(async ({ service, sources, repository }) => {
+  sources.company = { id: 'company-profile', name: 'Namnet vid sparande', number: '5591234567', footerText: 'Sparad sidfot' };
+  const { draft: initial } = await service.transport('AO-1042', admin);
+  const saved = await service.saveTransport('AO-1042', transportInput(initial), admin);
+  assert.equal('companySnapshot' in saved.draft, false, 'The profile is not part of the editable browser draft.');
+  const stored = await repository.read(database => database.transportDraft('AO-1042'));
+  assert.equal(stored.companySnapshot.name, sources.company.name);
+  sources.company.name = 'Senaste namn som inte får ändra sparat utkast';
+  const read = await service.transport('AO-1042', admin);
+  assert.equal('companySnapshot' in read.draft, false);
+  const generated = await service.generateTransport('AO-1042', admin);
+  assert.equal('companySnapshot' in generated.draft, false);
+  assert.equal((await service.download(generated.document.id, admin)).snapshot.company.name, stored.companySnapshot.name);
 }));

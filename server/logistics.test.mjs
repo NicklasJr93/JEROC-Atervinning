@@ -16,20 +16,20 @@ const classifications = [{ articleId: 'lead-battery', hazardous: true, wasteCode
 const place = (name = 'Verkstad') => ({ name, address: 'Industrivägen 8', postalCode: '76141', city: 'Norrtälje' });
 const input = (extra = {}) => ({ siteId: 'norrtalje', action: 'pickup', from: place(), to: place('JEROC Norrtälje'), operator: 'own', vesselType: 'battery', materialRows: [], ...extra });
 const officePath = '/api/logistics/office';
-async function fixture(run, postgres = false) {
+async function fixture(run, postgres = false, { companyProfile } = {}) {
   const folder = await mkdtemp(join(tmpdir(), 'jeroc-logistics-')); let pool, schema, env = { JEROC_APPLICATION_DB_PATH: join(folder, 'business.sqlite') };
   if (postgres) { const { Pool } = await import('pg'); pool = new Pool({ connectionString: process.env.JEROC_TEST_DATABASE_URL }); schema = `jeroc_logistics_${randomUUID().replaceAll('-', '')}`; await pool.query(`CREATE SCHEMA "${schema}"`); const url = new URL(process.env.JEROC_TEST_DATABASE_URL); url.searchParams.set('options', `-c search_path=${schema}`); env = { DATABASE_URL: url.toString() }; }
   const initial = () => { const state = initialApplicationState(); state.office.cards = []; ensurePersonnel(state); return state; };
   const repos = [], servers = [], inventory = [];
   async function instance() {
     const repository = await createApplicationRepository({ env, initial }); repos.push(repository);
-    const handler = createLogisticsApi({ getRepository: async () => repository, readBody: async req => { let body = ''; for await (const part of req) body += part; return body ? JSON.parse(body) : {}; }, json: (res, status, value) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); }, siteProvider: async () => sites, environmentProvider: async () => ({ classifications, inventory: structuredClone(inventory) }) });
+    const handler = createLogisticsApi({ getRepository: async () => repository, readBody: async req => { let body = ''; for await (const part of req) body += part; return body ? JSON.parse(body) : {}; }, json: (res, status, value) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); }, siteProvider: async () => sites, companyProfileProvider: companyProfile ? async () => structuredClone(companyProfile) : undefined, environmentProvider: async () => ({ classifications, inventory: structuredClone(inventory) }) });
     const server = createServer((req, res) => void handler(req, res, new URL(req.url, 'http://localhost')).then(handled => { if (!handled) { res.writeHead(404); res.end(); } })); servers.push(server); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const base = `http://127.0.0.1:${server.address().port}`;
     async function request(path = officePath, data, actor = 'admin', cookie) { const response = await fetch(base + path, { method: data === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json', ...(actor ? { 'x-demo-actor': actor, 'x-demo-user': actor } : {}), ...(cookie ? { cookie } : {}) }, body: data === undefined ? undefined : JSON.stringify(data) }); return { status: response.status, cookie: response.headers.get('set-cookie'), ...await response.json() }; }
     return { repository, request };
   }
-  try { const first = await instance(); await run({ ...first, instance, inventory }); } finally { for (const server of servers) await new Promise(resolve => server.close(resolve)); for (const repo of repos) await repo.close(); if (pool) { await pool.query(`DROP SCHEMA "${schema}" CASCADE`); await pool.end(); } await rm(folder, { recursive: true, force: true }); }
+  try { const first = await instance(); await run({ ...first, instance, inventory, setCompany: value => { companyProfile = value; } }); } finally { for (const server of servers) await new Promise(resolve => server.close(resolve)); for (const repo of repos) await repo.close(); if (pool) { await pool.query(`DROP SCHEMA "${schema}" CASCADE`); await pool.end(); } await rm(folder, { recursive: true, force: true }); }
 }
 async function setupVessel(request, extra = {}) {
   const state = await request(), customer = state.customers.find(customer => customer.id === 'customer-build') ?? state.customers[0];
@@ -247,3 +247,23 @@ test('legacy planner cannot add external or fabricated final orders before logis
     const normal = structuredClone(base); normal.orders.push({ ...template, status: 'unbooked', id: 'AO-normal' }); assert.doesNotThrow(() => validateLogisticsTransportChange(state, base, normal));
   });
 }));
+
+
+test('preparing a new transport version freezes company branding and repeated preparation preserves it', async () => fixture(async ({ request, repository, setCompany }) => {
+  let order = await createOrder(request, input({ assignedDriverId: 'kalle', assignedVehicleId: 'vehicle-kalle', materialRows: [{ articleId: 'copper-1', plannedKg: 10 }] }));
+  await repository.transact(state => { state.logistics.details[order.id].materialRows[0].actualKg = 12; });
+  order = (await request()).orders.find(value => value.id === order.id);
+  order = await commandOrder(request, order, 'order.document');
+  const originalVersion = order.detail.document.version;
+  assert.equal(order.detail.document.companySnapshot.name, 'Ursprungligt bolag AB');
+  setCompany({ id: 'company-test', name: 'Nytt profilnamn AB', number: '5593593626', footerText: 'Ny sidfot' });
+  order = await commandOrder(request, order, 'order.document');
+  assert.equal(order.detail.document.version, originalVersion);
+  assert.equal(order.detail.document.companySnapshot.name, 'Ursprungligt bolag AB');
+  await repository.transact(state => { state.logistics.details[order.id].materialRows[0].actualKg = 13; });
+  order = (await request()).orders.find(value => value.id === order.id);
+  order = await commandOrder(request, order, 'order.document');
+  assert.ok(order.detail.document.version > originalVersion);
+  assert.equal(order.detail.document.companySnapshot.name, 'Nytt profilnamn AB');
+  assert.equal(order.detail.documentHistory[0].companySnapshot.name, 'Ursprungligt bolag AB');
+}, false, { companyProfile: { id: 'company-test', name: 'Ursprungligt bolag AB', number: '5593593626', footerText: 'Ursprunglig sidfot' } }));

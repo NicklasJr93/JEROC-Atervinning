@@ -1,10 +1,18 @@
+export interface FacilityTimeRange { open: string; close: string }
+export type FacilityWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+export interface FacilityOpeningHours {
+  week: Record<FacilityWeekday, FacilityTimeRange[] | null>;
+  exceptions: { date: string; label: string; closed: boolean; intervals: FacilityTimeRange[] }[];
+}
 export interface EnvironmentSite {
   id: string; name: string; address: string; postalCode: string; city: string; municipalityCode: string;
   version: number; active: boolean; permitReference: string; permitNotes: string;
+  phone?: string; email?: string; openingHours?: FacilityOpeningHours | null;
 }
 export interface EnvironmentSiteInput {
   expectedVersion: number; name: string; address: string; postalCode: string; city: string; municipalityCode: string;
   active: boolean; permitReference: string; permitNotes: string;
+  phone?: string; email?: string; openingHours?: FacilityOpeningHours | null;
 }
 export interface EnvironmentalStorageRule { siteId: string; allowed: boolean; maxKg: number | null }
 export interface EnvironmentalStoragePolicy {

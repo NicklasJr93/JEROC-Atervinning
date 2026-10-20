@@ -18,13 +18,14 @@ const sites = [{ id: 'norrtalje', name: 'Norrtälje', active: true, address: 'Ä
 
 async function fixture(run, { failHook = false, hookGate } = {}) {
   let time = initialTime; const now=()=>new Date(time);
+  let companyProfile = { id: 'company-hook', name: 'Originalbolaget AB', number: '5593593626', address: 'Originalgatan 2', postalCode: '76141', city: 'Norrtälje', footerText: 'Ursprunglig sidfot' };
   const directory = await mkdtemp(join(tmpdir(), 'jeroc-document-hooks-'));
   const terminalRepository = await createTerminalDemoRepository({ env: {}, filename: join(directory, 'terminal.sqlite') });
   const documentRepository = await createDocumentRepository({ env: {}, filename: join(directory, 'documents.sqlite') });
   const pricing = createPricingStore({ now });
   const hooks = [];
   let documents;
-  const terminal = createTerminalDemoApi({ env: {}, repository: terminalRepository, principalStore: pricing, siteProvider: async () => sites, now,
+  const terminal = createTerminalDemoApi({ env: {}, repository: terminalRepository, principalStore: pricing, siteProvider: async () => sites, companyProfileProvider: async () => structuredClone(companyProfile), now,
     onApprovalChanged: async (approval, job) => {
       // The lease contains the immutable committed milestone, not a public DTO
       // or a fresh read whose status may have advanced before this worker runs.
@@ -66,7 +67,7 @@ async function fixture(run, { failHook = false, hookGate } = {}) {
   const rows = frozen.rows.map(row => ({ articleId: row.articleId, weight: row.weight, price: row.price, tier: row.tier === 'Special' ? 'Eget' : row.tier }));
   const payload = { card: { id: 9201, siteId: 'norrtalje', customerId: customer.id, status: 'complement', yard: 'Norrtälje', date: '2026-10-09T09:00:00Z', reference: 'PDF hook test', origin: 'Testgatan 12', pricingSnapshotId: frozen.id, rows, audit: [] },
     customer, terminalId: created.value.id, siteId: 'norrtalje', rows: rows.map(row => ({ articleId: row.articleId, name: 'Koppar klass 1', weight: row.weight, price: row.price, amount: Math.round(row.weight * row.price * 100) / 100 })), offset: 0, correctionIds: [], idempotencyKey: 'pdf-hook-first-send' };
-  try { await run({ request, payload, staff, device: logged.cookie, hooks, terminal, documents, documentRepository, advance: milliseconds=>{time+=milliseconds;}, recover:()=>{failHook=false;} }); }
+  try { await run({ request, payload, staff, device: logged.cookie, hooks, terminal, documents, documentRepository, setCompany: value => { companyProfile = value; }, advance: milliseconds=>{time+=milliseconds;}, recover:()=>{failHook=false;} }); }
   finally { server.closeAllConnections(); server.close(); await once(server, 'close'); await terminal.close(); await documentRepository.close(); await rm(directory, { recursive: true, force: true }); }
 }
 
@@ -137,3 +138,23 @@ test('slow PDF work never delays terminal replies, and cancelling later preserve
     },{hookGate:gate});
   } finally { unblock(); }
 });
+
+
+test('queued PDF milestones freeze company branding before an outage or a later settings change', { timeout: 12000 }, async () => fixture(async ({ request, payload, staff, device, terminal, documentRepository, setCompany, recover, advance }) => {
+  const sent = await request('/approvals', payload, staff.kajsa);
+  assert.equal(sent.status, 201);
+  assert.equal(sent.value.companySnapshot, undefined, 'private company configuration is not exposed in a public approval DTO');
+  await terminal.drainDocumentJobs();
+  setCompany({ id: 'company-hook', name: 'Senare företagsnamn AB', number: '5593593626', footerText: 'Senare sidfot' });
+  assert.equal((await request(`/approvals/${sent.value.id}/respond`, { action: 'id_requested', termsAccepted: true }, device)).status, 200);
+  assert.equal((await request(`/approvals/${sent.value.id}/confirm-id`, {}, staff.kajsa)).status, 200);
+  assert.equal((await request(`/approvals/${sent.value.id}/attest`, {}, staff.anna)).status, 200);
+  recover(); advance(10000); await terminal.drainDocumentJobs();
+  const records = await documentRepository.transact(database => database.documents('settlement', '9201'));
+  assert.deepEqual(new Set(records.map(record => record.stage)), new Set(['preliminary', 'reviewed', 'final']));
+  for (const record of records) {
+    assert.equal(record.snapshot.company.name, 'Originalbolaget AB');
+    assert.equal(record.snapshot.company.footerText, 'Ursprunglig sidfot');
+    assert.equal(record.snapshot.company.address, 'Originalgatan 2');
+  }
+}, { failHook: true }));

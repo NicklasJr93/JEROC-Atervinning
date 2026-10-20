@@ -19,21 +19,25 @@ import { ensurePortalDemoAccounts } from './portal-demo.mjs';
 import { createNvvClient } from './nvv-client.mjs';
 import { restrictPilotIntegrationService, handlePilotIntegrationRequest } from './pilot-integrations.mjs';
 import { can } from '../dist-server/domain-models.mjs';
+import { createCompanySettingsService } from './company-settings.mjs';
+import { createCompanySettingsApi } from './company-settings-api.mjs';
+import { createCompanyLogoService } from './company-logo.mjs';
+import { createCompanyLogoApi } from './company-logo-api.mjs';
 
 /** All repositories, queues and provider connections belong to one immutable
  * server-selected organisation. A request can never change this bundle's scope. */
-export async function createTenantServices({ env, seed, initialSites, trustedPrincipalProvider, reauthorizeTrustedPrincipal, company } = {}) {
+export async function createTenantServices({ env, seed, initialSites, trustedPrincipalProvider, reauthorizeTrustedPrincipal, company, companySettingsAuthorize } = {}) {
   const restrictIntegration = (provider, service) => restrictPilotIntegrationService({ env, provider, service });
   const organisationId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
   if (organisationId !== 'jeroc-demo' && (!company || company.id !== organisationId || !company.name?.trim()))
     throw new TypeError('Bolagets dokument behöver dess egen servervalda företagsprofil.');
-  // Legal company identity belongs to the immutable service bundle. It is never
-  // supplied by a browser, inherited from JEROC, or changed by a support selection.
-  const documentCompany = Object.freeze({ id: organisationId,
+  // Legal identity belongs to the immutable server-selected bundle. Editable
+  // contact/branding settings are read afresh only for NEW document snapshots.
+  const initialDocumentCompany = Object.freeze({ id: organisationId,
     name: company?.name ?? 'JEROC Återvinning AB', number: company?.organisationNumber ?? company?.number ?? '',
     vat: company?.vat ?? '', address: company?.address ?? '', postalCode: company?.postalCode ?? '', city: company?.city ?? '' });
   const applicationApi = createApplicationService({ env, seed, approvalProvider: () => terminalDemoApi.projections(),
-    voiceTestCompanyName: documentCompany.name,
+    voiceTestCompanyName: initialDocumentCompany.name, companyProfileProvider: () => documentCompany(),
     reauthorizeVoiceCall: async (state, call, req) => {
       const platform = getPlatformContext(req);
       if (!platform || platform.organisationId !== organisationId || typeof reauthorizeTrustedPrincipal !== 'function')
@@ -62,6 +66,14 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
         throw new PricingError('En uppladdad bild saknas. Ladda upp bilden igen innan du sparar.', 422);
     },
   });
+  const companyLogoService = createCompanyLogoService({ env, organisationId });
+  const companySettingsService = createCompanySettingsService({ organisationId,
+    company: { ...company, ...initialDocumentCompany, organisationNumber: initialDocumentCompany.number },
+    getRepository: () => applicationApi.getRepository(), validateLogo: id => companyLogoService.hasLogo(id) });
+  const authorizeCompanySettings = companySettingsAuthorize ?? (async () => { throw new PricingError('Logga in i bolaget för att öppna företagsinställningarna.', 401); });
+  const companySettingsApi = createCompanySettingsApi({ service: companySettingsService, authorize: authorizeCompanySettings });
+  const companyLogoApi = createCompanyLogoApi({ service: companyLogoService, authorize: authorizeCompanySettings });
+  const documentCompany = () => companySettingsService.documentProfile();
   const principalStore = applicationApi.principalStore;
   const articleMediaApi = createArticleMediaApi({ env, authorize: req => applicationApi.withPrincipal(() => {
     const actor = req.headers['x-demo-actor'];
@@ -162,7 +174,7 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
         .map(row => ({ id: row.id, siteId: row.siteId, articleId: row.articleId, wasteCode: row.wasteCode,
           weight: row.kg, receivedAt: row.at, kind: 'outbound', sourceId: row.sourceId })), { domains: ['logistics'] }),
   });
-  const terminalDemoApi = createTerminalDemoApi({ env, trustedPrincipalProvider, principalStore, siteProvider: () => environmentApi.getSites(),
+  const terminalDemoApi = createTerminalDemoApi({ env, trustedPrincipalProvider, principalStore, companyProfileProvider: documentCompany, siteProvider: () => environmentApi.getSites(),
     environmentApprovalCheck: approval => environmentApi.assertReceiptForAttest(approval),
     accountingSourceProvider: async request => {
       const customer = await (await applicationApi.getRepository()).read(state => structuredClone(state.office.customers.find(value => value.id === request.customer.id)), { domains: ['office'] });
@@ -174,12 +186,19 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     attestBookingCheck: (approval, principal) => vismaService.checkAttestBooking(approval, {
       organisationId, actorId: principal.actor.id, effectiveUserId: principal.user.id,
     }),
-    onApprovalChanged: (approval, job) => job
-      ? documentsApi.archiveApprovalJob(approval, { ...job, companySnapshot: structuredClone(documentCompany) })
+    onApprovalChanged: async (approval, job) => job
+      ? documentsApi.archiveApprovalJob(approval, { ...job, companySnapshot: job.companySnapshot ?? approval.companySnapshot ?? structuredClone(initialDocumentCompany) })
       : documentsApi.ensureApproval(approval),
   });
   const documentsApi = createDocumentsApi({ env,
-    renderPdf,
+    renderPdf: async snapshot => {
+      if (!snapshot.company?.logoId) return renderPdf(snapshot);
+      // Resolve only the immutable asset referenced by this frozen snapshot.
+      // A later profile/logo change cannot substitute the latest company mark.
+      const logo = await companyLogoService.read(snapshot.company.logoId);
+      if (!logo) throw new PricingError('Dokumentets sparade företagslogga saknas. Försök igen.', 409, 'company_logo_missing');
+      return renderPdf(snapshot, { logoBytes: logo.bytes });
+    },
     resolvePrincipal: req => principalStore.runFreshPrincipal(() => {
       const actor = req.headers['x-demo-actor'];
       const user = req.headers['x-demo-user'] ?? actor;
@@ -190,17 +209,17 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     sourceProvider: async (request = {}) => {
       if (request.kind === 'article-names') {
         const repository = await applicationApi.getRepository();
-        return { company: structuredClone(documentCompany), pricing: { articles: await repository.readArticleNames(request.articleIds) } };
+        return { company: await documentCompany(), initialCompany: structuredClone(initialDocumentCompany), pricing: { articles: await repository.readArticleNames(request.articleIds) } };
       }
       // A durable PDF job already supplies its frozen business/approval source.
       // Older jobs need only the facility, never all current application history.
-      if (request.kind === 'approval-job') return { company: structuredClone(documentCompany), sites: await environmentApi.getSites() };
+      if (request.kind === 'approval-job') return { company: structuredClone(initialDocumentCompany), initialCompany: structuredClone(initialDocumentCompany), sites: await environmentApi.getSites() };
       if (request.kind === 'approval') {
         const [approvals, sites] = await Promise.all([
           terminalDemoApi.documentProjections({ cardId: Number(request.sourceId), approvalId: request.approvalId }),
           environmentApi.getSites(),
         ]);
-        return { company: structuredClone(documentCompany), approvals, sites };
+        return { company: await documentCompany(), initialCompany: structuredClone(initialDocumentCompany), approvals, sites };
       }
       const repository = await applicationApi.getRepository();
       // Release the application aggregate before reading the terminal/environment
@@ -231,7 +250,7 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
         transport ? [] : terminalDemoApi.documentProjections({ cardId: Number(source.office.cards[0]?.id ?? source.office.payments[0]?.cardId ?? request.sourceId) }),
         environmentApi.getSites(),
       ]);
-      return { ...source, company: structuredClone(documentCompany), approvals, sites };
+      return { ...source, company: await documentCompany(), initialCompany: structuredClone(initialDocumentCompany), approvals, sites };
     },
   });
 
@@ -263,11 +282,13 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
       await bankService.initialize();
     } catch (error) { await close(); throw error; }
     async function close() {
-      await Promise.allSettled([terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close()]);
+      await Promise.allSettled([terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close(), companyLogoService.close()]);
     }
-    return { applicationApi, articleMediaApi, vismaService, swishService, bankService, mailService, resolveMailContext, environmentApi, terminalDemoApi, documentsApi, close,
+    return { applicationApi, articleMediaApi, companySettingsService, companyLogoService, vismaService, swishService, bankService, mailService, resolveMailContext, environmentApi, terminalDemoApi, documentsApi, close,
       async handle(req, res, url) {
         if (handlePilotIntegrationRequest(env, req, res, url)) return true;
+        if (await companySettingsApi(req, res, url)) return true;
+        if (await companyLogoApi(req, res, url)) return true;
         if (await mailApi(req, res, url)) return true;
         if (await articleMediaApi(req, res, url)) return true;
         if (await applicationApi(req, res, url)) return true;

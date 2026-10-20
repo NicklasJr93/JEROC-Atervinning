@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2,
@@ -25,6 +25,7 @@ import { employeeCompanyId } from '../employee/cache';
 import CompanyLookup from '../company-register/CompanyLookup';
 import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
 import AddressAssist from '../address-assistance/AddressAssist';
+import { applyInitialPaymentTerms, useCompanyDefaults } from '../company-settings-defaults';
 import { formatCompanyRegisterAddress, normalizeCompanyLookupNumber } from '../company-register/client';
 import type { PaymentDetails } from '../payment-details';
 import MobilePaymentFields from './MobilePaymentFields';
@@ -238,11 +239,25 @@ export function NewCustomerPage() {
   const [error, setError] = useState('');
   const [includePayment, setIncludePayment] = useState(false);
   const [paymentProfile, setPaymentProfile] = useState<PaymentDetails>({ method: 'bank', bankType: 'account' });
+  const [paymentTermDays, setPaymentTermDays] = useState<number>();
+  const paymentTermDirty = useRef(false);
+  const companyDefaults = useCompanyDefaults({ enabled: Boolean(draft && session?.capabilities.yardWork),
+    scopeKey: JSON.stringify([draft?.id, session?.companyId, session?.person.id, sessionGeneration]),
+    requestHeaders: session ? { 'X-Employee-Company': employeeCompanyId(session.companyId), 'X-Employee-Person': session.person.id } : undefined });
+  useEffect(() => {
+    if (!companyDefaults) return;
+    setPaymentTermDays(current => applyInitialPaymentTerms({ paymentTermDays: current }, companyDefaults.defaults,
+      { fresh: true, dirty: paymentTermDirty.current }).paymentTermDays);
+  }, [companyDefaults]);
   if (!draft) return <MissingDraft />;
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
       setError('Ange kundens namn eller företagsnamn.');
+      return;
+    }
+    if (paymentTermDays !== undefined && (!Number.isInteger(paymentTermDays) || paymentTermDays < 0 || paymentTermDays > 3650)) {
+      setError('Ange ett helt antal betalningsdagar mellan 0 och 3650, eller lämna tomt för integrationens standard.');
       return;
     }
     const customer: Customer = {
@@ -257,6 +272,7 @@ export function NewCustomerPage() {
       city: city.trim(),
       countryCode: 'SE',
       vatRegistered: type === 'Privatperson' ? false : vatRegistered,
+      ...(paymentTermDays === undefined ? {} : { paymentTermDays }),
       references: [],
       origins: [],
       ...(includePayment && session?.capabilities.paymentDetails ? { paymentProfile: { ...paymentProfile,
@@ -372,6 +388,10 @@ export function NewCustomerPage() {
           <p className="field-help">
             Materialets ursprungsadress anges separat efter att kunden är vald.
           </p>
+          <label>Betalningsdagar (valfritt)<input aria-label="Betalningsdagar (valfritt)" type="number" min={0} max={3650} step={1}
+            value={paymentTermDays === undefined ? '' : Number.isFinite(paymentTermDays) ? paymentTermDays : ''}
+            onChange={event => { paymentTermDirty.current = true; setPaymentTermDays(event.target.value === '' ? undefined : Number(event.target.value)); }} /></label>
+          <p className="field-help">Bolagets förval fylls i för nya kunder. Lämna tomt för att följa integrationens standard.</p>
           {session?.capabilities.paymentDetails && <section className="mobile-payment-profile">
             <label className="mobile-origin-copy"><input type="checkbox" checked={includePayment}
               aria-label="Lägg till betalningsuppgifter" onChange={event => {

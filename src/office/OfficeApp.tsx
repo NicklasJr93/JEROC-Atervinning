@@ -1,4 +1,5 @@
 import AddressAssist from '../address-assistance/AddressAssist';
+import { useCompanyDefaults } from '../company-settings-defaults';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -35,6 +36,7 @@ import {
   Trash2,
   Mail,
   Wrench,
+  Settings,
 } from 'lucide-react';
 import { initialCustomers, articleById } from '../data';
 import OfficeDocument from './OfficeDocument';
@@ -70,6 +72,7 @@ import { terminalDemoApi } from './terminal-demo-client';
 import type { TerminalApproval } from './terminal-demo-types';
 const TransportWorkspace = lazy(() => import('./transport/TransportWorkspace'));
 const FacilitiesWorkspace = lazy(() => import('./FacilitiesWorkspace'));
+const CompanySettingsWorkspace = lazy(() => import('./CompanySettingsWorkspace'));
 const PersonalWorkspace = lazy(() => import('./personnel/PersonalWorkspace'));
 const FleetWorkspace = lazy(() => import('./fleet/FleetWorkspace'));
 const EquipmentWorkspace = lazy(() => import('./personnel/EquipmentWorkspace'));
@@ -163,7 +166,11 @@ const customerName = (c: OfficeCard) =>
   'Kund saknas';
 export function OfficeApp() {
   const platform = usePlatformContext();
-  const companyName = platform?.session.company?.name ?? 'JEROC Återvinning';
+  const [companyProfileRefresh, setCompanyProfileRefresh] = useState(0);
+  const companyContext = useCompanyDefaults({ enabled: Boolean(platform?.session.organisationId),
+    scopeKey: `${platform?.session.organisationId ?? ''}/${platform?.session.generation ?? ''}/${companyProfileRefresh}` });
+  const companyName = companyContext && companyContext.companyId === platform?.session.organisationId
+    ? companyContext.profile.name : platform?.session.company?.name ?? 'JEROC Återvinning';
   useEffect(() => {
     const previous = document.title;
     document.title = `ScrapPilot · ${companyName}`;
@@ -785,6 +792,7 @@ export function OfficeApp() {
     { id: 'integrations', name: 'Integrationer', icon: PlugZap, right: 'integrationsRead' },
     { id: 'environment', name: 'Miljörapportering', icon: Leaf, right: 'environmentRead' },
     { id: 'facilities', name: 'Anläggningar', icon: Building2, right: 'environmentRead' },
+    { id: 'company-settings', name: 'Företagsinställningar', icon: Settings, right: 'companySettingsRead' },
     {
       id: 'corrections',
       name: 'Rättelser',
@@ -1223,7 +1231,9 @@ export function OfficeApp() {
         <nav>
           {nav
             .filter((n) =>
-              n.id === 'fleet'
+              n.id === 'company-settings'
+                ? [actualUser!, user].every(account => can(account, 'companySettingsRead'))
+                : n.id === 'fleet'
                 ? [actualUser!, user].every(account => can(account, 'fleetRead'))
                 : n.id === 'terminals'
                 ? user.level === 'Systemadmin'
@@ -1242,6 +1252,8 @@ export function OfficeApp() {
                 aria-label={n.name}
                 aria-describedby={navigationCounts[n.id] > 0 ? `office-nav-count-${n.id}` : undefined}
                 onClick={() => {
+                  if (section === 'company-settings' && n.id !== section
+                    && !window.dispatchEvent(new Event('scrappilot:before-company-settings-navigation', { cancelable: true }))) return;
                   setSearch('');
                   setMessage('');
                   navigate(n.id === 'personnel' && !can(user, 'personnelRead') ? '/personnel/accounts' : `/${n.id}`);
@@ -2236,6 +2248,11 @@ export function OfficeApp() {
             <Suspense fallback={<div className="office-panel" role="status">Hämtar integrationer…</div>}>
               {bankSandboxView ? <BankSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} onNotice={setMessage} /> : swishSandboxView ? <SwishSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} onNotice={setMessage} /> : vismaSandboxView ? <VismaSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : nvvSandboxView ? <NvvSandboxWorkspace key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} /> : <IntegrationsWorkspace
                 key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!} users={data.users} siteId={siteFilter} onNotice={setMessage} />}
+            </Suspense>
+          ) : section === 'company-settings' ? (
+            <Suspense fallback={<div className="office-panel" role="status">Hämtar företagsinställningar…</div>}>
+              <CompanySettingsWorkspace key={principalIdentity} user={user} actualUser={actualUser!}
+                onNotice={setMessage} onProfileChanged={() => setCompanyProfileRefresh(value => value + 1)} />
             </Suspense>
           ) : section === 'facilities' ? (
             <Suspense fallback={<div className="office-panel">Hämtar anläggningar…</div>}><FacilitiesWorkspace user={user} actualUser={actualUser!} onNotice={setMessage} /></Suspense>

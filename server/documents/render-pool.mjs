@@ -40,15 +40,15 @@ export function createPdfRenderer({ workerUrl = new URL('./render-worker.mjs', i
     const job = queue.shift();
     if (!job) { worker?.unref(); return; }
     active = job;
-    try { const current = getWorker(); current.ref(); current.postMessage({ id: job.id, snapshot: job.snapshot }); }
+    try { const current = getWorker(); current.ref(); current.postMessage({ id: job.id, snapshot: job.snapshot, options: job.options }); }
     catch { if (worker) abandon(worker); else { active = undefined; complete(job, failure()); pump(); } }
   }
-  function render(snapshot) {
+  function render(snapshot, options = {}) {
     if (closed) return Promise.reject(failure());
     if (active && queue.length >= maxQueued) return Promise.reject(failure('pdf_generation_busy'));
     const frozen = structuredClone(snapshot);
     return new Promise((resolve, reject) => {
-      const job = { id: ++nextId, snapshot: frozen, resolve, reject, timer: undefined };
+      const job = { id: ++nextId, snapshot: frozen, options: structuredClone(options), resolve, reject, timer: undefined };
       job.timer = setTimeout(() => {
         const error = failure('pdf_generation_timeout');
         if (active === job) {
@@ -74,5 +74,5 @@ export function createPdfRenderer({ workerUrl = new URL('./render-worker.mjs', i
 }
 
 const renderer = createPdfRenderer();
-export const renderPdf = snapshot => renderer.render(snapshot);
+export const renderPdf = (snapshot, options) => renderer.render(snapshot, options);
 export const closePdfRenderer = () => renderer.close();

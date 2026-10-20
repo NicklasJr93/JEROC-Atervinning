@@ -3400,3 +3400,37 @@ Status: Genomförd i kod 2026-10-20 tillsammans med ÄL 138.
 - Underlag och provkommandon: docs/integrationer/scb-foretagsregister.md.
   Samlade byggkontroller redovisas vid leverans. Verifieringen använder
   syntetiska registerträffar och innebär inte ett genomfört skarpt SCB-anrop.
+
+
+ÄL 140 – Företagsinställningar för VD och lokala öppettider
+Status: Implementerad i kod 2026-10-20. Driftsatt prov följer efter deployment.
+- Befintligt kontors-UI återanvänds: samma sidomeny, sidhuvud, flikar, paneler,
+  formulär och knappar. Bildmockupen är innehållsförslag, inte ett nytt tema.
+  Regel för framtida mockuper: återanvänd befintligt UI och publicera på GitHub.
+- Ny meny Företagsinställningar med Företaget, Logga & dokument, Standardval
+  och Aviseringar. VD/systemadmin och uttryckligen behöriga användare får läsa;
+  sparande kräver båda identiteternas globala ändringsbehörighet.
+- Företagsnamn, postadress, telefon, kund-/fakturamejl, kontaktperson och
+  webbplats sparas per bolag med version, användare och tid. Organisationsnummer
+  och bolagsidentitet kan inte bytas genom profilformuläret.
+- Logga laddas upp som PNG/JPEG/WebP, högst 1 MiB, valideras och omkodas till
+  PNG utan metadata i bolagets beständiga bildarkiv. Uppladdning ändrar endast
+  utkastet; sparande väljer aktuell logga. Äldre loggor behålls för historiken.
+- Nya dokument fryser företagets profil, logga och sidfot. Låsta original och
+  arkiverade PDF-filer ändras inte när VD ändrar företagets uppgifter.
+- Betalningsvillkor är ett verkligt förval för nya kunder i fullständigt
+  formulär, snabbregistrering och mobil. Befintliga kunder, överförda utkast
+  och manuella val skrivs inte över av förval eller sena nätverkssvar.
+- Aviseringar sparar mottagarlistor för förfrågningar, bokningar och
+  integrationsfel. Listorna aktiverar inte i sig någon ny e-postleverans.
+- Anläggningar äger lokal telefon/e-post, veckans öppettider, delade öppna
+  perioder och avvikande datum. Ej angivet skiljs från stängt. Äldre klienter
+  som inte skickar de nya fälten tömmer inte sparade uppgifter.
+- Ändringar skyddas med verklig session, CSRF, tenantisolering och kontroll
+  av både inloggad och vald användare. Versionskonflikt behåller utkastet.
+- Samtidig förbättring: Googles adresshjälp skiljer fel vid hämtning av
+  adressdetaljer, ofullständig adress och nekad serveranslutning. Ingen
+  obekräftad Google-adress används för att kringgå ett valideringsfel.
+- Underlag: docs/foretagsinstallningar.md och
+  docs/mockups/foretagsinstallningar/README.md. Tester och begränsningar
+  dokumenteras tillsammans med leveransen; inga skarpa nycklar används lokalt.

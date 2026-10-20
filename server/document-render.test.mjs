@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { renderPdf } from './documents/render.mjs';
+import sharp from 'sharp';
 
 const party = { name: 'JEROC Återvinning AB', number: '559123-4567', vat: 'SE559123456701', address: 'Ängsvägen 19', postalCode: '761 41', city: 'Norrtälje' };
 const sample = () => ({
@@ -155,4 +156,29 @@ test('hundreds of rows and oversized unbroken descriptions wrap across A4 pages 
   }
   const boxes = await extracted(pdf, true);
   for (const word of boxes.matchAll(/<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)"/g)) assert.ok(Number(word[3]) <= 567 && Number(word[4]) < 840, 'paginated content exceeds A4');
+});
+
+
+test('immutable uploaded company logo and confirmed contact/footer details render inside A4 without legacy branding', { skip: !canExtract }, async () => {
+  const logoBytes = await sharp({ create: { width: 160, height: 50, channels: 4, background: '#167b5b' } }).png().toBuffer();
+  const source = sample();
+  source.company = { ...party, id: 'company-branding', name: 'Profilbolaget AB',
+    logoId: '00000000-0000-4000-8000-000000000001', phone: '+46812345678', email: 'kontakt@example.test',
+    website: 'https://example.test', footerText: 'Bekräftad dokumenttext. Tack för att du återvinner med oss.' };
+  const before = structuredClone(source);
+  const pdf = await renderPdf(source, { logoBytes }), text = await extracted(pdf), bbox = await extracted(pdf, true);
+  assert.match(pdf.toString('latin1'), /\/Subtype \/Image/);
+  for (const expected of ['Profilbolaget AB', '+46812345678', 'kontakt@example.test', 'https://example.test', 'Bekräftad dokumenttext.', 'Tack för att du återvinner med oss.'])
+    assert.ok(text.includes(expected), expected);
+  assert.doesNotMatch(text, /JEROC/);
+  for (const word of bbox.matchAll(/<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)"/g))
+    assert.ok(Number(word[1]) >= 28 && Number(word[3]) <= 567 && Number(word[4]) < 840, 'branding exceeds A4 bounds');
+  assert.deepEqual(source, before, 'Rendering cannot modify the frozen profile or its source.');
+});
+
+test('a frozen company logo reference cannot silently fall back to the latest or legacy logo', async () => {
+  const source = sample(); source.company = { ...source.company, id: 'company-branding', logoId: '00000000-0000-4000-8000-000000000001' };
+  await assert.rejects(renderPdf(source), /sparade företagsloggan/);
+  await assert.rejects(renderPdf(source, { logoBytes: '/tmp/not-a-logo.png' }), /sparade företagsloggan/);
+  await assert.rejects(renderPdf(source, { logoBytes: Buffer.from('<svg onload="bad()"></svg>') }), /ogiltigt format/);
 });

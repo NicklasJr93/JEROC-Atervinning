@@ -20,7 +20,7 @@ const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
 const deviceRoute = url => /^\/api\/terminal-demo\/(session|login|logout|heartbeat|terminal-events)$/.test(url.pathname)
   || /^\/api\/terminal-demo\/approvals\/[^/]+\/(respond|displayed)$/.test(url.pathname);
-const employeeRoute = url => url.pathname.startsWith('/api/employee/') || url.pathname.startsWith('/api/driver/')
+const employeeRoute = url => url.pathname === '/api/company-settings/defaults' || url.pathname.startsWith('/api/employee/') || url.pathname.startsWith('/api/driver/')
   || /^\/api\/(customer|carrier)\//.test(url.pathname)
   || /^\/api\/application\/(mobile|mobile-prices)(?:$|\/)/.test(url.pathname)
   || url.pathname === '/api/application/revision' && url.searchParams.get('domain') === 'mobile';
@@ -86,7 +86,8 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
             id: registeredOwner.id, personId: `person-${registeredOwner.id}`, name: registeredOwner.name, username: registeredOwner.username,
             email: registeredOwner.email, passwordHash: registeredOwner.password, mustChangePassword: registeredOwner.mustChangePassword,
           } }) }),
-          ...(company.id !== legacyId && { initialSites: tenantInitialSites(company) }), trustedPrincipalProvider, reauthorizeTrustedPrincipal });
+          ...(company.id !== legacyId && { initialSites: tenantInitialSites(company) }), trustedPrincipalProvider, reauthorizeTrustedPrincipal,
+          companySettingsAuthorize: (req, options) => authorizeCompanySettingsRequest(req, company, options) });
       })();
       bundles.set(company.id, pending);
       pending.catch(() => { if (bundles.get(company.id) === pending) bundles.delete(company.id); });
@@ -244,6 +245,35 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
         identity.actor.id, identity.user.id, identity.personId, company.id, identity.sessionKey,
       ]) };
     };
+  async function authorizeCompanySettingsRequest(req, expectedCompany, { write = false, basic = false } = {}) {
+    const mayRead = user => user?.active !== false && (['VD', 'Systemadmin'].includes(user.level)
+      || user.permissions?.some(right => ['companySettingsRead', 'companySettingsWrite'].includes(right)));
+    const mayWrite = user => user?.active !== false && !user.siteIds
+      && (['VD', 'Systemadmin'].includes(user.level) || user.permissions?.includes('companySettingsWrite'));
+    let company, actor, user, actorId, userId, scopeKey;
+    if (platformCookieToken(req) !== undefined) {
+      const context = await auth.resolveContext(req, { writes: write });
+      bindIdentity(req, context);
+      company = context.company; actor = context.actualUser; user = context.user;
+      actorId = actor.id; userId = user.id;
+      scopeKey = JSON.stringify([context.actorId, actorId, userId, company.id, context.sessionKey, context.generation]);
+    } else {
+      if (!basic || write || !hasEmployeeSession(req)) throw new PlatformError('Logga in för att öppna företagsinställningarna.', 401, 'company_settings_session_required');
+      company = (await auth.resolveTenantSelector(req))?.company ?? defaultCompany;
+      if (!company) throw new PlatformError('Öppna bolagets egen inloggningslänk.', 409, 'platform_company_required');
+      const service = await bundle(company);
+      const identity = await (await service.applicationApi.getRepository()).read(state => employeeCompanyLookupContext(state, req), { domains: ['pricing', 'personnel', 'personnelAuth'] });
+      actor = identity.actor; user = identity.user; actorId = actor.id; userId = user.id;
+      scopeKey = JSON.stringify([actorId, userId, identity.personId, company.id, identity.sessionKey]);
+    }
+    const selected = req.headers['x-client-company'] ?? req.headers['x-employee-company'];
+    if (company.id !== expectedCompany.id || selected !== undefined && selected !== company.id)
+      throw new PlatformError('Bolaget har ändrats. Öppna sidan igen.', 409, 'company_settings_scope_changed');
+    const canManage = mayWrite(actor) && mayWrite(user);
+    if (!basic && (!mayRead(actor) || !mayRead(user)) || write && !canManage)
+      throw new PlatformError('Du saknar behörighet för företagsinställningarna.', 403, 'company_settings_forbidden');
+    return { companyId: company.id, actorId, userId, scopeKey, canManage };
+  }
   const companyRegisterApi = createCompanyRegisterApi({ register: companyRegister ?? createScbCompanyRegister({ env }),
     authorize: req => authorizeAssistance(req) });
   const addressAssistanceApi = createAddressAssistanceApi({ validator: addressValidation ?? createGoogleAddressValidation({ env }),
@@ -279,7 +309,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       const mailCallback = url.pathname === '/api/integrations/microsoft-mail/callback';
       const callback = bankCallback || mailCallback || url.pathname === '/api/integrations/visma/oauth/callback';
       if (!callback || req.method !== 'GET') sameOrigin(req);
-      const mediaRead = (url.pathname.startsWith('/api/article-media/') || /^\/api\/fleet\/files\/[a-f0-9-]+$/.test(url.pathname)) && ['GET', 'HEAD'].includes(req.method);
+      const mediaRead = (/^\/api\/company-settings\/logos\/[a-f0-9-]+$/.test(url.pathname) || url.pathname.startsWith('/api/article-media/') || /^\/api\/fleet\/files\/[a-f0-9-]+$/.test(url.pathname)) && ['GET', 'HEAD'].includes(req.method);
       const office = callback || !employeeRoute(url) && !deviceRoute(url) && !mediaRead;
       let context, company;
       if (office) { context = await auth.resolveContext(req); company = context.company; bindIdentity(req, context); protectStream(req, res, context); }

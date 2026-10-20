@@ -90,6 +90,18 @@ test('betalningsdagar valideras som heltal och integrationens standard förblir 
   }
 });
 
+test('bolagets betalningsförval gäller bara ett nytt kundutkast och inte befintliga eller överförda värden', () => {
+  const data = seedOffice();
+  expect(createCustomerDraft(data, undefined, { paymentTermsDays: 45 }).paymentTermDays).toBe(45);
+  expect(createCustomerDraft(data, undefined, { paymentTermsDays: 0 }).paymentTermDays).toBe(0);
+  expect(createCustomerDraft(data, undefined, { paymentTermsDays: null }).paymentTermDays).toBeUndefined();
+  const initial = { ...createCustomerDraft(data), paymentTermDays: 10 };
+  expect(createCustomerDraft(data, initial, { paymentTermsDays: 45 }).paymentTermDays).toBe(10);
+  const integrationStandard = createCustomerDraft(data);
+  expect(createCustomerDraft(data, integrationStandard, { paymentTermsDays: 45 }).paymentTermDays).toBeUndefined();
+  expect(integrationStandard.paymentTermDays).toBeUndefined();
+});
+
 test('kundsparande använder kanoniskt nummer, telefon och uppdelad adress utan att mutera utkastet', () => {
   const data = seedOffice(), number = testOrganisationNumber();
   const draft = { ...createCustomerDraft(data), name: 'Formatkund', number: `${number.slice(0, 6)}-${number.slice(6)}`,

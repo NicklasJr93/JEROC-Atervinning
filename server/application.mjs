@@ -546,7 +546,7 @@ function requestPrincipal(store, req) {
 
 export function createApplicationService({ repository, env = process.env, seed = initialApplicationState, projections, approvalProvider = async () => [], sendCustomerReview,
   withMaterialChangeApproval, guardMaterialChange, siteProvider = async () => [{id:'norrtalje',name:'Norrtälje',active:true},{id:'rimbo',name:'Rimbo',active:true}], environmentProvider,
-  accountingSettingsProvider, accountingCardStatusProvider, validateArticleMedia, managedPaymentGuard, reauthorizeVoiceCall, voiceTestCompanyName } = {}) {
+  accountingSettingsProvider, accountingCardStatusProvider, validateArticleMedia, managedPaymentGuard, reauthorizeVoiceCall, voiceTestCompanyName, companyProfileProvider } = {}) {
   projections ??= approvalProvider;
   const mobilePricingProjection = createMobilePricingProjection();
   const context = new AsyncLocalStorage(); let fallback = createPricingStore(); let repoPromise;
@@ -1245,7 +1245,7 @@ export function createApplicationService({ repository, env = process.env, seed =
   }
   const driverApi = createDriverApi({getRepository:getRepo,readBody:body,json,env});
   const employeeApi = createMobileEmployeeApi({getRepository:getRepo,readBody:body,json,siteProvider,env});
-  const logisticsApi = createLogisticsApi({getRepository:getRepo,readBody:body,json,siteProvider,environmentProvider,env});
+  const logisticsApi = createLogisticsApi({getRepository:getRepo,readBody:body,json,siteProvider,environmentProvider,companyProfileProvider,env});
   const officePrincipal = (state, req) => requestPrincipal({ principal: (actor, user) => resolvePricingPrincipal(state.pricing.users, actor, user) }, req);
   const aiSupportApi = createAiSupportApi({ env, getRepository: getRepo, officePrincipal, siteProvider, companyName: voiceTestCompanyName, reauthorizePreview: reauthorizeVoiceCall });
   const voiceTestApi = createVoiceTestApi({ env, getRepository: getRepo, officePrincipal, siteProvider, reauthorizeCall: reauthorizeVoiceCall, companyName: voiceTestCompanyName });

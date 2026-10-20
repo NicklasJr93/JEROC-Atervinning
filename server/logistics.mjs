@@ -277,13 +277,13 @@ function officeState(state, principal) {
     deliveryOutbox: work ? copy(d.deliveryOutbox.filter(delivery => orders.some(order => order.id === delivery.orderId))) : [] };
 }
 function documentFingerprint(detail) { return hash({ from: detail.from, to: detail.to, carrierId: detail.carrierId, driverId: detail.assignedDriverId, vehicleId: detail.assignedVehicleId, rows: detail.materialRows, handling: detail.handling }); }
-function prepareDocument(detail) {
+function prepareDocument(detail, companySnapshot) {
   if (detail.materialRows.some(row => !row.actualKg)) fail('Registrera verkliga vikter innan transportdokumentet fastställs.', 422);
   if (!detail.assignedDriverId || !detail.assignedVehicleId) fail('Tilldela förare och fordon innan dokumentet fastställs.', 422);
   const fingerprint = documentFingerprint(detail);
   if (detail.document?.hash === fingerprint) return;
   detail.documentHistory ??= []; if (detail.document) detail.documentHistory.push(copy(detail.document));
-  detail.document = { version: (detail.documentHistory.at(-1)?.version ?? 0) + 1, hash: fingerprint, preparedAt: stamp(), signatures: [], status: 'prepared', snapshot: { from: copy(detail.from), to: copy(detail.to), carrierId: detail.carrierId, driverId: detail.assignedDriverId, vehicleId: detail.assignedVehicleId, rows: copy(detail.materialRows), handling: detail.handling } };
+  detail.document = { version: (detail.documentHistory.at(-1)?.version ?? 0) + 1, hash: fingerprint, preparedAt: stamp(), signatures: [], status: 'prepared', ...(companySnapshot && { companySnapshot: copy(companySnapshot) }), snapshot: { from: copy(detail.from), to: copy(detail.to), carrierId: detail.carrierId, driverId: detail.assignedDriverId, vehicleId: detail.assignedVehicleId, rows: copy(detail.materialRows), handling: detail.handling } };
 }
 function signDocument(detail, role, actor, version, method) {
   const document = detail.document;
@@ -481,7 +481,7 @@ function saveAccount(state, principal, command, transactionAudit) {
   state.logisticsAuth.sessions = state.logisticsAuth.sessions.filter(session => session.accountId !== account.id);
   audit(state, actorOf(principal), 'portal_account.saved', { accountId: account.id, kind: account.kind, subjectId: account.subjectId }, transactionAudit); return {};
 }
-function officeCommand(state, principal, command, transactionAudit) {
+function officeCommand(state, principal, command, transactionAudit, companySnapshot) {
   if (!command || typeof command.action !== 'string') fail('Välj en åtgärd.', 422);
   if (command.action === 'vessel.save') return saveVessel(state, principal, command, transactionAudit);
   if (command.action === 'agreement.save') return saveAgreement(state, principal, command, transactionAudit);
@@ -571,7 +571,7 @@ function officeCommand(state, principal, command, transactionAudit) {
     detail.execution.officeCleared = command.cleared;
     orderAudit(state, order, detail, actor, 'transport.office_clearance', command.cleared ? 'Kontoret har frigjort uppdraget för avfärd.' : 'Kontorets frigörande har återkallats.', transactionAudit);
   } else if (command.action === 'order.load') { loadRows(detail, command.rows); orderAudit(state, order, detail, actor, 'transport.loaded', 'Verkliga lastvikter registrerade.', transactionAudit); }
-  else if (command.action === 'order.document') { prepareDocument(detail); orderAudit(state, order, detail, actor, 'transport.document_prepared', 'Aktuell dokumentversion förberedd för demogodkännanden.', transactionAudit); }
+  else if (command.action === 'order.document') { prepareDocument(detail, companySnapshot); orderAudit(state, order, detail, actor, 'transport.document_prepared', 'Aktuell dokumentversion förberedd för demogodkännanden.', transactionAudit); }
   else if (command.action === 'order.sign') {
     const role = parse(z.enum(['sender', 'carrier']), command.role); signDocument(detail, role, { id: principal.user.id, name: principal.user.name }, command.documentVersion, 'demo_staff');
     orderAudit(state, order, detail, actor, 'transport.document_signed_demo', `${role === 'sender' ? 'Lämnaren' : 'Transportören'} bekräftad av personal i demo.`, transactionAudit);
@@ -651,7 +651,7 @@ function portalSession(state, req, kind, env) {
   if (!session || !account?.active || !subject || !portalDemoAccountAllowed(state, kind, account, env) || account.subjectId !== session.subjectId) fail('Logga in igen för att fortsätta.', 401);
   return { session, account, subject };
 }
-export function createLogisticsApi({ getRepository, readBody, json, siteProvider = async () => [], environmentProvider = async () => ({ classifications: [], inventory: [] }), env = process.env }) {
+export function createLogisticsApi({ getRepository, readBody, json, siteProvider = async () => [], environmentProvider = async () => ({ classifications: [], inventory: [] }), companyProfileProvider, env = process.env }) {
   return async (req, res, url) => {
     const office = url.pathname === '/api/logistics/office', summary = url.pathname === '/api/logistics/summary'; const match = url.pathname.match(/^\/api\/(customer|carrier)\/(demo-config|session|login|logout|state|assets|orders|requests|actions)$/);
     if (!office && !summary && !match) return false;
@@ -694,6 +694,10 @@ export function createLogisticsApi({ getRepository, readBody, json, siteProvider
       // environmental stock ledger, facility store or any stock maintenance.
       const [sites, environment] = office || req.method === 'POST'
         ? await Promise.all([siteProvider(), environmentProvider()]) : [undefined, undefined];
+      // Read the trusted company profile before taking the business lock.
+      // A prepared transport version retains it while signatures/dispatch proceed.
+      const companySnapshot = office && req.method === 'POST' && payload?.action === 'order.document' && companyProfileProvider
+        ? copy(await companyProfileProvider()) : undefined;
       const operate = (state, _, transactionAudit = []) => {
         if (office || req.method === 'POST' || !state.logistics) ensureLogistics(state, { sites: Array.isArray(sites) ? sites : sites?.sites, ...environment });
         if (office) {
@@ -701,7 +705,7 @@ export function createLogisticsApi({ getRepository, readBody, json, siteProvider
           if (typeof actor !== 'string' || typeof user !== 'string') fail('Välj ett giltigt demokonto.', 401);
           const principal = createPricingStore({ initialState: state.pricing }).principal(actor, user);
           if (!rights.some(right => can(principal, right))) fail('Du saknar behörighet att öppna arbetsordrar, lager eller kärl.', 403);
-          const commandResult = req.method === 'POST' ? officeCommand(state, principal, payload, transactionAudit) : undefined;
+          const commandResult = req.method === 'POST' ? officeCommand(state, principal, payload, transactionAudit, companySnapshot) : undefined;
           return { value: { ...officeState(state, principal), ...(commandResult ? { result: commandResult } : {}) } };
         }
         const [, kind, path] = match, auth = state.logisticsAuth;

@@ -2,6 +2,8 @@
 
 **Arbetssätt: alla mockuper publiceras i GitHub tillsammans med bilderna och en läsbar README. Leveransen ska innehålla en direkt GitHub-länk.**
 
+**UI-regel: återanvänd ScrapPlanners befintliga menyer, komponenter, färger och layout i nya mockuper. Hitta inte på ett nytt gränssnitt eller tema utan uttrycklig beställning.**
+
 Bilderna är statiska designförslag. Aktuell implementationsstatus framgår på respektive sida.
 
 ## Företagsinställningar

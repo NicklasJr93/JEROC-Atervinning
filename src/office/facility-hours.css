@@ -1,0 +1,16 @@
+.facility-hours { border-top:1px solid #e7edf5; padding-top:18px; margin-top:18px; }
+.facility-hours h3 { margin:0 0 7px; font-size:14px; }
+.facility-hours .environment-heading { margin-bottom:12px; }
+.facility-hours-week { border:1px solid #e2eaf4; border-radius:8px; overflow:hidden; }
+.facility-hours-day { display:grid; grid-template-columns:160px minmax(0,1fr); gap:18px; padding:12px 14px; border-bottom:1px solid #e7edf5; }
+.facility-hours-day:last-child { border-bottom:0; }
+.office .facility-hours label { display:flex; flex-direction:column; gap:5px; margin:0; font-size:11px; color:#667c98; }
+.office .facility-hours input,.office .facility-hours select { min-width:0; width:100%; box-sizing:border-box; margin:0; }
+.facility-hours-periods { display:grid; gap:8px; justify-items:start; align-content:start; }
+.facility-hours-period { display:grid; grid-template-columns:minmax(90px,130px) minmax(90px,130px) auto; align-items:end; gap:8px; width:100%; }
+.office .facility-hours-period > button { min-height:35px; padding:8px; }
+.facility-hours-exceptions { margin:20px 0 14px; }
+.facility-hours-exception { border:1px solid #e2eaf4; border-radius:8px; padding:12px; margin:10px 0; }
+.facility-hours-exception .facility-hours-periods { margin:12px 0; }
+.facility-hours-exception > .office-link { margin-top:10px; }
+@media(max-width:700px) { .facility-hours-day { grid-template-columns:minmax(0,1fr); gap:10px; } .facility-hours-period { grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; } }

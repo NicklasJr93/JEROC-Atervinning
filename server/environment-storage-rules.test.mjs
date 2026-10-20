@@ -42,7 +42,9 @@ async function fixture(run) {
   const principalStore = { ...pricing, principal(actor, effective) {
     const principal = pricing.principal(actor, effective);
     if (restrictions.has(principal.user.id)) principal.user.siteIds = restrictions.get(principal.user.id);
+    if (restrictions.has(principal.actor.id)) principal.actor.siteIds = restrictions.get(principal.actor.id);
     if (grants.has(principal.user.id)) principal.user.permissions = grants.get(principal.user.id);
+    if (grants.has(principal.actor.id)) principal.actor.permissions = grants.get(principal.actor.id);
     return principal;
   } };
   const makeStore = () => createEnvironmentStore({ repository, principalStore, now });
@@ -109,6 +111,45 @@ test('the dynamic facility register is versioned, durable, scoped and validates 
   await f.restart(); assert.equal((await f.store.catalog()).find(item => item.id === site.id).active, false);
   assert.equal((await f.store.catalog()).find(item => item.id === legacyId).name, updatedLegacy.name);
   const backup = JSON.parse(await f.repository.backup()); assert.equal(backup.siteRecords.filter(item => item.id === site.id).length, 2);
+}));
+
+const openingHoursFixture = () => ({
+  week: { mon: [{ open: '07:00', close: '12:00' }, { open: '13:00', close: '16:00' }], tue: null, wed: null, thu: null, fri: null, sat: [], sun: [] },
+  exceptions: [{ date: '2026-12-24', label: 'Julafton', closed: true, intervals: [] }],
+});
+
+test('facility contacts and opening hours persist by version; old clients preserve them and explicit clearing is possible', () => fixture(async f => {
+  const openingHours = openingHoursFixture();
+  const saved = await f.store.saveSite('hours-site', siteInput({ phone: '010-123 45 67', email: 'kontakt@example.test', openingHours }), f.admin.token);
+  assert.equal(saved.phone, '+46101234567'); assert.equal(saved.email, 'kontakt@example.test'); assert.deepEqual(saved.openingHours, openingHours);
+  await rejects(() => f.store.saveSite(saved.id, siteInput({ openingHours }), f.admin.token), 409, 'version_conflict');
+  const renamed = await f.store.saveSite(saved.id, siteInput({ expectedVersion: 1, name: 'Nyare klient har öppettider' }), f.admin.token);
+  assert.deepEqual(renamed.openingHours, openingHours); assert.equal(renamed.phone, saved.phone); assert.equal(renamed.email, saved.email);
+  await f.restart();
+  assert.deepEqual((await f.store.catalog()).find(site => site.id === saved.id).openingHours, openingHours);
+  const cleared = await f.store.saveSite(saved.id, siteInput({ expectedVersion: 2, phone: '', email: '', openingHours: null }), f.admin.token);
+  assert.equal(cleared.phone, ''); assert.equal(cleared.email, ''); assert.equal(cleared.openingHours, null);
+  const history = JSON.parse(await f.repository.backup()).siteRecords.filter(site => site.id === saved.id);
+  assert.equal(history.length, 3); assert.deepEqual(history[0].openingHours, openingHours);
+  const legacy = (await f.store.catalog()).find(site => site.id === 'rimbo');
+  assert.equal(legacy.openingHours, undefined, 'existing facilities do not receive invented default hours');
+}));
+
+test('facility save rejects invalid contact/hour input and enforces actor as well as effective facility access', () => fixture(async f => {
+  const openingHours = openingHoursFixture();
+  await rejects(() => f.store.saveSite('hours-invalid', siteInput({ phone: 'not-a-phone', openingHours }), f.admin.token), 422);
+  await rejects(() => f.store.saveSite('hours-invalid', siteInput({ email: 'invalid-email', openingHours }), f.admin.token), 422);
+  const overlap = { ...openingHours, week: { ...openingHours.week, mon: [{ open: '07:00', close: '12:00' }, { open: '11:00', close: '16:00' }] } };
+  await rejects(() => f.store.saveSite('hours-invalid', siteInput({ openingHours: overlap }), f.admin.token), 422);
+  const impossible = { ...openingHours, exceptions: [{ date: '2026-02-29', label: '', closed: true, intervals: [] }] };
+  await rejects(() => f.store.saveSite('hours-invalid', siteInput({ openingHours: impossible }), f.admin.token), 422);
+  assert.equal((await f.store.catalog()).some(site => site.id === 'hours-invalid'), false);
+  const principal = f.principalStore.principal;
+  f.principalStore.principal = (...args) => { const value = principal(...args); return { ...value, actor: { ...value.actor, level: 'Medarbetare', permissions: ['environmentRead'] } }; };
+  await rejects(() => f.store.saveSite('actor-denied', siteInput({ openingHours }), f.admin.token), 403, 'forbidden');
+  f.principalStore.principal = (...args) => { const value = principal(...args); return { ...value, actor: { ...value.actor, siteIds: ['norrtalje'] } }; };
+  await rejects(() => f.store.saveSite('actor-site-denied', siteInput({ openingHours }), f.admin.token), 403, 'site_forbidden');
+  f.principalStore.principal = principal;
 }));
 
 test('article storage changes require their own permission and cannot remove hidden facility rules', async () => fixture(async f => {

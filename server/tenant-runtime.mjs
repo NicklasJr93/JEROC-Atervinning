@@ -12,6 +12,7 @@ const databaseFiles = {
   JEROC_APPLICATION_DB_PATH: 'application.sqlite', JEROC_ENVIRONMENT_DB_PATH: 'environment.sqlite',
   JEROC_TERMINAL_DB_PATH: 'terminal-demo.sqlite', JEROC_DOCUMENT_DB_PATH: 'documents.sqlite',
   JEROC_ARTICLE_MEDIA_DB_PATH: 'article-media.sqlite',
+  JEROC_COMPANY_LOGO_DB_PATH: 'company-logo.sqlite',
   JEROC_SICKNESS_FILES_DB_PATH: 'sickness-files.sqlite',
   JEROC_FLEET_FILES_DB_PATH: 'fleet-files.sqlite',
 };

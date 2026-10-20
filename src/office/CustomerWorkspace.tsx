@@ -65,6 +65,7 @@ import PaymentEditor, { PaymentReadOnly } from './PaymentEditor';
 import CompanyLookup from '../company-register/CompanyLookup';
 import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
 import AddressAssist from '../address-assistance/AddressAssist';
+import { applyInitialPaymentTerms, useCompanyDefaults } from '../company-settings-defaults';
 import { cardRoute, safeAuditText } from './workflow';
 import { applyCompanyLookupToCustomer, createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
 import { customerIdentifierError, formatAddress, normalizeAddress, normalizeOriginAddress, phoneNumberError } from '../data-format';
@@ -1387,6 +1388,8 @@ function CustomerDetails({
     );
   const [allowDuplicate, setAllowDuplicate] = useState(false);
   const [checkedFields, setCheckedFields] = useState<string[]>([]);
+  const initialPaymentTermDays = useRef(customer.paymentTermDays);
+  const paymentTermDirty = useRef(false);
   useEffect(() => {
     if (!fresh && !editing) {
       setDraft(structuredClone(customer));
@@ -1399,6 +1402,15 @@ function CustomerDetails({
   const edit = can(user, 'customers') && (fresh || editing),
     paymentEdit = can(user, 'paymentDetails') && (fresh || editing);
   const paymentRead = can(user, 'paymentDetails') || can(user, 'pay') || can(user, 'attest');
+  const companyDefaults = useCompanyDefaults({ enabled: fresh && !preserveInitialType && edit, scopeKey: customer.id,
+    requestHeaders: { 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id } });
+  useEffect(() => {
+    if (busy || !companyDefaults) return;
+    setDraft(current => applyInitialPaymentTerms(current, companyDefaults.defaults, {
+      fresh, transferred: preserveInitialType, dirty: paymentTermDirty.current, initialValue: initialPaymentTermDays.current,
+    }));
+  }, [companyDefaults, fresh, preserveInitialType, busy]);
+  const showCustomPaymentTerm = customPaymentTerm || draft.paymentTermDays !== undefined && ![0, 1, 10, 30].includes(draft.paymentTermDays);
   const duplicates = customerDraftDuplicates(draft, customers);
   useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
   async function submit(e: FormEvent) {
@@ -1575,8 +1587,9 @@ function CustomerDetails({
                   <select
                     aria-label="Betalningsvillkor"
                     disabled={!edit || busy}
-                    value={customPaymentTerm ? 'custom' : draft.paymentTermDays === undefined ? 'default' : String(draft.paymentTermDays)}
+                    value={showCustomPaymentTerm ? 'custom' : draft.paymentTermDays === undefined ? 'default' : String(draft.paymentTermDays)}
                     onChange={(event) => {
+                      paymentTermDirty.current = true;
                       const selected = event.target.value;
                       setCustomPaymentTerm(selected === 'custom');
                       setDraft((d) => ({ ...d, paymentTermDays: selected === 'default' ? undefined : selected === 'custom' ? d.paymentTermDays ?? 30 : Number(selected) }));
@@ -1590,7 +1603,7 @@ function CustomerDetails({
                     <option value="custom">Eget antal dagar</option>
                   </select>
                 </label>
-                {customPaymentTerm && (
+                {showCustomPaymentTerm && (
                   <label className="customer-custom-term">
                     Antal betalningsdagar
                     <input
@@ -1602,7 +1615,7 @@ function CustomerDetails({
                       required
                       disabled={!edit || busy}
                       value={Number.isFinite(draft.paymentTermDays) ? draft.paymentTermDays : ''}
-                      onChange={(event) => setDraft((d) => ({ ...d, paymentTermDays: event.target.value === '' ? Number.NaN : Number(event.target.value) }))}
+                      onChange={(event) => { paymentTermDirty.current = true; setDraft((d) => ({ ...d, paymentTermDays: event.target.value === '' ? Number.NaN : Number(event.target.value) })); }}
                     />
                   </label>
                 )}

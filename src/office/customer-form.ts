@@ -2,6 +2,7 @@ import type { OfficeCustomer, OfficeData } from './model';
 import { z } from 'zod';
 import { companyLookupNumberError, formatCompanyRegisterAddress, normalizeCompanyLookupNumber, type CompanyRegisterCompany } from '../company-register/client';
 import { customerIdentityKey, normalizeCustomerDetails, normalizePhoneNumber, phoneNumberError, validateCustomerDetails } from '../data-format';
+import { applyInitialPaymentTerms, type CompanyDefaults } from '../company-settings-defaults';
 
 const registerEmail = z.string().max(254).email();
 
@@ -34,9 +35,10 @@ export function applyCompanyLookupToCustomer(
 export function createCustomerDraft(
   data: Pick<OfficeData, 'customers'>,
   initial?: OfficeCustomer,
+  defaults?: CompanyDefaults,
 ): OfficeCustomer {
   if (initial) return structuredClone(initial);
-  return {
+  return applyInitialPaymentTerms<OfficeCustomer>({
     id: `customer-${crypto.randomUUID()}`,
     name: '',
     type: 'Företag',
@@ -54,7 +56,7 @@ export function createCustomerDraft(
     origins: [],
     registrations: [],
     audit: [],
-  };
+  }, defaults, { fresh: true });
 }
 
 export function cleanCustomerDraft(customer: OfficeCustomer): OfficeCustomer {

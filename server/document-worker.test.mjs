@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createPdfRenderer } from './documents/render-pool.mjs';
+import sharp from 'sharp';
 
 const workerUrl = new URL('data:text/javascript,' + encodeURIComponent(`
   import { parentPort } from 'node:worker_threads';
@@ -55,5 +56,22 @@ test('real background worker produces a native PDF from a prepared immutable set
       rows: [{ name: 'Koppar klass 1', weight: 10, price: 50, amount: 500 }], totalWeight: 10, gross: 500, net: 500 });
     assert.ok(Buffer.isBuffer(pdf)); assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
     assert.match(pdf.toString('latin1'), /\/MediaBox \[0 0 595\.28 841\.89\]/);
+  } finally { await renderer.close(); }
+});
+
+
+test('the real PDF worker receives immutable company logo bytes alongside the frozen snapshot', async () => {
+  const renderer = createPdfRenderer();
+  try {
+    const logoBytes = await sharp({ create: { width: 160, height: 50, channels: 4, background: '#167b5b' } }).png().toBuffer();
+    const source = { type: 'settlement', status: 'preliminary', id: 'AV-WORKER-BRAND', version: 1,
+      company: { id: 'company-branding', name: 'Profilbolaget AB', logoId: '00000000-0000-4000-8000-000000000001' },
+      customer: { name: 'Testkund' }, rows: [{ name: 'Koppar', weight: 10, price: 50, amount: 500 }], totalWeight: 10, gross: 500, net: 500 };
+    const pending = renderer.render(source, { logoBytes });
+    // The HTTP caller may release/reuse a buffer after enqueue; the queued job owns its copy.
+    logoBytes.fill(0);
+    const pdf = await pending;
+    assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
+    assert.match(pdf.toString('latin1'), /\/Subtype \/Image/);
   } finally { await renderer.close(); }
 });

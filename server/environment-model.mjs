@@ -9,7 +9,8 @@ import { createNvvSandbox } from './nvv-sandbox.mjs';
 import { createNvvDiagnostics } from './nvv-diagnostics.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { afterDatabaseCommit } from './database-runtime.mjs';
-import { normalizeAddress, addressError } from '../dist-server/domain-models.mjs';
+import { normalizeAddress, addressError, normalizePhoneNumber, phoneNumberError } from '../dist-server/domain-models.mjs';
+import { facilityOpeningHoursSchema } from './facility-opening-hours.mjs';
 
 export const ENVIRONMENT_DEMO_PASSWORD = 'JerocDemo2026!';
 export const ENVIRONMENT_SITES = [
@@ -48,6 +49,12 @@ const siteSchema = z.object({
   city: z.string().trim().max(300), municipalityCode: z.string().trim().regex(/^(?:\d{4})?$/, 'Ange fyrsiffrig kommunkod eller lämna tomt.'),
   countryCode: z.string().trim().max(2).optional(),
   active: z.boolean(), permitReference: z.string().trim().max(300), permitNotes: z.string().trim().max(5000),
+  phone: z.string().trim().max(64).superRefine((value, context) => {
+    const error = phoneNumberError(value);
+    if (error) context.addIssue({ code: 'custom', message: error });
+  }).transform(value => normalizePhoneNumber(value)).optional(),
+  email: z.union([z.string().trim().email().max(254), z.literal('')]).optional(),
+  openingHours: facilityOpeningHoursSchema.nullable().optional(),
 }).strict().superRefine((value, context) => {
   if (value.municipalityCode && !ENVIRONMENT_MUNICIPALITIES.some((municipality) => municipality.code === value.municipalityCode))
     context.addIssue({ code: 'custom', path: ['municipalityCode'], message: 'Välj en giltig svensk kommun.' });
@@ -577,6 +584,9 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
       Object.assign(request, normalizeAddress(request));
       return transaction((state, time) => {
         const { principal } = principalFor(state, token, time); demand(principal, 'environmentStorage');
+        demand({ user: principal.actor }, 'environmentStorage');
+        if (Array.isArray(principal.actor.siteIds) && !principal.actor.siteIds.includes(siteId))
+          throw new EnvironmentError('Du saknar åtkomst att ändra denna anläggning.', 403, 'site_forbidden');
         const current = currentEnvironmentSites(state).find((record) => record.id === siteId);
         if (!current && ['address', 'postalCode', 'city', 'municipalityCode'].some((key) => !request[key]))
           throw new EnvironmentError('Ange gatuadress, postnummer, ort och giltig kommunkod för en ny anläggning.', 422, 'site_address_incomplete');
@@ -585,7 +595,13 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
           throw new EnvironmentError('Du saknar åtkomst att registrera denna anläggning.', 403, 'site_forbidden');
         if ((current?.version ?? 0) !== request.expectedVersion) throw new EnvironmentError('Anläggningen har ändrats av någon annan. Läs in senaste versionen.', 409, 'version_conflict');
         const { expectedVersion, ...values } = request;
-        const site = { id: siteId, ...values, version: expectedVersion + 1, updatedAt: time.toISOString(), updatedBy: principal.user.name };
+        // Older clients know only address/permit fields. Their saves must not
+        // clear hours or contact details added by a newer client.
+        for (const key of ['phone', 'email', 'openingHours']) if (values[key] === undefined) delete values[key];
+        const retained = Object.fromEntries(['phone', 'email', 'openingHours']
+          .filter(key => values[key] === undefined && current?.[key] !== undefined)
+          .map(key => [key, copy(current[key])]));
+        const site = { id: siteId, ...retained, ...values, version: expectedVersion + 1, updatedAt: time.toISOString(), updatedBy: principal.user.name };
         state.siteRecords.push(site); audit(state, time, principal, 'environment.site_saved', { siteId, version: site.version });
         return copy(site);
       });

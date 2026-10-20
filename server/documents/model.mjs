@@ -34,6 +34,8 @@ export const transportDocumentInputSchema = z.object({
 }).strict();
 function parse(schema, input) { const value = schema.safeParse(input); if (!value.success) fail(value.error.issues.map(issue => issue.message).join(' '), 422, 'invalid_input'); return value.data; }
 const party = source => ({ name: source?.name ?? '', number: source?.number ?? '', address: source?.address ?? '', postalCode: source?.postalCode ?? '', city: source?.city ?? '' });
+// Company snapshots are server-owned draft metadata, not editable form fields.
+const publicTransportDraft = draft => { const { companySnapshot, ...visible } = draft; return visible; };
 function documentPaymentDetails(details, paymentMethod, customerName) {
   const method = details?.method ?? paymentMethod;
   const type = details?.bankType ?? 'account';
@@ -49,7 +51,14 @@ const companyFor = (sources, site) => {
   const company = sources.company;
   if (company?.id && company.id !== 'jeroc-demo' && !company.name?.trim())
     fail('Bolagets dokumentprofil saknar företagsnamn.', 409, 'company_identity_missing');
-  return { ...(company?.id && { id: company.id }), name: company?.name ?? 'JEROC Återvinning AB', number: company?.number ?? '', vat: company?.vat ?? '', address: site?.address ?? company?.address ?? '', postalCode: site?.postalCode ?? company?.postalCode ?? '', city: site?.city ?? company?.city ?? '' };
+  const profileAddress = typeof company?.address === 'string' && company.address.trim();
+  return { ...(company?.id && { id: company.id }), name: company?.name ?? 'JEROC Återvinning AB', number: company?.number ?? '', vat: company?.vat ?? '',
+    address: profileAddress ? company.address : site?.address ?? '',
+    postalCode: profileAddress ? company.postalCode ?? '' : site?.postalCode ?? company?.postalCode ?? '',
+    city: profileAddress ? company.city ?? '' : site?.city ?? company?.city ?? '',
+    ...Object.fromEntries(['countryCode', 'phone', 'email', 'invoiceEmail', 'website', 'footerText', 'logoId']
+      .filter(key => typeof company?.[key] === 'string' && company[key].trim()).map(key => [key, company[key]])) };
+
 };
 const latestApproval = (sources, cardId) => (sources.approvals ?? []).filter(approval => String(approval.cardId) === String(cardId)).sort((left, right) => right.version - left.version)[0];
 const validApproved = approval => ['approved', 'attested'].includes(approval.status) && Boolean(approval.approvedAt && approval.approvedMethod) && approval.approvedHash === approval.snapshot.hash;
@@ -76,7 +85,7 @@ function approvalSnapshot(approval, sources, stage) {
   return {
     type: 'settlement', status: stage, id: `AV-${card.id}-V${approval.version}`, version: approval.version,
     issuedAt: stage === 'final' ? approval.attestedAt : stage === 'reviewed' ? approval.approvedAt : approval.createdAt,
-    sourceId: String(card.id), sourceHash: value.hash, site: copy(site), company: companyFor(sources, site),
+    sourceId: String(card.id), sourceHash: value.hash, site: copy(site), company: companyFor({ company: approval.companySnapshot ?? (approval.status === 'draft' ? sources.company : sources.initialCompany ?? sources.company) }, site),
     customer: { ...party(customer), ...(privateSeller ? { number: '' } : {}), customerNumber: customer.customerNumber, type: customer.type },
     rows: value.rows.map(row => ({ articleId: row.articleId, name: row.name, weight: row.weight, price: row.price, amount: row.amount })),
     totalWeight: value.rows.reduce((sum, row) => sum + row.weight, 0), materialTotal: accounting?.baseTotal ?? value.gross, adjustment: 0, settlementTotal: value.gross,
@@ -196,8 +205,13 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
       job.sourceHash !== approval.snapshot.hash) fail('PDF-jobbets låsta underlag stämmer inte.', 409, 'snapshot_missing');
     // New durable jobs contain the exact facility used when the signing
     // milestone committed. No mutable office/terminal snapshot is needed here.
-    const sources = job.siteSnapshot ? { sites: [copy(job.siteSnapshot)], ...(job.companySnapshot && { company: copy(job.companySnapshot) }) }
-      : await sourceProvider({ kind: 'approval-job', siteId: approval.siteId });
+    const capturedCompany = job.companySnapshot ?? approval.companySnapshot;
+    const legacySources = !job.siteSnapshot || !capturedCompany
+      ? await sourceProvider({ kind: 'approval-job', siteId: approval.siteId }) : undefined;
+    const sources = job.siteSnapshot ? { sites: [copy(job.siteSnapshot)],
+      company: copy(capturedCompany ?? legacySources?.initialCompany ?? legacySources?.company) }
+      : { ...legacySources, ...(capturedCompany && { company: copy(capturedCompany), initialCompany: copy(capturedCompany) }) };
+
     const actor = { actor: { id: approval.actualUserId ?? 'system' }, user: { id: approval.effectiveUserId ?? 'system' } };
     const snapshot = await frozenApprovalDocument(copy(approval), sources, job.stage);
     return archive(snapshot, 'settlement', approval.cardId, approval.version, job.stage, approval.siteId, actor);
@@ -426,7 +440,7 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
       startAt: order.date ?? '', requestedAt: order.requestedDate ?? '', handling: order.notes ?? '', reference: order.id, rows: [{ name: order.material ?? '', wasteCode: '', weight: null }], updatedAt: order.updatedAt };
     return { draft: { ...draft, missing: missingTransport(draft) }, sources, order };
   }
-  async function transport(orderId, principal) { const { draft, sources } = await initialTransport(orderId, principal); return { draft, sites: sources.sites.filter(site => site.active !== false).map(site => ({ id: site.id, name: site.name, party: party(companyFor(sources, site)) })), documents: (await readArchive(database => database.documents('transport', orderId))).map(documentMetadata), demo: true }; }
+  async function transport(orderId, principal) { const { draft, sources } = await initialTransport(orderId, principal); return { draft: publicTransportDraft(draft), sites: sources.sites.filter(site => site.active !== false).map(site => ({ id: site.id, name: site.name, party: party(companyFor(sources, site)) })), documents: (await readArchive(database => database.documents('transport', orderId))).map(documentMetadata), demo: true }; }
   async function saveTransport(orderId, input, principal) {
     demand(principal, 'transportPlan');
     const request = parse(transportDocumentInputSchema, input), { sources, detail } = await initialTransport(orderId, principal);
@@ -439,10 +453,11 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
       if ((current?.version ?? 0) !== request.expectedVersion) fail('Transportdokumentet ändrades i en annan session. Läs in den senaste versionen.', 409, 'version_conflict');
       const { expectedVersion, ...fields } = request;
       // Repeating an identical form creates no revision, but never accepts a stale version.
-      if (current && documentHash(Object.fromEntries(Object.keys(fields).map(key => [key, current[key]]))) === documentHash(fields)) return { draft: { ...current, missing: missingTransport(current) }, demo: true };
-      const draft = { orderId, version: expectedVersion + 1, ...fields, updatedAt: now().toISOString(), updatedBy: principal.user.id, actualUserId: principal.actor.id };
+      if (current && documentHash(Object.fromEntries(Object.keys(fields).map(key => [key, current[key]]))) === documentHash(fields)) return { draft: { ...publicTransportDraft(current), missing: missingTransport(current) }, demo: true };
+      const draft = { orderId, version: expectedVersion + 1, ...fields,
+        companySnapshot: companyFor(sources, sources.sites.find(site => site.id === request.siteId)), updatedAt: now().toISOString(), updatedBy: principal.user.id, actualUserId: principal.actor.id };
       await database.insertTransportDraft(draft); await database.audit({ id: randomUUID(), at: draft.updatedAt, action: 'transport_document.draft_saved', orderId, version: draft.version, actualUserId: principal.actor.id, effectiveUserId: principal.user.id });
-      return { draft: { ...draft, missing: missingTransport(draft) }, demo: true };
+      return { draft: { ...publicTransportDraft(draft), missing: missingTransport(draft) }, demo: true };
     });
   }
   async function generateTransport(orderId, principal) {
@@ -459,20 +474,27 @@ export function createDocumentService({ repository, sourceProvider, renderPdf, n
       const site = sources.sites.find(value => value.id === detail.siteId);
       const snapshot = { type: 'transport', status: stage, id: `TD-${orderId}-V${document.version}`, version: document.version,
         issuedAt: departed ? detail.execution.departedAt : document.preparedAt, sourceId: orderId,
-        site: copy(site), company: companyFor(sources, site), sender: draft.sender, receiver: draft.receiver, carrier: draft.carrier,
+        site: copy(site), company: companyFor({ company: document.companySnapshot ?? sources.initialCompany ?? sources.company }, site), sender: draft.sender, receiver: draft.receiver, carrier: draft.carrier,
         rows: draft.rows, totalWeight: draft.rows.reduce((sum, row) => sum + (row.weight ?? 0), 0), reference: orderId,
         origin: [draft.sender.address, draft.sender.postalCode, draft.sender.city].filter(Boolean).join(', '), missing: [],
         transport: { direction: draft.direction, driver: draft.driver, registration: draft.registration, startAt: draft.startAt,
           requestedAt: draft.requestedAt, handling: draft.handling,
           signatures: validSignatures.map(signature => ({ role: signature.role, person: signature.actorName, at: signature.at,
             method: 'Testbekräftelse · demo', version: signature.documentVersion })) }, demo: true };
-      return { document: await archive(snapshot, 'transport', orderId, document.version, stage, detail.siteId, principal), draft, demo: true };
+      // Once this business version has a PDF, its branding and site are frozen
+      // across later stages and repeat generation. A new profile applies only
+      // to a new document version, never to another final of an old version.
+      const existing = (await readArchive(database => database.documents('transport', orderId)))
+        .filter(record => record.sourceVersion === document.version)
+        .sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)))[0];
+      if (existing) { snapshot.company = copy(existing.snapshot.company); snapshot.site = copy(existing.snapshot.site); }
+      return { document: await archive(snapshot, 'transport', orderId, document.version, stage, detail.siteId, principal), draft: publicTransportDraft(draft), demo: true };
     }
     const site = sources.sites.find(site => site.id === draft.siteId);
-    const snapshot = { type: 'transport', status: 'draft', id: `TD-${orderId}-V${draft.version}`, version: draft.version, issuedAt: draft.updatedAt, sourceId: orderId, sourceHash: documentHash(draft), site: copy(site), company: companyFor(sources, site), sender: draft.sender, receiver: draft.receiver, carrier: draft.carrier,
+    const snapshot = { type: 'transport', status: 'draft', id: `TD-${orderId}-V${draft.version}`, version: draft.version, issuedAt: draft.updatedAt, sourceId: orderId, sourceHash: documentHash(draft), site: copy(site), company: companyFor({ company: draft.companySnapshot ?? sources.initialCompany ?? sources.company }, site), sender: draft.sender, receiver: draft.receiver, carrier: draft.carrier,
       rows: draft.rows.map(row => ({ ...row, wasteCode: row.wasteCode.replace(/[ *]/g, '') })), totalWeight: draft.rows.reduce((sum, row) => sum + (row.weight ?? 0), 0), reference: draft.reference, missing: draft.missing,
       transport: { direction: draft.direction, driver: draft.driver, registration: draft.registration, startAt: draft.startAt, requestedAt: draft.requestedAt, handling: draft.handling, signatures: [] }, demo: true };
-    return { document: await archive(snapshot, 'transport', orderId, draft.version, 'draft', draft.siteId, principal), draft, demo: true };
+    return { document: await archive(snapshot, 'transport', orderId, draft.version, 'draft', draft.siteId, principal), draft: publicTransportDraft(draft), demo: true };
   }
   async function download(documentId, principal) {
     authenticated(principal);

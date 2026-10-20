@@ -138,7 +138,7 @@ function approvalDTO(approval, principal, revision) {
   const result = copy(approval);
   if (approval.status === 'attested') result.spirisAction = approval.spirisAction ?? 'draft';
   if (revision !== undefined) result.revision = revision;
-  delete result.expiresAt; delete result.correctionIds; delete result.approvedHash; delete result.approvedMethod; delete result.siteSnapshot;
+  delete result.expiresAt; delete result.correctionIds; delete result.approvedHash; delete result.approvedMethod; delete result.siteSnapshot; delete result.companySnapshot;
   // The original persisted review snapshot is never mutated. These OfficeCard
   // fields form a workflow projection for existing office queues only.
   result.snapshot.card.status = approval.status === 'approved' ? 'attest'
@@ -187,7 +187,7 @@ function publicApproval(approval, revision) {
 /** A shared DEMO service: office identities are deliberately selected demo users,
  * not production authentication. Terminal passwords and sessions are real, and
  * business state always commits to the configured durable database. */
-export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
+export function createTerminalDemoStore({ repository, principalStore = createPricingStore(), siteProvider = () => DEFAULT_SITES, companyProfileProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, now = () => new Date(), approvalAge = 15 * 60 * 1000 } = {}) {
   if (!repository) throw new Error('A durable terminal repository is required.');
   const presenceTimers = new Map();
   const schedulePresenceExpiry = terminalId => {
@@ -453,8 +453,11 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         audit(state, time, 'terminal.logout', undefined, { terminalId: terminal.id }); return { loggedOut: true };
       });
     },
-    send(payload, staffToken, preparedIdentity, requireStaffSession = false) {
+    async send(payload, staffToken, preparedIdentity, requireStaffSession = false) {
       const request = validate(sendSchema, payload);
+      // Capture the company before taking the terminal reservation lock. A
+      // delayed PDF job must keep this profile even after a settings change.
+      const companySnapshot = companyProfileProvider ? copy(await companyProfileProvider()) : undefined;
       return transaction(async (state, time, catalog) => {
         const principal = preparedIdentity && !requireStaffSession ? principalStore.principal(preparedIdentity.actorId,preparedIdentity.userId) : staff(state, staffToken, time);
         if (preparedIdentity && (principal.actor.id !== preparedIdentity.actorId || principal.user.id !== preparedIdentity.userId)) throw new TerminalDemoError('Kontorets aktiva användare har ändrats. Försök igen i den aktuella vyn.',409,'staff_identity_changed');
@@ -542,7 +545,7 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         const approval = { id: randomUUID(), cardId: request.card.id, siteId: request.siteId, terminalId: terminal.id,
           version: (previous?.version ?? 0) + 1, status: 'waiting', createdAt: time.toISOString(), updatedAt: time.toISOString(),
           expiresAt: new Date(time.getTime() + approvalAge).toISOString(), sentBy: principal.user.name,
-          actualUserId: principal.actor.id, effectiveUserId: principal.user.id, correctionIds: request.correctionIds, siteSnapshot: copy(selectedSite), snapshot };
+          actualUserId: principal.actor.id, effectiveUserId: principal.user.id, correctionIds: request.correctionIds, siteSnapshot: copy(selectedSite), ...(companySnapshot && { companySnapshot }), snapshot };
         state.approvals.push(approval);
         state.requests.push({ key: request.idempotencyKey, userId: principal.user.id, fingerprint, approvalId: approval.id });
         audit(state, time, 'approval.sent', principal, { approvalId: approval.id, cardId: approval.cardId, terminalId: terminal.id, version: approval.version });
@@ -695,13 +698,13 @@ async function body(req) {
   catch { throw new TerminalDemoError('Ogiltig JSON.'); }
 }
 
-export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, onAttested, onApprovalChanged, trustedPrincipalProvider, env = process.env, now = () => new Date(), approvalAge } = {}) {
+export function createTerminalDemoApi({ principalStore = createPricingStore(), repository, siteProvider, companyProfileProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, onAttested, onApprovalChanged, trustedPrincipalProvider, env = process.env, now = () => new Date(), approvalAge } = {}) {
   let repositoryPromise, storePromise, jobsRunning, jobTimer, maintenanceTimer, backgroundStarted = false, closed = false;
   const eventStreams = new Set();
   const getStore = () => {
     if (!storePromise) {
       repositoryPromise = repository ? Promise.resolve(repository) : createTerminalDemoRepository({ env });
-      storePromise = repositoryPromise.then(value => createTerminalDemoStore({ repository: value, principalStore, siteProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, now, approvalAge }));
+      storePromise = repositoryPromise.then(value => createTerminalDemoStore({ repository: value, principalStore, siteProvider, companyProfileProvider, environmentApprovalCheck, accountingSourceProvider, attestBookingCheck, now, approvalAge }));
       const attempt = storePromise;
       attempt.then(() => afterDatabaseCommit(startBackground), () => {
         if (storePromise === attempt) { storePromise = undefined; repositoryPromise = undefined; }
@@ -721,7 +724,7 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
         const job = await repo.claimDocumentJob(now().toISOString());
         if (!job) break;
         let failure;
-        try { await onApprovalChanged(job.approval, { stage: job.stage, jobId: job.id, sourceHash: job.sourceHash, siteSnapshot: job.siteSnapshot }); }
+        try { await onApprovalChanged(job.approval, { stage: job.stage, jobId: job.id, sourceHash: job.sourceHash, siteSnapshot: job.siteSnapshot, ...(job.approval.companySnapshot && { companySnapshot: copy(job.approval.companySnapshot) }) }); }
         catch (error) { failure = error; }
         await repo.finishDocumentJob(job, failure, now().toISOString());
         if (failure) break;

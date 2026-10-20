@@ -3,6 +3,7 @@ import { Check, ExternalLink, Info, X } from 'lucide-react';
 import CompanyLookup from '../company-register/CompanyLookup';
 import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
 import AddressAssist from '../address-assistance/AddressAssist';
+import { applyInitialPaymentTerms, useCompanyDefaults } from '../company-settings-defaults';
 import { can, type OfficeCustomer, type OfficeData, type OfficeUser } from './model';
 import { applyCompanyLookupToCustomer, cleanCustomerDraft, createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
 import { customerIdentifierError, phoneNumberError } from '../data-format';
@@ -31,6 +32,15 @@ export default function QuickCustomerModal({
   const [checkedFields, setCheckedFields] = useState<string[]>([]);
   const duplicates = customerDraftDuplicates(draft, data.customers);
   const allowed = can(user, 'customers');
+  const companyDefaults = useCompanyDefaults({ enabled: allowed && !initialDraft, scopeKey: draft.id,
+    requestHeaders: { 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id } });
+  const initialPaymentTermDays = useRef(initialDraft?.paymentTermDays);
+  useEffect(() => {
+    if (busy || !companyDefaults) return;
+    setDraft(current => applyInitialPaymentTerms(current, companyDefaults.defaults, {
+      fresh: true, transferred: Boolean(initialDraft), initialValue: initialPaymentTermDays.current,
+    }));
+  }, [companyDefaults, initialDraft, busy]);
   useEffect(() => {
     const element = dialog.current;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;

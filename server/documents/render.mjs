@@ -27,11 +27,20 @@ function partyLines(party = {}) {
 }
 
 /** Native A4 rendering of an already authorised, frozen business snapshot. No network access. */
-export async function renderPdf(snapshot) {
+export async function renderPdf(snapshot, { logoBytes } = {}) {
   if (!snapshot || !['settlement', 'transport', 'receipt'].includes(snapshot.type)) throw new TypeError('Dokumenttypen stöds inte.');
   // Older frozen JEROC snapshots have no company ID. Retain their formatting;
   // another company must never inherit JEROC's legal identity or company logo.
   const legacyBrand = !snapshot.company?.id || snapshot.company.id === 'jeroc-demo';
+  let companyLogo;
+  if (snapshot.company?.logoId) {
+    if (!(logoBytes instanceof Uint8Array) || logoBytes.byteLength > 4 * 1024 * 1024)
+      throw new TypeError('Den sparade företagsloggan kunde inte läsas.');
+    companyLogo = Buffer.from(logoBytes);
+    if (!companyLogo.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
+      throw new TypeError('Den sparade företagsloggan har ett ogiltigt format.');
+  }
+
   const doc = new PDFDocument({ size: 'A4', margin: 0, bufferPages: true, compress: true, info: { Title: `${snapshot.type === 'transport' ? 'Transportdokument' : snapshot.type === 'receipt' ? 'Utbetalningskvitto' : 'Avräkningsnota'} ${show(snapshot.id)}`, Author: legacyBrand ? 'JEROC Återvinning' : show(snapshot.company?.name, 'ScrapPilot'), Subject: 'Demounderlag', Creator: legacyBrand ? 'JEROC PDF-motor' : 'ScrapPilot PDF-motor' } });
   doc.registerFont('JEROC-Regular', regularFont);
   doc.registerFont('JEROC-Bold', boldFont);
@@ -41,7 +50,9 @@ export async function renderPdf(snapshot) {
     doc.once('error', reject);
     doc.once('end', () => resolve(Buffer.concat(chunks)));
   });
-  const W = doc.page.width, H = doc.page.height, M = 29, WIDTH = W - M * 2, BOTTOM = H - 55;
+  const W = doc.page.width, H = doc.page.height, M = 29, WIDTH = W - M * 2;
+  let BOTTOM = H - 55;
+  let brandingLines = [];
   let y = M;
   const transport = snapshot.type === 'transport';
   const receipt = snapshot.type === 'receipt';
@@ -91,7 +102,8 @@ export async function renderPdf(snapshot) {
       y = top + 36;
       return;
     }
-    if (legacyBrand && existsSync(logo)) doc.image(logo, M, top, { fit: [98, 45], align: 'left', valign: 'center' });
+    if (companyLogo) doc.image(companyLogo, M, top, { fit: [98, 45], align: 'left', valign: 'center' });
+    else if (legacyBrand && existsSync(logo)) doc.image(logo, M, top, { fit: [98, 45], align: 'left', valign: 'center' });
     else if (legacyBrand) text('JEROC', M, top + 8, 96, 21, true, C.blue);
     else text(lines(show(snapshot.company?.name, 'Bolag'), 98, 11, true).slice(0, 3).join('\n'), M, top + 4, 98, 11, true, C.blue);
     const tx = M + 113;
@@ -279,18 +291,28 @@ export async function renderPdf(snapshot) {
     const range = doc.bufferedPageRange();
     for (let i = 0; i < range.count; i++) {
       doc.switchToPage(range.start + i);
-      const top = H - 43;
+      const top = H - 43 - brandingLines.length * 10;
       doc.moveTo(M, top).lineTo(W - M, top).lineWidth(.6).strokeColor(C.line).stroke();
+      if (brandingLines.length) text(brandingLines.join('\n'), M, top + 7, WIDTH, 7, false, C.muted);
+      const contentTop = top + brandingLines.length * 10;
       const stamp = `${show(snapshot.id)} · Underlagsversion ${snapshot.version ?? '—'}${pdfVersion ? ` · PDF-version ${pdfVersion}` : ''}`;
       // Footer strings have a bounded line box regardless of lengthy external IDs.
       const stampLines = lines(stamp, WIDTH - 100, 7).slice(0, 1);
-      text(stampLines.join(''), M, top + 8, WIDTH - 100, 7, false, C.muted);
-      text(`Sida ${i + 1} av ${range.count}`, W - M - 98, top + 8, 98, 7, false, C.muted, 'right');
+      text(stampLines.join(''), M, contentTop + 8, WIDTH - 100, 7, false, C.muted);
+      text(`Sida ${i + 1} av ${range.count}`, W - M - 98, contentTop + 8, 98, 7, false, C.muted, 'right');
       text(paymentConfirmation ? `${paymentConfirmation.providerName ?? 'SWISH MSS'} · Bekräftad testsimulering. Inga riktiga pengar har flyttats.`
-        : snapshot.paymentRevision ? `${snapshot.paymentRevision.providerName ?? 'SWISH MSS'} · Testmiljö. Inga riktiga pengar flyttas. Denna PDF bekräftar inte genomförd betalning.` : 'DEMO · Inga betalningar, bokföringsposter eller myndighetsrapporter har skickats.', M, top + 23, WIDTH, 7, false, C.muted);
+        : snapshot.paymentRevision ? `${snapshot.paymentRevision.providerName ?? 'SWISH MSS'} · Testmiljö. Inga riktiga pengar flyttas. Denna PDF bekräftar inte genomförd betalning.` : 'DEMO · Inga betalningar, bokföringsposter eller myndighetsrapporter har skickats.', M, contentTop + 23, WIDTH, 7, false, C.muted);
     }
   }
   try {
+    const companyContact = [snapshot.company?.phone, snapshot.company?.email, snapshot.company?.website]
+      .filter(value => typeof value === 'string' && value.trim()).map(value => clean(value).replace(/\s+/g, ' ').trim()).join(' · ');
+    const companyFooter = typeof snapshot.company?.footerText === 'string'
+      ? clean(snapshot.company.footerText).replace(/\s+/g, ' ').trim() : '';
+    const allBrandingLines = [companyContact, companyFooter].filter(Boolean).flatMap(value => lines(value, WIDTH, 7));
+    brandingLines = allBrandingLines.slice(0, 8);
+    if (allBrandingLines.length > brandingLines.length) brandingLines[brandingLines.length - 1] = `${brandingLines.at(-1).slice(0, -3)}…`;
+    BOTTOM -= brandingLines.length * 10;
     header();
     if (paymentConfirmation) {
       paragraph(`PDF-version ${paymentConfirmation.version} · Betalningsresultat verifierat ${date(paymentConfirmation.verifiedAt, true)}\nSamma avräkningsreferens, material, priser, moms och attest. Denna PDF kompletterar underlaget med ${paymentConfirmation.providerName ?? 'Swish'} bekräftade testresultat. Tidigare PDF-versioner finns kvar i dokumenthistoriken.`,
