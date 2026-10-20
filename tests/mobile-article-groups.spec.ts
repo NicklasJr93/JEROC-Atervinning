@@ -2,14 +2,17 @@ import { test, expect, type Page } from '@playwright/test';
 import { seedDemo, type DemoData } from '../src/model';
 import type { Article } from '../src/data';
 import type { ArticleGroup } from '../src/catalog-types';
+import { employeeCompanyId, employeeRecoveryKey } from '../src/employee/cache';
+import type { EmployeeOverview } from '../src/employee/types';
+import { sharedBusinessCacheKey } from '../src/shared-data';
 
 const mediaId = 'c6ff7e4a-c2ce-4aac-bce6-2c044c1e919d';
 const api = '/api/application/mobile';
 
-async function catalogFixture(page: Page) {
+async function catalogFixture(page: Page, options: { groupPhoto?: ArticleGroup['photo']; articlePhoto?: Article['photos'][number] } = {}) {
   let data: DemoData = { ...seedDemo(), drafts: [] };
   const groups: ArticleGroup[] = [
-    { id: 'koppar', name: 'Koppar', description: 'Grupp från kontorets register', photo: mediaId, sortOrder: 0, active: true, revision: 1 },
+    { id: 'koppar', name: 'Koppar', description: 'Grupp från kontorets register', photo: options.groupPhoto ?? mediaId, sortOrder: 0, active: true, revision: 1 },
     { id: 'ren-koppar', parentId: 'koppar', name: 'Ren koppar', description: 'Ren och sorterad', photo: 0, sortOrder: 0, active: true, revision: 1 },
     { id: 'inaktiv', name: 'Dold grupp', description: '', photo: null, sortOrder: 1, active: false, revision: 1 },
     { id: 'dold-undergrupp', parentId: 'inaktiv', name: 'Dold undergrupp', description: '', photo: null, sortOrder: 0, active: true, revision: 1 },
@@ -19,7 +22,7 @@ async function catalogFixture(page: Page) {
     includes: 'Ren metall enligt kontorets instruktion.', excludes: 'Plast och föroreningar.', prices: [82, 74, 66],
   });
   const catalog: Article[] = [
-    article('root-copper', 'koppar', 'Blandad koppar', [0]),
+    article('root-copper', 'koppar', 'Blandad koppar', [options.articlePhoto ?? 0]),
     article('clean-copper', 'ren-koppar', 'Koppar klass 1', [mediaId, 0]),
     article('other-article', '', 'Provartikel utan grupp'),
     article('legacy-article', 'legacy-missing', 'Äldre artikel utan grupp'),
@@ -30,14 +33,27 @@ async function catalogFixture(page: Page) {
   let reads = 0;
   const authenticated = await page.request.post('/api/employee/login', { data: { username: 'niklas', password: 'Demo123!' } });
   expect(authenticated.ok(), await authenticated.text()).toBe(true);
-  await page.addInitScript(initial => {
-    localStorage.setItem('jeroc.mobile.demo.v1.employee.person-mobile-demo', JSON.stringify(initial));
-    localStorage.setItem('jeroc.mobile.demo.v1.employee.person-mobile-demo.postgres-imported', 'yes');
-  }, data);
-  await page.route(`**${api}`, async route => {
+  const session = await authenticated.json() as EmployeeOverview;
+  const companyId = employeeCompanyId(session.companyId), personId = session.person.id;
+  const recoveryKey = employeeRecoveryKey(companyId, personId);
+  const catalogCacheKey = sharedBusinessCacheKey('jeroc.mobile.article-catalog.v1', { companyId, employee: personId });
+  await page.addInitScript(({ initial, recoveryKey }) => {
+    localStorage.setItem(recoveryKey, JSON.stringify(initial));
+    localStorage.setItem(`${recoveryKey}.postgres-imported`, 'yes');
+  }, { initial: data, recoveryKey });
+  const mergeRecords = <T extends { id: string }>(current: T[], changes: Array<{ id: string; next?: T }> = []): T[] => {
+    const records = new Map(current.map(value => [value.id, value]));
+    for (const change of changes) {
+      if (change.next) records.set(change.id, change.next); else records.delete(change.id);
+    }
+    return [...records.values()];
+  };
+  await page.route(url => url.pathname === api, async route => {
     if (route.request().method() === 'POST') {
       const request = route.request().postDataJSON();
       if (request.kind === 'update') data = request.next;
+      else if (request.kind === 'records') data = { ...data,
+        drafts: mergeRecords(data.drafts, request.drafts), customers: mergeRecords(data.customers, request.customers) };
     } else reads++;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data, revision: reads, catalog, groups, customerPrices: {} }) });
   });
@@ -45,7 +61,7 @@ async function catalogFixture(page: Page) {
   await page.goto('/#/yard');
   await expect(page.getByRole('heading', { name: 'Gårdsarbete', exact: true })).toBeVisible();
   await expect.poll(() => reads).toBeGreaterThan(0);
-  return { groups, catalog, reads: () => reads };
+  return { groups, catalog, catalogCacheKey, reads: () => reads };
 }
 
 async function start(page: Page) {
@@ -107,11 +123,43 @@ test('serverändrade grupper och texter slår igenom utan omstart och dolda grup
   await page.getByRole('searchbox', { name: 'Sök material eller artikel' }).fill('klass 1');
   await expect(page.locator('.material-choice')).toHaveCount(1);
   await expect(page.locator('.material-choice')).toContainText('Koppar klass 1');
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('jeroc.mobile.article-catalog.v1')!).groups[0].name)).toBe('Koppar och kabel');
+  await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!).groups[0].name, fixture.catalogCacheKey)).toBe('Koppar och kabel');
   await page.goto('/#/prices');
   const missing = page.getByRole('button', { name: 'Visa priser för Artikel utan LME-pris', exact: true });
   await expect(missing).toBeVisible();
   await expect(missing.locator('.price-value')).toHaveText(['—', '—', '—']);
   await missing.click();
   await expect(page.getByText('Pris saknas. Kontoret behöver komplettera prissättningen.')).toBeVisible();
+});
+
+test('utökade katalogbilder visas i materialgrupp, artikellista och fullstor referensbild', async ({ page }) => {
+  await catalogFixture(page, { groupPhoto: 40, articlePhoto: 71 });
+  const groupImage = page.waitForResponse(response => new URL(response.url()).pathname === '/images/catalog/40-thumb.webp');
+  await start(page);
+  const group = page.locator('.material-choice').filter({ hasText: 'Koppar' });
+  await expect(group.locator('.material-photo')).not.toHaveClass(/material-photo-missing/);
+  await expect(group.locator('.material-photo')).toHaveCSS('background-image', /\/images\/catalog\/40-thumb\.webp/);
+  const loadedGroup = await groupImage;
+  expect(loadedGroup.ok()).toBe(true);
+  expect(loadedGroup.headers()['content-type']).toContain('image/webp');
+  expect((await loadedGroup.body()).subarray(8, 12).toString()).toBe('WEBP');
+
+  const articleImage = page.waitForResponse(response => new URL(response.url()).pathname === '/images/catalog/71-thumb.webp');
+  await group.click();
+  const article = page.locator('.material-choice').filter({ hasText: 'Blandad koppar' });
+  await expect(article.locator('.material-photo')).not.toHaveClass(/material-photo-missing/);
+  await expect(article.locator('.material-photo')).toHaveCSS('background-image', /\/images\/catalog\/71-thumb\.webp/);
+  expect((await articleImage).ok()).toBe(true);
+
+  const fullImage = page.waitForResponse(response => new URL(response.url()).pathname === '/images/catalog/71-full.webp');
+  await article.click();
+  const gallery = page.getByRole('region', { name: 'Materialets exempelbilder' });
+  await expect(gallery.getByRole('img', { name: 'Blandad koppar, exempel 1', exact: true })).toHaveCSS('background-image', /\/images\/catalog\/71-full\.webp/);
+  const loadedFull = await fullImage;
+  expect(loadedFull.ok()).toBe(true);
+  expect(loadedFull.headers()['content-type']).toContain('image/webp');
+  expect((await loadedFull.body()).subarray(8, 12).toString()).toBe('WEBP');
+  await page.getByRole('button', { name: 'Förstora referensbild', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('img', { name: 'Blandad koppar', exact: true }))
+    .toHaveCSS('background-image', /\/images\/catalog\/71-full\.webp/);
 });

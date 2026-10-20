@@ -20,7 +20,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useDemo } from './store';
 import { kilos } from './model';
 import type { ArticleImage } from './catalog-types';
-import { builtInArticleImage } from './catalog-images';
+import { builtInArticleImage, BUILT_IN_ARTICLE_IMAGE_COUNT } from './catalog-images';
 import { useEmployee } from './employee/EmployeeProvider';
 
 export function Logo() {
@@ -48,7 +48,7 @@ export function Photo({
   if (typeof index === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(index) && !failed) {
     return <img className={`material-photo material-photo-upload ${className}`} src={`/api/article-media/${index}?variant=${variant}`} alt={label} loading="lazy" decoding="async" onError={() => setFailed(true)} />;
   }
-  if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index > 39) {
+  if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= BUILT_IN_ARTICLE_IMAGE_COUNT) {
     return <div role="img" aria-label={label} className={`material-photo material-photo-missing ${className}`} title="Referensbild saknas"><ImageIcon aria-hidden="true" /></div>;
   }
   return (
@@ -170,6 +170,12 @@ export function Nav() {
   const location = useLocation();
   const navigate = useNavigate();
   const { session } = useEmployee();
+  const yardSection = ['/yard', '/drafts', '/prices', '/new', '/weigh', '/assignments']
+    .some(prefix => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`));
+  const selectedPath = yardSection ? session?.support ? '/yard' : '/'
+    : location.pathname.startsWith('/time/') ? '/time'
+    : location.pathname.startsWith('/profile/') ? '/profile'
+    : location.pathname;
   const items: { path: string; label: string; icon: LucideIcon }[] = session?.support ? [
     { path: '/', label: 'Hem', icon: Home },
     { path: '/yard', label: 'Gårdsarbete', icon: Scale },
@@ -185,15 +191,8 @@ export function Nav() {
       {items.map(({ path, label, icon: Icon }) => (
         <button
           key={path}
-          className={
-            location.pathname === path ||
-            (path === '/' && ['/yard', '/drafts', '/prices', '/new', '/weigh', '/assignments'].some(prefix => location.pathname.startsWith(prefix))) ||
-            (path === '/time' && location.pathname.startsWith('/time/')) ||
-            (path === '/profile' && location.pathname.startsWith('/profile/'))
-              ? 'active'
-              : ''
-          }
-          aria-current={location.pathname === path || path === '/' && ['/yard', '/drafts', '/prices', '/new', '/weigh', '/assignments'].some(prefix => location.pathname.startsWith(prefix)) || path === '/time' && location.pathname.startsWith('/time/') || path === '/profile' && location.pathname.startsWith('/profile/') ? 'page' : undefined}
+          className={selectedPath === path ? 'active' : ''}
+          aria-current={selectedPath === path ? 'page' : undefined}
           onClick={() => navigate(path)}
         >
           <Icon size={22} />

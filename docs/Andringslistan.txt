@@ -3675,3 +3675,20 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
   browserfall för systemadmin och förare samt 16 serverprov för fleet och
   support. Systemadmin sparar en invägning utan att hämta egna förarresor;
   en vanlig förare är fortsatt spärrad vid okänd status eller saknat syfte.
+
+
+ÄL 147 – En markerad mobilflik och synliga nya materialbilder
+Status: Genomförd och lokalt verifierad 2026-10-20.
+- Systemadminens mobilmeny ska markera endast Gårdsarbete i dess vyer,
+  inklusive prislista och vägningshistorik. Hem markeras på startsidan.
+  Visuell markering och aria-current ska använda samma valda menyflik.
+- Mobilens material- och artikelbilder ska godkänna hela det gemensamma
+  bildbiblioteket, även de nya bildreferenserna 40–71. Uppladdade bilder
+  och platshållare för verkligt saknade referenser behåller sitt beteende.
+- Felet låg i mobilens gamla visningsgräns, inte i de publicerade filerna.
+  De nya WebP-filerna har kontrollerats på mobilens liveadress. Befintliga
+  artiklar behöver inte importeras om eller få sina bildkopplingar ändrade.
+- Verifiering: produktionsbygge och fem riktade browserfall passerar.
+  Båda kontotypernas meny kontrolleras genom flera huvud- och undervyer.
+  Bildproven kontrollerar ny gruppbild, artikelbild, fullstor bild och
+  förstoring med faktiska WebP-svar, samt uppladdningar och saknade bilder.

@@ -232,6 +232,34 @@ test('systemadminens egna fordonslänkar och återanslutning öppnar inga förar
   expect(fixture.errors).toEqual([]);
 });
 
+test('systemadminens huvudmeny markerar exakt en del för hem, gårdsarbete, priser, utkast och profil', async ({ page }) => {
+  const fixture = await supportFixture(page, { authenticated: true });
+  await page.goto('/mobil/');
+  await chooseCompany(page);
+  const navigation = page.getByRole('navigation', { name: 'Huvudmeny', exact: true });
+  async function selected(name: string) {
+    await expect(navigation.locator('button.active')).toHaveCount(1);
+    await expect(navigation.locator('button.active')).toHaveText(name);
+    await expect(navigation.locator('button[aria-current="page"]')).toHaveCount(1);
+    await expect(navigation.locator('button[aria-current="page"]')).toHaveText(name);
+  }
+  await selected('Hem');
+  await navigation.getByRole('button', { name: 'Gårdsarbete', exact: true }).click();
+  await expect(page).toHaveURL(/#\/yard$/); await selected('Gårdsarbete');
+  await page.getByRole('button', { name: /^Prislista/ }).click();
+  await expect(page).toHaveURL(/#\/prices$/); await selected('Gårdsarbete');
+  await page.getByRole('button', { name: `Visa priser för ${articleName(companies[0])}`, exact: true }).click();
+  await expect(page).toHaveURL(/#\/prices\/article-A$/); await selected('Gårdsarbete');
+  await navigation.getByRole('button', { name: 'Gårdsarbete', exact: true }).click();
+  await page.getByRole('button', { name: /^Vägningshistorik/ }).click();
+  await expect(page).toHaveURL(/#\/drafts$/); await selected('Gårdsarbete');
+  await navigation.getByRole('button', { name: 'Profil', exact: true }).click();
+  await expect(page).toHaveURL(/#\/profile$/); await selected('Profil');
+  await navigation.getByRole('button', { name: 'Hem', exact: true }).click();
+  await expect(page).toHaveURL(/#\/$/); await selected('Hem');
+  expect(fixture.errors).toEqual([]);
+});
+
 test('bolagsbyte stänger A direkt och försenade A-svar kan inte ersätta B:s kunder, anläggning eller artikelregister', async ({ page }) => {
   const fixture = await supportFixture(page, { authenticated: true });
   try {

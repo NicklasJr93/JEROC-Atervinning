@@ -47,7 +47,7 @@ Artikelns namn, korta beskrivning, **Ingår** och **Ingår inte** återanvänds
 i appen. Mobilförhandsvisningen på artikel- och gruppsidan visar hur
 presentationen blir.
 
-Bildväljaren kan kombinera de 40 befintliga exempelbilderna med egna
+Bildväljaren kan kombinera de 72 befintliga exempelbilderna med egna
 uppladdningar. En artikel har högst **sex bilder**; en grupp har **en bild**.
 Flytta bilderna framåt/bakåt eller välj en huvudbild. Första bilden används
 som huvudbild i materialrutan. Bildordningen och artikelkopplingen sparas

@@ -163,6 +163,35 @@ async function geometry(page: Page) {
   await page.evaluate(() => window.scrollTo(0, 0));
 }
 
+test('vanlig personal har exakt en aktiv huvudmenyknapp även i gårdsarbetets undervyer', async ({ page }) => {
+  const fixture = await homeFixture(page, true);
+  fixture.controls.yardWork = true;
+  fixture.controls.gateBlocked = false;
+  await page.route('**/api/application/mobile**', route => route.fulfill({ json: {
+    data: { version: 1, drafts: [], customers: [] }, revision: 0, customerPrices: {},
+    catalog: [{ id: 'nav-article', category: 'nav-group', name: 'Navigationskoppar', description: '',
+      includes: '', excludes: '', photos: [], prices: [42, 40, 40], active: true }],
+    groups: [{ id: 'nav-group', name: 'Navigationsmaterial', description: '', photo: null, sortOrder: 0, active: true, revision: 1 }],
+  } }));
+  await page.goto('/');
+  const navigation = page.getByRole('navigation', { name: 'Huvudmeny', exact: true });
+  for (const [path, selected, heading] of [
+    ['/', 'Hem', /^God (morgon|eftermiddag|kväll|natt),\s*Niklas!?$/],
+    ['/yard', 'Hem', 'Gårdsarbete'], ['/prices', 'Hem', 'Prislista'],
+    ['/prices/nav-article', 'Hem', 'Artikelpriser'], ['/drafts', 'Hem', 'Vägningar'],
+    ['/schedule', 'Schema', 'Mitt schema'], ['/time', 'Tid', 'Tidrapportering'], ['/profile', 'Profil', 'Profil'],
+  ] as const) {
+    await page.evaluate(next => { window.location.hash = next; }, path);
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+    await expect(navigation.getByRole('button')).toHaveText(['Hem', 'Schema', 'Tid', 'Profil']);
+    await expect(navigation.locator('button.active')).toHaveCount(1);
+    await expect(navigation.locator('button[aria-current="page"]')).toHaveCount(1);
+    await expect(navigation.getByRole('button', { name: selected, exact: true })).toHaveClass('active');
+    await expect(navigation.getByRole('button', { name: selected, exact: true })).toHaveAttribute('aria-current', 'page');
+  }
+  expect(fixture.errors).toEqual([]);
+});
+
 test('Hem visar nästa eget uppdrag och Gårdsarbete visar verifierad statistik under Starta invägning', async ({ page, browser }, info) => {
   const fixture = await homeFixture(page);
   await page.goto('/');
