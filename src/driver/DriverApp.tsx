@@ -186,7 +186,7 @@ export default function DriverApp() {
   });
 
   return <div className="driver-app">
-    <header className="driver-header"><img src="/images/scrappilot-logo.svg" alt="ScrapPilot" /><span><Truck size={18} />Chaufför</span>{session && <button className="driver-logout" disabled={logoutBusy || Boolean(busyOrder)} onClick={() => void logout()} aria-label="Logga ut chaufför">{logoutBusy ? <LoaderCircle size={18} className="driver-spinner" /> : <LogOut size={18} />}</button>}</header>
+    <header className="driver-header"><img src="/images/scrapplanner-logo.png" alt="ScrapPlanner" /><span><Truck size={18} />Chaufför</span>{session && <button className="driver-logout" disabled={logoutBusy || Boolean(busyOrder)} onClick={() => void logout()} aria-label="Logga ut chaufför">{logoutBusy ? <LoaderCircle size={18} className="driver-spinner" /> : <LogOut size={18} />}</button>}</header>
     {loading ? <main className="driver-loading" role="status"><LoaderCircle className="driver-spinner" size={28} /><p>Öppnar chaufförsportalen…</p></main> : !session ? <main className="driver-login"><div className="driver-login-icon"><Truck size={30} /></div><span className="driver-eyebrow">CHAUFFÖRSPORTAL</span><h1>Dina uppdrag hos {companyName}</h1><p>Logga in med ditt chaufförskonto.</p><form onSubmit={login}>
       <label htmlFor="driver-username">Inloggningsnamn</label><div className="driver-input"><UserRound size={18} /><input id="driver-username" name="username" autoComplete="username" autoCapitalize="none" autoCorrect="off" required disabled={loginBusy} value={username} onChange={event => setUsername(event.target.value)} /></div>
       <label htmlFor="driver-password">Lösenord</label><div className="driver-input"><LockKeyhole size={18} /><input id="driver-password" name="password" type="password" autoComplete="current-password" required disabled={loginBusy} value={password} onChange={event => setPassword(event.target.value)} /></div>
@@ -202,6 +202,6 @@ export default function DriverApp() {
         {ordersLoading && !orders.length ? <div className="driver-empty" role="status"><LoaderCircle className="driver-spinner" size={26} /><p>Hämtar uppdrag…</p></div> : shownOrders.length ? shownOrders.map(order => <DriverOrder key={order.id} order={order} open={openId === order.id} busy={busyOrder === order.id} disabled={Boolean(busyOrder) || logoutBusy} onToggle={() => setOpenId(current => current === order.id ? null : order.id)} onStatus={status => void updateStatus(order, status)} onLogistics={command => void updateLogistics(order, command)} />) : <div className="driver-empty">{tab === 'active' ? <ClipboardList size={34} /> : <Clock3 size={34} />}<h2>{tab === 'active' ? 'Inga tilldelade uppdrag' : 'Inga avslutade uppdrag'}</h2><p>{tab === 'active' ? `Nya uppdrag visas här när ${companyName} har tilldelat dem till dig.` : 'Slutförda och avbrutna uppdrag visas här.'}</p></div>}
       </section>
     </main>}
-    <footer className="driver-footer">ScrapPilot · Chaufförsportal{session?.demo !== false && ' · Demo'}</footer>
+    <footer className="driver-footer">ScrapPlanner · Chaufförsportal{session?.demo !== false && ' · Demo'}</footer>
   </div>;
 }

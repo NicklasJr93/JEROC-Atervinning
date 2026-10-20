@@ -122,28 +122,37 @@ test('läsbehörighet visar uppgifterna utan skrivkontroller eller uppladdning',
 
 test('loggauppladdning ändrar bara utkastet tills företagsinställningarna sparas', async ({ page }) => {
   const f = await fixture(page);
+  const sidebarCaption = page.locator('.office-sidebar > .office-eyebrow');
+  await expect(sidebarCaption).toHaveText(stored.profile.name);
+  await expect(page.getByText('KONTORSÖVERSIKT', { exact: true })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Logga & dokument', exact: true }).click();
   await page.getByLabel('Ladda upp logga', { exact: true }).setInputFiles({ name: 'logga.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6fYAAAAASUVORK5CYII=', 'base64') });
   await expect(page.getByRole('img', { name: 'Företagets logga', exact: true })).toBeVisible();
   expect(f.uploads).toHaveLength(1); expect(f.writes).toHaveLength(0);
   expect(f.value().documents.logoId).toBeUndefined();
-  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
-  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
+  await expect(sidebarCaption).toHaveText(stored.profile.name);
+  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
   await page.getByRole('button', { name: 'Spara ändringar', exact: true }).click();
   await expect.poll(() => f.value().documents.logoId).toBe(logoId);
   await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  await expect(sidebarCaption).toHaveCount(0);
   await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
   await page.getByRole('button', { name: 'Ta bort logga', exact: true }).click();
   await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  await expect(sidebarCaption).toHaveCount(0);
   await page.getByRole('button', { name: 'Spara ändringar', exact: true }).click();
-  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
-  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
+  await expect(sidebarCaption).toHaveText(stored.profile.name);
+  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
 });
 
 test('systemadmin behåller produktloggan ovanför bolagets sparade logga', async ({ page }) => {
   await fixture(page, { logo: true, platformAdmin: true });
-  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
   await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  await expect(page.locator('.office-sidebar > .office-eyebrow')).toHaveCount(0);
+  await expect(page.getByText('KONTORSÖVERSIKT', { exact: true })).toHaveCount(0);
 });
 
 test('vanlig medarbetare får företagets logga via minimala uppgifter utan att läsa företagsinställningar', async ({ page }) => {
@@ -155,13 +164,15 @@ test('vanlig medarbetare får företagets logga via minimala uppgifter utan att 
 
 test('saknad loggafil visar produktloggan utan en trasig bild', async ({ page }) => {
   await fixture(page, { logo: true, brokenLogo: true });
-  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
-  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
+  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
+  await expect(page.locator('.office-sidebar > .office-eyebrow')).toHaveText(stored.profile.name);
 });
 
 test('bolagsbyte visar aldrig det förra bolagets logga medan nästa profil hämtas', async ({ page }) => {
   const f = await fixture(page, { logo: true });
   await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  await expect(page.locator('.office-sidebar > .office-eyebrow')).toHaveCount(0);
   let release!: () => void;
   const pending = new Promise<void>(resolve => { release = resolve; });
   await page.route('**/api/company-settings/defaults', async route => {
@@ -172,11 +183,12 @@ test('bolagsbyte visar aldrig det förra bolagets logga medan nästa profil häm
   f.changeCompany();
   try {
     await page.evaluate(() => window.dispatchEvent(new Event('scrappilot:check-platform-session')));
-    await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
-    await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+    await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
+    await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
+    await expect(page.locator('.office-sidebar > .office-eyebrow')).toHaveText('Nästa bolag AB');
   } finally { release(); }
   await expect(page.locator('.office-sidebar').getByText('Nästa bolag AB', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrapplanner-logo.png');
 });
 
 test('mottagarlistor och kunders standardvillkor sparas tillsammans utan att skicka e-post', async ({ page }) => {

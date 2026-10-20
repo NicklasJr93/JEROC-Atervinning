@@ -171,7 +171,7 @@ export function OfficeApp() {
     ? companyContext.profile.name : platform?.session.company?.name ?? 'JEROC Återvinning';
   useEffect(() => {
     const previous = document.title;
-    document.title = `ScrapPilot · ${companyName}`;
+    document.title = `ScrapPlanner · ${companyName}`;
     return () => {
       document.title = previous;
     };
@@ -1152,7 +1152,7 @@ export function OfficeApp() {
     return (
       <div className="office office-login">
         <div className="office-login-card">
-          <img src="/images/scrappilot-logo.svg" alt="ScrapPilot" />
+          <img src="/images/scrapplanner-logo.png" alt="ScrapPlanner" />
           <span className="office-eyebrow">
             KONTORET · DEMO {OFFICE_VERSION}
           </span>
@@ -1219,9 +1219,8 @@ export function OfficeApp() {
     <EnvironmentSessionProvider user={user} actualUser={actualUser!} onNotice={setMessage}>
     <div className="office">
       <aside className="office-sidebar">
-        <CompanyBrand branding={companyContext} className="office-logo" />
-        <span className="office-eyebrow">{companyName}</span>
-        <span className="office-eyebrow">KONTORSÖVERSIKT</span>
+        <CompanyBrand branding={companyContext} className="office-logo"
+          fallbackCaption={<span className="office-eyebrow">{companyName}</span>} />
         <nav>
           {nav
             .filter((n) =>
@@ -1295,7 +1294,7 @@ export function OfficeApp() {
               {acting && <small>Inloggad som {actualUser!.name}. Åtgärder sparar båda namnen i historiken.</small>}
             </div>
           </details>
-          <span className="office-online">● ScrapPilot {OFFICE_VERSION}</span>
+          <span className="office-online">● ScrapPlanner {OFFICE_VERSION}</span>
           <p>{platform ? companyName : 'Norrtälje · Alla uppgifter är fiktiva'}</p>
           <button
             onClick={() => {
@@ -2343,7 +2342,7 @@ export function OfficeApp() {
             />
           )}
           <footer className="office-footer">
-            ScrapPilot {OFFICE_VERSION} · {platform ? companyName : 'Testdata'} ·{' '}
+            ScrapPlanner {OFFICE_VERSION} · {platform ? companyName : 'Testdata'} ·{' '}
             <button
               className="office-link"
               onClick={() => window.location.reload()}

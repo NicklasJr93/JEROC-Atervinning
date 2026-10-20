@@ -26,8 +26,8 @@ export function Logo() {
   return (
     <img
       className="company-logo"
-      src="/images/scrappilot-logo.svg"
-      alt="ScrapPilot"
+      src="/images/scrapplanner-logo.png"
+      alt="ScrapPlanner"
     />
   );
 }

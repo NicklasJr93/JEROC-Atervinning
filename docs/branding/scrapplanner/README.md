@@ -9,8 +9,15 @@
 Uppdaterad 2026-10-20: första a:ets övre vänstra kontur är jämnad för att
 stämma med den rundade bokstavsformen i resten av ordmärket.
 
-Detta är en statisk **mockup** för bedömning av ScrapPlanners visuella
-riktning. Den ersätter ännu inga produktionsloggor eller andra appresurser.
+Den korrigerade presentationsbilden används nu på hemsidan och i appens
+produktlogga. Bolagens egna uppladdade loggor har fortfarande företräde i
+bolagsvyn. Systemadmin behåller ScrapPlanner i den övre produktlisten.
+
+Appresurserna exporteras med `node scripts/export-scrapplanner-assets.mjs`
+från hemsidans godkända `website/source-assets/logo.png` och den fristående
+SP-symbolen i `website/public/favicon.svg`. Exporten tar bort ordmärkets yttre
+presentationsmarginaler och skapar favicon, mobilikoner och Expo-resurser.
+Ordmärket är ett rasteroriginal; SP-symbolen är vektor.
 
 Förslaget bygger vidare på den befintliga SP-symbolen och kombinerar
 avrundade former med ett seriöst, industriellt B2B-uttryck. Riktningen är

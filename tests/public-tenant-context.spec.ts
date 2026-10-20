@@ -15,7 +15,7 @@ for (const [pagePath, apiPath] of [['/chauffor', '/api/driver'], ['/kund', '/api
     });
     await page.goto(pagePath);
     await expect(page.getByLabel('Inloggningsnamn', { exact: true })).toBeVisible();
-    await expect(page.getByRole('img', { name: 'ScrapPilot', exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('img', { name: 'ScrapPlanner', exact: true }).first()).toBeVisible();
     if (pagePath === '/kund') await expect(page.getByText('Välkommen tillbaka till Bolag A.', { exact: true })).toBeVisible();
     else await expect(page.getByRole('heading', { name: new RegExp(`(?:hos|från) Bolag A$`) })).toBeVisible();
     expect(contexts).toBe(1);
@@ -58,7 +58,7 @@ test('terminal device commands and event stream remain bound to the first select
   await page.goto('/terminal');
   await expect(page.getByRole('heading', { name: 'Invänta personal', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Välkommen till Bolag A', exact: true })).toBeVisible();
-  await expect(page.getByRole('img', { name: 'ScrapPilot', exact: true })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'ScrapPlanner', exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as typeof window & { terminalStreamUrls: string[] }).terminalStreamUrls))
     .toContain('/api/terminal-demo/terminal-events?expectedCompany=company-a');
   expect(contexts).toBe(1);

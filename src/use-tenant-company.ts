@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { tenantPublicContext } from './tenant-public-context';
 
 /** Portals share the already-cached server-selected company. Product branding
- * stays ScrapPilot; operational instructions name the actual customer company. */
+ * stays ScrapPlanner; operational instructions name the actual customer company. */
 export function useTenantCompanyName(): string {
   const [name, setName] = useState('verksamheten');
   useEffect(() => {

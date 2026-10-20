@@ -260,7 +260,7 @@ export default function TerminalApp() {
   const visibleDialog = approval?.status === 'waiting' ? dialog : null;
 
   return <div className="terminal-app">
-    <header className="terminal-header"><img src="/images/scrappilot-logo.svg" alt="ScrapPilot" />
+    <header className="terminal-header"><img src="/images/scrapplanner-logo.png" alt="ScrapPlanner" />
       {session && <div className="terminal-device-menu"><button className="terminal-device-button" aria-expanded={menuOpen} aria-label="Terminalinställningar" onClick={() => setMenuOpen(value => !value)}><Monitor size={17} /><span>{session.terminal.name}</span><ChevronDown size={14} /></button>{menuOpen && <div className="terminal-menu"><p>{session.terminal.name}</p><span>Inloggad som kundterminal</span><button onClick={() => void logout()}><LogOut size={17} /> Logga ut terminalen</button></div>}</div>}
     </header>
     {loading ? <main className="terminal-welcome" aria-live="polite"><LoaderCircle className="terminal-spinner" size={32} /><p>Ansluter till {companyName}…</p></main> : !session ? <main className="terminal-login"><div className="terminal-login-icon"><Monitor size={31} /></div><span className="terminal-eyebrow">KUNDTERMINAL</span><h1>Välkommen till {companyName}</h1><p>Logga in med terminalens konto.</p><form onSubmit={login}>
