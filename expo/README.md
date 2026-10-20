@@ -55,7 +55,7 @@ Låt startfönstret vara öppet medan du testar. QR-koden skapas på din dator; 
 
 Om Mac inte kör filen när du dubbelklickar: öppna Terminal i projektmappen och kör `bash Mac_Starta_JEROC_Expo.command`.
 
-Om datorns brandvägg frågar, tillåt anslutning på det privata nätverket. Appdelen använder port 4173, Expo port 8081. Startfilen kan använda en redan startad JEROC-demo på 4173 och stänger då inte den när du avslutar Expo.
+Om datorns brandvägg frågar, tillåt anslutning på det privata nätverket. Portarna 4173 och 8081 behöver vara lediga. Startfilen äger en Node-server med både webb och API på 4173 och verifierar dess `/readyz` före Expo/QR. En redan körande server återanvänds inte. Ctrl+C stänger de processer startfilen själv har skapat.
 
 **Mobil och kontor delar serverdata.** Expo visar samma mobilwebb som webbläsaren: utkast sparas på servern och färdiga vägningar visas på kontoret. Artikelgrupper, bilder och instruktioner hämtas från kontorets register. Eget schema, faktisk arbetstid, timkrav och ledighetsansökningar använder samma PostgreSQL-databas. WebView har dessutom en lokal återhämtningscache för vägningsarbete som väntar på sparning; den häver inte serverns spärr vid saknad tidrapport. Använd samma JEROC-serveradress på mobilen och kontoret. Vid lokal testning behöver datorns appserver vara igång även när Expo Go är öppet.
 

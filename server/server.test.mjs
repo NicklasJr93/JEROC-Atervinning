@@ -50,7 +50,7 @@ test('serves the production app, its JS and reference images', async () => {
   assert.match(response.headers.get('content-type'), /text\/html/);
   assert.equal(response.headers.get('cache-control'), 'no-cache');
   const html = await response.text();
-  assert.match(html, /<title>ScrapPilot<\/title>/);
+  assert.match(html, /<title>ScrapPlanner<\/title>/);
   const jsPath = html.match(/src="([^\"]+\.js)"/)?.[1];
   assert.ok(jsPath);
   const js = await fetch(new URL(jsPath, base));
@@ -67,6 +67,9 @@ test('health and HEAD requests work without returning a body for HEAD', async ()
   const health = await fetch(`${base}/healthz`);
   assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), { status: 'ok' });
+  const readiness = await fetch(`${base}/readyz`);
+  assert.equal(readiness.status, 200);
+  assert.deepEqual(await readiness.json(), { status: 'ready' });
   const head = await fetch(base, { method: 'HEAD' });
   assert.equal(head.status, 200);
   assert.ok(Number(head.headers.get('content-length')) > 0);
@@ -105,10 +108,12 @@ test('web demo stays available while Expo Go waits for account setup', async () 
   assert.equal(nativeRoot.status, 503);
   const setup = await fetch(`${base}/expo-go`);
   assert.equal(setup.status, 200);
-  assert.match(await setup.text(), /exps:\/\/jeroc-atervinning\.onrender\.com\/expo/);
+  const setupHtml = await setup.text();
+  assert.match(setupHtml, /id="launch-link"/);
+  assert.match(setupHtml, /\/expo\/status/);
+  assert.doesNotMatch(setupHtml, /exps:\/\/jeroc-atervinning\.onrender\.com\/expo/);
   const qr = await fetch(`${base}/expo-go-qr.svg`);
-  assert.equal(qr.status, 200);
-  assert.equal(qr.headers.get('content-type'), 'image/svg+xml');
+  assert.equal(qr.status, 404);
   assert.equal((await fetch(`${base}/expo/retry`, { method: 'POST', headers: { Origin: 'https://untrusted.example' } })).status, 403);
 });
 

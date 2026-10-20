@@ -218,6 +218,7 @@ weighedDocumentEmailTimer.unref();
 void tenantGateway.runWorkers('processQueuedWeighedDocumentEmails');
 server.listen(port, '0.0.0.0', () => {
   console.log(`ScrapPilot lyssnar på port ${server.address().port}`);
+  process.send?.({ type: 'scrapplanner:ready', port: server.address().port });
 });
 let stopping = false;
 async function stop(code = 0) {

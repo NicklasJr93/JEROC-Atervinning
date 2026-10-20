@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 where node >nul 2>nul
 if errorlevel 1 (
-  echo Node.js saknas. Installera Node.js 22.12 eller senare och prova igen.
+  echo Node.js saknas. Installera Node.js 24 LTS, minst 24.19.0, och prova igen.
   pause
   exit /b 1
 )
