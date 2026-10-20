@@ -220,7 +220,9 @@ test('pilot gateway starts without business services and never falls back to the
     }).catch(() => { res.writeHead(500); res.end(); }); });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const base = `http://127.0.0.1:${server.address().port}`;
-    for (const path of ['/api/employee/demo-config', '/api/application/mobile', '/api/platform/tenant-context']) {
+    const demo = await fetch(`${base}/api/employee/demo-config`, { headers: { 'x-client-company': 'jeroc-demo', 'x-demo-actor': 'admin' } });
+    assert.equal(demo.status, 200); assert.deepEqual(await demo.json(), { enabled: false, accounts: { niklas: false, admin: false } });
+    for (const path of ['/api/application/mobile', '/api/platform/tenant-context']) {
       const response = await fetch(`${base}${path}`, { headers: { 'x-client-company': 'jeroc-demo', 'x-demo-actor': 'admin' } });
       assert.equal(response.status, 409, path); assert.equal((await response.json()).code, 'platform_company_required');
     }

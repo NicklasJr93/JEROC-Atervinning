@@ -44,6 +44,7 @@ function target(state, identifier) {
   // guess another company or silently link identities that share an address.
   if (matches.length !== 1) return { matched: matches.length > 0 };
   const user = matches[0];
+  if (user.platformAdmin === true) return { matched: true, platformAdmin: true, platformUsername: user.username };
   if (!user.active || user.mustChangePassword || user.passwordRecoveryPending || user.passwordSyncPending) return { matched: true };
   const memberships = state.memberships.filter(value => value.userId === user.id && value.active
     && state.companies.some(company => company.id === value.organisationId && company.status === 'active'));
@@ -57,7 +58,7 @@ function assertTarget(state, expected, identifier) {
   const current = target(state, identifier);
   if (current.userId !== expected.userId || current.company?.id !== expected.company.id || current.businessUserId !== expected.businessUserId) throw denied();
 }
-export function createGlobalEmployeeLogin({ repository, auth, openCompany, fallbackCompany, sameOrigin, json, env = process.env, now = () => Date.now() }) {
+export function createGlobalEmployeeLogin({ repository, auth, openCompany, fallbackCompany, sameOrigin, json, platformAdminLogin, env = process.env, now = () => Date.now() }) {
   const attempts = new Map(); let running = 0;
   function reserve(req, identifier) {
     const at = now(), cutoff = at - 15 * 60_000;
@@ -84,6 +85,7 @@ export function createGlobalEmployeeLogin({ repository, auth, openCompany, fallb
           throw new PlatformError('Använd inloggningsformuläret.', 422, 'employee_login_invalid');
         const input = await body(req); reserve(req, input.username); reserved = true;
         const found = await repository.read(state => target(state, input.username));
+        if (found.platformAdmin && platformAdminLogin) return await platformAdminLogin(input, req, res, found.platformUsername);
         let selected = found.company;
         if (!selected && !found.matched) selected = (await auth.resolveTenantSelector(req))?.company ?? fallbackCompany;
         if (!selected) { await employeeLoginPasswordValid(input.password); throw denied(); }

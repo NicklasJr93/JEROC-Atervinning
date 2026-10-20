@@ -127,6 +127,19 @@
 .employee-demo-login button { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 10px; border: 1px solid #dce8f5; border-radius: 10px; background: #fff; color: #2762a2; font-size: 11px; text-align: left; line-height: 1.4; }
 .employee-demo-login button svg { flex: 0 0 19px; }
 .employee-demo-login button:disabled { opacity: .5; }
+.employee-admin-picker .employee-admin-eyebrow { display: flex; align-items: center; gap: 8px; color: #116df4; font-size: 12px; font-weight: 650; }
+.employee-admin-picker-actions { display: flex; justify-content: space-between; gap: 15px; }
+.employee-admin-bar { position: sticky; top: 0; z-index: 80; flex-shrink: 0; display: flex; flex-direction: column; gap: 7px; min-height: 88px; padding: 10px 16px; background: #edf5ff; color: #284d79; border-bottom: 1px solid #d7e6f9; }
+.employee-admin-identity { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; line-height: 1.4; }
+.employee-admin-identity > svg { flex-shrink: 0; color: #116df4; }
+.employee-admin-identity > strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.employee-admin-bar-actions { display: flex; gap: 9px; }
+.employee-admin-bar-actions button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; border: 1px solid #d5e3f6; border-radius: 9px; padding: 8px 13px; background: #fff; color: #2862a0; font: inherit; font-size: 12px; }
+.employee-admin-bar-actions button:disabled { opacity: .55; }
+.employee-admin-bar > [role="alert"] { font-size: 12px; line-height: 1.5; color: #b94943; }
+.employee-support-session .page-header { top: var(--employee-admin-bar-height, 88px); }
+.employee-support-session.fixed-screen > .employee-admin-bar { position: relative; }
+.employee-support-session.fixed-screen .page-header { top: 0; }
 .employee-gate-dialog { border: 1px solid #d7e5f6; border-radius: 20px; padding: 25px 22px; width: min(420px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; color: #173756; background: white; box-shadow: 0 20px 70px #12365a30; }
 .employee-gate-dialog::backdrop { background: #17375677; backdrop-filter: blur(3px); }
 .employee-gate-dialog h2 { font-size: 21px; line-height: 1.3; margin: 16px 0 10px; }.employee-gate-dialog > p { font-size: 13px; color: #73869e; line-height: 1.6; margin-bottom: 18px; }

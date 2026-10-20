@@ -2,6 +2,21 @@ import type { TransportOrder } from '../office/transport/types';
 import type { LogisticsOrderDetail } from '../office/logistics/types';
 import type { WorkSchedule, Absence } from '../office/personnel/types';
 import type { PresencePerson } from '../office/personnel/presence-types';
+import type { AuthenticatedPlatformSession, PlatformCompany } from '../platform/types';
+
+export interface EmployeeAdminSession {
+  kind: 'platform-admin';
+  platformSession: AuthenticatedPlatformSession;
+  companies: PlatformCompany[];
+}
+export interface EmployeeAdminSupport {
+  kind: 'platform-admin';
+  csrfToken: string;
+  generation: string | number;
+  organisationId: string;
+  actorName: string;
+  platformSession: AuthenticatedPlatformSession;
+}
 
 export interface EmployeePerson {
   id: string; name: string; kind?: 'employee' | 'external'; role: string; team: string;
@@ -70,6 +85,7 @@ export interface EmployeeLeaveRequest {
 }
 export interface EmployeeLeaveDraft { kind: string; fromDate: string; toDate: string; note: string }
 export interface EmployeeSession {
+  support?: EmployeeAdminSupport;
   companyId?: string; companyName?: string;
   activeSiteId?: string;
   person: EmployeePerson; capabilities: EmployeeCapabilities;

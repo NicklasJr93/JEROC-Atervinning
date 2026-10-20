@@ -16,6 +16,7 @@ import { personnelFacilityScope, syncPersonnelFacilityAccess } from './facility-
 import { fleetTripGate, fleetVehicleEligible } from './fleet.mjs';
 import { globalEmployeeLoginContext, employeeLoginPasswordValid, employeeLoginAddress } from './mobile-global-login.mjs';
 import { PlatformError } from './platform-auth.mjs';
+import { mobileSupportIdentity, mobileSupportPrincipal } from './mobile-support-identity.mjs';
 
 const COOKIE = 'jeroc_employee';
 const SESSION_HOURS = 8;
@@ -44,7 +45,7 @@ function cookieToken(req) {
   if (typeof header !== 'string') return undefined;
   return header.split(';').map(value => value.trim()).find(value => value.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
 }
-export const hasEmployeeSession = req => cookieToken(req) !== undefined;
+export const hasEmployeeSession = req => cookieToken(req) !== undefined || Boolean(mobileSupportIdentity(req));
 const timestamp = now => (typeof now === 'function' ? now() : now ?? new Date()).toISOString();
 
 /** One known fictional account replaces the old browser-only Niklas login.
@@ -92,6 +93,11 @@ export function ensureMobileEmployeeAccounts(state) {
 }
 
 function sessionIdentity(state, req, { now } = {}) {
+  if (mobileSupportIdentity(req)) {
+    const identity = mobileSupportPrincipal(state, req);
+    if (!identity) fail('Systemadministratörens behörighet har ändrats. Öppna bolaget igen.', 403);
+    return identity;
+  }
   const token = cookieToken(req);
   if (token === undefined) return undefined;
   const auth = state.personnelAuth;
@@ -121,8 +127,8 @@ function demandTimeComplete(state, person, now, allowedSiteIds) {
 export function employeeRequestPrincipal(state, req, { enforceGate = false, now } = {}) {
   const identity = sessionIdentity(state, req, { now });
   if (!identity) return undefined;
-  if (enforceGate) refreshSicknessAbsences(state, { now });
-  if (enforceGate) demandTimeComplete(state, identity.person, now, identity.principal.user.siteIds);
+  if (enforceGate && !identity.support) refreshSicknessAbsences(state, { now });
+  if (enforceGate && !identity.support) demandTimeComplete(state, identity.person, now, identity.principal.user.siteIds);
   return identity.principal;
 }
 
@@ -230,6 +236,27 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         }
         const overview = identity => {
           const { person, account, principal } = identity;
+          if (identity.support) {
+            const today = employeeTimeToday({ now }), date = today, month = today.slice(0, 7);
+            const sites = siteCatalog.filter(site => site.active !== false && (!principal.user.siteIds || principal.user.siteIds.includes(site.id)));
+            const companyId = identity.support.context.organisationId;
+            const activeSiteId = employeeActiveSite(state, companyId, person.id, sites);
+            const empty = { date, expectedMinutes: 0, recordedMinutes: 0, missingMinutes: 0, automaticMinutes: 0, manualMinutes: 0, absenceMinutes: 0, jobsCount: 0, status: 'not_required' };
+            return { companyId, companyName: identity.support.context.company.name,
+              person: safePerson({ ...person, siteIds: sites.map(site => site.id) }, account),
+              sites: sites.map(({ id, name, active }) => ({ id, name, active })), activeSiteId,
+              revision: state.employeeTime?.revision ?? 0, today, date, month, monthLoaded: false,
+              requirement: { enabled: false, mode: 'schedule', effectiveFrom: today, enforcementFrom: today, revision: 0 },
+              gate: { blocked: false, expectedMinutes: 0, recordedMinutes: 0, missingMinutes: 0 },
+              days: [], selectedDay: { ...empty, entries: [], schedules: [], absences: [], orders: [] },
+              clock: { enabled: false, source: 'workorder', revision: 0, status: 'off', serverNow: timestamp(now), activeSession: null, workSeconds: 0, breakSeconds: 0 },
+              orders: [], upcomingOrders: [], leaveRequests: [], summary: { expectedMinutes: 0, recordedMinutes: 0, missingMinutes: 0 }, balances: { available: false },
+              capabilities: { yardWork: true, assignedOrders: false, employeeTime: false, manageTimeRequirements: true, manageEmployeeAccounts: true, paymentDetails: true },
+              homeActivity: employeeHomeActivity(state, principal, activeSiteId, today),
+              support: { kind: 'platform-admin', platformSession: identity.support.platformSession,
+                csrfToken: identity.support.context.csrfToken, generation: identity.support.context.generation,
+                organisationId: companyId, actorName: identity.support.platformSession.actor.name } };
+          }
           const scopedPerson = { ...person, siteIds: principal.user.siteIds };
           const sites = employeeSites(siteCatalog, person, principal.user);
           const project = url.searchParams.get('view') === 'bootstrap' ? employeeTimeBootstrapProjection : employeeTimeProjection;
@@ -285,6 +312,8 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         const identity = sessionIdentity(state, req, { now });
         if (!identity) fail('Logga in för att använda appen.', 401);
         const { person, account, principal, session } = identity;
+        if (identity.support && !['session', 'bootstrap', 'overview', 'calendar', 'active-site', 'requirements', 'accounts', 'accounts/save', 'orders'].includes(path))
+          fail('Din systemadminsession har ingen egen personalprofil i bolaget. Använd bolagets personaladministration för personliga uppgifter.', 403, { code: 'mobile_support_personal_unavailable' });
         if (req.headers['x-employee-person'] !== undefined && req.headers['x-employee-person'] !== person.id)
           fail('Personalkontot har bytts i en annan flik. Logga in igen.', 409, { code: 'employee_selection_changed' });
         const scopedPerson = { ...person, siteIds: principal.user.siteIds };

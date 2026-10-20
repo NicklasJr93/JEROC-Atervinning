@@ -3,19 +3,32 @@ import { articleGroups, updateArticleCatalog, updateCustomerPriceCatalog } from 
 import { currentPlatformSession } from './platform/session';
 
 type Identity = { actor: string; user: string } | { mobile: true } | { employee: string; companyId?: string };
-const identityScope = (identity: Identity | undefined) => {
+function platformSessionForIdentity(identity: Identity | undefined) {
+ const candidate = identity && ('actor' in identity || 'employee' in identity) ? currentPlatformSession() : undefined;
+ if (!candidate?.authenticated) return undefined;
+ if (identity && 'actor' in identity) return candidate;
+ // Mobile support uses a virtual employee principal, never a real employee's
+ // recovery cache. Only the matching authenticated platform actor supplies it.
+ if (identity && 'employee' in identity && identity.employee === '__platform-admin'
+   && candidate.actor.platformAdmin && candidate.organisationId === identity.companyId) return candidate;
+ return undefined;
+}
+export const sharedBusinessIdentity = (identity: Identity | undefined) => {
  if (!identity) return undefined;
  const principal = 'employee' in identity ? `${identity.companyId ? `${identity.companyId}:` : ''}employee:${identity.employee}` : 'mobile' in identity ? 'mobile' : `${identity.actor}:${identity.user}`;
- const candidate = 'actor' in identity ? currentPlatformSession() : undefined;
- const session = candidate?.authenticated ? candidate : undefined;
+ const session = platformSessionForIdentity(identity);
+ if ('employee' in identity && session) return `${session.organisationId}:${session.generation}:platform-admin:${session.actor.id}:${principal}`;
  return session?.organisationId ? `${session.organisationId}:${session.generation}:${principal}` : principal;
 };
+const identityScope = sharedBusinessIdentity;
 /** Recovery data is never reused by another company, acting account or session
  * generation. These keys are client recovery aids, not authorization. */
 export function sharedBusinessCacheKey(key: string, identity?: Identity) {
- if (identity && 'employee' in identity && identity.companyId) return `${key}.company.${encodeURIComponent(identity.companyId)}.employee.${encodeURIComponent(identity.employee)}`;
- const candidate = identity && 'actor' in identity ? currentPlatformSession() : undefined;
- const session = candidate?.authenticated ? candidate : undefined;
+ const session = platformSessionForIdentity(identity);
+ if (identity && 'employee' in identity && identity.companyId) {
+  const employeeKey = `${key}.company.${encodeURIComponent(identity.companyId)}.employee.${encodeURIComponent(identity.employee)}`;
+  return session ? `${employeeKey}.support.${encodeURIComponent(session.actor.id)}.generation.${encodeURIComponent(String(session.generation))}` : employeeKey;
+ }
  return session?.organisationId
   ? `${key}.company.${encodeURIComponent(session.organisationId)}.principal.${encodeURIComponent(`${identity && 'actor' in identity ? identity.actor : ''}/${identity && 'actor' in identity ? identity.user : ''}`)}.generation.${encodeURIComponent(String(session.generation))}`
   : key;
@@ -158,11 +171,11 @@ export function useSharedData<T>(options: Options<T>) {
   const s: SyncState<T> = { scope: identityKey, ready: false, queue: [], observedRevision: 0, confirmedRevision: 0, confirmedEpoch: 0, targetRevision: 0, pendingChange: false };
   state.current = s; setReady(false);
   const principal = o.identity!;
-  const candidate = 'actor' in principal ? currentPlatformSession() : undefined;
-  const platformSession = candidate?.authenticated ? candidate : undefined;
+  const platformSession = platformSessionForIdentity(principal);
   const streamIdentity = 'employee' in principal ? `${principal.companyId ? `${principal.companyId}:` : ''}employee:${principal.employee}` : 'mobile' in principal ? 'mobile' : `${principal.actor}/${principal.user}`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...('employee' in principal ? principal.companyId ? { 'X-Employee-Company': principal.companyId } : {} : 'mobile' in principal ? { 'X-Demo-Mobile': 'niklas' } : { 'X-Demo-Actor': principal.actor, 'X-Demo-User': principal.user }),
-   ...(platformSession ? { 'X-Platform-Generation': String(platformSession.generation), 'X-Platform-CSRF': platformSession.csrfToken } : {}) };
+   ...(platformSession ? { 'X-Platform-Generation': String(platformSession.generation), 'X-Platform-CSRF': platformSession.csrfToken,
+    ...(platformSession.organisationId ? { 'X-Platform-Organisation-Id': platformSession.organisationId } : {}) } : {}) };
   const url = `/api/application/${o.domain}`;
   const mobileCatalogCacheKey = sharedBusinessCacheKey(mobileCatalogCacheBaseKey, principal);
   if (o.domain === 'mobile') {
@@ -337,5 +350,5 @@ export function useSharedData<T>(options: Options<T>) {
   window.addEventListener(changeEvent, onChange); window.addEventListener('online', online); document.addEventListener('visibilitychange', visible);
   return () => { active = false; clearInterval(timer); if (followUp) clearTimeout(followUp); window.removeEventListener(changeEvent, onChange); window.removeEventListener('online', online); document.removeEventListener('visibilitychange', visible); };
  }, [identityKey, options.domain, scopedOptions.key]);
- return { ready, save: enqueue, refresh: () => runner.current(), flush, applyConfirmed };
+ return { ready: ready && state.current.scope === identityKey, save: enqueue, refresh: () => runner.current(), flush, applyConfirmed };
 }

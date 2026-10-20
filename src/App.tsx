@@ -27,6 +27,7 @@ import {
 import { PricesPage, ArticlePricesPage } from './pages/Prices';
 import { VehiclePage } from './pages/Vehicle';
 import { CustomerPage, NewCustomerPage, ReferencePage } from './pages/Customer';
+import { EmployeeAdminBar, EmployeeAdminCompanyPage } from './employee/EmployeeAdministration';
 
 export function App() {
   const { loggedIn, storageError, data, sharedReady } = useDemo();
@@ -51,7 +52,8 @@ export function App() {
         ? <><main className="employee-page" role="status"><h1>Gårdsarbete</h1><p>Hämtar aktuella vägningar…</p></main><Nav /></>
         : page;
   return (
-    <div className={`app-shell employee-app ${fixed ? 'fixed-screen' : ''}`}>
+    <div className={`app-shell employee-app${employee.session?.support ? ' employee-support-session' : ''} ${fixed ? 'fixed-screen' : ''}`}>
+      <EmployeeAdminBar />
       {loggedIn && !employee.loading && <EmployeeClockStatus />}
       {storageError && yardRoute && loggedIn && (
         <div className="storage-error">
@@ -60,18 +62,20 @@ export function App() {
       )}
       {employee.loading ? (
         <main className="employee-page" role="status"><p>Öppnar appen…</p></main>
+      ) : employee.admin && !loggedIn ? (
+        <EmployeeAdminCompanyPage />
       ) : !loggedIn ? (
         <EmployeeLoginPage />
       ) : locked && !/\/(summary|done)$/.test(location.pathname) ? (
         <Navigate to={`/weigh/${draftId}/summary`} replace />
       ) : (
-        <Routes>
+        <Routes key={`${employee.session?.companyId}/${employee.session?.person.id}/${employee.sessionGeneration}`}>
           <Route path="/" element={<EmployeeHomePage />} />
           <Route path="/yard" element={yardPage(<HomePage />)} />
-          <Route path="/schedule" element={<EmployeeSchedulePage />} />
-          <Route path="/time" element={<EmployeeTimePage />} />
-          <Route path="/time/sickness" element={<EmployeeSicknessPage />} />
-          <Route path="/time/review" element={<EmployeeTimeReview />} />
+          <Route path="/schedule" element={employee.session?.support ? <Navigate to="/" replace /> : <EmployeeSchedulePage />} />
+          <Route path="/time" element={employee.session?.support ? <Navigate to="/" replace /> : <EmployeeTimePage />} />
+          <Route path="/time/sickness" element={employee.session?.support ? <Navigate to="/" replace /> : <EmployeeSicknessPage />} />
+          <Route path="/time/review" element={employee.session?.support ? <Navigate to="/" replace /> : <EmployeeTimeReview />} />
           <Route path="/assignments" element={<EmployeeAssignmentsPage />} />
           <Route path="/my-vehicle" element={<EmployeeFleetPage view="vehicle" />} />
           <Route path="/my-trips" element={<EmployeeFleetPage view="trips" />} />

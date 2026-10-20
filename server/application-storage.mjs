@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { afterDatabaseCommit, runDatabaseRead, runInDatabaseTransaction } from './database-runtime.mjs';
 import { getChangeEvents, changeEventChannel } from './change-events.mjs';
+import { assertMobileSupportTransaction } from './mobile-support-identity.mjs';
 
 // New domains are stored in full alongside the old aggregate. Older deployments
 // gain an empty prepared-weighing registry without resetting any business data.
@@ -151,6 +152,7 @@ export async function createApplicationRepository({ env = process.env, filename,
           const previous = new Map(rows.map(row => [row.domain, JSON.stringify(row.document)]));
           const previousImports = new Set((state.imports ?? []).map(importKey));
           const changes = [];
+          await assertMobileSupportTransaction();
           const result = await operation(state, Number(meta.revision), changes);
           const modified = Object.entries(state).filter(([domain, document]) => previous.get(domain) !== JSON.stringify(document));
           await saveDomains(c, modified);
@@ -164,6 +166,7 @@ export async function createApplicationRepository({ env = process.env, filename,
           const addedImports = (state.imports ?? []).filter(record => !previousImports.has(importKey(record)));
           if (addedImports.length) await c.query('INSERT INTO jeroc_application_imports(id,data) SELECT value->>\'id\',value->\'data\' FROM jsonb_array_elements($1::jsonb) AS value WHERE true ON CONFLICT(id) DO NOTHING', [JSON.stringify(addedImports.map(record => ({ id: importKey(record), data: record })))]);
           if (changes.length) await c.query('INSERT INTO jeroc_application_audit(details) SELECT value FROM jsonb_array_elements($1::jsonb) AS value', [JSON.stringify(changes)]);
+          await assertMobileSupportTransaction();
           if (committedRevision && result && typeof result === 'object') result.revision = Number(meta.revision) + Number(modified.length > 0);
           return result;
         });
@@ -222,7 +225,9 @@ export async function createApplicationRepository({ env = process.env, filename,
         try {
           const row = db.prepare('SELECT document,revision FROM application WHERE id=1').get();
           const state = normalizeDomains(row ? JSON.parse(row.document) : seed()); const previous = row?.document;
+          await assertMobileSupportTransaction();
           const changes = []; const result = await localTransaction.run({ state, revision: row?.revision ?? 0 }, () => operation(state, row?.revision ?? 0, changes));
+          await assertMobileSupportTransaction();
           const document = JSON.stringify(state);
           const modified = document !== previous, revision = (row?.revision ?? 0) + Number(modified);
           db.prepare('INSERT INTO application VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET document=excluded.document,revision=excluded.revision').run(document, revision);

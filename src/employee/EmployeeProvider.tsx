@@ -1,7 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { EmployeeAccountPerson, EmployeeClockAction, EmployeeClockCorrection, EmployeeLeaveDraft, EmployeeOverview, EmployeeRequirement, EmployeeRequirementPerson, EmployeeSession, EmployeeTimeDraft, EmployeeTimeGate } from './types';
+import type { EmployeeAccountPerson, EmployeeAdminSession, EmployeeClockAction, EmployeeClockCorrection, EmployeeLeaveDraft, EmployeeOverview, EmployeeRequirement, EmployeeRequirementPerson, EmployeeSession, EmployeeTimeDraft, EmployeeTimeGate } from './types';
 import { employeeCompanyId } from './cache';
 import type { EmployeeSicknessCommand } from './sickness-types';
+import { platformRequestHeaders, setCurrentPlatformSession } from '../platform/session';
+import type { AuthenticatedPlatformSession } from '../platform/types';
+import { platformApi } from '../platform/client';
 
 let requestCompanyId: string | undefined;
 let requestPersonId: string | undefined;
@@ -13,7 +16,8 @@ export async function employeeRequest<T>(path: string, body?: unknown, options?:
   // Capture the initiating company. A cookie changed in another tab must not
   // silently redirect an existing form or pending command to another company.
   const expectedCompany = options?.expectedCompanyId ?? requestCompanyId;
-  const expectedPerson = options?.expectedPersonId ?? (path === '/login' ? undefined : requestPersonId);
+  const expectedPerson = options?.expectedPersonId ?? (path.split('?')[0] === '/login' ? undefined : requestPersonId);
+  const platformHeaders = platformRequestHeaders();
   const controller = new AbortController();
   const abort = () => controller.abort(options?.signal?.reason);
   if (options?.signal?.aborted) abort(); else options?.signal?.addEventListener('abort', abort, { once: true });
@@ -22,7 +26,7 @@ export async function employeeRequest<T>(path: string, body?: unknown, options?:
   try {
     const response = await fetch(`/api/employee${path}`, {
       credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
-      headers: { ...(expectedCompany ? { 'X-Employee-Company': expectedCompany } : {}), ...(expectedPerson ? { 'X-Employee-Person': expectedPerson } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      headers: { ...platformHeaders, ...(expectedCompany ? { 'X-Employee-Company': expectedCompany } : {}), ...(expectedPerson ? { 'X-Employee-Person': expectedPerson } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }),
     });
     const result = await response.json().catch(() => null);
@@ -40,8 +44,12 @@ export const stockholmDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: '
 
 interface EmployeeContextValue {
   session: EmployeeSession | null; overview: EmployeeOverview | null;
+  admin: EmployeeAdminSession | null; adminBusy: boolean;
   loading: boolean; refreshing: boolean; error: string; sessionGeneration: number;
-  login: (username: string, password: string) => Promise<EmployeeSession>;
+  login: (username: string, password: string) => Promise<EmployeeOverview | EmployeeAdminSession>;
+  openCompanySelection: () => Promise<void>;
+  chooseCompany: (companyId: string) => Promise<boolean>;
+  changeAdminPassword: (currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: (focus?: { month?: string; date?: string; view?: 'bootstrap' | 'full' }) => Promise<void>;
   saveTime: (entry: EmployeeTimeDraft) => Promise<void>;
@@ -61,10 +69,21 @@ interface EmployeeContextValue {
   commandSickness: (command: EmployeeSicknessCommand) => Promise<void>;
 }
 const EmployeeContext = createContext<EmployeeContextValue | null>(null);
+const adminPlatformSession = (value: AuthenticatedPlatformSession | undefined): value is AuthenticatedPlatformSession => Boolean(value?.authenticated
+  && value.actor?.platformAdmin === true && typeof value.actor.id === 'string' && typeof value.csrfToken === 'string'
+  && value.csrfToken && (typeof value.generation === 'string' || typeof value.generation === 'number') && Array.isArray(value.companies));
+const activeAdminSession = (value: EmployeeAdminSession): EmployeeAdminSession => {
+  if (value?.kind !== 'platform-admin' || !adminPlatformSession(value.platformSession) || !Array.isArray(value.companies))
+    throw new EmployeeError('Administratörens inloggning kunde inte verifieras. Logga in igen.', 502, 'admin_session_invalid');
+  return { ...value, companies: value.companies.filter(company => company.status === 'active') };
+};
 
 export function EmployeeProvider({ children }: { children: ReactNode }) {
   const [overview, setOverview] = useState<EmployeeOverview | null>(null);
   const [session, setSession] = useState<EmployeeSession | null>(null);
+  const [admin, setAdmin] = useState<EmployeeAdminSession | null>(null);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const adminRef = useRef<EmployeeAdminSession | null>(null), adminBusyRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -76,21 +95,41 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
   const focus = useRef({ month: stockholmDay().slice(0, 7), date: stockholmDay() });
   const sessionRef = useRef<EmployeeSession | null>(null);
   const invalidate = useCallback(() => { sequence.current += 1; const current = ++generation.current; setSessionGeneration(current); return current; }, []);
+  const clearBusinessSession = useCallback(() => {
+    requestCompanyId = undefined; requestPersonId = undefined;
+    setSession(null); sessionRef.current = null; overviewRef.current = null; setOverview(null);
+    setRefreshing(false); clockBusyRef.current = false; setClockBusy(false);
+  }, []);
+  const applyAdmin = useCallback((value: EmployeeAdminSession) => {
+    const next = activeAdminSession(value);
+    clearBusinessSession();
+    setCurrentPlatformSession(next.platformSession); adminRef.current = next; setAdmin(next); setError('');
+  }, [clearBusinessSession]);
   const apply = useCallback((result: EmployeeOverview) => {
     const previous = overviewRef.current;
     if (previous && previous.companyId === result.companyId && previous.person.id === result.person.id && result.revision < previous.revision) return;
     if (previous && (previous.companyId !== result.companyId || previous.person.id !== result.person.id)) invalidate();
+    if (result.support) {
+      const platform = result.support.platformSession;
+      if (result.support.kind !== 'platform-admin' || !adminPlatformSession(platform) || platform.organisationId !== result.companyId
+        || result.support.organisationId !== result.companyId || String(platform.generation) !== String(result.support.generation)
+        || platform.csrfToken !== result.support.csrfToken)
+        throw new EmployeeError('Administratörens bolag kunde inte verifieras. Logga in igen.', 502, 'admin_session_invalid');
+      const next = activeAdminSession({ kind: 'platform-admin', platformSession: platform, companies: platform.companies });
+      setCurrentPlatformSession(platform); adminRef.current = next; setAdmin(next);
+    } else {
+      setCurrentPlatformSession(undefined); adminRef.current = null; setAdmin(null);
+    }
     requestCompanyId = employeeCompanyId(result.companyId);
     requestPersonId = result.person.id;
     overviewRef.current = result;
     setOverview(result); setSession(result); sessionRef.current = result; setError(''); setRefreshing(false);
   }, [invalidate]);
   const clearSession = useCallback(() => {
-    requestCompanyId = undefined;
-    requestPersonId = undefined;
     invalidate();
-    setSession(null); sessionRef.current = null; overviewRef.current = null; setOverview(null); setRefreshing(false); clockBusyRef.current = false; setClockBusy(false);
-  }, [invalidate]);
+    clearBusinessSession(); setCurrentPlatformSession(undefined); adminRef.current = null; setAdmin(null);
+    adminBusyRef.current = false; setAdminBusy(false);
+  }, [invalidate, clearBusinessSession]);
   const refresh = useCallback(async (next?: { month?: string; date?: string; view?: 'bootstrap' | 'full' }) => {
     if (next) focus.current = { month: next.month ?? focus.current.month, date: next.date ?? focus.current.date };
     if (!sessionRef.current) return;
@@ -114,13 +153,25 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
     const current = invalidate();
     const controller = new AbortController();
     setLoading(true);
-    void employeeRequest<EmployeeOverview>('/session?view=bootstrap', undefined, { signal: controller.signal }).then(result => {
-      if (generation.current === current) { focus.current = { month: result.month, date: result.date }; apply(result); }
+    void employeeRequest<EmployeeOverview | EmployeeAdminSession>('/session?view=bootstrap', undefined, { signal: controller.signal }).then(result => {
+      if (generation.current === current) {
+        if ('kind' in result && result.kind === 'platform-admin') applyAdmin(result);
+        else { const overview = result as EmployeeOverview; focus.current = { month: overview.month, date: overview.date }; apply(overview); }
+      }
     }).catch(caught => {
       if (generation.current === current && !(caught instanceof EmployeeError && caught.status === 401)) setError(employeeError(caught));
     }).finally(() => { if (generation.current === current) setLoading(false); });
-    return () => { controller.abort(); generation.current += 1; sequence.current += 1; };
-  }, [apply, invalidate]);
+    return () => { controller.abort(); generation.current += 1; sequence.current += 1; setCurrentPlatformSession(undefined); };
+  }, [apply, applyAdmin, invalidate]);
+
+  useEffect(() => {
+    const expired = () => {
+      if (!adminRef.current) return;
+      clearSession(); setError('Administratörens session har avslutats. Logga in igen.');
+    };
+    window.addEventListener('scrappilot:check-platform-session', expired);
+    return () => window.removeEventListener('scrappilot:check-platform-session', expired);
+  }, [clearSession]);
 
   useEffect(() => {
     if (!session) return;
@@ -139,18 +190,63 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     const current = invalidate();
     setError('');
-    const result = await employeeRequest<EmployeeOverview>('/login?view=bootstrap', { username: username.trim(), password });
+    const result = await employeeRequest<EmployeeOverview | EmployeeAdminSession>('/login?view=bootstrap', { username: username.trim(), password });
     if (current !== generation.current) throw new EmployeeError('Inloggningen avbröts.', 409);
-    focus.current = { month: result.month, date: result.date }; apply(result);
+    if ('kind' in result && result.kind === 'platform-admin') applyAdmin(result);
+    else { const overview = result as EmployeeOverview; focus.current = { month: overview.month, date: overview.date }; apply(overview); }
     return result;
-  }, [apply, invalidate]);
+  }, [apply, applyAdmin, invalidate]);
+  const openCompanySelection = useCallback(async () => {
+    if (!adminRef.current || adminBusyRef.current) return;
+    const current = invalidate(); clearBusinessSession(); adminBusyRef.current = true; setAdminBusy(true); setError('');
+    try {
+      const next = await employeeRequest<EmployeeAdminSession>('/companies');
+      if (current === generation.current) applyAdmin(next);
+    } catch (caught) {
+      if (current === generation.current) {
+        if (caught instanceof EmployeeError && caught.status === 401) clearSession();
+        setError(employeeError(caught));
+      }
+      throw caught;
+    } finally { if (current === generation.current) { adminBusyRef.current = false; setAdminBusy(false); } }
+  }, [invalidate, clearBusinessSession, applyAdmin, clearSession]);
+  const chooseCompany = useCallback(async (companyId: string) => {
+    if (!adminRef.current || adminBusyRef.current) return false;
+    if (adminRef.current.platformSession.mustChangePassword || !adminRef.current.companies.some(company => company.id === companyId && company.status === 'active'))
+      throw new EmployeeError('Välj ett tillgängligt bolag.', 403);
+    const current = invalidate(); clearBusinessSession(); adminBusyRef.current = true; setAdminBusy(true); setError('');
+    try {
+      const next = await employeeRequest<EmployeeOverview>('/company?view=bootstrap', { companyId });
+      if (current !== generation.current) return false;
+      if (!next.support || next.companyId !== companyId) throw new EmployeeError('Bolaget kunde inte verifieras. Logga in igen.', 502);
+      focus.current = { month: next.month, date: next.date }; apply(next); return true;
+    } catch (caught) {
+      if (current === generation.current) {
+        if (!(caught instanceof EmployeeError) || caught.status === 401 || caught.status >= 500) clearSession();
+        setError(employeeError(caught));
+      }
+      throw caught;
+    } finally { if (current === generation.current) { adminBusyRef.current = false; setAdminBusy(false); } }
+  }, [invalidate, clearBusinessSession, apply, clearSession]);
+  const changeAdminPassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    if (!adminRef.current || adminBusyRef.current) return;
+    const current = invalidate(); adminBusyRef.current = true; setAdminBusy(true); setError('');
+    try {
+      const next = await platformApi.changePassword(currentPassword, newPassword);
+      if (current !== generation.current) return;
+      if (!adminPlatformSession(next)) throw new EmployeeError('Inloggningen kunde inte verifieras. Logga in igen.', 502);
+      applyAdmin({ kind: 'platform-admin', platformSession: next, companies: next.companies });
+    } catch (caught) { if (current === generation.current) setError(employeeError(caught)); throw caught; }
+    finally { if (current === generation.current) { adminBusyRef.current = false; setAdminBusy(false); } }
+  }, [invalidate, applyAdmin]);
   const logout = useCallback(async () => {
     // Invalidate pending responses immediately. A failed logout keeps the known session.
     const current = invalidate();
+    if (adminRef.current) { clearBusinessSession(); adminBusyRef.current = true; setAdminBusy(true); }
     try { await employeeRequest('/logout', {}); }
-    catch (caught) { if (!(caught instanceof EmployeeError && caught.status === 401)) throw caught; }
+    catch (caught) { if (!(caught instanceof EmployeeError && caught.status === 401)) { adminBusyRef.current = false; setAdminBusy(false); setError(employeeError(caught)); throw caught; } }
     if (current === generation.current) { clearSession(); setError(''); }
-  }, [clearSession, invalidate]);
+  }, [clearSession, clearBusinessSession, invalidate]);
   const mutate = useCallback(async (path: string, body: unknown, targetDate?: string) => {
     const current = generation.current;
     sequence.current += 1;
@@ -193,7 +289,8 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
     catch (caught) { if (current === generation.current && caught instanceof EmployeeError && caught.status === 409) void refresh().catch(() => undefined); throw caught; }
     finally { if (current === generation.current) { clockBusyRef.current = false; setClockBusy(false); } }
   }, [mutate, refresh]);
-  return <EmployeeContext.Provider value={{ session, overview, loading, refreshing, error, sessionGeneration, login, logout, refresh,
+  return <EmployeeContext.Provider value={{ session, overview, admin, adminBusy, loading, refreshing, error, sessionGeneration, login, logout, refresh,
+    openCompanySelection, chooseCompany, changeAdminPassword,
     setActiveSite,
     saveTime: entry => mutate('/time/save', entry, entry.date),
     removeTime: (id, revision) => mutate('/time/remove', { id, revision }),

@@ -14,6 +14,7 @@ import { ActiveSitePicker } from './ActiveSitePicker';
 import EmployeeEquipment from './EmployeeEquipment';
 import { EmployeeClockCard, EmployeeClockCorrectionForm, EmployeeClockHistory, isEmployeeClockDay } from './EmployeeClock';
 import { EmployeeSicknessCard } from './EmployeeSickness';
+import { EmployeeAdminProfile } from './EmployeeAdministration';
 
 function Page({ title, subtitle, children, back, sitePicker = false }: { title: string; subtitle?: string; children: ReactNode; back?: string; sitePicker?: boolean }) {
   const navigate = useNavigate();
@@ -214,6 +215,7 @@ export function EmployeeProfilePage() {
   const [phone, setPhone] = useState(session?.person.phone || ''), [email, setEmail] = useState(session?.person.email || '');
   const [currentPassword, setCurrentPassword] = useState(''), [password, setPassword] = useState(''), [repeat, setRepeat] = useState('');
   if (!session) return null;
+  if (session.support) return <EmployeeAdminProfile />;
   if (location.pathname.endsWith('/accounts')) return <EmployeeAccountPage />;
   if (location.pathname.endsWith('/equipment')) return <EmployeeEquipment />;
   async function save(event: FormEvent) {

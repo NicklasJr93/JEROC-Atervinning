@@ -21,6 +21,7 @@ import { useDemo } from './store';
 import { kilos } from './model';
 import type { ArticleImage } from './catalog-types';
 import { builtInArticleImage } from './catalog-images';
+import { useEmployee } from './employee/EmployeeProvider';
 
 export function Logo() {
   return (
@@ -168,7 +169,12 @@ export function Total({
 export function Nav() {
   const location = useLocation();
   const navigate = useNavigate();
-  const items: { path: string; label: string; icon: LucideIcon }[] = [
+  const { session } = useEmployee();
+  const items: { path: string; label: string; icon: LucideIcon }[] = session?.support ? [
+    { path: '/', label: 'Hem', icon: Home },
+    { path: '/yard', label: 'Gårdsarbete', icon: Scale },
+    { path: '/profile', label: 'Profil', icon: UserRound },
+  ] : [
     { path: '/', label: 'Hem', icon: Home },
     { path: '/schedule', label: 'Schema', icon: CalendarDays },
     { path: '/time', label: 'Tid', icon: Clock3 },

@@ -9,6 +9,7 @@ import pg from 'pg';
 import { createApplicationRepository } from './application-storage.mjs';
 import { afterDatabaseCommit } from './database-runtime.mjs';
 import { getChangeEvents } from './change-events.mjs';
+import { withMobileSupportAuthorization } from './mobile-support-identity.mjs';
 
 const seed = () => ({ metadata: { marker: randomUUID() }, office: { cards: [{ id: 1 }], customers: [] }, pricing: { users: [], articleHistory: [] }, transport: {}, mobile: { drafts: [] }, imports: [] });
 const postgresUrl = process.env.JEROC_TEST_DATABASE_URL ?? process.env.JEROC_TEST_POSTGRES_URL;
@@ -32,6 +33,20 @@ async function fixture(run, postgres = false, initial = seed) {
 
 for (const postgres of [false, true]) {
   const backend = postgres ? 'PostgreSQL' : 'SQLite';
+  test(`${backend}: revoked support rolls back before commit and ordinary writes have no support dependency`, { skip: postgres && !postgresUrl }, async () => fixture(async ({ repository }) => {
+    const before = await repository.read((state, revision) => ({ state, revision }));
+    let allowed = true, checks = 0;
+    const authorize = async () => { checks += 1; if (!allowed) throw new Error('Support session revoked'); };
+    await assert.rejects(withMobileSupportAuthorization(authorize, () => repository.transact((state, _revision, audit) => {
+      state.office.customers.push({ id: 'must-not-commit' }); audit.push({ action: 'must-not-commit' }); allowed = false;
+    })), /Support session revoked/);
+    assert.equal(checks, 2); assert.deepEqual(await repository.read((state, revision) => ({ state, revision })), before);
+    let entered = false;
+    await assert.rejects(withMobileSupportAuthorization(authorize, () => repository.transact(() => { entered = true; })), /Support session revoked/);
+    assert.equal(entered, false);
+    await repository.transact(state => { state.office.customers.push({ id: 'ordinary-write' }); });
+    assert.equal((await repository.read(state => state.office.customers)).at(-1).id, 'ordinary-write');
+  }, postgres));
   test(`${backend}: leaf projections omit large history, preserve JSON values and never write`, { skip: postgres && !postgresUrl }, async () => fixture(async ({ repository, create, filename, admin, schema }) => {
     const options = { domain: 'vismaIntegration', paths: [
       ['tenants', 'jeroc-demo', 'generation'], ['tenants', 'jeroc-demo', 'tokens'],

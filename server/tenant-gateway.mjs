@@ -1,6 +1,6 @@
 import { bankRequestContext } from './bank-http.mjs';
 import pg from 'pg';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createPlatformStorage } from './platform-storage.mjs';
 import { createPlatformAuth, getPlatformContext, platformCookieToken, PlatformError, PLATFORM_TENANT_COOKIE, platformPasswordHash } from './platform-auth.mjs';
 import { createPlatformApi } from './platform-api.mjs';
@@ -24,6 +24,8 @@ import { initialAdminProfileForDeployment } from './deployment-profile-seeds.mjs
 import { createStaffInvitations, validateStaffInvitationTarget } from './staff-invitations.mjs';
 import { createPublicCustomerApproval } from './public-customer-approval.mjs';
 import { createGlobalEmployeeLogin } from './mobile-global-login.mjs';
+import { createMobilePlatformSupport } from './mobile-platform-support.mjs';
+import { attachMobileSupport, mobileSupportIdentity, withMobileSupportAuthorization } from './mobile-support-identity.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -217,8 +219,9 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const staffInvitations = createStaffInvitations({ auth, email, repository, env,
     companyRepository: async company => (await bundle(company)).applicationApi.getRepository() });
   const platformApi = createPlatformApi({ auth, fleet: platformFleet, communications, passwordReset, staffInvitations, env });
+  const mobilePlatformSupport = createMobilePlatformSupport({ auth, env, openCompany: bundle, sameOrigin, json });
   const globalEmployeeLogin = createGlobalEmployeeLogin({ repository, auth, env, openCompany: bundle,
-    fallbackCompany: defaultCompany, sameOrigin, json });
+    fallbackCompany: defaultCompany, sameOrigin, json, platformAdminLogin: mobilePlatformSupport.login });
   const fleetTimer = setInterval(() => { void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.')); }, 30_000);
   fleetTimer.unref();
   void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.'));
@@ -340,6 +343,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/')) return false;
     if (await customerApprovalLinks.handle(req, res, url)) return true;
+    if (await mobilePlatformSupport.handle(req, res, url)) return true;
     if (await globalEmployeeLogin.handle(req, res, url)) return true;
     if (await companyRegisterApi(req, res, url)) return true;
     if (await addressAssistanceApi(req, res, url)) return true;
@@ -384,6 +388,13 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       }
       if (!company && url.pathname.startsWith('/api/employee/')) throw new PlatformError('Logga in för att använda appen.', 401, 'employee_session_required');
       if (!company) throw new PlatformError('Öppna bolagets egen inloggningslänk för att fortsätta.', 409, 'platform_company_required');
+      if (context?.platformAdmin && (employeeRoute(url) || mediaRead) && context.actualUser?.id === '__platform-admin' && context.user?.id === '__platform-admin') {
+        const write = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+        if (write && !req.headers['x-platform-generation']) throw new PlatformError('Sessionens bolagsversion saknas. Öppna bolaget igen.', 409, 'platform_context_changed');
+        context = await auth.resolveContext(req, { writes: write });
+        bindIdentity(req, context);
+        attachMobileSupport(req, context, await auth.session(req));
+      }
       return await withBusinessIdentity(context, async () => {
       const expectedCompany = req.headers['x-client-company'] ?? req.headers['x-employee-company'] ?? url.searchParams.get('expectedCompany');
       if (expectedCompany !== undefined && expectedCompany !== null && expectedCompany !== company.id)
@@ -454,7 +465,29 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
         try { await service.vismaService.callback({ state: url.searchParams.get('state'), code: url.searchParams.get('code'), error: url.searchParams.get('error'), cookieBinding: binding && decodeURIComponent(binding.slice('jeroc_visma_oauth='.length)) }); outcome = 'ok'; } catch {}
         res.writeHead(303, { Location: `/kontor/integration/systemadminvismatest.html?vismaOAuth=${outcome}#/integrations/visma-test`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }); res.end(); return true;
       }
-      if (await service.handle(req, res, url)) return true;
+      if (mobileSupportIdentity(req) && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+        const requestId = randomUUID();
+        // Record the real control-plane actor before any business mutation.
+        // No payload, password, cookie or token enters this durable audit.
+        await repository.transact(state => {
+          auth.assertCompanyContext(state, req, context);
+          state.audit = state.audit.filter(row => row.action !== 'platform.mobile_support_action' || Date.parse(row.at) > Date.now() - 90 * 86400_000);
+          const retained = state.audit.filter(row => row.action === 'platform.mobile_support_action');
+          if (retained.length >= 20_000) { const remove = new Set(retained.slice(0, retained.length - 19_999).map(row => row.id)); state.audit = state.audit.filter(row => !remove.has(row.id)); }
+          state.audit.push({ id: requestId, requestId, at: new Date().toISOString(), action: 'platform.mobile_support_action',
+            actorId: context.actorId, organisationId: company.id, effectiveUserId: context.user.id,
+            generation: context.generation, method: req.method, route: url.pathname.slice(0, 200), status: 'attempted' });
+        });
+        let handled;
+        try { handled = await withMobileSupportAuthorization(
+          () => repository.read(state => auth.assertCompanyContext(state, req, context)),
+          () => service.handle(req, res, url)); }
+        finally {
+          await repository.transact(state => { const record = state.audit.find(row => row.id === requestId);
+            if (record) { record.status = res.writableEnded && res.statusCode >= 200 && res.statusCode < 300 ? 'succeeded' : 'failed'; record.completedAt = new Date().toISOString(); } });
+        }
+        if (handled) return true;
+      } else if (await service.handle(req, res, url)) return true;
       json(res, 404, { error: 'API-vyn finns inte.', code: 'not_found' });
       return true;
       });

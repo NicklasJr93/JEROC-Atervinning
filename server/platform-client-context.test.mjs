@@ -4,13 +4,13 @@ import { build } from 'esbuild';
 
 const root = new URL('../', import.meta.url).pathname;
 const bundle = await build({ stdin: { contents: `
- export { sharedBusinessCacheKey } from './src/shared-data.ts';
+ export { sharedBusinessCacheKey, sharedBusinessIdentity } from './src/shared-data.ts';
  export { sharedOfficeRead, invalidateOfficeReads } from './src/office/shared-read.ts';
- export { setCurrentPlatformSession } from './src/platform/session.ts';
+ export { setCurrentPlatformSession, installPlatformFetchGuard } from './src/platform/session.ts';
  export { mayManageSpiris } from './src/office/integration-permissions.ts';
  export { integrationReadScope } from './src/office/integration-read-cache.ts';
 `, resolveDir: root }, bundle: true, platform: 'node', format: 'esm', write: false });
-const { sharedBusinessCacheKey, sharedOfficeRead, setCurrentPlatformSession, invalidateOfficeReads, mayManageSpiris, integrationReadScope } =
+const { sharedBusinessCacheKey, sharedBusinessIdentity, sharedOfficeRead, setCurrentPlatformSession, installPlatformFetchGuard, invalidateOfficeReads, mayManageSpiris, integrationReadScope } =
  await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 const session = (organisationId, generation = 1) => ({
  enabled: true, authenticated: true, organisationId, generation,
@@ -38,6 +38,50 @@ test('mobile employee recovery keys distinguish the same person ID in two compan
  assert.notEqual(first, sharedBusinessCacheKey('mobile', { employee: 'niklas', companyId: 'company-b' }));
  assert.notEqual(first, sharedBusinessCacheKey('mobile', { employee: 'other', companyId: 'company-a' }));
  assert.equal(sharedBusinessCacheKey('mobile', { mobile: true }), 'mobile');
+});
+
+test('mobile support recovery and request identities separate actual administrators and generations behind the same virtual person', () => {
+ const principal = { employee: '__platform-admin', companyId: 'company-a' };
+ try {
+  setCurrentPlatformSession(session('company-a', 1));
+  const first = sharedBusinessCacheKey('mobile', principal), identity = sharedBusinessIdentity(principal);
+  assert.match(first, /support\.same-admin\.generation\.1$/);
+  assert.equal(sharedBusinessCacheKey('mobile', { employee: 'ordinary', companyId: 'company-a' }), 'mobile.company.company-a.employee.ordinary');
+  setCurrentPlatformSession(session('company-a', 2));
+  assert.notEqual(first, sharedBusinessCacheKey('mobile', principal));
+  assert.notEqual(identity, sharedBusinessIdentity(principal));
+  setCurrentPlatformSession({ ...session('company-a', 1), actor: { id: 'different-admin', platformAdmin: true } });
+  assert.notEqual(first, sharedBusinessCacheKey('mobile', principal));
+  assert.notEqual(identity, sharedBusinessIdentity(principal));
+  setCurrentPlatformSession(session('company-b', 1));
+  assert.equal(sharedBusinessCacheKey('mobile', principal), 'mobile.company.company-a.employee.__platform-admin');
+  assert.notEqual(identity, sharedBusinessIdentity(principal));
+ } finally { setCurrentPlatformSession(undefined); }
+});
+
+test('a delayed unauthorized API response cannot expire a newer company session', async () => {
+ const oldWindow = globalThis.window, events = [], pending = [], sent = [];
+ let undo;
+ globalThis.window = { location: { href: 'https://mobile.example.invalid/mobil/', origin: 'https://mobile.example.invalid' },
+  fetch: async (_input, init) => { sent.push(new Headers(init?.headers)); return new Promise(resolve => pending.push(resolve)); },
+  dispatchEvent: event => { events.push(event.type); return true; } };
+ try {
+  undo = installPlatformFetchGuard();
+  setCurrentPlatformSession(session('company-a', 1));
+  const old = window.fetch('/api/employee/overview');
+  assert.equal(sent[0].get('X-Platform-Generation'), '1');
+  assert.equal(sent[0].get('X-Platform-Organisation-Id'), 'company-a');
+  setCurrentPlatformSession(session('company-b', 2));
+  pending.shift()(new Response('{}', { status: 401 })); await old;
+  assert.deepEqual(events, []);
+  const current = window.fetch('/api/employee/overview');
+  assert.equal(sent[1].get('X-Platform-Generation'), '2');
+  pending.shift()(new Response('{}', { status: 401 })); await current;
+  assert.deepEqual(events, ['scrappilot:check-platform-session']);
+ } finally {
+  undo?.(); setCurrentPlatformSession(undefined);
+  if (oldWindow === undefined) delete globalThis.window; else globalThis.window = oldWindow;
+ }
 });
 
 test('Spiris VD access requires explicit read and manage rights on both principals and all sites', () => {

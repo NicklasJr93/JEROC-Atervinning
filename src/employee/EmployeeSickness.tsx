@@ -66,7 +66,7 @@ export function EmployeeSicknessCard({ expanded = false }: { expanded?: boolean 
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
   }, []);
   useEffect(() => {
-    if (!session || overview?.sickness) return;
+    if (!session || session.support || overview?.sickness) return;
     const controller = new AbortController(), expected = scope;
     void employeeRequest<EmployeeSicknessResponse>('/sickness', undefined, { signal: controller.signal, expectedCompanyId: session.companyId }).then(value => {
       if (!controller.signal.aborted && scopeRef.current === expected) {
@@ -170,7 +170,7 @@ export function EmployeeSicknessCard({ expanded = false }: { expanded?: boolean 
     } catch (caught) { if (mounted.current && scopeRef.current === expected) setUploadMessage(employeeError(caught)); }
     finally { if (mounted.current && scopeRef.current === expected) { setUploading(false); if (uploadInput.current) uploadInput.current.value = ''; } }
   }
-  if (!session || session.person.kind === 'external') return null;
+  if (!session || session.support || session.person.kind === 'external') return null;
   return <section className={`employee-sickness${active ? ' ongoing' : ''}`} aria-label="Sjukanmälan och friskanmälan">
     {!data ? <p role="status">Hämtar sjukfrånvaro…</p> : active ? <>
       <header><HeartPulse size={23} /><div><h2>Du är sjukanmäld</h2><p>Från {fullDayLabel(active.fromDate)} · {active.extent} %</p></div></header>

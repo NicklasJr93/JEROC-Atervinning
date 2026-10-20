@@ -16,9 +16,10 @@ import {
   type Draft,
 } from './model';
 import { mergeCustomerPriceCatalog, updateCustomerPriceCatalog, type Customer } from './data';
-import { useSharedData } from './shared-data';
+import { sharedBusinessCacheKey, sharedBusinessIdentity, useSharedData } from './shared-data';
 import { useEmployee } from './employee/EmployeeProvider';
 import { employeeCompanyId, employeeIdentity, employeeRecoveryKey, legacyEmployeeRecoveryKey } from './employee/cache';
+import { platformRequestHeaders } from './platform/session';
 type Context = {
   data: DemoData;
   storageError: string;
@@ -45,9 +46,13 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const loggedIn = Boolean(employee.session), passwordRequired = false;
   const personId = employee.session?.person.id;
   const companyId = employeeCompanyId(employee.session?.companyId);
-  const identity = employeeIdentity(companyId, personId);
+  const principal = personId ? { employee: personId, companyId } : undefined;
+  const identity = sharedBusinessIdentity(principal) ?? employeeIdentity(companyId, personId);
   const identityRef = useRef(identity); identityRef.current = identity;
-  const storageKey = employeeRecoveryKey(companyId, personId);
+  const dataIdentity = useRef(identity);
+  // For support, sharedBusinessCacheKey also binds the virtual person to the
+  // actual platform actor and current generation. Real employee keys stay stable.
+  const storageKey = principal ? sharedBusinessCacheKey(STORE_KEY, principal) : employeeRecoveryKey(companyId, personId);
   const location = useLocation();
   const priceCustomerId = location.pathname.startsWith('/prices') ? new URLSearchParams(location.search).get('customer') : undefined;
   const [priceRevision, setPriceRevision] = useState('');
@@ -70,7 +75,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     let next: DemoData = { version: 1, drafts: [], customers: [] };
     let error = '';
     try {
-      const legacyKey = legacyEmployeeRecoveryKey(companyId, personId);
+      const legacyKey = personId === '__platform-admin' ? undefined : legacyEmployeeRecoveryKey(companyId, personId);
       const saved = personId && (localStorage.getItem(storageKey) ?? (legacyKey ? localStorage.getItem(legacyKey) : null));
       if (saved) next = storeSchema.parse(JSON.parse(saved));
       else if (companyId === 'jeroc-demo' && employee.session?.person.username === 'niklas') {
@@ -78,8 +83,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         if (legacy) next = storeSchema.parse(JSON.parse(legacy));
       }
     } catch { error = 'Återhämtningscachen kunde inte läsas. Serverns uppgifter hämtas igen.'; }
+    dataIdentity.current = identity;
     dataRef.current = next; setData(next); setError(error); setBlocked(false);
-  }, [personId, companyId, storageKey]);
+  }, [personId, companyId, storageKey, identity]);
   const shared = useSharedData<DemoData>({domain:'mobile',key:STORE_KEY,identity:personId && employee.session?.capabilities.yardWork?{employee:personId,companyId}:undefined,current:dataRef,accept:next=>{setData(next);setBlocked(false);},error:setError,parse:value=>storeSchema.parse(value)});
   useEffect(() => {
     const changed = (event: Event) => {
@@ -100,10 +106,12 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     if (!personId || !shared.ready || !priceCustomerId || navigator.onLine === false || document.hidden ||
         !data.customers.some(customer => customer.id === priceCustomerId)) return;
     const abort = new AbortController();
+    const headers = { 'X-Employee-Company': companyId,
+      ...(personId === '__platform-admin' ? platformRequestHeaders() : {}) };
     void (async () => {
       try {
         const response = await fetch(`/api/application/mobile-prices?customerId=${encodeURIComponent(priceCustomerId)}`, {
-          credentials: 'same-origin', cache: 'no-store', signal: abort.signal, headers: { 'X-Employee-Company': companyId },
+          credentials: 'same-origin', cache: 'no-store', signal: abort.signal, headers,
         });
         if (response.status === 401) window.dispatchEvent(new Event('jeroc:employee-session-check'));
         if (!response.ok) return;
@@ -124,8 +132,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     return shared.save(storeSchema.parse(next));
   }
   const value: Context = {
-    data,
-    storageError,
+    data: dataIdentity.current === identity ? data : { version: 1, drafts: [], customers: [] },
+    storageError: dataIdentity.current === identity ? storageError : '',
     loggedIn,
     passwordRequired,
     sharedReady: shared.ready,

@@ -21,7 +21,10 @@ const swishTestPage = pagePath === '/kontor/integration/systemadminswishtest.htm
 const bankTestPage = pagePath === '/kontor/integration/systemadminbanktest.html';
 const voiceTestPage = pagePath === '/rosttest';
 const officeVoiceTestPage = pagePath === '/kontor/rosttest';
-if (pagePath === '/kontor' || nvvTestPage || vismaTestPage || swishTestPage || bankTestPage || officeVoiceTestPage) installPlatformFetchGuard();
+const standalonePortal = ['/godkann', '/testbil1', '/rosttest', '/terminal', '/chauffor', '/kund', '/akeri'].includes(pagePath);
+// The mobile app keeps ordinary employee requests unchanged. When a real
+// platform admin logs in, its in-memory session supplies same-origin API fences.
+if (!standalonePortal) installPlatformFetchGuard();
 if ((nvvTestPage || vismaTestPage || swishTestPage || bankTestPage) && !window.location.hash) {
   window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/integrations/${bankTestPage ? 'bank-test' : swishTestPage ? 'swish-test' : vismaTestPage ? 'visma-test' : 'nvv-test'}`);
 }

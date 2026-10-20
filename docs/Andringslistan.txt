@@ -3636,3 +3636,32 @@ Status: Genomförd i kod 2026-10-20. Fysisk telefon provas efter deployment.
   Lokala iOS-/Android-paket byggs utan Expo-kontoinloggning och validerar
   den inbyggda mobiladressen. Skarpa miljö-/manifestkontroller följer
   efter den pinnade Render-deploymenten.
+
+
+ÄL 146 – Systemadmin i mobilappen med bolagsval och skrivbar arbetsyta
+Status: Genomförd och lokalt verifierad 2026-10-20.
+- Systemadminkontot kan logga in i mobilwebben/Expo Go och välja aktivt
+  bolag utan att registreras som personal eller få ett personalkonto i
+  varje bolag. Vanlig personal loggar fortsatt direkt in till sitt bolag.
+- Det valda bolagets arbetsflöden är skrivbara med systemadminens egen
+  behörighet och befintliga verksamhetskontroller. Inget skrivskydd införs.
+- En tydlig remsa anger systemadmin och valt bolag; Byt bolag och Logga ut
+  avslutar den gamla arbetskontexten och rensar dess aktiva klientdata.
+- Personlig HR-profil skapas inte automatiskt. Öppning av appen får inte
+  skapa en anställning, arbetsschema, timkrav eller stämplingshistorik.
+- Servern verifierar faktisk plattformssystemadmin, aktivt bolag, session,
+  CSRF och generation. Gamla eller förfalskade klientkontexter får inte
+  välja ett annat bolag eller skriva efter byte/utloggning.
+- Åtgärder ska spåras till det verkliga plattformskontot och valt bolag,
+  inte endast till ett generiskt namn för systemadmin.
+- Ett föreskrivet första lösenordsbyte kan göras direkt i mobilappen före
+  bolagsval. Utloggning fungerar även innan lösenordet har bytts.
+- Befintlig Expo/Render-konfiguration återanvänds utan nya hemligheter.
+  Dokumentation: docs/mobil-systemadmin.md.
+- Verifiering: produktionsbygge och 19 browserfall passerar, inklusive
+  mobilens riktiga vägningsflöde, vanligt personalkonto, bolagsbyte,
+  fördröjda svar, utloggning och föreskrivet lösenordsbyte. Sex isolerade
+  HTTP-fall bekräftar faktiska skrivningar, unik plattformsaktör, noll nya
+  personalposter och rollback vid återkallad bolagskontext. Även 39 extra
+  integrations-/lagringsprov passerar; 12 PostgreSQL-prov kräver separat
+  testdatabas och hoppas över lokalt. Skarp kontroll görs efter deployment.

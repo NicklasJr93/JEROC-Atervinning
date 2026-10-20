@@ -25,8 +25,15 @@ export function installPlatformFetchGuard(): () => void {
     // Explicit tokens belong to the initiating scope. Do not replace them after
     // a switch; the server rejects a stale generation instead of changing tenant.
     for (const [name, value] of Object.entries(platformRequestHeaders())) if (!headers.has(name)) headers.set(name, value);
+    const requestGeneration = headers.get('X-Platform-Generation');
+    const requestOrganisation = headers.get('X-Platform-Organisation-Id');
     return previous.call(window, input, { ...init, headers }).then(response => {
-      if (response.status === 401 && !url.pathname.startsWith('/api/platform/'))
+      const current = platformRequestHeaders();
+      // A delayed response from the previous company/session must not expire
+      // the fresh session opened while that request was in flight.
+      const currentRequest = requestGeneration === (current['X-Platform-Generation'] ?? null)
+        && requestOrganisation === (current['X-Platform-Organisation-Id'] ?? null);
+      if (response.status === 401 && currentRequest && !url.pathname.startsWith('/api/platform/'))
         window.dispatchEvent(new Event('scrappilot:check-platform-session'));
       return response;
     });
