@@ -11,7 +11,7 @@ const stored: CompanySettings = {
   profile: { name: 'Inställningsprov AB', address: 'Provvägen 12', postalCode: '76141', city: 'Norrtälje', countryCode: 'SE',
     phone: '+46101234567', email: 'info@example.test', invoiceEmail: 'ekonomi@example.test', contactPerson: 'Vald kontakt', website: 'https://example.test' },
   documents: { footerText: 'Bolagets sparade sidfot' }, defaults: { paymentTermsDays: null },
-  notifications: { customerInquiries: [], bookings: [], integrationErrors: [] }, capabilities: { canManage: true }, updatedAt: '2026-10-20T09:00:00.000Z',
+  notifications: { customerInquiries: [], bookings: [], integrationErrors: [], weighedDocumentEmail: { enabled: false, recipients: [] } }, capabilities: { canManage: true }, updatedAt: '2026-10-20T09:00:00.000Z',
 };
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
@@ -114,6 +114,9 @@ test('läsbehörighet visar uppgifterna utan skrivkontroller eller uppladdning',
   await page.getByRole('tab', { name: 'Logga & dokument', exact: true }).click();
   await expect(page.getByLabel('Sidfot på nya dokument', { exact: true })).toBeDisabled();
   await expect(page.getByLabel('Ladda upp logga', { exact: true })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Aviseringar', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Skicka vägt underlag till e-post', exact: true })).toBeDisabled();
+  await expect(page.getByLabel('Vägt underlag – mottagare', { exact: true })).toBeDisabled();
   expect(f.writes).toHaveLength(0); expect(f.uploads).toHaveLength(0);
 });
 
@@ -187,6 +190,49 @@ test('mottagarlistor och kunders standardvillkor sparas tillsammans utan att ski
   expect(f.writes[0].postDataJSON()).toMatchObject({ defaults: { paymentTermsDays: 30 }, notifications: { customerInquiries: ['service@example.test', 'vd@example.test'] } });
 });
 
+test('mejlkopia av vägt underlag är avstängd från början och kräver kontorets mottagare innan den sparas', async ({ page }) => {
+  const f = await fixture(page);
+  await page.getByRole('tab', { name: 'Aviseringar', exact: true }).click();
+  const checkbox = page.getByRole('checkbox', { name: 'Skicka vägt underlag till e-post', exact: true });
+  const recipients = page.getByLabel('Vägt underlag – mottagare', { exact: true });
+  await expect(checkbox).not.toBeChecked();
+  await expect(recipients).toBeDisabled();
+  await expect(page.getByText('Skickar en PDF-kopia till kontoret efter attest. Avser nya attesterade underlag.', { exact: true })).toBeVisible();
+  await checkbox.check();
+  await expect(recipients).toBeEnabled();
+  await page.getByRole('button', { name: 'Spara ändringar', exact: true }).click();
+  expect(f.writes).toHaveLength(0);
+  await recipients.fill('kontoret@example.test\nekonomi@example.test\nkontoret@example.test');
+  await page.getByRole('button', { name: 'Spara ändringar', exact: true }).click();
+  await expect.poll(() => f.writes.length).toBe(1);
+  expect(f.writes[0].postDataJSON()).toMatchObject({ expectedVersion: 3,
+    notifications: { weighedDocumentEmail: { enabled: true, recipients: ['kontoret@example.test', 'ekonomi@example.test'] } } });
+  await expect(checkbox).toBeChecked();
+  await expect(page.getByRole('button', { name: 'Spara ändringar', exact: true })).toBeDisabled();
+});
+
+test('avstängd PDF-kopia behåller kontorets adress men kräver uttrycklig sparning innan inställningen ändras', async ({ page }) => {
+  const f = await fixture(page);
+  await page.getByRole('tab', { name: 'Aviseringar', exact: true }).click();
+  const checkbox = page.getByRole('checkbox', { name: 'Skicka vägt underlag till e-post', exact: true });
+  const recipients = page.getByLabel('Vägt underlag – mottagare', { exact: true });
+  await checkbox.check();
+  await recipients.fill('kontoret@example.test');
+  await page.getByRole('button', { name: 'Spara ändringar', exact: true }).click();
+  await expect.poll(() => f.writes.length).toBe(1);
+  await checkbox.uncheck();
+  await expect(recipients).toBeDisabled();
+  await expect(recipients).toHaveValue('kontoret@example.test');
+  expect(f.value().notifications.weighedDocumentEmail.enabled).toBe(true);
+  await page.getByRole('button', { name: 'Spara ändringar', exact: true }).click();
+  await expect.poll(() => f.writes.length).toBe(2);
+  expect(f.writes[1].postDataJSON()).toMatchObject({ expectedVersion: 4,
+    notifications: { weighedDocumentEmail: { enabled: false, recipients: ['kontoret@example.test'] } } });
+  await checkbox.check();
+  await expect(recipients).toHaveValue('kontoret@example.test');
+  expect(f.writes).toHaveLength(2);
+});
+
 test('klienten avvisar ett sent svar efter ändrad plattformsidentitet', async () => {
   const oldFetch = globalThis.fetch;
   let release!: () => void;
@@ -206,6 +252,11 @@ test('klienten avvisar ett sent svar efter ändrad plattformsidentitet', async (
 
 test('ofullständiga inställningssvar kan inte förifylla ett annat bolags formulär', () => {
   expect(() => parseCompanySettings({ ...stored, profile: { name: 'Ofullständig' } })).toThrow(CompanySettingsError);
+});
+
+test('äldre inställningssvar får avstängd mejlkopia utan att påhittade mottagare läggs till', () => {
+  const { weighedDocumentEmail: _copy, ...notifications } = stored.notifications;
+  expect(parseCompanySettings({ ...stored, notifications }).notifications.weighedDocumentEmail).toEqual({ enabled: false, recipients: [] });
 });
 
 

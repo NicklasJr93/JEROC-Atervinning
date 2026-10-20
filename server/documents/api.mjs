@@ -59,6 +59,17 @@ export function createDocumentsApi({ env = process.env, repository, sourceProvid
   };
   api.ensureApproval = async approval => (await service()).ensureApproval(approval);
   api.archiveApprovalJob = async (approval, job) => (await service()).archiveApprovalJob(approval, job);
+  // Trusted tenant worker only. There is deliberately no HTTP route or public
+  // link that can use this reader without the normal document authorization.
+  api.readArchivedDocumentForEmail = async id => {
+    if (typeof id !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))
+      throw new DocumentError('Dokumentet finns inte.', 404, 'document_not_found');
+    await service();
+    const archive = await repositoryPromise;
+    const record = await (archive.read ?? archive.transact).call(archive, database => database.document(id, true));
+    if (!record) throw new DocumentError('Dokumentet finns inte.', 404, 'document_not_found');
+    return record;
+  };
   // Trusted payment-worker hook, deliberately not exposed as an HTTP route.
   api.archivePaymentRevision = async job => (await service()).archivePaymentRevision(job);
   api.archivePaymentConfirmation = async job => (await service()).archivePaymentConfirmation(job);

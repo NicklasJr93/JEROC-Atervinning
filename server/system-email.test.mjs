@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createSystemEmail, SystemEmailError, SYSTEM_EMAIL_FROM, RESEND_EMAIL_URL } from './system-email.mjs';
+import { createSystemEmail, SystemEmailError, SYSTEM_EMAIL_FROM, RESEND_EMAIL_URL, MAX_SYSTEM_EMAIL_PDF_BYTES } from './system-email.mjs';
 
 const key = 'PRIVATE-RESEND-API-KEY';
 const request = { to: 'test@example.invalid', requestId: '1cf1eef4-d17d-4cc6-9cff-2412660166af', createdAt: '2026-10-20T10:00:00.000Z' };
 const resetToken = 'A'.repeat(43);
 const resetRequest = { ...request, expiresAt: '2026-10-20T10:30:00.000Z', resetUrl: `https://app.scrapplanner.com/kontor/#/reset-password?token=${resetToken}` };
+const weighedRequest = { ...request, companyName: 'Testbolaget & Återvinning <AB>', cardNumber: 3010,
+  documentId: '1247623a-e124-4f1b-a920-191a19bcadf2', pdf: Buffer.from('%PDF-1.7\nSYNTHETIC-ARCHIVED-PDF-CONTENT\n%%EOF\n') };
 const providerId = '99d645f5-b788-45c5-a733-9f84bcb1727e';
 const client = (fetchImpl, extra = {}) => createSystemEmail({ env: { RESEND_API_KEY: key }, fetchImpl, ...extra });
 const response = (value = { id: providerId }, status = 200, headers) => new Response(JSON.stringify(value), { status, headers });
@@ -202,5 +204,85 @@ test('reset mail is cancelled and timed out without retrying or exposing raw err
     assert.equal(calls, 1);
     const controller = new AbortController(); controller.abort(new Error(resetRequest.resetUrl));
     await rejects(client(() => assert.fail('must not fetch')).sendPasswordReset(resetRequest, { signal: controller.signal }), 'system_email_outcome_unknown');
+  } finally { clearTimeout(keepAlive); }
+});
+
+test('weighed document sends the attested office copy with a fixed sender and one inline archived PDF attachment', async () => {
+  const calls = [];
+  const adapter = client(async (url, options) => {
+    assert.equal(url, RESEND_EMAIL_URL); assert.equal(options.method, 'POST'); assert.equal(options.redirect, 'error');
+    calls.push({ body: options.body, key: options.headers['Idempotency-Key'] });
+    const message = JSON.parse(options.body);
+    assert.equal(message.from, SYSTEM_EMAIL_FROM); assert.deepEqual(message.to, [weighedRequest.to]);
+    assert.equal(message.subject, `${weighedRequest.companyName} · Vägt underlag 3010`);
+    assert.match(message.text, /attesterade vägda underlaget 3010/);
+    assert.match(message.html, /attesterade vägda underlaget/);
+    assert.match(message.html, /Testbolaget &amp; Återvinning &lt;AB&gt;/);
+    assert.ok(!message.html.includes(weighedRequest.companyName));
+    assert.match(message.html, /Skickat via ScrapPlanner/); assert.match(message.text, /EndorGroup/);
+    assert.deepEqual(message.attachments, [{ filename: `Vagt-underlag-3010-${weighedRequest.documentId}.pdf`,
+      content: weighedRequest.pdf.toString('base64'), content_type: 'application/pdf' }]);
+    assert.deepEqual(Buffer.from(message.attachments[0].content, 'base64'), weighedRequest.pdf);
+    assert.deepEqual(Object.keys(message).sort(), ['attachments', 'from', 'html', 'subject', 'text', 'to']);
+    return response({ id: providerId, ignored: 'PRIVATE-PROVIDER-DATA' });
+  });
+  assert.deepEqual(await adapter.sendWeighedDocument(weighedRequest), { providerId });
+  assert.deepEqual(await adapter.sendWeighedDocument({ ...weighedRequest, cardNumber: '3010' }), { providerId });
+  assert.equal(calls[0].key, `weighed-document/${request.requestId}`);
+  assert.deepEqual(calls[0], calls[1]);
+});
+
+test('weighed document validates metadata, recipient and bounded PDF bytes before provider access', async () => {
+  const adapter = client(() => assert.fail('must not fetch'));
+  for (const invalid of [null, [], {}, { ...weighedRequest, to: 'a@example.invalid,b@example.invalid' },
+    { ...weighedRequest, to: 'a@example.invalid\r\nBcc:b@example.invalid' },
+    { ...weighedRequest, companyName: ' ' }, { ...weighedRequest, companyName: 'Unsafe\nHeader' },
+    { ...weighedRequest, companyName: 'x'.repeat(201) }, { ...weighedRequest, companyName: 'ﬀ'.repeat(101) },
+    ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '0', '001', '1.5', '../file', '9'.repeat(17)].map(cardNumber => ({ ...weighedRequest, cardNumber })),
+    { ...weighedRequest, requestId: 'invalid' }, { ...weighedRequest, documentId: '../not-a-uuid' },
+    { ...weighedRequest, createdAt: 'yesterday' },
+    ...[undefined, null, 'https://attacker.example/pdf', weighedRequest.pdf.toString('base64'),
+      new Uint8Array(weighedRequest.pdf), Buffer.from('<html>not PDF</html>'), Buffer.from('%PDF-1.7\nwithout-end-marker'),
+      Buffer.from('%PDF-1.7\n%%EOF\n<script>bad</script>'), Buffer.alloc(MAX_SYSTEM_EMAIL_PDF_BYTES + 1)].map(pdf => ({ ...weighedRequest, pdf })),
+    { ...weighedRequest, from: 'attacker@example.invalid' }, { ...weighedRequest, subject: 'arbitrary' },
+    { ...weighedRequest, attachments: [{ path: 'https://attacker.example' }] },
+  ]) await rejects(adapter.sendWeighedDocument(invalid), 'system_email_invalid', 422);
+});
+
+test('weighed document retains safe provider rejection, rate-limit and uncertain outcome classifications', async () => {
+  const privateData = `${key} ${weighedRequest.to} ${weighedRequest.companyName} ${weighedRequest.pdf.toString('base64')} PRIVATE-PROVIDER-DATA`;
+  for (const [makeResponse, code, status] of [
+    [() => response({ message: privateData }, 403), 'system_email_rejected', 503],
+    [() => response({ message: privateData }, 429), 'system_email_rate_limited', 429],
+    [() => response({ name: 'invalid_idempotent_request', message: privateData }, 409), 'system_email_idempotency_conflict', 409],
+    [() => response({ name: 'concurrent_idempotent_requests', message: privateData }, 409), 'system_email_outcome_unknown', 503],
+    [() => response({ message: privateData }, 500), 'system_email_outcome_unknown', 503],
+    [() => new Response(privateData, { status: 403 }), 'system_email_rejected', 503],
+    [() => new Response('not-json'), 'system_email_outcome_unknown', 503],
+    [() => response({ id: providerId, ignored: 'x'.repeat(16384) }), 'system_email_outcome_unknown', 503],
+  ]) {
+    let calls = 0;
+    const adapter = client(async () => { calls++; return makeResponse(); });
+    await assert.rejects(adapter.sendWeighedDocument(weighedRequest), error => {
+      assert.ok(error instanceof SystemEmailError); assert.equal(error.code, code); assert.equal(error.status, status);
+      for (const secret of [key, weighedRequest.to, weighedRequest.companyName, weighedRequest.pdf.toString('base64'), 'PRIVATE-PROVIDER-DATA']) {
+        assert.ok(!error.message.includes(secret)); assert.ok(!JSON.stringify(error).includes(secret));
+      }
+      assert.ok(!error.message.includes('testmejl'));
+      return true;
+    });
+    assert.equal(calls, 1);
+  }
+});
+
+test('weighed document uses the existing server key and bounded cancellation without automatic retries', async () => {
+  await rejects(createSystemEmail({ env: {}, fetchImpl: () => assert.fail('must not fetch') }).sendWeighedDocument(weighedRequest), 'system_email_not_configured');
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    let calls = 0;
+    await rejects(client(() => { calls++; return new Promise(() => {}); }, { timeoutMs: 20 }).sendWeighedDocument(weighedRequest), 'system_email_outcome_unknown');
+    assert.equal(calls, 1);
+    const controller = new AbortController(); controller.abort(new Error(key));
+    await rejects(client(() => assert.fail('must not fetch')).sendWeighedDocument(weighedRequest, { signal: controller.signal }), 'system_email_outcome_unknown');
   } finally { clearTimeout(keepAlive); }
 });

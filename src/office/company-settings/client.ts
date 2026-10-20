@@ -10,7 +10,8 @@ const companySettingsSchema = z.object({
     phone: text, email: text, invoiceEmail: text, contactPerson: text, website: text }),
   documents: z.object({ footerText: text, logoId: logoId.optional() }),
   defaults: z.object({ paymentTermsDays: z.number().int().min(0).max(365).nullable() }),
-  notifications: z.object({ customerInquiries: z.array(text).max(10), bookings: z.array(text).max(10), integrationErrors: z.array(text).max(10) }),
+  notifications: z.object({ customerInquiries: z.array(text).max(10), bookings: z.array(text).max(10), integrationErrors: z.array(text).max(10),
+    weighedDocumentEmail: z.object({ enabled: z.boolean(), recipients: z.array(text).max(10) }).default(() => ({ enabled: false, recipients: [] })) }),
   updatedAt: z.string().optional(), capabilities: z.object({ canManage: z.boolean() }),
 });
 export class CompanySettingsError extends Error {

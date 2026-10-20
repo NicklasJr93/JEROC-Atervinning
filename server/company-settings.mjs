@@ -19,7 +19,12 @@ const documentsSchema = z.object({
   logoId: z.string().uuid().optional(),
 }).strict();
 const defaultsSchema = z.object({ paymentTermsDays: z.number().int().min(0).max(365).nullable() }).strict();
-const notificationsSchema = z.object({ customerInquiries: recipients, bookings: recipients, integrationErrors: recipients }).strict();
+const weighedDocumentEmailSchema = z.object({ enabled: z.boolean(), recipients }).strict().superRefine((value, context) => {
+  if (value.enabled && !value.recipients.length)
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Ange minst en mottagare för vägt underlag.' });
+});
+const notificationsSchema = z.object({ customerInquiries: recipients, bookings: recipients, integrationErrors: recipients,
+  weighedDocumentEmail: weighedDocumentEmailSchema.default(() => ({ enabled: false, recipients: [] })) }).strict();
 const groupsSchema = z.object({ profile: profileSchema, documents: documentsSchema,
   defaults: defaultsSchema, notifications: notificationsSchema }).strict();
 const saveSchema = groupsSchema.extend({ expectedVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict();
@@ -75,7 +80,7 @@ export function createCompanySettingsService({ organisationId, company, getRepos
       countryCode: 'SE', phone: company.phone ?? '', email: company.email ?? '', invoiceEmail: company.invoiceEmail ?? '',
       contactPerson: company.contactPerson ?? '', website: company.website ?? '' },
     documents: { footerText: '' }, defaults: { paymentTermsDays: null },
-    notifications: { customerInquiries: [], bookings: [], integrationErrors: [] } });
+    notifications: { customerInquiries: [], bookings: [], integrationErrors: [], weighedDocumentEmail: { enabled: false, recipients: [] } } });
   function current(state) {
     const value = state.metadata?.companySettings;
     if (value === undefined) return initial();
@@ -102,11 +107,16 @@ export function createCompanySettingsService({ organisationId, company, getRepos
     if (principal.canManage !== true || typeof reauthorize !== 'function')
       fail('Du saknar behörighet att ändra företagsinställningar.', 403, 'company_settings_forbidden');
     const { expectedVersion, ...groups } = parseCompanySettingsInput(input);
+    const includesWeighedDocumentEmail = Object.prototype.hasOwnProperty.call(input.notifications, 'weighedDocumentEmail');
     const repository = await getRepository();
     return repository.transact(async (state, _revision, audit) => {
       const previous = current(state);
       if (previous.version !== expectedVersion)
         fail('Företagsinställningarna har ändrats av någon annan. Hämta den senaste versionen innan du sparar.', 409, 'company_settings_version_conflict');
+      // A browser opened before this setting existed can still save contact
+      // fields. Only an explicitly submitted toggle may change a subscription.
+      if (!includesWeighedDocumentEmail)
+        groups.notifications.weighedDocumentEmail = clone(previous.notifications.weighedDocumentEmail);
       if (groups.documents.logoId && groups.documents.logoId !== previous.documents.logoId) {
         if (typeof validateLogo !== 'function' || !await validateLogo(groups.documents.logoId))
           fail('Logotypen finns inte i bolagets bildarkiv. Välj en uppladdad logotyp igen.', 422, 'company_settings_logo_invalid');
@@ -127,6 +137,12 @@ export function createCompanySettingsService({ organisationId, company, getRepos
         updatedAt: at, updatedBy: { actorId: principal.actorId, userId: principal.userId } };
       state.metadata ??= {};
       state.metadata.companySettings = clone(next);
+      // This internal timestamp fences old pending PDF jobs from a newly
+      // enabled office-copy subscription. It is never accepted from clients.
+      if (groups.notifications.weighedDocumentEmail.enabled && !previous.notifications.weighedDocumentEmail.enabled)
+        state.metadata.weighedDocumentEmailEnabledAt = at;
+      else if (!groups.notifications.weighedDocumentEmail.enabled)
+        delete state.metadata.weighedDocumentEmailEnabledAt;
       const event = { id: randomUUID(), at, companyId: organisationId, actorId: principal.actorId, userId: principal.userId,
         action: 'company.settings.saved', version: next.version, changedFields };
       state.metadata.companySettingsAudit = [...(Array.isArray(state.metadata.companySettingsAudit) ? state.metadata.companySettingsAudit : []), event].slice(-1000);
@@ -144,5 +160,9 @@ export function createCompanySettingsService({ organisationId, company, getRepos
     return { id: organisationId, ...clone(value.profile), number: legal.number, vat: legal.vat,
       footerText: value.documents.footerText, ...(value.documents.logoId ? { logoId: value.documents.logoId } : {}) };
   }
-  return Object.freeze({ organisationId, get, save, basicSettings, documentProfile });
+  async function weighedDocumentEmail() {
+    const value = await get();
+    return clone(value.notifications.weighedDocumentEmail);
+  }
+  return Object.freeze({ organisationId, get, save, basicSettings, documentProfile, weighedDocumentEmail });
 }

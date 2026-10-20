@@ -12,7 +12,12 @@ export interface CompanyProfile {
 }
 export interface CompanyDocumentSettings { footerText: string; logoId?: string }
 export interface CompanyDefaults { paymentTermsDays: number | null }
-export interface CompanyNotifications { customerInquiries: string[]; bookings: string[]; integrationErrors: string[] }
+export interface CompanyNotifications {
+  customerInquiries: string[];
+  bookings: string[];
+  integrationErrors: string[];
+  weighedDocumentEmail: { enabled: boolean; recipients: string[] };
+}
 export interface CompanySettings {
   companyId: string;
   organisationNumber: string;

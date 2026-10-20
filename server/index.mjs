@@ -205,6 +205,12 @@ const paymentTimer = setInterval(() => {
 }, 3000);
 paymentTimer.unref();
 void tenantGateway.runWorkers('processQueuedPayments');
+const weighedDocumentEmailTimer = setInterval(() => {
+  void tenantGateway.runWorkers('processQueuedWeighedDocumentEmails')
+    .catch(() => console.warn('Mejlkopior av vägda underlag väntar på nästa kontroll.'));
+}, 15000);
+weighedDocumentEmailTimer.unref();
+void tenantGateway.runWorkers('processQueuedWeighedDocumentEmails');
 server.listen(port, '0.0.0.0', () => {
   console.log(`ScrapPilot lyssnar på port ${server.address().port}`);
 });
@@ -215,6 +221,7 @@ async function stop(code = 0) {
   clearInterval(accountingTimer);
   clearInterval(accountingTrackingTimer);
   clearInterval(paymentTimer);
+  clearInterval(weighedDocumentEmailTimer);
   testCarApi.close();
   setTimeout(() => process.exit(1), 10000).unref();
   await Promise.all([new Promise((done) => server.close(done)), expoGo.stop(), tenantGateway.close(), testCarRuntime.close()]);

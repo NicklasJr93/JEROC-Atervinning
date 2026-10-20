@@ -23,7 +23,7 @@ const tabs = [['company', 'Företaget', Building2], ['documents', 'Logga & dokum
 type Tab = typeof tabs[number][0];
 type RecipientText = Record<keyof CompanyNotifications, string>;
 const draftOf = (settings: CompanySettings): CompanySettingsDraft => structuredClone({ profile: settings.profile, documents: settings.documents, defaults: settings.defaults, notifications: settings.notifications });
-const recipientTextOf = (settings: CompanySettingsDraft): RecipientText => ({ customerInquiries: settings.notifications.customerInquiries.join('\n'), bookings: settings.notifications.bookings.join('\n'), integrationErrors: settings.notifications.integrationErrors.join('\n') });
+const recipientTextOf = (settings: CompanySettingsDraft): RecipientText => ({ customerInquiries: settings.notifications.customerInquiries.join('\n'), bookings: settings.notifications.bookings.join('\n'), integrationErrors: settings.notifications.integrationErrors.join('\n'), weighedDocumentEmail: settings.notifications.weighedDocumentEmail.recipients.join('\n') });
 const recipients = (text: string) => [...new Set(text.split(/[\n,;]/).map(value => value.trim()).filter(Boolean))];
 const mayRead = (user: OfficeUser) => user.active !== false && (['VD', 'Systemadmin'].includes(user.level) || user.permissions.some(value => ['companySettingsRead', 'companySettingsWrite'].includes(value)));
 const mayManage = (user: OfficeUser) => user.active !== false && !user.siteIds && (['VD', 'Systemadmin'].includes(user.level) || user.permissions.some(value => value === 'companySettingsWrite'));
@@ -44,7 +44,7 @@ function CompanySettingsEditor({ user, actualUser, onNotice, onProfileChanged, s
   const operationAbort = useRef<AbortController | null>(null);
   const [settings, setSettings] = useState<CompanySettings>();
   const [draft, setDraft] = useState<CompanySettingsDraft>();
-  const [recipientText, setRecipientText] = useState<RecipientText>({ customerInquiries: '', bookings: '', integrationErrors: '' });
+  const [recipientText, setRecipientText] = useState<RecipientText>({ customerInquiries: '', bookings: '', integrationErrors: '', weighedDocumentEmail: '' });
   const [tab, setTab] = useState<Tab>('company');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -54,6 +54,7 @@ function CompanySettingsEditor({ user, actualUser, onNotice, onProfileChanged, s
   const [retry, setRetry] = useState(0);
   const effectiveDraft = draft && { ...draft, notifications: {
     customerInquiries: recipients(recipientText.customerInquiries), bookings: recipients(recipientText.bookings), integrationErrors: recipients(recipientText.integrationErrors),
+    weighedDocumentEmail: { ...draft.notifications.weighedDocumentEmail, recipients: recipients(recipientText.weighedDocumentEmail) },
   } };
   const dirty = Boolean(settings && effectiveDraft && JSON.stringify(draftOf(settings)) !== JSON.stringify(effectiveDraft));
   const editable = managementAllowed && settings?.capabilities.canManage === true;
@@ -98,9 +99,14 @@ function CompanySettingsEditor({ user, actualUser, onNotice, onProfileChanged, s
     if (!settings || !effectiveDraft || !editable || busy || uploading || conflict || !dirty) return;
     if (!effectiveDraft.profile.name.trim()) { setError('Ange företagets namn.'); return; }
     if (phoneNumberError(effectiveDraft.profile.phone)) { setError('Kontrollera företagets telefonnummer.'); return; }
-    const emails = [effectiveDraft.profile.email, effectiveDraft.profile.invoiceEmail, ...Object.values(effectiveDraft.notifications).flat()].filter(Boolean);
+    const recipientGroups = [effectiveDraft.notifications.customerInquiries, effectiveDraft.notifications.bookings,
+      effectiveDraft.notifications.integrationErrors, effectiveDraft.notifications.weighedDocumentEmail.recipients];
+    if (effectiveDraft.notifications.weighedDocumentEmail.enabled && !effectiveDraft.notifications.weighedDocumentEmail.recipients.length) {
+      setError('Ange minst en mottagare för vägt underlag.'); return;
+    }
+    const emails = [effectiveDraft.profile.email, effectiveDraft.profile.invoiceEmail, ...recipientGroups.flat()].filter(Boolean);
     if (emails.some(value => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()))) { setError('Kontrollera e-postadresserna. Ange en giltig adress per rad i aviseringarna.'); return; }
-    if (Object.values(effectiveDraft.notifications).some(values => values.length > 10)) { setError('Ange högst tio mottagare per avisering.'); return; }
+    if (recipientGroups.some(values => values.length > 10)) { setError('Ange högst tio mottagare per avisering.'); return; }
     const number = ++requestSequence.current;
     operationAbort.current?.abort();
     const controller = new AbortController(); operationAbort.current = controller;
@@ -183,7 +189,14 @@ function CompanySettingsEditor({ user, actualUser, onNotice, onProfileChanged, s
               </>}
               {tab === 'notifications' && <>
                 <header className="environment-heading"><span className="environment-icon"><Bell size={20} /></span><div><h2>Aviseringar</h2><p>Företagets mottagarlistor. Ange en adress per rad, högst tio per kategori.</p></div></header>
-                <div className="environment-info">Listorna sparar vilka som ska ta emot respektive typ av ärende. Utskick sker genom de aviseringsflöden som är anslutna; en sparad lista aktiverar inget nytt utskick.</div>
+                <div className="company-settings-section">
+                  <label className="company-settings-checkbox"><input type="checkbox" aria-label="Skicka vägt underlag till e-post" checked={draft.notifications.weighedDocumentEmail.enabled}
+                    onChange={event => { const enabled = event.target.checked; setDraft(value => value && { ...value, notifications: { ...value.notifications, weighedDocumentEmail: { ...value.notifications.weighedDocumentEmail, enabled } } }); setError(''); }} />Skicka vägt underlag till e-post</label>
+                  <p className="environment-muted">Skickar en PDF-kopia till kontoret efter attest. Avser nya attesterade underlag.</p>
+                  <div className="environment-form-grid"><label className="environment-full">Mottagare av vägt underlag<textarea aria-label="Vägt underlag – mottagare" value={recipientText.weighedDocumentEmail} disabled={disabled || !draft.notifications.weighedDocumentEmail.enabled}
+                    rows={2} maxLength={3000} placeholder="kontor@exempel.se" onChange={event => { setRecipientText(value => ({ ...value, weighedDocumentEmail: event.target.value })); setError(''); }} /><small>Ange minst en adress när utskicket är på. En adress per rad, högst tio mottagare.</small></label></div>
+                </div>
+                <div className="environment-info">Övriga mottagarlistor används av de aviseringsflöden som är anslutna. Listorna nedan aktiverar inget nytt utskick.</div>
                 <div className="environment-form-grid company-settings-section">{([
                   ['customerInquiries', 'Kundförfrågningar'], ['bookings', 'Bokningar'], ['integrationErrors', 'Integrationsfel'],
                 ] as const).map(([key, label]) => <label key={key} className="environment-full">{label}<textarea aria-label={`${label} – mottagare`} value={recipientText[key]} rows={3} maxLength={3000} placeholder="namn@exempel.se" onChange={event => { setRecipientText(value => ({ ...value, [key]: event.target.value })); setError(''); }} /></label>)}</div>

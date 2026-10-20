@@ -450,7 +450,8 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
         const company = await auth.getCompany(id); if (company?.status !== 'active') continue;
         try {
           const service = await pending;
-          const workers = method === 'processQueuedPayments' ? [service.swishService, service.bankService] : [service.vismaService];
+          const workers = method === 'processQueuedPayments' ? [service.swishService, service.bankService]
+            : method === 'processQueuedWeighedDocumentEmails' ? [service.weighedDocumentEmailService] : [service.vismaService];
           for (const worker of workers) if (typeof worker?.[method] === 'function') await worker[method]({ reconcile: false });
         } catch { console.warn('En bolagsspecifik integrationskö väntar på nästa kontroll.'); }
       }

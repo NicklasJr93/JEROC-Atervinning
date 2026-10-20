@@ -23,10 +23,12 @@ import { createCompanySettingsService } from './company-settings.mjs';
 import { createCompanySettingsApi } from './company-settings-api.mjs';
 import { createCompanyLogoService } from './company-logo.mjs';
 import { createCompanyLogoApi } from './company-logo-api.mjs';
+import { createSystemEmail } from './system-email.mjs';
+import { createWeighedDocumentEmail } from './weighed-document-email.mjs';
 
 /** All repositories, queues and provider connections belong to one immutable
  * server-selected organisation. A request can never change this bundle's scope. */
-export async function createTenantServices({ env, seed, initialSites, trustedPrincipalProvider, reauthorizeTrustedPrincipal, company, companySettingsAuthorize } = {}) {
+export async function createTenantServices({ env, seed, initialSites, trustedPrincipalProvider, reauthorizeTrustedPrincipal, company, companySettingsAuthorize, weighedDocumentEmailSender } = {}) {
   const restrictIntegration = (provider, service) => restrictPilotIntegrationService({ env, provider, service });
   const organisationId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
   if (organisationId !== 'jeroc-demo' && (!company || company.id !== organisationId || !company.name?.trim()))
@@ -165,6 +167,13 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     },
   }));
   const mailApi = createMailApi({ service: mailService, organisationId, resolveContext: resolveMailContext });
+  // A narrow, explicit company opt-in for office copies. It does not enable
+  // the generic mailbox, Spiris, bank or other blocked pilot integrations.
+  const weighedDocumentEmailService = createWeighedDocumentEmail({ organisationId,
+    getRepository: () => applicationApi.getRepository(),
+    readDocument: id => documentsApi.readArchivedDocumentForEmail(id),
+    email: weighedDocumentEmailSender ?? createSystemEmail({ env }),
+  });
   const environmentApi = createEnvironmentApi({ env, initialSites, trustedPrincipalProvider: reauthorizeTrustedPrincipal ?? trustedPrincipalProvider, principalStore,
     ...(env.SCRAPPLANNER_DEPLOYMENT_MODE === 'pilot' && { nvvClient: createNvvClient({ env: {} }) }),
     vismaService, swishService, bankService, mailService,
@@ -186,9 +195,19 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     attestBookingCheck: (approval, principal) => vismaService.checkAttestBooking(approval, {
       organisationId, actorId: principal.actor.id, effectiveUserId: principal.user.id,
     }),
-    onApprovalChanged: async (approval, job) => job
-      ? documentsApi.archiveApprovalJob(approval, { ...job, companySnapshot: job.companySnapshot ?? approval.companySnapshot ?? structuredClone(initialDocumentCompany) })
-      : documentsApi.ensureApproval(approval),
+    onApprovalChanged: async (approval, job) => {
+      if (!job) return documentsApi.ensureApproval(approval);
+      const document = await documentsApi.archiveApprovalJob(approval,
+        { ...job, companySnapshot: job.companySnapshot ?? approval.companySnapshot ?? structuredClone(initialDocumentCompany) });
+      if (job.stage === 'final') {
+        // Persist the email decision before acknowledging the durable PDF job.
+        // Provider requests run independently after the archive/queue commits.
+        await weighedDocumentEmailService.enqueue(approval, document);
+        setImmediate(() => { void weighedDocumentEmailService.processQueuedWeighedDocumentEmails()
+          .catch(() => console.warn('Mejlkopian av vägt underlag väntar på nästa kontroll.')); });
+      }
+      return document;
+    },
   });
   const documentsApi = createDocumentsApi({ env,
     renderPdf: async snapshot => {
@@ -282,9 +301,11 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
       await bankService.initialize();
     } catch (error) { await close(); throw error; }
     async function close() {
-      await Promise.allSettled([terminalDemoApi.close(), environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close(), companyLogoService.close()]);
+      await terminalDemoApi.close();
+      await weighedDocumentEmailService.close();
+      await Promise.allSettled([environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close(), companyLogoService.close()]);
     }
-    return { applicationApi, articleMediaApi, companySettingsService, companyLogoService, vismaService, swishService, bankService, mailService, resolveMailContext, environmentApi, terminalDemoApi, documentsApi, close,
+    return { applicationApi, articleMediaApi, companySettingsService, companyLogoService, weighedDocumentEmailService, vismaService, swishService, bankService, mailService, resolveMailContext, environmentApi, terminalDemoApi, documentsApi, close,
       async handle(req, res, url) {
         if (handlePilotIntegrationRequest(env, req, res, url)) return true;
         if (await companySettingsApi(req, res, url)) return true;

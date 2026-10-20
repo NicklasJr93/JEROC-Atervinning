@@ -34,7 +34,7 @@ test('initial scoped company settings are read-only defaults, without copied con
   const value = await f.service.get();
   assert.equal(value.companyId, legal.id); assert.equal(value.organisationNumber, legal.organisationNumber); assert.equal(value.version, 0);
   assert.equal(value.profile.name, legal.name); assert.equal(value.profile.phone, ''); assert.equal(value.profile.invoiceEmail, '');
-  assert.deepEqual(value.notifications, { customerInquiries: [], bookings: [], integrationErrors: [] });
+  assert.deepEqual(value.notifications, { customerInquiries: [], bookings: [], integrationErrors: [], weighedDocumentEmail: { enabled: false, recipients: [] } });
   assert.deepEqual(value.defaults, { paymentTermsDays: null }); assert.equal(value.capabilities.canManage, false);
   assert.deepEqual(await f.repository.read((state, revision) => ({ state, revision })), before);
 }));
@@ -163,4 +163,83 @@ test('standalone parser preserves explicit null default and does not accept read
     documents: { footerText: '' }, defaults: { paymentTermsDays: null }, notifications: { customerInquiries: [], bookings: [], integrationErrors: [] } };
   assert.equal(parseCompanySettingsInput(value).defaults.paymentTermsDays, null);
   assert.throws(() => parseCompanySettingsInput({ ...value, version: 0 }), hasStatus(422));
+});
+
+test('weighed-document email is opt-in, requires recipients, normalizes them and keeps disabled recipients without altering documents', () => fixture(async f => {
+  const base = inputOf(await f.service.get());
+  assert.deepEqual(await f.service.weighedDocumentEmail(), { enabled: false, recipients: [] });
+  for (const invalid of [{ enabled: true, recipients: [] }, { enabled: 'true', recipients: ['office@example.test'] },
+    { enabled: true, recipients: ['invalid-email'] }, { enabled: true, recipients: Array(11).fill('office@example.test') },
+    { enabled: true, recipients: ['office@example.test'], from: 'injected@example.test' }])
+    await assert.rejects(f.save({ ...base, notifications: { ...base.notifications, weighedDocumentEmail: invalid } }), hasStatus(422));
+  const saved = await f.save({ ...base, notifications: { ...base.notifications,
+    weighedDocumentEmail: { enabled: true, recipients: [' Office@Example.test ', 'office@example.test', 'second@example.test'] } } });
+  assert.deepEqual(saved.notifications.weighedDocumentEmail, { enabled: true, recipients: ['office@example.test', 'second@example.test'] });
+  assert.deepEqual(await f.service.weighedDocumentEmail(), saved.notifications.weighedDocumentEmail);
+  const disabled = await f.save({ ...inputOf(saved), notifications: { ...saved.notifications,
+    weighedDocumentEmail: { ...saved.notifications.weighedDocumentEmail, enabled: false } } });
+  assert.equal(disabled.notifications.weighedDocumentEmail.enabled, false);
+  assert.deepEqual(disabled.notifications.weighedDocumentEmail.recipients, ['office@example.test', 'second@example.test']);
+  assert.deepEqual(await f.repository.read(state => state.office.documents), [frozenDocument]);
+  assert.ok(!JSON.stringify(await f.repository.read(state => state.metadata.companySettingsAudit)).includes('office@example.test'));
+}));
+
+test('older stored settings gain disabled email defaults without a write and older client payloads remain accepted', () => fixture(async f => {
+  const saved = await f.save({ ...inputOf(await f.service.get()), profile: { ...(await f.service.get()).profile, contactPerson: 'Legacy' } });
+  await f.repository.transact(state => { delete state.metadata.companySettings.notifications.weighedDocumentEmail; });
+  const before = await f.repository.read((state, revision) => ({ state, revision }));
+  const loaded = await f.service.get();
+  assert.deepEqual(loaded.notifications.weighedDocumentEmail, { enabled: false, recipients: [] });
+  assert.deepEqual(await f.repository.read((state, revision) => ({ state, revision })), before);
+  const oldInput = inputOf(loaded); delete oldInput.notifications.weighedDocumentEmail;
+  oldInput.profile.contactPerson = 'Legacy edited';
+  const updated = await f.save(oldInput);
+  assert.equal(updated.version, saved.version + 1);
+  assert.deepEqual(updated.notifications.weighedDocumentEmail, { enabled: false, recipients: [] });
+}));
+
+test('only an off-to-on transition records an internal activation time for new attested PDF copies', async () => {
+  let time = new Date('2026-10-20T10:00:00.000Z');
+  await fixture(async f => {
+    assert.equal(await f.repository.read(state => state.metadata.weighedDocumentEmailEnabledAt), undefined);
+    let saved = await f.save({ ...inputOf(await f.service.get()), notifications: { ...(await f.service.get()).notifications,
+      weighedDocumentEmail: { enabled: true, recipients: ['office@example.test'] } } });
+    assert.equal(await f.repository.read(state => state.metadata.weighedDocumentEmailEnabledAt), time.toISOString());
+    assert.equal(saved.weighedDocumentEmailEnabledAt, undefined);
+    time = new Date('2026-10-20T11:00:00.000Z');
+    saved = await f.save({ ...inputOf(saved), notifications: { ...saved.notifications,
+      weighedDocumentEmail: { enabled: true, recipients: ['new-office@example.test'] } } });
+    assert.equal(await f.repository.read(state => state.metadata.weighedDocumentEmailEnabledAt), '2026-10-20T10:00:00.000Z');
+    saved = await f.save({ ...inputOf(saved), notifications: { ...saved.notifications,
+      weighedDocumentEmail: { ...saved.notifications.weighedDocumentEmail, enabled: false } } });
+    assert.equal(await f.repository.read(state => state.metadata.weighedDocumentEmailEnabledAt), undefined);
+    time = new Date('2026-10-20T12:00:00.000Z');
+    await f.save({ ...inputOf(saved), notifications: { ...saved.notifications,
+      weighedDocumentEmail: { ...saved.notifications.weighedDocumentEmail, enabled: true } } });
+    assert.equal(await f.repository.read(state => state.metadata.weighedDocumentEmailEnabledAt), time.toISOString());
+  }, { now: () => time });
+});
+
+test('a still-open older client cannot disable an enabled PDF subscription while saving unrelated contact fields', async () => {
+  let time = new Date('2026-10-20T10:00:00.000Z');
+  await fixture(async f => {
+    const first = await f.service.get();
+    const enabled = await f.save({ ...inputOf(first), notifications: { ...first.notifications,
+      weighedDocumentEmail: { enabled: true, recipients: ['office@example.test'] } } });
+    const enabledAt = await f.repository.read(state => state.metadata.weighedDocumentEmailEnabledAt);
+    time = new Date('2026-10-20T11:00:00.000Z');
+    const oldInput = inputOf(enabled); delete oldInput.notifications.weighedDocumentEmail;
+    oldInput.profile.contactPerson = 'Older client contact edit';
+    const saved = await f.save(oldInput);
+    assert.equal(saved.version, enabled.version + 1);
+    assert.equal(saved.profile.contactPerson, 'Older client contact edit');
+    assert.deepEqual(saved.notifications.weighedDocumentEmail, { enabled: true, recipients: ['office@example.test'] });
+    assert.equal(await f.repository.read(state => state.metadata.weighedDocumentEmailEnabledAt), enabledAt);
+    assert.deepEqual(await f.service.weighedDocumentEmail(), enabled.notifications.weighedDocumentEmail);
+    assert.deepEqual(await f.repository.read(state => state.metadata.companySettingsAudit.at(-1).changedFields), ['profile']);
+    const explicitlyDisabled = await f.save({ ...inputOf(saved), notifications: { ...saved.notifications,
+      weighedDocumentEmail: { ...saved.notifications.weighedDocumentEmail, enabled: false } } });
+    assert.equal(explicitlyDisabled.notifications.weighedDocumentEmail.enabled, false);
+    assert.equal(await f.repository.read(state => state.metadata.weighedDocumentEmailEnabledAt), undefined);
+  }, { now: () => time });
 });

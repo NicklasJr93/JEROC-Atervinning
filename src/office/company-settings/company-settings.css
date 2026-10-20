@@ -5,6 +5,8 @@
 .company-settings-workspace fieldset { border:0; padding:0; margin:0; min-width:0; }
 .company-settings-workspace .company-settings-section { margin-top:20px; padding-top:16px; border-top:1px solid #e7edf5; }
 .company-settings-workspace .company-settings-section h3 { margin:0 0 12px; }
+.company-settings-workspace label.company-settings-checkbox { display:flex; flex-direction:row; align-items:center; gap:9px; font-weight:600; }
+.company-settings-workspace .company-settings-checkbox input[type=checkbox] { width:16px; height:16px; min-height:16px; margin:0; flex-shrink:0; }
 .company-settings-workspace .company-settings-links { display:grid; gap:12px; }
 .company-settings-workspace .company-settings-links a { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .company-settings-workspace .company-settings-logo { display:flex; align-items:center; justify-content:center; min-height:100px; padding:16px; border:1px solid #e1e9f4; border-radius:8px; margin:12px 0; }
