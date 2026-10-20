@@ -12,6 +12,8 @@ export type CustomerIntakeInput = {
   city: string;
   countryCode: string;
   paymentProfile?: PaymentDetails;
+  reference?: string;
+  originDetails?: { address: string; postalCode: string; city: string; countryCode: string };
 };
 
 export const customerIntakeStatusSchema = z.enum(['waiting', 'submitted', 'applied', 'cancelled', 'expired', 'failed', 'unknown']);
@@ -21,6 +23,9 @@ export const customerIntakeInputSchema = z.object({
   phone: z.string().max(80), email: z.string().max(200), address: z.string().max(300),
   postalCode: z.string().max(20), city: z.string().max(200), countryCode: z.string().max(2),
   paymentProfile: paymentDetailsSchema.omit({ phone: true, recipient: true }).extend({ method: z.literal('bank') }).strict().optional(),
+  reference: z.string().max(200).optional(),
+  originDetails: z.object({ address: z.string().max(300), postalCode: z.string().max(20), city: z.string().max(200),
+    countryCode: z.literal('SE') }).strict().optional(),
 }).strict();
 export const customerIntakeSchema = z.object({
   id: z.string().min(1).max(200), draftId: z.string().min(1).max(200), channel: z.enum(['terminal', 'sms']),

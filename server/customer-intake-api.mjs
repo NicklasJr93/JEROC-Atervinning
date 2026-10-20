@@ -1,3 +1,5 @@
+import { ScbCompanyRegisterError } from './scb-company-register.mjs';
+
 const STAFF = '/api/employee/customer-intake';
 const TERMINAL = '/api/terminal-demo/customer-intake';
 const fail = (status, code, message) => { throw Object.assign(new Error(message), { status, code }); };
@@ -32,11 +34,14 @@ async function body(req) {
 /** The gateway selects an immutable tenant before staff/device routes arrive.
  * The service rechecks its real principal and draft inside each transaction.
  * Public bearer routing is deliberately separate from this cookie adapter. */
-export function createCustomerIntakeApi({ service, terminalAccess }) {
+export function createCustomerIntakeApi({ service, terminalAccess, companyLookup, organisationId = 'terminal', authorizeCompany }) {
   return async (req, res, url) => {
     const staffRoute = url.pathname === STAFF || url.pathname.startsWith(`${STAFF}/`);
     const deviceRoute = url.pathname === TERMINAL || url.pathname.startsWith(`${TERMINAL}/`);
     if (!staffRoute && !deviceRoute) return false;
+    const controller = new AbortController();
+    const abort = () => { if (!res.writableEnded) controller.abort(); };
+    req.once('aborted', abort); res.once('close', abort);
     try {
       sameOrigin(req);
       let result;
@@ -61,14 +66,39 @@ export function createCustomerIntakeApi({ service, terminalAccess }) {
           const input = await body(req);
           const device = await terminalAccess.authorizeIntakeDevice(req);
           result = await service.terminalSubmit(device, input);
+        } else if (req.method === 'POST' && url.pathname === `${TERMINAL}/company-lookup`) {
+          const input = await body(req);
+          if (!input || Array.isArray(input) || typeof input !== 'object'
+            || Object.keys(input).length !== 2 || Object.keys(input).some(key => !['id', 'organisationNumber'].includes(key))
+            || typeof input.id !== 'string' || !input.id || input.id.length > 100)
+            fail(422, 'company_lookup_invalid', 'Ange organisationsnummer för det aktuella kundformuläret.');
+          const device = await terminalAccess.authorizeIntakeDevice(req);
+          await authorizeCompany?.(req);
+          const verify = value => {
+            if (value?.intake?.id !== input.id || value.intake.status !== 'waiting'
+              || !Number.isFinite(Date.parse(value.intake.expiresAt)) || Date.parse(value.intake.expiresAt) <= Date.now())
+              fail(410, 'customer_intake_unavailable', 'Kundformuläret är inte tillgängligt längre. Be personalen öppna ett nytt.');
+          };
+          verify(await service.terminalRead(device));
+          if (typeof companyLookup !== 'function') fail(503, 'company_lookup_unavailable', 'Fyll i företagsuppgifterna manuellt.');
+          // The provider is awaited only after the intake transaction released
+          // its locks. A fresh cookie/connection and intake are checked again.
+          const company = await companyLookup({ organisationNumber: input.organisationNumber },
+            { rateKey: `intake:${organisationId}:${input.id}`, signal: controller.signal });
+          await authorizeCompany?.(req);
+          const current = await terminalAccess.authorizeIntakeDevice(req);
+          if (current.id !== device.id || current.siteId !== device.siteId || current.connectionId !== device.connectionId)
+            fail(409, 'terminal_session_changed', 'Terminalsessionen har ändrats. Be personalen öppna formuläret på nytt.');
+          verify(await service.terminalRead(current));
+          result = { company };
         } else fail(405, 'method_not_allowed', 'Metoden stöds inte.');
       }
-      json(res, 200, result);
+      if (!controller.signal.aborted) json(res, 200, result);
     } catch (error) {
-      const known = Number.isInteger(error.status) && error.status >= 400 && error.status < 500;
-      json(res, known ? error.status : 503, { error: known ? error.message : 'Kundformuläret kunde inte nås. Försök igen om en stund.',
+      const known = error instanceof ScbCompanyRegisterError || Number.isInteger(error.status) && error.status >= 400 && error.status < 500;
+      if (!controller.signal.aborted) json(res, known ? error.status : 503, { error: known ? error.message : 'Kundformuläret kunde inte nås. Försök igen om en stund.',
         code: known ? error.code ?? 'customer_intake_unavailable' : 'customer_intake_unavailable' });
-    }
+    } finally { req.off('aborted', abort); res.off('close', abort); }
     return true;
   };
 }

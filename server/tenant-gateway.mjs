@@ -13,7 +13,8 @@ import { applyFleetDeviceAssignment } from './fleet-telematics.mjs';
 import { createFleetSimulatorBridge } from './fleet-simulator.mjs';
 import { readDeploymentProfile } from './deployment-profile.mjs';
 import { createScbCompanyRegister } from './scb-company-register.mjs';
-import { createCompanyRegisterApi } from './company-register-api.mjs';
+import { createCompanyRegisterApi, createCompanyRegisterLimiter } from './company-register-api.mjs';
+import { createCustomerIntakeCompanyLookup } from './customer-intake-company-lookup.mjs';
 import { createAddressAssistanceApi } from './address-assistance-api.mjs';
 import { createGoogleAddressValidation } from './google-address-validation.mjs';
 import { createSystemEmail } from './system-email.mjs';
@@ -31,7 +32,7 @@ import { attachMobileSupport, mobileSupportIdentity, withMobileSupportAuthorizat
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
 const deviceRoute = url => /^\/api\/terminal-demo\/(session|login|logout|heartbeat|terminal-events)$/.test(url.pathname)
-  || /^\/api\/terminal-demo\/customer-intake(?:\/submit)?$/.test(url.pathname)
+  || /^\/api\/terminal-demo\/customer-intake(?:\/(?:submit|company-lookup))?$/.test(url.pathname)
   || /^\/api\/terminal-demo\/approvals\/[^/]+\/(respond|displayed)$/.test(url.pathname);
 const employeeRoute = url => url.pathname === '/api/company-settings/defaults' || url.pathname.startsWith('/api/employee/') || url.pathname.startsWith('/api/driver/')
   || /^\/api\/(customer|carrier)\//.test(url.pathname)
@@ -63,7 +64,13 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const fleetSimulator = createFleetSimulatorBridge({ testCarApi });
   const repository = platformRepository ?? await createPlatformStorage({ env });
   const customerApprovalLinks = createPublicCustomerApproval({ repository, env, openCompany: company => bundle(company) });
-  const customerIntakeLinks = createPublicCustomerIntake({ repository, env, openCompany: company => bundle(company) });
+  // One SCB provider/key and one upstream budget across authenticated company
+  // assistance, public SMS capabilities and paired terminal intake forms.
+  const companyRegisterProvider = companyRegister ?? createScbCompanyRegister({ env });
+  const companyRegisterLimiter = createCompanyRegisterLimiter();
+  const customerIntakeCompanyLookup = createCustomerIntakeCompanyLookup({ register: companyRegisterProvider, limiter: companyRegisterLimiter });
+  const customerIntakeLinks = createPublicCustomerIntake({ repository, env, companyLookup: customerIntakeCompanyLookup,
+    openCompany: company => bundle(company) });
   let schemaPool, auth, stopping = false;
   const defaultCompany = profile.pilot ? undefined : { id: legacyId, name: 'JEROC Återvinning AB', organisationNumber: '5593593626', status: 'active', storageSchema: 'public' };
   if (profile.pilot && await repository.read(state => state.companies.some(company => company.id === legacyId))) {
@@ -100,6 +107,12 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
           customerApprovalEmail: systemEmail, customerApprovalSms: systemSms,
           registerCustomerApprovalLink: input => customerApprovalLinks.register(company.id, input),
           registerCustomerIntakeLink: input => customerIntakeLinks.register(company.id, input),
+          customerIntakeCompanyLookup,
+          authorizeCustomerIntakeCompany: async () => {
+            const current = await auth.getCompany(company.id);
+            if (!current || current.status !== 'active')
+              throw new PlatformError('Kundformuläret är inte tillgängligt längre.', 410, 'customer_intake_unavailable');
+          },
           ...(registeredOwner && { seed: () => createTenantApplicationState({ tenant: company, owner: {
             id: registeredOwner.id, personId: `person-${registeredOwner.id}`, name: registeredOwner.name, username: registeredOwner.username,
             email: registeredOwner.email, passwordHash: registeredOwner.password, mustChangePassword: registeredOwner.mustChangePassword,
@@ -340,7 +353,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       throw new PlatformError('Du saknar behörighet för företagsinställningarna.', 403, 'company_settings_forbidden');
     return { companyId: company.id, actorId, userId, scopeKey, canManage };
   }
-  const companyRegisterApi = createCompanyRegisterApi({ register: companyRegister ?? createScbCompanyRegister({ env }),
+  const companyRegisterApi = createCompanyRegisterApi({ register: companyRegisterProvider, limiter: companyRegisterLimiter,
     authorize: req => authorizeAssistance(req) });
   const addressAssistanceApi = createAddressAssistanceApi({ validator: addressValidation ?? createGoogleAddressValidation({ env }),
     env, authorize: req => authorizeAssistance(req, true) });

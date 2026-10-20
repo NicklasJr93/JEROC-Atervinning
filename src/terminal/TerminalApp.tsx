@@ -6,6 +6,8 @@ import { parseTerminalSession, publicApprovalSchema, type PublicApproval, type T
 import { SettlementView } from './SettlementView';
 import CustomerIntakeForm from '../customer-intake/CustomerIntakeForm';
 import type { CustomerIntakeInput, PublicCustomerIntakeState } from '../customer-intake/types';
+import { CompanyLookupError } from '../company-register/client';
+import { lookupTerminalIntakeCompany } from '../customer-intake/company-lookup';
 import './terminal.css';
 import { tenantPublicEventUrl } from '../tenant-public-context';
 import { useTenantCompanyName } from '../use-tenant-company';
@@ -90,6 +92,21 @@ function TerminalCustomerIntake({ intakeId, onUnavailable }: { intakeId: string;
       Math.max(0, Math.min(24 * 60 * 60 * 1000, Date.parse(state.intake.expiresAt) - Date.now())));
     return () => window.clearTimeout(timer);
   }, [state, onUnavailable]);
+  const companyLookup = useCallback(async (number: string, signal: AbortSignal) => {
+    const controller = new AbortController(), cancel = () => controller.abort(signal.reason);
+    if (signal.aborted) cancel(); else signal.addEventListener('abort', cancel, { once: true });
+    requests.current.add(controller);
+    try {
+      const company = await lookupTerminalIntakeCompany(intakeId, number, controller.signal);
+      if (!mounted.current || controller.signal.aborted) throw new DOMException('Kundformuläret har avslutats.', 'AbortError');
+      return company;
+    } catch (failure) {
+      if (mounted.current && !controller.signal.aborted && failure instanceof CompanyLookupError && [401, 403, 409, 410].includes(failure.status)) {
+        setExpired(true); setState(null); onUnavailable();
+      }
+      throw failure;
+    } finally { requests.current.delete(controller); signal.removeEventListener('abort', cancel); }
+  }, [intakeId, onUnavailable]);
   const submit = async (customer: CustomerIntakeInput) => {
     if (!state || state.intake.id !== intakeId || expired || state.intake.status !== 'waiting')
       throw new Error('Kundformuläret har avslutats. Be personalen om hjälp.');
@@ -113,7 +130,7 @@ function TerminalCustomerIntake({ intakeId, onUnavailable }: { intakeId: string;
     return <main className="terminal-welcome" aria-live="polite"><div className="terminal-welcome-icon"><CheckCircle2 size={52} /></div><h1>Tack, uppgifterna är skickade</h1><p>Personalen granskar dina uppgifter och hjälper dig med nästa steg.</p></main>;
   if (!state) return <main className="terminal-welcome" aria-live="polite">{error ? <><p className="terminal-error" role="alert">{error}</p><button className="terminal-button outline" onClick={() => { setError(''); setAttempt(value => value + 1); }}>Försök igen</button></> : <><LoaderCircle className="terminal-spinner" size={32} /><p>Hämtar kundformuläret…</p></>}</main>;
   return <main className="terminal-intake"><div className="terminal-heading"><span className="terminal-eyebrow">KUNDUPPGIFTER</span><h1>Fyll i dina uppgifter</h1><p className="terminal-intro">Skicka uppgifterna till personalen hos {state.company.name}. Personalen granskar dem innan de sparas.</p></div>
-    <CustomerIntakeForm onSubmit={submit} autoComplete="off" />
+    <CustomerIntakeForm onSubmit={submit} autoComplete="off" lookupCompany={companyLookup} lookupContextKey={intakeId} />
   </main>;
 }
 

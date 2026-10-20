@@ -123,7 +123,7 @@ function IntakePanel({ draft, compact = false, companyId, personId, onPendingCha
     await command(async signal => {
       const confirmedDraft = await flushDraft(draft.id);
       if (!alive.current || signal.aborted) return;
-      const key = JSON.stringify(['create', createAttempt.current, draft.id, confirmedDraft.customerId ?? null, channel, terminalId, phone.trim()]);
+      const key = JSON.stringify(['create', createAttempt.current, intake?.id ?? null, draft.id, confirmedDraft.customerId ?? null, channel, terminalId, phone.trim()]);
       const result = await api.create({ draftId: draft.id, channel,
         ...(channel === 'terminal' ? { terminalId } : { phone: phone.trim() }),
         requestId: requestId(key), expectedCustomerId: confirmedDraft.customerId ?? null }, signal);
@@ -183,6 +183,7 @@ function IntakePanel({ draft, compact = false, companyId, personId, onPendingCha
       <dl>{[
         ['Kundtyp', intake.proposal.type], ['Namn', intake.proposal.name], ['Organisations-/personnummer', intake.proposal.number],
         ['Telefon', intake.proposal.phone], ['E-post', intake.proposal.email], ['Adress', formatAddress(intake.proposal)],
+        ['Referens', intake.proposal.reference], ['Ursprungsadress', intake.proposal.originDetails && formatAddress(intake.proposal.originDetails)],
       ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Ej angivet'}</dd></div>)}</dl>
       {intake.existingCustomerName && <Notice>En befintlig kund matchar uppgifterna: <strong>{intake.existingCustomerName}</strong>. Kundens sparade kontaktuppgifter behålls.</Notice>}
       {intake.hasPaymentProfile && <p className="field-help">{intake.bankWillBeSaved

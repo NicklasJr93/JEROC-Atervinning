@@ -2,7 +2,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PricingError } from './pricing.mjs';
 import { officeSchema, normalizeCustomerDetails, validateCustomerDetails, customerIdentityKey,
-  normalizePhoneNumber, phoneNumberError, paymentDetailsSchema, normalizePaymentDetails, bankRecipientError } from '../dist-server/domain-models.mjs';
+  normalizePhoneNumber, phoneNumberError, paymentDetailsSchema, normalizePaymentDetails, bankRecipientError,
+  normalizeAddress, addressError, formatAddress } from '../dist-server/domain-models.mjs';
 
 const TTL = 30 * 60_000, WINDOW = 15 * 60_000, ACTIVE = ['waiting', 'submitted', 'unknown'];
 const clone = value => structuredClone(value);
@@ -15,7 +16,10 @@ const text = length => z.string().trim().max(length).regex(/^[^\u0000-\u001f\u00
 const uuid = z.string().uuid(), id = text(100).min(1), tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const customerSchema = z.object({ type: z.enum(['Företag', 'Privatperson', 'BRF']), name: text(200).min(1), number: text(40).min(1),
   phone: text(100), email: z.union([z.literal(''), text(200).email()]), address: text(500), postalCode: text(20), city: text(200),
-  countryCode: z.literal('SE'), paymentProfile: paymentDetailsSchema.omit({ phone: true, recipient: true }).strict().refine(value => value.method === 'bank', 'Endast bankuppgifter kan lämnas i kundformuläret.').optional() }).strict();
+  countryCode: z.literal('SE'), paymentProfile: paymentDetailsSchema.omit({ phone: true, recipient: true }).strict().refine(value => value.method === 'bank', 'Endast bankuppgifter kan lämnas i kundformuläret.').optional(),
+  reference: text(200).optional(),
+  originDetails: z.object({ address: text(300), postalCode: text(20), city: text(200), countryCode: z.literal('SE') }).strict().optional(),
+}).strict();
 const createSchema = z.object({ draftId: id, channel: z.enum(['terminal', 'sms']), terminalId: id.optional(), phone: text(100).optional(),
   requestId: uuid, expectedCustomerId: id.nullable().optional() }).strict();
 const commandSchema = z.object({ id: uuid, requestId: uuid }).strict();
@@ -54,6 +58,12 @@ function normalizedCustomer(input) {
   if (!parsed.success) fail(parsed.error.issues.map(issue => issue.message).join(' '), 422, 'customer_intake_invalid');
   const customer = normalizeCustomerDetails(parsed.data);
   customer.name = parsed.data.name.normalize('NFKC').trim(); customer.email = parsed.data.email.normalize('NFKC').trim();
+  if (customer.reference !== undefined) customer.reference = customer.reference.normalize('NFKC').trim().replace(/\s+/g, ' ');
+  if (customer.originDetails) {
+    const issue = addressError(customer.originDetails); if (issue) fail(issue, 422, 'customer_intake_invalid');
+    customer.originDetails = normalizeAddress(customer.originDetails);
+    if (!formatAddress(customer.originDetails)) delete customer.originDetails;
+  }
   if (customer.paymentProfile) {
     customer.paymentProfile = normalizePaymentDetails(customer.paymentProfile);
     const error = bankRecipientError(customer.paymentProfile); if (error) fail(error, 422, 'customer_intake_invalid');
@@ -282,6 +292,23 @@ export function createCustomerIntakeService({ repository, authorizeStaff, termin
         }
         const draft = state.mobile.drafts.find(value => value.id === row.draftId);
         draft.customerId = customer.id; draft.customerSelectionsSavedAt = at();
+        // Only the explicitly reviewed values from step four change the
+        // weighing. Skipping that step preserves staff's current selections.
+        if (proposal.reference) draft.reference = proposal.reference;
+        if (proposal.originDetails) { draft.originDetails = clone(proposal.originDetails); draft.origin = formatAddress(proposal.originDetails); }
+        const selectionKey = value => value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('sv-SE');
+        for (const [field, value, label] of [['references', proposal.reference, 'Referens'],
+          ['origins', proposal.originDetails && formatAddress(proposal.originDetails), 'Ursprungsadress']]) {
+          if (!value) continue;
+          customer[field] ??= [];
+          if (customer[field].some(previous => selectionKey(field === 'origins' ? formatAddress(previous) : previous) === selectionKey(value))) continue;
+          customer[field].push(value);
+          customer.audit ??= [];
+          customer.audit.push({ at: at(), actor: principal.user.name ?? principal.user.id,
+            actualUserId: principal.actor.id, effectiveUserId: principal.user.id,
+            text: `${label} sparad efter personalens granskning av kundformulär: ${value}.` });
+        }
+        state.mobile.customers = state.office.customers.map(mobileCustomer);
         row.status = 'applied'; row.appliedCustomerId = customer.id; row.appliedAt = at(); clearProposal(row);
         remember(state, input, 'apply', principal, fingerprint, row); audit(state, principal, 'customer-intake.applied', row);
         await release(state, row, staffIdentity(principal));

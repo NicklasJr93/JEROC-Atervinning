@@ -28,7 +28,7 @@ function organisationNumber(prefix) {
 
 /** The real gateway, platform/personnel authentication, isolated tenant stores
  * and public bearer routing. Only external SMS transmission is substituted. */
-async function fixture(run) {
+async function fixture(run,{companyRegister}={}) {
   const directory = await mkdtemp(join(tmpdir(), 'customer-intake-gateway-'));
   const env = { JEROC_TENANT_DATA_DIR: directory, JEROC_DEMO_AUTO_SESSION: 'false', SCRAPPILOT_PLATFORM_ADMIN_PASSWORD: INITIAL,
     APP_URL: 'https://app.scrapplanner.com', MOBILE_URL: 'https://mobile.scrapplanner.com' };
@@ -38,7 +38,7 @@ async function fixture(run) {
   const systemSms = { configured: true, sendTest: async () => { throw new Error('Unrelated test messages are never sent by this fixture.'); },
     sendCustomerIntake: async input => { sends.push(structuredClone(input)); return { providerId: randomUUID() }; } };
   try {
-    gateway = await createTenantGateway({ env, systemSms });
+    gateway = await createTenantGateway({ env, systemSms, companyRegister });
     server = createServer((req, res) => {
       void gateway(req, res, new URL(req.url, 'http://localhost')).then(handled => { if (!handled) { res.writeHead(404); res.end(); } })
         .catch(error => { failures.push(error); if (!res.headersSent) res.writeHead(500); res.end(); });
@@ -174,10 +174,20 @@ test('matching an existing identifier links its canonical customer without repla
 
 test('cancelled intake and changed customer bindings cannot later attach an obsolete proposal', () => fixture(async f => {
   const issued = await f.issue(), capability = f.capability(f.sends[0]);
-  const cancelled = await f.alpha.mobile.request(`${STAFF}/cancel`, { id: issued.intake.id, requestId: randomUUID() });
+  const cancelCommand={id:issued.intake.id,requestId:randomUUID()};
+  const cancelled = await f.alpha.mobile.request(`${STAFF}/cancel`, cancelCommand);
   assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body)); assert.equal(cancelled.body.intake.status, 'cancelled');
   assert.equal((await f.client().request(PUBLIC, undefined, capability.headers)).status, 410);
   const next = await f.issue(), fresh = f.capability(f.sends[1]);
+  assert.notEqual(next.intake.id,issued.intake.id);assert.notEqual(fresh.token,capability.token);
+  const replay=await f.alpha.mobile.request(STAFF,issued.input);
+  assert.equal(replay.body.intake.status,'cancelled');assert.equal(f.sends.length,2);
+  assert.equal((await f.client().request(PUBLIC,undefined,fresh.headers)).status,200);
+  assert.equal((await f.alpha.mobile.request(`${STAFF}/cancel`,cancelCommand)).status,200);
+  assert.equal((await f.alpha.mobile.request(`${STAFF}/cancel`,{id:issued.intake.id,requestId:randomUUID()})).status,200);
+  assert.equal((await f.client().request(PUBLIC,undefined,fresh.headers)).status,200);
+  assert.equal((await f.client().request(`${PUBLIC}/submit`,{requestId:randomUUID(),customer:customerInput()},capability.headers)).status,410);
+  assert.equal((await f.client().request(`${PUBLIC}/submit`,{requestId:randomUUID(),customer:customerInput()},fresh.headers)).status,200);
   await f.alpha.repository.transact(state => { state.mobile.drafts.find(value => value.id === draftId).customerId = 'staff-chosen-customer'; });
   const stale = await f.client().request(`${PUBLIC}/submit`, { requestId: randomUUID(), customer: customerInput() }, fresh.headers);
   assert.ok([409, 410].includes(stale.status), JSON.stringify(stale.body));
@@ -241,3 +251,36 @@ test('a paired terminal submits only its own reserved form and releases it after
   assert.equal((await device.request('/api/terminal-demo/logout', {})).status, 200);
   assert.equal((await device.request('/api/terminal-demo/customer-intake')).status, 401);
 }));
+
+test('real gateway routes SCB lookup only through a live SMS capability or the exact paired terminal intake',async()=>{
+  const calls=[],companyRegister={configured:true,lookup:async(number,{signal}={})=>{
+    calls.push(number);assert.ok(signal instanceof AbortSignal);
+    return {organisationNumber:number,name:'Syntetisk SCB-träff AB',address:'Exempelvägen 1',postalCode:'76141',city:'Norrtälje',countryCode:'SE',
+      phone:'+46722002220',email:'kontakt@example.test',source:'SCB',fetchedAt:new Date().toISOString(),paymentProfile:bank,vatRegistered:true,privateProviderData:'hidden'};
+  }};
+  await fixture(async f=>{
+    const issued=await f.issue(),capability=f.capability(f.sends[0]),visitor=f.client();
+    const found=await visitor.request(`${PUBLIC}/company-lookup`,{organisationNumber:'559359-3626'},capability.headers);
+    assert.equal(found.status,200,JSON.stringify(found.body));assert.equal(found.body.company.name,'Syntetisk SCB-träff AB');
+    assert.equal(found.body.company.organisationNumber,'5593593626');assert.equal(found.body.company.postalCode,'76141');
+    assert.equal(found.body.company.paymentProfile,undefined);assert.equal(found.body.company.vatRegistered,undefined);assert.equal(found.body.company.privateProviderData,undefined);
+    assert.equal((await visitor.request('/api/company-register/lookup',{organisationNumber:'5593593626'},capability.headers)).status,401);
+    assert.equal((await visitor.request(`${PUBLIC}/company-lookup`,{organisationNumber:'5593593626'})).status,410);
+    assert.equal(calls.length,1);
+    await f.alpha.mobile.request(`${STAFF}/cancel`,{id:issued.intake.id,requestId:randomUUID()});
+    assert.equal((await visitor.request(`${PUBLIC}/company-lookup`,{organisationNumber:'5593593626'},capability.headers)).status,410);
+    assert.equal((await f.admin.request('/api/platform/switch',{organisationId:f.alpha.company.id})).status,200);
+    const created=await f.admin.request('/api/terminal-demo/terminals',{name:'SCB-terminal',siteId:'main',username:'intake.scb',password:'Terminal-Lookup-2026!'});
+    assert.equal(created.status,201,JSON.stringify(created.body));
+    const device=f.client();assert.equal((await device.request('/api/platform/select-tenant',{organisationId:f.alpha.company.id})).status,200);
+    assert.equal((await device.request('/api/terminal-demo/login',{username:'intake.scb',password:'Terminal-Lookup-2026!'})).status,200);
+    const terminal=await f.issue(f.alpha,{channel:'terminal',terminalId:created.body.id,phone:undefined});
+    const route='/api/terminal-demo/customer-intake/company-lookup';
+    const terminalFound=await device.request(route,{id:terminal.intake.id,organisationNumber:'559359-3626'});
+    assert.equal(terminalFound.status,200,JSON.stringify(terminalFound.body));assert.equal(terminalFound.body.company.name,found.body.company.name);
+    assert.equal((await device.request(route,{id:randomUUID(),organisationNumber:'5593593626'})).status,410);
+    assert.equal((await f.client().request(route,{id:terminal.intake.id,organisationNumber:'5593593626'})).status,401);
+    assert.deepEqual(calls,['5593593626','5593593626']);
+    assert.equal(await f.alpha.repository.read(state=>state.office.customers.length),0);
+  },{companyRegister});
+});

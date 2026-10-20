@@ -33,7 +33,7 @@ import { employeeCompanyLookupContext, employeeRequestPrincipal } from './mobile
 /** All repositories, queues and provider connections belong to one immutable
  * server-selected organisation. A request can never change this bundle's scope. */
 export async function createTenantServices({ env, seed, initialSites, trustedPrincipalProvider, reauthorizeTrustedPrincipal, company, companySettingsAuthorize, weighedDocumentEmailSender,
-  registerCustomerApprovalLink, registerCustomerIntakeLink, customerApprovalEmail, customerApprovalSms } = {}) {
+  registerCustomerApprovalLink, registerCustomerIntakeLink, customerApprovalEmail, customerApprovalSms, customerIntakeCompanyLookup, authorizeCustomerIntakeCompany } = {}) {
   const restrictIntegration = (provider, service) => restrictPilotIntegrationService({ env, provider, service });
   const organisationId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
   if (organisationId !== 'jeroc-demo' && (!company || company.id !== organisationId || !company.name?.trim()))
@@ -312,7 +312,8 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
       registerLink: registerCustomerIntakeLink,
       deliverSms: deliverIntakeSms,
     });
-    const customerIntakeApi = createCustomerIntakeApi({ service: customerIntakeService, terminalAccess: terminalDemoApi });
+    const customerIntakeApi = createCustomerIntakeApi({ service: customerIntakeService, terminalAccess: terminalDemoApi,
+      companyLookup: customerIntakeCompanyLookup, organisationId, authorizeCompany: authorizeCustomerIntakeCompany });
     try {
       await applicationApi.getRepository();
       await vismaService.initialize();

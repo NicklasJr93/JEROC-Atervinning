@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ScbCompanyRegisterError } from './scb-company-register.mjs';
 
 const PREFIX = '/api/public/customer-intake';
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -41,7 +42,7 @@ async function readBody(req) {
  * Ambient cookies and supplied company headers cannot select a different store.
  * The tenant revalidates draft binding, expiry and state on every operation.
  */
-export function createPublicCustomerIntake({ repository, openCompany, env = {}, now = () => Date.now() }) {
+export function createPublicCustomerIntake({ repository, openCompany, companyLookup, env = {}, now = () => Date.now() }) {
   let minute = -1, total = 0; const buckets = new Map();
   const milliseconds = () => {
     const value = Number(new Date(now())); if (!Number.isFinite(value)) throw new Error('Invalid approval clock'); return value;
@@ -83,34 +84,54 @@ export function createPublicCustomerIntake({ repository, openCompany, env = {}, 
   }
   async function handle(req, res, url) {
     if (url.pathname !== PREFIX && !url.pathname.startsWith(`${PREFIX}/`)) return false;
+    const controller = new AbortController();
+    const abort = () => { if (!res.writableEnded) controller.abort(); };
+    req.once('aborted', abort); res.once('close', abort);
     try {
       limit(req, res); sameOrigin(req);
       const read = req.method === 'GET' && url.pathname === PREFIX;
       const respond = req.method === 'POST' && url.pathname === `${PREFIX}/submit`;
-      if (!read && !respond) fail(404, 'not_found', 'Kundformuläret finns inte.');
+      const lookup = req.method === 'POST' && url.pathname === `${PREFIX}/company-lookup`;
+      if (!read && !respond && !lookup) fail(404, 'not_found', 'Kundformuläret finns inte.');
       // Tokens only travel in the authorization header, never query strings,
       // URLs, cookies or a staff-controlled company selector.
       if (url.search) throw unavailable();
       const token = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization ?? '')?.[1];
       if (!token) throw unavailable();
-      const body = respond ? await readBody(req) : undefined;
-      const digest = hash(token), at = milliseconds();
-      const selected = await repository.read(state => {
-        const link = state.customerIntakeLinks?.find(value => value.tokenHash === digest && Date.parse(value.expiresAt) > at);
+      const body = respond || lookup ? await readBody(req) : undefined;
+      const digest = hash(token);
+      const resolveLink = () => repository.read(state => {
+        const link = state.customerIntakeLinks?.find(value => value.tokenHash === digest && Date.parse(value.expiresAt) > milliseconds());
         const company = link && state.companies.find(value => value.id === link.companyId && value.status === 'active');
         return company && link ? { company: structuredClone(company), intakeId: link.intakeId } : undefined;
       });
+      const selected = await resolveLink();
       if (!selected) throw unavailable();
       const service = await openCompany(selected.company);
+      if (lookup) {
+        if (typeof companyLookup !== 'function') fail(503, 'company_lookup_unavailable', 'Företagsuppslaget är inte tillgängligt. Fyll i uppgifterna manuellt.');
+        const validateIntake = value => {
+          if (value?.intake?.id !== selected.intakeId || value.intake.status !== 'waiting'
+            || !Number.isFinite(Date.parse(value.intake.expiresAt)) || Date.parse(value.intake.expiresAt) <= milliseconds()) throw unavailable();
+        };
+        validateIntake(await service.customerIntakeService.publicRead(token));
+        // No application or platform transaction is held during network work.
+        const company = await companyLookup(body, { rateKey: `intake:${selected.company.id}:${selected.intakeId}`, signal: controller.signal });
+        const current = await resolveLink();
+        if (!current || current.company.id !== selected.company.id || current.intakeId !== selected.intakeId) throw unavailable();
+        validateIntake(await service.customerIntakeService.publicRead(token));
+        if (!controller.signal.aborted) json(res, 200, { company });
+        return true;
+      }
       const value = read ? await service.customerIntakeService.publicRead(token)
         : await service.customerIntakeService.submit(token, body);
       if (!value?.intake || value.intake.id !== selected.intakeId) throw unavailable();
       json(res, 200, value);
     } catch (error) {
-      const known = Number.isInteger(error.status) && error.status >= 400 && error.status < 500;
-      json(res, known ? error.status : 503, { error: known ? error.message : 'Kundformuläret kunde inte nås. Försök igen om en stund.',
+      const known = error instanceof ScbCompanyRegisterError || Number.isInteger(error.status) && error.status >= 400 && error.status < 500;
+      if (!controller.signal.aborted) json(res, known ? error.status : 503, { error: known ? error.message : 'Kundformuläret kunde inte nås. Försök igen om en stund.',
         code: known ? error.code ?? 'customer_intake_unavailable' : 'customer_intake_unavailable' });
-    }
+    } finally { req.off('aborted', abort); res.off('close', abort); }
     return true;
   }
   return Object.freeze({ register, handle });

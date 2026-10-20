@@ -55,8 +55,9 @@ function reply(res, status, value, retryAfter) {
  * Production currently runs one app instance; multiple instances must share a
  * limiter before using the same SCB key (SCB allows five requests/second/key).
  */
-export function createCompanyRegisterApi({ register, authorize, now = Date.now, perPrincipalLimit = 30, globalLimit = 4 } = {}) {
-  if (typeof register?.lookup !== 'function' || typeof authorize !== 'function') throw new TypeError('Company register and authorization are required.');
+/** Shared per-process/key budget for every SCB entry point. Anonymous intake
+ * capabilities use the same upstream budget as authenticated staff requests. */
+export function createCompanyRegisterLimiter({ now = Date.now, perPrincipalLimit = 30, globalLimit = 4 } = {}) {
   const attempts = new Map(); let globalAttempts = [];
   function consume(key) {
     const at = Number(now());
@@ -72,6 +73,11 @@ export function createCompanyRegisterApi({ register, authorize, now = Date.now, 
       fail('Företagsuppslaget används just nu. Vänta en stund och försök igen.', 429, 'company_lookup_rate_limited');
     attempts.set(key, [...own, at]); globalAttempts.push(at);
   }
+  return Object.freeze({ consume });
+}
+
+export function createCompanyRegisterApi({ register, authorize, now = Date.now, perPrincipalLimit = 30, globalLimit = 4, limiter = createCompanyRegisterLimiter({ now, perPrincipalLimit, globalLimit }) } = {}) {
+  if (typeof register?.lookup !== 'function' || typeof authorize !== 'function') throw new TypeError('Company register and authorization are required.');
   return async (req, res, url) => {
     if (url.pathname !== '/api/company-register/lookup') return false;
     const controller = new AbortController();
@@ -84,7 +90,7 @@ export function createCompanyRegisterApi({ register, authorize, now = Date.now, 
       const captured = await authorize(req);
       if (!captured?.scopeKey || !captured?.rateKey) fail('Du saknar behörighet för företagsuppslag.', 403, 'company_lookup_forbidden');
       const organisationNumber = await input(req);
-      consume(captured.rateKey);
+      limiter.consume(captured.rateKey);
       const company = await register.lookup(organisationNumber, { signal: controller.signal });
       const current = await authorize(req);
       if (current.scopeKey !== captured.scopeKey)

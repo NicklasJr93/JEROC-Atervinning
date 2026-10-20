@@ -3753,3 +3753,27 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
   och 25 browserfall passerar. VD och Systemadmin kan ge rättigheten,
   delegerad personal kan hantera vanliga konton och skyddade ändringar
   stoppas. Inbjudningar, personalformulär och anläggningsval kontrolleras.
+
+
+ÄL 151 – Kundformulär i fyra steg, SCB-uppslag och nya SMS-länkar
+Status: Genomförd och lokalt verifierad 2026-10-20.
+- Samma formulär i terminal och SMS visar progress 1–2–3–4: identitet,
+  namn och adress; kontakt; bank; referens och materialets ursprung.
+- Kontakt, bank och sista steget kan hoppas över. Tillbaka bevarar
+  inmatningen. Ursprungsadressen föreslås från kundens postadress.
+- Komplett giltigt organisationsnummer startar SCB-uppslag automatiskt.
+  Namn, adress och tillgängliga kontaktuppgifter fylls i utan att skriva
+  över kundens egna ändringar. Personnummer skickas inte till SCB.
+- Uppslaget kräver aktiv kundlänk eller rätt terminal och aktuellt
+  formulär. Behörighet kontrolleras igen efter uppslaget; API-nyckeln
+  och det interna kundregistret lämnas inte till kunden.
+- Referens och ursprung blir ett granskat förslag. Personalens aktiva
+  val sparar dem på vågkort och kundkort utan att ändra vikter.
+- Nytt SMS efter avbrott får en ny förfrågan även efter tappat svar.
+  Ny länk i samma webbläsarflik överlever dubbla navigeringshändelser.
+  Gamla länkar och gamla avbrott får inte påverka det nya formuläret.
+- Dokumentation: docs/kunduppgifter-terminal-sms.md.
+- Verifiering: produktionsbygge och Expo-typkontroll, 91 serverprov och
+  åtta browserfall passerar. SMS och terminal täcker automatisk SCB-träff,
+  manuella ändringar, gamla svar, stegvalidering, skip och nytt försök
+  efter nätfel. Avbrott, ny länk i samma flik och omstart kontrolleras.

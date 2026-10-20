@@ -17,7 +17,7 @@ async function fixture(run, { sendError } = {}) {
     permissions: ['view', 'prepare', 'customers', 'paymentDetails'], siteIds: ['north'] }, user: { id: 'effective', name: 'Vald användare', level: 'Medarbetare', active: true,
     permissions: ['view', 'prepare', 'customers', 'paymentDetails'], siteIds: ['north'] } };
   let current = new Date('2026-10-20T10:00:00.000Z');
-  const repository = await createApplicationRepository({ env: {}, filename: join(directory, 'application.sqlite'), seed: () => ({
+  let repository = await createApplicationRepository({ env: {}, filename: join(directory, 'application.sqlite'), seed: () => ({
     metadata: { organisation: { id: 'tenant-a', name: 'Bolag A' } }, pricing: { users: [], customers: [] }, office: { customers: [], cards: [] },
     mobile: { version: 1, customers: [], drafts: [{ id: draftId, siteId: 'north', number: 2001, status: 'draft', createdAt: current.toISOString(), updatedAt: current.toISOString(),
       reference: '', origin: '', rows: [{ id: 'one', articleId: 'copper', method: 'direct', weight: 20 }] }] }, logistics: { sites: [{ id: 'north', active: true }] } }) });
@@ -32,11 +32,13 @@ async function fixture(run, { sendError } = {}) {
       if (input.operation === 'release') terminals.delete(input.terminalId); return value;
     },
   };
-  const service = createCustomerIntakeService({ repository, authorizeStaff: async () => principal, terminalAccess, deliverSms,
+  const openService = () => createCustomerIntakeService({ repository, authorizeStaff: async () => principal, terminalAccess, deliverSms,
     registerLink: async input => { assert.ok(await repository.read(state => state.customerIntake.sessions.some(row => row.id === input.intakeId))); registrations.push(input); },
     companyProfileProvider: async () => ({ id: 'tenant-a', name: 'Bolag A', logoUrl: '/api/protected-logo' }), now: () => current });
+  let service = openService();
   const create = (patch = {}) => service.create({ draftId, channel: 'sms', phone: '0722002220', expectedCustomerId: null, requestId: randomUUID(), ...patch }, req);
-  try { await run({ service, repository, draftId, req, principal, sends, registrations, terminals, create,
+  try { await run({ get service(){return service;}, get repository(){return repository;}, draftId, req, principal, sends, registrations, terminals, create,
+    restart: async()=>{await repository.close();repository=await createApplicationRepository({env:{},filename:join(directory,'application.sqlite')});service=openService();},
     later: milliseconds => { current = new Date(current.getTime() + milliseconds); } }); }
   finally { await repository.close(); await rm(directory, { recursive: true, force: true }); }
 }
@@ -59,6 +61,44 @@ test('SMS intake commits before delivery, exposes no old data, and applies once 
   const state = await f.repository.read(state => state); assert.equal(state.office.customers.length, 1); assert.equal(state.mobile.drafts[0].rows[0].weight, 72);
   assert.equal(state.office.customers[0].paymentProfile.account, '1234567890'); assert.equal(state.customerIntake.sessions[0].proposal, undefined);
   assert.equal(state.customerIntake.audit.filter(row => row.action === 'customer-intake.applied').length, 1);
+}));
+
+test('cancel and a fresh SMS intent create independent durable links; stale cancellation and old retries never close or resend the new one',()=>fixture(async f=>{
+  const originalRequestId=randomUUID(),first=await f.create({requestId:originalRequestId}),oldToken=f.sends[0].token;
+  const cancellation={id:first.intake.id,requestId:randomUUID()};
+  await f.service.cancel(cancellation,f.req);
+  await assert.rejects(f.service.publicRead(oldToken),failure(410));
+  await f.restart();
+  const freshRequestId=randomUUID(),fresh=await f.create({requestId:freshRequestId}),newToken=f.sends[1].token;
+  assert.notEqual(fresh.intake.id,first.intake.id);assert.notEqual(newToken,oldToken);assert.equal(fresh.intake.status,'waiting');
+  assert.equal(f.sends.length,2);assert.equal(f.registrations.length,2);
+  assert.notEqual(f.registrations[0].tokenHash,f.registrations[1].tokenHash);
+  assert.equal((await f.service.publicRead(newToken)).intake.id,fresh.intake.id);
+  assert.equal((await f.create({requestId:originalRequestId})).intake.status,'cancelled');
+  assert.equal(f.sends.length,2,'replaying an old create cannot send or return a fresh capability');
+  await f.service.cancel(cancellation,f.req);
+  await f.service.cancel({id:first.intake.id,requestId:randomUUID()},f.req);
+  await assert.rejects(f.service.cancel({id:fresh.intake.id,requestId:cancellation.requestId},f.req),failure(409,'customer_intake_request_conflict'));
+  assert.equal((await f.service.read({draftId:f.draftId},f.req)).intake.id,fresh.intake.id);
+  await f.restart();
+  await assert.rejects(f.service.publicRead(oldToken),failure(410));
+  await assert.rejects(f.service.submit(oldToken,{requestId:randomUUID(),customer:customer()}),failure(410));
+  assert.equal((await f.service.publicRead(newToken)).intake.status,'waiting');
+  assert.equal((await f.create({requestId:freshRequestId})).intake.id,fresh.intake.id);assert.equal(f.sends.length,2);
+  const command={requestId:randomUUID(),customer:customer()};
+  assert.equal((await f.service.submit(newToken,command)).intake.status,'submitted');
+  await f.service.submit(newToken,command);
+  assert.equal((await f.service.apply({id:fresh.intake.id,requestId:randomUUID()},f.req)).intake.status,'applied');
+  assert.equal(await f.repository.read(state=>state.office.customers.length),1);
+}));
+
+test('cancelling an old terminal form again leaves the replacement reservation usable',()=>fixture(async f=>{
+  const first=await f.create({channel:'terminal',terminalId:'terminal-one',phone:undefined}),cancellation={id:first.intake.id,requestId:randomUUID()};
+  await f.service.cancel(cancellation,f.req);
+  const fresh=await f.create({channel:'terminal',terminalId:'terminal-one',phone:undefined});
+  await f.service.cancel(cancellation,f.req);await f.service.cancel({id:first.intake.id,requestId:randomUUID()},f.req);
+  assert.equal(f.terminals.get('terminal-one').intakeId,fresh.intake.id);
+  assert.equal((await f.service.terminalRead({id:'terminal-one',siteId:'north',connectionId:'epoch-one'})).intake.id,fresh.intake.id);
 }));
 
 test('customer selection changes invalidate a link even if changed back; readiness is fenced but weights are not', () => fixture(async f => {
