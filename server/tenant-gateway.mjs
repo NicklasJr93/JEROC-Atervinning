@@ -21,6 +21,7 @@ import { createPlatformCommunications } from './platform-communications.mjs';
 import { createSystemSmsProvider } from './system-sms-provider.mjs';
 import { createPlatformPasswordReset } from './platform-password-reset.mjs';
 import { initialAdminProfileForDeployment } from './deployment-profile-seeds.mjs';
+import { createStaffInvitations, validateStaffInvitationTarget } from './staff-invitations.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -143,6 +144,12 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       const business = await service.applicationApi.getRepository();
       return business.readProjection(state => structuredClone(state.pricing.users.find(value => value.id === userId) ?? null), { domain: 'pricing', paths: [['users']] });
     },
+    validateStaffInvitation: async target => {
+      const company = await auth.getCompany(target?.companyId);
+      if (!company || company.status !== 'active') throw new PlatformError('Bolaget är inte tillgängligt.', 409, 'staff_invitation_changed');
+      const service = await bundle(company);
+      await (await service.applicationApi.getRepository()).read(state => validateStaffInvitationTarget(state, target), { domains: ['pricing', 'personnel', 'personnelAuth'] });
+    },
     onPasswordChanged: async ({ user, password, companyIds, recovery = false, phase, requestId, initialPasswordChange = false, companyMemberships = [], assertCurrent }) => {
       for (const companyId of companyIds) {
         await assertCurrent?.();
@@ -153,6 +160,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
           const person = state.personnel.people.find(value => value.userId === businessUserId);
           const account = person && state.personnelAuth.accounts.find(value => value.personId === person.id);
           if (!account) throw new PlatformError('Personalkontot saknas. Lösenordet har inte ändrats.', 409);
+          if (user.staffInvitationTarget && !user.passwordChangedAt) validateStaffInvitationTarget(state, user.staffInvitationTarget);
           // Recovery revokes every linked account first, before any new hash
           // is activated. A partial failure can never leave an old password
           // active after a successful reset.
@@ -201,7 +209,9 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const email = systemEmail ?? createSystemEmail({ env });
   const communications = createPlatformCommunications({ auth, email, sms: systemSms ?? createSystemSmsProvider({ env }), repository });
   const passwordReset = createPlatformPasswordReset({ auth, email, repository, env });
-  const platformApi = createPlatformApi({ auth, fleet: platformFleet, communications, passwordReset, env });
+  const staffInvitations = createStaffInvitations({ auth, email, repository, env,
+    companyRepository: async company => (await bundle(company)).applicationApi.getRepository() });
+  const platformApi = createPlatformApi({ auth, fleet: platformFleet, communications, passwordReset, staffInvitations, env });
   const fleetTimer = setInterval(() => { void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.')); }, 30_000);
   fleetTimer.unref();
   void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.'));

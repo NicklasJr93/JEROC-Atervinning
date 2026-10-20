@@ -34,7 +34,7 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
   const openingAdministration = useRef<Promise<void> | undefined>(undefined);
   const initialSession = useRef<{ attempt: number; promise: Promise<PlatformSession> } | undefined>(undefined);
   const location = useLocation(), navigate = useNavigate();
-  const recoveryMode = location.pathname === '/forgot-password' ? 'request' : location.pathname === '/reset-password' ? 'reset' : undefined;
+  const recoveryMode = location.pathname === '/forgot-password' ? 'request' : location.pathname === '/reset-password' ? 'reset' : location.pathname === '/activate-account' ? 'activate' : undefined;
   const sessionKey = session?.authenticated ? `${session.organisationId}/${session.generation}` : '';
   const companyBranding = useCompanyDefaults({ enabled: Boolean(!recoveryMode && session?.authenticated && session.company && !session.mustChangePassword),
     scopeKey: sessionKey, refreshOnSave: true });

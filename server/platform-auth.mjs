@@ -56,7 +56,7 @@ const newCompanySchema = z.object({ requestId: z.string().uuid(), name: z.string
  * from each company's current user register, never from this cookie or JSON. */
 export function createPlatformAuth({ repository, bootstrapLegacy = async () => null, bootstrapPlatform, provisionCompany,
   companyUsers = async () => [], resolveCompanyUser = async () => null, onPasswordChanged = async () => {},
-  platformAdminEmail, initialAdminProfile,
+  platformAdminEmail, initialAdminProfile, validateStaffInvitation = async () => { fail('Personalinbjudan kunde inte verifieras.', 409, 'staff_invitation_changed'); },
   now = () => new Date(), legacyCompany = { name: 'JEROC Återvinning AB', organisationNumber: '', storageSchema: 'public' } } = {}) {
   if (!repository?.read || !repository?.transact) throw new TypeError('Plattformsregistret krävs.');
   const standalonePlatform = typeof bootstrapPlatform === 'function';
@@ -227,6 +227,12 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       return clone(state.users.find(value => value.username === loginName));
     });
     const valid = await passwordValid(parsed.password, candidate?.password), token = secret(), tenantToken = secret();
+    if (valid && candidate?.staffInvitationIdentity && !candidate.passwordChangedAt && !candidate.staffInvitationTarget)
+      fail('Fel inloggning eller inaktivt konto.', 401, 'platform_invalid_credentials');
+    if (valid && candidate?.staffInvitationTarget && !candidate.passwordChangedAt) {
+      try { await validateStaffInvitation(candidate.staffInvitationTarget); }
+      catch { fail('Fel inloggning eller inaktivt konto.', 401, 'platform_invalid_credentials'); }
+    }
     const result = await repository.transact(state => {
       state.sessions = state.sessions.filter(value => value.expiresAt > stamp);
       state.attempts = state.attempts.filter(value => Date.parse(value.at) > Date.parse(stamp) - ATTEMPT_MS);
@@ -258,6 +264,10 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     const parsed = parse(z.object({ currentPassword: z.string().max(200).optional(), newPassword: passwordSchema }).strict(), input);
     if (parsed.newPassword === 'JerocDemo2026!') fail('Välj ett privat lösenord. Det offentliga demolösenordet får inte användas.');
     const { token, value } = await readSession(req, { writes: true, allowPasswordChange: true });
+    if (value.actor.staffInvitationIdentity && !value.actor.passwordChangedAt && !value.actor.staffInvitationTarget)
+      fail('Personalinbjudan kunde inte verifieras.', 409, 'staff_invitation_changed');
+    if (value.actor.staffInvitationTarget && !value.actor.passwordChangedAt)
+      await validateStaffInvitation(value.actor.staffInvitationTarget);
     if (!value.actor.mustChangePassword && (!parsed.currentPassword || !await passwordValid(parsed.currentPassword, value.actor.password))) fail('Det nuvarande lösenordet stämmer inte.', 403, 'platform_password_mismatch');
     if (await passwordValid(parsed.newPassword, value.actor.password)) fail('Välj ett nytt lösenord.');
     const password = await platformPasswordHash(parsed.newPassword);
@@ -340,10 +350,11 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       && state.companies.some(company => company.id === member.organisationId && company.status === 'active'))));
   /** Called only by the control-plane recovery service while holding its
    * transaction. A contact address on a company/person is never an authority. */
-  function passwordRecoveryCandidate(state, email, loginName) {
+  function passwordRecoveryCandidate(state, email, loginName, { allowPendingInvitation = false } = {}) {
     const matches = state.users.filter(user => recoveryEmail(user) === email
       && (loginName === undefined || user.username === username(loginName)));
     if (matches.length !== 1 || !recoveryEligible(state, matches[0])) return undefined;
+    if (!allowPendingInvitation && matches[0].staffInvitationIdentity && !matches[0].passwordChangedAt) return undefined;
     if (matches[0].passwordRecoveryPending && matches[0].passwordSyncLeaseUntil > at()) return undefined;
     return { userId: matches[0].id, recipient: recoveryEmail(matches[0]), fingerprint: recoveryFingerprint(matches[0]) };
   }
@@ -364,6 +375,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       return { user: clone(user), record: clone(record), membershipFingerprint: recoveryMembershipFingerprint(state, user.id) };
     });
     const retry = initial.record.status !== 'sent';
+    if (initial.record.purpose === 'staff-invitation') await validateStaffInvitation(initial.record.staffInvitationTarget);
     const samePassword = await passwordValid(newPassword, retry ? initial.record.targetPassword : initial.user.password);
     if (retry && !samePassword) invalid();
     if (!retry && samePassword) fail('Välj ett annat lösenord än ditt nuvarande.', 422, 'password_reset_password_unchanged');
@@ -427,6 +439,7 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
       });
       await onPasswordChanged({ ...pending, user: { ...pending.user, mustChangePassword: false }, password, recovery: true, phase: 'apply', assertCurrent });
       await assertCurrent();
+      if (initial.record.purpose === 'staff-invitation') await validateStaffInvitation(initial.record.staffInvitationTarget);
     } catch {
       await repository.transact(state => {
         const record = state.passwordRecovery?.requests.find(item => item.tokenHash === tokenHash), user = state.users.find(item => item.id === pending.user.id);
@@ -631,6 +644,13 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
   async function checkRequest(req, { write = !['GET', 'HEAD', 'OPTIONS'].includes(req.method) } = {}) {
     const { value } = await readSession(req, { writes: write }); return value;
   }
+  function assertCompanyContext(state, req, context, writes = true) {
+    const current = identity(state, platformCookieToken(req)); checkExpected(req, current, writes);
+    if (current.company?.id !== context.organisationId || current.actor.id !== context.actorId
+      || effectiveBusinessId(current) !== context.effectiveUserId || current.session.generation !== context.generation)
+      fail('Bolag eller konto har bytts. Öppna personen igen.', 409, 'platform_context_changed');
+    return current;
+  }
   async function withPlatformAdminTransaction(req, operation, { write = false, purpose = 'fleet' } = {}) {
     const communications = purpose === 'communications';
     const forbiddenCode = communications ? 'platform_communications_forbidden' : 'platform_fleet_forbidden';
@@ -653,6 +673,6 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     });
   }
   return { initialize, login, logout, session, changePassword, profile, updateProfile, resolveContext, checkRequest, resolveTenantSelector, selectTenant, companies, users, switchCompany, openAdministration, createCompany, resetInitialPassword,
-    withPlatformAdminTransaction, passwordRecoveryCandidate, completePasswordRecovery,
+    withPlatformAdminTransaction, assertCompanyContext, passwordRecoveryCandidate, completePasswordRecovery,
     getCompany: organisationId => repository.read(state => clone(state.companies.find(item => item.id === organisationId))), repository };
 }

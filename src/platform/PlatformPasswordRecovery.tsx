@@ -15,10 +15,10 @@ const failureMessage = (failure: unknown) => failure instanceof PlatformRequestE
 /** The emailed secret lives only in this mounted form. It never becomes an
  * API URL, persistent browser value, rendered field or automatic login token. */
 export default function PlatformPasswordRecovery({ mode, onCompleted }: {
-  mode: 'request' | 'reset'; onCompleted: () => void;
+  mode: 'request' | 'reset' | 'activate'; onCompleted: () => void;
 }) {
   const location = useLocation(), navigate = useNavigate();
-  const [token, setToken] = useState(() => mode === 'reset' ? tokenFrom(location.search) : '');
+  const [token, setToken] = useState(() => mode !== 'request' ? tokenFrom(location.search) : '');
   const [email, setEmail] = useState(''), [username, setUsername] = useState(''), [newPassword, setNewPassword] = useState(''), [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [completed, setCompleted] = useState(false);
   const pending = useRef<AbortController | undefined>(undefined), live = useRef(false);
@@ -27,21 +27,21 @@ export default function PlatformPasswordRecovery({ mode, onCompleted }: {
     return () => { live.current = false; pending.current?.abort(); };
   }, []);
   useEffect(() => {
-    if (mode !== 'reset' || !location.search) return;
+    if (mode === 'request' || !location.search) return;
     const next = tokenFrom(location.search);
     pending.current?.abort(); pending.current = undefined;
     setToken(next); setNewPassword(''); setConfirm(''); setCompleted(false); setError(''); setBusy(false);
     // React Router replaces the history entry without remounting this form.
     // A reload requires reopening the original email, rather than persisting a
     // password-reset credential in sessionStorage/localStorage.
-    navigate('/reset-password', { replace: true });
+    navigate(mode === 'activate' ? '/activate-account' : '/reset-password', { replace: true });
   }, [mode, location.search, navigate]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (pending.current || completed) return;
-    if (mode === 'reset') {
-      if (!token) { setError('Länken är ogiltig. Begär en ny återställningslänk.'); return; }
+    if (mode !== 'request') {
+      if (!token) { setError(mode === 'activate' ? 'Länken är ogiltig. Be ansvarig skicka en ny inbjudan.' : 'Länken är ogiltig. Begär en ny återställningslänk.'); return; }
       if (newPassword.length < 12 || newPassword.length > 200) { setError('Använd 12–200 tecken i det nya lösenordet.'); return; }
       if (newPassword !== confirm) { setError('De nya lösenorden stämmer inte överens.'); return; }
     }
@@ -50,12 +50,14 @@ export default function PlatformPasswordRecovery({ mode, onCompleted }: {
     try {
       if (mode === 'request') {
         await platformApi.requestPasswordReset(email.trim(), controller.signal, username.trim() || undefined);
+      } else if (mode === 'activate') {
+        await platformApi.confirmStaffInvitation({ token, newPassword, confirmPassword: confirm }, controller.signal);
       } else {
         await platformApi.confirmPasswordReset({ token, newPassword, confirmPassword: confirm }, controller.signal);
       }
       if (!live.current || controller.signal.aborted || pending.current !== controller) return;
       setCompleted(true); setNewPassword(''); setConfirm(''); setToken('');
-      if (mode === 'reset') onCompleted();
+      if (mode !== 'request') onCompleted();
     } catch (failure) {
       if (live.current && !controller.signal.aborted && pending.current === controller) setError(failureMessage(failure));
     } finally {
@@ -68,13 +70,15 @@ export default function PlatformPasswordRecovery({ mode, onCompleted }: {
 
   return <main className="platform-auth-screen"><section className="platform-auth-card">
     <ProductBrand large /><span className="platform-eyebrow">DITT KONTO</span>
-    <h1>{mode === 'request' ? 'Glömt lösenord?' : completed ? 'Lösenordet är ändrat' : 'Välj ett nytt lösenord'}</h1>
+    <h1>{mode === 'request' ? 'Glömt lösenord?' : mode === 'activate' ? completed ? 'Kontot är aktiverat' : 'Välj ditt lösenord' : completed ? 'Lösenordet är ändrat' : 'Välj ett nytt lösenord'}</h1>
     {completed ? <>
-      <p className="platform-info" role="status">{mode === 'request' ? requestNotice
+      <p className="platform-info" role="status">{mode === 'request' ? requestNotice : mode === 'activate'
+        ? 'Ditt konto är aktiverat. Logga in med din e-postadress och ditt nya lösenord för att fortsätta.'
         : 'Ditt nya lösenord är sparat och tidigare sessioner har avslutats. Logga in på nytt för att fortsätta.'}</p>
       {mode === 'request' && <p>Länken gäller i 30 minuter och kan bara användas en gång. Kontrollera även skräpposten. Saknas ett mejl kan du kontakta systemadmin.</p>}
-    </> : mode === 'reset' && !token ? <p className="platform-error" role="alert">Länken saknas eller är ogiltig. Öppna länken i mejlet igen eller begär en ny.</p> : <>
+    </> : mode !== 'request' && !token ? <p className="platform-error" role="alert">{mode === 'activate' ? 'Länken saknas eller är ogiltig. Öppna länken i inbjudan igen eller be ansvarig skicka en ny.' : 'Länken saknas eller är ogiltig. Öppna länken i mejlet igen eller begär en ny.'}</p> : <>
       <p>{mode === 'request' ? 'Ange e-postadressen som är registrerad för ditt konto. Vi skickar en länk där du väljer ett nytt lösenord.'
+        : mode === 'activate' ? 'Välj och bekräfta ditt eget lösenord för att aktivera kontot. Inbjudan kan användas en gång och gäller i 24 timmar.'
         : 'Välj och bekräfta ditt nya lösenord. När det sparats behöver du logga in på nytt.'}</p>
       <form className="platform-form" onSubmit={submit}>
         {mode === 'request' ? <>
@@ -92,7 +96,7 @@ export default function PlatformPasswordRecovery({ mode, onCompleted }: {
         </>}
         {error && <p className="platform-error" role="alert">{error}</p>}
         <button className="platform-btn" type="submit" disabled={busy}>{mode === 'request' ? <Mail size={17} /> : <ShieldCheck size={17} />}
-          {busy ? mode === 'request' ? 'Skickar…' : 'Sparar…' : mode === 'request' ? 'Skicka återställningslänk' : 'Spara nytt lösenord'}</button>
+          {busy ? mode === 'request' ? 'Skickar…' : 'Sparar…' : mode === 'request' ? 'Skicka återställningslänk' : mode === 'activate' ? 'Aktivera konto' : 'Spara nytt lösenord'}</button>
       </form>
     </>}
     {mode === 'reset' && !completed && <Link className="platform-text-btn" to="/forgot-password">Begär en ny återställningslänk</Link>}

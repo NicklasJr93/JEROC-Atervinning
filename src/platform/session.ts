@@ -18,7 +18,7 @@ export function installPlatformFetchGuard(): () => void {
   const guarded: typeof window.fetch = (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
     if (url.origin !== window.location.origin || !url.pathname.startsWith('/api/')) return previous.call(window, input, init);
-    if (['/api/platform/session', '/api/platform/login', '/api/platform/password-reset/request', '/api/platform/password-reset/confirm'].includes(url.pathname))
+    if (['/api/platform/session', '/api/platform/login', '/api/platform/password-reset/request', '/api/platform/password-reset/confirm', '/api/platform/staff-invitations/confirm'].includes(url.pathname))
       return previous.call(window, input, init);
     const headers = new Headers(input instanceof Request ? input.headers : undefined);
     new Headers(init?.headers).forEach((value, name) => headers.set(name, value));

@@ -142,7 +142,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
         <section className="office-panel">
           <form onSubmit={submit}>
             <h2>{embedded ? 'Inloggning & behörigheter' : selected.name || 'Nytt konto'}</h2>
-            {embedded && <p className="office-muted">{selected.name} · Kontorets demokonto</p>}
+            {embedded && <p className="office-muted">{selected.name} · Personligt användarkonto</p>}
             {notice && <p role="status">{notice}</p>}
             {!editable && (
               <div className="office-alert">

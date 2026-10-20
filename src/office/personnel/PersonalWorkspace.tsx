@@ -20,6 +20,9 @@ import VehicleRegistry, { useVehicleRegistry, VehicleEditor } from './VehicleReg
 import AddressField from '../../address-assistance/AddressField';
 import { formatAddress, normalizeAddress } from '../../data-format';
 import './personal.css';
+import { currentPlatformSession } from '../../platform/session';
+import StaffInvitationPanel, { type StaffInvitationAttempt } from './StaffInvitationPanel';
+import { sendStaffInvitation, setStaffTemporaryPassword, StaffInvitationError, type StaffProvisionMethod } from './staff-invitations-client';
 
 export interface PersonalWorkspaceProps {
   user: OfficeUser; actualUser: OfficeUser; selectedSiteId?: string; users?: OfficeUser[];
@@ -67,6 +70,12 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
   const [showInactive, setShowInactive] = useState(false);
   const identity = useRef(scopeKey); identity.current = scopeKey;
   const requests = useRef(new Set<AbortController>());
+  const invitationAttempts = useRef(new Map<string, StaffInvitationAttempt>());
+  const invitationLocks = useRef(new Set<string>());
+  const [, redrawInvitations] = useState(0);
+  const platformSession = currentPlatformSession();
+  const invitationsEnabled = Boolean(platformSession?.authenticated && platformSession.organisationId)
+    && [user, actualUser].every(principal => principal.active !== false && can(principal, 'users') && can(principal, 'personnelRead'));
   const readSequence = useRef(0), inFlight = useRef<{ key: string; promise: Promise<PersonnelResponse> } | undefined>(undefined);
   const parts = location.pathname.split('/').filter(Boolean);
   const isTasks = parts[1] === 'tasks';
@@ -90,7 +99,7 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
   }, [scopeKey, actualUser.id, user.id, scope]);
   useEffect(() => {
     let current = true;
-    setLoading(true); setError(''); setSnapshot(undefined); setModal(null);
+    setLoading(true); setError(''); setSnapshot(undefined); setModal(null); invitationAttempts.current.clear();
     void refresh().catch(reason => { if (current) setError(reason instanceof Error ? reason.message : 'Personalregistret kunde inte laddas.'); }).finally(() => { if (current) setLoading(false); });
     const foreground = () => { if (document.visibilityState === 'visible') void refresh().catch(() => {}); };
     const interval = window.setInterval(foreground, 20000);
@@ -111,6 +120,38 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
     } finally { requests.current.delete(controller); }
   }, [actualUser.id, user.id, scope, scopeKey]);
   const closeModal = useCallback(() => { setModal(null); setEditingCompetency(undefined); }, []);
+  const invitationKey = (person: Person) => JSON.stringify([scopeKey, person.id, person.email?.trim().toLowerCase()]);
+  const provisionStaffLogin = async (person: Person, choice: StaffProvisionMethod) => {
+    const key = invitationKey(person);
+    if (invitationLocks.current.has(key)) return;
+    invitationLocks.current.add(key);
+    const controller = new AbortController(); requests.current.add(controller);
+    let attempt: StaffInvitationAttempt | undefined;
+    try {
+      const passwordFingerprint = choice.method === 'temporary'
+        ? Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(choice.password))), value => value.toString(16).padStart(2, '0')).join('') : undefined;
+      if (identity.current !== scopeKey || controller.signal.aborted) throw new DOMException('Inloggningen har ändrats.', 'AbortError');
+      const previous = invitationAttempts.current.get(key);
+      attempt = { key, method: choice.method, passwordFingerprint, pending: true,
+        requestId: previous?.reuseRequestId && !previous.result && previous.method === choice.method && previous.passwordFingerprint === passwordFingerprint ? previous.requestId : crypto.randomUUID() };
+      invitationAttempts.current.set(key, attempt); redrawInvitations(value => value + 1);
+      const result = choice.method === 'temporary'
+        ? await setStaffTemporaryPassword(person.id, attempt.requestId, choice.password, scope, controller.signal)
+        : await sendStaffInvitation(person.id, attempt.requestId, scope, controller.signal);
+      if (identity.current !== scopeKey || controller.signal.aborted) throw new DOMException('Inloggningen har ändrats.', 'AbortError');
+      invitationAttempts.current.set(key, { ...attempt, pending: false, result }); redrawInvitations(value => value + 1);
+      onNotice(result.status === 'sent' ? `Personen är sparad. Inbjudan har skickats till ${result.email}.`
+        : `Personen är sparad. Tillfälligt lösenord är klart för ${result.username}. Personen väljer ett eget lösenord vid första inloggningen på kontorets inloggningssida.`);
+    } catch (reason) {
+      if (identity.current === scopeKey && !controller.signal.aborted) {
+        const message = `Personen är sparad, men ${choice.method === 'email' ? 'inbjudan kunde inte bekräftas' : 'det tillfälliga lösenordet kunde inte bekräftas'}. ${reason instanceof Error ? reason.message : 'Uppdatera status och försök igen på personkortet.'}`;
+        if (attempt) invitationAttempts.current.set(key, { ...attempt, pending: false, error: message,
+          reuseRequestId: !(reason instanceof StaffInvitationError) || reason.code === 'staff_invitation_response_invalid' });
+        redrawInvitations(value => value + 1); onNotice(message);
+      }
+      throw reason;
+    } finally { invitationLocks.current.delete(key); requests.current.delete(controller); }
+  };
   const permitted = (permission: string) => response?.capabilities.includes(permission as never) ?? false;
   const data = response?.data;
   const visiblePeople = useMemo(() => (data?.people ?? []).filter(person => selectedSiteId === 'all' || !selectedSiteId || person.siteIds.includes(selectedSiteId)), [data?.people, selectedSiteId]);
@@ -159,6 +200,9 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
         <button className="office-back" onClick={() => navigate('/personnel')}><ArrowLeft size={16} /> Till personal</button>
         <div className="hr-person-header"><div className={`hr-avatar large${person.kind === 'external' ? ' external' : ''}`}>{initials(person.name)}</div><div><h1>{person.name}</h1><div className="hr-person-badges"><Pill tone={person.active ? 'green' : 'grey'}>{person.kind === 'external' ? 'Extern chaufför' : 'Anställd'}</Pill>{person.canDrive && <Pill>Förare</Pill>}</div><p>{person.team || person.role} · {person.siteIds.map(siteName).join(', ')}{person.employeeNumber && ` · ${person.employeeNumber}`}{person.kind === 'external' && ` · ${companyName(person)}`}</p></div><div className="hr-header-actions">{availability(person)}{canManageAccount ? <button className="office-btn outline" onClick={() => openPerson(person.id, 'account')}><UserRound size={16} /> Inloggning<Pill tone={person.kind === 'external' ? account?.active ? 'green' : 'grey' : person.userId && linkedUser?.active !== false ? 'green' : 'grey'}>{person.kind === 'external' ? account ? account.active ? 'Aktivt' : 'Avaktiverat' : 'Ej skapat' : person.userId ? linkedUser?.active === false ? 'Spärrat' : 'Kopplat' : 'Ej skapat'}</Pill></button> : !person.userId && !account && <Pill tone="grey">Ingen inloggning</Pill>}</div></div>
       </OfficePageHeader>
+      {tab === 'account' && person.kind === 'employee' && person.userId && invitationsEnabled && <StaffInvitationPanel
+        key={`${scopeKey}:${person.id}:${person.email}`} person={person} scope={scope}
+        attempt={invitationAttempts.current.get(invitationKey(person))} onSend={choice => provisionStaffLogin(person, choice)} onEdit={() => edit(person)} />}
       {tab === 'overview' && <>
         <div className="hr-metrics three"><Metric label="Kommande uppdrag" value={jobs.length} note={jobs[0]?.date ? formatDate(jobs[0].date) : 'Inga bokade uppdrag'} icon={<Truck size={22} />} /><Metric label="Kompetenser" value={`${competencies.filter(c => ['valid', 'soon'].includes(competencyStatus(c))).length} giltiga`} note={`${competencies.filter(c => competencyStatus(c) === 'expired').length} utgångna`} icon={<BadgeCheck size={22} />} /><Metric label="Bemanning att lösa" value={activeTasks.filter(task => task.personId === person.id).length} note={`Ansvarig: ${managerName(person)}`} icon={<ListChecks size={22} />} /></div>
         <div className="hr-grid two"><Panel title={person.kind === 'external' ? 'Förare & åkeri' : 'Kontakt & organisation'} actions={permitted('personnelWrite') && <button className="office-link" onClick={() => edit(person)}><Pencil size={14} /> Redigera</button>}><Fact label="Telefon">{person.phone || '—'}</Fact><Fact label="E-post">{person.email || '—'}</Fact>{person.kind === 'external' ? <><Fact label="Åkeri">{companyName(person)}</Fact><Fact label="Organisationsnummer">{data.companies.find(company => company.id === person.companyId)?.number || '—'}</Fact><Fact label="Åkeriets kontakt">{data.companies.find(company => company.id === person.companyId)?.contact || '—'}</Fact></> : <Fact label="Chef / gruppledare">{managerName(person)}</Fact>}<Fact label="Team">{person.team || '—'}</Fact><Fact label="Anläggningsåtkomst">{person.siteIds.map(siteName).join(', ') || 'Ingen åtkomst'}</Fact>{(person.userId || account) && <p className="hr-muted">Åtkomsten hanteras på det kopplade kontot i Inloggning & behörigheter.</p>}{person.kind === 'external' && <Alert>Extern person, kopplad till åkeriet. Anställning och lön hos åkeriet registreras inte här.</Alert>}</Panel>
@@ -189,7 +233,20 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
       {activeTasks.length > 0 && <Alert tone="orange"><strong>{activeTasks.length} uppdrag behöver ny bemanning.</strong><span>Bokningarna ligger kvar tills en ansvarig har löst uppgifterna.</span><button className="office-link" onClick={() => navigate('/personnel/tasks')}>Visa bemanning <ChevronRight size={14} /></button></Alert>}
       <section className="office-panel hr-panel"><div className="hr-table-scroll"><table className="office-table hr-table hr-people-table"><thead><tr><th>Person</th><th>Anläggning / team</th><th>Företag</th><th>Tillgänglighet idag</th><th>Kompetens / uppmärksamma</th><th></th></tr></thead><tbody>{listedPeople.map(value => <tr key={value.id}><td><div className="hr-person-chip"><span className={`hr-avatar${value.kind === 'external' ? ' external' : ''}`}>{initials(value.name)}</span><div><button className="hr-name-button" onClick={() => openPerson(value.id)}>{value.name}</button><small>{value.role || (value.canDrive ? 'Chaufför' : 'Medarbetare')} · {value.kind === 'employee' ? 'Anställd' : 'Extern'}</small></div></div></td><td>{value.siteIds.map(siteName).join(', ')}<small>{value.team}</small></td><td>{companyName(value)}</td><td>{availability(value)}</td><td>{activeTasks.some(task => task.personId === value.id) ? <Pill tone="orange">{activeTasks.filter(task => task.personId === value.id).length} uppdrag berörs</Pill> : data.competencies.filter(c => c.personId === value.id && c.verified && competencyStatus(c) !== 'expired').map(c => c.scope || c.codes.join('/')).filter(Boolean).join(' · ') || '—'}</td><td><button className="office-link" onClick={() => openPerson(value.id)}>Öppna <ChevronRight size={14} /></button></td></tr>)}</tbody></table>{!listedPeople.length && <div className="hr-empty"><Users size={27} />Inga personer matchar filtren.</div>}</div><p className="hr-muted hr-list-foot">Visar {listedPeople.length} personer · Sparas gemensamt på servern.</p></section><Alert>En person kan finnas utan inloggning. Förarprofil, anställning och systembehörigheter hanteras separat.</Alert>
     </>}
-    {modal === 'person' && <PersonForm key={scopeKey} user={user} actualUser={actualUser} focusDriver={focusDriver} response={response} person={editingPerson} users={accountUsers} createLoginOnEdit={createLoginOnEdit} onClose={closeModal} onCompany={() => setModal('company')} onSave={async (value, clearFields, createAccount) => { const next = await runCommand({ action: 'person.save', person: value, clearFields, ...(createAccount ? { createAccount } : {}) }); const saved = next.data.people.find(p => p.id === value.id); if (createAccount || saved?.userId !== editingPerson?.userId) await onAccountsChanged?.(); closeModal(); if (saved) openPerson(saved.id, createAccount || saved.userId !== editingPerson?.userId ? 'account' : 'overview'); onNotice(createAccount ? 'Personen och inloggningen är skapade.' : 'Personen är sparad.'); }} />}
+    {modal === 'person' && <PersonForm key={scopeKey} user={user} actualUser={actualUser} focusDriver={focusDriver} response={response} person={editingPerson} users={accountUsers} invitationsEnabled={invitationsEnabled} createLoginOnEdit={createLoginOnEdit} onClose={closeModal} onCompany={() => setModal('company')} onSave={async (value, clearFields, createAccount, loginChoice) => {
+      const next = await runCommand({ action: 'person.save', person: value, clearFields, ...(createAccount ? { createAccount } : {}) });
+      const saved = next.data.people.find(p => p.id === value.id);
+      if (createAccount || saved?.userId !== editingPerson?.userId) {
+        try { await onAccountsChanged?.(); } catch { /* The person is already committed; refresh the account view separately. */ }
+      }
+      if (identity.current !== scopeKey) return;
+      closeModal();
+      if (saved) openPerson(saved.id, createAccount || saved.userId !== editingPerson?.userId ? 'account' : 'overview');
+      if (saved && invitationsEnabled && createAccount?.kind === 'staff' && loginChoice) {
+        onNotice('Personen är sparad. Förbereder inloggningen…');
+        void provisionStaffLogin(saved, loginChoice).catch(() => {});
+      } else onNotice(createAccount ? 'Personen och inloggningen är skapade.' : 'Personen är sparad.');
+    }} />}
     {modal === 'vehicles' && <VehicleRegistry key={scopeKey} scope={scope} onClose={closeModal} onChanged={async () => { await refresh(); }} />}
     {modal === 'company' && <CompanyForm onClose={() => setModal('person')} onSave={async company => { await runCommand({ action: 'company.save', company }); setModal('person'); onNotice('Åkeriet är sparat. Välj det i personformuläret.'); }} />}
     {modal === 'employment' && person && <EmploymentForm person={person} value={data.employment.find(value => value.personId === person.id)} onClose={closeModal} onSave={async employment => { await runCommand({ action: 'employment.save', employment }); closeModal(); onNotice('Anställningen är sparad.'); }} />}
@@ -215,10 +272,10 @@ function useSubmit(onSave: (event: FormEvent<HTMLFormElement>) => Promise<void>)
   return { busy, error, submit: async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (pending.current) return; pending.current = true; setBusy(true); setError(''); try { await onSave(event); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Uppgifterna kunde inte sparas.'); } finally { pending.current = false; setBusy(false); } } };
 }
 function FormFooter({ busy, disabled = false, onClose, label = 'Spara' }: { busy: boolean; disabled?: boolean; onClose: () => void; label?: string }) { return <div className="hr-dialog-actions"><button type="button" className="office-btn outline" onClick={onClose} disabled={busy}>Avbryt</button><button className="office-btn" disabled={busy || disabled}>{busy ? 'Sparar…' : label}</button></div>; }
-function PersonForm({ response, person, users, user, actualUser, focusDriver = false, createLoginOnEdit = false, onClose, onSave, onCompany }: {
-  response: PersonnelResponse; person?: Person; users: OfficeUser[]; user: OfficeUser; actualUser: OfficeUser; focusDriver?: boolean; createLoginOnEdit?: boolean;
+function PersonForm({ response, person, users, user, actualUser, invitationsEnabled = false, focusDriver = false, createLoginOnEdit = false, onClose, onSave, onCompany }: {
+  response: PersonnelResponse; person?: Person; users: OfficeUser[]; user: OfficeUser; actualUser: OfficeUser; invitationsEnabled?: boolean; focusDriver?: boolean; createLoginOnEdit?: boolean;
   onClose: () => void; onCompany: () => void;
-  onSave: (person: Partial<Person> & Pick<Person, 'name' | 'kind'>, clearFields?: Extract<PersonnelCommand, {action: 'person.save'}>['clearFields'], createAccount?: PersonAccountCreation) => Promise<void>;
+  onSave: (person: Partial<Person> & Pick<Person, 'name' | 'kind'>, clearFields?: Extract<PersonnelCommand, {action: 'person.save'}>['clearFields'], createAccount?: PersonAccountCreation, loginChoice?: StaffProvisionMethod) => Promise<void>;
 }) {
   const [id] = useState(() => person?.id ?? `person_${crypto.randomUUID().replace(/-/g, '_')}`);
   const [address, setAddress] = useState(person?.address ?? '');
@@ -234,6 +291,9 @@ function PersonForm({ response, person, users, user, actualUser, focusDriver = f
   const [siteIds, setSiteIds] = useState<string[]>(person?.siteIds ?? (response.sites[0] ? [response.sites[0].id] : []));
   const canCreateLogin = kind === 'employee' ? mayManageStaff && !staffUserId : mayManageExternal && !hasExternalAccount;
   const creatingAccount = createLogin && canCreateLogin;
+  const creatingInvitedAccount = invitationsEnabled && creatingAccount && kind === 'employee';
+  const [loginMethod, setLoginMethod] = useState<StaffProvisionMethod['method']>('email');
+  const [temporaryPassword, setTemporaryPassword] = useState('');
   const linkedAccount = kind === 'employee' ? users.find(account => account.id === staffUserId) : undefined;
   const hasCanonicalAccount = kind === 'employee' ? Boolean(staffUserId || !mayManageStaff && person?.userId || hasExternalAccount) : hasExternalAccount;
   const scopeIds = kind === 'employee' ? linkedAccount ? linkedAccount.siteIds ?? response.sites.map(site => site.id) : externalAccount?.siteIds ?? person?.siteIds ?? [] : externalAccount?.siteIds ?? person?.siteIds ?? [];
@@ -249,6 +309,8 @@ function PersonForm({ response, person, users, user, actualUser, focusDriver = f
     if (vehicleBusy || creatingVehicle) throw new Error('Spara eller avbryt fordonsändringen först.');
     const values = new FormData(event.currentTarget);
     if (!hasCanonicalAccount && !siteIds.length) throw new Error('Välj minst en anläggning.');
+    if (creatingInvitedAccount && !String(values.get('email') || '').trim()) throw new Error('Ange personens e-postadress för inloggningen.');
+    if (creatingInvitedAccount && loginMethod === 'temporary' && (temporaryPassword.length < 12 || temporaryPassword.length > 200)) throw new Error('Det tillfälliga lösenordet måste innehålla 12–200 tecken.');
     const next: Partial<Person> & Pick<Person, 'name' | 'kind'> = {
       ...person, id, name: String(values.get('name')).trim(), kind, active: values.get('active') === 'on',
       role: String(values.get('role')).trim(), team: String(values.get('team')).trim(),
@@ -265,7 +327,10 @@ function PersonForm({ response, person, users, user, actualUser, focusDriver = f
       : undefined;
     if (canDrive && !next.vehicleId) throw new Error('Välj ett ordinarie fordon för förarprofilen.');
     const clearFields = (['managerId', 'companyId', 'userId', 'vehicleId'] as const).filter(key => Boolean(person?.[key]) && !next[key]);
-    await onSave(next, clearFields, createAccount);
+    const loginChoice: StaffProvisionMethod | undefined = creatingInvitedAccount
+      ? loginMethod === 'temporary' ? { method: 'temporary', password: temporaryPassword } : { method: 'email' } : undefined;
+    await onSave(next, clearFields, createAccount, loginChoice);
+    setTemporaryPassword('');
   });
   const changeKind = (nextKind: Person['kind']) => {
     setKind(nextKind); setStaffUserId('');
@@ -280,7 +345,7 @@ function PersonForm({ response, person, users, user, actualUser, focusDriver = f
       <Field label="Befattning"><input name="role" defaultValue={person?.role} placeholder="T.ex. chaufför" /></Field>
       <Field label="Team"><input name="team" defaultValue={person?.team} list="hr-teams" /><datalist id="hr-teams">{Array.from(new Set(response.data.people.map(value => value.team).filter(Boolean))).map(team => <option key={team} value={team} />)}</datalist></Field>
       <Field label="Chef / gruppledare"><select name="managerId" defaultValue={person?.managerId ?? ''}><option value="">Ej vald</option>{response.data.people.filter(value => value.active && value.kind === 'employee' && value.id !== person?.id).map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></Field>
-      <Field label="Telefon"><input name="phone" type="tel" defaultValue={person?.phone} /></Field><Field label="E-post"><input name="email" type="email" defaultValue={person?.email} /></Field>
+      <Field label="Telefon"><input name="phone" type="tel" defaultValue={person?.phone} /></Field><Field label="E-post"><input name="email" type="email" required={creatingInvitedAccount} maxLength={254} defaultValue={person?.email} /></Field>
       <Field label="Adress" full><AddressField aria-label="Adress" name="address" value={normalizeAddress(address)} textValue={address}
         scopeKey={`person:${scope.key}:${id}`} requestHeaders={scope.headers} onChange={setAddress}
         disabled={busy || vehicleBusy} onApply={value => setAddress(formatAddress(value))} /></Field>
@@ -301,6 +366,15 @@ function PersonForm({ response, person, users, user, actualUser, focusDriver = f
         {canCreateLogin && <label className="hr-checkbox"><input type="checkbox" checked={createLogin} onChange={event => { setCreateLogin(event.target.checked); if (event.target.checked && kind === 'external') setCanDrive(true); }} /> Skapa inloggning</label>}
         {kind === 'employee' ? <>
           {creatingAccount && <p className="hr-muted">Ett konto skapas med grundläggande åtkomst. Välj fler behörigheter på personkortet efter sparandet.</p>}
+          {creatingInvitedAccount && <>
+            <Field label="Inloggningssätt" full><select aria-label="Inloggningssätt" value={loginMethod} disabled={busy} onChange={event => { setLoginMethod(event.target.value as StaffProvisionMethod['method']); setTemporaryPassword(''); }}>
+              <option value="email">Skicka lösenordslänk via mejl</option><option value="temporary">Ange tillfälligt lösenord</option>
+            </select></Field>
+            {loginMethod === 'temporary' ? <><Field label="Tillfälligt lösenord" full><input name="temporaryPassword" aria-label="Tillfälligt lösenord" type="password" autoComplete="new-password" minLength={12} maxLength={200} required value={temporaryPassword} disabled={busy} onChange={event => setTemporaryPassword(event.target.value)} /></Field>
+              <p className="hr-muted">Minst 12 tecken. Lämna lösenordet till personen separat. Första inloggningen görs på <a href="/kontor/" target="_blank" rel="noopener noreferrer">kontorets inloggningssida</a>, där personen måste välja ett eget lösenord. Därefter fungerar det egna lösenordet även i mobilappen.</p></>
+              : <p className="hr-muted">En engångslänk skickas automatiskt till personens e-postadress efter sparandet. Personen väljer sitt eget lösenord. Länken gäller i 24 timmar.</p>}
+            <p className="hr-muted">Personens e-postadress används som användarnamn.</p>
+          </>}
           <Field label="Befintligt användarkonto" full><select name="userId" aria-label="Befintligt användarkonto" value={staffUserId} onChange={event => { setStaffUserId(event.target.value); if (event.target.value) setCreateLogin(false); }}><option value="">{createLogin ? 'Skapa ett nytt konto' : 'Inget konto kopplat'}</option>{staffUserId && !linkedAccount && <option value={staffUserId} disabled>Kopplat konto · begränsad åtkomst</option>}{users.filter(account => !response.data.people.some(value => value.id !== person?.id && value.userId === account.id)).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></Field>
           {staffUserId && <p className="hr-muted">Personen använder det befintliga kontots anläggningsåtkomst och behörigheter.</p>}
         </> : hasExternalAccount ? <p className="hr-muted">Personen har redan en chaufförsinloggning. Anläggningsåtkomst, lösenord och kontostatus hanteras på fliken Inloggning & behörigheter.</p> : createLogin && <div className="hr-form-grid">

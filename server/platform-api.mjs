@@ -40,7 +40,7 @@ function setCookies(req, res, result, env) {
 }
 
 /** The API never exposes hashes, schema names or credentials on reads. */
-export function createPlatformApi({ auth, fleet, communications, passwordReset, env = process.env } = {}) {
+export function createPlatformApi({ auth, fleet, communications, passwordReset, staffInvitations, env = process.env } = {}) {
   if (!auth) throw new TypeError('Plattformsautentisering krävs.');
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/platform/')) return false;
@@ -58,6 +58,12 @@ export function createPlatformApi({ auth, fleet, communications, passwordReset, 
         const value = await passwordReset.confirm(await body(req), req);
         result = { token: '', tenantToken: '', value };
       }
+      else if (path === 'staff-invitations' && staffInvitations) result = { value: read
+        ? await staffInvitations.read(url.searchParams.get('personId'), req) : await staffInvitations.send(await body(req), req) };
+      else if (!read && path === 'staff-invitations/temporary-password' && staffInvitations)
+        result = { value: await staffInvitations.temporaryPassword(await body(req), req) };
+      else if (!read && path === 'staff-invitations/confirm' && staffInvitations)
+        result = { token: '', tenantToken: '', value: await staffInvitations.confirm(await body(req), req) };
       else if (path === 'communications' && communications && read) result = { value: await communications.read(req) };
       else if (path === 'communications/test-email' && communications && !read) result = { value: await communications.sendTest(await body(req), req) };
       else if (path === 'communications/test-sms' && communications && !read) result = { value: await communications.sendTestSms(await body(req), req) };

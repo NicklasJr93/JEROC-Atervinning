@@ -13,6 +13,15 @@ const resetCommandSchema = commandSchema.extend({
   expiresAt: z.string().max(40).datetime({ offset: true }).transform(value => new Date(value).toISOString()),
   resetUrl: z.string().min(1).max(2048).refine(value => !/[\u0000-\u0020\u007f]/.test(value)),
 }).strict().refine(value => Date.parse(value.expiresAt) - Date.parse(value.createdAt) === 30 * 60_000);
+const invitationTextSchema = z.string().min(1).max(200).refine(value => !/[\u0000-\u001f\u007f]/.test(value))
+  .transform(value => value.normalize('NFKC').trim().replace(/\s+/g, ' ')).pipe(z.string().min(1).max(200));
+const staffInvitationSchema = commandSchema.extend({
+  name: invitationTextSchema,
+  companyName: invitationTextSchema,
+  username: z.string().min(1).max(254).refine(value => !/[\u0000-\u0020\u007f]/.test(value)),
+  activationUrl: z.string().min(1).max(2048).refine(value => !/[\u0000-\u0020\u007f]/.test(value)),
+  expiresAt: z.string().max(40).datetime({ offset: true }).transform(value => new Date(value).toISOString()),
+}).strict().refine(value => Date.parse(value.expiresAt) - Date.parse(value.createdAt) === 24 * 60 * 60_000);
 const weighedDocumentSchema = commandSchema.extend({
   companyName: z.string().min(1).max(200).refine(value => !/[\u0000-\u001f\u007f]/.test(value))
     .transform(value => value.normalize('NFKC').trim().replace(/\s+/g, ' ')).pipe(z.string().min(1).max(200)),
@@ -32,6 +41,7 @@ export class SystemEmailError extends Error {
 const fail = (status, code, message) => { throw new SystemEmailError(status, code, message); };
 const unknownOutcome = (purpose = 'test') => fail(503, 'system_email_outcome_unknown', purpose === 'password-reset'
   ? 'Återställningsmejlets utskick kunde inte bekräftas. Försök begära en ny länk senare.'
+  : purpose === 'staff-invitation' ? 'Inbjudningsmejlets utskick kunde inte bekräftas. Kontrollera inbjudans status innan ett nytt utskick görs.'
   : purpose === 'weighed-document' ? 'Utskicket av det vägda underlaget kunde inte bekräftas. Kontrollera utskickets status innan det försöks igen.'
   : 'Utskickets resultat kunde inte bekräftas. Kontrollera testets status innan ett nytt test skapas.');
 
@@ -72,29 +82,32 @@ function providerFailure(status, data, purpose = 'test') {
   if ([400, 401, 403, 422].includes(status))
     fail(503, 'system_email_rejected', purpose === 'password-reset'
       ? 'Mejltjänsten nekade återställningsutskicket.'
+      : purpose === 'staff-invitation' ? 'Mejltjänsten nekade personalinbjudan. Kontrollera mejltjänstens inställningar och försök igen.'
       : purpose === 'weighed-document' ? 'Mejltjänsten nekade utskicket av det vägda underlaget.'
       : 'Resend nekade testmejlet. Kontrollera API-nyckelns utskicksbehörighet och att scrapplanner.com är verifierad för utskick.');
   if (status === 429)
     fail(429, 'system_email_rate_limited', purpose === 'password-reset'
       ? 'Mejltjänsten begränsar utskicken just nu. Försök igen senare.'
+      : purpose === 'staff-invitation' ? 'Mejltjänsten begränsar personalinbjudningar just nu. Försök igen senare.'
       : purpose === 'weighed-document' ? 'Mejltjänsten begränsar utskicken av underlag just nu. Försök igen senare.'
       : 'Resend begränsar utskicken just nu. Vänta en stund innan samma test provas igen.');
   if (status === 409 && data?.name === 'invalid_idempotent_request')
     fail(409, 'system_email_idempotency_conflict', purpose === 'password-reset'
       ? 'Återställningsutskickets ID har redan använts med annat innehåll.'
+      : purpose === 'staff-invitation' ? 'Inbjudans utskicks-ID har redan använts med annat innehåll. Kontrollera inbjudans status.'
       : purpose === 'weighed-document' ? 'Utskicket av underlaget har redan begärts med ett annat innehåll. Kontrollera utskickets status.'
       : 'Testets utskicks-ID har redan använts med ett annat innehåll. Kontrollera testets status innan ett nytt test skapas.');
   if (status === 409 || status >= 500) unknownOutcome(purpose);
   fail(503, 'system_email_unavailable', 'Systemets mejltjänst kan inte användas just nu. Försök igen senare.');
 }
 
-function resetLink(value, configuredAppUrl) {
+function accountLink(value, configuredAppUrl, route) {
   try {
     const app = new URL(configuredAppUrl ?? 'https://app.scrapplanner.com');
     const link = new URL(value);
     if (app.protocol !== 'https:' || app.username || app.password || app.pathname !== '/' || app.search || app.hash
       || link.protocol !== 'https:' || link.origin !== app.origin || link.username || link.password
-      || link.pathname !== '/kontor/' || link.search || !/^#\/reset-password\?token=[A-Za-z0-9_-]{43}$/.test(link.hash)) return undefined;
+      || link.pathname !== '/kontor/' || link.search || !new RegExp(`^#/${route}\\?token=[A-Za-z0-9_-]{43}$`).test(link.hash)) return undefined;
     return link.href;
   } catch { return undefined; }
 }
@@ -106,6 +119,15 @@ function passwordResetMessage({ to, resetUrl }) {
     from: SYSTEM_EMAIL_FROM, to: [to], subject: 'Återställ ditt lösenord',
     text: `Du har begärt att återställa lösenordet till ditt ScrapPlanner-konto.\n\nÖppna länken nedan för att välja och bekräfta ett nytt lösenord:\n${resetUrl}\n\nLänken gäller i 30 minuter och kan bara användas en gång.\n\nOm du inte begärde detta kan du ignorera mejlet. Ditt lösenord ändras först när du väljer ett nytt via länken. Dela inte länken med någon annan.\n\nScrapPlanner – en produkt av EndorGroup`,
     html: `<html lang="sv"><body style="margin:0;background:#f5f7fa;color:#16334e;font-family:Arial,sans-serif"><div style="max-width:560px;margin:32px auto;padding:32px;background:#ffffff;border:1px solid #dde6ee;border-radius:12px"><p style="margin:0 0 24px;font-size:24px;font-weight:bold;color:#16334e">ScrapPlanner<span style="color:#288557">.</span></p><h1 style="font-size:22px;line-height:1.3">Återställ ditt lösenord</h1><p>Du har begärt att återställa lösenordet till ditt ScrapPlanner-konto.</p><p>Välj och bekräfta ett nytt lösenord via länken:</p><p style="margin:24px 0"><a href="${link}" style="display:inline-block;padding:12px 20px;background:#16334e;color:#fff;text-decoration:none;border-radius:7px">Välj nytt lösenord</a></p><p>Länken gäller i <strong>30 minuter</strong> och kan bara användas en gång.</p><p>Om du inte begärde detta kan du ignorera mejlet. Ditt lösenord ändras först när du väljer ett nytt via länken. Dela inte länken med någon annan.</p><p style="font-size:12px;overflow-wrap:anywhere">Om knappen inte fungerar, kopiera länken till webbläsaren:<br><a href="${link}">${link}</a></p><hr style="border:0;border-top:1px solid #dde6ee;margin:24px 0"><p style="font-size:12px;color:#5c6f80">ScrapPlanner – en produkt av EndorGroup</p></div></body></html>`,
+  };
+}
+
+function staffInvitationMessage({ to, name, companyName, username, activationUrl }) {
+  const recipient = escapeHtml(name), company = escapeHtml(companyName), login = escapeHtml(username), link = escapeHtml(activationUrl);
+  return {
+    from: SYSTEM_EMAIL_FROM, to: [to], subject: 'Du är inbjuden till ScrapPlanner',
+    text: `Hej ${name}!\n\nDu har blivit inbjuden att använda ScrapPlanner hos ${companyName}.\n\nDitt användarnamn är: ${username}\n\nÖppna länken för att aktivera kontot och välja ditt eget lösenord:\n${activationUrl}\n\nLänken gäller i 24 timmar och kan bara användas en gång. Din arbetsgivare bestämmer vilka delar av systemet du har tillgång till.\n\nOm du inte väntade dig inbjudan, kontakta din arbetsgivare. Dela inte länken med någon annan.\n\nScrapPlanner – en produkt av EndorGroup`,
+    html: `<html lang="sv"><body style="margin:0;background:#f5f7fa;color:#16334e;font-family:Arial,sans-serif"><div style="max-width:560px;margin:32px auto;padding:32px;background:#ffffff;border:1px solid #dde6ee;border-radius:12px"><p style="margin:0 0 24px;font-size:24px;font-weight:bold;color:#16334e">ScrapPlanner<span style="color:#288557">.</span></p><h1 style="font-size:22px;line-height:1.3">Välkommen till ScrapPlanner</h1><p>Hej ${recipient}!</p><p>Du har blivit inbjuden att använda ScrapPlanner hos <strong>${company}</strong>.</p><p>Ditt användarnamn är: <strong>${login}</strong></p><p>Aktivera kontot och välj ditt eget lösenord:</p><p style="margin:24px 0"><a href="${link}" style="display:inline-block;padding:12px 20px;background:#16334e;color:#fff;text-decoration:none;border-radius:7px">Aktivera mitt konto</a></p><p>Länken gäller i <strong>24 timmar</strong> och kan bara användas en gång. Din arbetsgivare bestämmer vilka delar av systemet du har tillgång till.</p><p>Om du inte väntade dig inbjudan, kontakta din arbetsgivare. Dela inte länken med någon annan.</p><p style="font-size:12px;overflow-wrap:anywhere">Om knappen inte fungerar, kopiera länken till webbläsaren:<br><a href="${link}">${link}</a></p><hr style="border:0;border-top:1px solid #dde6ee;margin:24px 0"><p style="font-size:12px;color:#5c6f80">ScrapPlanner – en produkt av EndorGroup</p></div></body></html>`,
   };
 }
 
@@ -166,7 +188,7 @@ export function createSystemEmail({ env = process.env, fetchImpl = fetch, timeou
   }
   async function sendPasswordReset(input, { signal } = {}) {
     const parsed = resetCommandSchema.safeParse(input);
-    const resetUrl = parsed.success && resetLink(parsed.data.resetUrl, env.APP_URL);
+    const resetUrl = parsed.success && accountLink(parsed.data.resetUrl, env.APP_URL, 'reset-password');
     if (!parsed.success || !resetUrl) fail(422, 'system_email_invalid', 'Återställningsutskicket innehåller ogiltiga uppgifter.');
     return send(passwordResetMessage({ ...parsed.data, resetUrl }), `password-reset/${parsed.data.requestId}`, 'password-reset', signal);
   }
@@ -175,5 +197,11 @@ export function createSystemEmail({ env = process.env, fetchImpl = fetch, timeou
     if (!parsed.success) fail(422, 'system_email_invalid', 'Underlagets utskick innehåller ogiltiga uppgifter eller en ogiltig PDF.');
     return send(weighedDocumentMessage(parsed.data), `weighed-document/${parsed.data.requestId}`, 'weighed-document', signal);
   }
-  return Object.freeze({ configured, sendTest, sendPasswordReset, sendWeighedDocument });
+  async function sendStaffInvitation(input, { signal } = {}) {
+    const parsed = staffInvitationSchema.safeParse(input);
+    const activationUrl = parsed.success && accountLink(parsed.data.activationUrl, env.APP_URL, 'activate-account');
+    if (!parsed.success || !activationUrl) fail(422, 'system_email_invalid', 'Personalinbjudan innehåller ogiltiga uppgifter.');
+    return send(staffInvitationMessage({ ...parsed.data, activationUrl }), `staff-invitation/${parsed.data.requestId}`, 'staff-invitation', signal);
+  }
+  return Object.freeze({ configured, sendTest, sendPasswordReset, sendWeighedDocument, sendStaffInvitation });
 }

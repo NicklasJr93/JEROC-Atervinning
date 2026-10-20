@@ -6,6 +6,9 @@ const key = 'PRIVATE-RESEND-API-KEY';
 const request = { to: 'test@example.invalid', requestId: '1cf1eef4-d17d-4cc6-9cff-2412660166af', createdAt: '2026-10-20T10:00:00.000Z' };
 const resetToken = 'A'.repeat(43);
 const resetRequest = { ...request, expiresAt: '2026-10-20T10:30:00.000Z', resetUrl: `https://app.scrapplanner.com/kontor/#/reset-password?token=${resetToken}` };
+const invitationRequest = { ...request, name: 'Alma <Återvinning> & Co', companyName: 'Testbolaget & Återvinning <AB>',
+  username: 'alma@example.invalid', activationUrl: `https://app.scrapplanner.com/kontor/#/activate-account?token=${resetToken}`,
+  expiresAt: '2026-10-21T10:00:00.000Z' };
 const weighedRequest = { ...request, companyName: 'Testbolaget & Återvinning <AB>', cardNumber: 3010,
   documentId: '1247623a-e124-4f1b-a920-191a19bcadf2', pdf: Buffer.from('%PDF-1.7\nSYNTHETIC-ARCHIVED-PDF-CONTENT\n%%EOF\n') };
 const providerId = '99d645f5-b788-45c5-a733-9f84bcb1727e';
@@ -284,5 +287,119 @@ test('weighed document uses the existing server key and bounded cancellation wit
     assert.equal(calls, 1);
     const controller = new AbortController(); controller.abort(new Error(key));
     await rejects(client(() => assert.fail('must not fetch')).sendWeighedDocument(weighedRequest, { signal: controller.signal }), 'system_email_outcome_unknown');
+  } finally { clearTimeout(keepAlive); }
+});
+
+test('staff invitation uses a fixed sender and escaped Swedish activation message without a password', async () => {
+  const calls = [];
+  const adapter = client(async (url, options) => {
+    assert.equal(url, RESEND_EMAIL_URL); assert.equal(options.method, 'POST'); assert.equal(options.redirect, 'error');
+    calls.push({ body: options.body, key: options.headers['Idempotency-Key'] });
+    const message = JSON.parse(options.body);
+    assert.equal(message.from, SYSTEM_EMAIL_FROM); assert.deepEqual(message.to, [invitationRequest.to]);
+    assert.equal(message.subject, 'Du är inbjuden till ScrapPlanner');
+    assert.match(message.text, /Hej Alma <Återvinning> & Co!/);
+    assert.ok(message.text.includes(invitationRequest.companyName));
+    assert.ok(message.text.includes(invitationRequest.username));
+    assert.ok(message.text.includes(invitationRequest.activationUrl));
+    assert.match(message.text, /24 timmar/); assert.match(message.text, /bara användas en gång/);
+    assert.match(message.text, /välja ditt eget lösenord/);
+    assert.match(message.html, /Alma &lt;Återvinning&gt; &amp; Co/);
+    assert.match(message.html, /Testbolaget &amp; Återvinning &lt;AB&gt;/);
+    assert.ok(message.html.includes(`href="${invitationRequest.activationUrl}"`));
+    assert.match(message.html, /Aktivera mitt konto/); assert.match(message.html, /EndorGroup/);
+    assert.ok(!message.html.includes(invitationRequest.companyName));
+    assert.deepEqual(Object.keys(message).sort(), ['from', 'html', 'subject', 'text', 'to']);
+    assert.ok(!options.body.includes('temporaryPassword')); assert.ok(!options.body.includes('newPassword'));
+    return response();
+  });
+  assert.deepEqual(await adapter.sendStaffInvitation(invitationRequest), { providerId });
+  assert.deepEqual(await adapter.sendStaffInvitation({ ...invitationRequest }), { providerId });
+  assert.equal(calls[0].key, `staff-invitation/${request.requestId}`); assert.deepEqual(calls[0], calls[1]);
+  const escapedLogin = client(async (_url, options) => {
+    assert.match(JSON.parse(options.body).html, /alma\+&lt;tag&gt;&amp;&quot;&#39;@example.invalid/);
+    return response();
+  });
+  await escapedLogin.sendStaffInvitation({ ...invitationRequest, username: `alma+<tag>&"'@example.invalid` });
+});
+
+test('staff invitation only accepts its trusted HTTPS activation route with one fixed bearer token', async () => {
+  const adapter = client(() => assert.fail('must not fetch'));
+  for (const activationUrl of [
+    invitationRequest.activationUrl.replace('https:', 'http:'),
+    invitationRequest.activationUrl.replace('app.scrapplanner.com', 'attacker.example'),
+    invitationRequest.activationUrl.replace('app.scrapplanner.com', 'app.scrapplanner.com.attacker.example'),
+    invitationRequest.activationUrl.replace('app.scrapplanner.com', 'app.scrapplanner.com:444'),
+    invitationRequest.activationUrl.replace('app.scrapplanner.com', 'user:password@app.scrapplanner.com'),
+    invitationRequest.activationUrl.replace('/kontor/', '/kund/'), resetRequest.resetUrl,
+    invitationRequest.activationUrl.replace('/kontor/', '/kontor/?next=bad'),
+    `${invitationRequest.activationUrl}&next=https://attacker.example`,
+    `${invitationRequest.activationUrl}A`, invitationRequest.activationUrl.slice(0, -1),
+    `${invitationRequest.activationUrl}\n`, `${invitationRequest.activationUrl}" onclick="alert(1)`,
+    'javascript:alert(1)', '<a href="https://attacker.example">Activate</a>',
+  ]) await rejects(adapter.sendStaffInvitation({ ...invitationRequest, activationUrl }), 'system_email_invalid', 422);
+  const custom = createSystemEmail({ env: { RESEND_API_KEY: key, APP_URL: 'https://office.example.invalid' },
+    fetchImpl: async (_url, options) => {
+      assert.match(JSON.parse(options.body).html, /href="https:\/\/office.example.invalid\/kontor\/#\/activate-account\?token=/);
+      return response();
+    } });
+  await rejects(custom.sendStaffInvitation(invitationRequest), 'system_email_invalid', 422);
+  assert.deepEqual(await custom.sendStaffInvitation({ ...invitationRequest,
+    activationUrl: invitationRequest.activationUrl.replace('app.scrapplanner.com', 'office.example.invalid') }), { providerId });
+});
+
+test('staff invitation validates fixed fields, recipient, names and exact 24 hour lifespan before provider access', async () => {
+  const adapter = client(() => assert.fail('must not fetch'));
+  for (const invalid of [null, {}, [],
+    { ...invitationRequest, to: 'Name <alma@example.invalid>' }, { ...invitationRequest, to: ['alma@example.invalid'] },
+    { ...invitationRequest, to: 'alma@example.invalid\r\nBcc:attacker@example.invalid' },
+    { ...invitationRequest, requestId: 'not-a-uuid' }, { ...invitationRequest, createdAt: 'yesterday' },
+    { ...invitationRequest, expiresAt: 'tomorrow' }, { ...invitationRequest, expiresAt: resetRequest.expiresAt },
+    { ...invitationRequest, expiresAt: '2026-10-21T09:59:59.000Z' }, { ...invitationRequest, expiresAt: '2026-10-21T10:00:01.000Z' },
+    ...['', ' ', 'Unsafe\nHeader', 'x'.repeat(201), 'ﬀ'.repeat(101)].flatMap(value =>
+      [{ ...invitationRequest, name: value }, { ...invitationRequest, companyName: value }]),
+    ...['', 'alma staff', 'alma\r\nname', 'x'.repeat(255)].map(username => ({ ...invitationRequest, username })),
+    { ...invitationRequest, password: 'Never-In-Email' }, { ...invitationRequest, subject: 'untrusted HTML' },
+    { ...invitationRequest, from: 'attacker@example.invalid' }, { ...invitationRequest, attachments: [] },
+  ]) await rejects(adapter.sendStaffInvitation(invalid), 'system_email_invalid', 422);
+  for (const APP_URL of ['http://app.scrapplanner.com', 'https://user:password@app.scrapplanner.com',
+    'https://app.scrapplanner.com/kontor/', 'https://app.scrapplanner.com?next=bad', 'not-a-url']) {
+    const invalidOrigin = createSystemEmail({ env: { RESEND_API_KEY: key, APP_URL }, fetchImpl: () => assert.fail('must not fetch') });
+    await rejects(invalidOrigin.sendStaffInvitation(invitationRequest), 'system_email_invalid', 422);
+  }
+});
+
+test('staff invitation errors retain safe classifications without exposing recipient, proof or provider data', async () => {
+  const privateData = `${key} ${invitationRequest.to} ${invitationRequest.activationUrl} PRIVATE-PROVIDER-DATA`;
+  for (const [makeResponse, code, status] of [
+    [() => response({ message: privateData }, 403), 'system_email_rejected', 503],
+    [() => response({ message: privateData }, 429), 'system_email_rate_limited', 429],
+    [() => response({ name: 'invalid_idempotent_request', message: privateData }, 409), 'system_email_idempotency_conflict', 409],
+    [() => response({ name: 'concurrent_idempotent_requests', message: privateData }, 409), 'system_email_outcome_unknown', 503],
+    [() => response({ message: privateData }, 500), 'system_email_outcome_unknown', 503],
+    [() => new Response(privateData, { status: 403 }), 'system_email_rejected', 503],
+    [() => new Response('not-json'), 'system_email_outcome_unknown', 503],
+    [() => response({ id: providerId, ignored: 'x'.repeat(16384) }), 'system_email_outcome_unknown', 503],
+  ]) {
+    let calls = 0;
+    const adapter = client(async () => { calls++; return makeResponse(); });
+    await assert.rejects(adapter.sendStaffInvitation(invitationRequest), error => {
+      assert.ok(error instanceof SystemEmailError); assert.equal(error.code, code); assert.equal(error.status, status);
+      for (const secret of [key, invitationRequest.to, invitationRequest.activationUrl, resetToken, 'PRIVATE-PROVIDER-DATA']) {
+        assert.ok(!error.message.includes(secret)); assert.ok(!JSON.stringify(error).includes(secret));
+      }
+      assert.ok(!error.message.includes('testmejl'));
+      return true;
+    });
+    assert.equal(calls, 1);
+  }
+  await rejects(createSystemEmail({ env: {}, fetchImpl: () => assert.fail('must not fetch') }).sendStaffInvitation(invitationRequest), 'system_email_not_configured');
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    let calls = 0;
+    await rejects(client(() => { calls++; return new Promise(() => {}); }, { timeoutMs: 20 }).sendStaffInvitation(invitationRequest), 'system_email_outcome_unknown');
+    assert.equal(calls, 1);
+    const controller = new AbortController(); controller.abort(new Error(invitationRequest.activationUrl));
+    await rejects(client(() => assert.fail('must not fetch')).sendStaffInvitation(invitationRequest, { signal: controller.signal }), 'system_email_outcome_unknown');
   } finally { clearTimeout(keepAlive); }
 });

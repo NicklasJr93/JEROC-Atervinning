@@ -29,7 +29,7 @@ async function request<T>(path: string, data?: unknown, signal?: AbortSignal): P
   const response = await fetch(`/api/platform/${path}`, {
     method: data === undefined ? 'GET' : 'POST',
     credentials: 'same-origin', cache: 'no-store', signal,
-    headers: { ...(['session', 'login'].includes(path) || path.startsWith('password-reset/') ? {} : platformRequestHeaders()), ...(data === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    headers: { ...(['session', 'login', 'staff-invitations/confirm'].includes(path) || path.startsWith('password-reset/') ? {} : platformRequestHeaders()), ...(data === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
   const body = await response.json().catch(() => undefined);
@@ -48,6 +48,7 @@ export const platformApi = {
   updateProfile: (data: { expectedVersion: number; email: string; currentPassword: string }, signal?: AbortSignal) => profileRequest(data, signal),
   requestPasswordReset: (email: string, signal?: AbortSignal, username?: string) => recoveryRequest('password-reset/request', { email, ...(username?.trim() ? { username: username.trim() } : {}) }, signal),
   confirmPasswordReset: (data: { token: string; newPassword: string; confirmPassword: string }, signal?: AbortSignal) => recoveryRequest('password-reset/confirm', data, signal),
+  confirmStaffInvitation: (data: { token: string; newPassword: string; confirmPassword: string }, signal?: AbortSignal) => recoveryRequest('staff-invitations/confirm', data, signal),
   changePassword: (currentPassword: string, newPassword: string) => request<AuthenticatedPlatformSession>('change-password', { currentPassword, newPassword }),
   logout: () => request<{ ok: boolean }>('logout', {}),
   openAdministration: () => request<AuthenticatedPlatformSession>('open-administration', {}),
