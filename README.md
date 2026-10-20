@@ -12,6 +12,7 @@ backend och bolagsdata. Den publika hemsidan byggs separat i `website/`.
 | Hitta en funktionsguide eller tidigare beslut | [Dokumentationsöversikt](docs/README.md) |
 | Drifta, uppdatera eller felsöka | [Driftguide](docs/drift/README.md) |
 | Köra lokalt och utveckla | [Utvecklarguide](docs/utveckling.md) |
+| Förstå kodens ansvar och garantier inför en ändring | [Arkitektur](docs/arkitektur.md) |
 | Se beställda ändringar och leveranser | [Ändringslistan, ÄL](docs/Andringslistan.txt) |
 | Se granskbara designförslag | [Mockuper](docs/mockups/README.md) |
 | Arbeta med den publika hemsidan | [Hemsidans projektguide](website/README.md) |

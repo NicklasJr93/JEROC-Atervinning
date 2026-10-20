@@ -11,6 +11,7 @@ Granskad 20 oktober 2026. Äldre filer och bildlänkar behåller sina sökvägar
 | Ställa in bolaget, lägga upp personal eller hjälpa en kund | [Användarmanual](manual/README.md), sedan ämnesguiden nedan |
 | Uppdatera eller felsöka en installation | [Driftguide](drift/README.md) |
 | Köra projektet lokalt och ändra koden | [Utvecklarguide](utveckling.md) |
+| Förstå moduler, bolagsgränser och datagarantier | [Arkitektur](arkitektur.md) |
 | Se beslut, leveranser och kvarstående arbete | [Ändringslistan, ÄL](Andringslistan.txt) |
 | Granska ett förslag på gränssnitt | [Mockuper](mockups/README.md) |
 

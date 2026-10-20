@@ -73,7 +73,7 @@ versionsnummer är inte bevis på vilken commit som körs i Render. Genererade
 | --- | --- |
 | `npm run build` | Domänmodeller, TypeScript och webbbygge |
 | `npm run test:server` | Bygger domänmodeller och kör serverns testsamling |
-| `npm test` | Playwrights testsamling; startar lokal app enligt konfigurationen |
+| `npm test` | Playwrights testsamling; startar en egen server med disponibla testdatabaser |
 | `npm run test:ui` | Playwrights interaktiva provvy |
 | `npm run build:render` | Webbbygge, Expo-beroenden, Expo-typkontroll och villkorligt Expo-förbygge |
 
@@ -90,8 +90,17 @@ npx playwright install chromium
 
 Playwright använder `/usr/bin/chromium` om den finns. Annars används dess
 installerade Chromium; `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` kan ange en annan.
-Konfigurationen finns i `playwright.config.ts`. Kör inte flera browserkörningar
-mot samma lokala server samtidigt om de kan påverka varandras tillstånd.
+Konfigurationen finns i `playwright.config.ts`. Testerna återanvänder inte en
+utvecklingsserver: portarna 5173 och 3000 måste vara lediga. Startaren använder
+en tillfällig katalog för SQLite, filtrerar bort databas-/leverantörshemligheter
+och verifierar en unik markör innan teststegen får börja. `.env` läses inte av
+denna testserver. Kör en browserkörning i taget mot dessa portar.
+
+CI kör hela serverurvalet mot en egen PostgreSQL 17-tjänst. För motsvarande
+lokala prov, använd en separat disponibel databas och ange den i både
+`JEROC_TEST_DATABASE_URL` och `JEROC_TEST_POSTGRES_URL` innan `npm run test:server`.
+Ange aldrig verksamhetens `DATABASE_URL` som testanslutning. Utan dessa
+testvariabler kan PostgreSQL-specifika prov hoppas över; redovisa det i resultatet.
 
 För Expo-typkontrollen separat:
 

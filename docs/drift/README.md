@@ -78,6 +78,14 @@ till demoprofilen för felsökning.
   för befintliga konton; skapa inte ett nytt bolag eller konto för att kringgå
   ett lösenordsproblem.
 
+Plattformens inloggning och känsliga kontoändringar reserverar beständiga
+försöksbudgetar före lösenordskontrollen och begränsar samtidiga hashningar.
+Render-proxyns sista giltiga klientadress används bara när servermiljön
+uttryckligen anger `RENDER=true`; direkta servrar ignorerar klientens
+vidarebefordrade adressheader. En ny proxyplattform behöver en uttryckligt
+granskad adresspolicy. Vänta enligt felmeddelandet vid 429 i stället för
+att starta om tjänsten för att kringgå spärren.
+
 Se [personalinbjudningar](../personal-inbjudningar.md),
 [delegerad användarhantering](../delegerad-anvandarhantering.md),
 [lösenordsåterställning](../losenordsaterstallning.md) och
@@ -176,6 +184,14 @@ annat plattform, användning, dokument och filinnehåll. PDF-original och privat
 artikelbilder behöver omfattas av databasens backup. GitHub innehåller kod och
 statiska tillgångar; det återskapar inte driftsdatabasen. Lokal SQLite är för
 utveckling och är ingen reserv för pilotens PostgreSQL.
+
+Klientens osända ändringar använder separata återhämtningsgrenar per flik,
+bundna till bolag och faktisk/utförande användare. En entydig kö kan återupptas
+efter ny inloggning genom aktuella serverkontroller. Flera konkurrerande köer
+eller äldre administratörsköer utan säker ägarinformation stoppas för granskning
+och ligger kvar. Rensa inte webbläsarens lagring som första felsökningssteg om
+det finns osänt arbete. Äldre källor och kvittensmarkörer har ännu ingen generell
+gallringspolicy; den lokala återhämtningen är inte en backup av servern.
 
 Det finns ingen verifierad generell backup-/återställningsfunktion för hela
 installationen i appen. Äldre modulspecifika exporter, revisionsloggar eller

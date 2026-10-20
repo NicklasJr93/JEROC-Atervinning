@@ -3881,3 +3881,53 @@ Status: Förslag dokumenterat 2026-10-20; inte implementerat.
   kapitel/ankare. Ändrat beteende uppdaterar hjälp och manual i samma leverans.
 - Eventuell bildmockup publiceras i GitHub och återanvänder befintligt UI.
   Förslaget ändrar inga appvyer eller inställningar i denna leverans.
+
+
+ÄL 156 – Stabilisering efter kodgranskning
+Status: Implementerad och lokalt verifierad 2026-10-20.
+- R01: sharp är låst till korrigerad 0.35.5 i app och hemsida. Bild-,
+  logg-, fordons- och intygsflöden verifieras. Ingen blind audit fix --force.
+- R02–03: hållbar återhämtning har separat bolags-/aktörs-/användaridentitet
+  från sessionsgenerationen. Varje flik äger sin skrivgren. Återspelning
+  kräver aktuella serverkontroller och bevarar ursprunglig konfliktbas.
+  Valfri läscache får inte blockera ett friskt serversvar; en ny skrivning
+  nekas om återhämtningskön inte kan sparas hållbart.
+- Flera konkurrerande köer och äldre administratörsköer utan säker ägare
+  bevaras för manuell granskning. Inga osända köer raderas för att frigöra
+  utrymme. Kompakta kvittensmarkörer undviker rekursiv tillväxt; generell
+  gallring av äldre källor/kvittensmarkörer återstår.
+- R04: tillfälligt tillgänglighetsfel bevarar transportformulär och utkast.
+  Sparande blockeras tills uppgifterna hämtats igen. Verifierad indragen
+  åtkomst eller ändrad användarkontext rensar fortfarande skyddad information.
+- R05: miljömottagning/attest jämför kanoniska ursprungsadresser utan
+  ändring av frysta original eller hashvärden. Verkliga skillnader nekas.
+- R06–07: gemensam betrodd klientadresspolicy, beständiga atomiska försök
+  före lösenordshashning, konto-/aktörs-/käll-/globalgränser och begränsat
+  samtidigt dyrt arbete. Första lösenordsbyte och synkroniseringsåterförsök
+  bevaras. Godtyckliga proxyheaders på direkta servrar ignoreras.
+- R08–10: lokala demo-/Expo-starter äger verklig Node-webb/API och kontrollerar
+  barnprocess samt /readyz före öppning/QR. Alla tre projekt använder
+  Node 24 LTS, >=24.19.0 <25; .nvmrc och instruktioner följer samma kontrakt.
+- R11–12: CI kör hela serverurvalet med egen PostgreSQL 17, Expo-typkontroll
+  och prioriterade browserflöden. Tester/byggkonfiguration utlöser kontroll.
+  Playwright använder egna disponibla register, filtrerad miljö och unik
+  körmarkör; en vanlig utvecklingsserver eller verksamhetsdatabas återanvänds inte.
+- Föråldrade testförväntningar rättas med uttryckliga konto-/anläggnings-
+  och datumfixturer. PostgreSQL-fixturer använder samma anslutningskontext;
+  inga transaktions- eller behörighetsspärrar lättas för att få gröna prov.
+- docs/arkitektur.md beskriver modulansvar och garantier. Ingen stor
+  omskrivning, mekanisk helrepoformatering eller mikroserviceuppdelning ingår.
+- Verifierat: 1 868 av 1 868 servertester med PostgreSQL 17, inga överhoppade
+  prov. Produktionsbygge och Expo-typkontroll passerar. Appens
+  produktionsberoenden har inga kända advisories vid npm audit 2026-10-20.
+  Samtliga 96 prioriterade Playwright-fall passerar efter uppdaterade
+  testfixturer; transportens tre fall kördes om separat. Urvalet omfattar
+  både browserflöden och rena formulärregler, inte hela browserbiblioteket.
+  Hemsidans nio bygg-/enhetstester passerar med det uppdaterade bildbiblioteket.
+  Hemsidans browserprov: 15 passerar, tre avsiktliga projekt-/skärmstorleks-
+  överhoppningar eftersom motsvarande kontroll körs i det andra projektet.
+  Lokal fil-/länkkontroll och separat kodgranskning är genomförda.
+- Separat uppföljning: kompatibel hantering av Expo-trädets advisories,
+  verkligt Render-backupåterläsningsprov och uppmätt last/anslutningsbudget.
+  Säkerhetsgranskningens hela ÄL 123 och backupomfånget ÄL 045 är inte
+  automatiskt klara genom denna avgränsade leverans.
