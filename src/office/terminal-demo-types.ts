@@ -7,7 +7,7 @@ export type ApprovalTarget = { channel: ApprovalChannel; siteId: string; termina
 export interface DemoSite { id: string; name: string; active?: boolean }
 export interface DemoTerminal {
   id: string; name: string; username: string; siteId: string; active: boolean;
-  online: boolean; busy: boolean; activeApprovalId?: string; lastSeen?: string;
+  online: boolean; busy: boolean; activeApprovalId?: string; busyKind?: 'approval' | 'intake'; activeIntakeId?: string; lastSeen?: string;
 }
 export interface SettlementRow { articleId: string; name: string; weight: number; price: number; amount: number }
 export interface PublicSettlement {
@@ -70,7 +70,7 @@ const finiteMoney = z.number().finite();
 const terminalSchema = z.object({
   id: z.string().min(1), name: z.string(), username: z.string(), siteId: z.string().min(1),
   active: z.boolean(), online: z.boolean(), busy: z.boolean(),
-  activeApprovalId: z.string().optional(), lastSeen: z.string().optional(),
+  activeApprovalId: z.string().optional(), busyKind: z.enum(['approval', 'intake']).optional(), activeIntakeId: z.string().min(1).optional(), lastSeen: z.string().optional(),
 });
 const settlementRowSchema = z.object({
   articleId: z.string().min(1), name: z.string(), weight: z.number().finite().nonnegative(),
@@ -120,5 +120,9 @@ export function parseTerminalSession(value: unknown): TerminalSessionState {
   return z.object({
     terminal: terminalSchema, approval: publicApprovalSchema.nullable(), siteName: z.string().optional(),
     revision: z.number().int().nonnegative().optional(), connectionId: z.string().min(1).optional(),
+  }).superRefine((session, context) => {
+    if ((session.terminal.busyKind === 'intake' || session.terminal.activeIntakeId) &&
+      (session.approval !== null || !session.terminal.busy || session.terminal.busyKind !== 'intake' || !session.terminal.activeIntakeId))
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Terminalens kundvisning är inte entydig.' });
   }).parse(value);
 }

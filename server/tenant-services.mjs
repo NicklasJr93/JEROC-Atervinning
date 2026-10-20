@@ -26,11 +26,14 @@ import { createCompanyLogoApi } from './company-logo-api.mjs';
 import { createSystemEmail } from './system-email.mjs';
 import { createWeighedDocumentEmail } from './weighed-document-email.mjs';
 import { createSystemSmsProvider } from './system-sms-provider.mjs';
+import { createCustomerIntakeService } from './customer-intake.mjs';
+import { createCustomerIntakeApi } from './customer-intake-api.mjs';
+import { employeeCompanyLookupContext, employeeRequestPrincipal } from './mobile-employee-api.mjs';
 
 /** All repositories, queues and provider connections belong to one immutable
  * server-selected organisation. A request can never change this bundle's scope. */
 export async function createTenantServices({ env, seed, initialSites, trustedPrincipalProvider, reauthorizeTrustedPrincipal, company, companySettingsAuthorize, weighedDocumentEmailSender,
-  registerCustomerApprovalLink, customerApprovalEmail, customerApprovalSms } = {}) {
+  registerCustomerApprovalLink, registerCustomerIntakeLink, customerApprovalEmail, customerApprovalSms } = {}) {
   const restrictIntegration = (provider, service) => restrictPilotIntegrationService({ env, provider, service });
   const organisationId = env.SCRAPPILOT_ORGANISATION_ID ?? env.JEROC_TENANT_ID ?? 'jeroc-demo';
   if (organisationId !== 'jeroc-demo' && (!company || company.id !== organisationId || !company.name?.trim()))
@@ -291,6 +294,25 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
     },
   });
 
+    const deliverIntakeSms = Object.assign(async job => {
+      const url = new URL('/kunduppgifter/', env.APP_URL || 'https://app.scrapplanner.com');
+      url.hash = `token=${job.token}`;
+      return remoteProviders.sms.sendCustomerIntake({ to: job.to, requestId: job.requestId,
+        companyName: job.companyName, intakeUrl: url.href, createdAt: job.createdAt, expiresAt: job.expiresAt });
+    }, { configured: remoteProviders.sms.configured === true && typeof remoteProviders.sms.sendCustomerIntake === 'function' });
+    const customerIntakeService = createCustomerIntakeService({ repository: await applicationApi.getRepository(),
+      authorizeStaff: (req, state, { write = false } = {}) => {
+        // Includes the authenticated employee/person fence; supplied names or
+        // tenant selectors never substitute for an actual session.
+        employeeCompanyLookupContext(state, req);
+        return employeeRequestPrincipal(state, req, { enforceGate: write });
+      },
+      terminalAccess: terminalDemoApi,
+      companyProfileProvider: async () => ({ id: organisationId, name: (await documentCompany()).name }),
+      registerLink: registerCustomerIntakeLink,
+      deliverSms: deliverIntakeSms,
+    });
+    const customerIntakeApi = createCustomerIntakeApi({ service: customerIntakeService, terminalAccess: terminalDemoApi });
     try {
       await applicationApi.getRepository();
       await vismaService.initialize();
@@ -323,13 +345,14 @@ export async function createTenantServices({ env, seed, initialSites, trustedPri
       await weighedDocumentEmailService.close();
       await Promise.allSettled([environmentApi.close(), applicationApi.close(), documentsApi.close(), articleMediaApi.close(), companyLogoService.close()]);
     }
-    return { applicationApi, articleMediaApi, companySettingsService, companyLogoService, weighedDocumentEmailService, vismaService, swishService, bankService, mailService, resolveMailContext, environmentApi, terminalDemoApi, documentsApi, close,
+    return { applicationApi, customerIntakeService, articleMediaApi, companySettingsService, companyLogoService, weighedDocumentEmailService, vismaService, swishService, bankService, mailService, resolveMailContext, environmentApi, terminalDemoApi, documentsApi, close,
       async handle(req, res, url) {
         if (handlePilotIntegrationRequest(env, req, res, url)) return true;
         if (await companySettingsApi(req, res, url)) return true;
         if (await companyLogoApi(req, res, url)) return true;
         if (await mailApi(req, res, url)) return true;
         if (await articleMediaApi(req, res, url)) return true;
+        if (await customerIntakeApi(req, res, url)) return true;
         if (await applicationApi(req, res, url)) return true;
         if (await documentsApi(req, res, url)) return true;
         if (await terminalDemoApi(req, res, url)) return true;

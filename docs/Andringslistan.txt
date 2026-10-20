@@ -3711,3 +3711,24 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
   värden, äldre systemadminkonton och oförändrade behörighetsgränser.
   Formulärprov kontrollerar rött fel, bibehållna val och lyckat omförsök.
   Testerna använder isolerade konton; verkliga personaluppgifter ändras inte.
+
+
+ÄL 149 – Kunden fyller i sina uppgifter via terminal eller SMS
+Status: Genomförd och lokalt verifierad 2026-10-20.
+- Låt kunden fylla i från mobilens Välj kund, kopplat till sparat pågående
+  vågkort. Välj ansluten terminal eller mobilnummer för en personlig länk.
+- Personalen fortsätter väga medan kunden fyller i. Mottagna uppgifter
+  granskas och kopplas till rätt kundkort utan att skriva över vikter.
+- E-post förklaras användas för kvitton och information om inlämningen,
+  utan reklam. Bankuppgifter sparas på kundkortet för återanvändning.
+- Swish visas utgråat; tryck visar Kommer snart och väljer inget betalningssätt.
+- Förfrågan ska granskas eller avbrytas före färdigställande. Byte av kund,
+  utgången länk eller avbrutet kort får inte återanvända gammal inmatning.
+- Separata bolag, begränsade kundlänkar, behörighetskontroll och gemensam
+  terminalreservation behåller kundregister och godkännandeflöde skyddade.
+- Befintligt bankkonto ersätts inte. Formuläret ger ingen åtkomst till
+  andra kunduppgifter eller rätt att godkänna/attestera avräkningen.
+- Dokumentation: docs/kunduppgifter-terminal-sms.md.
+- Verifiering: produktionsbygge, Expo-typkontroll, 73 riktade serverprov
+  och 12 browserfall passerar. Befintlig mobil systemadmin och tidigare
+  kundgodkännande kontrolleras tillsammans med det nya kundformuläret.

@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { principalOwnsUser } from './business-identity.mjs';
 import { createHash } from 'node:crypto';
+import { guardCustomerIntakeDraftChange } from './customer-intake.mjs';
 import { z } from 'zod';
 import { createApplicationRepository } from './application-storage.mjs';
 import { createPricingStore, resolvePricingPrincipal, PricingError } from './pricing.mjs';
@@ -1103,6 +1104,7 @@ export function createApplicationService({ repository, env = process.env, seed =
             for (const change of changes) {
               if (change.before && !mobileDraftVisible(state, p, change.before)) fail('Vägningen tillhör en annan anläggning.', 403);
               if (change.before?.status === 'ready' && !equal(change.before, change.after)) fail('Färdiga vägningar är låsta.');
+              guardCustomerIntakeDraftChange(state, change.before, change.after);
               if (change.after && !change.before) {
                 demandNewMobileSite(p, mobileSites, change.after);
                 demandOriginalMobileSite(state, change.after);

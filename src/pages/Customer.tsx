@@ -29,6 +29,7 @@ import { applyInitialPaymentTerms, useCompanyDefaults } from '../company-setting
 import { formatCompanyRegisterAddress, normalizeCompanyLookupNumber } from '../company-register/client';
 import type { PaymentDetails } from '../payment-details';
 import MobilePaymentFields from './MobilePaymentFields';
+import MobileCustomerIntake from '../customer-intake/MobileCustomerIntake';
 import './customer.css';
 
 const returnPage = (draft: Draft) =>
@@ -39,6 +40,7 @@ export function CustomerPage() {
   const [search, setSearch] = useState('');
   const [choosing, setChoosing] = useState(false);
   const [linked, setLinked] = useState(false);
+  const [intakeBusy, setIntakeBusy] = useState(false);
   if (!draft) return <MissingDraft />;
   const selected = data.customers.find((c) => c.id === draft.customerId);
   const showSelected = selected && !choosing;
@@ -173,16 +175,19 @@ export function CustomerPage() {
               <Button
                 variant="outline"
                 icon={Plus}
+                disabled={intakeBusy}
                 onClick={() => navigate(`/weigh/${draft.id}/customer/new`)}
               >
                 Skapa ny kund
               </Button>
-              <p className="section-caption">{listed.length} DEMOKUNDER</p>
+              <MobileCustomerIntake draft={draft} onBusyChange={setIntakeBusy} />
+              <p className="section-caption">{listed.length} KUNDER</p>
               <div className="customer-list">
                 {listed.map((c) => (
                   <button
                     className="customer-choice"
                     key={c.id}
+                    disabled={intakeBusy}
                     onClick={() => select(c)}
                   >
                     <span className="customer-choice-icon">
@@ -205,12 +210,11 @@ export function CustomerPage() {
               {!listed.length && (
                 <Empty
                   title="Ingen kund hittades"
-                  text="Prova en annan sökning eller skapa en ny demokund."
+                  text="Prova en annan sökning, låt kunden fylla i eller skapa en ny kund."
                 />
               )}
               <Notice>
-                Kundval är valfritt. Kontoret kan komplettera detta senare i den
-                färdiga appen.
+                Du kan fortsätta väga medan kunduppgifterna kompletteras.
               </Notice>
             </>
           )}

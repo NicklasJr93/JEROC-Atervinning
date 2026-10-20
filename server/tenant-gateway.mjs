@@ -23,6 +23,7 @@ import { createPlatformPasswordReset } from './platform-password-reset.mjs';
 import { initialAdminProfileForDeployment } from './deployment-profile-seeds.mjs';
 import { createStaffInvitations, validateStaffInvitationTarget } from './staff-invitations.mjs';
 import { createPublicCustomerApproval } from './public-customer-approval.mjs';
+import { createPublicCustomerIntake } from './public-customer-intake.mjs';
 import { createGlobalEmployeeLogin } from './mobile-global-login.mjs';
 import { createMobilePlatformSupport } from './mobile-platform-support.mjs';
 import { attachMobileSupport, mobileSupportIdentity, withMobileSupportAuthorization } from './mobile-support-identity.mjs';
@@ -30,6 +31,7 @@ import { attachMobileSupport, mobileSupportIdentity, withMobileSupportAuthorizat
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
 const deviceRoute = url => /^\/api\/terminal-demo\/(session|login|logout|heartbeat|terminal-events)$/.test(url.pathname)
+  || /^\/api\/terminal-demo\/customer-intake(?:\/submit)?$/.test(url.pathname)
   || /^\/api\/terminal-demo\/approvals\/[^/]+\/(respond|displayed)$/.test(url.pathname);
 const employeeRoute = url => url.pathname === '/api/company-settings/defaults' || url.pathname.startsWith('/api/employee/') || url.pathname.startsWith('/api/driver/')
   || /^\/api\/(customer|carrier)\//.test(url.pathname)
@@ -61,6 +63,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const fleetSimulator = createFleetSimulatorBridge({ testCarApi });
   const repository = platformRepository ?? await createPlatformStorage({ env });
   const customerApprovalLinks = createPublicCustomerApproval({ repository, env, openCompany: company => bundle(company) });
+  const customerIntakeLinks = createPublicCustomerIntake({ repository, env, openCompany: company => bundle(company) });
   let schemaPool, auth, stopping = false;
   const defaultCompany = profile.pilot ? undefined : { id: legacyId, name: 'JEROC Återvinning AB', organisationNumber: '5593593626', status: 'active', storageSchema: 'public' };
   if (profile.pilot && await repository.read(state => state.companies.some(company => company.id === legacyId))) {
@@ -96,6 +99,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
         return makeServices({ env: scopedEnv, company,
           customerApprovalEmail: systemEmail, customerApprovalSms: systemSms,
           registerCustomerApprovalLink: input => customerApprovalLinks.register(company.id, input),
+          registerCustomerIntakeLink: input => customerIntakeLinks.register(company.id, input),
           ...(registeredOwner && { seed: () => createTenantApplicationState({ tenant: company, owner: {
             id: registeredOwner.id, personId: `person-${registeredOwner.id}`, name: registeredOwner.name, username: registeredOwner.username,
             email: registeredOwner.email, passwordHash: registeredOwner.password, mustChangePassword: registeredOwner.mustChangePassword,
@@ -343,6 +347,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/')) return false;
     if (await customerApprovalLinks.handle(req, res, url)) return true;
+    if (await customerIntakeLinks.handle(req, res, url)) return true;
     if (await mobilePlatformSupport.handle(req, res, url)) return true;
     if (await globalEmployeeLogin.handle(req, res, url)) return true;
     if (await companyRegisterApi(req, res, url)) return true;

@@ -4,6 +4,8 @@ import { ArrowLeft, Check, CheckCircle2, ChevronDown, CircleAlert, ClipboardList
 import { TerminalDemoError, terminalDemoApi } from '../office/terminal-demo-client';
 import { parseTerminalSession, publicApprovalSchema, type PublicApproval, type TerminalSessionState } from '../office/terminal-demo-types';
 import { SettlementView } from './SettlementView';
+import CustomerIntakeForm from '../customer-intake/CustomerIntakeForm';
+import type { CustomerIntakeInput, PublicCustomerIntakeState } from '../customer-intake/types';
 import './terminal.css';
 import { tenantPublicEventUrl } from '../tenant-public-context';
 import { useTenantCompanyName } from '../use-tenant-company';
@@ -58,6 +60,64 @@ function TerminalDialog({ title, children, onClose, busy = false }: { title: str
 }
 
 
+/** Each reservation mounts a fresh form. No customer data is kept after the
+ * device disconnects, its cookie epoch changes or staff finishes this intake. */
+function TerminalCustomerIntake({ intakeId, onUnavailable }: { intakeId: string; onUnavailable: () => void }) {
+  const [state, setState] = useState<PublicCustomerIntakeState | null>(null);
+  const [error, setError] = useState('');
+  const [expired, setExpired] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const mounted = useRef(false);
+  const requests = useRef(new Set<AbortController>());
+  const submission = useRef<{ fingerprint: string; requestId: string } | undefined>(undefined);
+  useEffect(() => {
+    mounted.current = true;
+    const controller = new AbortController(); requests.current.add(controller);
+    void terminalDemoApi.customerIntake(controller.signal).then(result => {
+      if (!mounted.current || controller.signal.aborted) return;
+      if (!result || result.intake.id !== intakeId) { setExpired(true); onUnavailable(); return; }
+      setState(result); setError('');
+    }).catch(failure => {
+      if (!mounted.current || controller.signal.aborted) return;
+      if (failure instanceof TerminalDemoError && [401, 403, 409, 410].includes(failure.status)) { setExpired(true); onUnavailable(); }
+      else setError(errorLabel(failure));
+    }).finally(() => requests.current.delete(controller));
+    return () => { mounted.current = false; for (const request of requests.current) request.abort(); requests.current.clear(); };
+  }, [intakeId, onUnavailable, attempt]);
+  useEffect(() => {
+    if (!state) return;
+    const timer = window.setTimeout(() => { setExpired(true); setState(null); onUnavailable(); },
+      Math.max(0, Math.min(24 * 60 * 60 * 1000, Date.parse(state.intake.expiresAt) - Date.now())));
+    return () => window.clearTimeout(timer);
+  }, [state, onUnavailable]);
+  const submit = async (customer: CustomerIntakeInput) => {
+    if (!state || state.intake.id !== intakeId || expired || state.intake.status !== 'waiting')
+      throw new Error('Kundformuläret har avslutats. Be personalen om hjälp.');
+    const fingerprint = JSON.stringify(customer);
+    if (submission.current?.fingerprint !== fingerprint) submission.current = { fingerprint, requestId: crypto.randomUUID() };
+    const controller = new AbortController(); requests.current.add(controller);
+    try {
+      const result = await terminalDemoApi.submitCustomerIntake({ id: intakeId, requestId: submission.current.requestId, customer }, controller.signal);
+      if (!mounted.current || controller.signal.aborted) return;
+      if (result.intake.id !== intakeId) { setExpired(true); onUnavailable(); return; }
+      setState(result);
+    } catch (failure) {
+      if (!mounted.current || controller.signal.aborted) return;
+      if (failure instanceof TerminalDemoError && [401, 403, 409, 410].includes(failure.status)) { setExpired(true); setState(null); onUnavailable(); }
+      throw failure;
+    } finally { requests.current.delete(controller); }
+  };
+  if (expired || state && !['waiting', 'submitted'].includes(state.intake.status))
+    return <main className="terminal-welcome" aria-live="polite"><div className="terminal-welcome-icon"><ShieldCheck size={48} /></div><h1>Kundformuläret är avslutat</h1><p>Invänta personalen.</p></main>;
+  if (state?.intake.status === 'submitted')
+    return <main className="terminal-welcome" aria-live="polite"><div className="terminal-welcome-icon"><CheckCircle2 size={52} /></div><h1>Tack, uppgifterna är skickade</h1><p>Personalen granskar dina uppgifter och hjälper dig med nästa steg.</p></main>;
+  if (!state) return <main className="terminal-welcome" aria-live="polite">{error ? <><p className="terminal-error" role="alert">{error}</p><button className="terminal-button outline" onClick={() => { setError(''); setAttempt(value => value + 1); }}>Försök igen</button></> : <><LoaderCircle className="terminal-spinner" size={32} /><p>Hämtar kundformuläret…</p></>}</main>;
+  return <main className="terminal-intake"><div className="terminal-heading"><span className="terminal-eyebrow">KUNDUPPGIFTER</span><h1>Fyll i dina uppgifter</h1><p className="terminal-intro">Skicka uppgifterna till personalen hos {state.company.name}. Personalen granskar dem innan de sparas.</p></div>
+    <CustomerIntakeForm onSubmit={submit} autoComplete="off" />
+  </main>;
+}
+
+
 export default function TerminalApp() {
   const companyName = useTenantCompanyName();
   const [session, setSession] = useState<TerminalSessionState | null>(null);
@@ -82,7 +142,8 @@ export default function TerminalApp() {
   const previousApprovalRef = useRef<PublicApproval | null>(null);
   const respondingRef = useRef('');
   const terminalId = session?.terminal.id;
-  const approval = connected ? session?.approval ?? null : null;
+  const intakeId = connected && session?.terminal.busyKind === 'intake' ? session.terminal.activeIntakeId : undefined;
+  const approval = connected && !intakeId ? session?.approval ?? null : null;
   const approvalKey = approval ? `${approval.id}:${approval.version}` : null;
 
   const clearCustomer = useCallback(() => {
@@ -130,6 +191,8 @@ export default function TerminalApp() {
     refreshFlight.current = pending;
     return pending.promise;
   }, [acceptSession, clearCustomer, markDisconnected]);
+
+  const refreshIntake = useCallback(() => { void refresh(); }, [refresh]);
 
   useEffect(() => {
     void refresh();
@@ -276,7 +339,7 @@ export default function TerminalApp() {
       <label htmlFor="terminal-password">Lösenord</label><div className="terminal-input-icon"><LockKeyhole size={18} /><input id="terminal-password" name="password" type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} disabled={loginPending} /></div>
       {error && <p className="terminal-error" role="alert"><CircleAlert size={17} />{error}</p>}
       <button className="terminal-button green" disabled={loginPending}>{loginPending ? <><LoaderCircle className="terminal-spinner" size={19} /> Ansluter…</> : 'Logga in terminal'}</button>
-    </form><p className="terminal-login-help">Kontot skapas av systemadmin under Terminaler.</p></main> : idle ? <main className="terminal-welcome" aria-live="polite">
+    </form><p className="terminal-login-help">Kontot skapas av systemadmin under Terminaler.</p></main> : intakeId ? <TerminalCustomerIntake key={`${session.connectionId}:${intakeId}`} intakeId={intakeId} onUnavailable={refreshIntake} /> : idle ? <main className="terminal-welcome" aria-live="polite">
       <div className={`terminal-welcome-icon${connected ? '' : ' offline'}`}>{connected ? <ShieldCheck size={53} /> : <WifiOff size={48} />}</div>
       <span className="terminal-eyebrow">{session.terminal.name}</span><h1>Välkommen till {companyName}</h1><h2>{connected ? 'Invänta personal' : 'Återansluter…'}</h2><p>{connected ? 'Din avräkning visas här när personalen är redo.' : 'Kundvisningen är dold tills anslutningen har återställts.'}</p>
       <div className="terminal-ready"><span className={`terminal-connection-dot${connected ? '' : ' offline'}`} />{connected ? 'Terminalen är redo' : 'Ingen kontakt med servern'}</div>{notice && <p className="terminal-notice">{notice}</p>}
@@ -290,7 +353,7 @@ export default function TerminalApp() {
         <div className="terminal-customer-actions"><button className="terminal-button green" disabled={responding} onClick={() => { if (!termsAccepted) { setError('Bekräfta att du har granskat avräkningen och intygandet först.'); return; } void respond('id_requested'); }}><IdCard size={20} />{responding ? 'Skickar till personal…' : 'Godkänn'}</button><button className="terminal-button outline" disabled={responding} onClick={() => { setChangeOpen(true); setError(''); window.scrollTo({ top: 0, behavior: 'instant' }); }}>Begär ändring</button></div>
       </>}
     </main>}
-    <footer className="terminal-footer"><span>Legitimationen kontrolleras av personalen innan kundgodkännandet registreras.</span>{session && <small>{session.terminal.name}</small>}</footer>
+    <footer className="terminal-footer"><span>{intakeId ? 'Dina uppgifter granskas av personalen. Detta är inte ett kundgodkännande.' : 'Legitimationen kontrolleras av personalen innan kundgodkännandet registreras.'}</span>{session && <small>{session.terminal.name}</small>}</footer>
     {approval && waitingForId && <TerminalDialog key={`terminal-dialog:${approvalKey}`} title="Visa din legitimation" busy={responding}>
       <div className="terminal-dialog-icon"><IdCard size={36} /></div><h2>Visa din legitimation</h2><h3 className="terminal-dialog-waiting-title">Inväntar personalens bekräftelse</h3><p>Visa din legitimation för kontoristen. Personalen kontrollerar identiteten och registrerar godkännandet på sin skärm.</p><div className="terminal-waiting" role="status"><LoaderCircle size={18} className="terminal-spinner" /> Kontoristen fortsätter på sin skärm</div><p className="terminal-dialog-method">Fysisk legitimation · avräkningsversion {approval.version}</p>
     </TerminalDialog>}

@@ -107,6 +107,10 @@ const audit = (state, now, action, principal, details = {}) => {
   state.audit.push({ id: randomUUID(), at: now.toISOString(), action,
     ...(principal ? { actualUserId: principal.actor.id, effectiveUserId: principal.user.id, actor: principal.user.name } : {}), ...details });
 };
+const terminalConnectionId = (state, terminalId) => {
+  const session = state.terminalSessions.find(value => value.terminalId === terminalId);
+  return session ? hash(session.tokenHash).slice(0, 24) : undefined;
+};
 const activeApproval = (state, terminalId) => state.approvals.find((approval) => approval.terminalId === terminalId && ACTIVE.includes(approval.status));
 const releaseApproval = (state, approval, status, now, principal, reason) => {
   approval.status = status; approval.updatedAt = now.toISOString();
@@ -118,6 +122,16 @@ function cleanup(state, now, sites) {
   state.staffSessions = state.staffSessions.filter((session) => Date.parse(session.expiresAt) > now.getTime());
   state.terminalSessions = state.terminalSessions.filter((session) => Date.parse(session.expiresAt) > now.getTime());
   state.loginAttempts = state.loginAttempts.filter((attempt) => Date.parse(attempt.at) > now.getTime() - 10 * 60 * 1000);
+  for (const terminal of state.terminals) {
+    const reservation = terminal.intakeReservation;
+    if (reservation && (Date.parse(reservation.expiresAt) <= now.getTime() || !terminal.active
+      || !sites.some(site => site.id === terminal.siteId && site.active !== false)
+      || terminalConnectionId(state, terminal.id) !== reservation.connectionId
+      || !terminal.lastSeen || now.getTime() - Date.parse(terminal.lastSeen) > DISCONNECT_AGE)) {
+      delete terminal.intakeReservation;
+      audit(state, now, 'terminal.intake_expired', undefined, { terminalId: terminal.id, intakeId: reservation.intakeId });
+    }
+  }
   for (const approval of state.approvals.filter((value) => ACTIVE.includes(value.status))) {
     const remote = ['email', 'sms'].includes(approval.channel);
     const terminal = state.terminals.find((value) => value.id === approval.terminalId);
@@ -140,7 +154,9 @@ function terminalDTO(state, terminal, now, sites) {
   const hasSession = state.terminalSessions.some((session) => session.terminalId === terminal.id && Date.parse(session.expiresAt) > now.getTime());
   return { id: terminal.id, name: terminal.name, username: terminal.username, siteId: terminal.siteId,
     active: terminal.active, online: terminal.active && sites.some((site) => site.id === terminal.siteId && site.active !== false) && hasSession && Boolean(terminal.lastSeen) && now.getTime() - Date.parse(terminal.lastSeen) < ONLINE_AGE,
-    busy: Boolean(approval), ...(approval ? { activeApprovalId: approval.id } : {}), ...(terminal.lastSeen ? { lastSeen: terminal.lastSeen } : {}) };
+    busy: Boolean(approval || terminal.intakeReservation),
+    ...(approval ? { activeApprovalId: approval.id, busyKind: 'approval' }
+      : terminal.intakeReservation ? { activeIntakeId: terminal.intakeReservation.intakeId, busyKind: 'intake' } : {}), ...(terminal.lastSeen ? { lastSeen: terminal.lastSeen } : {}) };
 }
 
 function approvalDTO(approval, principal, revision) {
@@ -275,6 +291,11 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
   };
   const cancelTerminal = (state, terminalId, time, principal, reason) => {
     state.terminalSessions = state.terminalSessions.filter((session) => session.terminalId !== terminalId);
+    const terminal = state.terminals.find(value => value.id === terminalId);
+    if (terminal?.intakeReservation) {
+      const intakeId = terminal.intakeReservation.intakeId; delete terminal.intakeReservation;
+      audit(state, time, 'terminal.intake_released', principal, { terminalId, intakeId });
+    }
     const approval = activeApproval(state, terminalId);
     if (approval) releaseApproval(state, approval, 'cancelled', time, principal, reason);
   };
@@ -302,6 +323,101 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
       return copy(request?.approvalId ? value.approvals.filter(approval => approval.id === request.approvalId) : value.approvals);
     }, {projections:true,...(request?.cardId===undefined?{}:{cardId:request.cardId})}),
     repository,
+    // Internal intake adapters use the same aggregate lock as approval.send.
+    // Callers must acquire the application transaction first and only mutate
+    // that already-active state in the callback (application -> terminal).
+    authorizeIntakeDevice(deviceToken) {
+      return readOperation((state, time, catalog) => {
+        const terminal = device(state, deviceToken, time);
+        if (!catalog.some(site => site.id === terminal.siteId && site.active !== false))
+          throw new TerminalDemoError('Anläggningen är avaktiverad.', 409, 'site_inactive');
+        return Object.freeze({ id: terminal.id, siteId: terminal.siteId, name: terminal.name,
+          connectionId: terminalConnectionId(state, terminal.id) });
+      }, { deviceHash: hash(deviceToken ?? '') });
+    },
+    listIntakeTerminals(identity, selectedSiteId) {
+      return readOperation((state, time, catalog) => {
+        const principal = principalStore.principal(identity?.actorId, identity?.userId);
+        const visible = catalog.filter(site => site.active !== false &&
+          allowedSites(principal, catalog).some(value => value.id === site.id) &&
+          allowedSites({ user: principal.actor }, catalog).some(value => value.id === site.id));
+        if (selectedSiteId && !visible.some(site => site.id === selectedSiteId))
+          throw new TerminalDemoError('Du saknar åtkomst till denna anläggning.', 403, 'forbidden');
+        return state.terminals.filter(terminal => terminal.active && visible.some(site => site.id === terminal.siteId)
+          && (!selectedSiteId || terminal.siteId === selectedSiteId)).map(terminal => {
+          const value = terminalDTO(state, terminal, time, catalog);
+          return { id: value.id, name: value.name, siteId: value.siteId, online: value.online, busy: value.busy,
+            ...(value.busyKind ? { busyKind: value.busyKind } : {}),
+            ...(value.activeIntakeId ? { activeIntakeId: value.activeIntakeId } : {}) };
+        });
+      }, { maintenance: true });
+    },
+    withIntakeTerminal(input, identity, operation, deviceToken) {
+      const request = validate(z.object({ terminalId: id, siteId, intakeId: id,
+        connectionId: z.string().min(1).max(100).optional(), expiresAt: z.string().datetime().optional(),
+        operation: z.enum(['claim', 'use', 'release']) }).strict(), input);
+      if (typeof operation !== 'function') throw new TerminalDemoError('Terminalåtgärden saknas.');
+      return transaction(async (state, time, catalog) => {
+        let principal, terminal;
+        if (deviceToken !== undefined) {
+          // Only the internal intake service can request release after checking
+          // its cancelled/expired app record. There is no device release route.
+          if (request.operation === 'claim') throw new TerminalDemoError('Terminalen får inte reservera kundformulär.', 403, 'forbidden');
+          terminal = device(state, deviceToken, time);
+          if (identity?.id !== terminal.id || identity?.connectionId !== terminalConnectionId(state, terminal.id))
+            throw new TerminalDemoError('Terminalsessionen har ändrats.', 409, 'terminal_session_changed');
+        } else {
+          if (!identity?.actorId || !identity?.userId) throw new TerminalDemoError('Logga in på kontoret.', 401, 'staff_session_required');
+          principal = principalStore.principal(identity.actorId, identity.userId);
+          // A closed intake may outlive a removed or moved device. Authorize
+          // its original facility before reconciling that old reservation.
+          demandSite(principal, request.siteId, catalog);
+          demandSite({ user: principal.actor }, request.siteId, catalog);
+          if (request.operation === 'release' && !state.terminals.some(value => value.id === request.terminalId))
+            return operation(Object.freeze({ id: request.terminalId, siteId: request.siteId, connectionId: request.connectionId }));
+          terminal = findTerminal(state, request.terminalId, principal, catalog);
+          demandSite({ user: principal.actor }, terminal.siteId, catalog);
+        }
+        if (terminal.id !== request.terminalId || terminal.siteId !== request.siteId) {
+          if (request.operation === 'release') return operation(Object.freeze({ id: terminal.id, siteId: terminal.siteId, name: terminal.name, connectionId: terminalConnectionId(state, terminal.id) }));
+          throw new TerminalDemoError('Terminalen hör inte till denna anläggning.', 409, 'site_mismatch');
+        }
+        const reservation = terminal.intakeReservation;
+        const connectionId = terminalConnectionId(state, terminal.id);
+        if (request.operation === 'claim') {
+          if (!terminalDTO(state, terminal, time, catalog).online)
+            throw new TerminalDemoError('Terminalen är offline. Välj en ansluten terminal.', 409, 'terminal_offline');
+          if (!request.expiresAt || Date.parse(request.expiresAt) <= time.getTime() || Date.parse(request.expiresAt) > time.getTime() + 24 * 60 * 60 * 1000)
+            throw new TerminalDemoError('Kundformulärets giltighetstid är ogiltig.', 422, 'intake_expiry_invalid');
+          if (activeApproval(state, terminal.id) || reservation && reservation.intakeId !== request.intakeId
+            || state.terminals.some(value => value.id !== terminal.id && value.intakeReservation?.intakeId === request.intakeId))
+            throw new TerminalDemoError('Terminalen är upptagen. Välj en annan terminal.', 409, 'terminal_busy');
+          if (!reservation) {
+            terminal.intakeReservation = { intakeId: request.intakeId, connectionId, expiresAt: request.expiresAt };
+            audit(state, time, 'terminal.intake_claimed', principal, { terminalId: terminal.id, intakeId: request.intakeId });
+          }
+        } else {
+          const epochChanged = (request.operation === 'use' || Boolean(reservation)) && request.connectionId !== connectionId;
+          const ownershipChanged = reservation && (reservation.intakeId !== request.intakeId || reservation.connectionId !== request.connectionId);
+          // Reconciliation of old A must not throw inside the shared database
+          // transaction when the device now belongs to B. Even a caught nested
+          // error marks PostgreSQL's outer application transaction rollback-only.
+          if (request.operation === 'release' && (!request.connectionId || epochChanged || ownershipChanged))
+            return operation(Object.freeze({ id: terminal.id, siteId: terminal.siteId, name: terminal.name, connectionId }));
+          if (!request.connectionId || epochChanged || ownershipChanged)
+            throw new TerminalDemoError('Terminalens kundformulär har ersatts eller avslutats.', 409, 'terminal_intake_changed');
+          if (request.operation === 'use' && activeApproval(state, terminal.id))
+            throw new TerminalDemoError('Terminalen används för kundgodkännande.', 409, 'terminal_busy');
+          if (request.operation === 'use' && !reservation)
+            throw new TerminalDemoError('Kundformuläret är avslutat eller har gått ut.', 410, 'terminal_intake_expired');
+          if (request.operation === 'release' && reservation) {
+            delete terminal.intakeReservation;
+            audit(state, time, 'terminal.intake_released', principal, { terminalId: terminal.id, intakeId: request.intakeId });
+          }
+        }
+        return operation(Object.freeze({ id: terminal.id, siteId: terminal.siteId, name: terminal.name, connectionId }));
+      });
+    },
     // Server-only callback. Holding the terminal aggregate lock prevents a
     // cancelled/superseded customer version from winning a concurrent receipt.
     withApprovedCard(input, operation) {
@@ -442,9 +558,13 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         if (active && (!previousToken || active.tokenHash !== hash(previousToken))) return { error: new TerminalDemoError('Terminalkontot används redan på en annan enhet. Be Systemadmin avsluta sessionen.', 409, 'terminal_session_in_use') };
         state.terminalSessions = state.terminalSessions.filter((session) => session.terminalId !== terminal.id);
         state.loginAttempts = state.loginAttempts.filter((attempt) => attempt.key !== attemptKey);
+        if (terminal.intakeReservation) {
+          const intakeId = terminal.intakeReservation.intakeId; delete terminal.intakeReservation;
+          audit(state, time, 'terminal.intake_released', undefined, { terminalId: terminal.id, intakeId });
+        }
         state.terminalSessions.push({ terminalId: terminal.id, tokenHash: hash(secret), expiresAt: new Date(time.getTime() + TERMINAL_AGE).toISOString() });
         terminal.lastSeen = time.toISOString(); audit(state, time, 'terminal.login', undefined, { terminalId: terminal.id });
-        return { revision:state.revision, connectionId:hash(state.terminalSessions.find(session=>session.terminalId===terminal.id)?.tokenHash ?? terminal.id).slice(0,24), terminal: terminalDTO(state, terminal, time, catalog), siteName: catalog.find((site) => site.id === terminal.siteId)?.name ?? terminal.siteId,
+        return { revision:state.revision, connectionId:terminalConnectionId(state, terminal.id), terminal: terminalDTO(state, terminal, time, catalog), siteName: catalog.find((site) => site.id === terminal.siteId)?.name ?? terminal.siteId,
           approval: publicApproval(activeApproval(state, terminal.id),state.revision) };
       });
       if (result.error) throw result.error;
@@ -453,7 +573,7 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
     session(deviceToken) {
       return readOperation((state, time, catalog) => {
         const terminal = device(state, deviceToken, time);
-        return { revision:state.revision, connectionId:hash(state.terminalSessions.find(session=>session.terminalId===terminal.id)?.tokenHash ?? terminal.id).slice(0,24), terminal: terminalDTO(state, terminal, time, catalog), siteName: catalog.find((site) => site.id === terminal.siteId)?.name ?? terminal.siteId,
+        return { revision:state.revision, connectionId:terminalConnectionId(state, terminal.id), terminal: terminalDTO(state, terminal, time, catalog), siteName: catalog.find((site) => site.id === terminal.siteId)?.name ?? terminal.siteId,
           approval: publicApproval(activeApproval(state, terminal.id),state.revision) };
       },{deviceHash:hash(deviceToken??'')});
     },
@@ -516,6 +636,7 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
         const cardMatchesSite = request.card.siteId ? request.card.siteId === request.siteId : request.card.yard === selectedSite?.name;
         if (!cardMatchesSite || terminal && (!terminal.active || terminal.siteId !== request.siteId)) throw new TerminalDemoError('Kort och mottagare måste tillhöra samma anläggning.', 409, 'site_mismatch');
         if (terminal && !terminalView.online) throw new TerminalDemoError('Terminalen är offline. Logga in på terminalen eller välj en annan.', 409, 'terminal_offline');
+        if (terminal?.intakeReservation) throw new TerminalDemoError('Terminalen används för kunduppgifter. Välj en annan terminal.', 409, 'terminal_busy');
         const busy = terminal && activeApproval(state, terminal.id);
         if (busy && busy.cardId !== request.card.id) throw new TerminalDemoError('Terminal upptagen. Välj en annan terminal.', 409, 'terminal_busy');
         if (request.card.customerId !== request.customer.id) throw new TerminalDemoError('Kunden stämmer inte med invägningskortet.');
@@ -987,6 +1108,22 @@ export function createTerminalDemoApi({ principalStore = createPricingStore(), r
     const actualUserId=req.headers['x-terminal-actual-user'],effectiveUserId=req.headers['x-terminal-effective-user'];
     const trustedPrincipal = trustedPrincipalProvider?.(req);
     return expectedStaffIdentity.run(trustedPrincipal||actualUserId||effectiveUserId?{actualUserId,effectiveUserId,trustedPrincipal}:undefined,()=>handle(req,res,url));
+  };
+  const intakeDeviceSessions = new WeakMap();
+  api.authorizeIntakeDevice = async req => {
+    checkOrigin(req);
+    const deviceToken = cookie(req, TERMINAL_COOKIE);
+    const identity = await (await getStore()).authorizeIntakeDevice(deviceToken);
+    intakeDeviceSessions.set(identity, deviceToken);
+    return identity;
+  };
+  api.listIntakeTerminals = async (identity, siteId) => (await getStore()).listIntakeTerminals(identity, siteId);
+  api.withIntakeTerminal = async (input, identity, operation) => {
+    const deviceToken = identity && intakeDeviceSessions.get(identity);
+    // A copied device DTO is not an authenticated terminal identity.
+    if (identity?.connectionId && deviceToken === undefined)
+      throw new TerminalDemoError('Logga in på terminalen igen.', 401, 'terminal_session_required');
+    return (await getStore()).withIntakeTerminal(input, identity, operation, deviceToken);
   };
   api.initialize = async () => { await getStore(); };
   api.sendPrepared = async (payload,identity,req) => {

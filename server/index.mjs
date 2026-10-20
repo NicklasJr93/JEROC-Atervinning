@@ -124,7 +124,7 @@ async function handle(req, res) {
     reply(res, 404, 'Not found');
     return;
   }
-  const staticPath = ['/', '/testbil1', '/testbil1/', '/rosttest', '/rosttest/', '/godkann', '/godkann/', '/kontor/rosttest', '/kontor/rosttest/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/kontor/integration/systemadminswishtest.html', '/kontor/integration/systemadminbanktest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
+  const staticPath = ['/', '/testbil1', '/testbil1/', '/rosttest', '/rosttest/', '/godkann', '/godkann/', '/kunduppgifter', '/kunduppgifter/', '/kontor/rosttest', '/kontor/rosttest/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/kontor/integration/systemadminswishtest.html', '/kontor/integration/systemadminbanktest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
   const file = resolve(dist, `.${staticPath}`);
   const within = relative(dist, file);
   if (within.startsWith('..') || isAbsolute(within)) {
@@ -148,6 +148,7 @@ async function handle(req, res) {
   res.writeHead(200, {
     'Content-Type': mime[extname(file)] ?? 'application/octet-stream',
     'Content-Length': info.size,
+    ...(['/kunduppgifter', '/kunduppgifter/'].includes(pathname) ? { 'Referrer-Policy': 'no-referrer' } : {}),
     'Cache-Control': /^\/assets\/[^/]+-[\w-]+\.[\w]+$/.test(pathname)
       ? 'public, max-age=31536000, immutable'
       : 'no-cache',

@@ -112,6 +112,8 @@ async function supportFixture(page: Page, options: { authenticated?: boolean; mu
     }
     const company = selected;
     if (!company) return send(route, { error: 'Välj bolag först.' }, 409);
+    if (path === '/api/employee/customer-intake' && request.method() === 'GET')
+      return send(route, { intake: null, terminals: [], smsConfigured: false });
     if (path === '/api/employee/overview') {
       const projection = overview(company);
       if (holdOldReads && company.id === companies[0].id) {

@@ -20,12 +20,15 @@ import { sharedBusinessCacheKey, sharedBusinessIdentity, useSharedData } from '.
 import { useEmployee } from './employee/EmployeeProvider';
 import { employeeCompanyId, employeeIdentity, employeeRecoveryKey, legacyEmployeeRecoveryKey } from './employee/cache';
 import { platformRequestHeaders } from './platform/session';
+import type { CustomerIntakeApplyResult } from './customer-intake/client';
 type Context = {
   data: DemoData;
   storageError: string;
   loggedIn: boolean;
   passwordRequired: boolean;
   sharedReady: boolean;
+  flushDraft: (draftId: string) => Promise<Draft>;
+  acceptCustomerIntake: (result: CustomerIntakeApplyResult, expectedDraft: Draft) => Promise<boolean>;
   login: (name: string, password: string) => Promise<boolean>;
   logout: () => void;
   saveDraft: (draft: Draft) => boolean;
@@ -137,6 +140,41 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     loggedIn,
     passwordRequired,
     sharedReady: shared.ready,
+    async flushDraft(draftId) {
+      const initiatingIdentity = identity;
+      await shared.flush();
+      if (identityRef.current !== initiatingIdentity) throw new Error('Inloggningen eller bolaget har ändrats. Öppna vägningen igen.');
+      const draft = dataRef.current.drafts.find(value => value.id === draftId);
+      if (!draft || draft.status === 'ready') throw new Error('Vägningen är inte längre ett öppet utkast.');
+      return structuredClone(draft);
+    },
+    async acceptCustomerIntake(result, expectedDraft) {
+      const initiatingIdentity = identity;
+      const current = dataRef.current.drafts.find(value => value.id === expectedDraft.id);
+      if (identityRef.current !== initiatingIdentity || !current || current.status === 'ready'
+        || current.siteId !== expectedDraft.siteId || current.customerId !== expectedDraft.customerId
+        || result.draftPatch.id !== expectedDraft.id || result.intake.draftId !== expectedDraft.id
+        || result.draftPatch.customerId !== result.customer.id || result.intake.status !== 'applied') return false;
+      // applyConfirmed rebases this narrow server projection through the live
+      // write queue. We never replace rows, vehicle input or a newer timestamp
+      // with the snapshot captured before the customer answered.
+      shared.applyConfirmed(live => ({
+        ...live,
+        customers: live.customers.some(customer => customer.id === result.customer.id)
+          ? live.customers.map(customer => customer.id === result.customer.id ? { ...customer, ...result.customer } : customer)
+          : [...live.customers, result.customer],
+        drafts: live.drafts.map(draft => draft.id !== expectedDraft.id ? draft : {
+          ...draft, customerId: result.draftPatch.customerId, reference: result.draftPatch.reference,
+          origin: result.draftPatch.origin, originDetails: result.draftPatch.originDetails,
+          customerSelectionsSavedAt: result.draftPatch.customerSelectionsSavedAt,
+        }),
+      }), result.revision);
+      await shared.flush();
+      if (identityRef.current !== initiatingIdentity) return false;
+      await shared.refresh();
+      return identityRef.current === initiatingIdentity && dataRef.current.drafts.some(draft =>
+        draft.id === expectedDraft.id && draft.customerId === result.customer.id);
+    },
     async login(name, provided) {
       try { await employee.login(name, provided); return true; }
       catch { return false; }

@@ -15,6 +15,10 @@ function normalizeDomains(state, domains) {
   if (!domains || domains.includes('workOrderWeighing')) {
     state.workOrderWeighing ??= { version: 1, drafts: {} }; state.workOrderWeighing.drafts ??= {};
   }
+  if (!domains || domains.includes('customerIntake')) {
+    state.customerIntake ??= { version: 1, sessions: [], requests: [], attempts: [], audit: [] };
+    for (const key of ['sessions', 'requests', 'attempts', 'audit']) state.customerIntake[key] ??= [];
+  }
   return state;
 }
 function selectedDomains(domains) {

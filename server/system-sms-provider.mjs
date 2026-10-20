@@ -18,6 +18,15 @@ const customerApprovalSchema = commandSchema.extend({
   expiresAt: z.string().max(40).datetime({ offset: true }).transform(value => new Date(value).toISOString()),
 }).strict().refine(value => Date.parse(value.expiresAt) > Date.parse(value.createdAt)
   && Date.parse(value.expiresAt) - Date.parse(value.createdAt) <= 24 * 60 * 60_000);
+const customerIntakeSchema = z.object({
+  to: commandSchema.shape.to,
+  requestId: commandSchema.shape.requestId,
+  companyName: z.string().trim().min(1).max(200).refine(value => !/[\u0000-\u001f\u007f]/.test(value)),
+  intakeUrl: z.string().min(1).max(2048),
+  createdAt: z.string().datetime({ offset: true }),
+  expiresAt: z.string().datetime({ offset: true }),
+}).strict().refine(value => Date.parse(value.expiresAt) > Date.parse(value.createdAt)
+  && Date.parse(value.expiresAt) - Date.parse(value.createdAt) <= 24 * 60 * 60_000);
 const receiptSchema = z.object({ id: z.string().regex(/^s[a-f0-9]{32}$/), status: z.enum(['created', 'sent', 'delivered', 'failed']) });
 
 export class SystemSmsError extends Error {
@@ -26,25 +35,26 @@ export class SystemSmsError extends Error {
   }
 }
 const fail = (status, code, message, outcome = 'not_sent') => { throw new SystemSmsError(status, code, message, outcome); };
-const unknownOutcome = (purpose = 'test') => fail(503, 'system_sms_outcome_unknown', purpose === 'customer-approval'
+const unknownOutcome = (purpose = 'test') => fail(503, 'system_sms_outcome_unknown', purpose === 'customer-intake'
+  ? 'SMS-utskicket med kundformuläret kunde inte bekräftas. Kontrollera utskicksloggen hos 46elks innan du gör ett nytt försök.' : purpose === 'customer-approval'
   ? 'Kundgodkännandets SMS-utskick kunde inte bekräftas. Kontrollera utskicksloggen hos 46elks innan du gör ett nytt försök.'
   : 'SMS-testets resultat kunde inte bekräftas. Kontrollera utskicksloggen hos 46elks innan du gör ett nytt försök.', 'unknown');
 
-function customerApprovalLink(value, configuredAppUrl) {
+function customerApprovalLink(value, configuredAppUrl, pathname = '/godkann/') {
   try {
     const app = new URL(configuredAppUrl ?? 'https://app.scrapplanner.com'), link = new URL(value);
     if (app.protocol !== 'https:' || app.username || app.password || app.pathname !== '/' || app.search || app.hash
       || link.protocol !== 'https:' || link.origin !== app.origin || link.username || link.password
-      || link.pathname !== '/godkann/' || link.search || !/^#token=[A-Za-z0-9_-]{43}$/.test(link.hash)) return undefined;
+      || link.pathname !== pathname || link.search || !/^#token=[A-Za-z0-9_-]{43}$/.test(link.hash)) return undefined;
     return link.href;
   } catch { return undefined; }
 }
-function customerApprovalMessage(companyName, approvalUrl) {
+function customerApprovalMessage(companyName, approvalUrl, purpose = 'customer-approval') {
   // Keep this fixed template GSM-friendly. Company names are presentation only;
   // the full original name is shown on the authenticated approval page.
   const company = companyName.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^A-Za-z0-9 &.,'-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 32).trim() || 'Foretaget';
-  return `${company}: Godkann underlaget: ${approvalUrl} /ScrapPlanner`;
+  return `${company}: ${purpose === 'customer-intake' ? 'Fyll i dina kunduppgifter' : 'Godkann underlaget'}: ${approvalUrl} /ScrapPlanner`;
 }
 
 function withSignal(promise, signal) {
@@ -81,7 +91,7 @@ async function readJson(response, signal) {
 }
 
 function providerFailure(status, purpose = 'test') {
-  const subject = purpose === 'customer-approval' ? 'kundgodkännandets SMS' : 'SMS-testet';
+  const subject = purpose === 'customer-intake' ? 'kundformulärets SMS' : purpose === 'customer-approval' ? 'kundgodkännandets SMS' : 'SMS-testet';
   if ([401, 403].includes(status))
     fail(503, 'system_sms_credentials_rejected', `46elks nekade ${subject}. Kontrollera ELKS_API_USERNAME, ELKS_API_PASSWORD och kontots utskicksbehörighet.`);
   if (status === 402)
@@ -146,5 +156,11 @@ export function createSystemSmsProvider({ env = process.env, fetchImpl = fetch, 
     if (!parsed.success || !approvalUrl) fail(422, 'system_sms_invalid', 'Utskicket för kundgodkännande innehåller ogiltiga uppgifter.');
     return send(parsed.data.to, customerApprovalMessage(parsed.data.companyName, approvalUrl), 'customer-approval', signal);
   }
-  return Object.freeze({ configured, sendTest, sendCustomerApproval });
+  async function sendCustomerIntake(input, { signal } = {}) {
+    const parsed = customerIntakeSchema.safeParse(input);
+    const intakeUrl = parsed.success && customerApprovalLink(parsed.data.intakeUrl, env.APP_URL, '/kunduppgifter/');
+    if (!parsed.success || !intakeUrl) fail(422, 'system_sms_invalid', 'Utskicket med kundformuläret innehåller ogiltiga uppgifter.');
+    return send(parsed.data.to, customerApprovalMessage(parsed.data.companyName, intakeUrl, 'customer-intake'), 'customer-intake', signal);
+  }
+  return Object.freeze({ configured, sendTest, sendCustomerApproval, sendCustomerIntake });
 }

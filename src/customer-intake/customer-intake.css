@@ -1,0 +1,50 @@
+.customer-intake-form { display: grid; gap: 22px; width: 100%; text-align: left; }
+.customer-intake-fields { display: grid; gap: 26px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.customer-intake-section { display: grid; gap: 16px; min-width: 0; }
+.customer-intake-section + .customer-intake-section { padding-top: 24px; border-top: 1px solid #e0e8ef; }
+.customer-intake-section h2 { display: flex; align-items: center; gap: 10px; margin: 0; color: #183953; font-size: 19px; }
+.customer-intake-section h2 > svg { flex: 0 0 auto; color: #227bba; }
+.customer-intake-form label { display: grid; gap: 7px; margin: 0; color: #385670; font-size: 14px; font-weight: 650; }
+.customer-intake-form input, .customer-intake-form select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 48px; margin: 0; padding: 11px 13px; border: 1px solid #ccdce8; border-radius: 9px; background: #fff; color: #173851; font: inherit; font-size: 16px; font-weight: 400; }
+.customer-intake-form input:focus-visible, .customer-intake-form select:focus-visible, .customer-intake-form button:focus-visible { outline: 3px solid #80b8ee; outline-offset: 3px; }
+.customer-intake-form input:disabled, .customer-intake-form select:disabled { opacity: .7; background: #f3f6fa; }
+.customer-intake-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.customer-intake-help { display: flex; align-items: flex-start; gap: 8px; margin: 0; color: #607b91; font-size: 13px; line-height: 1.55; font-weight: 400; }
+.customer-intake-help > svg { flex: 0 0 auto; margin-top: 2px; }
+.customer-intake-form .customer-intake-bank-toggle { display: flex; align-items: center; gap: 10px; padding: 14px; border: 1px solid #d8e4ec; border-radius: 10px; background: #f7fafc; }
+.customer-intake-form .customer-intake-bank-toggle input { width: 20px; min-height: 20px; height: 20px; margin: 0; padding: 0; accent-color: #1470c7; }
+.customer-intake-swish { display: inline-flex; align-items: center; justify-content: center; gap: 10px; justify-self: start; min-height: 44px; padding: 10px 16px; border: 1px solid #dbe3e9; border-radius: 9px; background: #f0f3f6; color: #7c8c99; font: inherit; font-size: 14px; cursor: pointer; }
+.customer-intake-swish img { width: 20px; height: 20px; filter: grayscale(1); opacity: .55; }
+.customer-intake-notice { margin: 0; color: #607b91; font-size: 14px; }
+.customer-intake-error { margin: 0; padding: 13px 15px; border: 1px solid #edc4c1; border-radius: 9px; background: #fff3f1; color: #a34038; font-size: 14px; line-height: 1.5; }
+.customer-intake-submit { display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 52px; padding: 14px 20px; border: 0; border-radius: 10px; background: #1269ba; color: #fff; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer; }
+.customer-intake-submit:disabled { cursor: default; opacity: .6; }
+.customer-intake-form .mobile-payment-fields { display: grid; gap: 16px; padding: 18px; border: 1px solid #dae6ed; border-radius: 12px; background: #f9fbfd; }
+.customer-intake-form .mobile-payment-fields .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.customer-intake-form .mobile-payment-extra { color: #496980; font-size: 14px; }
+.customer-intake-form .mobile-payment-extra summary { padding: 8px 0; cursor: pointer; }
+.customer-intake-form .mobile-payment-extra .stack { display: grid; gap: 14px; margin-top: 8px; }
+.public-customer-intake { box-sizing: border-box; min-height: 100dvh; padding: 28px 16px; background: #f1f6fa; color: #173851; }
+.public-customer-intake-card { box-sizing: border-box; max-width: 650px; margin: 0 auto; padding: 30px; border: 1px solid #dce7ef; border-radius: 18px; background: #fff; box-shadow: 0 12px 45px #16334e0a; }
+.public-customer-intake-brand { display: flex; flex-direction: column; align-items: center; gap: 12px; padding-bottom: 24px; border-bottom: 1px solid #e4ebf1; text-align: center; }
+.public-customer-intake-brand img { width: auto; max-width: min(240px, 100%); max-height: 74px; object-fit: contain; }
+.public-customer-intake-brand strong { font-size: 18px; }
+.customer-intake-intro { margin: 28px 0; }
+.customer-intake-intro > span { display: inline-flex; align-items: center; gap: 7px; color: #28825a; font-size: 13px; font-weight: 650; }
+.customer-intake-intro h1, .customer-intake-state h1 { margin: 10px 0; font-size: clamp(24px, 5vw, 30px); line-height: 1.25; letter-spacing: -.6px; }
+.customer-intake-intro p, .customer-intake-state p { margin: 10px 0; color: #607b91; font-size: 15px; line-height: 1.6; }
+.customer-intake-state { display: grid; justify-items: center; gap: 12px; padding: 40px 0; text-align: center; }
+.customer-intake-state > svg { color: #5986a6; }
+.customer-intake-receipt > svg { color: #24865d; }
+.public-customer-intake-footer { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 30px; padding-top: 22px; border-top: 1px solid #e4ebf1; color: #73899a; font-size: 12px; }
+.public-customer-intake-footer img { width: 104px; height: auto; }
+.customer-intake-spinner { animation: customer-intake-spin 1s linear infinite; }
+@keyframes customer-intake-spin { to { transform: rotate(360deg); } }
+@media (max-width: 480px) {
+  .public-customer-intake { padding: 0; background: #fff; }
+  .public-customer-intake-card { padding: 22px 18px; border: 0; border-radius: 0; box-shadow: none; }
+  .customer-intake-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .customer-intake-form .mobile-payment-fields { padding: 14px; }
+  .customer-intake-form .customer-identity-input { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .customer-intake-spinner { animation: none; } }

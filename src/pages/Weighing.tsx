@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Check,
@@ -44,6 +44,7 @@ import {
 import { useDemo } from '../store';
 import { MissingDraft, useDraft } from './shared';
 import { useEmployee } from '../employee/EmployeeProvider';
+import MobileCustomerIntake from '../customer-intake/MobileCustomerIntake';
 
 export function ModePage() {
   const { data, saveDraft } = useDemo();
@@ -557,12 +558,23 @@ export function SummaryPage() {
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState<MaterialRow | null>(null);
   const [error, setError] = useState('');
+  // Check the server before enabling finalization: a customer may have just
+  // submitted while the worker was entering weights on another screen.
+  const [intakeCheck, setIntakeCheck] = useState<{ draftId: string; pending: boolean } | null>(null);
+  const setCustomerIntakePending = useCallback((pending: boolean) => {
+    if (draft) setIntakeCheck({ draftId: draft.id, pending });
+  }, [draft?.id]);
   if (!draft) return <MissingDraft />;
+  const customerIntakePending = intakeCheck?.draftId !== draft.id || intakeCheck.pending;
   const locked = draft.status === 'ready';
   const customer = data.customers.find((c) => c.id === draft.customerId);
   const complete =
     isComplete(draft) && !draft.pendingWeight && !draft.vehicleInput;
   function finish() {
+    if (customerIntakePending) {
+      setError('Granska och använd kunduppgifterna, eller avbryt kundförfrågan, innan vägningen sparas som färdig.');
+      return;
+    }
     if (!complete) {
       setError(
         'Färdigställ alla materialvikter innan du sparar vägningen som färdig.',
@@ -656,6 +668,7 @@ export function SummaryPage() {
           <>
             {' '}
             <CustomerLink draftId={draft.id} customerId={draft.customerId} />
+            <MobileCustomerIntake draft={draft} compact onPendingChange={setCustomerIntakePending} />
             <ReferenceLink
               draftId={draft.id}
               customerId={draft.customerId}
@@ -667,7 +680,7 @@ export function SummaryPage() {
         {error && <Notice tone="red">{error}</Notice>}
         {!locked && (
           <div className="stack tight">
-            <Button icon={Check} onClick={finish} disabled={!complete}>
+            <Button icon={Check} onClick={finish} disabled={!complete || customerIntakePending}>
               Spara färdig vägning
             </Button>
             <Button

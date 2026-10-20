@@ -9,6 +9,7 @@ import { createPricingStore } from './pricing.mjs';
 import { createTerminalDemoRepository, TerminalDemoError } from './terminal-demo-storage.mjs';
 import { createTerminalDemoStore, createTerminalDemoApi } from './terminal-demo.mjs';
 import { withBusinessIdentity } from './business-identity.mjs';
+import { runInDatabaseTransaction } from './database-runtime.mjs';
 
 const fail = (operation, status, code) => assert.rejects(async () => operation(), (error) => error.status === status && (!code || error.code === code));
 const customer = { id: 'customer-build', name: 'Bygg & Riv AB', type: 'Företag', number: '5591237895',
@@ -571,4 +572,113 @@ test('a failed database initialization can recover on retry without restarting t
     server.closeAllConnections(); server.close(); await once(server, 'close'); await api.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('intake reservations share terminal occupancy with financial approvals in both directions', async () => fixture(async f => {
+  const terminal = await f.create();
+  const loggedIn = await f.service.login({ username: terminal.username, password: 'demolosen123' });
+  const identity = { actorId: 'admin', userId: 'admin' };
+  const reserve = { terminalId: terminal.id, siteId: terminal.siteId, intakeId: 'intake-one',
+    expiresAt: '2026-10-09T10:20:00.000Z', operation: 'claim' };
+  const claimed = await f.service.withIntakeTerminal(reserve, identity, value => value);
+  assert.equal(claimed.connectionId, loggedIn.result.connectionId);
+  let session = await f.service.session(loggedIn.token);
+  assert.equal(session.terminal.busy, true); assert.equal(session.terminal.busyKind, 'intake');
+  assert.equal(session.terminal.activeIntakeId, 'intake-one'); assert.equal(session.approval, null);
+  const publicList = await f.service.listIntakeTerminals(identity, terminal.siteId);
+  assert.deepEqual(Object.keys(publicList[0]).sort(), ['activeIntakeId', 'busy', 'busyKind', 'id', 'name', 'online', 'siteId']);
+  await fail(() => f.service.send(f.payload(9991, terminal.id), f.admin), 409, 'terminal_busy');
+  await f.service.withIntakeTerminal({ ...reserve, operation: 'release', connectionId: claimed.connectionId }, identity, () => true);
+  const approval = await f.service.send(f.payload(9992, terminal.id), f.admin);
+  await fail(() => f.service.withIntakeTerminal({ ...reserve, intakeId: 'intake-two' }, identity, () => true), 409, 'terminal_busy');
+  session = await f.service.session(loggedIn.token);
+  assert.equal(session.terminal.busyKind, 'approval'); assert.equal(session.approval.id, approval.id);
+  assert.equal(session.terminal.activeIntakeId, undefined);
+}));
+
+test('intake callbacks roll back reservations and release is bound to intake and connection epoch', async () => fixture(async f => {
+  const terminal = await f.create();
+  const loggedIn = await f.service.login({ username: terminal.username, password: 'demolosen123' });
+  const staffIdentity = { actorId: 'admin', userId: 'admin' };
+  const input = { terminalId: terminal.id, siteId: terminal.siteId, intakeId: 'intake-cas',
+    expiresAt: '2026-10-09T10:20:00.000Z', operation: 'claim' };
+  await assert.rejects(() => f.service.withIntakeTerminal(input, staffIdentity, () => { throw new Error('application rollback'); }), /application rollback/);
+  assert.equal((await f.service.session(loggedIn.token)).terminal.busy, false);
+  const claimed = await f.service.withIntakeTerminal(input, staffIdentity, value => value);
+  const device = await f.service.authorizeIntakeDevice(loggedIn.token);
+  assert.equal(Object.isFrozen(device), true);
+  const use = { ...input, operation: 'use', connectionId: claimed.connectionId };
+  assert.equal(await f.service.withIntakeTerminal(use, device, value => value.id, loggedIn.token), terminal.id);
+  await fail(() => f.service.withIntakeTerminal({ ...use, connectionId: 'old-epoch' }, device, () => true, loggedIn.token), 409, 'terminal_intake_changed');
+  assert.equal(await f.service.withIntakeTerminal({ ...use, operation: 'release', intakeId: 'old-intake' }, staffIdentity, () => 'old-closed'), 'old-closed');
+  assert.equal((await f.service.session(loggedIn.token)).terminal.activeIntakeId, input.intakeId);
+  // Internal cancellation reconciliation can release the same reservation
+  // with its verified device identity; a device cannot create a reservation.
+  await fail(() => f.service.withIntakeTerminal(input, device, () => true, loggedIn.token), 403, 'forbidden');
+  await f.service.withIntakeTerminal({ ...use, operation: 'release' }, device, () => true, loggedIn.token);
+  await f.service.withIntakeTerminal({ ...input, intakeId: 'next-customer' }, staffIdentity, () => true);
+  assert.equal(await f.service.withIntakeTerminal({ ...use, operation: 'release' }, staffIdentity, () => 'old-closed'), 'old-closed');
+  assert.equal(await f.service.withIntakeTerminal({ ...use, operation: 'release', connectionId: 'old-epoch' }, staffIdentity, () => 'old-epoch-closed'), 'old-epoch-closed');
+  assert.equal((await f.service.session(loggedIn.token)).terminal.activeIntakeId, 'next-customer');
+  // Exercise the real shared-unit rollback-only fence around the terminal
+  // repository. An old release must commit the outer application callback,
+  // even while a different customer owns this terminal.
+  const calls = [], pool = { async connect() { return { query: async sql => { calls.push(sql); return { command: sql === 'COMMIT' ? 'COMMIT' : undefined }; }, release() {} }; } };
+  const repository = f.service.repository;
+  const nestedService = createTerminalDemoStore({ repository: { ...repository,
+    transact: operation => runInDatabaseTransaction(pool, () => repository.transact(operation)) },
+    principalStore: f.pricing, now: () => new Date('2026-10-09T10:00:00.000Z') });
+  let reconciled = false;
+  await runInDatabaseTransaction(pool, () => nestedService.withIntakeTerminal({ ...use, operation: 'release' }, staffIdentity, () => { reconciled = true; }));
+  assert.equal(reconciled, true); assert.deepEqual(calls, ['BEGIN', 'COMMIT']);
+  assert.equal((await f.service.session(loggedIn.token)).terminal.activeIntakeId, 'next-customer');
+}));
+
+test('expired, disconnected and replaced device sessions cannot retain or reuse an intake', async () => fixture(async f => {
+  const terminal = await f.create();
+  let loggedIn = await f.service.login({ username: terminal.username, password: 'demolosen123' });
+  const identity = { actorId: 'admin', userId: 'admin' };
+  const input = { terminalId: terminal.id, siteId: terminal.siteId, intakeId: 'intake-expiring',
+    expiresAt: '2026-10-09T10:00:10.000Z', operation: 'claim' };
+  const claimed = await f.service.withIntakeTerminal(input, identity, value => value);
+  f.advance(11_000);
+  assert.equal((await f.service.session(loggedIn.token)).terminal.busy, false);
+  await fail(() => f.service.withIntakeTerminal({ ...input, operation: 'use', connectionId: claimed.connectionId }, identity, () => true), 410, 'terminal_intake_expired');
+  await f.service.withIntakeTerminal({ ...input, intakeId: 'second-intake', expiresAt: '2026-10-09T10:20:00.000Z' }, identity, () => true);
+  const oldDevice = await f.service.authorizeIntakeDevice(loggedIn.token), oldToken = loggedIn.token;
+  loggedIn = await f.service.login({ username: terminal.username, password: 'demolosen123' }, oldToken);
+  assert.notEqual(loggedIn.result.connectionId, claimed.connectionId);
+  assert.equal(loggedIn.result.terminal.busy, false);
+  await fail(() => f.service.withIntakeTerminal({ ...input, intakeId: 'second-intake', operation: 'use', connectionId: claimed.connectionId }, oldDevice, () => true, oldToken), 401, 'terminal_session_required');
+  await f.service.withIntakeTerminal({ ...input, intakeId: 'third-intake', expiresAt: '2026-10-09T10:20:00.000Z' }, identity, () => true);
+  f.advance(91_000);
+  assert.equal((await f.service.session(loggedIn.token)).terminal.busy, false);
+}));
+
+test('intake staff list and reservation check both current staff facility scopes', async () => fixture(async f => {
+  const terminal = await f.create();
+  await f.service.login({ username: terminal.username, password: 'demolosen123' });
+  const users = f.pricing.read(f.pricing.principal('admin')).users;
+  f.pricing.saveUsers({ users: users.map(user => user.id === 'admin' ? { ...user, siteIds: ['rimbo'] } : user) }, f.pricing.principal('admin'));
+  const identity = { actorId: 'admin', userId: 'kajsa' };
+  assert.deepEqual(await f.service.listIntakeTerminals(identity), []);
+  await fail(() => f.service.listIntakeTerminals(identity, 'norrtalje'), 403, 'forbidden');
+  await fail(() => f.service.withIntakeTerminal({ terminalId: terminal.id, siteId: 'norrtalje', intakeId: 'intake-denied', operation: 'claim', expiresAt: '2026-10-09T10:20:00.000Z' }, identity, () => true), 403, 'forbidden');
+  await fail(() => f.service.withIntakeTerminal({ terminalId: terminal.id, siteId: 'norrtalje', intakeId: 'intake-denied', connectionId: 'old-epoch', operation: 'release' }, identity, () => true), 403, 'forbidden');
+}));
+
+test('staff intake release reconciles inactive or removed devices without weakening device authentication', async () => {
+  let sites = [{ id: 'norrtalje', name: 'Norrtälje', active: true }];
+  await fixture(async f => {
+    const terminal = await f.create(), loggedIn = await f.service.login({ username: terminal.username, password: 'demolosen123' });
+    const identity = { actorId: 'admin', userId: 'admin' }, input = { terminalId: terminal.id, siteId: terminal.siteId, intakeId: 'old-intake',
+      expiresAt: '2026-10-09T10:20:00.000Z', operation: 'claim' };
+    const claimed = await f.service.withIntakeTerminal(input, identity, value => value);
+    const device = await f.service.authorizeIntakeDevice(loggedIn.token);
+    sites = sites.map(site => ({ ...site, active: false }));
+    assert.equal(await f.service.withIntakeTerminal({ ...input, operation: 'release', connectionId: claimed.connectionId }, identity, () => 'closed'), 'closed');
+    assert.equal(await f.service.withIntakeTerminal({ ...input, terminalId: 'removed-device', operation: 'release', connectionId: claimed.connectionId }, identity, () => 'closed'), 'closed');
+    await f.service.logout(loggedIn.token);
+    await fail(() => f.service.withIntakeTerminal({ ...input, operation: 'release', connectionId: claimed.connectionId }, device, () => true, loggedIn.token), 401, 'terminal_session_required');
+  }, { siteProvider: async () => sites });
 });

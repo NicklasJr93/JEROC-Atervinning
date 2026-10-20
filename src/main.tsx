@@ -14,6 +14,7 @@ const TestCarApp = React.lazy(() => import('./testcar/TestCarApp'));
 const VoiceTestApp = React.lazy(() => import('./voice-test/VoiceTestApp'));
 const PublicVoiceTestApp = React.lazy(() => import('./voice-test/PublicVoiceTestApp'));
 const CustomerApprovalApp = React.lazy(() => import('./customer-approval/CustomerApprovalApp'));
+const PublicCustomerIntakeApp = React.lazy(() => import('./customer-intake/PublicCustomerIntakeApp'));
 const pagePath = window.location.pathname.replace(/\/$/, '');
 const nvvTestPage = pagePath === '/kontor/integration/systemadminintegrationtest.html';
 const vismaTestPage = pagePath === '/kontor/integration/systemadminvismatest.html';
@@ -21,7 +22,7 @@ const swishTestPage = pagePath === '/kontor/integration/systemadminswishtest.htm
 const bankTestPage = pagePath === '/kontor/integration/systemadminbanktest.html';
 const voiceTestPage = pagePath === '/rosttest';
 const officeVoiceTestPage = pagePath === '/kontor/rosttest';
-const standalonePortal = ['/godkann', '/testbil1', '/rosttest', '/terminal', '/chauffor', '/kund', '/akeri'].includes(pagePath);
+const standalonePortal = ['/godkann', '/kunduppgifter', '/testbil1', '/rosttest', '/terminal', '/chauffor', '/kund', '/akeri'].includes(pagePath);
 // The mobile app keeps ordinary employee requests unchanged. When a real
 // platform admin logs in, its in-memory session supplies same-origin API fences.
 if (!standalonePortal) installPlatformFetchGuard();
@@ -32,7 +33,9 @@ if ((nvvTestPage || vismaTestPage || swishTestPage || bankTestPage) && !window.l
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <HashRouter>
-      {pagePath === '/godkann' ? (
+      {pagePath === '/kunduppgifter' ? (
+        <React.Suspense fallback={<div role="status">Öppnar kunduppgifterna…</div>}><PublicCustomerIntakeApp /></React.Suspense>
+      ) : pagePath === '/godkann' ? (
         <React.Suspense fallback={<div role="status">Öppnar kundgodkännandet…</div>}><CustomerApprovalApp /></React.Suspense>
       ) : pagePath === '/testbil1' ? (
         <React.Suspense fallback={<div role="status">Öppnar testbilen…</div>}><TestCarApp /></React.Suspense>

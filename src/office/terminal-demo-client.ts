@@ -1,3 +1,4 @@
+import { publicCustomerIntakeStateSchema, type CustomerIntakeInput } from '../customer-intake/types';
 import type { SpirisAttestAction } from './booking-client';
 import { parseTerminalApproval, parseTerminalDemoState, parseTerminalSession, type ApprovalSend, type CustomerReviewCommand, type CustomerReviewResult, type DemoTerminal, type TerminalApproval, type TerminalDemoState, type TerminalSessionState } from './terminal-demo-types';
 import { tenantPublicHeaders } from '../tenant-public-context';
@@ -12,7 +13,7 @@ const staffHeaders = (identity = staffIdentity): Record<string, string> => ident
   'X-Terminal-Effective-User': identity.effectiveUserId,
 } : {};
 export async function terminalRequest<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal, expectedStaff?: TerminalStaffIdentity): Promise<T> {
-  const deviceRequest = /^\/(?:login|session|heartbeat|logout)(?:$|\/)|^\/approvals\/[^/]+\/(?:respond|displayed)$/.test(path);
+  const deviceRequest = /^\/(?:login|session|heartbeat|logout)(?:$|\/)|^\/customer-intake(?:$|\/)|^\/approvals\/[^/]+\/(?:respond|displayed)$/.test(path);
   const response = await fetch(`/api/terminal-demo${path}`, {
     method, credentials: 'same-origin', signal,
     headers: { Accept: 'application/json', ...(deviceRequest ? await tenantPublicHeaders() : {}), ...(path === '/staff-session' || deviceRequest ? {} : staffHeaders(expectedStaff)), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
@@ -39,6 +40,12 @@ export const terminalDemoApi = {
   attest: (id: string, expectedStaff?: TerminalStaffIdentity, options?: { spirisAction: SpirisAttestAction }) => terminalRequest<TerminalApproval>(`/approvals/${encodeURIComponent(id)}/attest`, 'POST', options ?? {}, undefined, expectedStaff),
   login: async (username: string, password: string) => parseTerminalSession(await terminalRequest<TerminalSessionState>('/login', 'POST', { username, password })),
   session: async (signal?: AbortSignal) => parseTerminalSession(await terminalRequest<TerminalSessionState>('/session', 'GET', undefined, signal)),
+  customerIntake: async (signal?: AbortSignal) => {
+    const result = await terminalRequest<{ intake: unknown }>('/customer-intake', 'GET', undefined, signal);
+    return result.intake === null ? null : publicCustomerIntakeStateSchema.parse(result);
+  },
+  submitCustomerIntake: async (value: { id: string; requestId: string; customer: CustomerIntakeInput }, signal?: AbortSignal) =>
+    publicCustomerIntakeStateSchema.parse(await terminalRequest('/customer-intake/submit', 'POST', value, signal)),
   heartbeat: () => terminalRequest<{ alive: boolean; revision: number }>('/heartbeat', 'POST', {}),
   displayed: (id: string, version: number, snapshotHash: string) => terminalRequest(`/approvals/${encodeURIComponent(id)}/displayed`, 'POST', { version, snapshotHash }),
   logout: () => terminalRequest('/logout', 'POST', {}),

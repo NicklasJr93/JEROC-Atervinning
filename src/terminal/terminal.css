@@ -191,3 +191,8 @@
   .terminal-footer { background: #fff; padding: 12px 0 0; }
   .terminal-footer small { display: none; }
 }
+
+.terminal-intake { flex: 1; width: min(100%, 760px); margin: 0 auto; padding: 12px 28px 44px; }
+.terminal-intake .terminal-heading h1 { margin-top: 9px; font-size: clamp(27px, 4vw, 34px); }
+.terminal-intake .customer-intake-section { background: #fff; }
+@media (max-width: 520px) { .terminal-intake { padding: 8px 18px 30px; } }
