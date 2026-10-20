@@ -63,7 +63,10 @@ import {
 } from './pricing-client';
 import PaymentEditor, { PaymentReadOnly } from './PaymentEditor';
 import CompanyLookup from '../company-register/CompanyLookup';
+import PersonLookup from '../person-register/PersonLookup';
+import { usePersonLookupAutofill } from '../person-register/usePersonLookupAutofill';
 import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
+import { inspectCustomerIdentifier } from '../customer-identity';
 import AddressField from '../address-assistance/AddressField';
 import { applyInitialPaymentTerms, useCompanyDefaults } from '../company-settings-defaults';
 import { cardRoute, safeAuditText } from './workflow';
@@ -1396,6 +1399,7 @@ function CustomerDetails({
   const [checkedFields, setCheckedFields] = useState<string[]>([]);
   const initialPaymentTermDays = useRef(customer.paymentTermDays);
   const paymentTermDirty = useRef(false);
+  const personAutofill = usePersonLookupAutofill(draft, setDraft, draft.id);
   useEffect(() => {
     if (!fresh && !editing) {
       setDraft(structuredClone(customer));
@@ -1418,6 +1422,8 @@ function CustomerDetails({
   }, [companyDefaults, fresh, preserveInitialType, busy]);
   const showCustomPaymentTerm = customPaymentTerm || draft.paymentTermDays !== undefined && ![0, 1, 10, 30].includes(draft.paymentTermDays);
   const duplicates = customerDraftDuplicates(draft, customers);
+  const identifierKind = inspectCustomerIdentifier(draft.number).kind;
+  const personalIdentity = identifierKind === 'person' || identifierKind === 'coordination';
   useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -1472,8 +1478,8 @@ function CustomerDetails({
           value={{ address: draft.address, postalCode: draft.postalCode, city: draft.city, countryCode: draft.countryCode }}
           scopeKey={JSON.stringify([draft.id, draft.type, draft.number])}
           requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
-          onChange={address => setDraft(current => ({ ...current, address }))}
-          onApply={address => { if (!busy && edit) setDraft(current => ({ ...current, ...address })); }}
+          onChange={address => { personAutofill.touch('address'); setDraft(current => ({ ...current, address })); }}
+          onApply={address => { if (!busy && edit) { personAutofill.touch('address'); setDraft(current => ({ ...current, ...address })); } }}
           onBlur={() => setCheckedFields(current => current.includes(key) ? current : [...current, key])}
           autoComplete="street-address"
         /> : <input
@@ -1483,6 +1489,7 @@ function CustomerDetails({
           disabled={!edit || busy || key === 'customerNumber'}
           value={draft[key]}
           onChange={(e) => {
+            personAutofill.touch(key);
             setDraft((d) => ({ ...d, [key]: e.target.value }));
           }}
           onBlur={() => setCheckedFields(current => current.includes(key) ? current : [...current, key])}
@@ -1520,10 +1527,11 @@ function CustomerDetails({
                   }}
                 />
               </div>
-              {edit && draft.type !== 'Privatperson' && (
+              {fresh && edit && draft.type !== 'Privatperson' && !personalIdentity && (
                 <div className="customer-form-wide">
                   <CompanyLookup
                     organisationNumber={draft.number}
+                    enabled={duplicates.length === 0}
                     disabled={busy}
                     scopeKey={JSON.stringify([draft.id, draft.type, draft.name, draft.address, draft.postalCode, draft.city, draft.countryCode, draft.vatRegistered])}
                     requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
@@ -1533,6 +1541,20 @@ function CustomerDetails({
                   />
                 </div>
               )}
+              <div className="customer-form-wide" hidden={!fresh || !edit || !(draft.type === 'Privatperson' || personalIdentity) || duplicates.length > 0}>
+                <PersonLookup
+                  personalNumber={draft.number}
+                  enabled={fresh && edit && (draft.type === 'Privatperson' || personalIdentity) && duplicates.length === 0}
+                  disabled={busy}
+                  lookupContextKey={draft.id}
+                  scopeKey={JSON.stringify([draft.id, draft.type, draft.name, draft.address, draft.postalCode, draft.city, draft.countryCode, draft.phone, draft.email])}
+                  requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
+                  onApply={person => {
+                    if (!busy && fresh && edit && !customerDraftDuplicates(draft, customers).length)
+                      personAutofill.apply(person);
+                  }}
+                />
+              </div>
               {input('customerNumber', 'Kundnummer')}
               {input('name', 'Namn', true)}
               {input('address', 'Adress')}

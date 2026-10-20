@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type SetStateAction } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2,
@@ -18,12 +18,15 @@ import {
 } from '../components';
 import { type Customer } from '../data';
 import { id, type Draft } from '../model';
-import { formatAddress, normalizeAddress, normalizeCustomerDetails, normalizeOriginAddress, phoneNumberError, validateCustomerDetails } from '../data-format';
+import { customerIdentityKey, formatAddress, normalizeAddress, normalizeCustomerDetails, normalizeOriginAddress, phoneNumberError, validateCustomerDetails } from '../data-format';
 import { MissingDraft, useDraft } from './shared';
 import { useEmployee } from '../employee/EmployeeProvider';
 import { employeeCompanyId } from '../employee/cache';
 import CompanyLookup from '../company-register/CompanyLookup';
+import PersonLookup from '../person-register/PersonLookup';
+import { usePersonLookupAutofill, type PersonLookupCustomerFields } from '../person-register/usePersonLookupAutofill';
 import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
+import { inspectCustomerIdentifier } from '../customer-identity';
 import AddressField from '../address-assistance/AddressField';
 import { applyInitialPaymentTerms, useCompanyDefaults } from '../company-settings-defaults';
 import { formatCompanyRegisterAddress, normalizeCompanyLookupNumber } from '../company-register/client';
@@ -227,7 +230,7 @@ export function CustomerPage() {
   );
 }
 export function NewCustomerPage() {
-  const { draft, addCustomer } = useDraft();
+  const { draft, data, saveDraft, addCustomer } = useDraft();
   const { session, sessionGeneration } = useEmployee();
   const navigate = useNavigate();
   const [type, setType] = useState<Customer['type']>('Företag');
@@ -245,6 +248,18 @@ export function NewCustomerPage() {
   const [paymentProfile, setPaymentProfile] = useState<PaymentDetails>({ method: 'bank', bankType: 'account' });
   const [paymentTermDays, setPaymentTermDays] = useState<number>();
   const paymentTermDirty = useRef(false);
+  const personFields = { number, name, address, postalCode, city, countryCode: 'SE' };
+  const currentPersonFields = useRef(personFields); currentPersonFields.current = personFields;
+  const setPersonFields = useCallback((update: SetStateAction<Required<PersonLookupCustomerFields>>) => {
+    const next = typeof update === 'function' ? update(currentPersonFields.current) : update;
+    currentPersonFields.current = next;
+    setName(next.name); setAddress(next.address); setPostalCode(next.postalCode); setCity(next.city);
+  }, []);
+  const personAutofill = usePersonLookupAutofill(personFields, setPersonFields, draft?.id ?? '');
+  const identity = customerIdentityKey(type, number);
+  const duplicates = identity ? data.customers.filter(customer => customerIdentityKey(customer.type, customer.number) === identity) : [];
+  const identifierKind = inspectCustomerIdentifier(number).kind;
+  const personalIdentity = identifierKind === 'person' || identifierKind === 'coordination';
   const companyDefaults = useCompanyDefaults({ enabled: Boolean(draft && session?.capabilities.yardWork),
     scopeKey: JSON.stringify([draft?.id, session?.companyId, session?.person.id, sessionGeneration]),
     requestHeaders: session ? { 'X-Employee-Company': employeeCompanyId(session.companyId), 'X-Employee-Person': session.person.id } : undefined });
@@ -256,6 +271,10 @@ export function NewCustomerPage() {
   if (!draft) return <MissingDraft />;
   function submit(e: FormEvent) {
     e.preventDefault();
+    if (duplicates.length) {
+      setError('En kund med samma organisations- eller personnummer finns redan. Välj den befintliga kunden.');
+      return;
+    }
     if (!name.trim()) {
       setError('Ange kundens namn eller företagsnamn.');
       return;
@@ -296,11 +315,25 @@ export function NewCustomerPage() {
           <CustomerIdentityInput key={draft.id} value={number} type={type}
             onChange={value => { setNumber(value); setError(''); }}
             onTypeChange={value => { setType(value as Customer['type']); setError(''); }} />
+          {duplicates.length > 0 && <section className="customer-card" role="status">
+            <strong>En kund med samma nummer finns redan.</strong>
+            {duplicates.map(customer => <div key={customer.id}>
+              <p>{customer.name}</p>
+              <Button type="button" onClick={() => {
+                if (saveDraft({ ...draft, customerId: customer.id,
+                  reference: customer.id === draft.customerId ? draft.reference : '',
+                  origin: customer.id === draft.customerId ? draft.origin : '',
+                  originDetails: customer.id === draft.customerId ? draft.originDetails : undefined,
+                  customerSelectionsSavedAt: customer.id === draft.customerId ? draft.customerSelectionsSavedAt : undefined,
+                })) navigate(`/weigh/${draft.id}/customer`);
+              }}>Välj befintlig kund</Button>
+            </div>)}
+          </section>}
           <label>
             {type === 'Privatperson' ? 'Namn' : 'Företagsnamn'}
             <input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => { personAutofill.touch('name'); setName(e.target.value); }}
               placeholder={
                 type === 'Privatperson'
                   ? 'För- och efternamn'
@@ -309,9 +342,9 @@ export function NewCustomerPage() {
               maxLength={120}
             />
           </label>
-          {type !== 'Privatperson' && <CompanyLookup
+          {type !== 'Privatperson' && !personalIdentity && <CompanyLookup
             organisationNumber={number}
-            enabled={Boolean(session && session.capabilities.yardWork)}
+            enabled={Boolean(session?.capabilities.yardWork) && duplicates.length === 0}
             requestHeaders={session ? {
               'X-Employee-Company': employeeCompanyId(session.companyId),
               'X-Employee-Person': session.person.id,
@@ -335,6 +368,21 @@ export function NewCustomerPage() {
               setError('');
             }}
           />}
+          <PersonLookup
+            personalNumber={number}
+            enabled={Boolean(session?.capabilities.yardWork) && (type === 'Privatperson' || personalIdentity) && duplicates.length === 0}
+            lookupContextKey={draft.id}
+            requestHeaders={session ? {
+              'X-Employee-Company': employeeCompanyId(session.companyId),
+              'X-Employee-Person': session.person.id,
+            } : undefined}
+            scopeKey={JSON.stringify([session?.companyId, session?.person.id, sessionGeneration, draft.id, type, name, address, postalCode, city, phone, email])}
+            onApply={person => {
+              if (!personalIdentity || duplicates.length) return;
+              personAutofill.apply(person);
+              setError('');
+            }}
+          />
           {type !== 'Privatperson' && <label>
             Momsregistrerad
             <select aria-label="Momsregistrerad" value={vatRegistered ? 'yes' : 'no'} onChange={event => setVatRegistered(event.target.value === 'yes')}>
@@ -378,16 +426,16 @@ export function NewCustomerPage() {
                 'X-Employee-Person': session.person.id,
               } : undefined}
               disabled={!session?.capabilities.yardWork}
-              onChange={setAddress}
-              onApply={value => { setAddress(value.address); setPostalCode(value.postalCode); setCity(value.city); }}
+              onChange={value => { personAutofill.touch('address'); setAddress(value); }}
+              onApply={value => { personAutofill.touch('address'); setAddress(value.address); setPostalCode(value.postalCode); setCity(value.city); }}
               placeholder="Ex. Storgatan 12"
               autoComplete="street-address"
               maxLength={180}
             />
           </label>
           <div className="split">
-            <label>Postnummer (valfritt)<input value={postalCode} onChange={event => setPostalCode(event.target.value)} inputMode="numeric" autoComplete="postal-code" placeholder="761 41" maxLength={10} /></label>
-            <label>Ort (valfritt)<input value={city} onChange={event => setCity(event.target.value)} autoComplete="address-level2" placeholder="Norrtälje" maxLength={100} /></label>
+            <label>Postnummer (valfritt)<input value={postalCode} onChange={event => { personAutofill.touch('postalCode'); setPostalCode(event.target.value); }} inputMode="numeric" autoComplete="postal-code" placeholder="761 41" maxLength={10} /></label>
+            <label>Ort (valfritt)<input value={city} onChange={event => { personAutofill.touch('city'); setCity(event.target.value); }} autoComplete="address-level2" placeholder="Norrtälje" maxLength={100} /></label>
           </div>
           <p className="field-help">
             Materialets ursprungsadress anges separat efter att kunden är vald.

@@ -3779,3 +3779,30 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
   åtta browserfall passerar. SMS och terminal täcker automatisk SCB-träff,
   manuella ändringar, gamla svar, stegvalidering, skip och nytt försök
   efter nätfel. Avbrott, ny länk i samma flik och omstart kontrolleras.
+
+
+ÄL 152 – Personuppslag och förbrukningsunderlag för SaaS-bolag
+Status: Genomförd och lokalt verifierad 2026-10-20.
+- Roaring Person 2.0 hämtar namn och adress endast vid nykundsregistrering
+  i kontorets kundkort/snabbval, mobil och kundens SMS-/terminalformulär.
+  Befintliga kunder matchas internt före ett köpt uppslag. Redigering av
+  ett befintligt kundkort startar inget externt uppslag automatiskt.
+- Tolv siffror krävs för personuppslag utan gissat århundrade. Numrets
+  typ styr SCB/Roaring, även för enskild firma. Manuella fält bevaras;
+  sena svar för en annan identitet eller bolagskontext används inte.
+- En beständig journal räknar leverantörsförsök per bolag och månad.
+  Bekräftade uppslag debiteras 2 kr exklusive moms; fel/osäkra resultat
+  visas separat för granskning. Kostnad och kundpris hålls åtskilda.
+- Samma försöks-ID kan inte orsaka en ny köpt slagning efter samtidiga
+  anrop, tappat svar eller omstart. OAuth och intern matchning är gratis.
+- Systemadmin ser antal, belopp, fakturarader och CSV per månad/bolag.
+  Ingen faktura skapas/skickas automatiskt; underlaget för månadsfakturan
+  är förberett. Inga andra tjänsteavgifter införs i denna leverans.
+- Personuppgifter och råa svar hamnar inte i faktureringsjournalen.
+  Statistik/export kräver verklig plattformssystemadmin i administratörsvyn.
+- Dokumentation: docs/personuppslag-och-saas-forbrukning.md.
+- Verifiering: produktionsbygge och Expo-typkontroll, 103 riktade
+  serverprov och 36 browserfall passerar. Fem nykundsvägar, intern
+  matchning, byte mellan personer, frysta priser, omstart, samtidighet,
+  verklig gatewaybehörighet och CSV kontrolleras. Roaring simuleras;
+  inga verkliga personuppslag, meddelanden eller fakturor skickas i prov.

@@ -1,7 +1,10 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Check, ExternalLink, Info, X } from 'lucide-react';
 import CompanyLookup from '../company-register/CompanyLookup';
+import PersonLookup from '../person-register/PersonLookup';
+import { usePersonLookupAutofill } from '../person-register/usePersonLookupAutofill';
 import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
+import { inspectCustomerIdentifier } from '../customer-identity';
 import AddressField from '../address-assistance/AddressField';
 import { applyInitialPaymentTerms, useCompanyDefaults } from '../company-settings-defaults';
 import { can, type OfficeCustomer, type OfficeData, type OfficeUser } from './model';
@@ -30,7 +33,10 @@ export default function QuickCustomerModal({
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [allowDuplicate, setAllowDuplicate] = useState(false);
   const [checkedFields, setCheckedFields] = useState<string[]>([]);
+  const personAutofill = usePersonLookupAutofill(draft, setDraft, draft.id);
   const duplicates = customerDraftDuplicates(draft, data.customers);
+  const identifierKind = inspectCustomerIdentifier(draft.number).kind;
+  const personalIdentity = identifierKind === 'person' || identifierKind === 'coordination';
   const allowed = can(user, 'customers');
   const companyDefaults = useCompanyDefaults({ enabled: allowed && !initialDraft, scopeKey: draft.id,
     requestHeaders: { 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id } });
@@ -91,6 +97,7 @@ export default function QuickCustomerModal({
           required={key === 'name'}
           value={draft[key]}
           onChange={(event) => {
+            personAutofill.touch(key);
             setDraft((current) => ({ ...current, [key]: event.target.value }));
           }}
           onBlur={() => setCheckedFields(current => current.includes(key) ? current : [...current, key])}
@@ -145,10 +152,11 @@ export default function QuickCustomerModal({
             }}
           />
         </div>
-        {allowed && draft.type !== 'Privatperson' && (
+        {allowed && draft.type !== 'Privatperson' && !personalIdentity && (
           <div style={{ marginBottom: 20 }}>
             <CompanyLookup
               organisationNumber={draft.number}
+              enabled={duplicates.length === 0}
               disabled={busy}
               scopeKey={JSON.stringify([draft.id, draft.type, draft.name, draft.address, draft.postalCode, draft.city, draft.countryCode, draft.vatRegistered])}
               requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
@@ -158,6 +166,20 @@ export default function QuickCustomerModal({
             />
           </div>
         )}
+        <div style={{ marginBottom: 20 }} hidden={!allowed || !(draft.type === 'Privatperson' || personalIdentity) || duplicates.length > 0}>
+          <PersonLookup
+            personalNumber={draft.number}
+            enabled={allowed && (draft.type === 'Privatperson' || personalIdentity) && duplicates.length === 0}
+            disabled={busy}
+            lookupContextKey={draft.id}
+            scopeKey={JSON.stringify([draft.id, draft.type, draft.name, draft.address, draft.postalCode, draft.city, draft.countryCode, draft.phone, draft.email])}
+            requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
+            onApply={person => {
+              if (!busy && allowed && !customerDraftDuplicates(draft, data.customers).length)
+                personAutofill.apply(person);
+            }}
+          />
+        </div>
         {draft.type !== 'Privatperson' && (
           <fieldset className="quick-customer-vat" disabled={busy || !allowed}>
             <legend>Momsregistrerad</legend>
@@ -188,8 +210,8 @@ export default function QuickCustomerModal({
             disabled={busy || !allowed}
             scopeKey={JSON.stringify([draft.id, draft.type, draft.number])}
             requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
-            onChange={address => setDraft(current => ({ ...current, address }))}
-            onApply={address => { if (!busy && allowed) setDraft(current => ({ ...current, ...address })); }}
+            onChange={address => { personAutofill.touch('address'); setDraft(current => ({ ...current, address })); }}
+            onApply={address => { if (!busy && allowed) { personAutofill.touch('address'); setDraft(current => ({ ...current, ...address })); } }}
             onBlur={() => setCheckedFields(current => current.includes('address') ? current : [...current, 'address'])}
             placeholder="T.ex. Storgatan 12"
             autoComplete="street-address"

@@ -25,6 +25,13 @@ async function publicFixture(page: Page, { unavailable = false, staleOnSubmit = 
       expect(request.headers().cookie).toBeUndefined();
       return route.fulfill({ status: 503, json: { code: 'company_lookup_unavailable', error: 'Fyll i uppgifterna manuellt.' } });
     }
+    if (url.pathname === `${publicPath}/person-lookup`) {
+      expect(request.headers().authorization).toBe(`Bearer ${token}`);
+      expect(request.headers().cookie).toBeUndefined();
+      // SCB/wizard regressions keep the optional person provider unavailable;
+      // its successful lookups and paid-retry behavior have separate fixtures.
+      return route.fulfill({ status: 503, json: { code: 'person_lookup_not_configured', error: 'Fyll i uppgifterna manuellt.' } });
+    }
     if (url.pathname === publicPath || url.pathname === `${publicPath}/submit`) {
       reads.push(request);
       expect(request.headers().authorization).toBe(`Bearer ${token}`);

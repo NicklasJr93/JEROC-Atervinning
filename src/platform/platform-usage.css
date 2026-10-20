@@ -1,0 +1,47 @@
+.platform-usage { scroll-margin-top: 80px; }
+.platform-usage .platform-panel-heading { align-items: flex-start; }
+.platform-usage-heading p { margin: 8px 0 0; color: #7186a1; font-size: 12px; line-height: 1.6; }
+.platform-usage-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.platform-usage-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; padding: 17px; margin: 20px 0; background: #f7faff; border: 1px solid #e4edf8; border-radius: 10px; }
+.platform-usage-filters label { display: flex; flex-direction: column; gap: 7px; color: #587193; font-size: 12px; font-weight: 600; min-width: 170px; }
+.platform-usage-filters label:last-child { flex: 1; }
+.platform-usage-filters label > span { display: inline-flex; align-items: center; gap: 6px; }
+.platform-usage-filters input, .platform-usage-filters select { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid #d5e2f2; border-radius: 8px; background: #fff; color: #213c60; font: inherit; font-weight: 400; }
+.platform-usage-filters input:focus-visible, .platform-usage-filters select:focus-visible, .platform-usage button:focus-visible { outline: 2px solid #0969f3; outline-offset: 3px; }
+.platform-usage-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+.platform-usage-stat { padding: 17px; border: 1px solid #e0e9f5; border-radius: 10px; min-width: 0; }
+.platform-usage-stat > span { display: flex; align-items: center; gap: 7px; color: #7287a3; font-size: 11px; }
+.platform-usage-stat > span svg { color: #4785ce; flex-shrink: 0; }
+.platform-usage-stat strong { display: block; margin-top: 10px; color: #193b63; font-size: 25px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.platform-usage-stat small { display: block; margin-top: 6px; color: #8194ad; font-size: 10px; line-height: 1.5; }
+.platform-usage-stat.total { background: #eff9f4; border-color: #d4eadf; }
+.platform-usage-stat.total strong, .platform-usage-stat.total > span svg { color: #168858; }
+.platform-usage-outcomes { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 16px 0 22px; color: #7186a0; font-size: 11px; }
+.platform-usage-outcomes > span { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 7px; background: #f4f7fc; }
+.platform-usage-outcomes .failed { color: #a95732; background: #fff5ed; }
+.platform-usage-outcomes .unknown { color: #94702f; background: #fff8e8; }
+.platform-usage-section { padding-top: 20px; border-top: 1px solid #e8eef7; margin-top: 22px; }
+.platform-usage-section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 13px; }
+.platform-usage-section h3 { display: flex; align-items: center; gap: 8px; margin: 0; color: #29496f; font-size: 14px; }
+.platform-usage-section-heading small { color: #7a90ab; font-size: 11px; }
+.platform-usage .platform-table { font-variant-numeric: tabular-nums; }
+.platform-usage .platform-table td, .platform-usage .platform-table th { padding: 13px 12px; }
+.platform-usage .platform-table .numeric { text-align: right; white-space: nowrap; }
+.platform-usage .platform-table td small { display: block; margin-top: 5px; color: #7e91aa; font-size: 10px; }
+.platform-usage .platform-table tfoot td { border-top: 1px solid #dbe7f5; font-weight: 700; color: #234870; background: #f7faff; }
+.platform-usage-empty { display: flex; align-items: center; gap: 12px; padding: 22px 5px; color: #7c91aa; font-size: 12px; line-height: 1.7; }
+.platform-usage-note { display: flex; align-items: flex-start; gap: 8px; margin: 18px 0 0; padding: 12px 14px; border-radius: 8px; background: #f5f8fc; color: #6a819f; font-size: 11px; line-height: 1.7; }
+.platform-usage-note svg { flex-shrink: 0; margin-top: 2px; }
+.platform-usage-loading { display: flex; align-items: center; gap: 8px; color: #6c83a2; font-size: 12px; padding: 16px 0; }
+.platform-usage .platform-usage-spin { animation: platform-spin .85s linear infinite; }
+@media (max-width: 900px) { .platform-usage-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) {
+  .platform-usage .platform-panel-heading { flex-direction: column; }
+  .platform-usage-tools { width: 100%; justify-content: flex-start; }
+  .platform-usage-filters { padding: 13px; gap: 12px; }
+  .platform-usage-filters label { width: 100%; min-width: 0; }
+  .platform-usage-stats { gap: 8px; }
+  .platform-usage-stat { padding: 13px; }
+  .platform-usage-stat strong { font-size: 21px; }
+}
+@media (prefers-reduced-motion: reduce) { .platform-usage .platform-usage-spin { animation: none; } }

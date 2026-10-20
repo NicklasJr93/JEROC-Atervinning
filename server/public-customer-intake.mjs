@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ScbCompanyRegisterError } from './scb-company-register.mjs';
+import { PersonRegisterError } from './roaring-person-register.mjs';
 
 const PREFIX = '/api/public/customer-intake';
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -42,7 +43,7 @@ async function readBody(req) {
  * Ambient cookies and supplied company headers cannot select a different store.
  * The tenant revalidates draft binding, expiry and state on every operation.
  */
-export function createPublicCustomerIntake({ repository, openCompany, companyLookup, env = {}, now = () => Date.now() }) {
+export function createPublicCustomerIntake({ repository, openCompany, companyLookup, personLookup, env = {}, now = () => Date.now() }) {
   let minute = -1, total = 0; const buckets = new Map();
   const milliseconds = () => {
     const value = Number(new Date(now())); if (!Number.isFinite(value)) throw new Error('Invalid approval clock'); return value;
@@ -92,13 +93,14 @@ export function createPublicCustomerIntake({ repository, openCompany, companyLoo
       const read = req.method === 'GET' && url.pathname === PREFIX;
       const respond = req.method === 'POST' && url.pathname === `${PREFIX}/submit`;
       const lookup = req.method === 'POST' && url.pathname === `${PREFIX}/company-lookup`;
-      if (!read && !respond && !lookup) fail(404, 'not_found', 'Kundformuläret finns inte.');
+      const lookupPerson = req.method === 'POST' && url.pathname === `${PREFIX}/person-lookup`;
+      if (!read && !respond && !lookup && !lookupPerson) fail(404, 'not_found', 'Kundformuläret finns inte.');
       // Tokens only travel in the authorization header, never query strings,
       // URLs, cookies or a staff-controlled company selector.
       if (url.search) throw unavailable();
       const token = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization ?? '')?.[1];
       if (!token) throw unavailable();
-      const body = respond || lookup ? await readBody(req) : undefined;
+      const body = respond || lookup || lookupPerson ? await readBody(req) : undefined;
       const digest = hash(token);
       const resolveLink = () => repository.read(state => {
         const link = state.customerIntakeLinks?.find(value => value.tokenHash === digest && Date.parse(value.expiresAt) > milliseconds());
@@ -108,19 +110,25 @@ export function createPublicCustomerIntake({ repository, openCompany, companyLoo
       const selected = await resolveLink();
       if (!selected) throw unavailable();
       const service = await openCompany(selected.company);
-      if (lookup) {
-        if (typeof companyLookup !== 'function') fail(503, 'company_lookup_unavailable', 'Företagsuppslaget är inte tillgängligt. Fyll i uppgifterna manuellt.');
+      if (lookup || lookupPerson) {
+        if (typeof (lookup ? companyLookup : personLookup) !== 'function') fail(503, 'customer_lookup_unavailable', 'Uppslaget är inte tillgängligt. Fyll i uppgifterna manuellt.');
         const validateIntake = value => {
           if (value?.intake?.id !== selected.intakeId || value.intake.status !== 'waiting'
             || !Number.isFinite(Date.parse(value.intake.expiresAt)) || Date.parse(value.intake.expiresAt) <= milliseconds()) throw unavailable();
         };
-        validateIntake(await service.customerIntakeService.publicRead(token));
+        const revalidate = async () => {
+          const current = await resolveLink();
+          if (!current || current.company.id !== selected.company.id || current.intakeId !== selected.intakeId) throw unavailable();
+          validateIntake(await service.customerIntakeService.publicRead(token));
+        };
+        await revalidate();
         // No application or platform transaction is held during network work.
-        const company = await companyLookup(body, { rateKey: `intake:${selected.company.id}:${selected.intakeId}`, signal: controller.signal });
-        const current = await resolveLink();
-        if (!current || current.company.id !== selected.company.id || current.intakeId !== selected.intakeId) throw unavailable();
-        validateIntake(await service.customerIntakeService.publicRead(token));
-        if (!controller.signal.aborted) json(res, 200, { company });
+        const result = lookup
+          ? { company: await companyLookup(body, { rateKey: `intake:${selected.company.id}:${selected.intakeId}`, signal: controller.signal }) }
+          : await personLookup(body, { organisationId: selected.company.id, rateKey: `intake:${selected.intakeId}`,
+            channel: 'customer_registration', signal: controller.signal, revalidate });
+        await revalidate();
+        if (!controller.signal.aborted) json(res, 200, result);
         return true;
       }
       const value = read ? await service.customerIntakeService.publicRead(token)
@@ -128,7 +136,7 @@ export function createPublicCustomerIntake({ repository, openCompany, companyLoo
       if (!value?.intake || value.intake.id !== selected.intakeId) throw unavailable();
       json(res, 200, value);
     } catch (error) {
-      const known = error instanceof ScbCompanyRegisterError || Number.isInteger(error.status) && error.status >= 400 && error.status < 500;
+      const known = error instanceof ScbCompanyRegisterError || error instanceof PersonRegisterError || Number.isInteger(error.status) && error.status >= 400 && error.status < 500;
       if (!controller.signal.aborted) json(res, known ? error.status : 503, { error: known ? error.message : 'Kundformuläret kunde inte nås. Försök igen om en stund.',
         code: known ? error.code ?? 'customer_intake_unavailable' : 'customer_intake_unavailable' });
     } finally { req.off('aborted', abort); res.off('close', abort); }

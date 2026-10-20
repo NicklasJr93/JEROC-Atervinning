@@ -15,6 +15,12 @@ import { readDeploymentProfile } from './deployment-profile.mjs';
 import { createScbCompanyRegister } from './scb-company-register.mjs';
 import { createCompanyRegisterApi, createCompanyRegisterLimiter } from './company-register-api.mjs';
 import { createCustomerIntakeCompanyLookup } from './customer-intake-company-lookup.mjs';
+import { createRoaringPersonRegister } from './roaring-person-register.mjs';
+import { createPersonLookup } from './customer-intake-person-lookup.mjs';
+import { createPersonRegisterApi } from './person-register-api.mjs';
+import { hasExistingPersonLookupCustomer } from './person-lookup-existing.mjs';
+import { createPlatformUsageStorage } from './platform-usage-storage.mjs';
+import { createPlatformUsage } from './platform-usage.mjs';
 import { createAddressAssistanceApi } from './address-assistance-api.mjs';
 import { createGoogleAddressValidation } from './google-address-validation.mjs';
 import { createSystemEmail } from './system-email.mjs';
@@ -32,7 +38,7 @@ import { attachMobileSupport, mobileSupportIdentity, withMobileSupportAuthorizat
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
 const deviceRoute = url => /^\/api\/terminal-demo\/(session|login|logout|heartbeat|terminal-events)$/.test(url.pathname)
-  || /^\/api\/terminal-demo\/customer-intake(?:\/(?:submit|company-lookup))?$/.test(url.pathname)
+  || /^\/api\/terminal-demo\/customer-intake(?:\/(?:submit|company-lookup|person-lookup))?$/.test(url.pathname)
   || /^\/api\/terminal-demo\/approvals\/[^/]+\/(respond|displayed)$/.test(url.pathname);
 const employeeRoute = url => url.pathname === '/api/company-settings/defaults' || url.pathname.startsWith('/api/employee/') || url.pathname.startsWith('/api/driver/')
   || /^\/api\/(customer|carrier)\//.test(url.pathname)
@@ -58,7 +64,7 @@ function sameOrigin(req) {
  * comes from the platform registry and a server-authenticated session. Public
  * login endpoints select a bundle but still require its own employee/device or
  * partner credentials; a tenant selector is never a permission grant. */
-export async function createTenantGateway({ env = process.env, makeServices = createTenantServices, testCarApi, platformRepository, companyRegister, addressValidation, systemEmail, systemSms } = {}) {
+export async function createTenantGateway({ env = process.env, makeServices = createTenantServices, testCarApi, platformRepository, companyRegister, personRegister, platformUsageStorage, addressValidation, systemEmail, systemSms } = {}) {
   const profile = readDeploymentProfile(env);
   const bundles = new Map(), streams = new Set();
   const fleetSimulator = createFleetSimulatorBridge({ testCarApi });
@@ -69,7 +75,16 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const companyRegisterProvider = companyRegister ?? createScbCompanyRegister({ env });
   const companyRegisterLimiter = createCompanyRegisterLimiter();
   const customerIntakeCompanyLookup = createCustomerIntakeCompanyLookup({ register: companyRegisterProvider, limiter: companyRegisterLimiter });
-  const customerIntakeLinks = createPublicCustomerIntake({ repository, env, companyLookup: customerIntakeCompanyLookup,
+  let personLookupService;
+  const personLookupFlights = new Set();
+  const personLookup = (...args) => {
+    if (stopping || !personLookupService) throw new PlatformError('Personuppslaget är inte tillgängligt just nu.', 503, 'person_lookup_unavailable');
+    const operation = personLookupService(...args);
+    personLookupFlights.add(operation);
+    operation.finally(() => personLookupFlights.delete(operation)).catch(() => {});
+    return operation;
+  };
+  const customerIntakeLinks = createPublicCustomerIntake({ repository, env, companyLookup: customerIntakeCompanyLookup, personLookup,
     openCompany: company => bundle(company) });
   let schemaPool, auth, stopping = false;
   const defaultCompany = profile.pilot ? undefined : { id: legacyId, name: 'JEROC Återvinning AB', organisationNumber: '5593593626', status: 'active', storageSchema: 'public' };
@@ -108,6 +123,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
           registerCustomerApprovalLink: input => customerApprovalLinks.register(company.id, input),
           registerCustomerIntakeLink: input => customerIntakeLinks.register(company.id, input),
           customerIntakeCompanyLookup,
+          customerIntakePersonLookup: personLookup,
           authorizeCustomerIntakeCompany: async () => {
             const current = await auth.getCompany(company.id);
             if (!current || current.status !== 'active')
@@ -224,6 +240,19 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
     if (error.code !== 'platform_bootstrap_required') throw error;
     console.warn('Bolagsadministrationen väntar på ett privat systemadminlösenord i Render.');
   }
+  // This journal belongs to the platform database, never a tenant's scoped
+  // runtime. Its unique operation claims survive restarts and deploys.
+  const usageStorage = platformUsageStorage ?? await createPlatformUsageStorage({ env });
+  const usage = createPlatformUsage({ storage: usageStorage, auth });
+  const personRegisterProvider = personRegister ?? createRoaringPersonRegister({ env });
+  personLookupService = createPersonLookup({ register: personRegisterProvider, usage,
+    findExisting: async ({ organisationId, personalNumber }) => {
+      const company = await auth.getCompany(organisationId);
+      if (!company || company.status !== 'active')
+        throw new PlatformError('Bolaget är inte tillgängligt längre.', 410, 'person_lookup_company_unavailable');
+      const service = await bundle(company);
+      return (await service.applicationApi.getRepository()).read(state => hasExistingPersonLookupCustomer(state, personalNumber), { domains: ['office'] });
+    } });
   const platformFleet = createPlatformFleet({ auth, repository, applyAssignment: async (company, device) => {
     const service = await bundle(company);
     await (await service.applicationApi.getRepository()).transact(state => {
@@ -235,7 +264,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const passwordReset = createPlatformPasswordReset({ auth, email, repository, env });
   const staffInvitations = createStaffInvitations({ auth, email, repository, env,
     companyRepository: async company => (await bundle(company)).applicationApi.getRepository() });
-  const platformApi = createPlatformApi({ auth, fleet: platformFleet, communications, passwordReset, staffInvitations, env });
+  const platformApi = createPlatformApi({ auth, fleet: platformFleet, communications, passwordReset, staffInvitations, usage, env });
   const mobilePlatformSupport = createMobilePlatformSupport({ auth, env, openCompany: bundle, sameOrigin, json });
   const globalEmployeeLogin = createGlobalEmployeeLogin({ repository, auth, env, openCompany: bundle,
     fallbackCompany: defaultCompany, sameOrigin, json, platformAdminLogin: mobilePlatformSupport.login });
@@ -304,7 +333,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
         const expected = req.headers['x-client-company'] ?? req.headers['x-employee-company'];
         if (expected !== undefined && expected !== context.company.id)
           throw new PlatformError('Bolaget har bytts i en annan flik. Sök igen.', 409, 'company_selection_changed');
-        return { rateKey: `platform:${context.actorId}:${context.company.id}`, tenantRateKey: context.company.id, scopeKey: JSON.stringify([
+        return { organisationId: context.company.id, actorId: context.actorId, rateKey: `platform:${context.actorId}:${context.company.id}`, tenantRateKey: context.company.id, scopeKey: JSON.stringify([
           context.actorId, context.actualUser.id, context.user.id, context.company.id, context.sessionKey, context.generation,
         ]) };
       }
@@ -320,7 +349,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       const identity = await (await service.applicationApi.getRepository()).read(state => employeeCompanyLookupContext(state, req), { domains: ['pricing', 'personnel', 'personnelAuth'] });
       if (!allowed(identity.actor) || !allowed(identity.user))
         throw new PlatformError(deniedMessage, 403, address ? 'address_assistance_forbidden' : 'company_lookup_forbidden');
-      return { rateKey: `employee:${identity.actor.id}:${company.id}`, tenantRateKey: company.id, scopeKey: JSON.stringify([
+      return { organisationId: company.id, actorId: identity.actor.id, rateKey: `employee:${identity.actor.id}:${company.id}`, tenantRateKey: company.id, scopeKey: JSON.stringify([
         identity.actor.id, identity.user.id, identity.personId, company.id, identity.sessionKey,
       ]) };
     };
@@ -355,6 +384,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   }
   const companyRegisterApi = createCompanyRegisterApi({ register: companyRegisterProvider, limiter: companyRegisterLimiter,
     authorize: req => authorizeAssistance(req) });
+  const personRegisterApi = createPersonRegisterApi({ lookup: personLookup, authorize: req => authorizeAssistance(req) });
   const addressAssistanceApi = createAddressAssistanceApi({ validator: addressValidation ?? createGoogleAddressValidation({ env }),
     env, authorize: req => authorizeAssistance(req, true) });
   const api = async (req, res, url) => {
@@ -364,6 +394,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
     if (await mobilePlatformSupport.handle(req, res, url)) return true;
     if (await globalEmployeeLogin.handle(req, res, url)) return true;
     if (await companyRegisterApi(req, res, url)) return true;
+    if (await personRegisterApi(req, res, url)) return true;
     if (await addressAssistanceApi(req, res, url)) return true;
     if (url.pathname.startsWith('/api/public/voice-test')) {
       if (profile.pilot) { json(res, 404, { error: 'Rösttestet är inte tillgängligt i pilotmiljön.', code: 'not_found' }); return true; }
@@ -536,9 +567,12 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
     return operation;
   };
   api.close = async () => {
-    stopping = true; for (const res of streams) res.end();
+    stopping = true; usage.close(); for (const res of streams) res.end();
+    personRegisterProvider.close?.();
     clearInterval(fleetTimer); await platformFleet.close();
+    await Promise.allSettled([...personLookupFlights]);
     await Promise.allSettled([...bundles.values()].map(async pending => (await pending).close()));
+    await usageStorage.close();
     if (schemaPool) await schemaPool.end(); await repository.close();
   };
   api.selectPage = async (req, res, url) => {

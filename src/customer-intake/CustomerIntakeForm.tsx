@@ -2,17 +2,21 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { ArrowLeft, ArrowRight, Building2, Check, CreditCard, LoaderCircle, Mail, MapPin, RefreshCw, UserRound } from 'lucide-react';
 import { z } from 'zod';
 import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
+import { inspectCustomerIdentifier } from '../customer-identity';
 import { addressError, bankRecipientError, customerIdentifierError, normalizeAddress, normalizeCustomerDetails, normalizePaymentDetails, phoneNumberError, validateCustomerDetails } from '../data-format';
 import { CompanyLookupError, companyLookupNumberError, formatCompanyRegisterAddress, normalizeCompanyLookupNumber } from '../company-register/client';
+import { formatPersonRegisterAddress, normalizePersonLookupNumber, personLookupFailure, personLookupNumberError } from '../person-register/client';
 import type { PaymentDetails } from '../payment-details';
 import MobilePaymentFields from '../pages/MobilePaymentFields';
 import type { CustomerIntakeCompanyLookup } from './company-lookup';
+import type { CustomerIntakePersonLookup } from './person-lookup';
 import { customerIntakeInputSchema, type CustomerIntakeInput } from './types';
 import './customer-intake.css';
 
 export interface CustomerIntakeFormProps {
   onSubmit(customer: CustomerIntakeInput): Promise<void>;
   lookupCompany?: CustomerIntakeCompanyLookup;
+  lookupPerson?: CustomerIntakePersonLookup;
   lookupContextKey?: string;
   disabled?: boolean;
   initialValues?: Partial<CustomerIntakeInput>;
@@ -33,7 +37,7 @@ const lookupFailure = (error: unknown) => error instanceof CompanyLookupError &&
 
 /** Terminal and SMS share the wizard. The injected lookup remains bound to
  * this intake's narrow bearer or paired terminal session. */
-export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupContextKey = '', disabled = false,
+export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupPerson, lookupContextKey = '', disabled = false,
   initialValues, submitLabel = 'Skicka mina uppgifter', autoComplete = 'on' }: CustomerIntakeFormProps) {
   const [customer, setCustomer] = useState<CustomerIntakeInput>(() => ({ ...emptyCustomer(), ...initialValues, paymentProfile: undefined }));
   const [step, setStep] = useState<Step>(1), [includeContact, setIncludeContact] = useState(true);
@@ -43,8 +47,8 @@ export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupCont
   const [originEdited, setOriginEdited] = useState(Boolean(initialValues?.originDetails));
   const [origin, setOrigin] = useState(() => normalizeAddress(initialValues?.originDetails ?? initialValues ?? ''));
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
-  const [lookup, setLookup] = useState<{ key: string; phase: 'loading' | 'filled' | 'failed'; message?: string }>();
-  const [retry, setRetry] = useState(0);
+  const [lookup, setLookup] = useState<{ key: string; phase: 'loading' | 'filled' | 'failed' | 'existing'; message?: string }>();
+  const [retry, setRetry] = useState({ key: '', attempt: 0 });
   const errorRef = useRef<HTMLParagraphElement>(null), headingRef = useRef<HTMLHeadingElement>(null);
   const identityRef = useRef<HTMLInputElement>(null);
   const flight = useRef(false), mounted = useRef(true), id = useId();
@@ -52,9 +56,19 @@ export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupCont
   const filled = useRef<Partial<Record<AutoField, string>>>({}), filledKey = useRef('');
   const lookupEpoch = useRef(0), lookupController = useRef<AbortController | undefined>(undefined);
   const completedLookup = useRef('');
+  // Lookup operations are separate from submit attempts. A timeout or changing
+  // the type away and back must never create a second billable operation.
+  const personRequestIds = useRef(new Map<string, string>()), attemptedPersons = useRef(new Set<string>());
   const number = normalizeCompanyLookupNumber(customer.number);
-  const eligibleLookup = customer.type !== 'Privatperson' && !companyLookupNumberError(number);
-  const lookupKey = JSON.stringify([lookupContextKey, number, customer.type]);
+  const companyEligible = customer.type !== 'Privatperson' && !companyLookupNumberError(number);
+  const personIdentifier = inspectCustomerIdentifier(customer.number);
+  const personalIdentity = personIdentifier.kind === 'person' || personIdentifier.kind === 'coordination';
+  const personEligible = !personLookupNumberError(customer.number);
+  const provider = personEligible ? 'person' : 'company';
+  const eligibleLookup = companyEligible && Boolean(lookupCompany) || personEligible && Boolean(lookupPerson);
+  const personOperationKey = JSON.stringify([lookupContextKey, normalizePersonLookupNumber(customer.number)]);
+  const lookupKey = JSON.stringify([lookupContextKey, number, customer.type, provider]);
+  const retryAttempt = retry.key === lookupKey ? retry.attempt : 0;
   const latestLookup = useRef(lookupKey); latestLookup.current = lookupKey;
   const originValue = originEdited ? origin : normalizeAddress(customer);
   const blocked = disabled || busy;
@@ -71,7 +85,7 @@ export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupCont
     const generation = ++lookupEpoch.current, controller = new AbortController(); lookupController.current = controller;
     if (filledKey.current !== lookupKey) {
       const previous = filled.current; filled.current = {}; filledKey.current = lookupKey; completedLookup.current = '';
-      // Never retain an earlier company's automatic values for a new identity.
+      // Never retain an earlier identity's automatic values for a new identity.
       // Deliberate customer edits, including an empty field, remain untouched.
       if (Object.keys(previous).length) setCustomer(current => {
         const next = { ...current };
@@ -79,16 +93,32 @@ export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupCont
         return next;
       });
     }
-    if (!lookupCompany || !eligibleLookup) { setLookup(undefined); return () => controller.abort(); }
-    const attemptKey = JSON.stringify([lookupKey, retry]);
+    if (!eligibleLookup) { setLookup(undefined); return () => controller.abort(); }
+    const attemptKey = JSON.stringify([lookupKey, retryAttempt]);
     if (blocked || completedLookup.current === attemptKey) return () => controller.abort();
+    if (provider === 'person' && attemptedPersons.current.has(personOperationKey) && retryAttempt === 0) {
+      completedLookup.current = attemptKey;
+      setLookup({ key: lookupKey, phase: 'failed', message: 'Sökningen har redan startats för det här personnumret. Fyll i manuellt eller försök igen med samma sökning.' });
+      return () => controller.abort();
+    }
     setLookup({ key: lookupKey, phase: 'loading' });
     const timer = window.setTimeout(() => {
-      void lookupCompany(number, controller.signal).then(company => {
+      const request = async (): Promise<Partial<Record<AutoField, string>> | null> => {
+        if (provider === 'person') {
+          let requestId = personRequestIds.current.get(personOperationKey);
+          if (!requestId) { requestId = crypto.randomUUID(); personRequestIds.current.set(personOperationKey, requestId); }
+          attemptedPersons.current.add(personOperationKey);
+          const result = await lookupPerson!(number, requestId, controller.signal);
+          if (result.existing) return null;
+          return { name: result.person.name, address: formatPersonRegisterAddress(result.person), postalCode: result.person.postalCode, city: result.person.city };
+        }
+        const company = await lookupCompany!(number, controller.signal);
+        return { name: company.name, address: formatCompanyRegisterAddress(company), postalCode: company.postalCode, city: company.city, phone: company.phone, email: company.email };
+      };
+      void request().then(values => {
         if (!mounted.current || controller.signal.aborted || lookupEpoch.current !== generation || latestLookup.current !== lookupKey) return;
         completedLookup.current = attemptKey;
-        const values: Partial<Record<AutoField, string>> = { name: company.name, address: formatCompanyRegisterAddress(company),
-          postalCode: company.postalCode, city: company.city, phone: company.phone, email: company.email };
+        if (!values) { setLookup({ key: lookupKey, phase: 'existing', message: 'Dina uppgifter finns redan hos företaget. Fyll i de uppgifter du vill lämna; personalen kopplar dem till ditt befintliga kundkort.' }); return; }
         setCustomer(current => {
           if (latestLookup.current !== lookupKey || normalizeCompanyLookupNumber(current.number) !== number) return current;
           const next = { ...current }, addressTouched = addressFields.some(field => touched.current.has(field));
@@ -103,12 +133,12 @@ export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupCont
       }).catch(failure => {
         if (mounted.current && !controller.signal.aborted && lookupEpoch.current === generation && latestLookup.current === lookupKey) {
           completedLookup.current = attemptKey;
-          setLookup({ key: lookupKey, phase: 'failed', message: lookupFailure(failure) });
+          setLookup({ key: lookupKey, phase: 'failed', message: provider === 'person' ? personLookupFailure(failure) : lookupFailure(failure) });
         }
       });
-    }, retry ? 0 : 350);
+    }, retryAttempt ? 0 : 350);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [lookupCompany, eligibleLookup, lookupKey, number, blocked, retry]);
+  }, [lookupCompany, lookupPerson, eligibleLookup, lookupKey, number, blocked, retryAttempt, provider, personOperationKey]);
 
   const change = (field: keyof CustomerIntakeInput, value: string) => {
     if (autoFields.includes(field as AutoField)) touched.current.add(field as AutoField);
@@ -161,7 +191,7 @@ export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupCont
     if (issue) { setError(issue); return; }
     // A retry after an uncertain submit must carry identical customer data;
     // an optional lookup may not refill fields between the two attempts.
-    completedLookup.current = JSON.stringify([lookupKey, retry]); lookupEpoch.current++; lookupController.current?.abort();
+    completedLookup.current = JSON.stringify([lookupKey, retryAttempt]); lookupEpoch.current++; lookupController.current?.abort();
     flight.current = true; setBusy(true); setError(''); setNotice('');
     try { await onSubmit(input); }
     catch (failure) { if (mounted.current) setError(failure instanceof Error ? failure.message : 'Uppgifterna kunde inte skickas. Försök igen.'); }
@@ -180,11 +210,12 @@ export default function CustomerIntakeForm({ onSubmit, lookupCompany, lookupCont
         <h2 id={`${id}-step-title`} ref={headingRef} tabIndex={-1}>{customer.type === 'Privatperson' ? <UserRound size={20} /> : <Building2 size={20} />}Dina uppgifter</h2>
         <CustomerIdentityInput inputRef={identityRef} value={customer.number} type={customer.type} disabled={blocked} autoDetect={!initialValues?.number}
           onChange={value => change('number', value)} onTypeChange={value => change('type', value)} />
-        {eligibleLookup && lookupCompany && <div className={`customer-intake-lookup ${activeLookup?.phase ?? ''}`} aria-live="polite" role="status">
-          <span>{activeLookup?.phase === 'loading' ? <LoaderCircle size={17} className="customer-intake-spinner" /> : <Building2 size={17} />}
-            {activeLookup?.phase === 'loading' ? 'Hämtar företagsuppgifter från SCB…' : activeLookup?.phase === 'filled'
-              ? 'Företagsuppgifter hämtade från SCB. Granska dem och ändra det som behövs.' : activeLookup?.message || 'Du kan fylla i uppgifterna manuellt.'}</span>
-          {activeLookup?.phase === 'failed' && <button type="button" onClick={() => setRetry(value => value + 1)}><RefreshCw size={14} />Sök igen</button>}
+        {(customer.type === 'Privatperson' || personalIdentity) && lookupPerson && !personEligible && <p className="customer-intake-help">{personLookupNumberError(customer.number)}</p>}
+        {eligibleLookup && <div className={`customer-intake-lookup ${activeLookup?.phase ?? ''}`} aria-live="polite" role="status">
+          <span>{activeLookup?.phase === 'loading' ? <LoaderCircle size={17} className="customer-intake-spinner" /> : provider === 'person' ? <UserRound size={17} /> : <Building2 size={17} />}
+            {activeLookup?.phase === 'loading' ? provider === 'person' ? 'Hämtar namn och postadress…' : 'Hämtar företagsuppgifter från SCB…' : activeLookup?.phase === 'filled'
+              ? provider === 'person' ? 'Namn och postadress hämtade. Granska dem och ändra det som behövs.' : 'Företagsuppgifter hämtade från SCB. Granska dem och ändra det som behövs.' : activeLookup?.message || 'Du kan fylla i uppgifterna manuellt.'}</span>
+          {activeLookup?.phase === 'failed' && <button type="button" onClick={() => setRetry(value => ({ key: lookupKey, attempt: value.attempt + 1 }))}><RefreshCw size={14} />Sök igen</button>}
         </div>}
         <label>{customer.type === 'Privatperson' ? 'Namn' : 'Företagsnamn'}<input value={customer.name} onChange={event => change('name', event.target.value)}
           autoComplete={autoComplete === 'off' ? 'off' : customer.type === 'Privatperson' ? 'name' : 'organization'} maxLength={200} required /></label>

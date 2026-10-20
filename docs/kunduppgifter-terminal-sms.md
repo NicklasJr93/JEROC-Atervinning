@@ -31,6 +31,13 @@ SCB automatiskt. Manuellt ändrade fält behålls; sena svar för ett annat
 nummer används inte. Saknad träff eller driftfel tillåter manuell
 inmatning. Person- och samordningsnummer skickas inte till SCB.
 
+Ett giltigt personnummer med tolv siffror kan i stället kompletteras
+med namn och postadress från Roaring. Manuella fält behålls även där.
+Tio siffror behöver kompletteras med århundrade för ett personuppslag;
+manuell inmatning finns kvar. Befintliga kundnummer matchas internt
+före ett köpt uppslag. Läs [personuppslag och förbrukning](personuppslag-och-saas-forbrukning.md)
+för drift, debitering och systemadminens månadsunderlag.
+
 När uppgifterna kommit fram granskar personalen dem och kopplar kunden
 till vågkortet. En unik identifierarträff återanvänder kundkortet.
 Befintliga kontakt- och bankuppgifter visas aldrig för den som öppnar

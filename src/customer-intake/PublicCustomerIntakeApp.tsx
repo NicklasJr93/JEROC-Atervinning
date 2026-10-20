@@ -3,6 +3,8 @@ import { CheckCircle2, CircleAlert, LoaderCircle, ShieldCheck, WifiOff } from 'l
 import CustomerIntakeForm from './CustomerIntakeForm';
 import { CompanyLookupError } from '../company-register/client';
 import { lookupPublicIntakeCompany } from './company-lookup';
+import { PersonLookupError } from '../person-register/client';
+import { lookupPublicIntakePerson } from './person-lookup';
 import { publicCustomerIntakeStateSchema, type CustomerIntakeInput, type PublicCustomerIntakeState } from './types';
 import './customer-intake.css';
 
@@ -13,7 +15,7 @@ class IntakeRequestError extends Error {
   constructor(public status: number) { super('Kunduppgifterna kunde inte skickas. Kontrollera anslutningen och försök igen.'); }
 }
 
-/** This page and its limited company lookup carry the intake bearer. Staff
+/** This page and its limited registry lookups carry the intake bearer. Staff
  * cookies, company selectors and protected customer registers are not used. */
 async function publicRequest(token: string, signal: AbortSignal, command?: { requestId: string; customer: CustomerIntakeInput }): Promise<PublicCustomerIntakeState> {
   const response = await fetch(`/api/public/customer-intake${command ? '/submit' : ''}`, {
@@ -104,6 +106,25 @@ export default function PublicCustomerIntakeApp() {
     } finally { controllers.current.delete(controller); signal.removeEventListener('abort', cancel); }
   }, [token, state?.intake.id, state?.intake.status, availability, unavailable]);
 
+  const personLookup = useCallback(async (number: string, requestId: string, signal: AbortSignal) => {
+    if (!token || locked.current || !state || state.intake.status !== 'waiting' || availability !== 'ready')
+      throw new Error('Kundlänken är inte längre aktiv.');
+    const sequence = generation.current, controller = new AbortController(), cancel = () => controller.abort(signal.reason);
+    if (signal.aborted) cancel(); else signal.addEventListener('abort', cancel, { once: true });
+    controllers.current.add(controller);
+    try {
+      const result = await lookupPublicIntakePerson(token, number, requestId, controller.signal);
+      if (controller.signal.aborted || !active.current || sequence !== generation.current) throw new DOMException('Kundlänken har ändrats.', 'AbortError');
+      return result;
+    } catch (failure) {
+      // Manual-only/replayed lookups use 409 too. They do not invalidate the
+      // intake link and must leave the customer free to finish manually.
+      if (!controller.signal.aborted && active.current && sequence === generation.current && failure instanceof PersonLookupError
+        && ([401, 403, 410].includes(failure.status) || failure.code === 'customer_intake_unavailable')) unavailable();
+      throw failure;
+    } finally { controllers.current.delete(controller); signal.removeEventListener('abort', cancel); }
+  }, [token, state?.intake.id, state?.intake.status, availability, unavailable]);
+
   async function submit(customer: CustomerIntakeInput) {
     if (busy || !state || state.intake.status !== 'waiting' || availability !== 'ready' || locked.current) return;
     if (pending.current && JSON.stringify(pending.current.customer) !== JSON.stringify(customer))
@@ -140,7 +161,7 @@ export default function PublicCustomerIntakeApp() {
         : availability === 'unavailable' ? <section className="customer-intake-state"><CircleAlert size={36} /><h1>Länken kan inte användas</h1><p>Den kan ha gått ut eller avslutats. Be personalen om en ny länk.</p></section>
         : availability === 'offline' ? <section className="customer-intake-state"><WifiOff size={36} /><h1>Kunde inte öppna formuläret</h1><p>Kontrollera anslutningen och försök igen.</p><button type="button" className="customer-intake-submit" onClick={() => { setAvailability('loading'); void read(); }}>Försök igen</button></section>
         : receipt ? <section className="customer-intake-state customer-intake-receipt"><CheckCircle2 size={44} /><h1>Tack! Dina uppgifter är skickade</h1><p>Personalen tar emot dina uppgifter och kopplar dem till din inlämning.</p><p>Du kan stänga sidan.</p></section>
-        : <><div className="customer-intake-intro"><span><ShieldCheck size={18} />Till din inlämning</span><h1>Dina kunduppgifter</h1><p>Fyra korta steg, så hjälper personalen dig vidare.</p></div><CustomerIntakeForm key={`${token}/${state?.intake.id}`} disabled={busy} onSubmit={submit} lookupCompany={companyLookup} lookupContextKey={state?.intake.id} /></>}
+        : <><div className="customer-intake-intro"><span><ShieldCheck size={18} />Till din inlämning</span><h1>Dina kunduppgifter</h1><p>Fyra korta steg, så hjälper personalen dig vidare.</p></div><CustomerIntakeForm key={`${token}/${state?.intake.id}`} disabled={busy} onSubmit={submit} lookupCompany={companyLookup} lookupPerson={personLookup} lookupContextKey={state?.intake.id} /></>}
       <footer className="public-customer-intake-footer">Skickat via <img src="/images/scrapplanner-logo.png" alt="ScrapPlanner" /></footer>
     </div>
   </main>;
