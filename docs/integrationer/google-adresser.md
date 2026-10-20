@@ -72,7 +72,22 @@ Automatiska tester använder syntetiska Google-/SCB-svar. Riktiga nycklar och an
 
 Adressförslaget kan visas även om ett senare detalj- eller valideringsanrop misslyckas. Dessa steg visar nu olika feltexter. Nekad servernyckel/API-åtkomst har en egen kategori (`address_validation_access_denied`) med instruktion att kontrollera Address Validation API, nyckel och Renders utgående IP-intervall. Råa Google-fel eller nycklar visas inte.
 
-Den rapporterade skärmbilden bevisar inte vilken av orsakerna som gäller. Prova igen efter deployment och använd den nya specifika feltexten. Funktionen fyller fortfarande inte i någon adress utan lyckad serverkontroll och användarens bekräftelse.
+Den rapporterade skärmbilden med **Google nekade serverns adresskontroll** bekräftar att ett anrop nådde Google men nekades. Den skiljer inte mellan nyckel, IP, API och fakturering.
+
+Servern läser nu även Googles strukturerade `google.rpc.ErrorInfo` vid HTTP 400, 401 och 403. Endast dessa dokumenterade orsaker från domänen `googleapis.com` väljer en fast svensk feltext:
+
+| Googles orsak | Appens felkod | Kontrollera |
+| --- | --- | --- |
+| `API_KEY_INVALID` | `address_validation_key_invalid` | Att Render-variabeln `GOOGLE_ADDRESS_VALIDATION_API_KEY` innehåller rätt, aktuell servernyckel, utan extra tecken. |
+| `API_KEY_IP_ADDRESS_BLOCKED` | `address_validation_ip_blocked` | Samtliga aktuella intervall från Render → Connect → Outbound i servernyckelns IP-begränsning. |
+| `API_KEY_HTTP_REFERRER_BLOCKED` | `address_validation_referrer_blocked` | Att servervariabeln använder den separata IP-begränsade nyckeln och inte webbläsarnyckeln. |
+| `API_KEY_SERVICE_BLOCKED` | `address_validation_api_blocked` | Att servernyckelns API-begränsning tillåter Address Validation API. |
+| `SERVICE_DISABLED` | `address_validation_api_disabled` | Att Address Validation API är aktiverat i samma Google Cloud-projekt som servernyckeln. |
+| `BILLING_DISABLED` | `address_validation_billing_disabled` | Att samma projekt är kopplat till ett aktivt faktureringskonto. Ett befintligt konto kan kopplas; ett nytt behöver inte skapas. |
+
+En ogiltig nyckel kan ge HTTP 400 och ska då inte beskrivas som en felaktig postadress. Okända, ofullständiga eller felaktigt formaterade leverantörsfel behåller den generella feltexten. Även felsvar omfattas av max 64 KiB och anropets timeout. Råa felmeddelanden, metadata, nycklar, projekt-ID och IP-adresser lämnas inte vidare eller loggas.
+
+Deploya ändringen och gör ett nytt adressprov för att se eventuell närmare orsak. Lokala tester använder syntetiska svar; de bekräftar inte vilken inställning som nekar det verkliga Render-anropet. Funktionen fyller fortfarande inte i någon adress utan lyckad serverkontroll och användarens bekräftelse.
 
 ## Källor
 
@@ -80,4 +95,5 @@ Den rapporterade skärmbilden bevisar inte vilken av orsakerna som gäller. Prov
 - [Google: Address Validation REST](https://developers.google.com/maps/documentation/address-validation/reference/rest/v1/TopLevel/validateAddress)
 - [Google: EES Service Specific Terms](https://cloud.google.com/terms/maps-platform/eea/maps-service-terms)
 - [Google: API security best practices](https://developers.google.com/maps/api-security-best-practices)
+- [Google: strukturerade felorsaker](https://github.com/googleapis/googleapis/blob/master/google/api/error_reason.proto)
 - [Render: outbound IP addresses](https://render.com/docs/outbound-ip-addresses)

@@ -18,6 +18,14 @@ export class GoogleAddressValidationError extends Error {
 }
 const fail = (message, status, code) => { throw new GoogleAddressValidationError(message, status, code); };
 const invalidResponse = () => fail('Adresskontrollen gav ett oväntat svar. Fyll i adressen manuellt.', 502, 'address_validation_response_invalid');
+const rejectionReasons = new Map([
+  ['API_KEY_INVALID', ['Google godkänner inte servernyckeln. Kontrollera värdet för GOOGLE_ADDRESS_VALIDATION_API_KEY i Render.', 'address_validation_key_invalid']],
+  ['API_KEY_IP_ADDRESS_BLOCKED', ['Google blockerar appserverns utgående IP-adress. Kontrollera att samtliga intervall under Render → Connect → Outbound finns på servernyckelns IP-begränsning.', 'address_validation_ip_blocked']],
+  ['API_KEY_HTTP_REFERRER_BLOCKED', ['Servernyckeln är begränsad till webbplatser. GOOGLE_ADDRESS_VALIDATION_API_KEY behöver en separat nyckel med IP-begränsning för appservern.', 'address_validation_referrer_blocked']],
+  ['API_KEY_SERVICE_BLOCKED', ['Servernyckeln tillåter inte Address Validation API. Lägg till det under nyckelns API-begränsningar i Google Cloud.', 'address_validation_api_blocked']],
+  ['SERVICE_DISABLED', ['Address Validation API är inte aktiverat i servernyckelns Google Cloud-projekt. Aktivera API:et i samma projekt som nyckeln.', 'address_validation_api_disabled']],
+  ['BILLING_DISABLED', ['Google nekar adresskontrollen eftersom faktureringen inte är aktiv för servernyckelns projekt. Koppla projektet till ett aktivt faktureringskonto i Google Cloud.', 'address_validation_billing_disabled']],
+]);
 
 export function normalizeAddressValidationInput(value) {
   const parsed = inputSchema.safeParse(value);
@@ -39,7 +47,7 @@ function withSignal(promise, signal) {
   });
 }
 
-async function readResult(response, signal) {
+async function readJson(response, signal) {
   const length = response.headers?.get('content-length');
   if (length && /^\d+$/.test(length) && Number(length) > MAX_RESPONSE_BYTES) {
     void response.body?.cancel().catch(() => {}); invalidResponse();
@@ -56,34 +64,52 @@ async function readResult(response, signal) {
       if (size > MAX_RESPONSE_BYTES) invalidResponse();
       chunks.push(Buffer.from(value));
     }
-    let data;
-    try { data = JSON.parse(Buffer.concat(chunks, size).toString('utf8')); }
+    try { return JSON.parse(Buffer.concat(chunks, size).toString('utf8')); }
     catch { invalidResponse(); }
-    const postal = data?.result?.address?.postalAddress;
-    if (!postal || postal.regionCode !== 'SE' || !Array.isArray(postal.addressLines)
-      || postal.addressLines.length < 1 || postal.addressLines.length > 4
-      || postal.addressLines.some(line => typeof line !== 'string' || line.length > 300)
-      || typeof postal.postalCode !== 'string' || typeof postal.locality !== 'string') invalidResponse();
-    let address;
-    try {
-      address = normalizeAddressValidationInput({ address: postal.addressLines.join(', '), postalCode: postal.postalCode,
-        city: postal.locality, countryCode: 'SE' });
-    } catch { invalidResponse(); }
-    if (!address.postalCode || !address.city)
-      fail('Hela adressen kunde inte föreslås. Fyll i adress, postnummer och ort manuellt.', 422, 'address_validation_incomplete');
-    const verdict = data.result.verdict;
-    if (!verdict || typeof verdict !== 'object' || Array.isArray(verdict)) invalidResponse();
-    return { address, verdict: {
-      addressComplete: verdict.addressComplete === true,
-      hasUnconfirmedComponents: verdict.hasUnconfirmedComponents === true,
-      hasInferredComponents: verdict.hasInferredComponents === true,
-      hasReplacedComponents: verdict.hasReplacedComponents === true,
-      requiresConfirmation: true,
-    } };
   } finally {
     void reader.cancel().catch(() => {});
     reader.releaseLock();
   }
+}
+
+/** Only structured, documented reasons select our own fixed messages. Never
+ * relay Google's message, metadata, project identifiers, IPs or credential text.
+ */
+async function rejection(response, signal) {
+  let data;
+  try { data = await readJson(response, signal); }
+  catch { signal.throwIfAborted(); return; }
+  if (!Array.isArray(data?.error?.details)) return;
+  for (const detail of data.error.details) {
+    if (detail?.['@type'] !== 'type.googleapis.com/google.rpc.ErrorInfo' || detail.domain !== 'googleapis.com') continue;
+    const reason = rejectionReasons.get(detail.reason);
+    if (reason) fail(reason[0], 503, reason[1]);
+  }
+}
+
+async function readResult(response, signal) {
+  const data = await readJson(response, signal);
+  const postal = data?.result?.address?.postalAddress;
+  if (!postal || postal.regionCode !== 'SE' || !Array.isArray(postal.addressLines)
+    || postal.addressLines.length < 1 || postal.addressLines.length > 4
+    || postal.addressLines.some(line => typeof line !== 'string' || line.length > 300)
+    || typeof postal.postalCode !== 'string' || typeof postal.locality !== 'string') invalidResponse();
+  let address;
+  try {
+    address = normalizeAddressValidationInput({ address: postal.addressLines.join(', '), postalCode: postal.postalCode,
+      city: postal.locality, countryCode: 'SE' });
+  } catch { invalidResponse(); }
+  if (!address.postalCode || !address.city)
+    fail('Hela adressen kunde inte föreslås. Fyll i adress, postnummer och ort manuellt.', 422, 'address_validation_incomplete');
+  const verdict = data.result.verdict;
+  if (!verdict || typeof verdict !== 'object' || Array.isArray(verdict)) invalidResponse();
+  return { address, verdict: {
+    addressComplete: verdict.addressComplete === true,
+    hasUnconfirmedComponents: verdict.hasUnconfirmedComponents === true,
+    hasInferredComponents: verdict.hasInferredComponents === true,
+    hasReplacedComponents: verdict.hasReplacedComponents === true,
+    requiresConfirmation: true,
+  } };
 }
 
 /** A transient, fixed-provider address proposal. It does not save addresses,
@@ -111,7 +137,8 @@ export function createGoogleAddressValidation({ env = process.env, fetchImpl = f
         ...(sessionToken === undefined ? {} : { sessionToken }) }),
       }), signal);
       if (response.status !== 200) {
-        void response.body?.cancel().catch(() => {});
+        if ([400, 401, 403].includes(response.status)) await rejection(response, signal);
+        else void response.body?.cancel().catch(() => {});
         if (response.status === 400)
           fail('Adressen kunde inte kontrolleras. Kontrollera uppgifterna eller fyll i dem manuellt.', 422, 'address_validation_invalid');
         if ([401, 403].includes(response.status))

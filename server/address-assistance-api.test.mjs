@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createServer } from 'node:http';
 import { createAddressAssistanceApi } from './address-assistance-api.mjs';
-import { GoogleAddressValidationError } from './google-address-validation.mjs';
+import { createGoogleAddressValidation, GoogleAddressValidationError } from './google-address-validation.mjs';
 import { PlatformError } from './platform-auth.mjs';
 
 const address = { address: 'Exempelvägen 12', postalCode: '76141', city: 'Norrtälje', countryCode: 'SE' };
@@ -150,4 +150,21 @@ test('permission revocation discards pending proposals and raw unexpected errors
     const result = await f.request(); assert.equal(result.status, 503); assert.ok(!result.text.includes('server-private-key'));
     assert.deepEqual(Object.keys(result.body).sort(), ['code', 'error']);
   }, { validate: () => { throw new Error('server-private-key raw provider response'); } });
+});
+
+test('structured Google diagnostics reach the authorized response without raw metadata or keys', () => {
+  const validator = createGoogleAddressValidation({ env: { GOOGLE_ADDRESS_VALIDATION_API_KEY: 'PRIVATE-KEY' },
+    fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'PRIVATE-GOOGLE-MESSAGE', details: [
+      { '@type': 'type.googleapis.com/google.rpc.ErrorInfo', domain: 'googleapis.com', reason: 'BILLING_DISABLED',
+        metadata: { key: 'PRIVATE-KEY', consumer: 'PRIVATE-PROJECT', callerIp: 'PRIVATE-IP' } },
+    ] } }), { status: 403 }) });
+  return fixture(async f => {
+    const result = await f.request();
+    assert.equal(result.status, 503);
+    assert.equal(result.body.code, 'address_validation_billing_disabled');
+    assert.match(result.body.error, /faktureringen inte är aktiv/);
+    assert.deepEqual(Object.keys(result.body).sort(), ['code', 'error']);
+    assert.ok(!result.text.includes('PRIVATE-'));
+    assert.equal(f.authorizations, 2);
+  }, { validate: (value, context) => validator.validate(value, context) });
 });

@@ -97,6 +97,63 @@ test('provider errors have safe bounded messages; no raw key, response or networ
   await rejects(client(async () => { throw new Error(key); }).validate(address), 503, 'address_validation_unavailable');
 });
 
+const errorInfo = reason => ({ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', domain: 'googleapis.com', reason,
+  metadata: { key, consumer: 'PRIVATE-PROJECT', callerIp: 'PRIVATE-IP' } });
+const rejectedResponse = (details, status = 403) => response({ error: { message: `${key} PRIVATE-GOOGLE-MESSAGE`, details } }, status);
+
+test('structured Google rejection reasons identify actionable setup failures without exposing provider details', async () => {
+  for (const [reason, code, message] of [
+    ['API_KEY_INVALID', 'address_validation_key_invalid', /GOOGLE_ADDRESS_VALIDATION_API_KEY/],
+    ['API_KEY_IP_ADDRESS_BLOCKED', 'address_validation_ip_blocked', /utgående IP-adress/],
+    ['API_KEY_HTTP_REFERRER_BLOCKED', 'address_validation_referrer_blocked', /begränsad till webbplatser/],
+    ['API_KEY_SERVICE_BLOCKED', 'address_validation_api_blocked', /tillåter inte Address Validation API/],
+    ['SERVICE_DISABLED', 'address_validation_api_disabled', /inte aktiverat/],
+    ['BILLING_DISABLED', 'address_validation_billing_disabled', /faktureringen inte är aktiv/],
+  ]) {
+    await assert.rejects(client(async () => rejectedResponse([errorInfo(reason)])).validate(address), error => {
+      assert.ok(error instanceof GoogleAddressValidationError);
+      assert.equal(error.status, 503); assert.equal(error.code, code); assert.match(error.message, message);
+      for (const secret of [key, 'PRIVATE-PROJECT', 'PRIVATE-IP', 'PRIVATE-GOOGLE-MESSAGE']) {
+        assert.ok(!error.message.includes(secret)); assert.ok(!JSON.stringify(error).includes(secret));
+      }
+      return true;
+    });
+  }
+  // Google may reject an invalid key with 400; this is not a bad postal address.
+  await rejects(client(async () => rejectedResponse([errorInfo('API_KEY_INVALID')], 400)).validate(address), 503, 'address_validation_key_invalid');
+  await rejects(client(async () => rejectedResponse([], 400)).validate(address), 422, 'address_validation_invalid');
+});
+
+test('only exact ErrorInfo reasons from Google select diagnostics, with bounded malformed-body fallback', async () => {
+  for (const details of [null, {}, [null], ['SERVICE_DISABLED'],
+    [errorInfo('UNKNOWN_REASON')], [errorInfo(`API_KEY_INVALID ${key}`)],
+    [{ ...errorInfo('SERVICE_DISABLED'), '@type': 'unexpected-type' }],
+    [{ ...errorInfo('SERVICE_DISABLED'), domain: 'unexpected-domain' }],
+    [{ message: 'API_KEY_INVALID', metadata: errorInfo('API_KEY_INVALID') }]]) {
+    await rejects(client(async () => rejectedResponse(details)).validate(address), 503, 'address_validation_access_denied');
+  }
+  for (const makeResponse of [
+    () => new Response('<html>PRIVATE-GOOGLE-MESSAGE</html>', { status: 403 }),
+    () => new Response(null, { status: 401 }),
+    () => response({ error: { details: [errorInfo('SERVICE_DISABLED')], ignored: 'x'.repeat(66000) } }, 403),
+    () => response({ error: { details: [errorInfo('SERVICE_DISABLED')] } }, 403, { 'content-length': '1000000' }),
+  ]) await rejects(client(async () => makeResponse()).validate(address), 503, 'address_validation_access_denied');
+});
+
+test('rejected provider bodies share the timeout and preserve caller cancellation', async () => {
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    let cancelled = false;
+    const stalled = createGoogleAddressValidation({ env: { GOOGLE_ADDRESS_VALIDATION_API_KEY: key }, timeoutMs: 20,
+      fetchImpl: async () => new Response(new ReadableStream({ start() {}, cancel() { cancelled = true; } }), { status: 403 }) });
+    await rejects(stalled.validate(address), 503, 'address_validation_unavailable');
+    assert.equal(cancelled, true);
+    const controller = new AbortController();
+    const aborted = client(async () => new Response(new ReadableStream({ start() { queueMicrotask(() => controller.abort()); } }), { status: 403 }));
+    await rejects(aborted.validate(address, { signal: controller.signal }), 499, 'address_validation_cancelled');
+  } finally { clearTimeout(keepAlive); }
+});
+
 test('timeout bounds headers and stalled bodies, and caller cancellation is distinct', async () => {
   const keepAlive = setTimeout(() => {}, 1000);
   try {
