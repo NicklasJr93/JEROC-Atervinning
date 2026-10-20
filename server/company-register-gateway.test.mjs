@@ -20,8 +20,9 @@ async function fixture(run, { pilot = false } = {}) {
     JEROC_TERMINAL_DB_PATH: join(directory, 'terminal.sqlite'), JEROC_DOCUMENT_DB_PATH: join(directory, 'documents.sqlite'),
     JEROC_ARTICLE_MEDIA_DB_PATH: join(directory, 'media.sqlite'), JEROC_PLATFORM_DB_PATH: join(directory, 'platform.sqlite'),
     JEROC_TENANT_DATA_DIR: directory, JEROC_DEMO_AUTO_SESSION: 'false', SCRAPPILOT_PLATFORM_ADMIN_PASSWORD: firstPassword,
+    GOOGLE_MAPS_BROWSER_API_KEY: 'fixture-public-browser-key', GOOGLE_ADDRESS_VALIDATION_API_KEY: 'fixture-private-validation-key',
   };
-  let gateway, server, calls = 0;
+  let gateway, server, calls = 0, addressCalls = 0;
   const failures = [];
   try {
     // The pilot bootstrap test uses the injected local platform repository and
@@ -31,6 +32,8 @@ async function fixture(run, { pilot = false } = {}) {
       ...(platformRepository && { platformRepository }), companyRegister: { configured: true, async lookup(number, { signal }) {
         assert.equal(number, lookupBody.organisationNumber); assert.ok(signal instanceof AbortSignal);
         calls++; return structuredClone(result);
+      } }, addressValidation: { configured: true, async validate(address) {
+        addressCalls++; return { address, verdict: { addressComplete: true, hasUnconfirmedComponents: false, hasInferredComponents: false, hasReplacedComponents: false, requiresConfirmation: true } };
       } } });
     server = createServer((req, res) => {
       const url = new URL(req.url, 'http://localhost');
@@ -67,7 +70,7 @@ async function fixture(run, { pilot = false } = {}) {
       }
       return { request, admin, get session() { return session; } };
     }
-    await run({ gateway, client, get calls() { return calls; } });
+    await run({ gateway, client, get calls() { return calls; }, get addressCalls() { return addressCalls; } });
   } finally {
     if (server) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
     await gateway?.close();
@@ -147,3 +150,36 @@ test('a pilot systemadmin can look up a legal entity before selecting or creatin
   assert.equal(found.status, 200, JSON.stringify(found.body));
   assert.deepEqual(found.body, { company: result }); assert.equal(f.calls, 1);
 }, { pilot: true }));
+
+
+test('address assistance is protected by real platform and employee sessions, CSRF and tenant permissions', () => fixture(async f => {
+  const configPath = '/api/address-assistance/config', validationPath = '/api/address-assistance/validate';
+  const body = { address: { address: 'Testvägen 10', postalCode: '76141', city: 'Norrtälje', countryCode: 'SE' } };
+  const admin = f.client();
+  assert.equal((await admin.request(configPath, {})).status, 401);
+  assert.equal((await admin.request(validationPath, body, { 'x-demo-actor': 'admin' })).status, 401);
+  await admin.admin();
+  assert.equal((await admin.request(configPath, {}, { 'x-platform-csrf': '' })).status, 403);
+  assert.equal((await admin.request(validationPath, body, { 'x-client-company': 'foreign-company' })).status, 409);
+  assert.equal((await admin.request(validationPath, body, { origin: 'https://foreign.example.test' })).status, 403);
+  assert.equal(f.addressCalls, 0);
+  const config = await admin.request(configPath, {});
+  assert.equal(config.status, 200); assert.equal(config.body.configured, true); assert.equal(config.body.browserConfigured, true);
+  assert.equal(config.body.browserApiKey, 'fixture-public-browser-key');
+  assert.ok(!JSON.stringify(config.body).includes('fixture-private-validation-key'));
+  const validated = await admin.request(validationPath, body);
+  assert.equal(validated.status, 200); assert.deepEqual(validated.body.address, body.address); assert.equal(f.addressCalls, 1);
+  assert.match(validated.headers.get('cache-control'), /no-store/);
+
+  const mobile = f.client();
+  await mobile.request('/mobil?company=jeroc-demo');
+  assert.equal((await mobile.request('/api/employee/login', { username: 'niklas', password: 'Demo123!' })).status, 200);
+  const headers = { 'x-employee-company': 'jeroc-demo', 'x-employee-person': 'person-mobile-demo' };
+  assert.equal((await mobile.request(validationPath, body, { ...headers, 'x-employee-company': 'foreign-company' })).status, 409);
+  assert.equal((await mobile.request(validationPath, body, { ...headers, 'x-employee-person': 'foreign-person' })).status, 409);
+  assert.equal((await mobile.request(validationPath, body, headers)).status, 200); assert.equal(f.addressCalls, 2);
+  const company = await f.gateway.repository.read(state => structuredClone(state.companies.find(value => value.id === 'jeroc-demo')));
+  const repository = await (await f.gateway.bundle(company)).applicationApi.getRepository();
+  await repository.transact(state => { state.pricing.users.find(value => value.id === 'mobile-demo').permissions = ['view']; });
+  assert.equal((await mobile.request(validationPath, body, headers)).status, 403); assert.equal(f.addressCalls, 2);
+}));

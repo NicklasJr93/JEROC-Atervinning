@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createIntegrationEngine, createNvvIntegrationAdapter, assertSamePreparedEvent, integrationProviders } from './integrations.mjs';
+import { createIntegrationEngine, createNvvIntegrationAdapter, createGoogleAddressIntegrationAdapter, assertSamePreparedEvent, integrationProviders } from './integrations.mjs';
 
 const context = (organisationId = 'jeroc-demo', manage = true) => ({ organisationId, allowedOrganisationIds: [organisationId], actorId: 'admin', effectiveUserId: 'admin', canRead: true, canManage: manage });
 const error = (status) => failure => failure.status === status;
@@ -24,6 +24,27 @@ test('catalog scopes every adapter call to the authenticated organisation and re
   await assert.rejects(engine.catalog({ ...context(), canRead: false }), error(403));
   await assert.rejects(engine.catalog(undefined), error(401));
   await assert.rejects(engine.detail('unknown', context()), error(404));
+});
+
+test('Google address adapter reports actual scoped key configuration without claiming verified connection or exposing keys', async () => {
+  const browserKey = 'SYNTHETIC-BROWSER-KEY', serverKey = 'SYNTHETIC-SERVER-KEY';
+  for (const [env, configured] of [
+    [{}, false], [{ GOOGLE_MAPS_BROWSER_API_KEY: browserKey }, false],
+    [{ GOOGLE_ADDRESS_VALIDATION_API_KEY: serverKey }, false],
+    [{ GOOGLE_MAPS_BROWSER_API_KEY: ' ', GOOGLE_ADDRESS_VALIDATION_API_KEY: serverKey }, false],
+    [{ GOOGLE_MAPS_BROWSER_API_KEY: browserKey, GOOGLE_ADDRESS_VALIDATION_API_KEY: serverKey }, true],
+  ]) {
+    const engine = createIntegrationEngine({ adapters: [createGoogleAddressIntegrationAdapter({ organisationId: 'org-a', env })] });
+    const result = await engine.detail('google-maps', context('org-a'));
+    assert.equal(result.implemented, true); assert.equal(result.configured, configured);
+    assert.equal(result.mode, 'production'); assert.equal(result.connected, false);
+    assert.equal(result.status, configured ? 'not-verified' : 'not-configured');
+    assert.equal(result.capabilities.canCheck, false); assert.equal(result.capabilities.canConnect, false);
+    assert.equal(result.links.settings, '/integrations?service=google-maps');
+    assert.ok(!JSON.stringify(result).includes(browserKey)); assert.ok(!JSON.stringify(result).includes(serverKey));
+    assert.equal((await engine.detail('google-maps', context('org-b'))).status, 'disabled');
+    await assert.rejects(engine.check('google-maps', context('org-a')), error(501));
+  }
 });
 
 test('NVV adapter delegates existing status/check and safely distinguishes test, simulation and production-disabled', async () => {

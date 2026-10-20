@@ -14,7 +14,7 @@ const definitions = [
   { id: 'gmail', name: 'Google / Gmail', category: 'productivity', description: 'Planerad anslutning av Google-inkorgar till den gemensamma mejlvyn.', requiredSetup: ['Google OAuth-app', 'Godkännande av valda inkorgar'] },
   { id: 'bankid', name: 'BankID', category: 'identity', description: 'Planerad identitetsverifiering och signering av kundens aktuella avräkning.', requiredSetup: ['BankID-avtal eller förmedlaravtal', 'Testanslutning och verifierat signeringsflöde'] },
   { id: 'messaging', name: 'SMS och e-post', category: 'messaging', description: 'Planerade kundlänkar och aviseringar med spårbar leveransstatus.', requiredSetup: ['Vald SMS- och e-postleverantör', 'Verifierad avsändare och leveranshantering'] },
-  { id: 'google-maps', name: 'Google Maps', category: 'maps', description: 'Planerat adressförslag och kartstöd för kunder och transportplanering.', requiredSetup: ['Google Cloud-projekt och fakturering', 'API-nycklar begränsade till rätt tjänster och domäner'] },
+  { id: 'google-maps', name: 'Google adresser', category: 'maps', description: 'Adressförslag samt granskning och bekräftelse av svenska postadresser i kund- och ursprungsuppgifter.', requiredSetup: ['Google Maps-webbläsarnyckel för Maps JavaScript API och Places API (New), begränsad till webbplatser', 'Separat servernyckel för Address Validation API, begränsad till serverns utgående IP-adresser'], settings: '/integrations?service=google-maps' },
   { id: 'lme', name: 'LME-priser', category: 'market', description: 'Planerad prisdatakälla för LME Cash. Manuella LME-priser används tills dess.', requiredSetup: ['Licensierad prisdataleverantör', 'Avtal och verifierad Cash-prisdatamappning'] },
 ];
 export const integrationProviders = Object.freeze(definitions.map(definition => Object.freeze({ ...definition, requiredSetup: Object.freeze(definition.requiredSetup) })));
@@ -155,5 +155,19 @@ export function createNvvIntegrationAdapter({ organisationId = 'jeroc-demo', sta
         lastCheckedAt: current?.lastCheck?.checkedAt };
     },
     ...(check ? { check: context => check(context) } : {}),
+  };
+}
+
+/** Presence is configuration, never evidence of a successful Google call.
+ * The browser key is intentionally public but neither key belongs in a catalog.
+ * Functional address tests use the separate authenticated address helper.
+ */
+export function createGoogleAddressIntegrationAdapter({ organisationId, env = process.env } = {}) {
+  if (!identifier(organisationId)) fail('Adresshjälpen kräver en bestämd organisation.', 422);
+  const present = name => typeof env[name] === 'string' && Boolean(env[name].trim());
+  const configured = present('GOOGLE_MAPS_BROWSER_API_KEY') && present('GOOGLE_ADDRESS_VALIDATION_API_KEY');
+  return {
+    providerId: 'google-maps', allowedOrganisationIds: [organisationId],
+    status: async () => ({ mode: 'production', configured, connected: false }),
   };
 }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { customerIdentifierError, normalizeOrganisationNumber } from '../dist-server/domain-models.mjs';
+import { customerIdentifierError, normalizeOrganisationNumber, normalizePhoneNumber, phoneNumberError } from '../dist-server/domain-models.mjs';
 import { EnvironmentError } from './environment-storage.mjs';
 
 // Fixed upstream: callers cannot select a URL, headers, fields or a collection
@@ -16,6 +16,9 @@ const recordSchema = z.object({
     gatuAdress: field(512), coAdress: field(256), postNr: field(5), postOrt: field(30),
   }).optional(),
   ftgStat: code, jurform: field(2), momsStat: code, fSkattStat: code,
+  // Contacts are optional assistance. Unexpected/empty contact data must not
+  // discard an otherwise valid company hit; validate these separately below.
+  tel: z.unknown().optional(), epost: z.unknown().optional(),
 });
 
 export class ScbCompanyRegisterError extends EnvironmentError {
@@ -29,6 +32,17 @@ const fail = (message, status, code) => { throw new ScbCompanyRegisterError(mess
 const invalidResponse = () => fail('Företagsregistret gav ett oväntat svar. Försök igen senare eller fyll i uppgifterna manuellt.', 502, 'company_lookup_response_invalid');
 const clean = value => (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ');
 const registrationStatus = value => ['1', '3'].includes(String(value)) ? true : ['0', '9'].includes(String(value)) ? false : undefined;
+const emailSchema = z.string().trim().email().max(254);
+function contactPhone(value) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 64) return undefined;
+  const normalized = normalizePhoneNumber(value);
+  return normalized && !phoneNumberError(normalized) ? normalized : undefined;
+}
+function contactEmail(value) {
+  const parsed = emailSchema.safeParse(value);
+  // Preserve the local part's case; trimming must not change the mailbox.
+  return parsed.success ? parsed.data : undefined;
+}
 
 function companyNumber(input) {
   if (typeof input !== 'string' || input.length > 40)
@@ -120,6 +134,7 @@ export function createScbCompanyRegister({ env = process.env, fetchImpl = fetch,
         : String(record.fSkattStat) === '1' ? true : ['0', '9'].includes(String(record.fSkattStat)) ? false : undefined;
       const address = record.postAdress ?? {};
       if (address.postNr && !/^\d{5}$/.test(address.postNr)) invalidResponse();
+      const phone = contactPhone(record.tel), email = contactEmail(record.epost);
       return {
         organisationNumber, name: clean(record.namn), address: clean(address.gatuAdress),
         postalCode: address.postNr ?? '', city: clean(address.postOrt), countryCode: 'SE',
@@ -128,6 +143,8 @@ export function createScbCompanyRegister({ env = process.env, fetchImpl = fetch,
         ...(record.jurform ? { legalFormCode: record.jurform } : {}),
         ...(vatRegistered === undefined ? {} : { vatRegistered }),
         ...(fTaxRegistered === undefined ? {} : { fTaxRegistered }),
+        ...(phone === undefined ? {} : { phone }),
+        ...(email === undefined ? {} : { email }),
         source: 'SCB', fetchedAt: new Date(now()).toISOString(),
       };
     } catch (error) {

@@ -1848,7 +1848,20 @@ Status: Genomförd 2026-10-12 i kontor 0.19.0.
   Senare ändring av kundens kontaktnummer ändrar inte ett godkänt underlag.
 
 087 – Gemensamma adressförslag och strukturerade adresser
-Status: Planerad och inventerad 2026-10-12. Google-kopplingen är inte aktiverad.
+Status: Implementerad 2026-10-20 i kod. Riktiga Google-nycklar och Render-anrop
+behöver provas efter deployment; kartanknuten adressökning är fortsatt manuell.
+- Gemensam AddressAssist finns i redigerbara kund-, ursprungs-, arbetsorder-,
+  anläggnings-, kärl-, personal- och dokumentformulär samt mobilens adressfält.
+  Google Places ger förslag, separat servernyckel kontrollerar vald adress med
+  Address Validation API och användaren bekräftar uttryckligen före överföring.
+  Ingen automatisk sparning eller rå Google-cache; sena svar förkastas vid ändring.
+- Nycklar: GOOGLE_MAPS_BROWSER_API_KEY med Websites-begränsning samt
+  GOOGLE_ADDRESS_VALIDATION_API_KEY med Render-appens utgående IP-intervall.
+  Integrationer → Google adresser visar faktisk konfigurationsstatus och ett
+  fristående adressprov. Nyckelnärvaro påstår inte verifierad Google-anslutning.
+- Transportformuläret med Leaflet/OpenStreetMap får ingen vanlig Places-sökning
+  kopplad till kartan. Dess manuella adress och separata Hitta adress behålls.
+  Fullt flöde, EES-avgränsning och testning: docs/integrationer/google-adresser.md.
 - Gemensam adresskomponent för ny/redigerad kund, ursprung, arbetsorder,
   anläggning, kärlplacering och personal; mobil och kontor använder samma format.
   Full lista, kodreferenser, Google-förutsättningar och källor:
@@ -1865,9 +1878,10 @@ Status: Planerad och inventerad 2026-10-12. Google-kopplingen är inte aktiverad
   för ett vanligt adressfält; Googles JavaScript/UI-bibliotek laddas vid behov.
 - Välj Google-komponent och lagringsupplägg enligt aktuella EES-villkor.
   Places-innehåll har begränsningar kring beständig lagring och användning med
-  kartor. Transportplaneraren använder Leaflet/OpenStreetMap idag; Places UI Kit
-  har särskilda undantag för kartan och egna pris-SKU:er. Detta ska lösas före
-  integrationen byggs, inte kringgås med en annan etikett på sparade API-svar.
+  kartor. Transportplaneraren använder Leaflet/OpenStreetMap idag. Vi avstår
+  Google-förslag i den kartanknutna vyn. Validerad adress kräver aktiv
+  användarbekräftelse enligt Address Validation-villkor §1.4; råa Places-svar
+  blir inte beständiga kunduppgifter enbart genom att byta etikett.
 - Google ger inte automatiskt NVV:s fyrsiffriga kommunkod. Adressen behöver
   fortsatt en säker kommunmatchning mot kommunregistret; osäkra träffar kräver
   komplettering. Härledda miljöadresser återanvänder ursprung/anläggning.
@@ -3319,73 +3333,70 @@ Status: Implementerad 2026-10-17 i kontor 0.30.6. Mobilwebben kvar på 0.13.0.
   Inga externa eller betalda API-anrop i verifieringen.
 
 ÄL 138 – Nummer först vid kundregistrering och blå elektrisk fokusram
-Status: Planerad 2026-10-20. Endast dokumentation; implementation beställs separat.
-- Börja med en tydlig ruta för organisations-/personnummer, före kundtyp,
-  kundnummer och namn. Kundtyp blir ett automatiskt förslag som kan ändras.
-  Nummerfältet tar första positionen där Kundtyp står i dag; Kundtyp flyttas
-  efter nummerfältet. Samordna kontaktförslagen från SCB med ÄL 139.
-  Samma grundordning ska användas i kontorets fullständiga kundformulär,
+Status: Genomförd i kod 2026-10-20 tillsammans med ÄL 139.
+- Organisations-/personnummer är första rutan, före kundtyp, kundnummer och
+  namn. Samma gemensamma komponent används i kontorets fullständiga kundformulär,
   snabbregistreringen på viktkort och mobilens Ny kund.
-- Identifiera numret först när det är komplett och giltigt. Använd inte
-  antagandet att alla företag börjar på 5: organisationsnumrets tredje siffra
+- Kundtypen föreslås först när numret är komplett och giltigt. Regeln antar
+  inte att alla företag börjar på 5: organisationsnumrets tredje siffra
   är minst 2, medan personnumrets tredje siffra är månadens första (0 eller 1).
-  Kontrollera dessutom hela formatet, riktigt kalenderdatum och Luhn-siffra.
-- Hantera personnummer med tio/tolv siffror, bindestreck/blanksteg och
+  Hela formatet, riktigt kalenderdatum och Luhn-siffra kontrolleras.
+- Personnummer stöds med tio/tolv siffror, bindestreck/blanksteg och
   plusseparator. Samordningsnummer har dag +60; datumkontrollen tar bort 60
   men kontrollsiffran beräknas på originalnumret. Tolvsiffrigt företagsnummer
   med SCB-prefixet 16 skiljs från personnummer och normaliseras till tio siffror.
-  Gissa inte saknat århundrade för senare personuppslag eller betalning.
+  Saknat århundrade gissas inte för senare personuppslag eller betalning.
 - Nummerformatet skiljer juridisk person från personidentitet, men avgör inte
-  om en person är privatkund eller enskild näringsidkare. Behåll ett tydligt
-  manuellt val Företag för enskild firma. Ett aktivt manuellt val ska inte
-  skrivas över av automatiken. BRF kräver manuellt val eller säker registeruppgift.
-- Visa begriplig status för ofullständigt nummer, ogiltigt nummer, sökning,
-  träff och ingen träff. Undvik att kundtypen hoppar medan användaren skriver.
+  om en person är privatkund eller enskild näringsidkare. Kundtyp har valet
+  Automatiskt samt manuella Företag, Privatperson och BRF. Ett manuellt val
+  behålls även vid ändrat nummer; Automatiskt kan väljas igen. Företag kan väljas
+  för enskild firma och BRF väljs manuellt. Befintliga kunders val bevaras.
+- Begriplig status skiljer ofullständigt och ogiltigt nummer från giltig
+  personidentitet. SCB-komponenten visar sökning, träff och ingen träff separat.
   Ett giltigt nummerformat är inte bevis för att företaget/personen finns.
-- Återanvänd SCB-uppslaget för giltiga juridiska organisationsnummer.
-  Person-/samordningsnummer skickas inte till SCB. Framtida personuppslag
-  kopplas separat; tills dess kan personuppgifter anges manuellt.
-- Ge nummer-/identifieringsrutan samma godkända sammanhängande blå elektriska
-  fokusram som nästa moment på ett nytt viktkort, enligt ÄL 063. Återanvänd
-  befintlig komponent, lugn rörelse, stabila hörn och stilla innehåll.
-  Markera det aktuella första steget och tona ned ramen när steget är klart.
-  Minskad rörelse ger stilla kontur; fel visas även med tydlig text.
-- Behåll granskning före sparande, befintliga momsregler och manuella val.
-  Ändra inga sparade kunder eller låsta underlag enbart genom identifieringen.
-- Acceptans: testa företag vars nummer inte börjar på 5, privatperson,
-  enskild firma, BRF, samordningsnummer, tio/tolv siffror, fel datum/Luhn,
-  manuellt typbyte, långsamt registeranrop samt minskad rörelse.
+- SCB används bara för giltiga juridiska organisationsnummer. Person- och
+  samordningsnummer skickas inte dit. SPAR/personuppslag är inte implementerat;
+  personuppgifter anges tills vidare manuellt.
+- Nummerfältet återanvänder den godkända blå elektriska fokusramen från ÄL 063.
+  Den släcks när numret är komplett och giltigt eller fältet är skrivskyddat.
+  Minskad rörelse ger stilla kontur; rörelsen pausas i dold flik/utanför vyn.
+  Fel visas även med tydlig text.
+- Granskning före sparande, momsregler och manuella val behålls. Identifiering
+  sparar ingen kund och ändrar inga låsta underlag.
+- Tester: tests/customer-identity.spec.ts och tests/customer-identity-office.spec.ts
+  samt tests/company-register-entrypoints.spec.ts täcker nummerformat, datum,
+  Luhn, typförslag, manuella undantag och gemensamma formulärflöden.
 - Underlag: docs/integrationer/scb-foretagsregister.md och
-  docs/mockups/kortfokus-elektrisk/README.md. Detta är ett kommande formulärflöde,
-  inte besked om att framtida personuppslag eller UI-ändringen är levererade.
+  docs/mockups/kortfokus-elektrisk/README.md. Samlade byggkontroller redovisas
+  vid leverans; inga riktiga SCB- eller Google-anrop ingår i automatiska tester.
 
 ÄL 139 – Föreslå företagets telefon och e-post från SCB
-Status: Planerad 2026-10-20. Endast dokumentation; ingen appkod ändras av denna punkt.
-- Utöka SCB-träffen med företagets telefonnummer och e-postadress när de finns.
-  Märk dem som företagets kontaktuppgifter från SCB, med källa och hämtningstid.
+Status: Genomförd i kod 2026-10-20 tillsammans med ÄL 138.
+- SCB-träffen visar företagets telefonnummer och e-postadress när giltiga
+  uppgifter finns, märkta som företagets kontaktuppgifter med källa och tid.
   En växel eller info-adress är inte automatiskt en viss kontaktpersons uppgift.
-- Visa förslagen före användning. Samma aktiva val Använd företagsuppgifter
-  ska kunna fylla även telefon/e-post i kundens kontaktruta; ingen extra knapp
-  eller automatisk kundsparning behövs.
-- Fyll bara tomma kontaktfält. Kontrollera aktuella formulärvärden vid själva
-  användningen, så att manuellt angivet telefonnummer eller e-post inte skrivs
-  över medan ett långsamt registeranrop pågår. Saknade SCB-värden tömmer inget.
-- Använd gemensam telefon-/e-postvalidering vid införandet och befintlig
-  normalisering inför sparande. Ogiltiga registervärden får inte bli godkända
-  kontaktuppgifter enbart för att de kommer från SCB.
+- Förslagen visas före användning. Det aktiva valet Använd företagsuppgifter
+  fyller också telefon/e-post i kundens kontaktruta, utan automatisk sparning.
+- Bara kontaktfält som fortfarande är tomma vid användningen fylls. Befintliga
+  och nyligen manuellt angivna värden bevaras även under långsamt uppslag.
+  Saknade SCB-värden tömmer inget.
+- Registerfält tel/epost valideras separat på servern och i klienten. Ogiltig
+  eller saknad kontakt utelämnas utan att en annars giltig företagsträff
+  försvinner. Telefon normaliseras till E.164; e-post formatkontrolleras.
 - Kontaktpersonens namn anges manuellt. SCB-uppslaget innehåller inget VD-namn
-  och ska inte gissa vem som är kontaktperson utifrån bolagsnamn eller e-post.
+  och gissar inte kontaktperson utifrån bolagsnamn eller e-post.
 - På Skapa bolag anges VD-kontots namn och inloggningsmejl fortfarande separat.
-  En generell företagsadress får inte automatiskt användas för att skapa eller
-  ändra VD-konto, mottagare för engångslösenord eller andra kontobehörigheter.
+  En generell företagsadress skapar eller ändrar inte VD-konto, mottagare för
+  engångslösenord eller andra kontobehörigheter.
 - Kontaktförslagen ändrar inte betalningsprofil, Swish-mottagare eller låsta
   underlag. Befintliga kundkort uppdateras först efter uttryckligt sparande.
-- Samma beteende ska gälla kontorets fullständiga kundformulär,
-  snabbregistreringen på viktkort och mobilens Ny kund. Samordnas med ÄL 138:
+- Samma beteende finns i kontorets fullständiga kundformulär,
+  snabbregistreringen på viktkort och mobilens Ny kund. Ordningen följer ÄL 138:
   organisations-/personnummer först, därefter kundtyp och övriga uppgifter.
-- Acceptans: tomma fält fylls efter aktivt val; ett eller två befintliga
-  kontaktfält bevaras; manuell ändring under pågående sökning behålls; saknade
-  eller ogiltiga SCB-värden hanteras; fel bolag/nummer och gammal session avvisas;
-  kontaktpersonsnamn, VD-inloggning och betalningsuppgifter förblir orörda.
-- Underlag: docs/integrationer/scb-foretagsregister.md. Dagens implementation
-  lämnar ännu inte vidare SCB:s telefon-/e-postfält; detta beskriver nästa ändring.
+- Tester: server/scb-company-register.test.mjs, tests/company-register-client.spec.ts,
+  tests/customer-form.spec.ts, tests/customer-identity-office.spec.ts och
+  tests/company-register-entrypoints.spec.ts omfattar kontaktvalidering,
+  tomma/befintliga fält, sena svar och oförändrade VD-/betalningsuppgifter.
+- Underlag och provkommandon: docs/integrationer/scb-foretagsregister.md.
+  Samlade byggkontroller redovisas vid leverans. Verifieringen använder
+  syntetiska registerträffar och innebär inte ett genomfört skarpt SCB-anrop.

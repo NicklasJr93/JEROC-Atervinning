@@ -13,6 +13,8 @@ import { createFleetSimulatorBridge } from './fleet-simulator.mjs';
 import { readDeploymentProfile } from './deployment-profile.mjs';
 import { createScbCompanyRegister } from './scb-company-register.mjs';
 import { createCompanyRegisterApi } from './company-register-api.mjs';
+import { createAddressAssistanceApi } from './address-assistance-api.mjs';
+import { createGoogleAddressValidation } from './google-address-validation.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -42,7 +44,7 @@ function sameOrigin(req) {
  * comes from the platform registry and a server-authenticated session. Public
  * login endpoints select a bundle but still require its own employee/device or
  * partner credentials; a tenant selector is never a permission grant. */
-export async function createTenantGateway({ env = process.env, makeServices = createTenantServices, testCarApi, platformRepository, companyRegister } = {}) {
+export async function createTenantGateway({ env = process.env, makeServices = createTenantServices, testCarApi, platformRepository, companyRegister, addressValidation } = {}) {
   const profile = readDeploymentProfile(env);
   const bundles = new Map(), streams = new Set();
   const fleetSimulator = createFleetSimulatorBridge({ testCarApi });
@@ -197,25 +199,32 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       return writeHead.apply(this, args);
     };
   }
-  const companyRegisterApi = createCompanyRegisterApi({ register: companyRegister ?? createScbCompanyRegister({ env }),
-    authorize: async req => {
-      const allowed = user => user?.active !== false && (user?.level && user.level !== 'Medarbetare' || user?.permissions?.includes('customers'));
+  // Both helpers authenticate their own asynchronous requests, including a
+  // second check after the provider returns. A browser-supplied tenant never
+  // grants access; the SCB lookup retains its narrower customer permission.
+  const addressRights = ['prepare', 'customers', 'transportPlan', 'workOrdersWrite', 'vesselsWrite',
+    'environmentWrite', 'environmentStorage', 'personnelWrite', 'employmentWrite', 'environmentIntegration', 'integrationsManage'];
+  const authorizeAssistance = async (req, address = false) => {
+      const configOnly = address && req.url?.split('?')[0] === '/api/address-assistance/config';
+      const allowed = user => user?.active !== false && (user?.level && user.level !== 'Medarbetare'
+        || (address ? [...addressRights, ...(configOnly ? ['integrationsRead'] : [])] : ['customers']).some(right => user?.permissions?.includes(right)));
+      const deniedMessage = address ? 'Du saknar behörighet att använda adresshjälpen.' : 'Du saknar behörighet att registrera kunder.';
       if (platformCookieToken(req) !== undefined) {
         const identity = await auth.checkRequest(req, { write: true });
         const selected = identity.company;
         if (!selected && identity.actor.platformAdmin) {
-          return { rateKey: `platform:${identity.actor.id}`, scopeKey: JSON.stringify([
+          return { rateKey: `platform:${identity.actor.id}`, tenantRateKey: `platform:${identity.actor.id}`, scopeKey: JSON.stringify([
             identity.actor.id, identity.session.tokenHash, identity.session.generation, null,
           ]) };
         }
         const context = await auth.resolveContext(req, { writes: true });
         bindIdentity(req, context);
         if (!allowed(context.actualUser) || !allowed(context.user))
-          throw new PlatformError('Du saknar behörighet att registrera kunder.', 403, 'company_lookup_forbidden');
+          throw new PlatformError(deniedMessage, 403, address ? 'address_assistance_forbidden' : 'company_lookup_forbidden');
         const expected = req.headers['x-client-company'] ?? req.headers['x-employee-company'];
         if (expected !== undefined && expected !== context.company.id)
           throw new PlatformError('Bolaget har bytts i en annan flik. Sök igen.', 409, 'company_selection_changed');
-        return { rateKey: `platform:${context.actorId}:${context.company.id}`, scopeKey: JSON.stringify([
+        return { rateKey: `platform:${context.actorId}:${context.company.id}`, tenantRateKey: context.company.id, scopeKey: JSON.stringify([
           context.actorId, context.actualUser.id, context.user.id, context.company.id, context.sessionKey, context.generation,
         ]) };
       }
@@ -230,14 +239,19 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       const service = await bundle(company);
       const identity = await (await service.applicationApi.getRepository()).read(state => employeeCompanyLookupContext(state, req), { domains: ['pricing', 'personnel', 'personnelAuth'] });
       if (!allowed(identity.actor) || !allowed(identity.user))
-        throw new PlatformError('Du saknar behörighet att registrera kunder.', 403, 'company_lookup_forbidden');
-      return { rateKey: `employee:${identity.actor.id}:${company.id}`, scopeKey: JSON.stringify([
+        throw new PlatformError(deniedMessage, 403, address ? 'address_assistance_forbidden' : 'company_lookup_forbidden');
+      return { rateKey: `employee:${identity.actor.id}:${company.id}`, tenantRateKey: company.id, scopeKey: JSON.stringify([
         identity.actor.id, identity.user.id, identity.personId, company.id, identity.sessionKey,
       ]) };
-    } });
+    };
+  const companyRegisterApi = createCompanyRegisterApi({ register: companyRegister ?? createScbCompanyRegister({ env }),
+    authorize: req => authorizeAssistance(req) });
+  const addressAssistanceApi = createAddressAssistanceApi({ validator: addressValidation ?? createGoogleAddressValidation({ env }),
+    env, authorize: req => authorizeAssistance(req, true) });
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/')) return false;
     if (await companyRegisterApi(req, res, url)) return true;
+    if (await addressAssistanceApi(req, res, url)) return true;
     if (url.pathname.startsWith('/api/public/voice-test')) {
       if (profile.pilot) { json(res, 404, { error: 'Rösttestet är inte tillgängligt i pilotmiljön.', code: 'not_found' }); return true; }
       // This capability is for the fixed demo tenant, never for a caller's

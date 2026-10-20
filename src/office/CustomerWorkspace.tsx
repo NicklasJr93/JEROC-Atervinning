@@ -63,9 +63,11 @@ import {
 } from './pricing-client';
 import PaymentEditor, { PaymentReadOnly } from './PaymentEditor';
 import CompanyLookup from '../company-register/CompanyLookup';
+import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
+import AddressAssist from '../address-assistance/AddressAssist';
 import { cardRoute, safeAuditText } from './workflow';
 import { applyCompanyLookupToCustomer, createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
-import { customerIdentifierError, normalizeOriginAddress, phoneNumberError } from '../data-format';
+import { customerIdentifierError, formatAddress, normalizeAddress, normalizeOriginAddress, phoneNumberError } from '../data-format';
 import './customer.css';
 
 type CorrectionInput = {
@@ -385,6 +387,7 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
             onCancel={cancelNewCustomer}
             formId={detailsFormId}
             onBusyChange={setEditBusy}
+            preserveInitialType={Boolean(newCustomerDraft)}
             fresh
           />
         ) : (
@@ -1230,6 +1233,8 @@ function SavedList({
   disabled,
   onChange,
   normalize,
+  addressScope,
+  requestHeaders,
 }: {
   title: string;
   values: string[];
@@ -1237,6 +1242,8 @@ function SavedList({
   disabled: boolean;
   onChange: (values: string[]) => void;
   normalize?: boolean;
+  addressScope?: string;
+  requestHeaders?: Readonly<Record<string, string>>;
 }) {
   const [newValue, setNewValue] = useState(''),
     [editIndex, setEditIndex] = useState<number>();
@@ -1297,6 +1304,14 @@ function SavedList({
       )}
       {!disabled && (
         <div className="customer-saved-add">
+          {title === 'Ursprungsadresser' && (
+            <AddressAssist
+              value={normalizeAddress(newValue)}
+              scopeKey={JSON.stringify([addressScope, editIndex, newValue])}
+              requestHeaders={requestHeaders}
+              onApply={(address) => setNewValue(formatAddress(address))}
+            />
+          )}
           <input
             aria-label={
               title === 'Sparade referenser'
@@ -1347,6 +1362,7 @@ function CustomerDetails({
   onCancel,
   fresh = false,
   editing = false,
+  preserveInitialType = false,
   formId,
   onBusyChange,
 }: {
@@ -1358,6 +1374,7 @@ function CustomerDetails({
   onCancel: () => void;
   fresh?: boolean;
   editing?: boolean;
+  preserveInitialType?: boolean;
   formId: string;
   onBusyChange: (busy: boolean) => void;
 }) {
@@ -1413,7 +1430,6 @@ function CustomerDetails({
   function input(
     key:
       | 'name'
-      | 'number'
       | 'customerNumber'
       | 'address'
       | 'postalCode'
@@ -1425,8 +1441,7 @@ function CustomerDetails({
     required = false,
   ) {
     const validationError = edit && checkedFields.includes(key)
-      ? key === 'number' ? customerIdentifierError(draft.type, draft.number)
-        : key === 'phone' ? phoneNumberError(draft.phone) : null
+      ? key === 'phone' ? phoneNumberError(draft.phone) : null
       : null;
     return (
       <label>
@@ -1438,7 +1453,6 @@ function CustomerDetails({
           disabled={!edit || busy || key === 'customerNumber'}
           value={draft[key]}
           onChange={(e) => {
-            if (key === 'number') setAllowDuplicate(false);
             setDraft((d) => ({ ...d, [key]: e.target.value }));
           }}
           onBlur={() => setCheckedFields(current => current.includes(key) ? current : [...current, key])}
@@ -1458,28 +1472,24 @@ function CustomerDetails({
         <form onSubmit={submit} id={formId}>
           <Section title="Kunduppgifter">
             <div className="customer-form-grid">
-              <label>
-                Kundtyp
-                <select
-                  aria-label="Kundtyp"
+              <div className="customer-form-wide">
+                <CustomerIdentityInput
+                  key={draft.id}
+                  value={draft.number}
+                  type={draft.type}
+                  autoDetect={fresh && !preserveInitialType}
                   disabled={!edit || busy}
-                  value={draft.type}
-                  onChange={(e) => {
+                  error={edit && checkedFields.includes('number') ? customerIdentifierError(draft.type, draft.number) ?? undefined : undefined}
+                  onChange={(number) => {
                     setAllowDuplicate(false);
-                    setDraft((d) => ({
-                      ...d,
-                      type: e.target.value as OfficeCustomer['type'],
-                    }))
+                    setDraft((d) => ({ ...d, number }));
                   }}
-                >
-                  {['Företag', 'Privatperson', 'BRF'].map((t) => (
-                    <option key={t}>{t}</option>
-                  ))}
-                </select>
-              </label>
-              {input('customerNumber', 'Kundnummer')}
-              {input('name', 'Namn', true)}
-              {input('number', 'Organisations-/personnummer')}
+                  onTypeChange={(type) => {
+                    setAllowDuplicate(false);
+                    setDraft((d) => ({ ...d, type: type as OfficeCustomer['type'] }));
+                  }}
+                />
+              </div>
               {edit && draft.type !== 'Privatperson' && (
                 <div className="customer-form-wide">
                   <CompanyLookup
@@ -1489,6 +1499,21 @@ function CustomerDetails({
                     requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
                     onApply={(company) => {
                       if (!busy && edit) setDraft((current) => applyCompanyLookupToCustomer(current, company));
+                    }}
+                  />
+                </div>
+              )}
+              {input('customerNumber', 'Kundnummer')}
+              {input('name', 'Namn', true)}
+              {edit && (
+                <div className="customer-form-wide">
+                  <AddressAssist
+                    value={{ address: draft.address, postalCode: draft.postalCode, city: draft.city, countryCode: draft.countryCode }}
+                    disabled={busy}
+                    scopeKey={JSON.stringify([draft.id, draft.type, draft.number])}
+                    requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
+                    onApply={(address) => {
+                      if (!busy && edit) setDraft((current) => ({ ...current, ...address }));
                     }}
                   />
                 </div>
@@ -1644,6 +1669,8 @@ function CustomerDetails({
           values={draft.origins}
           button="Lägg till adress"
           disabled={!edit || busy}
+          addressScope={JSON.stringify([draft.id, draft.type, draft.number, actualUser.id, user.id])}
+          requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
           onChange={(origins) => setDraft((d) => ({ ...d, origins }))}
         />
         <SavedList

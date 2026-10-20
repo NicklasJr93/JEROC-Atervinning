@@ -6,6 +6,7 @@ import { environmentApi, EnvironmentApiError } from './environment-client';
 import { EnvironmentAccessBoundary, environmentFailure, hasEnvironmentPermission, useEnvironmentSession } from './EnvironmentSession';
 import type { EnvironmentSite } from './environment-types';
 import StoragePolicyPanel from './StoragePolicyPanel';
+import AddressAssist from '../address-assistance/AddressAssist';
 import './environment.css';
 import './storage.css';
 
@@ -49,6 +50,10 @@ function FacilityEditor({ site, user, actualUser, onSaved, onNotice }: {
   }
   return <section className="office-panel environment-panel facility-editor" aria-label={`Anläggningsuppgifter för ${site.name || 'ny anläggning'}`}>
     <header className="environment-heading"><span className="environment-icon"><Building2 size={21} /></span><div><h2>{site.version ? 'Anläggningsuppgifter' : 'Ny anläggning'}</h2><p>Adress, tillståndsreferens och verksamhetens egna noteringar.</p></div>{site.version > 0 && <span className="environment-pill">Version {site.version}</span>}</header>
+    {editable && <AddressAssist value={{ address: draft.address, postalCode: draft.postalCode, city: draft.city, countryCode: 'SE' }}
+      scopeKey={`facility:${identity}:${draft.version}`} disabled={busy || conflict}
+      requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
+      onApply={address => change({ address: address.address, postalCode: address.postalCode, city: address.city })} />}
     <div className="environment-form-grid"><label className="environment-full">Namn *<input aria-label="Anläggningsnamn" disabled={!editable || busy} value={draft.name} maxLength={150} onChange={event => change({ name: event.target.value })} /></label><label className="environment-full">Gatuadress {site.version === 0 && '*'}<input aria-label="Anläggningens gatuadress" disabled={!editable || busy} value={draft.address} maxLength={300} onChange={event => change({ address: event.target.value })} /></label><label>Postnummer {site.version === 0 && '*'}<input aria-label="Anläggningens postnummer" disabled={!editable || busy} value={draft.postalCode} inputMode="numeric" maxLength={6} onChange={event => change({ postalCode: event.target.value })} /></label><label>Ort {site.version === 0 && '*'}<input aria-label="Anläggningens ort" disabled={!editable || busy} value={draft.city} maxLength={150} onChange={event => change({ city: event.target.value })} /></label><label>Kommunkod {site.version === 0 && '*'}<input aria-label="Anläggningens kommunkod" list={`facility-municipalities-${site.id}`} disabled={!editable || busy} value={draft.municipalityCode} inputMode="numeric" maxLength={4} onChange={event => change({ municipalityCode: event.target.value })} /></label><label>Tillståndsreferens<input aria-label="Tillståndsreferens" disabled={!editable || busy} value={draft.permitReference} maxLength={300} placeholder="Beslut, diarienummer eller egen referens" onChange={event => change({ permitReference: event.target.value })} /></label><label className="environment-full">Tillstånd & noteringar<textarea aria-label="Tillstånd och noteringar" disabled={!editable || busy} value={draft.permitNotes} maxLength={4000} rows={3} placeholder="Beskriv beslutets omfattning och villkor" onChange={event => change({ permitNotes: event.target.value })} /></label></div>
     <datalist id={`facility-municipalities-${site.id}`}>{(state?.municipalities ?? []).map(municipality => <option key={municipality.code} value={municipality.code}>{municipality.name}</option>)}</datalist>
     <label className="environment-checkbox"><input type="checkbox" disabled={!editable || busy} checked={draft.active} onChange={event => change({ active: event.target.checked })} />Anläggningen är aktiv</label>

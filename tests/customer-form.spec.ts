@@ -113,7 +113,7 @@ const registerCompany = (number: string): CompanyRegisterCompany => ({
   fetchedAt: '2026-10-20T12:00:00.000Z',
 });
 
-test('företagsuppslag kompletterar identitet utan att ändra kontakt, villkor eller betalningsprofil', () => {
+test('företagsuppslag bevarar ifylld kontakt, villkor och betalningsprofil', () => {
   const number = testOrganisationNumber();
   const customer = {
     ...createCustomerDraft(seedOffice()),
@@ -128,7 +128,10 @@ test('företagsuppslag kompletterar identitet utan att ändra kontakt, villkor e
     vatRegistered: false,
     paymentProfile: { method: 'swish' as const, phone: '+46722002220', recipient: 'Mottagaren' },
   };
-  const result = applyCompanyLookupToCustomer(customer, { ...registerCompany(number), vatRegistered: true });
+  const result = applyCompanyLookupToCustomer(customer, {
+    ...registerCompany(number), vatRegistered: true,
+    phone: '08-123 45 67', email: 'Registerkontakt@example.test',
+  });
   expect(result).toMatchObject({
     number, name: 'Registerföretaget AB', address: 'Registergatan 1', postalCode: '76130', city: 'Norrtälje',
     email: customer.email, phone: customer.phone, contactPerson: customer.contactPerson,
@@ -137,6 +140,48 @@ test('företagsuppslag kompletterar identitet utan att ändra kontakt, villkor e
   });
   expect(customer.name).toBe('Manuellt namn');
   expect(customer.number).toContain('-');
+});
+
+test('företagsuppslag fyller bara fortfarande tomma kontaktfält när uppgifterna används', () => {
+  const number = testOrganisationNumber();
+  const customer = {
+    ...createCustomerDraft(seedOffice()), number,
+    phone: '  ', email: '\t', contactPerson: '',
+  };
+  const company = {
+    ...registerCompany(number), phone: ' 08-123 45 67 ', email: ' Info@example.test ',
+  };
+  expect(applyCompanyLookupToCustomer(customer, company)).toMatchObject({
+    phone: '+4681234567', email: 'Info@example.test', contactPerson: '',
+  });
+  // A lookup may have started before the user began typing. Check the current
+  // draft independently for each field when its result is explicitly applied.
+  const whileLoading = { ...customer, phone: '072', email: 'påbörjad@' };
+  expect(applyCompanyLookupToCustomer(whileLoading, company)).toMatchObject({
+    phone: '072', email: 'påbörjad@',
+  });
+  expect(applyCompanyLookupToCustomer({ ...customer, phone: '072' }, company)).toMatchObject({
+    phone: '072', email: 'Info@example.test',
+  });
+  expect(applyCompanyLookupToCustomer({ ...customer, email: 'manuell@' }, company)).toMatchObject({
+    phone: '+4681234567', email: 'manuell@',
+  });
+  expect(customer).toMatchObject({ phone: '  ', email: '\t', contactPerson: '' });
+});
+
+test('saknade eller ogiltiga registerkontakter lämnar kundens kontaktfält orörda', () => {
+  const number = testOrganisationNumber();
+  const customer = { ...createCustomerDraft(seedOffice()), number, phone: ' ', email: ' ' };
+  for (const contacts of [
+    {},
+    { phone: '', email: '' },
+    { phone: 'ABC123', email: 'ej-en-epost' },
+    { phone: '123', email: 'namn@example.test\nBcc: annan@example.test' },
+  ]) {
+    expect(applyCompanyLookupToCustomer(customer, { ...registerCompany(number), ...contacts })).toMatchObject({
+      phone: ' ', email: ' ', contactPerson: '',
+    });
+  }
 });
 
 test('ett gammalt företagsuppslag kan inte fylla i en annan identitet eller en privatkund', () => {

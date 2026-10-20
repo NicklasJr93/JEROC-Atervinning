@@ -17,6 +17,8 @@ import { mayReadTimeReview } from './review-client';
 import SicknessWorkspace from './SicknessWorkspace';
 import { mayReadSickness } from './sickness-client';
 import VehicleRegistry, { useVehicleRegistry, VehicleEditor } from './VehicleRegistry';
+import AddressAssist from '../../address-assistance/AddressAssist';
+import { formatAddress, normalizeAddress } from '../../data-format';
 import './personal.css';
 
 export interface PersonalWorkspaceProps {
@@ -219,6 +221,7 @@ function PersonForm({ response, person, users, user, actualUser, focusDriver = f
   onSave: (person: Partial<Person> & Pick<Person, 'name' | 'kind'>, clearFields?: Extract<PersonnelCommand, {action: 'person.save'}>['clearFields'], createAccount?: PersonAccountCreation) => Promise<void>;
 }) {
   const [id] = useState(() => person?.id ?? `person_${crypto.randomUUID().replace(/-/g, '_')}`);
+  const [address, setAddress] = useState(person?.address ?? '');
   const [kind, setKind] = useState<Person['kind']>(person?.kind ?? 'employee');
   const externalAccount = response.data.externalAccounts.find(account => account.personId === person?.id);
   const hasExternalAccount = Boolean(externalAccount);
@@ -278,7 +281,9 @@ function PersonForm({ response, person, users, user, actualUser, focusDriver = f
       <Field label="Team"><input name="team" defaultValue={person?.team} list="hr-teams" /><datalist id="hr-teams">{Array.from(new Set(response.data.people.map(value => value.team).filter(Boolean))).map(team => <option key={team} value={team} />)}</datalist></Field>
       <Field label="Chef / gruppledare"><select name="managerId" defaultValue={person?.managerId ?? ''}><option value="">Ej vald</option>{response.data.people.filter(value => value.active && value.kind === 'employee' && value.id !== person?.id).map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></Field>
       <Field label="Telefon"><input name="phone" type="tel" defaultValue={person?.phone} /></Field><Field label="E-post"><input name="email" type="email" defaultValue={person?.email} /></Field>
-      <Field label="Adress" full><input name="address" defaultValue={person?.address} /></Field>
+      <Field label="Adress" full><input name="address" value={address} onChange={event => setAddress(event.target.value)} /></Field>
+      <div className="full"><AddressAssist value={normalizeAddress(address)} scopeKey={`person:${scope.key}:${id}`} requestHeaders={scope.headers}
+        disabled={busy || vehicleBusy} onApply={value => setAddress(formatAddress(value))} /></div>
       {kind === 'employee' ? <Field label="Anställningsnummer" full><input name="employeeNumber" defaultValue={person?.employeeNumber} /></Field> : <Field label="Åkeri *" full><select name="companyId" aria-label="Åkeri *" defaultValue={person?.companyId ?? ''} required><option value="">Välj åkeri</option>{response.data.companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}</select><button type="button" className="office-link" onClick={onCompany}><Plus size={14} /> Lägg till åkeri</button></Field>}
       {hasCanonicalAccount ? <div className="hr-access-readonly full"><strong>Anläggningsåtkomst: {scopeText}</strong><small>Hanteras endast under Inloggning & behörigheter. Kontaktuppgifter och team ändrar inte åtkomsten.</small></div> : !creatingAccount && siteChoices}
       <fieldset ref={driverSection} className="hr-driver-section full"><legend><Truck size={17} /> Förare & fordon</legend>

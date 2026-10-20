@@ -1,8 +1,11 @@
 import type { OfficeCustomer, OfficeData } from './model';
+import { z } from 'zod';
 import { companyLookupNumberError, formatCompanyRegisterAddress, normalizeCompanyLookupNumber, type CompanyRegisterCompany } from '../company-register/client';
-import { customerIdentityKey, normalizeCustomerDetails, validateCustomerDetails } from '../data-format';
+import { customerIdentityKey, normalizeCustomerDetails, normalizePhoneNumber, phoneNumberError, validateCustomerDetails } from '../data-format';
 
-/** Apply identity/address and known VAT status; keep contact, payment and commercial details. */
+const registerEmail = z.string().max(254).email();
+
+/** Apply confirmed company details; only fill contact fields that are still blank. */
 export function applyCompanyLookupToCustomer(
   customer: OfficeCustomer,
   company: CompanyRegisterCompany,
@@ -11,6 +14,8 @@ export function applyCompanyLookupToCustomer(
   if (customer.type === 'Privatperson' || companyLookupNumberError(number) ||
       normalizeCompanyLookupNumber(customer.number) !== number) return customer;
   const address = formatCompanyRegisterAddress(company);
+  const phone = typeof company.phone === 'string' ? normalizePhoneNumber(company.phone) : '';
+  const email = typeof company.email === 'string' ? company.email.trim() : '';
   return {
     ...customer,
     number,
@@ -19,6 +24,8 @@ export function applyCompanyLookupToCustomer(
     ...(company.postalCode.trim() ? { postalCode: company.postalCode } : {}),
     ...(company.city.trim() ? { city: company.city } : {}),
     countryCode: company.countryCode,
+    ...(!customer.phone.trim() && phone && !phoneNumberError(phone) ? { phone } : {}),
+    ...(!customer.email.trim() && registerEmail.safeParse(email).success ? { email } : {}),
     ...(typeof company.vatRegistered === 'boolean' ? { vatRegistered: company.vatRegistered } : {}),
   };
 }

@@ -30,7 +30,7 @@ function lookupFailure(error: unknown): Pick<LookupState, 'phase' | 'message'> {
 }
 
 /** Preview-only assistance. Applying the preview changes editable fields, never saves a customer or tenant. */
-export function CompanyLookup({ organisationNumber, enabled = true, disabled = false, scopeKey = '', requestHeaders, applyLabel = 'Använd företagsuppgifter', helpText = 'Fyller i företagsnamn, postadress och momsval när SCB har lämnat besked. Du kan ändra uppgifterna innan du sparar.', onApply }: CompanyLookupProps) {
+export function CompanyLookup({ organisationNumber, enabled = true, disabled = false, scopeKey = '', requestHeaders, applyLabel = 'Använd företagsuppgifter', helpText = 'Fyller i företagsnamn, postadress och momsval när SCB har lämnat besked. Företagets telefon och e-post kan fylla tomma kontaktfält. Du kan ändra uppgifterna innan du sparar.', onApply }: CompanyLookupProps) {
   const id = useId();
   const number = normalizeCompanyLookupNumber(organisationNumber);
   const validation = companyLookupNumberError(organisationNumber);
@@ -107,6 +107,8 @@ export function CompanyLookup({ organisationNumber, enabled = true, disabled = f
         {company.careOf && <span>{/^c\s*\/\s*o(?:\s|:|$)/i.test(company.careOf) ? company.careOf : `c/o ${company.careOf}`}</span>}
         {company.address && <span>{company.address}</span>}
         {(company.postalCode || company.city) && <span>{[company.postalCode.replace(/^(\d{3})(\d{2})$/, '$1 $2'), company.city].filter(Boolean).join(' ')}</span>}
+        {company.phone && <span className="company-register-lookup-contact">Företagets telefon: {company.phone}</span>}
+        {company.email && <span className="company-register-lookup-contact">Företagets e-post: {company.email}</span>}
         <span>Momsregistrerad: {company.vatRegistered === true ? 'Ja' : company.vatRegistered === false ? 'Nej' : 'Uppgift saknas'}</span>
         <span>Godkänd för F-skatt: {company.fTaxRegistered === true ? 'Ja' : company.fTaxRegistered === false ? 'Nej' : 'Uppgift saknas'}</span>
         <small>SCB:s företagsregister · Hämtat {new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Stockholm' }).format(new Date(company.fetchedAt))}</small>

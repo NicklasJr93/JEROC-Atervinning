@@ -39,17 +39,42 @@ test('SCB legal lookup uses exact PeOrgNr path, GET and a server-only API key', 
     organisationNumber: '5593593626', name: 'Exempel Återvinning AB', address: 'Exempelvägen 12',
     postalCode: '76141', city: 'Norrtälje', countryCode: 'SE', careOf: 'Ekonomiavdelningen',
     status: 'active', statusCode: '1', legalFormCode: '49', vatRegistered: true, fTaxRegistered: true,
+    phone: '+46123456789', email: 'ignored@example.test',
     source: 'SCB', fetchedAt: clock().toISOString(),
   });
   assert.ok(!JSON.stringify(result).includes(key));
   assert.equal(result.tel, undefined); assert.equal(result.epost, undefined); assert.equal(result.omsKl, undefined);
   await provider.lookup('5593593626');
-  assert.equal(calls, 2, 'provider must not retain a shared registry/cache across tenant requests');
+  await provider.lookup('16 559359-3626');
+  assert.equal(calls, 3, 'provider must not retain a shared registry/cache across tenant requests');
+});
+
+test('documented SCB tel/epost are optional normalized company contacts without inventing a person or director', async () => {
+  for (const [tel, phone] of [['072-200 22 20', '+46722002220'], ['0046 72 200 22 20', '+46722002220'], ['+44 20 7946 0958', '+442079460958']]) {
+    const result = await client(async () => response({ ...fixture(), tel, epost: ' Sales.Team+SE@Example.test ', contactName: 'Must not be returned', vdEmail: 'director@example.test' })).lookup('5593593626');
+    assert.equal(result.phone, phone);
+    assert.equal(result.email, 'Sales.Team+SE@Example.test');
+    assert.equal(result.contactName, undefined); assert.equal(result.vdEmail, undefined);
+    assert.equal(result.tel, undefined); assert.equal(result.epost, undefined);
+  }
+});
+
+test('missing, malformed or unsafe SCB contacts never break the company hit or reach its form', async () => {
+  for (const contacts of [
+    { tel: undefined, epost: undefined }, { tel: null, epost: null }, { tel: '', epost: '   ' },
+    { tel: { value: '+46722002220' }, epost: ['sales@example.test'] },
+    { tel: '12345', epost: 'not-an-email' }, { tel: '+460722002220', epost: 'sales@example.test\r\nBcc: attacker@example.test' },
+    { tel: 'x'.repeat(1000), epost: `${'x'.repeat(255)}@example.test` },
+  ]) {
+    const result = await client(async () => response({ ...fixture(), ...contacts })).lookup('5593593626');
+    assert.equal(result.name, fixture().namn);
+    assert.equal(result.phone, undefined); assert.equal(result.email, undefined);
+  }
 });
 
 test('incomplete identities, personal/sole-trader IDs, extra characters and wrong check digits never reach SCB', async () => {
   const provider = client(() => { throw new Error('must not fetch'); });
-  for (const value of ['', '559359362', '5593593627', '9001010009', '199001010009', '165593593626', 'SE559359362601', '5593593626?x=1', null, 5593593626])
+  for (const value of ['', '559359362', '5593593627', '9001010009', '199001010009', 'SE559359362601', '5593593626?x=1', null, 5593593626])
     await rejects(provider.lookup(value), 422, 'company_lookup_invalid');
 });
 

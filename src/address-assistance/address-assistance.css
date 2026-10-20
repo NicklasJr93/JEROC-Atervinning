@@ -1,0 +1,27 @@
+.address-assist { grid-column:1 / -1; width:100%; min-width:0; box-sizing:border-box; border:1px solid #dce7f4; border-radius:9px; background:#f7faff; color:#385676; font-size:12px; line-height:1.5; }
+.address-assist button,.address-assist input { font:inherit; }
+.address-assist .address-assist-toggle { display:flex; align-items:center; gap:7px; width:100%; min-height:39px; border:0; padding:9px 12px; background:transparent; color:#1265dc; text-align:left; cursor:pointer; }
+.address-assist .address-assist-toggle span { flex:1; }
+.address-assist button:disabled { opacity:.6; cursor:default; }
+.address-assist button:focus-visible,.address-assist input:focus-visible { outline:3px solid #1265dc; outline-offset:2px; }
+.address-assist .address-assist-body { padding:0 12px 12px; }
+.address-assist p { font-size:12px; margin:0 0 10px; color:#546f8b; }
+.address-assist .address-assist-search { position:relative; }
+.address-assist .address-assist-search label { display:block; margin:0 0 4px; font-size:12px; font-weight:600; color:#385676; }
+.address-assist .address-assist-search input { width:100%; min-width:0; box-sizing:border-box; border:1px solid #cdddf0; border-radius:7px; background:white; color:#203553; padding:10px 11px; min-height:41px; }
+.address-assist .address-assist-options { list-style:none; border:1px solid #cdddf0; border-radius:7px; padding:3px; background:white; margin:5px 0 0; max-height:240px; overflow:auto; }
+.address-assist .address-assist-options li { margin:0; padding:0; }
+.address-assist .address-assist-options button { display:flex; align-items:center; gap:8px; width:100%; min-height:42px; padding:8px; text-align:left; border:0; border-radius:5px; color:#203553; background:white; cursor:pointer; }
+.address-assist .address-assist-options button:hover,.address-assist .address-assist-options button.is-active { background:#ebf3ff; }
+.address-assist .address-assist-options svg { flex-shrink:0; }
+.address-assist .address-assist-attribution { display:flex; justify-content:flex-end; padding:8px 3px 1px; }
+.address-assist .address-assist-attribution img { max-width:120px; object-fit:contain; }
+.address-assist .address-assist-status { margin-top:7px; color:#546f8b; font-size:12px; }
+.address-assist .address-assist-status span { display:flex; align-items:center; gap:6px; }
+.address-assist .address-assist-confirm { display:grid; gap:4px; padding:12px; border:1px solid #cfdfd5; background:#f0f8f3; border-radius:8px; margin-top:9px; color:#203553; overflow-wrap:anywhere; }
+.address-assist .address-assist-confirm strong { font-size:13px; }
+.address-assist .address-assist-confirm p { margin:6px 0; }
+.address-assist .address-assist-confirm button { display:flex; align-items:center; justify-content:center; gap:6px; border:1px solid #1265dc; border-radius:7px; padding:9px 11px; min-height:40px; margin-top:7px; background:#1265dc; color:white; cursor:pointer; }
+.address-assist .address-assist-confirm small { color:#546f8b; font-size:11px; margin-top:4px; }
+.address-assist.address-assist-manual { display:flex; align-items:center; gap:7px; padding:9px 12px; color:#627d98; background:#fafcff; }
+@media(max-width:600px) { .address-assist .address-assist-options button { min-height:46px; } .address-assist .address-assist-toggle { min-height:43px; } }

@@ -12,7 +12,12 @@ type CustomerFields = {
 type PhoneOptions = { swish?: boolean; required?: boolean };
 const clean = (value: unknown) => typeof value === 'string' ? value.normalize('NFKC').trim().replace(/\s+/g, ' ') : '';
 const compactIdentifier = (value: string) => clean(value).replace(/[\s-]/g, '');
-export const normalizeOrganisationNumber = (value: string) => compactIdentifier(value);
+export const normalizeOrganisationNumber = (value: string) => {
+  const number = compactIdentifier(value);
+  // SCB may include prefix 16. A juridical organisation's third digit keeps
+  // this distinct from a twelve-digit personal or coordination number.
+  return /^16\d{2}[2-9]\d{7}$/.test(number) ? number.slice(2) : number;
+};
 export const normalizePersonalNumber = (value: string) => compactIdentifier(value).replace(/\+/g, '');
 
 export function validLuhnNumber(value: string): boolean {
@@ -40,7 +45,8 @@ export function customerIdentifierError(type: string | undefined, value: string)
   // A sole trader uses a personal or coordination number. Do not treat their
   // valid identity as a juridical person's organisation number.
   const personal = normalizePersonalNumber(value);
-  if (type === 'Företag' && (/^\d{12}$/.test(personal) || /^\d{2}[01]\d{7}$/.test(personal))) return personalNumberError(value);
+  if (type === 'Företag' && !/^\d{2}[2-9]\d{7}$/.test(number)
+    && (/^\d{12}$/.test(personal) || /^\d{2}[01]\d{7}$/.test(personal))) return personalNumberError(value);
   if (!/^\d{10}$/.test(number)) return 'Organisationsnumret ska innehålla exakt 10 siffror, med eller utan bindestreck.';
   if (Number(number[2]) < 2) return 'Organisationsnumret har ett ogiltigt format. Kontrollera numret.';
   return validLuhnNumber(number) ? null : 'Organisationsnumrets kontrollsiffra stämmer inte. Kontrollera numret.';
@@ -48,8 +54,10 @@ export function customerIdentifierError(type: string | undefined, value: string)
 /** Matching key only, never changes the stored century-bearing identity. */
 export function customerIdentityKey(type: string | undefined, value: string): string {
   const normalized = normalizePersonalNumber(value);
-  if (type === 'Privatperson' || type === 'Företag' && (/^\d{12}$/.test(normalized) || /^\d{2}[01]\d{7}$/.test(normalized))) return normalized.slice(-10);
-  return normalizeOrganisationNumber(value);
+  const organisation = normalizeOrganisationNumber(value);
+  if (type === 'Privatperson' || type === 'Företag' && !/^\d{2}[2-9]\d{7}$/.test(organisation)
+    && (/^\d{12}$/.test(normalized) || /^\d{2}[01]\d{7}$/.test(normalized))) return normalized.slice(-10);
+  return organisation;
 }
 
 export function normalizePhoneNumber(value: string, options: PhoneOptions = {}): string {
@@ -246,7 +254,9 @@ export function normalizePaymentDetails<T extends BankRecipientInput>(details: T
 export function normalizeCustomerDetails<T extends CustomerFields>(customer: T): T & AddressDetails {
   const address = normalizeAddress(customer);
   const number = customer.number === undefined ? undefined : normalizePersonalNumber(customer.number);
-  const personal = customer.type === 'Privatperson' || customer.type === 'Företag' && number !== undefined && (/^\d{12}$/.test(number) || /^\d{2}[01]\d{7}$/.test(number));
+  const organisation = customer.number === undefined ? undefined : normalizeOrganisationNumber(customer.number);
+  const personal = customer.type === 'Privatperson' || customer.type === 'Företag' && number !== undefined
+    && !/^\d{2}[2-9]\d{7}$/.test(organisation ?? '') && (/^\d{12}$/.test(number) || /^\d{2}[01]\d{7}$/.test(number));
   return { ...customer, ...address,
     ...(customer.number === undefined ? {} : { number: personal ? normalizePersonalNumber(customer.number) : normalizeOrganisationNumber(customer.number) }),
     ...(customer.phone === undefined ? {} : { phone: normalizePhoneNumber(customer.phone) }),

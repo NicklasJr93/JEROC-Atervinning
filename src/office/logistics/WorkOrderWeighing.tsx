@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight, Leaf, Plus, Save, Scale, Trash2 } from 'lucide-react';
 import type { LogisticsOfficeCommand, LogisticsOfficeState, LogisticsOrder, LogisticsWeighingInput } from './types';
 import { Alert, Field, kg, Panel, Pill } from './Ui';
+import AddressAssist from '../../address-assistance/AddressAssist';
+import { formatAddress, normalizeAddress } from '../../data-format';
 
 interface WeighingForm {
   customerId: string; origin: string; reference: string;
@@ -99,6 +101,10 @@ export default function WorkOrderWeighing({ order, state, writable, onCommand, o
       <fieldset disabled={!canEdit || !!pending} className="wo-form-fieldset"><div className="wo-form-grid">
         <Field label="Kund"><select aria-label="Kund för vägning" value={form.customerId} onChange={event => patch({ customerId: event.target.value })}><option value="">Välj kund senare</option>{state.customers.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></Field>
         <Field label="Referens (valfri)"><input aria-label="Referens för vägning" maxLength={1000} value={form.reference} onChange={event => patch({ reference: event.target.value })} /></Field>
+        {canEdit && <AddressAssist value={normalizeAddress(form.origin)}
+          disabled={!!pending || stale}
+          scopeKey={JSON.stringify([order.id, order.detail.version, baseVersion, order.detail.siteId, form.customerId, 'weighing-origin'])}
+          onApply={address => patch({ origin: formatAddress(address) })} />}
         <Field label="Ursprungsadress *" full><input aria-label="Ursprungsadress för vägning" maxLength={1000} value={form.origin} onChange={event => patch({ origin: event.target.value })} /></Field>
       </div><div className="wo-weighing-rows">{form.rows.map((row, index) => {
         const article = state.articles.find(value => value.id === row.articleId), source = weighing.rows.find(value => value.articleId === row.articleId);

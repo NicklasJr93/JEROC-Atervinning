@@ -7,7 +7,7 @@ import { readVismaOrganisationId, canManageVisma } from './visma-client.mjs';
 import { z } from 'zod';
 import { createEnvironmentAddressResolver, ENVIRONMENT_MUNICIPALITIES } from './environment-address.mjs';
 import { createNvvClient } from './nvv-client.mjs';
-import { createIntegrationEngine, createNvvIntegrationAdapter } from './integrations.mjs';
+import { createIntegrationEngine, createNvvIntegrationAdapter, createGoogleAddressIntegrationAdapter } from './integrations.mjs';
 import { getChangeEvents } from './change-events.mjs';
 import { createHash } from 'node:crypto';
 import { can } from '../dist-server/domain-models.mjs';
@@ -118,7 +118,7 @@ export function createEnvironmentApi({ principalStore = createPricingStore(), re
               actorId: principal.actor.id, effectiveUserId: principal.user.id, canRead: true,
               canManage: canManageVisma(principal.actor) && canManageVisma(principal.user)
                 && !principal.actor.siteIds && !principal.user.siteIds };
-            const integrations = createIntegrationEngine({ adapters: [createNvvIntegrationAdapter({
+            const integrations = createIntegrationEngine({ adapters: [createGoogleAddressIntegrationAdapter({ organisationId, env }), createNvvIntegrationAdapter({
               organisationId, status: () => store.nvvStatus(token), check: () => store.nvvCheck(token),
             }), ...(vismaService ? [{ providerId: 'visma', allowedOrganisationIds: [organisationId],
               status: scope => vismaService.integrationStatus(scope) }] : []),

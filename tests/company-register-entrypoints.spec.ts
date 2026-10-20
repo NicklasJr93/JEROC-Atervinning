@@ -7,6 +7,7 @@ import type { CompanyRegisterCompany } from '../src/company-register/client';
 const company: CompanyRegisterCompany = {
   organisationNumber: '5593593626', name: 'Registerträff AB',
   address: 'Registergatan 12', postalCode: '76141', city: 'Norrtälje', countryCode: 'SE',
+  phone: '+46812345678', email: 'foretaget@example.test',
   source: 'SCB', fetchedAt: '2026-10-20T08:00:00.000Z', vatRegistered: true, fTaxRegistered: false,
 };
 
@@ -65,7 +66,7 @@ test('mobilens SCB-träff fyller känd momsstatus efter aktivt val och lämnar k
   await page.getByLabel('Clearingnummer', { exact: true }).fill('8327');
   await page.getByLabel('Kontonummer', { exact: true }).fill('00123456789');
   await page.getByLabel('Kontohavare', { exact: true }).fill('Godkänd mottagare');
-  await page.getByLabel('Organisationsnummer', { exact: true }).fill('559359-3626');
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill('559359-3626');
   await expect(page.getByText(company.name, { exact: true })).toBeVisible();
   await expect(page.getByText('Momsregistrerad: Ja', { exact: true })).toBeVisible();
   await expect(page.getByText('Godkänd för F-skatt: Nej', { exact: true })).toBeVisible();
@@ -77,7 +78,7 @@ test('mobilens SCB-träff fyller känd momsstatus efter aktivt val och lämnar k
   expect(fixture.posts()).toBe(0);
   await page.getByRole('button', { name: /Använd.*uppgifter/ }).click();
   await expect(page.getByLabel('Företagsnamn', { exact: true })).toHaveValue(company.name);
-  await expect(page.getByLabel('Organisationsnummer', { exact: true })).toHaveValue(company.organisationNumber);
+  await expect(page.getByLabel('Organisations-/personnummer', { exact: true })).toHaveValue(company.organisationNumber);
   await expect(page.getByLabel('Gatuadress (valfritt)', { exact: true })).toHaveValue(company.address);
   await expect(page.getByLabel('Postnummer (valfritt)', { exact: true })).toHaveValue(company.postalCode);
   await expect(page.getByLabel('Ort (valfritt)', { exact: true })).toHaveValue(company.city);
@@ -99,11 +100,55 @@ test('mobilens SCB-träff fyller känd momsstatus efter aktivt val och lämnar k
   });
 });
 
+test('mobilen fyller SCB:s telefon och e-post först efter aktivt val och behåller senare kontaktändringar', async ({ page }) => {
+  const fixture = await mobileCustomer(page);
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill(company.organisationNumber);
+  await expect(page.getByText(company.name, { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Telefon (valfritt)', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('E-post (valfritt)', { exact: true })).toHaveValue('');
+  // Typing while a result is visible must preserve the operator's newer input.
+  await page.getByLabel('E-post (valfritt)', { exact: true }).fill('vald-kontakt@example.test');
+  await page.getByRole('button', { name: 'Använd företagsuppgifter', exact: true }).click();
+  await expect(page.getByLabel('Telefon (valfritt)', { exact: true })).toHaveValue(company.phone!);
+  await expect(page.getByLabel('E-post (valfritt)', { exact: true })).toHaveValue('vald-kontakt@example.test');
+  expect(fixture.posts()).toBe(0);
+});
+
+test('mobilen fyller enbart tom e-post när telefon redan är påbörjad', async ({ page }) => {
+  const fixture = await mobileCustomer(page);
+  await page.getByLabel('Telefon (valfritt)', { exact: true }).fill('0722');
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill(company.organisationNumber);
+  await page.getByRole('button', { name: 'Använd företagsuppgifter', exact: true }).click();
+  await expect(page.getByLabel('Telefon (valfritt)', { exact: true })).toHaveValue('0722');
+  await expect(page.getByLabel('E-post (valfritt)', { exact: true })).toHaveValue(company.email!);
+  expect(fixture.posts()).toBe(0);
+});
+
+test('mobilen föreslår kundtyp först för giltigt nummer och låter enskild firma behålla manuellt val', async ({ page }) => {
+  const fixture = await mobileCustomer(page);
+  const number = page.getByLabel('Organisations-/personnummer', { exact: true });
+  const type = page.getByLabel('Kundtyp', { exact: true });
+  await expect(page.locator('form input').first()).toHaveAccessibleName('Organisations-/personnummer');
+  await number.fill('19900101');
+  await expect(type).toHaveValue('automatic');
+  await expect(page.getByLabel('Företagsnamn', { exact: true })).toBeVisible();
+  await number.fill('19900101-0017');
+  await expect(page.getByLabel('Namn', { exact: true })).toBeVisible();
+  await type.selectOption('Företag');
+  await expect(page.getByLabel('Företagsnamn', { exact: true })).toBeVisible();
+  await number.fill('19900101-001');
+  await number.fill('19900101-0017');
+  await expect(type).toHaveValue('Företag');
+  await expect(page.getByLabel('Företagsnamn', { exact: true })).toBeVisible();
+  expect(fixture.lookups).toHaveLength(0);
+  expect(fixture.posts()).toBe(0);
+});
+
 test('privatpersonnummer lämnar inte mobilformuläret till företagsregistret', async ({ page }) => {
   const fixture = await mobileCustomer(page);
-  await page.getByRole('button', { name: 'Privatperson', exact: true }).click();
+  await page.getByLabel('Kundtyp', { exact: true }).selectOption('Privatperson');
   await page.getByLabel('Namn', { exact: true }).fill('Privat testkund');
-  await page.getByLabel('Personnummer (valfritt)', { exact: true }).fill('19900101-0017');
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill('19900101-0017');
   await page.getByLabel('Telefon (valfritt)', { exact: true }).focus();
   await expect(page.getByText('SCB', { exact: true })).toHaveCount(0);
   expect(fixture.lookups).toHaveLength(0);
@@ -113,7 +158,7 @@ test('privatpersonnummer lämnar inte mobilformuläret till företagsregistret',
 test('ofullständigt organisationsnummer och fel kontrollsiffra söks inte; komplett giltigt nummer söks en gång', async ({ page }) => {
   const fixture = await mobileCustomer(page);
   await page.clock.install();
-  const number = page.getByLabel('Organisationsnummer', { exact: true });
+  const number = page.getByLabel('Organisations-/personnummer', { exact: true });
   const lookup = page.getByRole('region', { name: 'Företagsuppslag', exact: true });
   await number.fill('559359362');
   await page.clock.fastForward(500);
@@ -144,7 +189,7 @@ test('SCB utan aktiverad API-nyckel ger begriplig status och stoppar inte manuel
   await page.getByLabel('Gatuadress (valfritt)', { exact: true }).fill('Manuella gatan 9');
   await page.getByLabel('Postnummer (valfritt)', { exact: true }).fill('761 41');
   await page.getByLabel('Ort (valfritt)', { exact: true }).fill('Norrtälje');
-  await page.getByLabel('Organisationsnummer', { exact: true }).fill('559359-3626');
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill('559359-3626');
   const lookup = page.getByRole('region', { name: 'Företagsuppslag', exact: true });
   await expect(lookup.getByRole('status')).toContainText('Företagsuppslag är inte aktiverat ännu. Du kan fylla i uppgifterna manuellt.');
   await expect(lookup.getByRole('button', { name: 'Använd företagsuppgifter', exact: true })).toHaveCount(0);
@@ -162,7 +207,7 @@ test('en SCB-träff utan adress eller momsstatus behåller mobilkundens manuellt
   await page.getByLabel('Gatuadress (valfritt)', { exact: true }).fill('Manuella vägen 7');
   await page.getByLabel('Postnummer (valfritt)', { exact: true }).fill('762 51');
   await page.getByLabel('Ort (valfritt)', { exact: true }).fill('Rimbo');
-  await page.getByLabel('Organisationsnummer', { exact: true }).fill(company.organisationNumber);
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill(company.organisationNumber);
   await page.getByRole('button', { name: 'Använd företagsuppgifter', exact: true }).click();
   await expect(page.getByLabel('Företagsnamn', { exact: true })).toHaveValue(company.name);
   await expect(page.getByLabel('Gatuadress (valfritt)', { exact: true })).toHaveValue('Manuella vägen 7');
@@ -176,7 +221,7 @@ test('en SCB-träff utan adress eller momsstatus behåller mobilkundens manuellt
 test('SCB:s uttryckliga nej till momsregistrering fylls i och sparas utan krav på F-skatt', async ({ page }) => {
   const fixture = await mobileCustomer(page, { ...company, vatRegistered: false });
   await expect(page.getByLabel('Momsregistrerad', { exact: true })).toHaveValue('yes');
-  await page.getByLabel('Organisationsnummer', { exact: true }).fill(company.organisationNumber);
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill(company.organisationNumber);
   await page.getByRole('button', { name: 'Använd företagsuppgifter', exact: true }).click();
   await expect(page.getByLabel('Momsregistrerad', { exact: true })).toHaveValue('no');
   await page.getByRole('button', { name: 'Spara och välj kund', exact: true }).click();
@@ -195,7 +240,7 @@ test('mobilens pågående SCB-sökning får inte skriva över en senare manuell 
     await route.fulfill({ json: { company } });
     responses++;
   });
-  await page.getByLabel('Organisationsnummer', { exact: true }).fill(company.organisationNumber);
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill(company.organisationNumber);
   await expect.poll(() => requests).toBe(1);
   await page.getByLabel('Företagsnamn', { exact: true }).fill('Senare manuellt namn AB');
   release();

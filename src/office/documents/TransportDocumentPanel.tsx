@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { FileText, Plus, Save, Trash2, X } from 'lucide-react';
 import ArchiveViewer from './ArchiveViewer';
+import AddressAssist from '../../address-assistance/AddressAssist';
 import { documentApi, type ArchivedDocument, type DocumentIdentity, type DocumentParty, type DocumentSite, type TransportDocumentChanges, type TransportDocumentDraft } from './client';
 import './documents.css';
 
@@ -102,9 +103,9 @@ export default function TransportDocumentPanel({ orderId, identity, canEdit, onC
           <label>Planerat transportdatum<input type="date" value={dateValue(draft.startAt)} onChange={event => patch({startAt:event.target.value})} /></label>
           <label>Önskat datum<input type="date" value={dateValue(draft.requestedAt)} onChange={event => patch({requestedAt:event.target.value})} /></label>
         </div></fieldset>
-        <PartyFields title="Avsändare" party={draft.sender} disabled={busy || !editable} onChange={sender => patch({sender})} />
-        <PartyFields title="Mottagare" party={draft.receiver} disabled={busy || !editable} onChange={receiver => patch({receiver})} />
-        <PartyFields title="Transportör" party={draft.carrier} disabled={busy || !editable} onChange={carrier => patch({carrier})} />
+        <PartyFields title="Avsändare" party={draft.sender} disabled={busy || !editable} editable={editable} scopeKey={`${identity.actualUserId}/${identity.userId}/${orderId}/sender`} identity={identity} onChange={sender => patch({sender})} />
+        <PartyFields title="Mottagare" party={draft.receiver} disabled={busy || !editable} editable={editable} scopeKey={`${identity.actualUserId}/${identity.userId}/${orderId}/receiver`} identity={identity} onChange={receiver => patch({receiver})} />
+        <PartyFields title="Transportör" party={draft.carrier} disabled={busy || !editable} editable={editable} scopeKey={`${identity.actualUserId}/${identity.userId}/${orderId}/carrier`} identity={identity} onChange={carrier => patch({carrier})} />
         <fieldset disabled={busy || !editable}><legend>Förare & fordon</legend><div className="transport-document-grid">
           <label>Förare<input value={draft.driver} onChange={event => patch({driver:event.target.value})} maxLength={200} /></label><label>Registreringsnummer<input value={draft.registration} onChange={event => patch({registration:event.target.value})} maxLength={50} /></label>
           <label className="full">Hantering & instruktioner<textarea value={draft.handling} onChange={event => patch({handling:event.target.value})} maxLength={2000} /></label>
@@ -123,8 +124,11 @@ export default function TransportDocumentPanel({ orderId, identity, canEdit, onC
     </div>
   </div>;
 }
-function PartyFields({title, party, disabled, onChange}: {title: string; party: DocumentParty; disabled: boolean; onChange: (party: DocumentParty) => void}) {
+function PartyFields({title, party, disabled, editable, scopeKey, identity, onChange}: {title: string; party: DocumentParty; disabled: boolean; editable: boolean; scopeKey: string; identity: DocumentIdentity; onChange: (party: DocumentParty) => void}) {
   return <fieldset disabled={disabled}><legend>{title}</legend><div className="transport-document-grid">
     {([['name','Namn / företag'],['number','Org.- / personnummer'],['address','Gatuadress'],['postalCode','Postnummer'],['city','Ort']] as const).map(([field,label]) => <label className={field === 'name' || field === 'address' ? 'full' : ''} key={field}>{label}<input aria-label={`${title} · ${label}`} value={party[field] ?? ''} onChange={event => onChange({...party,[field]:event.target.value})} maxLength={field === 'address' ? 300 : 200} /></label>)}
+    {editable && <div className="full"><AddressAssist value={{ address: party.address, postalCode: party.postalCode, city: party.city, countryCode: 'SE' }}
+      scopeKey={scopeKey} disabled={disabled} requestHeaders={{ 'X-Demo-Actor': identity.actualUserId, 'X-Demo-User': identity.userId }}
+      onApply={address => onChange({ ...party, address: address.address, postalCode: address.postalCode, city: address.city })} /></div>}
   </div></fieldset>;
 }

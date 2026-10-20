@@ -80,11 +80,11 @@ test('snabbkund visar formatfel och kan välja en befintlig kund utan att skriva
   await page.getByRole('button', { name: 'Ny kund', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Ny kund', exact: true });
   await dialog.getByLabel('Företagsnamn', { exact: true }).fill(name);
-  await dialog.getByLabel('Organisationsnummer', { exact: true }).fill(existing.number + '1');
+  await dialog.getByLabel('Organisations-/personnummer', { exact: true }).fill(existing.number + '1');
   await dialog.getByRole('button', { name: 'Spara och välj kund', exact: true }).click();
-  await expect(dialog.getByLabel('Organisationsnummer', { exact: true })).toHaveAttribute('aria-invalid', 'true');
+  await expect(dialog.getByLabel('Organisations-/personnummer', { exact: true })).toHaveAttribute('aria-invalid', 'true');
   await expect(dialog.locator('.quick-customer-error')).toContainText('10 siffror');
-  await dialog.getByLabel('Organisationsnummer', { exact: true }).fill(existing.number);
+  await dialog.getByLabel('Organisations-/personnummer', { exact: true }).fill(existing.number);
   const duplicate = dialog.locator('.quick-customer-duplicate > div').filter({ hasText: existing.customerNumber });
   await expect(duplicate).toContainText(existing.name);
   await duplicate.getByRole('button', { name: 'Välj befintlig kund', exact: true }).click();

@@ -15,6 +15,7 @@ import SpirisAccountingPanel from './SpirisAccountingPanel';
 import SwishIntegrationPanel from './SwishIntegrationPanel';
 import OpenPaymentsIntegrationPanel from './OpenPaymentsIntegrationPanel';
 import MailIntegrationPanel from './MailIntegrationPanel';
+import GoogleAddressIntegrationPanel from './GoogleAddressIntegrationPanel';
 import { cacheIntegrationRead, cachedIntegrationRead, clearIntegrationReadCache, integrationReadScope } from './integration-read-cache';
 import './environment.css';
 import './integrations.css';
@@ -100,8 +101,8 @@ const providerPresentation: Record<string, { icon: LucideIcon; functions: string
   },
   'google-maps': {
     icon: MapPin,
-    functions: ['Adressförslag med postnummer och ort', 'Karta för kärl och arbetsordrar', 'Underlag för rutter och restider'],
-    preparation: 'Karttjänst och användningsnivå behöver väljas. En nyckel med begränsad åtkomst läggs senare på servern.',
+    functions: ['Förslag på svenska postadresser', 'Gata, postnummer och ort i separata fält', 'Granska och bekräfta adressen innan formuläret ändras'],
+    preparation: 'Två separata nycklar läggs på appservern: en webbläsarnyckel begränsad till webbplatser och en servernyckel för adresskontroll.',
   },
   lme: {
     icon: TrendingUp,
@@ -122,7 +123,9 @@ function providerStatus(provider: IntegrationProvider) {
   if (provider.mode === 'mock') return { label: 'Simulerat test', tone: 'test', icon: ShieldCheck };
   if (provider.status === 'disabled') return { label: 'Avstängd', tone: 'muted', icon: PlugZap };
   if (provider.status === 'not-configured') return { label: 'Inställningar saknas', tone: 'warning', icon: CircleAlert };
-  if (provider.status === 'not-verified') return { label: 'Ej verifierad', tone: 'warning', icon: CircleAlert };
+  if (provider.status === 'not-verified') return provider.id === 'google-maps'
+    ? { label: 'Konfigurerad', tone: 'test', icon: ShieldCheck }
+    : { label: 'Ej verifierad', tone: 'warning', icon: CircleAlert };
   return { label: provider.mode === 'test' ? 'Testanslutning klar' : 'Ansluten', tone: 'success', icon: CheckCircle2 };
 }
 
@@ -143,6 +146,7 @@ export default function IntegrationsWorkspace({ user, actualUser, users, siteId 
   const [nvv, setNvv] = useState<NvvIntegrationStatus>();
   const [nvvLoading, setNvvLoading] = useState(false);
   const [nvvError, setNvvError] = useState('');
+  const [googleRefresh, setGoogleRefresh] = useState(0);
   const detailHeading = useRef<HTMLHeadingElement>(null);
   const mounted = useRef(true);
   const catalogGeneration = useRef(0);
@@ -220,6 +224,7 @@ export default function IntegrationsWorkspace({ user, actualUser, users, siteId 
   const parallelBank = selectedId === 'bank' && (!catalog || !!selected?.implemented);
   const parallelMail = selectedId === 'microsoft365';
   const parallelAi = selectedId === 'ai-support';
+  const parallelGoogle = selectedId === 'google-maps';
   const mayManageAi = [user, actualUser].every(account => account.active !== false && ['Systemadmin', 'VD'].includes(account.level));
   const selectedPresentation = selected && providerPresentation[selected.id];
   const SelectedIcon = selectedPresentation?.icon ?? PlugZap;
@@ -228,6 +233,7 @@ export default function IntegrationsWorkspace({ user, actualUser, users, siteId 
 
   async function update() {
     if (!matchingSession) { await refreshSession().catch(() => undefined); return; }
+    if (parallelGoogle) setGoogleRefresh(value => value + 1);
     await Promise.all([loadCatalog(undefined, true), selectedId === 'nvv' ? loadNvv() : Promise.resolve()]);
   }
 
@@ -247,9 +253,9 @@ export default function IntegrationsWorkspace({ user, actualUser, users, siteId 
 
   return <section className="integrations-workspace">
     <OfficePageHeader>
-      {(parallelSpiris || parallelSwish || parallelBank || parallelMail || parallelAi || selected) && <button type="button" className="office-link integration-back" onClick={backToIntegrations}><ArrowLeft size={15} />Alla integrationer</button>}
+      {(parallelSpiris || parallelSwish || parallelBank || parallelMail || parallelAi || parallelGoogle || selected) && <button type="button" className="office-link integration-back" onClick={backToIntegrations}><ArrowLeft size={15} />Alla integrationer</button>}
     <div className="office-title integration-page-title">
-      <div><span className="office-eyebrow">BOLAGETS ANSLUTNINGAR</span><h1>{parallelAi ? 'AI-kundmottagning' : selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : selectedId === 'swish' ? 'Swish Utbetalning' : selectedId === 'bank' ? 'Bank · Open Payments' : parallelMail ? 'Mejl & inkorgar' : 'Integrationer'}</h1><p>{parallelAi ? 'Ge kundmottagaren rätt kunskap, röst och tydliga gränser.' : selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : selectedId === 'swish' ? 'Testutbetalningar och bokföringskoppling för bolaget.' : selectedId === 'bank' ? 'Bankbetalningar, konton och bankmedgivande i sandbox.' : parallelMail ? 'Microsoft 365/Outlook och åtkomst till företagets inkorgar.' : 'Koppla bolaget till myndigheter, ekonomi och andra tjänster.'}</p></div>
+      <div><span className="office-eyebrow">BOLAGETS ANSLUTNINGAR</span><h1>{parallelAi ? 'AI-kundmottagning' : selectedId === 'visma' ? 'Spiris / Visma eEkonomi' : selectedId === 'swish' ? 'Swish Utbetalning' : selectedId === 'bank' ? 'Bank · Open Payments' : parallelMail ? 'Mejl & inkorgar' : parallelGoogle ? 'Google adresser' : 'Integrationer'}</h1><p>{parallelAi ? 'Ge kundmottagaren rätt kunskap, röst och tydliga gränser.' : selectedId === 'visma' ? 'Ekonomiinställningar för avräkningar och era anläggningar.' : selectedId === 'swish' ? 'Testutbetalningar och bokföringskoppling för bolaget.' : selectedId === 'bank' ? 'Bankbetalningar, konton och bankmedgivande i sandbox.' : parallelMail ? 'Microsoft 365/Outlook och åtkomst till företagets inkorgar.' : parallelGoogle ? 'Adressförslag och bekräftade postadresser i formulären.' : 'Koppla bolaget till myndigheter, ekonomi och andra tjänster.'}</p></div>
       {!parallelAi && <button type="button" className="office-btn outline" onClick={() => void update()} disabled={catalogLoading || sessionLoading || nvvLoading}><RefreshCw size={14} />Uppdatera</button>}
     </div>
     </OfficePageHeader>
@@ -267,10 +273,11 @@ export default function IntegrationsWorkspace({ user, actualUser, users, siteId 
     {matchingSession && parallelSwish && <SwishIntegrationPanel user={user} actualUser={actualUser} onNotice={onNotice} />}
     {matchingSession && parallelBank && <OpenPaymentsIntegrationPanel user={user} actualUser={actualUser} onNotice={onNotice} />}
     {matchingSession && parallelMail && <MailIntegrationPanel user={user} actualUser={actualUser} users={users} onNotice={onNotice} />}
+    {matchingSession && parallelGoogle && <GoogleAddressIntegrationPanel user={user} actualUser={actualUser} refreshKey={googleRefresh} />}
 
     {matchingSession && parallelAi && <Suspense fallback={<div className="office-panel integration-message" role="status">Öppnar AI-inställningar…</div>}><AiSupportSettings /></Suspense>}
 
-    {!!catalog && matchingSession && !parallelSpiris && !parallelSwish && !parallelBank && !parallelMail && !parallelAi && <>
+    {!!catalog && matchingSession && !parallelSpiris && !parallelSwish && !parallelBank && !parallelMail && !parallelAi && !parallelGoogle && <>
       {selected ? <>
         {selected.id === 'visma' && selected.implemented ? <SpirisAccountingPanel user={user} actualUser={actualUser} onNotice={onNotice} /> : <article className="office-panel integration-detail">
           <div className="integration-detail-heading"><span className={`integration-icon ${selected.id}`}><SelectedIcon size={25} /></span><div><small>{categoryLabel(selected.category)}</small><h2 ref={detailHeading} tabIndex={-1}>{selected.name}</h2><p>{selected.description}</p></div><IntegrationStatus provider={selected} /></div>

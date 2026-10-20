@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { Building2, Check, ExternalLink, Info, UserRound, Users, X } from 'lucide-react';
+import { Check, ExternalLink, Info, X } from 'lucide-react';
 import CompanyLookup from '../company-register/CompanyLookup';
+import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
+import AddressAssist from '../address-assistance/AddressAssist';
 import { can, type OfficeCustomer, type OfficeData, type OfficeUser } from './model';
 import { applyCompanyLookupToCustomer, cleanCustomerDraft, createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
 import { customerIdentifierError, phoneNumberError } from '../data-format';
@@ -16,12 +18,6 @@ export type QuickCustomerModalProps = {
   onOpenFull: (draft: OfficeCustomer) => void;
   onClose: () => void;
 };
-
-const customerTypes = [
-  { type: 'Företag', Icon: Building2 },
-  { type: 'BRF', Icon: Users },
-  { type: 'Privatperson', Icon: UserRound },
-] as const;
 
 /** Native dialog supplies focus containment and restores focus to its opener. */
 export default function QuickCustomerModal({
@@ -68,17 +64,16 @@ export default function QuickCustomerModal({
   }
 
   function field(
-    key: 'name' | 'number' | 'phone' | 'email' | 'address' | 'postalCode' | 'city' | 'contactPerson',
+    key: 'name' | 'phone' | 'email' | 'address' | 'postalCode' | 'city' | 'contactPerson',
     label: string,
     placeholder: string,
     autocomplete?: string,
   ) {
     const validationError = checkedFields.includes(key)
-      ? key === 'number' ? customerIdentifierError(draft.type, draft.number)
-        : key === 'phone' ? phoneNumberError(draft.phone) : null
+      ? key === 'phone' ? phoneNumberError(draft.phone) : null
       : null;
     return (
-      <label className={key === 'contactPerson' ? 'quick-customer-wide' : ''}>
+      <label className={key === 'name' || key === 'contactPerson' ? 'quick-customer-wide' : ''}>
         {label}{key === 'name' && <span className="quick-customer-required"> *</span>}
         <input
           aria-label={label}
@@ -86,7 +81,6 @@ export default function QuickCustomerModal({
           required={key === 'name'}
           value={draft[key]}
           onChange={(event) => {
-            if (key === 'number') setAllowDuplicate(false);
             setDraft((current) => ({ ...current, [key]: event.target.value }));
           }}
           onBlur={() => setCheckedFields(current => current.includes(key) ? current : [...current, key])}
@@ -94,9 +88,8 @@ export default function QuickCustomerModal({
           type={key === 'email' ? 'email' : key === 'phone' ? 'tel' : 'text'}
           autoComplete={autocomplete ?? 'off'}
           inputMode={key === 'postalCode' ? 'numeric' : undefined}
-          maxLength={key === 'postalCode' ? 10 : key === 'number' ? 40 : 200}
+          maxLength={key === 'postalCode' ? 10 : 200}
           disabled={busy || !allowed}
-          autoFocus={key === 'name'}
         />
         {validationError && <small className="customer-field-error">{validationError}</small>}
       </label>
@@ -125,23 +118,36 @@ export default function QuickCustomerModal({
           </button>
         </div>
         {!allowed && <p className="quick-customer-error" role="alert">Du saknar behörighet att skapa kunder.</p>}
-        <div className="quick-customer-types" role="group" aria-label="Kundtyp">
-          {customerTypes.map(({ type, Icon }) => (
-            <button
-              key={type}
-              type="button"
-              className={draft.type === type ? 'active' : ''}
-              aria-pressed={draft.type === type}
-              disabled={busy || !allowed}
-              onClick={() => {
+        <div style={{ margin: '20px 0' }}>
+          <CustomerIdentityInput
+            value={draft.number}
+            type={draft.type}
+            autoDetect={!initialDraft}
+            disabled={busy || !allowed}
+            error={checkedFields.includes('number') ? customerIdentifierError(draft.type, draft.number) ?? undefined : undefined}
+            onChange={(number) => {
+              setAllowDuplicate(false);
+              setDraft((current) => ({ ...current, number }));
+            }}
+            onTypeChange={(type) => {
                 setAllowDuplicate(false);
-                setDraft((current) => ({ ...current, type }));
-              }}
-            >
-              <Icon size={20} aria-hidden="true" /> {type}
-            </button>
-          ))}
+                setDraft((current) => ({ ...current, type: type as OfficeCustomer['type'] }));
+            }}
+          />
         </div>
+        {allowed && draft.type !== 'Privatperson' && (
+          <div style={{ marginBottom: 20 }}>
+            <CompanyLookup
+              organisationNumber={draft.number}
+              disabled={busy}
+              scopeKey={JSON.stringify([draft.id, draft.type, draft.name, draft.address, draft.postalCode, draft.city, draft.countryCode, draft.vatRegistered])}
+              requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
+              onApply={(company) => {
+                if (!busy && allowed) setDraft((current) => applyCompanyLookupToCustomer(current, company));
+              }}
+            />
+          </div>
+        )}
         {draft.type !== 'Privatperson' && (
           <fieldset className="quick-customer-vat" disabled={busy || !allowed}>
             <legend>Momsregistrerad</legend>
@@ -164,22 +170,21 @@ export default function QuickCustomerModal({
         )}
         <div className="quick-customer-fields">
           {field('name', draft.type === 'Privatperson' ? 'Namn' : draft.type === 'BRF' ? 'Föreningsnamn' : 'Företagsnamn', draft.type === 'Privatperson' ? 'Ange för- och efternamn' : 'Ange namn', draft.type === 'Privatperson' ? 'name' : 'organization')}
-          {field('number', draft.type === 'Privatperson' ? 'Personnummer' : 'Organisationsnummer', draft.type === 'Privatperson' ? 'ÅÅÅÅMMDD-XXXX' : 'XXXXXX-XXXX')}
-          {allowed && draft.type !== 'Privatperson' && (
+          {field('phone', 'Telefon', '070-123 45 67', 'tel')}
+          {field('email', 'E-post', 'namn@example.se', 'email')}
+          {allowed && (
             <div className="quick-customer-wide">
-              <CompanyLookup
-                organisationNumber={draft.number}
+              <AddressAssist
+                value={{ address: draft.address, postalCode: draft.postalCode, city: draft.city, countryCode: draft.countryCode }}
                 disabled={busy}
-                scopeKey={JSON.stringify([draft.id, draft.type, draft.name, draft.address, draft.postalCode, draft.city, draft.countryCode, draft.vatRegistered])}
+                scopeKey={JSON.stringify([draft.id, draft.type, draft.number])}
                 requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
-                onApply={(company) => {
-                  if (!busy && allowed) setDraft((current) => applyCompanyLookupToCustomer(current, company));
+                onApply={(address) => {
+                  if (!busy && allowed) setDraft((current) => ({ ...current, ...address }));
                 }}
               />
             </div>
           )}
-          {field('phone', 'Telefon', '070-123 45 67', 'tel')}
-          {field('email', 'E-post', 'namn@example.se', 'email')}
           {field('address', 'Gatuadress', 'T.ex. Storgatan 12', 'street-address')}
           <div className="quick-customer-location">
             {field('postalCode', 'Postnummer', '761 30', 'postal-code')}

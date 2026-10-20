@@ -1,3 +1,4 @@
+import AddressAssist from '../address-assistance/AddressAssist';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -2501,6 +2502,11 @@ function DetailFields({
           placeholder="Gatuadressen där materialet kommer ifrån"
         />
       </label>
+      {!disabled && card.customerId && <AddressAssist
+        value={{ address: origin, postalCode: '', city: '' }}
+        scopeKey={`${card.id}/${card.customerId}`}
+        onApply={address => { setOrigin(formatAddress(address)); setCopiedCustomerAddress(false); }}
+      />}
       {!disabled && card.customerId && customerAddress && (
         <label className="office-copy-customer-field">
           <input type="checkbox" checked={copiedCustomerAddress} aria-label="Använd kundens adress som ursprungsadress"

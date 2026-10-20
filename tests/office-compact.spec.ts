@@ -46,9 +46,9 @@ test('snabbkund sparas och kopplas till rätt invägning utan att ändra ett lå
   await page.getByRole('button', { name: 'Ny kund', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Ny kund', exact: true });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByLabel('Företagsnamn', { exact: true })).toBeFocused();
+  await expect(dialog.getByLabel('Organisations-/personnummer', { exact: true })).toBeFocused();
   await dialog.getByLabel('Företagsnamn', { exact: true }).fill(customerName);
-  await dialog.getByLabel('Organisationsnummer', { exact: true }).fill(customerNumber);
+  await dialog.getByLabel('Organisations-/personnummer', { exact: true }).fill(customerNumber);
   await dialog.getByLabel('Telefon', { exact: true }).fill('0701234567');
   await dialog.getByLabel('E-post', { exact: true }).fill('snabb@example.invalid');
   await dialog.getByLabel('Gatuadress', { exact: true }).fill('Testgatan 12');
@@ -75,9 +75,9 @@ test('fullständigt kundformulär behåller popupens uppgifter och återgår med
   await page.goto(`/kontor#/weighings/${card.id}`);
   await page.getByRole('button', { name: 'Ny kund', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Ny kund', exact: true });
-  await dialog.getByRole('button', { name: 'Privatperson', exact: true }).click();
+  await dialog.getByLabel('Kundtyp', { exact: true }).selectOption('Privatperson');
   await dialog.getByLabel('Namn', { exact: true }).fill(customerName);
-  await dialog.getByLabel('Personnummer', { exact: true }).fill(customerNumber);
+  await dialog.getByLabel('Organisations-/personnummer', { exact: true }).fill(customerNumber);
   await dialog.getByLabel('Telefon', { exact: true }).fill('0701122334');
   await dialog.getByLabel('Gatuadress', { exact: true }).fill('Björkgatan 8');
   await dialog.getByRole('button', { name: 'Öppna fullständigt kundformulär', exact: true }).click();

@@ -1,6 +1,8 @@
 # Företagsuppslag via SCB
 
-Första versionen hämtar ett bestämt svenskt företags namn, postadress, momsregistrering och F-skatt från SCB:s allmänna företagsregister. Organisationsnumret normaliseras och kontrolleras på servern innan något anrop görs. Funktionen föreslår uppgifter i ett formulär; den skapar eller sparar inte en kund eller ett SaaS-bolag automatiskt.
+Implementationen hämtar ett bestämt svenskt företags namn, postadress, momsregistrering, F-skatt samt tillgänglig telefon och e-post från SCB:s allmänna företagsregister. Organisationsnumret normaliseras och kontrolleras på servern innan något anrop görs. Funktionen föreslår uppgifter i ett formulär; den skapar eller sparar inte en kund eller ett SaaS-bolag automatiskt.
+
+**ÄL 138 och 139 är genomförda i kod den 20 oktober 2026:** nummer först, ändringsbar automatisk kundtyp och kontaktförslag som bara fyller tomma fält efter aktivt val. Samlade byggkontroller redovisas vid leveransen. Tester använder syntetiska registerträffar; denna dokumentation innebär inte att ett riktigt SCB-anrop har genomförts.
 
 ## Aktivering
 
@@ -25,7 +27,7 @@ När ett komplett nummer har giltigt format och korrekt kontrollsiffra startar u
 
 En träff visas med källa och hämtningstid. Användaren väljer **Använd företagsuppgifter** för att fylla formuläret och sparar därefter som vanligt. På Skapa bolag fylls endast namn och organisationsnummer; VD:s namn och e-post anges separat. Ingen kund, något bolag eller VD-konto skapas av uppslaget.
 
-Adressuppgifterna är företagets **postadress**, inklusive eventuell c/o-rad. De blir inte automatiskt materialets ursprungsadress, hämtningsadress eller en anläggningsadress. Tomma adressfält i SCB tömmer inte redan angivna uppgifter. Betalningsuppgifter, kontaktperson, telefon, e-post, referenser och kommersiella villkor behålls.
+Adressuppgifterna är företagets **postadress**, inklusive eventuell c/o-rad. De blir inte automatiskt materialets ursprungsadress, hämtningsadress eller en anläggningsadress. Tomma adressfält i SCB tömmer inte redan angivna uppgifter. Befintlig telefon och e-post behålls; giltiga kontaktförslag fyller bara fält som fortfarande är tomma när användaren väljer att använda träffen. Betalningsuppgifter, kontaktperson, referenser och kommersiella villkor behålls.
 
 Momsregistrering och F-skatt visas separat med källa och hämtningstid. När användaren väljer **Använd företagsuppgifter** fylls kundens momsval automatiskt i om SCB har ett uttryckligt ja/nej-besked. Okänd eller saknad momsstatus lämnar befintligt momsval orört. F-skatt påverkar inte momsvalet. Momsvalet går fortfarande att ändra manuellt före sparande. På **Skapa bolag** visas skatteuppgifterna i träffen, men där fylls endast bolagsnamn och organisationsnummer i.
 
@@ -37,11 +39,19 @@ Samma uppslag kan anslutas till bolagsuppgifter samt registrering av leverantör
 
 Namn-/delsträngssökning är en separat senare funktion. Denna version gör exakt uppslag på organisationsnummer; ingen bolagslista laddas ned.
 
-### Planerade kontaktförslag, ÄL 139
+### Nummer först och valbar kundtyp, ÄL 138
 
-Nästa komplettering är att visa företagets telefonnummer och e-post i träffen och låta **Använd företagsuppgifter** fylla kontaktfält som är tomma vid det aktiva valet. Befintliga och nyligen manuellt angivna uppgifter ska behållas. Kontaktpersonens namn samt VD-kontots namn och inloggningsmejl anges fortfarande manuellt; företagets generella kontaktuppgifter bevisar inte en viss persons identitet. Kontaktförslagen ska inte ändra betalningsprofil eller låsta underlag.
+Kontorets fullständiga kundformulär, snabbregistreringen på viktkort och mobilens Ny kund börjar med **Organisations-/personnummer**, följt av **Kundtyp**. Samma komponent kontrollerar format, kalenderdatum och Luhn innan den föreslår Företag eller Privatperson. Personnummer med tio/tolv siffror och samordningsnummer stöds; århundrade gissas inte. Prefix `16` på juridiska organisationsnummer normaliseras till tio siffror även vid sparande.
 
-Detta är **planering**, inte dagens beteende. Samordnas med **ÄL 138**, där organisations-/personnummer blir första fältet och kundtyp föreslås med möjlighet till manuell ändring. Full beställning finns i [Ändringslistan](../Andringslistan.txt).
+Ett manuellt val **Företag**, **Privatperson** eller **BRF** behålls tills användaren själv väljer **Automatiskt** igen. Personnummer kan höra till en enskild firma; numret avgör inte affärsrollen. Befintliga kunders valda typ bevaras. BRF väljs manuellt. Den blå elektriska fokusramen återanvänder viktkortets komponent, blir stilla vid minskad rörelse och släcks vid komplett giltigt nummer eller skrivskydd.
+
+Person- och samordningsnummer skickas aldrig till företagsregistret. **SPAR/personuppslag är inte implementerat**; personuppgifter kan anges manuellt. Fullt underlag finns i [Ändringslistan](../Andringslistan.txt).
+
+### Kontaktförslag, ÄL 139
+
+Företagets tillgängliga och giltiga telefonnummer och e-post visas i träffen med källa och hämtningstid. **Använd företagsuppgifter** fyller kontaktfält som är tomma vid det aktiva valet. Befintliga och nyligen manuellt angivna uppgifter behålls, även om de ändrades medan uppslaget pågick. Saknade eller felaktiga registerkontakter tömmer inget och hindrar inte en annars giltig företagsträff.
+
+Telefon normaliseras med gemensamma telefonregler till E.164 och e-post formatkontrolleras på servern och i klienten. Kontaktpersonens namn samt VD-kontots namn och inloggningsmejl anges fortfarande manuellt; företagets växel eller info-adress bevisar inte en viss persons identitet. På **Skapa bolag** fylls endast bolagsnamn och organisationsnummer. Kontaktförslagen skapar eller ändrar inga konton, betalningsprofiler eller låsta underlag.
 
 ## ScrapPlanners interna API
 
@@ -88,8 +98,10 @@ SCB:s svar är ett direkt `jeFullData`-objekt, inte en lista eller ett `{ data: 
 | `ftgStat` | Status enligt SCB:s kriterier. |
 | `jurform` | Kod för juridisk form, utan gissad klartext. |
 | `momsStat`, `fSkattStat` | Registerinformation enligt definitionerna nedan. |
+| `tel` | Valfritt telefonnummer. Enbart ett giltigt, normaliserat värde lämnas vidare som `phone`. |
+| `epost` | Valfri e-postadress. Enbart en giltig adress lämnas vidare som `email`. |
 
-Övriga råfält, exempelvis telefonnummer, e-post och omsättningsklass, lämnas inte vidare till formuläret. Uppslaget returnerar källa `SCB` och hämtningstid. Det skapar inte ett gemensamt kundregister och har ingen delad innehållscache mellan kundbolag.
+Övriga råfält, exempelvis omsättningsklass, lämnas inte vidare till formuläret. Råfälten `tel` och `epost` ersätts av de validerade valfria kontaktfälten ovan. Ogiltiga kontaktfält utelämnas separat. Uppslaget returnerar källa `SCB` och hämtningstid. Det skapar inte ett gemensamt kundregister och har ingen delad innehållscache mellan kundbolag.
 
 ### Registerstatus och skatteuppgifter
 
@@ -126,7 +138,7 @@ Detta är registeruppgifter, inte ett nytt beslut om hur en invägning eller utb
 ```sh
 node scripts/build-domain-models.mjs
 node --test server/scb-company-register.test.mjs server/company-register-api.test.mjs server/company-register-gateway.test.mjs
-npx playwright test tests/company-register-entrypoints.spec.ts tests/customer-form.spec.ts --workers=2
+npx playwright test tests/customer-identity.spec.ts tests/customer-identity-office.spec.ts tests/company-register-client.spec.ts tests/company-register-entrypoints.spec.ts tests/customer-form.spec.ts --workers=2
 ```
 
-Testerna täcker det dokumenterade anropet och fälten, kanoniskt nummerformat, personnummeravvisning, fel kund i svar, okända koder, saknad nyckel, separat hantering av ingen träff och anslutningsfel, begränsad svarsstorlek samt timeout och avbrutet uppslag. Inga tester använder en riktig API-nyckel eller gör nätanrop.
+Testerna täcker det dokumenterade anropet och fälten, kanoniskt nummerformat inklusive prefix `16` vid sparande, person-/samordningsnummer och manuella kundtyper, fel kund i svar, okända koder, saknad nyckel, separat hantering av ingen träff och anslutningsfel, begränsad svarsstorlek samt timeout och avbrutet uppslag. Kontaktfall täcker giltiga och felaktiga `tel`/`epost`, tomma och redan ifyllda fält, manuell ändring under väntande uppslag samt oförändrade VD- och betalningsuppgifter. Testerna använder ingen riktig SCB-nyckel och gör inga externa SCB-anrop.

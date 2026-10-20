@@ -70,11 +70,13 @@ test('mobilkund sparar momsval, strukturerad adress och normaliserad telefon; ur
   const fixture = await customerFixture(page);
   await expect(page.getByLabel('Momsregistrerad', { exact: true })).toHaveValue('yes');
   await page.getByLabel('Företagsnamn', { exact: true }).fill('Testbolag UI');
-  await page.getByLabel('Organisationsnummer', { exact: true }).fill('55935936261');
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill('55935936261');
   await page.getByLabel('Telefon (valfritt)').fill('0722002220');
-  await expect(page.getByRole('alert')).toContainText('exakt 10 siffror');
+  await expect(page.locator('.customer-identity-help')).toContainText('Fortsätt skriva');
+  await page.getByRole('button', { name: 'Spara och välj kund' }).click();
+  await expect(page.getByText('Organisationsnumret ska innehålla exakt 10 siffror, med eller utan bindestreck.', { exact: true })).toBeVisible();
   expect(fixture.posts()).toBe(0);
-  await page.getByLabel('Organisationsnummer', { exact: true }).fill('559359-3626');
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill('559359-3626');
   await page.getByLabel('Momsregistrerad', { exact: true }).selectOption('no');
   await page.getByLabel('Gatuadress (valfritt)').fill('Storgatan 12');
   await page.getByLabel('Postnummer (valfritt)').fill('761 41');
@@ -102,7 +104,7 @@ test('mobilkund sparar momsval, strukturerad adress och normaliserad telefon; ur
 
 test('privatkund kan skapas utan personnummer och är alltid utan momsregistrering', async ({ page }) => {
   const fixture = await customerFixture(page);
-  await page.getByRole('button', { name: 'Privatperson', exact: true }).click();
+  await page.getByLabel('Kundtyp', { exact: true }).selectOption('Privatperson');
   await expect(page.getByLabel('Momsregistrerad', { exact: true })).toHaveCount(0);
   await page.getByLabel('Namn', { exact: true }).fill('Privat testkund');
   await page.getByRole('button', { name: 'Spara och välj kund' }).click();
@@ -113,7 +115,7 @@ test('privatkund kan skapas utan personnummer och är alltid utan momsregistreri
 test('mobilkund med betalningsbehörighet kan spara en girprofil medan kontofält rensas vid typbyte', async ({ page }) => {
   const fixture = await customerFixture(page, true);
   await page.getByLabel('Företagsnamn', { exact: true }).fill('Bankgirokund UI');
-  await page.getByLabel('Organisationsnummer', { exact: true }).fill('559359-3626');
+  await page.getByLabel('Organisations-/personnummer', { exact: true }).fill('559359-3626');
   await page.getByLabel('Lägg till betalningsuppgifter', { exact: true }).check();
   await page.getByLabel('Clearingnummer', { exact: true }).fill('8327');
   await page.getByLabel('Kontonummer', { exact: true }).fill('00123456789');

@@ -12,15 +12,16 @@ Ordningen är inte en prioritering.
 
 ## Kundregistrering: nummer först och elektrisk fokusram
 
-Status: Planerad enligt **ÄL 138**. Ingen kodändring är beställd.
+Status: Genomförd i kod **20 oktober 2026** enligt **ÄL 138** tillsammans med ÄL 139.
 
-- Organisations-/personnummer blir första rutan i kundformuläret, före kundtyp
+- Organisations-/personnummer är första rutan i kundformuläret, före kundtyp
   och namn. Samma ordning används på kontoret, i snabbregistreringen och mobilen.
-- Giltigt format, datum och kontrollsiffra ger typförslag. Användaren kan ändra
-  kundtyp, bland annat för enskild firma som använder personnummer och för BRF.
-- Nummersteget får samma blå elektriska fokusram som nya viktkort, med stilla
+- Giltigt format, datum och kontrollsiffra ger typförslag. Ett manuellt val
+  behålls tills Automatiskt väljs igen, bland annat för enskild firma som
+  använder personnummer och för BRF. Befintliga kunders typ bevaras.
+- Nummersteget har samma blå elektriska fokusram som nya viktkort, med stilla
   kontur vid minskad rörelse. SCB används bara för juridiska organisationsnummer;
-  framtida personuppslag är separat.
+  personuppslag/SPAR är inte implementerat.
 
 Underlag: [Ändringslistan, ÄL 138](Andringslistan.txt),
 [SCB-uppslaget](integrationer/scb-foretagsregister.md) och
@@ -28,9 +29,9 @@ Underlag: [Ändringslistan, ÄL 138](Andringslistan.txt),
 
 ## Kontaktförslag från SCB
 
-Status: Planerad enligt **ÄL 139**, samordnas med **ÄL 138**. Ingen appkod ändrad.
+Status: Genomförd i kod **20 oktober 2026** enligt **ÄL 139**, samordnat med **ÄL 138**.
 
-- Visa företagets telefonnummer och e-post i SCB-träffen med källa och tid.
+- Företagets giltiga telefonnummer och e-post visas i SCB-träffen med källa och tid.
 - Använd företagsuppgifter fyller även kontaktfält som är tomma vid det aktiva
   valet. Befintliga eller nyligen manuellt angivna uppgifter behålls.
 - Kontaktpersonens namn anges manuellt. Företagets växel/info-adress ska inte
@@ -40,6 +41,9 @@ Status: Planerad enligt **ÄL 139**, samordnas med **ÄL 138**. Ingen appkod än
 
 Underlag: [Ändringslistan, ÄL 139](Andringslistan.txt) och
 [SCB-uppslaget](integrationer/scb-foretagsregister.md).
+
+Samlade byggkontroller redovisas vid leverans. Automatiska tester använder
+syntetiska registerträffar; de innebär inte att skarpa SCB-/Google-anrop har provats.
 
 ## FTC134 och egen körjournal
 

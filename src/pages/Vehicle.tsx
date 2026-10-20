@@ -21,10 +21,14 @@ import {
 } from '../model';
 import { MissingDraft, useDraft } from './shared';
 import { formatAddress, normalizeAddress, normalizeOriginAddress } from '../data-format';
+import AddressAssist from '../address-assistance/AddressAssist';
+import { useEmployee } from '../employee/EmployeeProvider';
+import { employeeCompanyId } from '../employee/cache';
 import './customer.css';
 
 export function VehiclePage() {
   const { draft, data, saveDraft } = useDraft();
+  const { session, sessionGeneration } = useEmployee();
   const navigate = useNavigate();
   const row = draft?.rows.find((r): r is VehicleRow => r.method === 'vehicle');
   const [input, setInput] = useState(
@@ -233,6 +237,17 @@ export function VehiclePage() {
                       <option key={r} value={r} />
                     ))}
                   </datalist>
+                  <AddressAssist value={normalizeAddress(draft.origin)}
+                    scopeKey={JSON.stringify([session?.companyId, session?.person.id, sessionGeneration, draft.id, customer.id, 'vehicle-origin'])}
+                    requestHeaders={session ? {
+                      'X-Employee-Company': employeeCompanyId(session.companyId),
+                      'X-Employee-Person': session.person.id,
+                    } : undefined}
+                    disabled={!session?.capabilities.yardWork}
+                    onApply={value => {
+                      setUseCustomerAddress(false);
+                      saveDraft({ ...draft, origin: formatAddress(value), originDetails: normalizeAddress(value) });
+                    }} />
                   <label>
                     Materialets ursprungsadress (valfritt)
                     <input

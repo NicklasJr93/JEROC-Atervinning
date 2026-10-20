@@ -18,11 +18,13 @@ import {
 } from '../components';
 import { type Customer } from '../data';
 import { id, type Draft } from '../model';
-import { customerIdentifierError, formatAddress, normalizeAddress, normalizeCustomerDetails, normalizeOriginAddress, phoneNumberError, validateCustomerDetails } from '../data-format';
+import { formatAddress, normalizeAddress, normalizeCustomerDetails, normalizeOriginAddress, phoneNumberError, validateCustomerDetails } from '../data-format';
 import { MissingDraft, useDraft } from './shared';
 import { useEmployee } from '../employee/EmployeeProvider';
 import { employeeCompanyId } from '../employee/cache';
 import CompanyLookup from '../company-register/CompanyLookup';
+import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
+import AddressAssist from '../address-assistance/AddressAssist';
 import { formatCompanyRegisterAddress, normalizeCompanyLookupNumber } from '../company-register/client';
 import type { PaymentDetails } from '../payment-details';
 import MobilePaymentFields from './MobilePaymentFields';
@@ -232,7 +234,6 @@ export function NewCustomerPage() {
   const [postalCode, setPostalCode] = useState('');
   const [city, setCity] = useState('');
   const [vatRegistered, setVatRegistered] = useState(true);
-  const [numberError, setNumberError] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [error, setError] = useState('');
   const [includePayment, setIncludePayment] = useState(false);
@@ -271,18 +272,10 @@ export function NewCustomerPage() {
     <>
       <Header title="Ny kund" back={`/weigh/${draft.id}/customer`} />
       <main className="page-body">
-        <div className="customer-tabs">
-          {(['Företag', 'Privatperson', 'BRF'] as const).map((t) => (
-            <button
-              className={type === t ? 'selected' : ''}
-              key={t}
-              onClick={() => { setType(t); setNumberError(''); setError(''); }}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
         <form className="stack" onSubmit={submit}>
+          <CustomerIdentityInput key={draft.id} value={number} type={type}
+            onChange={value => { setNumber(value); setError(''); }}
+            onTypeChange={value => { setType(value as Customer['type']); setError(''); }} />
           <label>
             {type === 'Privatperson' ? 'Namn' : 'Företagsnamn'}
             <input
@@ -295,24 +288,6 @@ export function NewCustomerPage() {
               }
               maxLength={120}
             />
-          </label>
-          <label>
-            {type === 'Privatperson'
-              ? 'Personnummer (valfritt)'
-              : 'Organisationsnummer'}
-            <input
-              value={number}
-              onChange={(e) => { setNumber(e.target.value); setNumberError(''); setError(''); }}
-              onBlur={() => setNumberError(customerIdentifierError(type, number) || '')}
-              aria-invalid={Boolean(numberError)}
-              aria-label={type === 'Privatperson' ? 'Personnummer (valfritt)' : 'Organisationsnummer'}
-              aria-describedby={numberError ? 'mobile-customer-number-error' : undefined}
-              inputMode="numeric"
-              required={type !== 'Privatperson'}
-              placeholder={type === 'Privatperson' ? 'ÅÅÅÅMMDD-XXXX' : 'XXXXXX-XXXX'}
-              maxLength={30}
-            />
-            {numberError && <span id="mobile-customer-number-error" className="red-text" role="alert">{numberError}</span>}
           </label>
           {type !== 'Privatperson' && <CompanyLookup
             organisationNumber={number}
@@ -331,7 +306,12 @@ export function NewCustomerPage() {
               if (company.postalCode.trim()) setPostalCode(company.postalCode);
               if (company.city.trim()) setCity(company.city);
               if (typeof company.vatRegistered === 'boolean') setVatRegistered(company.vatRegistered);
-              setNumberError('');
+              if (company.phone?.trim() && !phoneNumberError(company.phone)) {
+                setPhone(current => current.trim() ? current : company.phone!);
+                if (!phone.trim()) setPhoneError('');
+              }
+              if (company.email?.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(company.email))
+                setEmail(current => current.trim() ? current : company.email!);
               setError('');
             }}
           />}
@@ -367,6 +347,14 @@ export function NewCustomerPage() {
               maxLength={120}
             />
           </label>
+          <AddressAssist value={{ address, postalCode, city, countryCode: 'SE' }}
+            scopeKey={JSON.stringify([session?.companyId, session?.person.id, sessionGeneration, draft.id, 'new-customer'])}
+            requestHeaders={session ? {
+              'X-Employee-Company': employeeCompanyId(session.companyId),
+              'X-Employee-Person': session.person.id,
+            } : undefined}
+            disabled={!session?.capabilities.yardWork}
+            onApply={value => { setAddress(value.address); setPostalCode(value.postalCode); setCity(value.city); }} />
           <label>
             Gatuadress (valfritt)
             <input
@@ -404,6 +392,7 @@ export function NewCustomerPage() {
 }
 export function ReferencePage() {
   const { draft, data, saveDraft } = useDraft();
+  const { session, sessionGeneration } = useEmployee();
   const navigate = useNavigate();
   const [reference, setReference] = useState(draft?.reference ?? '');
   const [origin, setOrigin] = useState(draft?.origin ?? '');
@@ -478,6 +467,14 @@ export function ReferencePage() {
               ))}
             </div>
           )}
+          <AddressAssist value={normalizeAddress(origin)}
+            scopeKey={JSON.stringify([session?.companyId, session?.person.id, sessionGeneration, draft.id, customer.id, 'material-origin'])}
+            requestHeaders={session ? {
+              'X-Employee-Company': employeeCompanyId(session.companyId),
+              'X-Employee-Person': session.person.id,
+            } : undefined}
+            disabled={!session?.capabilities.yardWork}
+            onApply={value => { setOrigin(formatAddress(value)); setUseCustomerAddress(false); }} />
           <label>
             Materialets ursprungsadress (valfritt)
             <div className="input-with-icon">

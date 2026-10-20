@@ -1,7 +1,8 @@
 # Adressfält och Google-förslag
 
-Inventerat 12 oktober 2026. Planering enligt ÄL 084, 086 och 087; inga adress-
-eller Swish-funktioner implementeras av denna anteckning.
+Inventerat 12 oktober 2026. Adresshjälp enligt ÄL 087 implementerad 20 oktober 2026.
+Se [drift, nycklar och verifierat flöde](integrationer/google-adresser.md).
+Inventeringen nedan behålls som underlag; pris-/planeringsavsnitten är historiska.
 
 ## Adressfält som finns idag
 
@@ -111,9 +112,11 @@ implementation ska vi fastställa ett tillåtet upplägg för de adresser använ
 bekräftar och sparar, alternativt välja adress-/valideringstjänst med rätt
 lagringsvillkor. Att döpa om ett rått Places-svar till kunddata är inte en lösning.
 
-## Befintligt stöd
+## Stöd från 20 oktober 2026
 
-Google Maps finns idag endast som planerat integrationskort. Transportplanerarens
+Google adresser har ett konfigurationskort och ett adressprov under Integrationer. Gemensam adresshjälp finns i de redigerbara formulären ovan, med separat servervalidering och aktiv bekräftelse. Kartanknutna transportformulär har fortsatt manuell adressinmatning enligt EES-avgränsningen.
+
+Transportplanerarens
 **Hitta adress** söker manuellt efter koordinater via Nominatim. Miljöunderlagets
 resolver söker efter adress/kommun via Nominatim efter en medveten kontroll.
 Den publika Nominatim-tjänsten är inte en tjänst för autocomplete och ska inte

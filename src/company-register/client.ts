@@ -1,4 +1,5 @@
-import { customerIdentifierError, normalizeOrganisationNumber } from '../data-format';
+import { z } from 'zod';
+import { customerIdentifierError, normalizeOrganisationNumber, normalizePhoneNumber, phoneNumberError } from '../data-format';
 import { currentPlatformSession, platformRequestHeaders } from '../platform/session';
 
 export interface CompanyRegisterCompany {
@@ -13,6 +14,15 @@ export interface CompanyRegisterCompany {
   fetchedAt: string;
   vatRegistered?: boolean;
   fTaxRegistered?: boolean;
+  phone?: string;
+  email?: string;
+}
+
+const contactEmailSchema = z.string().trim().email().max(254);
+function companyContactPhone(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim() || value.length > 64) return undefined;
+  const normalized = normalizePhoneNumber(value);
+  return normalized && !phoneNumberError(normalized) ? normalized : undefined;
 }
 
 /** SCB uses 16 + the ten-digit organisation number; editable customer data uses ten digits. */
@@ -71,6 +81,7 @@ function parseCompany(value: unknown, expectedNumber: string): CompanyRegisterCo
     || company.countryCode !== 'SE' || company.source !== 'SCB'
     || typeof company.fetchedAt !== 'string' || Number.isNaN(Date.parse(company.fetchedAt)))
     throw new CompanyLookupError('Företagsregistret gav ett ofullständigt svar. Fyll i uppgifterna manuellt eller försök igen.', 'company_lookup_response_invalid', 502);
+  const phone = companyContactPhone(company.phone), email = contactEmailSchema.safeParse(company.email);
   return {
     organisationNumber: expectedNumber, name: company.name,
     address: company.address!, postalCode: company.postalCode!, city: company.city!,
@@ -78,6 +89,8 @@ function parseCompany(value: unknown, expectedNumber: string): CompanyRegisterCo
     ...(typeof company.careOf === 'string' && company.careOf.trim() ? { careOf: company.careOf.trim() } : {}),
     ...(typeof company.vatRegistered === 'boolean' ? { vatRegistered: company.vatRegistered } : {}),
     ...(typeof company.fTaxRegistered === 'boolean' ? { fTaxRegistered: company.fTaxRegistered } : {}),
+    ...(phone === undefined ? {} : { phone }),
+    ...(email.success ? { email: email.data } : {}),
   };
 }
 
