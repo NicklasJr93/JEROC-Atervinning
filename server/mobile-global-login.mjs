@@ -1,8 +1,8 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { isIP } from 'node:net';
 import { z } from 'zod';
 import { PlatformError, PLATFORM_COOKIE, PLATFORM_TENANT_COOKIE } from './platform-auth.mjs';
+import { clientAddressHash } from './client-address.mjs';
 
 // These bindings are authored only by the gateway. A JSON field or header can
 // neither choose a tenant/person nor bypass its current personnel credential.
@@ -10,13 +10,7 @@ const loginContext = Symbol('employee.global.login');
 export const globalEmployeeLoginContext = req => req[loginContext];
 const normalize = value => String(value ?? '').normalize('NFKC').trim().toLowerCase();
 const hash = value => createHash('sha256').update(value).digest('hex');
-export function employeeLoginAddress(req, env = process.env) {
-  // Render terminates the public connection and appends its client address.
-  // Direct/local deployments never trust a caller's forwarding header.
-  const forwarded = req.headers['x-forwarded-for'];
-  const candidate = env.RENDER && typeof forwarded === 'string' && forwarded.length <= 2048 ? forwarded.split(',').at(-1).trim() : undefined;
-  return hash(candidate && isIP(candidate) ? candidate.toLowerCase() : req.socket?.remoteAddress ?? 'unknown');
-}
+export const employeeLoginAddress = clientAddressHash;
 const derive = promisify(scrypt);
 const dummy = { salt: randomBytes(24).toString('hex'), digest: randomBytes(64).toString('hex') };
 const validHash = value => /^[a-f0-9]{32,128}$/i.test(value?.salt ?? '') && /^[a-f0-9]{128}$/i.test(value?.digest ?? '');

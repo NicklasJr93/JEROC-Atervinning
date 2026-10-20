@@ -2,9 +2,11 @@ import { randomBytes, randomUUID, createHash, scrypt, timingSafeEqual } from 'no
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { normalizeOrganisationNumber, customerIdentifierError } from '../dist-server/domain-models.mjs';
+import { clientAddressHash } from './client-address.mjs';
 
 const derive = promisify(scrypt), clone = value => structuredClone(value);
 const SESSION_MS = 8 * 3600_000, ATTEMPT_MS = 15 * 60_000;
+const HASH_LEASE_MS = 120_000;
 export const PLATFORM_COOKIE = 'jeroc_platform';
 export const PLATFORM_TENANT_COOKIE = 'jeroc_tenant';
 // This symbol carries server-authenticated context. No request header can set it.
@@ -54,7 +56,7 @@ const newCompanySchema = z.object({ requestId: z.string().uuid(), name: z.string
 
 /** Platform identity owns company memberships; business permissions still come
  * from each company's current user register, never from this cookie or JSON. */
-export function createPlatformAuth({ repository, bootstrapLegacy = async () => null, bootstrapPlatform, provisionCompany,
+export function createPlatformAuth({ repository, env = process.env, bootstrapLegacy = async () => null, bootstrapPlatform, provisionCompany,
   companyUsers = async () => [], resolveCompanyUser = async () => null, onPasswordChanged = async () => {},
   platformAdminEmail, initialAdminProfile, validateStaffInvitation = async () => { fail('Personalinbjudan kunde inte verifieras.', 409, 'staff_invitation_changed'); },
   now = () => new Date(), legacyCompany = { name: 'JEROC Återvinning AB', organisationNumber: '', storageSchema: 'public' } } = {}) {
@@ -217,42 +219,89 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     return { userId: user.id, organisationId, effectiveUserId, businessPrincipalVersion: 2,
       tokenHash: hash(token), tenantTokenHash: hash(tenantToken), csrfToken: secret(), generation: randomUUID(), createdAt: at(), expiresAt: new Date(Date.parse(at()) + SESSION_MS).toISOString() };
   }
+  async function completeAttempt(field, id) {
+    await repository.transact(state => {
+      const attempt = state[field]?.find(value => value.id === id);
+      if (attempt) { attempt.status = 'complete'; delete attempt.leaseUntil; }
+    });
+  }
+  function clearCredentialAttempts(state, actorId, purpose, id) {
+    // An earlier successful action must not erase another request's active
+    // reservation. That would make concurrent expensive checks unbounded.
+    state.credentialAttempts = state.credentialAttempts.filter(item => item.id !== id
+      && (item.actorId !== actorId || item.purpose !== purpose || item.status === 'pending'));
+  }
+  async function reserveCredentialAttempt(req, token, value, purpose, options = {}, validate = () => {}) {
+    const stamp = at(), address = clientAddressHash(req, env), id = randomUUID();
+    await repository.transact(state => {
+      const current = identity(state, token, options); checkExpected(req, current, true);
+      if (current.session.generation !== value.session.generation
+        || canonicalHash(current.actor.password) !== canonicalHash(value.actor.password))
+        fail('Kontot eller lösenordet har ändrats. Öppna formuläret igen.', 409, 'platform_context_changed');
+      validate(current);
+      state.credentialAttempts ??= [];
+      // Keep an existing profile-edit lock across this additive migration.
+      for (const item of state.profileEmailAttempts ?? []) state.credentialAttempts.push({ ...item, id: randomUUID(), purpose: 'profile', status: 'complete' });
+      delete state.profileEmailAttempts;
+      state.credentialAttempts = state.credentialAttempts.filter(item => Date.parse(item.at) > Date.parse(stamp) - ATTEMPT_MS);
+      const attempts = state.credentialAttempts;
+      if (attempts.length >= 300 || attempts.filter(item => item.actorId === current.actor.id).length >= 6
+        || attempts.filter(item => item.address === address).length >= 60
+        || attempts.filter(item => item.status === 'pending' && item.leaseUntil > stamp).length >= 4)
+        fail('För många försök att ändra kontot. Vänta en stund och försök igen.', 429,
+          purpose === 'profile' ? 'platform_profile_rate_limit' : 'platform_password_rate_limit');
+      attempts.push({ id, actorId: current.actor.id, address, purpose, at: stamp, status: 'pending', leaseUntil: new Date(Date.parse(stamp) + HASH_LEASE_MS).toISOString() });
+    });
+    return id;
+  }
   async function login(input, req) {
     await initialize();
     const parsed = parse(z.object({ username: z.string().trim().min(1).max(254), password: z.string().min(1).max(200) }).strict(), input);
-    const loginName = username(parsed.username), address = hash(req.socket?.remoteAddress ?? 'unknown'), stamp = at(), key = hash(loginName);
-    const candidate = await repository.read(state => {
-      const attempts = state.attempts.filter(value => Date.parse(value.at) > Date.parse(stamp) - ATTEMPT_MS);
-      if (attempts.filter(value => value.address === address).length >= 30 || attempts.filter(value => value.key === key).length >= 10) fail('För många inloggningsförsök. Vänta 15 minuter.', 429, 'platform_login_rate_limit');
+    const loginName = username(parsed.username), address = clientAddressHash(req, env), stamp = at(), key = hash(loginName);
+    const attemptId = randomUUID();
+    const candidate = await repository.transact(state => {
+      state.attempts = state.attempts.filter(value => Date.parse(value.at) > Date.parse(stamp) - ATTEMPT_MS);
+      if (state.attempts.length >= 300 || state.attempts.filter(value => value.address === address).length >= 30
+        || state.attempts.filter(value => value.key === key).length >= 10
+        || state.attempts.filter(value => value.status === 'pending' && value.leaseUntil > stamp).length >= 4)
+        fail('För många inloggningsförsök. Vänta en stund och försök igen.', 429, 'platform_login_rate_limit');
+      // Reserve before scrypt. Parallel requests must share the same durable
+      // account/source budget and bounded expensive-work slots.
+      state.attempts.push({ id: attemptId, address, key, at: stamp, status: 'pending', leaseUntil: new Date(Date.parse(stamp) + HASH_LEASE_MS).toISOString() });
       return clone(state.users.find(value => value.username === loginName));
     });
-    const valid = await passwordValid(parsed.password, candidate?.password), token = secret(), tenantToken = secret();
-    if (valid && candidate?.staffInvitationIdentity && !candidate.passwordChangedAt && !candidate.staffInvitationTarget)
-      fail('Fel inloggning eller inaktivt konto.', 401, 'platform_invalid_credentials');
-    if (valid && candidate?.staffInvitationTarget && !candidate.passwordChangedAt) {
-      try { await validateStaffInvitation(candidate.staffInvitationTarget); }
-      catch { fail('Fel inloggning eller inaktivt konto.', 401, 'platform_invalid_credentials'); }
-    }
-    const result = await repository.transact(state => {
-      state.sessions = state.sessions.filter(value => value.expiresAt > stamp);
-      state.attempts = state.attempts.filter(value => Date.parse(value.at) > Date.parse(stamp) - ATTEMPT_MS);
-      if (state.attempts.filter(value => value.address === address).length >= 30 || state.attempts.filter(value => value.key === key).length >= 10)
-        return { error: new PlatformError('För många inloggningsförsök. Vänta 15 minuter.', 429, 'platform_login_rate_limit') };
-      const user = state.users.find(value => value.id === candidate?.id);
-      const membership = state.memberships.find(value => value.userId === user?.id && value.active && state.companies.some(company => company.id === value.organisationId && company.status === 'active'));
-      if (!valid || !user?.active || user.passwordRecoveryPending || canonicalHash(user.password) !== canonicalHash(candidate.password) || !membership && !(standalonePlatform && user.platformAdmin)) {
-        state.attempts.push({ address, key, at: stamp }); audit(state, undefined, 'platform.login_rejected', { attemptKey: key });
-        return { error: new PlatformError('Fel inloggning eller inaktivt konto.', 401, 'platform_invalid_credentials') };
+    let attemptCleared = false;
+    try {
+      const valid = await passwordValid(parsed.password, candidate?.password), token = secret(), tenantToken = secret();
+      if (valid && candidate?.staffInvitationIdentity && !candidate.passwordChangedAt && !candidate.staffInvitationTarget)
+        fail('Fel inloggning eller inaktivt konto.', 401, 'platform_invalid_credentials');
+      if (valid && candidate?.staffInvitationTarget && !candidate.passwordChangedAt) {
+        try { await validateStaffInvitation(candidate.staffInvitationTarget); }
+        catch { fail('Fel inloggning eller inaktivt konto.', 401, 'platform_invalid_credentials'); }
       }
-      const prior = platformCookieToken(req);
-      if (prior) state.sessions = state.sessions.filter(value => value.tokenHash !== hash(prior));
-      const session = newSession(user, standalonePlatform && user.platformAdmin ? undefined : membership.organisationId, user.platformAdmin ? '__platform-admin' : membership.businessUserId, token, tenantToken);
-      state.sessions.push(session); user.lastLoginAt = stamp; state.attempts = state.attempts.filter(value => value.key !== key);
-      audit(state, user, 'platform.login', { organisationId: session.organisationId, effectiveUserId: session.effectiveUserId, generation: session.generation });
-      return { token };
-    });
-    if (result.error) throw result.error;
-    return { token, tenantToken, value: await session({ ...req, headers: { cookie: `${PLATFORM_COOKIE}=${token}` } }) };
+      const result = await repository.transact(state => {
+        state.sessions = state.sessions.filter(value => value.expiresAt > stamp);
+        state.attempts = state.attempts.filter(value => Date.parse(value.at) > Date.parse(stamp) - ATTEMPT_MS);
+        const user = state.users.find(value => value.id === candidate?.id);
+        const membership = state.memberships.find(value => value.userId === user?.id && value.active && state.companies.some(company => company.id === value.organisationId && company.status === 'active'));
+        if (!valid || !user?.active || user.passwordRecoveryPending || canonicalHash(user.password) !== canonicalHash(candidate.password) || !membership && !(standalonePlatform && user.platformAdmin)) {
+          audit(state, undefined, 'platform.login_rejected', { attemptKey: key });
+          return { error: new PlatformError('Fel inloggning eller inaktivt konto.', 401, 'platform_invalid_credentials') };
+        }
+        const prior = platformCookieToken(req);
+        if (prior) state.sessions = state.sessions.filter(value => value.tokenHash !== hash(prior));
+        const session = newSession(user, standalonePlatform && user.platformAdmin ? undefined : membership.organisationId, user.platformAdmin ? '__platform-admin' : membership.businessUserId, token, tenantToken);
+        state.sessions.push(session); user.lastLoginAt = stamp;
+        state.attempts = state.attempts.filter(value => value.key !== key || value.status === 'pending' && value.id !== attemptId);
+        audit(state, user, 'platform.login', { organisationId: session.organisationId, effectiveUserId: session.effectiveUserId, generation: session.generation });
+        return { token };
+      });
+      if (result.error) throw result.error;
+      attemptCleared = true;
+      return { token, tenantToken, value: await session({ ...req, headers: { cookie: `${PLATFORM_COOKIE}=${token}` } }) };
+    } finally {
+      if (!attemptCleared) await completeAttempt('attempts', attemptId);
+    }
   }
   async function logout(req) {
     const { token, value } = await readSession(req, { writes: true, allowPasswordChange: true, allowInactiveCompany: true });
@@ -264,30 +313,38 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     const parsed = parse(z.object({ currentPassword: z.string().max(200).optional(), newPassword: passwordSchema }).strict(), input);
     if (parsed.newPassword === 'JerocDemo2026!') fail('Välj ett privat lösenord. Det offentliga demolösenordet får inte användas.');
     const { token, value } = await readSession(req, { writes: true, allowPasswordChange: true });
-    if (value.actor.staffInvitationIdentity && !value.actor.passwordChangedAt && !value.actor.staffInvitationTarget)
-      fail('Personalinbjudan kunde inte verifieras.', 409, 'staff_invitation_changed');
-    if (value.actor.staffInvitationTarget && !value.actor.passwordChangedAt)
-      await validateStaffInvitation(value.actor.staffInvitationTarget);
-    if (!value.actor.mustChangePassword && (!parsed.currentPassword || !await passwordValid(parsed.currentPassword, value.actor.password))) fail('Det nuvarande lösenordet stämmer inte.', 403, 'platform_password_mismatch');
-    if (await passwordValid(parsed.newPassword, value.actor.password)) fail('Välj ett nytt lösenord.');
-    const password = await platformPasswordHash(parsed.newPassword);
-    const pending = await repository.transact(state => { const current = identity(state, token, { allowPasswordChange: true }); checkExpected(req, current, true);
-      if (canonicalHash(current.actor.password) !== canonicalHash(value.actor.password)) fail('Lösenordet har ändrats i en annan session.', 409, 'platform_context_changed');
-      if (current.actor.passwordSyncPending && current.actor.passwordSyncLeaseUntil > at()) fail('Lösenordet håller redan på att synkroniseras. Vänta en stund.', 409, 'platform_password_sync_pending');
-      current.actor.password = password; current.actor.mustChangePassword = true; current.actor.passwordSyncPending = true; current.actor.passwordSyncLeaseUntil = new Date(Date.parse(at()) + 120_000).toISOString();
-      state.sessions = state.sessions.filter(item => item.userId !== current.actor.id || item.tokenHash === current.session.tokenHash);
-      return { user: clone(current.actor), companyIds: state.memberships.filter(item => item.userId === current.actor.id && item.active).map(item => item.organisationId) }; });
-    try { await onPasswordChanged({ ...pending, user: { ...pending.user, mustChangePassword: false }, password }); }
-    catch { await repository.transact(state => { const actor = state.users.find(user => user.id === value.actor.id); if (canonicalHash(actor.password) === canonicalHash(password)) actor.passwordSyncLeaseUntil = at(); });
-      fail('Lösenordet har sparats men bolagskontot kunde inte aktiveras. Försök igen eller logga in med ditt nya lösenord.', 503, 'platform_password_sync_failed'); }
-    const nextToken = secret(), tenantToken = secret();
-    await repository.transact(state => { const current = identity(state, token, { allowPasswordChange: true }); checkExpected(req, current, true);
-      if (canonicalHash(current.actor.password) !== canonicalHash(password)) fail('Lösenordet har ändrats i en annan session.', 409, 'platform_context_changed');
-      current.actor.mustChangePassword = false; delete current.actor.passwordSyncPending; delete current.actor.passwordSyncLeaseUntil; current.actor.passwordChangedAt = at();
-      state.sessions = state.sessions.filter(item => item.userId !== current.actor.id);
-      state.sessions.push(newSession(current.actor, current.company?.id, effectiveBusinessId(current), nextToken, tenantToken));
-      audit(state, current.actor, 'platform.password_changed', { organisationId: current.company?.id }); });
-    return { token: nextToken, tenantToken, value: await session({ ...req, headers: { cookie: `${PLATFORM_COOKIE}=${nextToken}` } }) };
+    const attemptId = await reserveCredentialAttempt(req, token, value, 'password', { allowPasswordChange: true });
+    let attemptCleared = false;
+    try {
+      if (value.actor.staffInvitationIdentity && !value.actor.passwordChangedAt && !value.actor.staffInvitationTarget)
+        fail('Personalinbjudan kunde inte verifieras.', 409, 'staff_invitation_changed');
+      if (value.actor.staffInvitationTarget && !value.actor.passwordChangedAt)
+        await validateStaffInvitation(value.actor.staffInvitationTarget);
+      if (!value.actor.mustChangePassword && (!parsed.currentPassword || !await passwordValid(parsed.currentPassword, value.actor.password))) fail('Det nuvarande lösenordet stämmer inte.', 403, 'platform_password_mismatch');
+      if (await passwordValid(parsed.newPassword, value.actor.password)) fail('Välj ett nytt lösenord.');
+      const password = await platformPasswordHash(parsed.newPassword);
+      const pending = await repository.transact(state => { const current = identity(state, token, { allowPasswordChange: true }); checkExpected(req, current, true);
+        if (canonicalHash(current.actor.password) !== canonicalHash(value.actor.password)) fail('Lösenordet har ändrats i en annan session.', 409, 'platform_context_changed');
+        if (current.actor.passwordSyncPending && current.actor.passwordSyncLeaseUntil > at()) fail('Lösenordet håller redan på att synkroniseras. Vänta en stund.', 409, 'platform_password_sync_pending');
+        current.actor.password = password; current.actor.mustChangePassword = true; current.actor.passwordSyncPending = true; current.actor.passwordSyncLeaseUntil = new Date(Date.parse(at()) + 120_000).toISOString();
+        state.sessions = state.sessions.filter(item => item.userId !== current.actor.id || item.tokenHash === current.session.tokenHash);
+        return { user: clone(current.actor), companyIds: state.memberships.filter(item => item.userId === current.actor.id && item.active).map(item => item.organisationId) }; });
+      try { await onPasswordChanged({ ...pending, user: { ...pending.user, mustChangePassword: false }, password }); }
+      catch { await repository.transact(state => { const actor = state.users.find(user => user.id === value.actor.id); if (canonicalHash(actor.password) === canonicalHash(password)) actor.passwordSyncLeaseUntil = at(); });
+        fail('Lösenordet har sparats men bolagskontot kunde inte aktiveras. Försök igen eller logga in med ditt nya lösenord.', 503, 'platform_password_sync_failed'); }
+      const nextToken = secret(), tenantToken = secret();
+      await repository.transact(state => { const current = identity(state, token, { allowPasswordChange: true }); checkExpected(req, current, true);
+        if (canonicalHash(current.actor.password) !== canonicalHash(password)) fail('Lösenordet har ändrats i en annan session.', 409, 'platform_context_changed');
+        current.actor.mustChangePassword = false; delete current.actor.passwordSyncPending; delete current.actor.passwordSyncLeaseUntil; current.actor.passwordChangedAt = at();
+        state.sessions = state.sessions.filter(item => item.userId !== current.actor.id);
+        state.sessions.push(newSession(current.actor, current.company?.id, effectiveBusinessId(current), nextToken, tenantToken));
+        clearCredentialAttempts(state, current.actor.id, 'password', attemptId);
+        audit(state, current.actor, 'platform.password_changed', { organisationId: current.company?.id }); });
+      attemptCleared = true;
+      return { token: nextToken, tenantToken, value: await session({ ...req, headers: { cookie: `${PLATFORM_COOKIE}=${nextToken}` } }) };
+    } finally {
+      if (!attemptCleared) await completeAttempt('credentialAttempts', attemptId);
+    }
   }
 
   const profileVersion = user => Number.isSafeInteger(user.profileVersion) && user.profileVersion >= 0 ? user.profileVersion : 0;
@@ -307,36 +364,34 @@ export function createPlatformAuth({ repository, bootstrapLegacy = async () => n
     const parsed = parse(profileUpdateSchema, input);
     const conflict = () => fail('Din profil ändrades i en annan session. Hämta den senaste versionen innan du sparar.', 409, 'platform_profile_conflict');
     if (profileVersion(value.actor) !== parsed.expectedVersion) return conflict();
-    const stamp = at(), address = hash(req.socket?.remoteAddress ?? 'unknown');
-    // A stolen session must not get unlimited guesses at the current password.
-    // Reservations are durable and made before the expensive password check.
-    await repository.transact(state => {
-      const current = identity(state, token, { allowInactiveCompany: true }); checkExpected(req, current, true);
+    const attemptId = await reserveCredentialAttempt(req, token, value, 'profile', { allowInactiveCompany: true }, current => {
       if (profileVersion(current.actor) !== parsed.expectedVersion) return conflict();
-      state.profileEmailAttempts = (state.profileEmailAttempts ?? []).filter(item => Date.parse(item.at) > Date.parse(stamp) - ATTEMPT_MS);
-      if (state.profileEmailAttempts.filter(item => item.actorId === current.actor.id).length >= 6
-        || state.profileEmailAttempts.filter(item => item.address === address).length >= 60)
-        fail('För många försök att ändra e-postadressen. Vänta 15 minuter och försök igen.', 429, 'platform_profile_rate_limit');
-      state.profileEmailAttempts.push({ actorId: current.actor.id, address, at: stamp });
     });
-    if (!await passwordValid(parsed.currentPassword, value.actor.password))
-      fail('Det nuvarande lösenordet stämmer inte.', 403, 'platform_password_mismatch');
-    return repository.transact(state => {
-      const current = identity(state, token, { allowInactiveCompany: true }); checkExpected(req, current, true);
-      if (current.session.generation !== value.session.generation
-        || canonicalHash(current.actor.password) !== canonicalHash(value.actor.password))
-        fail('Kontot eller lösenordet har ändrats. Öppna din profil igen.', 409, 'platform_context_changed');
-      if (profileVersion(current.actor) !== parsed.expectedVersion) return conflict();
-      current.actor.email = parsed.email; current.actor.profileVersion = parsed.expectedVersion + 1;
-      current.actor.profileEmailManaged = true; current.actor.profileUpdatedAt = at();
-      // Fingerprint validation also rejects these links; mark them explicitly
-      // so an old in-flight email acknowledgement cannot reactivate one.
-      for (const record of state.passwordRecovery?.requests ?? [])
-        if (record.userId === current.actor.id && ['sending', 'sent'].includes(record.status)) record.status = 'superseded';
-      state.profileEmailAttempts = state.profileEmailAttempts.filter(item => item.actorId !== current.actor.id);
-      audit(state, current.actor, 'platform.profile_email_changed', { profileVersion: current.actor.profileVersion });
-      return profileDto(current.actor);
-    });
+    let attemptCleared = false;
+    try {
+      if (!await passwordValid(parsed.currentPassword, value.actor.password))
+        fail('Det nuvarande lösenordet stämmer inte.', 403, 'platform_password_mismatch');
+      const result = await repository.transact(state => {
+        const current = identity(state, token, { allowInactiveCompany: true }); checkExpected(req, current, true);
+        if (current.session.generation !== value.session.generation
+          || canonicalHash(current.actor.password) !== canonicalHash(value.actor.password))
+          fail('Kontot eller lösenordet har ändrats. Öppna din profil igen.', 409, 'platform_context_changed');
+        if (profileVersion(current.actor) !== parsed.expectedVersion) return conflict();
+        current.actor.email = parsed.email; current.actor.profileVersion = parsed.expectedVersion + 1;
+        current.actor.profileEmailManaged = true; current.actor.profileUpdatedAt = at();
+        // Fingerprint validation also rejects these links; mark them explicitly
+        // so an old in-flight email acknowledgement cannot reactivate one.
+        for (const record of state.passwordRecovery?.requests ?? [])
+          if (record.userId === current.actor.id && ['sending', 'sent'].includes(record.status)) record.status = 'superseded';
+        clearCredentialAttempts(state, current.actor.id, 'profile', attemptId);
+        audit(state, current.actor, 'platform.profile_email_changed', { profileVersion: current.actor.profileVersion });
+        return profileDto(current.actor);
+      });
+      attemptCleared = true;
+      return result;
+    } finally {
+      if (!attemptCleared) await completeAttempt('credentialAttempts', attemptId);
+    }
   }
 
   const recoveryEmail = user => typeof user?.email === 'string' ? username(user.email) : '';

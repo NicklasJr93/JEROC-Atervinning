@@ -142,7 +142,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
     return pending;
   }
   const legacy = profile.pilot ? undefined : await bundle(defaultCompany);
-  auth = createPlatformAuth({ repository, platformAdminEmail: env.SCRAPPLANNER_PLATFORM_ADMIN_EMAIL,
+  auth = createPlatformAuth({ repository, env, platformAdminEmail: env.SCRAPPLANNER_PLATFORM_ADMIN_EMAIL,
     initialAdminProfile: initialAdminProfileForDeployment(env),
     ...(profile.pilot && { bootstrapPlatform: async () => ({ id: 'platform-admin', username: 'admin', name: 'Systemadmin', active: true,
       password: await platformPasswordHash(env.SCRAPPILOT_PLATFORM_ADMIN_PASSWORD) }) }),
