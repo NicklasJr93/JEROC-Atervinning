@@ -3678,7 +3678,7 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
 
 
 ÄL 147 – En markerad mobilflik och synliga nya materialbilder
-Status: Genomförd och lokalt verifierad 2026-10-20.
+Status: Genomförd, verifierad och driftsatt 2026-10-20.
 - Systemadminens mobilmeny ska markera endast Gårdsarbete i dess vyer,
   inklusive prislista och vägningshistorik. Hem markeras på startsidan.
   Visuell markering och aria-current ska använda samma valda menyflik.
@@ -3692,3 +3692,22 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
   Båda kontotypernas meny kontrolleras genom flera huvud- och undervyer.
   Bildproven kontrollerar ny gruppbild, artikelbild, fullstor bild och
   förstoring med faktiska WebP-svar, samt uppladdningar och saknade bilder.
+
+
+ÄL 148 – Samma behörighetsregister i kontorsformulär och server
+Status: Genomförd och lokalt verifierad 2026-10-20.
+- Alla giltiga behörigheter som visas i kontorets kontoformulär ska gå
+  att spara för en medarbetare av en behörig administratör. Servern ska
+  använda samma register som formuläret, inklusive läs/ändra företags-
+  inställningar, i stället för en äldre kopia med 66 behörigheter.
+- Okända värden avvisas fortsatt. Kontonivå, faktisk/effektiv användare,
+  anläggningsåtkomst och attestgränser ska kontrolleras som tidigare.
+- Befintliga systemadminkonton med äldre behörighetslistor får inte
+  blockera en VD:s tillåtna ändring av ett annat personalkonto.
+- Ett nekat sparande ska visas som ett fel vid kontoformuläret och
+  behålla de osparade valen. Det får inte visas som en grön bekräftelse.
+- Verifiering: produktionsbygge, 30 riktade serverprov och fem browserfall
+  passerar. Faktiskt HTTP-sparande kontrollerar hela registret, okända
+  värden, äldre systemadminkonton och oförändrade behörighetsgränser.
+  Formulärprov kontrollerar rött fel, bibehållna val och lyckat omförsök.
+  Testerna använder isolerade konton; verkliga personaluppgifter ändras inte.

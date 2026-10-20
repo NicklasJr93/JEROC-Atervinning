@@ -4,6 +4,8 @@ import { can, permissionNames, sensitivePersonnelPermissions, type OfficeUser, t
 import { useEnvironmentSession } from '../EnvironmentSession';
 import { OfficePageHeader } from '../OfficePageHeader';
 import { personnelClientScope } from './client';
+import { Alert } from './components/Ui';
+import './personal.css';
 
 const permissionPrerequisites: Partial<Record<Permission, Permission[]>> = {
   lmeWrite: ['lmeRead'],
@@ -52,6 +54,14 @@ interface StaffAccountPanelProps {
   save: (users: OfficeUser[], allSiteUserIds?: string[]) => Promise<boolean>;
   onSaved?: () => Promise<void> | void;
 }
+const accountSaveFailure = (reason?: unknown) => {
+  const message = reason instanceof Error ? reason.message.trim() : '';
+  // Validation libraries can serialize their full issues array as Error.message.
+  // Keep ordinary actionable server messages, not raw schemas or stack output.
+  return message && message.length <= 500 && !/^[\[{]|invalid_enum_value|invalid_type|ZodError/.test(message)
+    ? message
+    : 'Kontot kunde inte sparas. Kontrollera kontouppgifterna och de valda behörigheterna och försök igen. Dina val finns kvar.';
+};
 export default function StaffAccountPanel(props: StaffAccountPanelProps) {
   const scope = personnelClientScope(props.actor, props.actualUser ?? props.actor);
   if (props.initialUserId && !props.users.some(user => user.id === props.initialUserId)) return <p className="office-muted">Det kopplade kontot kan inte visas med din aktuella åtkomst.</p>;
@@ -64,6 +74,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
   const allSiteIds = sites.map(site => site.id);
   const [selected, setSelected] = useState(users.find(person => person.id === initialUserId) ?? users[0]),
     [notice, setNotice] = useState(''),
+    [error, setError] = useState(''),
     [saving, setSaving] = useState(false);
   const mounted = useRef(true), pending = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -81,16 +92,17 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
     )
       return;
     if (pending.current) return;
-    pending.current = true; setSaving(true); setNotice('');
+    pending.current = true; setSaving(true); setNotice(''); setError('');
     try {
       const saved = await save(
         users.some(user => user.id === selected.id) ? users.map(user => user.id === selected.id ? selected : user) : [...users, selected],
         !Array.isArray(selected.siteIds) && unrestricted ? [selected.id] : [],
       );
-      if (!mounted.current || !saved) return;
+      if (!mounted.current) return;
+      if (!saved) { setError(accountSaveFailure()); return; }
       setNotice('Kontot och den gemensamma anläggningsåtkomsten har sparats.');
       try { await onSaved?.(); } catch { if (mounted.current) setNotice('Kontot är sparat. Uppdatera personkortet för att se den aktuella åtkomsten.'); }
-    } catch (reason) { if (mounted.current) setNotice(reason instanceof Error ? reason.message : 'Kontot kunde inte sparas.'); }
+    } catch (reason) { if (mounted.current) setError(accountSaveFailure(reason)); }
     finally { pending.current = false; if (mounted.current) setSaving(false); }
   }
 
@@ -105,8 +117,9 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
         </div>
         <button
           className="office-btn"
+          disabled={saving}
           onClick={() => {
-            setNotice('');
+            setNotice(''); setError('');
             setSelected({
               id: crypto.randomUUID(),
               name: '',
@@ -129,9 +142,10 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
             <button
               className={`office-user-choice ${u.id === selected.id ? 'active' : ''}`}
               key={u.id}
+              disabled={saving}
               onClick={() => {
                 setSelected(u);
-                setNotice('');
+                setNotice(''); setError('');
               }}
             >
               <strong>{u.name}</strong>
@@ -140,10 +154,11 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
           ))}
         </section>}
         <section className="office-panel">
-          <form onSubmit={submit}>
+          <form onSubmit={submit} aria-busy={saving}>
             <h2>{embedded ? 'Inloggning & behörigheter' : selected.name || 'Nytt konto'}</h2>
             {embedded && <p className="office-muted">{selected.name} · Personligt användarkonto</p>}
             {notice && <p role="status">{notice}</p>}
+            {error && <Alert tone="red">{error}</Alert>}
             {!editable && (
               <div className="office-alert">
                 VD kan inte ändra ett systemadminkonto.
@@ -154,7 +169,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
               <input
                 required
                 value={selected.name}
-                disabled={!editable}
+                disabled={!editable || saving}
                 onChange={(e) =>
                   setSelected({ ...selected, name: e.target.value })
                 }
@@ -163,7 +178,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
             <label>
               Kontonivå
               <select
-                disabled={!editable || selected.id === actor.id}
+                disabled={!editable || saving || selected.id === actor.id}
                 value={selected.level}
                 onChange={(e) =>
                   setSelected({
@@ -186,7 +201,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
                 <label key={key}>
                   <input
                     type="checkbox"
-                    disabled={!editable || (selected.level !== 'Medarbetare' && !(selected.level === 'VD' && sensitivePersonnelPermissions.includes(key as Permission)))}
+                    disabled={!editable || saving || (selected.level !== 'Medarbetare' && !(selected.level === 'VD' && sensitivePersonnelPermissions.includes(key as Permission)))}
                     checked={can(selected, key as Permission)}
                     onChange={(e) =>
                       setSelected({
@@ -242,7 +257,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
                 }
                 step="0.01"
                 value={selected.maxAttest}
-                disabled={!editable}
+                disabled={!editable || saving}
                 onChange={(e) =>
                   setSelected({
                     ...selected,
@@ -255,7 +270,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
               <input
                 type="checkbox"
                 checked={selected.active !== false}
-                disabled={!editable || selected.id === actor.id}
+                disabled={!editable || saving || selected.id === actor.id}
                 onChange={(e) => setSelected({ ...selected, active: e.target.checked })}
               />
               Aktivt inloggningskonto
@@ -264,7 +279,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
               <input
                 type="checkbox"
                 checked={selected.ownAttest}
-                disabled={!editable}
+                disabled={!editable || saving}
                 onChange={(e) =>
                   setSelected({ ...selected, ownAttest: e.target.checked })
                 }

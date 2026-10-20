@@ -16,6 +16,23 @@ Ett fel vid utskicket raderar inte den sparade personen. Öppna personkortets
 **Inloggning & behörigheter** för att kontrollera status och skicka igen.
 En ny inbjudan ersätter äldre länkar.
 
+## Rätta stavfel före aktivering
+
+Behåll den befintliga personalposten och kontot så att deras kopplingar finns
+kvar. För ett konto som fortfarande visar **Inbjudan skickad**:
+
+1. Öppna personens **Översikt → Kontakt & organisation → Redigera** och rätta
+   namn samt e-postadress om även adressen är fel.
+2. Öppna **Inloggning & behörigheter**, rätta kontots separata namnfält och
+   välj **Spara behörigheter**. Personnamnet och kontonamnet är separata fält.
+3. Under **Aktivera konto**, välj **Skicka ny inbjudan**. Den väntande
+   plattformsinloggningen uppdateras från personkortet med samma konto- och
+   personidentifierare. Den gamla länken ersätts av en ny länk.
+
+Om e-postadressen ändrades använder personen därefter den korrekta adressen
+som inloggning och väljer sitt lösenord via den nya länken. Ett redan aktiverat
+konto omfattas inte av denna rutin för väntande inbjudningar.
+
 ## Tillfälligt lösenord
 
 Alternativet **Ange tillfälligt lösenord** låter administratören ange ett

@@ -19,7 +19,7 @@ test.setTimeout(45_000);
 const siteCatalog = [{ id: 'norrtalje', name: 'Norrtälje', active: true }, { id: 'rimbo', name: 'Rimbo', active: true }];
 const personId = 'person-kalle', userId = 'facility-worker', personName = 'Behörighet Testperson';
 
-async function setup(page: Page, options: { conflict?: boolean; inactive?: boolean } = {}) {
+async function setup(page: Page, options: { conflict?: boolean; inactive?: boolean; failFirstPermissionSave?: boolean } = {}) {
   let state = initialApplicationState();
   ensurePersonnel(state, siteCatalog);
   const target = state.personnel.people.find((value: Person) => value.id === personId);
@@ -47,6 +47,9 @@ async function setup(page: Page, options: { conflict?: boolean; inactive?: boole
       }
       if (path === '/api/pricing/users') {
         const input = request.postDataJSON(); statistics.pricing.push(input);
+        if (options.failFirstPermissionSave && statistics.pricing.length === 1) return route.fulfill({ status: 400,
+          json: { error: JSON.stringify([{ code: 'too_big', maximum: 66, path: ['users', 1, 'permissions'],
+            message: 'Array must contain at most 66 element(s)' }]) } });
         const pricing = createPricingStore({ initialState: state.pricing });
         pricing.saveUsers(input, pricing.principal('admin')); state.pricing = pricing.exportState();
         state.office.users = structuredClone(state.pricing.users); syncPersonnelFacilityAccess(state, { siteCatalog });
@@ -123,6 +126,39 @@ test('kontots gemensamma val uppdaterar personkortet direkt och obegränsad åtk
   expect(fixture.statistics.pricing[1].allSiteUserIds).toEqual([userId]);
   expect(fixture.statistics.pricing[1].users.find(value => value.id === userId)).not.toHaveProperty('siteIds');
   await expect.poll(() => fixture.state().pricing.users.find((value: OfficeUser) => value.id === userId).siteIds).toBeUndefined();
+  expect(fixture.statistics.pageErrors).toEqual([]);
+});
+
+test('nekad behörighetssparning visar ett rött fel, bevarar gjorda val och kan skickas igen utan grön falsk bekräftelse', async ({ page }) => {
+  const fixture = await setup(page, { failFirstPermissionSave: true });
+  await account(page);
+  const editor = page.locator('.office-account-embedded');
+  // User administration remains role-bound; this editor is a Medarbetare.
+  const permissions = editor.locator('.office-permission-grid').first().locator('label')
+    .filter({ hasNotText: 'Hantera användare' }).locator('input[type="checkbox"]');
+  for (const permission of await permissions.all()) await permission.check();
+  await editor.getByLabel('Maxbelopp för attest (kr)', { exact: true }).fill('15000');
+  const before = structuredClone(fixture.state().pricing.users.find((value: OfficeUser) => value.id === userId));
+  await editor.getByRole('button', { name: 'Spara behörigheter', exact: true }).click();
+  const failure = editor.getByRole('alert');
+  await expect(failure).toContainText('Kontot kunde inte sparas.');
+  await expect(failure).toContainText('Dina val finns kvar.');
+  await expect(failure).toHaveClass('hr-alert red');
+  await expect(page.locator('.office-message')).toHaveCount(0);
+  await expect(page.locator('.office-main')).not.toContainText(/too_big|Array must contain|"maximum"/);
+  for (const permission of await permissions.all()) await expect(permission).toBeChecked();
+  await expect(editor.getByLabel('Maxbelopp för attest (kr)', { exact: true })).toHaveValue('15000');
+  expect(fixture.state().pricing.users.find((value: OfficeUser) => value.id === userId)).toEqual(before);
+  expect(fixture.statistics.pricing).toHaveLength(1);
+  const first = fixture.statistics.pricing[0].users.find(value => value.id === userId)!;
+  expect(first.permissions.length).toBe(await permissions.count());
+  expect(first.permissions).toContain('companySettingsWrite');
+  await editor.getByRole('button', { name: 'Spara behörigheter', exact: true }).click();
+  await expect(editor.getByRole('status')).toContainText('har sparats.');
+  await expect(editor.getByRole('alert')).toHaveCount(0);
+  expect(fixture.statistics.pricing).toHaveLength(2);
+  expect(fixture.statistics.pricing[1].users.find(value => value.id === userId)).toEqual(first);
+  expect(fixture.state().pricing.users.find((value: OfficeUser) => value.id === userId).permissions).toEqual(first.permissions);
   expect(fixture.statistics.pageErrors).toEqual([]);
 });
 

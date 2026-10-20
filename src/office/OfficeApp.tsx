@@ -1134,14 +1134,14 @@ export function OfficeApp() {
     (section === 'personnel' && user && !can(user, 'personnelRead') && can(user, 'users'));
   async function saveStaffUsers(users: OfficeUser[], allSiteUserIds?: string[]) {
     if (!user || !actualUser || !can(user, 'users')) return false;
-    try {
-      await pricingRequest('users', user, actualUser, { users, ...(allSiteUserIds?.length ? { allSiteUserIds } : {}) });
-      await shared.refresh();
-      return true;
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : 'Kontot kunde inte sparas på servern.');
-      return false;
-    }
+    const principal = principalRef.current;
+    setMessage('');
+    // The account editor keeps failed saves next to the unsaved choices.
+    // A server rejection must not be promoted to the global success notice.
+    await pricingRequest('users', user, actualUser, { users, ...(allSiteUserIds?.length ? { allSiteUserIds } : {}) });
+    if (principalRef.current !== principal) return false;
+    await shared.refresh();
+    return principalRef.current === principal;
   }
   const fleetAccess = Boolean(user && actualUser && [actualUser, user].every(account => can(account, 'fleetRead')));
   const allowed = section === 'fleet' && fleetAccess ? undefined : accountsView ? 'users' :

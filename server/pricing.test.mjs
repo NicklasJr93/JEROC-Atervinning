@@ -8,6 +8,7 @@ import {
   twelveMonthsBefore,
 } from './pricing.mjs';
 import { createPricingApi } from './pricing-api.mjs';
+import { officeSchema } from '../dist-server/domain-models.mjs';
 
 const clock = () => new Date('2026-10-07T12:00:00Z');
 const setup = () => {
@@ -653,6 +654,20 @@ test('transport permissions can be saved and planning requires reading', () => {
   assert.deepEqual(saved.users.find(user => user.id === 'anna').permissions, ['view', 'transportRead', 'transportPlan']);
   const readonly = store.saveUsers({ users: withPermissions(['view', 'transportRead']) }, admin);
   assert.deepEqual(readonly.users.find(user => user.id === 'anna').permissions, ['view', 'transportRead']);
+});
+
+test('all registered office permissions save atomically while unregistered rights remain invalid', () => {
+  const { store, admin } = setup();
+  const all = [...officeSchema.shape.users.element.shape.permissions.element.options];
+  assert.ok(all.includes('companySettingsRead')); assert.ok(all.includes('companySettingsWrite'));
+  const users = store.exportState().users.map(user => user.id === 'anna' ? { ...user, permissions: all } : user);
+  const saved = store.saveUsers({ users }, admin);
+  assert.deepEqual(saved.users.find(user => user.id === 'anna').permissions, all);
+  const persisted = store.exportState();
+  assert.deepEqual(persisted.audit.at(-1), { sequence: persisted.revision, at: clock().toISOString(), actor: 'admin', actingUser: 'admin', action: 'Användarbehörigheter ändrade' });
+  const unknown = persisted.users.map(user => user.id === 'anna' ? { ...user, permissions: ['view', 'unregisteredPermission'] } : user);
+  assert.throws(() => store.saveUsers({ users: unknown }, admin), error => error instanceof PricingError);
+  assert.deepEqual(store.exportState(), persisted);
 });
 
 test('NVV sending rights are explicit for VD and correction grants require reading and sending', () => {

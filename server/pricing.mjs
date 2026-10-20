@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { principalOwnsUser } from './business-identity.mjs';
+import { permissionNames } from '../dist-server/domain-models.mjs';
 
 // Calculations stay in the store; application.mjs persists this state through
 // the shared repository without moving calculations into the clients.
@@ -13,71 +14,10 @@ export const metals = [
   { id: 'zinc', name: 'Zink' },
   { id: 'tin', name: 'Tenn' },
 ];
-export const permissions = [
-  'fleetRead', 'fleetWrite', 'fleetExport', 'fleetUnblock',
-  'view',
-  'prepare',
-  'weighingAddArticle',
-  'weighingRemoveArticle',
-  'weighingEditWeight',
-  'customers',
-  'prices',
-  'priceA',
-  'priceB',
-  'priceC',
-  'customerPrices',
-  'changePrice',
-  'paymentDetails',
-  'verifyId',
-  'attest',
-  'bookSpiris',
-  'pay',
-  'corrections',
-  'reports',
-  'users',
-  'lmeRead',
-  'lmeWrite',
-  'articlesEdit',
-  'customerPriceEdit',
-  'transportRead',
-  'transportPlan',
-  'workOrdersRead',
-  'workOrdersWrite',
-  'vesselsRead',
-  'vesselsWrite',
-  'warehouseRead',
-  'warehouseWrite',
-  'customerAccounts',
-  'carrierAccounts',
-  'customerApprovalRead',
-  'environmentRead',
-  'environmentWrite',
-  'environmentReport',
-  'environmentReportCorrect',
-  'environmentIntegration',
-  'integrationsRead',
-  'integrationsManage',
-  'mailRead',
-  'environmentClassify',
-  'environmentStorage',
-  'environmentReceiveException',
-  'personnelRead',
-  'personnelPresenceRead',
-  'personnelTimeReviewRead',
-  'personnelTimeApprove',
-  'personnelWrite',
-  'equipmentRead',
-  'equipmentWrite',
-  'employmentRead',
-  'employmentWrite',
-  'salaryRead',
-  'salaryWrite',
-  'absenceRead',
-  'absenceWrite',
-  'competenciesWrite',
-  'staffingWrite',
-  'externalAccounts',
-];
+// The office account editor and backend validation must accept exactly the
+// same known rights. Adding a module permission must not leave a second enum
+// or its maximum length behind in the pricing/account store.
+export const permissions = Object.keys(permissionNames);
 const sensitivePersonnelPermissions = ['salaryRead', 'salaryWrite', 'absenceRead', 'absenceWrite', 'environmentReport', 'environmentReportCorrect', 'environmentIntegration', 'integrationsRead', 'integrationsManage', 'bookSpiris', 'mailRead', 'equipmentRead', 'equipmentWrite', 'personnelPresenceRead', 'personnelTimeReviewRead', 'personnelTimeApprove'];
 const finite = z.number().finite();
 const nonnegative = finite.min(0).max(1e9);
@@ -1672,7 +1612,10 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     if (principalValue.user.level !== 'Systemadmin') {
       const oldAdmins = state.users.filter(
         (user) => user.level === 'Systemadmin',
-      ).map(user => ({...user, active: user.active ?? true}));
+      ).map(user => ({ ...user, active: user.active ?? true,
+        // Systemadmin rights are role-implied. An older saved catalogue/order
+        // must not make an unrelated VD edit look like an admin-account edit.
+        permissions: [...permissions] }));
       const newAdmins = users.filter((user) => user.level === 'Systemadmin');
       // PostgreSQL JSONB may reorder object keys; compare semantic records.
       if (!isDeepStrictEqual(
