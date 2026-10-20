@@ -130,7 +130,13 @@ test('company logo IDs and settings stay in their tenant; mobile sees only the m
   const basic = await mobile.request('/api/company-settings/defaults', undefined,
     { 'x-employee-company': 'jeroc-demo', 'x-employee-person': 'person-mobile-demo' });
   assert.equal(basic.status, 200); assert.equal(basic.body.profile.name, 'Endast bolag A');
+  assert.equal(basic.body.logoUrl, uploaded.body.url);
   assert.ok(!JSON.stringify(basic.body).includes('private-a@example.test'));
+  // An img element sends only the authenticated cookie, not office permission
+  // headers. Ordinary employees can render the scoped logo without preferences.
+  const mobileLogo = await mobile.request(basic.body.logoUrl);
+  assert.equal(mobileLogo.status, 200);
+  assert.equal(mobileLogo.headers.get('content-type'), 'image/png');
   assert.equal((await mobile.request('/api/company-settings')).status, 401);
   assert.equal((await mobile.request('/api/company-settings/defaults', undefined, { 'x-employee-company': created.body.company.id })).status, 409);
 }));

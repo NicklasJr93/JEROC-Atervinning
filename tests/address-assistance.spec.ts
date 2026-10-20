@@ -26,35 +26,63 @@ test('Google-träff måste innehålla svensk gata, postnummer och postort utan a
   expect(() => addressFromGooglePlace({ addressComponents: addressComponents.map(component => component.types.includes('country') ? { ...component, shortText: 'US' } : component) })).toThrow();
 });
 
-async function customerAddress(page: Page, options: { configured?: boolean; deferValidation?: boolean; validationError?: { status: number; message: string; code: string }; detailsFailure?: boolean } = {}) {
+interface AddressFixtureOptions {
+  configured?: boolean;
+  deferValidation?: boolean;
+  validationError?: { status: number; message: string; code: string };
+  detailsFailure?: boolean;
+  streetFirst?: boolean;
+  missingPostcode?: boolean;
+}
+
+async function customerAddress(page: Page, options: AddressFixtureOptions = {}) {
   const personId = 'address-assistance-person';
   const data: DemoData = { ...seedDemo(), customers: [], drafts: [{ id: 'address-draft', number: 9103, siteId: 'norrtalje', createdAt: '2026-10-20T08:00:00.000Z', updatedAt: '2026-10-20T08:00:00.000Z', mode: 'direct', status: 'draft', rows: [], reference: '', origin: '' }] };
   const validations: Request[] = [];
+  const stats = { validationReplies: 0, customerWrites: 0 };
   let releaseValidation: () => void = () => {};
   const validationGate = options.deferValidation ? new Promise<void>(resolve => { releaseValidation = resolve; }) : Promise.resolve();
-  await page.addInitScript(({ personId, data, detailsFailure }) => {
+  await page.addInitScript(({ personId, data, options }) => {
     const key = `jeroc.mobile.demo.v1.employee.${personId}`;
     localStorage.setItem(key, JSON.stringify(data));
     localStorage.setItem(`${key}.postgres-imported`, 'yes');
-    const place = {
+    const queries: string[] = [];
+    const makePlace = (streetOnly: boolean) => ({
       addressComponents: [
-        { types: ['route'], longText: 'Testgatan' }, { types: ['street_number'], longText: '12' },
-        { types: ['postal_code'], longText: '761 41' }, { types: ['postal_town'], longText: 'Norrtälje' },
+        { types: ['route'], longText: 'Testgatan' },
+        ...(!streetOnly ? [{ types: ['street_number'], longText: '12' }] : []),
+        ...(!streetOnly && !options.missingPostcode ? [{ types: ['postal_code'], longText: '761 41' }] : []),
+        { types: ['postal_town'], longText: 'Norrtälje' },
         { types: ['country'], longText: 'Sverige', shortText: 'SE' },
       ],
-      fetchFields: async () => { if (detailsFailure) throw new Error('SDK request failed: key=RAW-SECRET-MUST-NOT-SHOW'); return {}; },
-    };
-    Object.assign(window, { google: { maps: { importLibrary: async () => ({
+      fetchFields: async () => { if (options.detailsFailure) throw new Error('SDK request failed: key=RAW-SECRET-MUST-NOT-SHOW'); return {}; },
+    });
+    Object.assign(window, { __addressQueries: queries, google: { maps: { importLibrary: async () => ({
       AutocompleteSessionToken: class {},
-      AutocompleteSuggestion: { fetchAutocompleteSuggestions: async () => ({ suggestions: [{ placePrediction: { text: { toString: () => 'Testgatan 12, Norrtälje, Sverige' }, toPlace: () => place } }] }) },
+      AutocompleteSuggestion: { fetchAutocompleteSuggestions: async ({ input }: { input: string }) => {
+        queries.push(input);
+        const streetOnly = Boolean(options.streetFirst && !input.includes('12'));
+        return { suggestions: [{ placePrediction: {
+          text: { toString: () => streetOnly ? 'Testgatan, Norrtälje, Sverige' : 'Testgatan 12, Norrtälje, Sverige' },
+          toPlace: () => makePlace(streetOnly),
+        } }] };
+      } },
     }) } } });
-  }, { personId, data, detailsFailure: options.detailsFailure });
+  }, { personId, data, options });
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/address-assistance/config') return route.fulfill({ json: options.configured === false
       ? { configured: false, validationConfigured: false, countryCode: 'SE' }
       : { configured: true, browserApiKey: 'public-browser-key', validationConfigured: true, countryCode: 'SE' } });
-    if (path === '/api/address-assistance/validate') { validations.push(request); await validationGate; return options.validationError ? route.fulfill({ status: options.validationError.status, json: { error: options.validationError.message, code: options.validationError.code } }) : route.fulfill({ json: validation }); }
+    if (path === '/api/address-assistance/validate') {
+      validations.push(request);
+      await validationGate;
+      await (options.validationError
+        ? route.fulfill({ status: options.validationError.status, json: { error: options.validationError.message, code: options.validationError.code } })
+        : route.fulfill({ json: validation }));
+      stats.validationReplies++;
+      return;
+    }
     if (path === '/api/employee/fleet') return route.fulfill({ json: emptyEmployeeFleet(personId) });
     if (path.startsWith('/api/employee/')) return route.fulfill({ json: {
       person: { id: personId, name: 'Testmedarbetare', role: 'Invägare', team: 'Gården', siteIds: ['norrtalje'] },
@@ -62,70 +90,158 @@ async function customerAddress(page: Page, options: { configured?: boolean; defe
       sites: [{ id: 'norrtalje', name: 'Norrtälje', active: true }], today: '2026-10-20', month: '2026-10', date: '2026-10-20',
       gate: { blocked: false }, days: [], orders: [], selectedDay: { schedules: [], absences: [], entries: [], orders: [] },
     } });
-    if (path === '/api/application/mobile') return route.fulfill({ json: { data, revision: 1 } });
+    if (path === '/api/application/mobile') {
+      if (request.method() !== 'GET') {
+        const payload = request.postDataJSON();
+        if (payload?.data?.customers?.length) stats.customerWrites++;
+        return route.fulfill({ json: { revision: 1 } });
+      }
+      return route.fulfill({ json: { data, revision: 1 } });
+    }
     return route.fulfill({ json: { revision: 1 } });
   });
   await page.goto('/#/weigh/address-draft/customer/new');
   await expect(page.getByRole('heading', { name: 'Ny kund', exact: true })).toBeVisible();
-  return { validations, releaseValidation };
+  const street = page.getByRole('combobox', { name: 'Gatuadress (valfritt)', exact: true });
+  const postcode = page.getByLabel('Postnummer (valfritt)', { exact: true });
+  const city = page.getByLabel('Ort (valfritt)', { exact: true });
+  const suggestions = page.getByRole('listbox', { name: 'Adressförslag', exact: true });
+  return { street, postcode, city, suggestions, validations, stats, releaseValidation };
 }
 
-test('adressförslag fyller inga fält innan serverkontroll och användarens uttryckliga bekräftelse', async ({ page }) => {
-  const fixture = await customerAddress(page);
-  await page.getByRole('button', { name: 'Sök och komplettera adress', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Sök adress', exact: true }).fill('Testgatan');
-  await page.getByRole('listbox', { name: 'Adressförslag' }).getByRole('option').click();
-  await expect(page.getByText('Stämmer adressen?', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Gatuadress (valfritt)', { exact: true })).toHaveValue('');
-  await expect(page.getByLabel('Postnummer (valfritt)', { exact: true })).toHaveValue('');
-  expect(fixture.validations).toHaveLength(1);
+test('val av komplett adress fyller det vanliga adressfältet, postnummer och ort efter serverkontroll utan extra knapp', async ({ page }) => {
+  const fixture = await customerAddress(page, { deferValidation: true });
+  await fixture.street.fill('Testgatan');
+  await fixture.suggestions.getByRole('option').click();
+  await expect.poll(() => fixture.validations.length).toBe(1);
+  await expect(fixture.street).toHaveValue('Testgatan');
+  await expect(fixture.postcode).toHaveValue('');
+  await expect(fixture.city).toHaveValue('');
   expect(fixture.validations[0].postDataJSON()).toEqual({ address: confirmedAddress });
   expect(fixture.validations[0].headers()).toMatchObject({ 'x-employee-company': 'jeroc-demo', 'x-employee-person': 'address-assistance-person' });
-  await page.getByRole('button', { name: 'Adressen stämmer – använd adressen', exact: true }).click();
-  await expect(page.getByLabel('Gatuadress (valfritt)', { exact: true })).toHaveValue(confirmedAddress.address);
-  await expect(page.getByLabel('Postnummer (valfritt)', { exact: true })).toHaveValue(confirmedAddress.postalCode);
-  await expect(page.getByLabel('Ort (valfritt)', { exact: true })).toHaveValue(confirmedAddress.city);
-});
-
-test('manuell adressändring medan Googlekontroll pågår förkastar det gamla förslaget', async ({ page }) => {
-  const fixture = await customerAddress(page, { deferValidation: true });
-  await page.getByRole('button', { name: 'Sök och komplettera adress', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Sök adress', exact: true }).fill('Testgatan');
-  await page.getByRole('listbox', { name: 'Adressförslag' }).getByRole('option').click();
-  await expect.poll(() => fixture.validations.length).toBe(1);
-  await page.getByLabel('Gatuadress (valfritt)', { exact: true }).fill('Min manuella adress 8');
   fixture.releaseValidation();
-  await expect(page.getByRole('combobox', { name: 'Sök adress', exact: true })).toHaveValue('');
-  await expect(page.getByText('Stämmer adressen?', { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel('Gatuadress (valfritt)', { exact: true })).toHaveValue('Min manuella adress 8');
+  await expect(fixture.street).toHaveValue(confirmedAddress.address);
+  await expect(fixture.postcode).toHaveValue(confirmedAddress.postalCode);
+  await expect(fixture.city).toHaveValue(confirmedAddress.city);
+  await expect(page.getByRole('button', { name: 'Sök och komplettera adress', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Adressen stämmer – använd adressen', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Ny kund', exact: true })).toBeVisible();
+  expect(fixture.stats.customerWrites).toBe(0);
 });
 
-test('saknad Googlekonfiguration lämnar manuella adressfält tillgängliga', async ({ page }) => {
-  await customerAddress(page, { configured: false });
-  await page.getByRole('button', { name: 'Sök och komplettera adress', exact: true }).click();
-  await expect(page.getByText('Adresshjälpen är inte aktiverad ännu. Du kan fylla i adressen i fälten nedan.', { exact: true })).toBeVisible();
-  await page.getByLabel('Gatuadress (valfritt)', { exact: true }).fill('Skogsvägen bakom ladan');
-  await expect(page.getByLabel('Gatuadress (valfritt)', { exact: true })).toHaveValue('Skogsvägen bakom ladan');
-  await expect(page.getByRole('combobox', { name: 'Sök adress', exact: true })).toHaveCount(0);
+test('val av gata behåller fokus för husnummer och gissar inte postnummer från den förra adressen', async ({ page }) => {
+  const fixture = await customerAddress(page, { streetFirst: true });
+  await fixture.postcode.fill('11122');
+  await fixture.city.fill('Gammal ort');
+  await fixture.street.fill('Testgatan');
+  await fixture.suggestions.getByRole('option', { name: 'Testgatan, Norrtälje, Sverige', exact: true }).click();
+  await expect(fixture.street).toHaveValue('Testgatan');
+  await expect(fixture.street).toBeFocused();
+  await expect(fixture.postcode).toHaveValue('');
+  await expect(fixture.city).toHaveValue('Norrtälje');
+  expect(fixture.validations).toHaveLength(0);
+  // The user can continue directly at the caret after the selected street.
+  await fixture.street.pressSequentially('12');
+  await expect(fixture.street).toHaveValue('Testgatan 12');
+  await fixture.suggestions.getByRole('option', { name: 'Testgatan 12, Norrtälje, Sverige', exact: true }).click();
+  await expect(fixture.postcode).toHaveValue('76141');
+  await expect(fixture.city).toHaveValue('Norrtälje');
+  expect(fixture.validations).toHaveLength(1);
+  expect(await page.evaluate(() => (window as Window & { __addressQueries?: string[] }).__addressQueries)).toContain('Testgatan 12, Norrtälje');
 });
 
+test('husnummer efter vald gata kontrolleras även när användaren tabbar vidare utan att välja ett andra förslag', async ({ page }) => {
+  const fixture = await customerAddress(page, { streetFirst: true });
+  await fixture.street.fill('Testgatan');
+  await fixture.suggestions.getByRole('option', { name: 'Testgatan, Norrtälje, Sverige', exact: true }).click();
+  await expect(fixture.street).toBeFocused();
+  await fixture.street.pressSequentially('12');
+  await fixture.street.press('Tab');
+  await expect(fixture.postcode).toHaveValue('76141');
+  await expect(fixture.city).toHaveValue('Norrtälje');
+  expect(fixture.validations).toHaveLength(1);
+  expect(fixture.validations[0].postDataJSON()).toEqual({ address: { ...confirmedAddress, postalCode: '' } });
+});
 
-test('nekad servernyckel visas som anslutningsfel utan att skuldbelägga adressen eller fylla fälten', async ({ page }) => {
+test('numrerad Googleträff utan postnummer går vidare till servern som kompletterar fälten', async ({ page }) => {
+  const fixture = await customerAddress(page, { missingPostcode: true });
+  await fixture.street.fill('Testgatan 12');
+  await fixture.suggestions.getByRole('option').click();
+  await expect(fixture.postcode).toHaveValue('76141');
+  await expect(fixture.city).toHaveValue('Norrtälje');
+  expect(fixture.validations[0].postDataJSON()).toEqual({ address: { ...confirmedAddress, postalCode: '' } });
+});
+
+test('tangentbordets piltangent och Enter väljer adressen utan att skicka kundformuläret', async ({ page }) => {
+  const fixture = await customerAddress(page);
+  await fixture.street.fill('Testgatan');
+  await expect(fixture.suggestions.getByRole('option')).toBeVisible();
+  await fixture.street.press('ArrowDown');
+  await expect(fixture.suggestions.getByRole('option')).toHaveAttribute('aria-selected', 'true');
+  await fixture.street.press('Enter');
+  await expect(fixture.street).toHaveValue('Testgatan 12');
+  await expect(fixture.postcode).toHaveValue('76141');
+  await expect(page.getByRole('heading', { name: 'Ny kund', exact: true })).toBeVisible();
+  await expect(page.getByText('Ange kundens namn eller företagsnamn.', { exact: true })).toHaveCount(0);
+  expect(fixture.stats.customerWrites).toBe(0);
+});
+
+for (const changedField of ['street', 'postcode'] as const) {
+  test(`manuell ändring av ${changedField === 'street' ? 'gatuadress' : 'postnummer'} förkastar ett sent kontrollsvar`, async ({ page }) => {
+    const fixture = await customerAddress(page, { deferValidation: true });
+    await fixture.street.fill('Testgatan');
+    await fixture.suggestions.getByRole('option').click();
+    await expect.poll(() => fixture.validations.length).toBe(1);
+    if (changedField === 'street') await fixture.street.fill('Min manuella adress 8');
+    else await fixture.postcode.fill('99999');
+    fixture.releaseValidation();
+    await expect.poll(() => fixture.stats.validationReplies).toBe(1);
+    await expect(fixture.street).toHaveValue(changedField === 'street' ? 'Min manuella adress 8' : 'Testgatan');
+    await expect(fixture.postcode).toHaveValue(changedField === 'postcode' ? '99999' : '');
+    await expect(fixture.city).toHaveValue('');
+  });
+}
+
+test('Escape stänger förslagen och lämnar adressen fri för manuell inmatning', async ({ page }) => {
+  const fixture = await customerAddress(page);
+  await fixture.street.fill('Testgatan');
+  await expect(fixture.suggestions).toBeVisible();
+  await fixture.street.press('Escape');
+  await expect(fixture.suggestions).toHaveCount(0);
+  await fixture.street.fill('Skogsvägen bakom ladan');
+  await fixture.street.press('Escape');
+  await expect(fixture.street).toHaveValue('Skogsvägen bakom ladan');
+  expect(fixture.validations).toHaveLength(0);
+});
+
+test('saknad Googlekonfiguration lämnar det vanliga adressfältet tillgängligt', async ({ page }) => {
+  const fixture = await customerAddress(page, { configured: false });
+  await fixture.street.focus();
+  await expect(page.getByText('Adressförslag är inte tillgängliga. Du kan fylla i adressen manuellt.', { exact: true })).toBeVisible();
+  await fixture.street.fill('Skogsvägen bakom ladan');
+  await fixture.postcode.fill('76141');
+  await fixture.city.fill('Norrtälje');
+  await expect(fixture.street).toHaveValue('Skogsvägen bakom ladan');
+  await expect(fixture.postcode).toHaveValue('76141');
+  await expect(fixture.suggestions).toHaveCount(0);
+});
+
+test('nekad servernyckel visas som anslutningsfel utan att skuldbelägga adressen eller fylla övriga fält', async ({ page }) => {
   const message = 'Google nekade serverns adresskontroll. Kontrollera servernyckeln, API-begränsningen och Render-IP-adresserna.';
-  await customerAddress(page, { validationError: { status: 403, message, code: 'address_validation_credentials_rejected' } });
-  await page.getByRole('button', { name: 'Sök och komplettera adress', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Sök adress', exact: true }).fill('Testgatan');
-  await page.getByRole('listbox', { name: 'Adressförslag' }).getByRole('option').click();
+  const fixture = await customerAddress(page, { validationError: { status: 403, message, code: 'address_validation_credentials_rejected' } });
+  await fixture.street.fill('Testgatan');
+  await fixture.suggestions.getByRole('option').click();
   await expect(page.getByText(message, { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Gatuadress (valfritt)', { exact: true })).toHaveValue('');
+  await expect(fixture.street).toHaveValue('Testgatan');
+  await expect(fixture.postcode).toHaveValue('');
+  await expect(fixture.city).toHaveValue('');
   await expect(page.getByRole('button', { name: 'Adressen stämmer – använd adressen', exact: true })).toHaveCount(0);
 });
 
 test('rått Google-SDK-fel visas inte och blandas inte ihop med servervalidering', async ({ page }) => {
   const fixture = await customerAddress(page, { detailsFailure: true });
-  await page.getByRole('button', { name: 'Sök och komplettera adress', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Sök adress', exact: true }).fill('Testgatan');
-  await page.getByRole('listbox', { name: 'Adressförslag' }).getByRole('option').click();
+  await fixture.street.fill('Testgatan');
+  await fixture.suggestions.getByRole('option').click();
   await expect(page.getByText('Adressens detaljer kunde inte hämtas från Google. Försök igen eller fyll i adressen manuellt.', { exact: true })).toBeVisible();
   await expect(page.getByText('RAW-SECRET-MUST-NOT-SHOW', { exact: false })).toHaveCount(0);
   expect(fixture.validations).toHaveLength(0);

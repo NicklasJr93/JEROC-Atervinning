@@ -1,4 +1,4 @@
-import AddressAssist from '../../address-assistance/AddressAssist';
+import AddressField from '../../address-assistance/AddressField';
 import {
   useEffect,
   useId,
@@ -309,10 +309,12 @@ export default function TransportOrderEditor({
               if (error) onError('');
             }} />
           </label>
-          <AddressAssist mapContext value={{ address: draft.address, postalCode: draft.postalCode ?? '', city: draft.city }} scopeKey={order?.id ?? 'new-transport'} onApply={address => setDraft(current => ({ ...current, ...address, lat: Number.NaN, lng: Number.NaN }))} />
           <label>
             Hämtningsadress <span className="transport-required">*</span>
-            <input aria-label="Hämtningsadress" required maxLength={200} value={draft.address} placeholder="Gata och nummer" onChange={(event) => changeAddress(event.target.value, draft.city)} />
+            <AddressField mapContext aria-label="Hämtningsadress" required maxLength={200}
+              value={{ address: draft.address, postalCode: draft.postalCode ?? '', city: draft.city }} scopeKey={order?.id ?? 'new-transport'}
+              placeholder="Gata och nummer" onChange={value => changeAddress(value, draft.city)}
+              onApply={address => setDraft(current => ({ ...current, ...address, lat: Number.NaN, lng: Number.NaN }))} />
           </label>
           <label>
             Ort <span className="transport-required">*</span>

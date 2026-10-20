@@ -37,11 +37,13 @@ PNG, JPEG och WebP upp till 1 MiB accepteras. Dekodning, pixelgräns, omkodning 
 
 En uppladdad logga väljs först när formuläret sparas. Befintliga bildversioner behålls eftersom frysta dokument kan referera till dem. Dokumentgenereringen använder dokumentets egen företagsprofil och loggversion. Saknad bild ersätts inte tyst med en ny logga eller ett annat bolags identitet.
 
+Den sparade loggan visas även i kontorets vänstermeny och i sidhuvudet för bolagets vanliga användare. Plattformsadministratören behåller produktloggan i den översta raden, ovanför bolagets logga. Uppladdning och borttagning i ett osparat utkast påverkar bara förhandsvisningen. Efter lyckat sparande hämtas de minimala varumärkesuppgifterna på nytt; interna inställningar behöver inte exponeras för medarbetare. Vid bolagsbyte rensas den gamla loggan direkt. Om ingen logga finns eller bildfilen inte kan läsas visas produktloggan i gränssnittet.
+
 ## Google-adressprovet
 
 Den rapporterade adresskontrollen kunde tidigare visa samma feltext för fel i Google-detaljer, saknade adressfält och ett nekat backendanrop. Dessa steg har nu skilda, begripliga meddelanden. Om Google nekar servernyckeln anges att API-aktivering, nyckel och Render-appens utgående IP-adresser ska kontrolleras. Råa Google-fel eller nycklar visas inte.
 
-Detta förbättrar diagnosen men bevisar inte orsaken till ett visst misslyckat skarpt anrop. Gör ett nytt adressprov efter deployment och använd den specifika feltexten för fortsatt felsökning. Ingen adress fylls i utan serverkontroll och användarens bekräftelse.
+Detta förbättrar diagnosen men bevisar inte orsaken till ett visst misslyckat skarpt anrop. Gör ett nytt adressprov efter deployment och använd den specifika feltexten för fortsatt felsökning. Adressförslagen finns nu direkt i det vanliga adressfältet. Vald komplett adress fyller postadress, postnummer och ort tillsammans efter serverkontroll; fälten granskas och sparas med resten av formuläret. En vald gata kan först kompletteras med husnummer. Se [adresshjälpens flöde och lagringsvillkor](integrationer/google-adresser.md).
 
 ## Deployment och verifiering
 

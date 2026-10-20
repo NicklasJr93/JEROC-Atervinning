@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { Check, CircleAlert, MapPin, RefreshCw, ShieldCheck } from 'lucide-react';
-import AddressAssist from '../address-assistance/AddressAssist';
+import AddressField from '../address-assistance/AddressField';
 import { loadAddressConfig, type AddressConfig, type AddressValue } from '../address-assistance/client';
 import { companyLookupScope, type CompanyLookupScope } from '../company-register/client';
 import { can, type OfficeUser } from './model';
@@ -49,7 +49,7 @@ function GoogleAddressPanel({ scope, mayTest, refreshKey }: { scope: CompanyLook
   return <article className="office-panel integration-detail environment-panel" aria-label="Google adressinställningar">
     <div className="integration-detail-heading">
       <span className="integration-icon"><MapPin size={25} aria-hidden="true" /></span>
-      <div><small>Adresshjälp</small><h2>Google adresser</h2><p>Sök en svensk postadress och bekräfta förslaget innan gata, postnummer och ort fylls i.</p></div>
+      <div><small>Adresshjälp</small><h2>Google adresser</h2><p>Skriv direkt i adressfältet och välj en träff för att fylla i postnummer och ort.</p></div>
       {!loading && config && <span className={`integration-status ${config.configured ? 'test' : 'warning'}`}><ShieldCheck size={13} aria-hidden="true" />{config.configured ? 'Konfigurerad' : 'Inställningar saknas'}</span>}
     </div>
 
@@ -73,14 +73,13 @@ function GoogleAddressPanel({ scope, mayTest, refreshKey }: { scope: CompanyLook
         </>}
 
     {testing && !loading && config?.configured && mayTest && <section id={`${id}-test`} aria-labelledby={`${id}-test-title`}>
-      <h3 id={`${id}-test-title`}>Fristående adressprov</h3><p>Sök en adress, granska förslaget och bekräfta det. Provet ändrar ingen kund och sparar inga kunduppgifter.</p>
-      <AddressAssist value={address} scopeKey="integration-address-test" requestHeaders={scope.headers} onApply={result => { setAddress(result); setConfirmed(true); }} />
+      <h3 id={`${id}-test-title`}>Fristående adressprov</h3><p>Skriv i gatuadressfältet och välj en adress för att fylla i postnummer och ort. Provet ändrar ingen kund och sparar inga kunduppgifter.</p>
       <div className="environment-form-grid">
-        <label htmlFor={`${id}-street`}>Gatuadress<input id={`${id}-street`} autoComplete="off" value={address.address} onChange={event => setField('address', event.target.value)} /></label>
+        <label htmlFor={`${id}-street`}>Gatuadress<AddressField aria-label="Gatuadress" id={`${id}-street`} autoComplete="off" value={address} scopeKey="integration-address-test" requestHeaders={scope.headers} onChange={value => setField('address', value)} onApply={result => { setAddress(result); setConfirmed(true); }} /></label>
         <label htmlFor={`${id}-postal`}>Postnummer<input id={`${id}-postal`} inputMode="numeric" autoComplete="off" value={address.postalCode} onChange={event => setField('postalCode', event.target.value)} /></label>
         <label htmlFor={`${id}-city`}>Ort<input id={`${id}-city`} autoComplete="off" value={address.city} onChange={event => setField('city', event.target.value)} /></label>
       </div>
-      {confirmed && <p role="status">Adressen är bekräftad för provet. Inga kunduppgifter har sparats.</p>}
+      {confirmed && address.postalCode && <p role="status">Adressfälten är ifyllda för provet. Inga kunduppgifter har sparats.</p>}
     </section>}
   </article>;
 }

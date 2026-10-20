@@ -4,7 +4,7 @@ import { OfficePageHeader } from '../OfficePageHeader';
 import type { TransportPlan } from '../transport/types';
 import type { LogisticsOfficeState, LogisticsOrder, LogisticsOrderInput, LogisticsPlace } from './types';
 import { Field } from './Ui';
-import AddressAssist from '../../address-assistance/AddressAssist';
+import AddressField from '../../address-assistance/AddressField';
 
 const emptyPlace = (): LogisticsPlace => ({ name: '', address: '', postalCode: '', city: '' });
 const minute = (value: string) => { const [hour, minutes] = value.split(':').map(Number); return hour * 60 + minutes; };
@@ -90,7 +90,5 @@ export default function WorkOrderForm({ state, selectedSite = 'all', prefill, or
 function PlaceFields({ label, value, onChange, disabled, scopeKey }: { label: string; value: LogisticsPlace; onChange: (value: LogisticsPlace, addressChanged?: boolean) => void; disabled: boolean; scopeKey: string }) {
   const patch = (fields: Partial<LogisticsPlace>) => onChange({ ...value, ...fields });
   return <div className="wo-form-grid" style={{ marginTop: 14 }}>
-    <AddressAssist value={value} disabled={disabled} scopeKey={scopeKey}
-      onApply={address => onChange({ ...value, address: address.address, postalCode: address.postalCode, city: address.city }, true)} />
-    <Field label={`${label} · namn *`}><input required value={value.name} maxLength={200} onChange={event => patch({ name: event.target.value })} /></Field><Field label="Gatuadress *"><input required value={value.address} maxLength={300} onChange={event => patch({ address: event.target.value })} /></Field><Field label="Postnummer"><input value={value.postalCode} maxLength={20} onChange={event => patch({ postalCode: event.target.value })} /></Field><Field label="Ort *"><input required value={value.city} maxLength={100} onChange={event => patch({ city: event.target.value })} /></Field><Field label="Kontakt på plats"><input value={value.contact ?? ''} maxLength={200} onChange={event => patch({ contact: event.target.value })} /></Field><Field label="Telefon"><input type="tel" value={value.phone ?? ''} maxLength={40} onChange={event => patch({ phone: event.target.value })} /></Field></div>;
+    <Field label={`${label} · namn *`}><input required value={value.name} maxLength={200} onChange={event => patch({ name: event.target.value })} /></Field><Field label="Gatuadress *"><AddressField aria-label="Gatuadress *" required value={value} disabled={disabled} maxLength={300} scopeKey={scopeKey} onChange={text => patch({ address: text })} onApply={address => onChange({ ...value, address: address.address, postalCode: address.postalCode, city: address.city }, true)} /></Field><Field label="Postnummer"><input value={value.postalCode} maxLength={20} onChange={event => patch({ postalCode: event.target.value })} /></Field><Field label="Ort *"><input required value={value.city} maxLength={100} onChange={event => patch({ city: event.target.value })} /></Field><Field label="Kontakt på plats"><input value={value.contact ?? ''} maxLength={200} onChange={event => patch({ contact: event.target.value })} /></Field><Field label="Telefon"><input type="tel" value={value.phone ?? ''} maxLength={40} onChange={event => patch({ phone: event.target.value })} /></Field></div>;
 }

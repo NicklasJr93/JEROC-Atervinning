@@ -20,6 +20,11 @@ export class CompanyDefaultsError extends Error {
   constructor(message: string, public code: string, public status = 0) { super(message); }
 }
 
+/** Notify open branding views only after a scoped settings save has succeeded. */
+export function notifyCompanySettingsSaved(companyId: string): void {
+  window.dispatchEvent(new CustomEvent('scrappilot:company-settings-saved', { detail: { companyId } }));
+}
+
 /** Minimal scoped defaults only; new-customer forms never fetch administrator preferences. */
 export async function loadCompanyDefaults(options: { scope?: CompanyLookupScope; signal?: AbortSignal } = {}): Promise<CompanyDefaultsSnapshot> {
   const scope = options.scope ?? companyLookupScope();
@@ -52,13 +57,27 @@ export async function loadCompanyDefaults(options: { scope?: CompanyLookupScope;
 }
 
 /** One read per opened new form and principal. Failures leave manual entry and integration defaults available. */
-export function useCompanyDefaults({ enabled, scopeKey, requestHeaders }: {
-  enabled: boolean; scopeKey: string; requestHeaders?: Readonly<Record<string, string>>;
+export function useCompanyDefaults({ enabled, scopeKey, requestHeaders, refreshOnSave = false }: {
+  enabled: boolean; scopeKey: string; requestHeaders?: Readonly<Record<string, string>>; refreshOnSave?: boolean;
 }): CompanyDefaultsSnapshot | undefined {
   const scope = companyLookupScope(requestHeaders);
   const key = JSON.stringify([scope.key, scopeKey]);
   const [snapshot, setSnapshot] = useState<{ key: string; value: CompanyDefaultsSnapshot }>();
+  const [revision, setRevision] = useState(0);
   const latest = useRef({ key, enabled }); latest.current = { key, enabled };
+  useEffect(() => {
+    if (!enabled || !refreshOnSave) return;
+    const headers = new Headers(scope.headers);
+    const companyId = headers.get('X-Employee-Company') || headers.get('X-Platform-Organisation-Id');
+    const saved = (event: Event) => {
+      if ((event as CustomEvent<{ companyId?: string }>).detail?.companyId === companyId
+        && latest.current.enabled && latest.current.key === key) setRevision(value => value + 1);
+    };
+    window.addEventListener('scrappilot:company-settings-saved', saved);
+    return () => window.removeEventListener('scrappilot:company-settings-saved', saved);
+    // The key captures the initiating headers and platform generation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, refreshOnSave, key]);
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
@@ -68,7 +87,7 @@ export function useCompanyDefaults({ enabled, scopeKey, requestHeaders }: {
     return () => controller.abort();
     // Scope includes the initiating headers, company and platform generation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, key]);
+  }, [enabled, key, revision]);
   return enabled && snapshot?.key === key ? snapshot.value : undefined;
 }
 

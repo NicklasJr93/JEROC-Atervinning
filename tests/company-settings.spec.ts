@@ -16,22 +16,25 @@ const stored: CompanySettings = {
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 
-async function fixture(page: Page, options: { readOnly?: boolean; siteLimited?: boolean; conflict?: boolean; failRead?: boolean } = {}) {
+async function fixture(page: Page, options: { readOnly?: boolean; siteLimited?: boolean; conflict?: boolean; failRead?: boolean;
+  logo?: boolean; platformAdmin?: boolean; basicOnly?: boolean; brokenLogo?: boolean } = {}) {
   const office = seedOffice();
   const user = { ...office.users.find(value => value.id === 'admin')!, level: options.readOnly ? 'Medarbetare' as const : 'VD' as const,
-    permissions: options.readOnly ? ['view', 'companySettingsRead'] as typeof office.users[number]['permissions'] : office.users.find(value => value.id === 'admin')!.permissions,
+    permissions: options.basicOnly ? ['view'] as typeof office.users[number]['permissions'] : options.readOnly ? ['view', 'companySettingsRead'] as typeof office.users[number]['permissions'] : office.users.find(value => value.id === 'admin')!.permissions,
     siteIds: options.siteLimited ? ['norrtalje'] : undefined };
   office.users = [user];
   const company = { id: stored.companyId, name: stored.profile.name, organisationNumber: stored.organisationNumber, status: 'active' };
-  const session = { enabled: true, authenticated: true, actor: { id: 'settings-actor', name: user.name, username: 'vd@example.test', platformAdmin: false },
+  const session = { enabled: true, authenticated: true, actor: { id: 'settings-actor', name: user.name, username: 'vd@example.test', platformAdmin: options.platformAdmin ?? false },
     actualUser: user, user, company, organisationId: company.id, effectiveUserId: user.id, isSupportSession: false,
     mustChangePassword: false, csrfToken: 'settings-csrf', generation: 11, companies: [company] };
-  let value = structuredClone({ ...stored, capabilities: { canManage: !options.readOnly } });
+  let value = structuredClone({ ...stored, documents: { ...stored.documents, ...(options.logo ? { logoId } : {}) }, capabilities: { canManage: !options.readOnly } });
   const writes: Request[] = [], uploads: Request[] = [];
   let reads = 0;
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/platform/session') return route.fulfill({ json: session });
+    if (path === '/api/company-settings/defaults') return route.fulfill({ json: { companyId: value.companyId, version: value.version,
+      profile: { name: value.profile.name }, defaults: value.defaults, ...(value.documents.logoId ? { logoUrl: `/api/company-settings/logos/${value.documents.logoId}` } : {}) } });
     if (path === '/api/company-settings') {
       if (request.method() === 'GET') { reads++; return options.failRead ? route.fulfill({ status: 503, json: { error: 'Tillfälligt anslutningsfel.' } }) : route.fulfill({ json: value }); }
       writes.push(request);
@@ -42,7 +45,7 @@ async function fixture(page: Page, options: { readOnly?: boolean; siteLimited?: 
       return route.fulfill({ json: value });
     }
     if (path === '/api/company-settings/logo') { uploads.push(request); return route.fulfill({ json: { logoId, url: `/api/company-settings/logos/${logoId}` } }); }
-    if (path === `/api/company-settings/logos/${logoId}`) return route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6fYAAAAASUVORK5CYII=', 'base64') });
+    if (path === `/api/company-settings/logos/${logoId}`) return options.brokenLogo ? route.fulfill({ status: 404 }) : route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6fYAAAAASUVORK5CYII=', 'base64') });
     if (path === '/api/application/office') return route.fulfill({ json: { data: office, revision: 1 } });
     if (path === '/api/application/revision') return route.fulfill({ json: { revision: 1 } });
     if (path === '/api/pricing/state') return route.fulfill({ json: { version: 'company-settings-test', revision: 1, memoryOnly: true, asOfDate: '2026-10-20', metals: [], articles: [], customers: [] } });
@@ -52,9 +55,14 @@ async function fixture(page: Page, options: { readOnly?: boolean; siteLimited?: 
     if (path.endsWith('/summary')) return route.fulfill({ json: { workOrders: 0, warehouse: 0, vessels: 0 } });
     return route.fulfill({ status: 503, json: { error: 'Denna tjänst ingår inte i det isolerade formulärprovet.' } });
   });
-  await page.goto('/kontor#/company-settings');
-  await expect(page.getByRole('heading', { name: 'Företagsinställningar', exact: true })).toBeVisible();
-  return { writes, uploads, value: () => value, reads: () => reads };
+  await page.goto(options.basicOnly ? '/kontor#/dashboard' : '/kontor#/company-settings');
+  if (options.basicOnly) await expect(page.locator('.office-sidebar')).toBeVisible();
+  else await expect(page.getByRole('heading', { name: 'Företagsinställningar', exact: true })).toBeVisible();
+  return { writes, uploads, value: () => value, reads: () => reads, changeCompany: () => {
+    const next = { ...company, id: 'next-settings-company', name: 'Nästa bolag AB' };
+    session.company = next; session.companies = [next]; session.organisationId = next.id; session.generation++;
+    value = { ...value, companyId: next.id, profile: { ...value.profile, name: next.name }, documents: { footerText: '' } };
+  } };
 }
 
 test('företagsuppgifter sparas uttryckligt med rätt version och oförändrad juridisk identitet', async ({ page }) => {
@@ -116,8 +124,56 @@ test('loggauppladdning ändrar bara utkastet tills företagsinställningarna spa
   await expect(page.getByRole('img', { name: 'Företagets logga', exact: true })).toBeVisible();
   expect(f.uploads).toHaveLength(1); expect(f.writes).toHaveLength(0);
   expect(f.value().documents.logoId).toBeUndefined();
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
   await page.getByRole('button', { name: 'Spara ändringar', exact: true }).click();
   await expect.poll(() => f.value().documents.logoId).toBe(logoId);
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  await page.getByRole('button', { name: 'Ta bort logga', exact: true }).click();
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  await page.getByRole('button', { name: 'Spara ändringar', exact: true }).click();
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+});
+
+test('systemadmin behåller produktloggan ovanför bolagets sparade logga', async ({ page }) => {
+  await fixture(page, { logo: true, platformAdmin: true });
+  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+});
+
+test('vanlig medarbetare får företagets logga via minimala uppgifter utan att läsa företagsinställningar', async ({ page }) => {
+  const f = await fixture(page, { logo: true, readOnly: true, basicOnly: true });
+  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  expect(f.reads()).toBe(0);
+});
+
+test('saknad loggafil visar produktloggan utan en trasig bild', async ({ page }) => {
+  await fixture(page, { logo: true, brokenLogo: true });
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+  await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+});
+
+test('bolagsbyte visar aldrig det förra bolagets logga medan nästa profil hämtas', async ({ page }) => {
+  const f = await fixture(page, { logo: true });
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', `/api/company-settings/logos/${logoId}`);
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/company-settings/defaults', async route => {
+    await pending;
+    await route.fulfill({ json: { companyId: f.value().companyId, version: f.value().version,
+      profile: { name: f.value().profile.name }, defaults: f.value().defaults } });
+  });
+  f.changeCompany();
+  try {
+    await page.evaluate(() => window.dispatchEvent(new Event('scrappilot:check-platform-session')));
+    await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+    await expect(page.locator('.platform-topbar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
+  } finally { release(); }
+  await expect(page.locator('.office-sidebar').getByText('Nästa bolag AB', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.office-sidebar > img')).toHaveAttribute('src', '/images/scrappilot-logo.svg');
 });
 
 test('mottagarlistor och kunders standardvillkor sparas tillsammans utan att skicka e-post', async ({ page }) => {

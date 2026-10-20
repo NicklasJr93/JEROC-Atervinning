@@ -6,7 +6,7 @@ import { environmentApi, EnvironmentApiError } from './environment-client';
 import { environmentFailure, useEnvironmentSession } from './EnvironmentSession';
 import { environmentTime, type NvvJsonObject, type NvvJsonValue, type NvvSandboxPreset, type NvvSandboxRequest, type NvvSandboxRun, type NvvSandboxState } from './environment-types';
 import NvvConnectionCheckDialog, { type NvvCheckProgress } from './NvvConnectionCheckDialog';
-import AddressAssist from '../address-assistance/AddressAssist';
+import AddressField from '../address-assistance/AddressField';
 import './environment.css';
 import './nvv-sandbox.css';
 
@@ -206,6 +206,19 @@ export default function NvvSandboxWorkspace({ user, actualUser }: { user: Office
 
   const field = (label: string, path: string[], options?: { numeric?: boolean; date?: boolean; wide?: boolean }) => {
     const value = fieldValue(payload, path);
+    if (path.length === 3 && path[1] === 'adress' && path[2] === 'adressrad') {
+      const place = path[0];
+      return <label className={options?.wide ? 'is-wide' : undefined}>{label}<AddressField
+        aria-label={label}
+        value={{ address: value, postalCode: fieldValue(payload, [place, 'adress', 'postnummer']), city: '', countryCode: 'SE' }}
+        scopeKey={`nvv-test:${identity}:${place}:${preset ?? 'manual'}`} disabled={sending || loading || uncertain || !!unresolved}
+        requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }} autoComplete="off"
+        onChange={text => updateField(path, text)} onApply={address => {
+          const copy = structuredClone(formRef.current ?? {}), previous = objectValue(copy[place]);
+          copy[place] = { ...previous, adress: { ...objectValue(previous.adress), adressrad: address.address, postnummer: address.postalCode } };
+          adoptForm(copy);
+        }} /></label>;
+    }
     return <label className={options?.wide ? 'is-wide' : undefined}>{label}<input type={options?.date ? 'datetime-local' : options?.numeric ? 'number' : 'text'} step={options?.numeric ? '0.001' : undefined} value={options?.date ? localDateTime(value) : value} onChange={event => {
       const next = event.target.value;
       if (options?.date && next && !Number.isFinite(Date.parse(next))) { setError('Datumet kunde inte läsas. Ange ett giltigt datum och klockslag.'); return; }
@@ -237,13 +250,6 @@ export default function NvvSandboxWorkspace({ user, actualUser }: { user: Office
                   <fieldset><legend>Rapporterande verksamhet</legend><div className="nvv-sandbox-fields">{field('Verksamhetsutövare · organisationsnummer', ['verksamhetsutovare'])}{field('Verksamhetens namn', ['verksamhetensNamn'])}{field('Verksamhetens kontaktperson', ['verksamhetensKontaktpersonNamn'])}{field('Verksamhetens e-post', ['verksamhetensKontaktpersonEpost'])}{field('Verksamhetens telefon', ['verksamhetensKontaktpersonTelefonnummer'])}{field('Tidigare innehavare · organisationsnummer', ['tidigareInnehavare'])}</div></fieldset>
                   <fieldset><legend>Avfall & mottagning</legend><div className="nvv-sandbox-fields">{field('Avfallskod', ['avfall', 'kod'])}{field('Mängd (kg)', ['avfall', 'mangd'], { numeric: true })}{field('Mottagningsdatum', ['mottagningsDatum'], { date: true })}{field('Anteckningstid', ['tidpunkt'], { date: true })}<label>Transportsätt<select value={fieldValue(payload, ['transportsatt'])} onChange={event => updateField(['transportsatt'], event.target.value)}><option value="R">Vägtransport · R</option><option value="T">Järnväg · T</option><option value="S">Sjötransport · S</option><option value="A">Flygtransport · A</option>{!['R', 'T', 'S', 'A'].includes(fieldValue(payload, ['transportsatt'])) && <option value={fieldValue(payload, ['transportsatt'])}>{fieldValue(payload, ['transportsatt']) || 'Ej angivet'}</option>}</select></label>{field('Referens', ['referens'])}</div></fieldset>
                   {(['senasteHanteringsPlats', 'kommandeHanteringsPlats'] as const).map(place => <fieldset key={place}><legend>{place === 'senasteHanteringsPlats' ? 'Senaste hanteringsplats' : 'Kommande hanteringsplats'}</legend><div className="nvv-sandbox-fields">{field('Adress' + (place === 'senasteHanteringsPlats' ? ' · senaste hanteringsplats' : ' · kommande hanteringsplats'), [place, 'adress', 'adressrad'], { wide: true })}{field('Postnummer' + (place === 'senasteHanteringsPlats' ? ' · senaste hanteringsplats' : ' · kommande hanteringsplats'), [place, 'adress', 'postnummer'])}{field('Kommunkod' + (place === 'senasteHanteringsPlats' ? ' · senaste hanteringsplats' : ' · kommande hanteringsplats'), [place, 'kommunkod'])}</div>
-                    <AddressAssist value={{ address: fieldValue(payload, [place, 'adress', 'adressrad']), postalCode: fieldValue(payload, [place, 'adress', 'postnummer']), city: '', countryCode: 'SE' }}
-                      scopeKey={`nvv-test:${identity}:${place}:${preset ?? 'manual'}`} disabled={sending || loading || uncertain || !!unresolved}
-                      requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }} onApply={address => {
-                        const copy = structuredClone(formRef.current ?? {}), previous = objectValue(copy[place]);
-                        copy[place] = { ...previous, adress: { ...objectValue(previous.adress), adressrad: address.address, postnummer: address.postalCode } };
-                        adoptForm(copy);
-                      }} />
                   </fieldset>)}
                   <fieldset><legend>Ombud</legend><label className="nvv-sandbox-agent-toggle"><input type="checkbox" checked={!!agentEnabled} onChange={event => toggleAgent(event.target.checked)} />Lägg till ombudsuppgifter för detta test</label>{agentEnabled && <div className="nvv-sandbox-fields">{field('Ombud · organisationsnummer', ['ombud'])}{field('Ombudets namn', ['ombudetsNamn'])}{field('Ombudets kontaktperson', ['ombudetsKontaktpersonNamn'])}{field('Ombudets e-post', ['ombudetsKontaktpersonEpost'])}{field('Ombudets telefon', ['ombudetsKontaktpersonTelefonnummer'])}</div>}</fieldset>
                 </div>}

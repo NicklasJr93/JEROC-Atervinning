@@ -4,6 +4,8 @@ import { Building2, LogOut, Settings2, ShieldCheck } from 'lucide-react';
 import { platformApi } from './client';
 import { setCurrentPlatformSession } from './session';
 import ProductBrand from './ProductBrand';
+import CompanyBrand from './CompanyBrand';
+import { useCompanyDefaults, type CompanyDefaultsSnapshot } from '../company-settings-defaults';
 import PlatformLogin from './PlatformLogin';
 import PlatformPasswordChange from './PlatformPasswordChange';
 import PlatformAdmin from './PlatformAdmin';
@@ -17,6 +19,7 @@ export type PlatformContextValue = {
   logout: () => Promise<void>;
   switchCompany: (organisationId: string, effectiveUserId?: string) => Promise<void>;
   openAdministration: () => void;
+  companyBranding?: CompanyDefaultsSnapshot;
 };
 const Context = createContext<PlatformContextValue | undefined>(undefined);
 export const usePlatformContext = () => useContext(Context);
@@ -30,6 +33,8 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
   const initialSession = useRef<{ attempt: number; promise: Promise<PlatformSession> } | undefined>(undefined);
   const location = useLocation(), navigate = useNavigate();
   const sessionKey = session?.authenticated ? `${session.organisationId}/${session.generation}` : '';
+  const companyBranding = useCompanyDefaults({ enabled: Boolean(session?.authenticated && session.company && !session.mustChangePassword),
+    scopeKey: sessionKey, refreshOnSave: true });
   useEffect(() => {
     const element = shell.current, bar = element?.querySelector<HTMLElement>('.platform-topbar'), strip = element?.querySelector<HTMLElement>('.platform-support-strip');
     if (!element || !bar) return;
@@ -121,11 +126,11 @@ export default function PlatformGate({ children }: { children: ReactNode }) {
   if (!session.authenticated) return <PlatformLogin onSession={authenticated} />;
   if (session.mustChangePassword) return <PlatformPasswordChange session={session} onSession={authenticated} onLogout={logout} />;
   const showAdmin = session.actor.platformAdmin && (!session.company || location.pathname === '/platform-admin');
-  const context: PlatformContextValue = { session, refresh, logout, switchCompany, openAdministration };
+  const context: PlatformContextValue = { session, refresh, logout, switchCompany, openAdministration, companyBranding };
   return <Context.Provider value={context}><div ref={shell} className={`platform-shell${showAdmin ? ' admin' : ' platform-office'}`}>
     <header className="platform-topbar">
-      <ProductBrand />
-      <span className="platform-company-name">{showAdmin ? <><ShieldCheck size={16} />Systemadministration</> : <><Building2 size={16} />{session.company?.name ?? 'Välj bolag'}</>}</span>
+      {session.actor.platformAdmin ? <ProductBrand /> : <CompanyBrand branding={companyBranding} className="platform-brand" />}
+      <span className="platform-company-name">{showAdmin ? <><ShieldCheck size={16} />Systemadministration</> : <><Building2 size={16} />{companyBranding?.profile.name ?? session.company?.name ?? 'Välj bolag'}</>}</span>
       <div className="platform-topbar-actions">
         {session.actor.platformAdmin && !showAdmin && <button type="button" className="platform-text-btn" onClick={openAdministration}><Settings2 size={16} />Systemadmin</button>}
         {showAdmin && session.isSupportSession && <button type="button" className="platform-text-btn" onClick={openAdministration}><ShieldCheck size={16} />Avsluta Jobba som</button>}

@@ -1,16 +1,16 @@
 # Gemensam adresshjälp – Google
 
-Implementerad 20 oktober 2026 enligt ÄL 087. Adressförslag och serverkontroll används som hjälp i redigerbara formulär. Inget sparas automatiskt.
+Implementerad 20 oktober 2026 enligt ÄL 087 och uppdaterad till adressförslag i det ordinarie adressfältet. Adresshjälpen ändrar formulärets utkast. Formulärets vanliga sparande och behörighetskontroller gäller fortsatt.
 
 ## Flödet
 
-1. Välj **Sök och komplettera adress** bredvid de vanliga adressfälten.
-2. Skriv minst tre tecken. Efter 350 ms söker webbläsaren svenska adresser med Places API (New), högst fem förslag åt gången.
-3. Välj en träff. Bara adresskomponenter och formaterad adress hämtas; inga koordinater, omdömen eller andra företagsuppgifter importeras.
-4. Servern kontrollerar den strukturerade adressen med Address Validation API.
-5. Granska gata/husnummer, postnummer och ort. **Adressen stämmer – använd adressen** för över den uttryckligen bekräftade adressen till utkastet. Spara formuläret separat.
+1. Skriv direkt i det vanliga **Postadress/Gatuadress**-fältet. Efter minst tre tecken och 350 ms söker webbläsaren svenska adresser med Places API (New), högst fem förslag åt gången. Förslagen visas under samma fält.
+2. Välj en gatuträff utan nummer för att fylla i gatunamnet och fortsätta med husnummer i samma fält. En gata kan ha flera postnummer; något postnummer gissas inte innan rätt adress är känd.
+3. Välj en komplett adress. Bara adresskomponenter och formaterad adress hämtas; inga koordinater, omdömen eller andra företagsuppgifter importeras.
+4. Servern kontrollerar adressen med Address Validation API. Efter lyckad kontroll förs postadress, postnummer och ort över tillsammans till de befintliga fälten. Den kompletta adressen behöver inte väljas igen i en separat sökruta eller godkännas med en generell extra knapp.
+5. Granska uppgifterna i de synliga, redigerbara fälten och använd formulärets vanliga **Spara** för att bekräfta dem. Om valideringen föreslår ändringar behöver dessa framgå så att användaren kan granska eller rätta dem; de ska inte tyst räknas som användarens bekräftade adress.
 
-Google-förslaget ersätter inte manuella fält. Saknad nyckel, kvot, nätfel eller ofullständig träff stoppar inte manuell inmatning. Användaren kan ange exempelvis en hämtplats bakom en lada. Om man ändrar adressfält, konto, bolag eller aktuellt utkast förkastas sena förslag.
+Saknad nyckel, kvot, nätfel eller ofullständig träff stoppar inte manuell inmatning. Användaren kan ange exempelvis en hämtplats bakom en lada. Om man ändrar adressfält, konto, bolag eller aktuellt utkast förkastas sena förslag. `selectionFromGooglePlace` skiljer en användbar svensk gatuträff från en komplett adress; saknade postnummer och husnummer lämnas tomma i stället för att stoppa gatunamnsvalet eller hittas på.
 
 Kundens SCB-postadress blir inte automatiskt materialets ursprung. Kopiering till ursprung kräver fortfarande ett aktivt val. Googles ort är inte NVV:s fyrsiffriga kommunkod; befintlig kommunmatchning och manuell bekräftelse används separat. Låsta underlag får inga nya redigeringsmöjligheter.
 
@@ -44,7 +44,11 @@ Validering begränsas per appinstans till 30 anrop/minut per användare och bola
 
 Vanligt Places-innehåll får enligt Googles EES-villkor inte användas tillsammans med eller länkas till en karta, med särskilda undantag för koordinater/place ID. Därför är Google-hjälpen avstängd i det kartanknutna transportformuläret: manuell adress och befintlig kartas separata **Hitta adress** fortsätter fungera. Vi byter inte kartleverantör och matar inte in råa Places-svar i Leaflet/OpenStreetMap.
 
-Google Address Validation-villkor §1.4 medger att vissa adressfält ersätts med användaruppgifter genom användarens uttryckliga bekräftelse eller rättelse. Därför passerar valt förslag servervalideringen och ett separat bekräftelsesteg före överföring till det egna formuläret. Endast den bekräftade adressen förs vidare; ingen generell permanent Google-cache, valideringshistorik eller koordinatimport införs. Råa Places-/Google-svar sparas inte i kundregistret.
+Google Address Validation-villkor §1.4 medger tillfällig lagring av bland annat `postalAddress`, `formattedAddress` och komponentnamn i 30 dagar. Därefter ska innehållet raderas eller ersättas med **"End User data provided through End User confirmation or correction"**. Villkoret föreskriver inte en separat bekräftelseknapp. I ett vanligt redigerbart formulär kan det ordinarie, uttryckliga sparandet bekräfta de adressfält användaren har sett och kunnat rätta.
+
+Googles officiella valideringsvägledning skiljer även mellan `ACCEPT`, där en adress med hög säkerhet kan användas utan ytterligare kundinteraktion, och `CONFIRM`, där exempelvis härledda, ersatta eller stavningskorrigerade komponenter behöver granskas. Vägledningen ersätter inte lagringsvillkoren. Den nya inmatningen behåller serverkontrollen och synliga, redigerbara resultat; någon generell permanent råcache för Places-svar, valideringshistorik eller koordinater införs inte.
+
+Äldre flöden som sparar utkast automatiskt behöver fortsatt skilja ett tillfälligt förslag från adressdata som användaren har bekräftat. Att visa fält direkt är inte i sig bevis på bekräftelse för obegränsad lagring. Denna ändring påstår inte att alla äldre automatiskt sparade utkast har en verifierad 30-dagars gallringsrutin. Tysta senare Google-korrigeringar ska inte ersätta redan bekräftade uppgifter.
 
 En framtida direkt integration av Google-resultat i kartan kräver ett separat verifierat tjänste-/licensupplägg. Places UI Kit är en annan tjänst och är inte automatiskt lösningen för redigerbara, beständiga adressfält.
 
@@ -53,7 +57,7 @@ En framtida direkt integration av Google-resultat i kartan kräver ett separat v
 ```sh
 node scripts/build-domain-models.mjs
 node --test server/google-address-validation.test.mjs server/address-assistance-api.test.mjs server/company-register-gateway.test.mjs server/integrations.test.mjs
-npx playwright test tests/address-assistance.spec.ts tests/customer-identity-office.spec.ts tests/company-register-entrypoints.spec.ts --workers=2
+npx playwright test tests/address-selection.spec.ts tests/address-assistance.spec.ts tests/customer-identity-office.spec.ts tests/company-register-entrypoints.spec.ts --workers=2
 npm run build
 ```
 
@@ -87,13 +91,14 @@ Servern läser nu även Googles strukturerade `google.rpc.ErrorInfo` vid HTTP 40
 
 En ogiltig nyckel kan ge HTTP 400 och ska då inte beskrivas som en felaktig postadress. Okända, ofullständiga eller felaktigt formaterade leverantörsfel behåller den generella feltexten. Även felsvar omfattas av max 64 KiB och anropets timeout. Råa felmeddelanden, metadata, nycklar, projekt-ID och IP-adresser lämnas inte vidare eller loggas.
 
-Deploya ändringen och gör ett nytt adressprov för att se eventuell närmare orsak. Lokala tester använder syntetiska svar; de bekräftar inte vilken inställning som nekar det verkliga Render-anropet. Funktionen fyller fortfarande inte i någon adress utan lyckad serverkontroll och användarens bekräftelse.
+Deploya ändringen och gör ett nytt adressprov för att se eventuell närmare orsak. Lokala tester använder syntetiska svar; de bekräftar inte vilken inställning som nekar det verkliga Render-anropet. För komplett automatisk ifyllnad krävs lyckad serverkontroll. Fälten är därefter synliga och redigerbara, och ordinarie sparande bekräftar användarens adressuppgifter.
 
 ## Källor
 
 - [Google: Autocomplete Data API](https://developers.google.com/maps/documentation/javascript/place-autocomplete-data)
 - [Google: Address Validation REST](https://developers.google.com/maps/documentation/address-validation/reference/rest/v1/TopLevel/validateAddress)
 - [Google: EES Service Specific Terms](https://cloud.google.com/terms/maps-platform/eea/maps-service-terms)
+- [Google: Address Validation – ACCEPT och CONFIRM](https://developers.google.com/maps/documentation/address-validation/build-validation-logic)
 - [Google: API security best practices](https://developers.google.com/maps/api-security-best-practices)
 - [Google: strukturerade felorsaker](https://github.com/googleapis/googleapis/blob/master/google/api/error_reason.proto)
 - [Render: outbound IP addresses](https://render.com/docs/outbound-ip-addresses)

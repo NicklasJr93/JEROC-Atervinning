@@ -34,6 +34,7 @@ async function setup(page: Page, configured = true) {
       stats.validation++;
       expect(request.headers()['x-demo-actor']).toBe(admin.id);
       expect(request.headers()['x-demo-user']).toBe(admin.id);
+      expect(request.postDataJSON()).toEqual({ address: { address: 'Registergatan 12', postalCode: '76141', city: 'Norrtälje', countryCode: 'SE' } });
       return route.fulfill({ json: { address: { address: 'Registergatan 12', postalCode: '76141', city: 'Norrtälje', countryCode: 'SE' },
         verdict: { addressComplete: true, hasUnconfirmedComponents: false, hasInferredComponents: false, hasReplacedComponents: false, requiresConfirmation: true } } });
     }
@@ -58,7 +59,7 @@ async function setup(page: Page, configured = true) {
   return stats;
 }
 
-test('Googlekortet visar konfiguration utan att påstå anslutning; adressprov kräver bekräftelse och sparar ingen kund', async ({ page }) => {
+test('Googlekortet visar konfiguration utan att påstå anslutning; adressval fyller provets vanliga fält och sparar ingen kund', async ({ page }) => {
   const stats = await setup(page);
   await page.goto('/kontor#/integrations');
   const card = page.getByRole('button', { name: 'Google adresser', exact: true });
@@ -71,17 +72,22 @@ test('Googlekortet visar konfiguration utan att påstå anslutning; adressprov k
   await expect(panel).not.toContainText(browserKey);
   await expect(panel.getByText('Ansluten', { exact: true })).toHaveCount(0);
   await panel.getByRole('button', { name: 'Testa adresshjälpen', exact: true }).click();
-  await panel.getByRole('button', { name: 'Sök och komplettera adress', exact: true }).click();
-  await panel.getByRole('combobox', { name: 'Sök adress', exact: true }).fill('Register');
-  await panel.getByRole('button', { name: 'Registergatan 12, Norrtälje', exact: true }).click();
-  await expect(panel.getByRole('button', { name: 'Adressen stämmer – använd adressen', exact: true })).toBeVisible();
-  await expect(panel.getByLabel('Gatuadress', { exact: true })).toHaveValue('');
-  await panel.getByRole('button', { name: 'Adressen stämmer – använd adressen', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Sök och komplettera adress', exact: true })).toHaveCount(0);
+  await panel.getByRole('combobox', { name: 'Gatuadress', exact: true }).fill('Register');
+  await panel.getByRole('listbox', { name: 'Adressförslag' }).getByRole('option', { name: 'Registergatan 12, Norrtälje', exact: true }).click();
   await expect(panel.getByLabel('Gatuadress', { exact: true })).toHaveValue('Registergatan 12');
   await expect(panel.getByLabel('Postnummer', { exact: true })).toHaveValue('76141');
-  await expect(panel.getByRole('status')).toContainText('Inga kunduppgifter har sparats.');
+  await expect(panel.getByLabel('Ort', { exact: true })).toHaveValue('Norrtälje');
+  await expect(panel.getByRole('button', { name: 'Adressen stämmer – använd adressen', exact: true })).toHaveCount(0);
+  await expect(panel.getByText('Adressfälten är ifyllda för provet. Inga kunduppgifter har sparats.', { exact: true })).toBeVisible();
   expect(stats.validation).toBe(1); expect(stats.saves).toBe(0);
   await expect(panel).not.toContainText(browserKey);
+
+  // Applying a suggestion never locks the normal fields or saves the form.
+  await panel.getByLabel('Postnummer', { exact: true }).fill('76142');
+  await expect(panel.getByLabel('Postnummer', { exact: true })).toHaveValue('76142');
+  await expect(panel.getByText('Adressfälten är ifyllda för provet. Inga kunduppgifter har sparats.', { exact: true })).toHaveCount(0);
+  expect(stats.validation).toBe(1); expect(stats.saves).toBe(0);
 });
 
 test('Googlepanelen skiljer på saknad servernyckel och registrerad webbläsarnyckel', async ({ page }) => {

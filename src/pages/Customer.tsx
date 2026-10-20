@@ -24,7 +24,7 @@ import { useEmployee } from '../employee/EmployeeProvider';
 import { employeeCompanyId } from '../employee/cache';
 import CompanyLookup from '../company-register/CompanyLookup';
 import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
-import AddressAssist from '../address-assistance/AddressAssist';
+import AddressField from '../address-assistance/AddressField';
 import { applyInitialPaymentTerms, useCompanyDefaults } from '../company-settings-defaults';
 import { formatCompanyRegisterAddress, normalizeCompanyLookupNumber } from '../company-register/client';
 import type { PaymentDetails } from '../payment-details';
@@ -363,19 +363,19 @@ export function NewCustomerPage() {
               maxLength={120}
             />
           </label>
-          <AddressAssist value={{ address, postalCode, city, countryCode: 'SE' }}
-            scopeKey={JSON.stringify([session?.companyId, session?.person.id, sessionGeneration, draft.id, 'new-customer'])}
-            requestHeaders={session ? {
-              'X-Employee-Company': employeeCompanyId(session.companyId),
-              'X-Employee-Person': session.person.id,
-            } : undefined}
-            disabled={!session?.capabilities.yardWork}
-            onApply={value => { setAddress(value.address); setPostalCode(value.postalCode); setCity(value.city); }} />
           <label>
             Gatuadress (valfritt)
-            <input
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
+            <AddressField
+              aria-label="Gatuadress (valfritt)"
+              value={{ address, postalCode, city, countryCode: 'SE' }}
+              scopeKey={JSON.stringify([session?.companyId, session?.person.id, sessionGeneration, draft.id, 'new-customer'])}
+              requestHeaders={session ? {
+                'X-Employee-Company': employeeCompanyId(session.companyId),
+                'X-Employee-Person': session.person.id,
+              } : undefined}
+              disabled={!session?.capabilities.yardWork}
+              onChange={setAddress}
+              onApply={value => { setAddress(value.address); setPostalCode(value.postalCode); setCity(value.city); }}
               placeholder="Ex. Storgatan 12"
               autoComplete="street-address"
               maxLength={180}
@@ -487,22 +487,23 @@ export function ReferencePage() {
               ))}
             </div>
           )}
-          <AddressAssist value={normalizeAddress(origin)}
-            scopeKey={JSON.stringify([session?.companyId, session?.person.id, sessionGeneration, draft.id, customer.id, 'material-origin'])}
-            requestHeaders={session ? {
-              'X-Employee-Company': employeeCompanyId(session.companyId),
-              'X-Employee-Person': session.person.id,
-            } : undefined}
-            disabled={!session?.capabilities.yardWork}
-            onApply={value => { setOrigin(formatAddress(value)); setUseCustomerAddress(false); }} />
           <label>
             Materialets ursprungsadress (valfritt)
             <div className="input-with-icon">
               <MapPin size={18} />
-              <input
+              <AddressField
+                aria-label="Materialets ursprungsadress (valfritt)"
                 list="saved-origins"
-                value={origin}
-                onChange={(e) => { setOrigin(e.target.value); setUseCustomerAddress(false); }}
+                value={normalizeAddress(origin)}
+                textValue={origin}
+                scopeKey={JSON.stringify([session?.companyId, session?.person.id, sessionGeneration, draft.id, customer.id, 'material-origin'])}
+                requestHeaders={session ? {
+                  'X-Employee-Company': employeeCompanyId(session.companyId),
+                  'X-Employee-Person': session.person.id,
+                } : undefined}
+                disabled={!session?.capabilities.yardWork}
+                onChange={value => { setOrigin(value); setUseCustomerAddress(false); }}
+                onApply={value => { setOrigin(formatAddress(value)); setUseCustomerAddress(false); }}
                 placeholder="Gatuadress, postnummer och ort"
                 maxLength={180}
               />

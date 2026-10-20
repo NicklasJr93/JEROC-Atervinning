@@ -1,6 +1,11 @@
 import { companyLookupScope, type CompanyLookupScope } from '../company-register/client';
 
 export interface AddressValue { address: string; postalCode: string; city: string; countryCode?: string }
+export interface GoogleAddressSelection {
+  address: AddressValue & { countryCode: 'SE' };
+  hasHouseNumber: boolean;
+  complete: boolean;
+}
 export interface AddressConfig { configured: boolean; browserConfigured: boolean; browserApiKey?: string; validationConfigured: boolean; countryCode: 'SE' }
 export interface AddressValidation {
   address: AddressValue & { countryCode: 'SE' };
@@ -30,7 +35,7 @@ export function parseAddressConfig(input: unknown): AddressConfig {
     ...(value.configured ? { browserApiKey: value.browserApiKey } : {}) };
 }
 
-/** Only the address confirmed by the user is sent back to the form. Never keep Google's full response. */
+/** Keep only editable address fields and review flags, never Google's full response. */
 export function parseAddressValidation(input: unknown): AddressValidation {
   const value = input as Partial<AddressValidation> | null;
   const address = value?.address, verdict = value?.verdict;
@@ -94,7 +99,7 @@ export async function withAddressTimeout<T>(operation: Promise<T>, milliseconds 
   finally { if (timeout !== undefined) globalThis.clearTimeout(timeout); }
 }
 
-/** Maps code and the intentionally public browser key load only after the user opens address assistance. */
+/** Maps code and the intentionally public browser key load only when an address field is focused. */
 export function loadGooglePlaces(browserApiKey: string): Promise<GooglePlacesLibrary> {
   const target = window as GoogleMapsWindow;
   if (target.google?.maps?.importLibrary) return withAddressTimeout(target.google.maps.importLibrary('places'));
@@ -127,6 +132,38 @@ export function loadGooglePlaces(browserApiKey: string): Promise<GooglePlacesLib
     document.head.append(script);
   }).catch(error => { placesPromise = undefined; throw error; });
   return placesPromise;
+}
+
+/** A selected street can be useful before a house number or postcode is known.
+ * Keep missing fields empty so the caller can continue in the same input; do
+ * not infer a number from the street name or import unrelated Google content.
+ */
+export function selectionFromGooglePlace(place: Pick<GooglePlace, 'addressComponents'>): GoogleAddressSelection {
+  const invalid = (): never => { throw new AddressAssistanceError('Träffen saknar en användbar svensk gatuadress. Fyll i adressen manuellt.', 'address_incomplete', 422); };
+  const components = place?.addressComponents;
+  if (!Array.isArray(components) || !components.length || components.length > 64) return invalid();
+  const clean = (value: string) => value.normalize('NFKC').trim().replace(/\s+/g, ' ');
+  const validText = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max && !/[\u0000-\u001f\u007f]/.test(value);
+  const normalized = components.map(component => {
+    if (!component || typeof component !== 'object' || Array.isArray(component)
+      || !validText(component.longText, 300)
+      || (component.shortText !== undefined && !validText(component.shortText, 300))
+      || !Array.isArray(component.types) || !component.types.length || component.types.length > 16
+      || component.types.some(type => !validText(type, 80) || !/^[a-z][a-z0-9_]*$/.test(type))) invalid();
+    return { longText: clean(component.longText), shortText: component.shortText === undefined ? undefined : clean(component.shortText), types: component.types };
+  });
+  const find = (type: string) => normalized.find(component => component.types.includes(type));
+  if (find('country')?.shortText !== 'SE') invalid();
+  const route = find('route')?.longText ?? '';
+  const number = find('street_number')?.longText ?? '';
+  const city = find('postal_town')?.longText || find('locality')?.longText || '';
+  const rawPostcode = (find('postal_code')?.longText ?? '').replace(/\s/g, '');
+  const postalCode = /^\d{5}$/.test(rawPostcode) ? rawPostcode : '';
+  const address = [route, number].filter(Boolean).join(' ');
+  if (!route || route.length > 260 || number.length > 40 || address.length > 300 || city.length > 200) invalid();
+  const hasHouseNumber = Boolean(number);
+  return { address: { address, postalCode, city, countryCode: 'SE' }, hasHouseNumber,
+    complete: hasHouseNumber && Boolean(postalCode) && Boolean(city) };
 }
 
 export function addressFromGooglePlace(place: Pick<GooglePlace, 'addressComponents'>): AddressValue {

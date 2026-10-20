@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight, Leaf, Plus, Save, Scale, Trash2 } from 'lucide-react';
 import type { LogisticsOfficeCommand, LogisticsOfficeState, LogisticsOrder, LogisticsWeighingInput } from './types';
 import { Alert, Field, kg, Panel, Pill } from './Ui';
-import AddressAssist from '../../address-assistance/AddressAssist';
+import AddressField from '../../address-assistance/AddressField';
 import { formatAddress, normalizeAddress } from '../../data-format';
 
 interface WeighingForm {
@@ -101,11 +101,12 @@ export default function WorkOrderWeighing({ order, state, writable, onCommand, o
       <fieldset disabled={!canEdit || !!pending} className="wo-form-fieldset"><div className="wo-form-grid">
         <Field label="Kund"><select aria-label="Kund för vägning" value={form.customerId} onChange={event => patch({ customerId: event.target.value })}><option value="">Välj kund senare</option>{state.customers.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></Field>
         <Field label="Referens (valfri)"><input aria-label="Referens för vägning" maxLength={1000} value={form.reference} onChange={event => patch({ reference: event.target.value })} /></Field>
-        {canEdit && <AddressAssist value={normalizeAddress(form.origin)}
-          disabled={!!pending || stale}
+        <Field label="Ursprungsadress *" full><AddressField value={normalizeAddress(form.origin)} textValue={form.origin}
+          aria-label="Ursprungsadress för vägning" maxLength={1000}
+          disabled={!canEdit || !!pending || stale}
           scopeKey={JSON.stringify([order.id, order.detail.version, baseVersion, order.detail.siteId, form.customerId, 'weighing-origin'])}
-          onApply={address => patch({ origin: formatAddress(address) })} />}
-        <Field label="Ursprungsadress *" full><input aria-label="Ursprungsadress för vägning" maxLength={1000} value={form.origin} onChange={event => patch({ origin: event.target.value })} /></Field>
+          onChange={value => patch({ origin: value })}
+          onApply={address => patch({ origin: formatAddress(address) })} /></Field>
       </div><div className="wo-weighing-rows">{form.rows.map((row, index) => {
         const article = state.articles.find(value => value.id === row.articleId), source = weighing.rows.find(value => value.articleId === row.articleId);
         return <div className="wo-material-row" key={index}><Field label="Artikel"><select aria-label={`Artikel för vägning ${index + 1}`} value={row.articleId} onChange={event => patch({ rows: form.rows.map((value, at) => at === index ? { ...value, articleId: event.target.value, weight: '' } : value) })}><option value="">Välj artikel</option>{state.articles.filter(value => value.id === row.articleId || !form.rows.some(current => current.articleId === value.id)).map(value => <option key={value.id} value={value.id}>{value.name}{value.hazardous ? ' · farligt avfall' : ''}</option>)}</select>{source && source.plannedKg > 0 && <small className="wo-form-hint">Planerat: {kg(source.plannedKg)}</small>}{article?.hazardous && <small className="wo-form-hint">Farligt avfall · {article.wasteCode}</small>}</Field><Field label="Verklig vikt (kg)"><input aria-label={`Verklig vikt ${index + 1}`} inputMode="decimal" type="number" min="0" max="1000000000" step="0.001" placeholder="Ej vägd" value={row.weight} onChange={event => patch({ rows: form.rows.map((value, at) => at === index ? { ...value, weight: event.target.value } : value) })} /></Field>{canEdit && <button type="button" className="wo-icon-button" aria-label={`Ta bort vägningsrad ${index + 1}`} onClick={() => patch({ rows: form.rows.filter((_, at) => at !== index) })}><Trash2 size={15} /></button>}</div>;

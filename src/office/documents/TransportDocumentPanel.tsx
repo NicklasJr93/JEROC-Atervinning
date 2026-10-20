@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { FileText, Plus, Save, Trash2, X } from 'lucide-react';
 import ArchiveViewer from './ArchiveViewer';
-import AddressAssist from '../../address-assistance/AddressAssist';
+import AddressField from '../../address-assistance/AddressField';
 import { documentApi, type ArchivedDocument, type DocumentIdentity, type DocumentParty, type DocumentSite, type TransportDocumentChanges, type TransportDocumentDraft } from './client';
 import './documents.css';
 
@@ -126,9 +126,10 @@ export default function TransportDocumentPanel({ orderId, identity, canEdit, onC
 }
 function PartyFields({title, party, disabled, editable, scopeKey, identity, onChange}: {title: string; party: DocumentParty; disabled: boolean; editable: boolean; scopeKey: string; identity: DocumentIdentity; onChange: (party: DocumentParty) => void}) {
   return <fieldset disabled={disabled}><legend>{title}</legend><div className="transport-document-grid">
-    {([['name','Namn / företag'],['number','Org.- / personnummer'],['address','Gatuadress'],['postalCode','Postnummer'],['city','Ort']] as const).map(([field,label]) => <label className={field === 'name' || field === 'address' ? 'full' : ''} key={field}>{label}<input aria-label={`${title} · ${label}`} value={party[field] ?? ''} onChange={event => onChange({...party,[field]:event.target.value})} maxLength={field === 'address' ? 300 : 200} /></label>)}
-    {editable && <div className="full"><AddressAssist value={{ address: party.address, postalCode: party.postalCode, city: party.city, countryCode: 'SE' }}
-      scopeKey={scopeKey} disabled={disabled} requestHeaders={{ 'X-Demo-Actor': identity.actualUserId, 'X-Demo-User': identity.userId }}
-      onApply={address => onChange({ ...party, address: address.address, postalCode: address.postalCode, city: address.city })} /></div>}
+    {([['name','Namn / företag'],['number','Org.- / personnummer'],['address','Gatuadress'],['postalCode','Postnummer'],['city','Ort']] as const).map(([field,label]) => <label className={field === 'name' || field === 'address' ? 'full' : ''} key={field}>{label}{field === 'address' ? <AddressField aria-label={`${title} · ${label}`} maxLength={300}
+      value={{ address: party.address, postalCode: party.postalCode, city: party.city, countryCode: 'SE' }}
+      scopeKey={scopeKey} disabled={disabled || !editable} requestHeaders={{ 'X-Demo-Actor': identity.actualUserId, 'X-Demo-User': identity.userId }}
+      onChange={text => onChange({ ...party, address: text })}
+      onApply={address => onChange({ ...party, address: address.address, postalCode: address.postalCode, city: address.city })} /> : <input aria-label={`${title} · ${label}`} value={party[field] ?? ''} onChange={event => onChange({...party,[field]:event.target.value})} maxLength={200} />}</label>)}
   </div></fieldset>;
 }

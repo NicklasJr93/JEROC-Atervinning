@@ -1,5 +1,5 @@
-import AddressAssist from '../address-assistance/AddressAssist';
-import { useCompanyDefaults } from '../company-settings-defaults';
+import AddressField from '../address-assistance/AddressField';
+import CompanyBrand from '../platform/CompanyBrand';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -103,7 +103,7 @@ import {
   validPaymentDetails,
 } from './customer-model';
 import { money, kilos } from '../model';
-import { formatAddress, normalizeCustomerDetails, normalizeOriginAddress } from '../data-format';
+import { formatAddress, normalizeAddress, normalizeCustomerDetails, normalizeOriginAddress } from '../data-format';
 import {
   OFFICE_VERSION,
   officeKey,
@@ -166,9 +166,7 @@ const customerName = (c: OfficeCard) =>
   'Kund saknas';
 export function OfficeApp() {
   const platform = usePlatformContext();
-  const [companyProfileRefresh, setCompanyProfileRefresh] = useState(0);
-  const companyContext = useCompanyDefaults({ enabled: Boolean(platform?.session.organisationId),
-    scopeKey: `${platform?.session.organisationId ?? ''}/${platform?.session.generation ?? ''}/${companyProfileRefresh}` });
+  const companyContext = platform?.companyBranding;
   const companyName = companyContext && companyContext.companyId === platform?.session.organisationId
     ? companyContext.profile.name : platform?.session.company?.name ?? 'JEROC Återvinning';
   useEffect(() => {
@@ -1221,11 +1219,7 @@ export function OfficeApp() {
     <EnvironmentSessionProvider user={user} actualUser={actualUser!} onNotice={setMessage}>
     <div className="office">
       <aside className="office-sidebar">
-        <img
-          className="office-logo"
-          src="/images/scrappilot-logo.svg"
-          alt="ScrapPilot"
-        />
+        <CompanyBrand branding={companyContext} className="office-logo" />
         <span className="office-eyebrow">{companyName}</span>
         <span className="office-eyebrow">KONTORSÖVERSIKT</span>
         <nav>
@@ -2251,8 +2245,7 @@ export function OfficeApp() {
             </Suspense>
           ) : section === 'company-settings' ? (
             <Suspense fallback={<div className="office-panel" role="status">Hämtar företagsinställningar…</div>}>
-              <CompanySettingsWorkspace key={principalIdentity} user={user} actualUser={actualUser!}
-                onNotice={setMessage} onProfileChanged={() => setCompanyProfileRefresh(value => value + 1)} />
+              <CompanySettingsWorkspace key={principalIdentity} user={user} actualUser={actualUser!} onNotice={setMessage} />
             </Suspense>
           ) : section === 'facilities' ? (
             <Suspense fallback={<div className="office-panel">Hämtar anläggningar…</div>}><FacilitiesWorkspace user={user} actualUser={actualUser!} onNotice={setMessage} /></Suspense>
@@ -2503,27 +2496,24 @@ function DetailFields({
       </datalist>
       <label>
         Ursprungsadress <span className="office-small">(krävs före kundgodkännande)</span>
-        <input
+        <AddressField
           aria-label="Ursprungsadress"
           aria-describedby={!disabled ? 'office-origin-requirement' : undefined}
           aria-invalid={
             !disabled && card.customerId && !origin.trim() ? true : undefined
           }
           disabled={disabled || !card.customerId}
-          value={origin}
-          onChange={(e) => {
-            setOrigin(e.target.value);
+          value={normalizeAddress(origin)} textValue={origin}
+          scopeKey={`${card.id}/${card.customerId}`}
+          onApply={address => { setOrigin(formatAddress(address)); setCopiedCustomerAddress(false); }}
+          onChange={value => {
+            setOrigin(value);
             setCopiedCustomerAddress(false);
           }}
           list="office-origin"
           placeholder="Gatuadressen där materialet kommer ifrån"
         />
       </label>
-      {!disabled && card.customerId && <AddressAssist
-        value={{ address: origin, postalCode: '', city: '' }}
-        scopeKey={`${card.id}/${card.customerId}`}
-        onApply={address => { setOrigin(formatAddress(address)); setCopiedCustomerAddress(false); }}
-      />}
       {!disabled && card.customerId && customerAddress && (
         <label className="office-copy-customer-field">
           <input type="checkbox" checked={copiedCustomerAddress} aria-label="Använd kundens adress som ursprungsadress"

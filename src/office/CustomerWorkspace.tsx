@@ -64,7 +64,7 @@ import {
 import PaymentEditor, { PaymentReadOnly } from './PaymentEditor';
 import CompanyLookup from '../company-register/CompanyLookup';
 import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
-import AddressAssist from '../address-assistance/AddressAssist';
+import AddressField from '../address-assistance/AddressField';
 import { applyInitialPaymentTerms, useCompanyDefaults } from '../company-settings-defaults';
 import { cardRoute, safeAuditText } from './workflow';
 import { applyCompanyLookupToCustomer, createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
@@ -1305,21 +1305,27 @@ function SavedList({
       )}
       {!disabled && (
         <div className="customer-saved-add">
-          {title === 'Ursprungsadresser' && (
-            <AddressAssist
+          {title === 'Ursprungsadresser' ? (
+            <AddressField
+              aria-label="Ny ursprungsadress"
               value={normalizeAddress(newValue)}
-              scopeKey={JSON.stringify([addressScope, editIndex, newValue])}
+              textValue={newValue}
+              scopeKey={JSON.stringify([addressScope, editIndex, 'saved-origin'])}
               requestHeaders={requestHeaders}
+              placeholder="Skriv här…"
+              onChange={setNewValue}
               onApply={(address) => setNewValue(formatAddress(address))}
+              onKeyDown={event => {
+                if (event.key === 'Enter' && !event.defaultPrevented) {
+                  event.preventDefault(); add();
+                }
+              }}
             />
-          )}
-          <input
+          ) : <input
             aria-label={
               title === 'Sparade referenser'
                 ? 'Ny referens'
-                : title === 'Ursprungsadresser'
-                  ? 'Ny ursprungsadress'
-                  : 'Nytt reg.nr'
+                : 'Nytt reg.nr'
             }
             placeholder={
               title === 'Registrerade fordon' ? 'ABC123' : 'Skriv här…'
@@ -1332,7 +1338,7 @@ function SavedList({
                 add();
               }
             }}
-          />
+          />}
           <button type="button" className="office-btn outline" onClick={add}>
             <Plus size={13} />
             {editIndex === undefined ? button : 'Spara ändring'}
@@ -1458,7 +1464,19 @@ function CustomerDetails({
     return (
       <label>
         {label}
-        <input
+        {key === 'address' ? <AddressField
+          aria-label={label}
+          aria-invalid={Boolean(validationError)}
+          required={required}
+          disabled={!edit || busy}
+          value={{ address: draft.address, postalCode: draft.postalCode, city: draft.city, countryCode: draft.countryCode }}
+          scopeKey={JSON.stringify([draft.id, draft.type, draft.number])}
+          requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
+          onChange={address => setDraft(current => ({ ...current, address }))}
+          onApply={address => { if (!busy && edit) setDraft(current => ({ ...current, ...address })); }}
+          onBlur={() => setCheckedFields(current => current.includes(key) ? current : [...current, key])}
+          autoComplete="street-address"
+        /> : <input
           aria-label={label}
           aria-invalid={Boolean(validationError)}
           required={required}
@@ -1469,7 +1487,7 @@ function CustomerDetails({
           }}
           onBlur={() => setCheckedFields(current => current.includes(key) ? current : [...current, key])}
           type={key === 'email' ? 'email' : key === 'phone' ? 'tel' : 'text'}
-        />
+        />}
         {validationError && <small className="customer-field-error">{validationError}</small>}
       </label>
     );
@@ -1517,19 +1535,6 @@ function CustomerDetails({
               )}
               {input('customerNumber', 'Kundnummer')}
               {input('name', 'Namn', true)}
-              {edit && (
-                <div className="customer-form-wide">
-                  <AddressAssist
-                    value={{ address: draft.address, postalCode: draft.postalCode, city: draft.city, countryCode: draft.countryCode }}
-                    disabled={busy}
-                    scopeKey={JSON.stringify([draft.id, draft.type, draft.number])}
-                    requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
-                    onApply={(address) => {
-                      if (!busy && edit) setDraft((current) => ({ ...current, ...address }));
-                    }}
-                  />
-                </div>
-              )}
               {input('address', 'Adress')}
               {input('postalCode', 'Postnummer')}
               {input('city', 'Ort')}

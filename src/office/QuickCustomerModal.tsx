@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Check, ExternalLink, Info, X } from 'lucide-react';
 import CompanyLookup from '../company-register/CompanyLookup';
 import CustomerIdentityInput from '../customer-identity/CustomerIdentityInput';
-import AddressAssist from '../address-assistance/AddressAssist';
+import AddressField from '../address-assistance/AddressField';
 import { applyInitialPaymentTerms, useCompanyDefaults } from '../company-settings-defaults';
 import { can, type OfficeCustomer, type OfficeData, type OfficeUser } from './model';
 import { applyCompanyLookupToCustomer, cleanCustomerDraft, createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
@@ -182,20 +182,19 @@ export default function QuickCustomerModal({
           {field('name', draft.type === 'Privatperson' ? 'Namn' : draft.type === 'BRF' ? 'Föreningsnamn' : 'Företagsnamn', draft.type === 'Privatperson' ? 'Ange för- och efternamn' : 'Ange namn', draft.type === 'Privatperson' ? 'name' : 'organization')}
           {field('phone', 'Telefon', '070-123 45 67', 'tel')}
           {field('email', 'E-post', 'namn@example.se', 'email')}
-          {allowed && (
-            <div className="quick-customer-wide">
-              <AddressAssist
-                value={{ address: draft.address, postalCode: draft.postalCode, city: draft.city, countryCode: draft.countryCode }}
-                disabled={busy}
-                scopeKey={JSON.stringify([draft.id, draft.type, draft.number])}
-                requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
-                onApply={(address) => {
-                  if (!busy && allowed) setDraft((current) => ({ ...current, ...address }));
-                }}
-              />
-            </div>
-          )}
-          {field('address', 'Gatuadress', 'T.ex. Storgatan 12', 'street-address')}
+          <label>Gatuadress<AddressField
+            aria-label="Gatuadress"
+            value={{ address: draft.address, postalCode: draft.postalCode, city: draft.city, countryCode: draft.countryCode }}
+            disabled={busy || !allowed}
+            scopeKey={JSON.stringify([draft.id, draft.type, draft.number])}
+            requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
+            onChange={address => setDraft(current => ({ ...current, address }))}
+            onApply={address => { if (!busy && allowed) setDraft(current => ({ ...current, ...address })); }}
+            onBlur={() => setCheckedFields(current => current.includes('address') ? current : [...current, 'address'])}
+            placeholder="T.ex. Storgatan 12"
+            autoComplete="street-address"
+            maxLength={200}
+          /></label>
           <div className="quick-customer-location">
             {field('postalCode', 'Postnummer', '761 30', 'postal-code')}
             {field('city', 'Ort', 'T.ex. Norrtälje', 'address-level2')}

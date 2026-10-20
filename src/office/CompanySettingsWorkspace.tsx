@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import { Bell, Building2, ChevronRight, FileText, Image, LockKeyhole, MapPin, RefreshCw, Save, Settings2 } from 'lucide-react';
 import { OfficePageHeader } from './OfficePageHeader';
 import { can, type OfficeUser } from './model';
-import AddressAssist from '../address-assistance/AddressAssist';
+import AddressField from '../address-assistance/AddressField';
 import { companyLookupScope, type CompanyLookupScope } from '../company-register/client';
+import { notifyCompanySettingsSaved } from '../company-settings-defaults';
 import { normalizePhoneNumber, phoneNumberError } from '../data-format';
 import { CompanySettingsError, companyLogoUrl, companySettingsApi } from './company-settings/client';
 import type { CompanyNotifications, CompanyProfile, CompanySettings, CompanySettingsDraft } from './company-settings/types';
@@ -108,7 +109,7 @@ function CompanySettingsEditor({ user, actualUser, onNotice, onProfileChanged, s
       const saved = await companySettingsApi.save({ expectedVersion: settings.version, ...effectiveDraft,
         profile: { ...effectiveDraft.profile, phone: normalizePhoneNumber(effectiveDraft.profile.phone) } }, scope, controller.signal);
       if (!current(number) || controller.signal.aborted) return;
-      adopt(saved); onProfileChanged?.(saved); onNotice('Företagsinställningarna är sparade. Nya underlag använder de uppdaterade uppgifterna.');
+      adopt(saved); notifyCompanySettingsSaved(saved.companyId); onProfileChanged?.(saved); onNotice('Företagsinställningarna är sparade. Nya underlag använder de uppdaterade uppgifterna.');
     } catch (failure) {
       if (!current(number) || controller.signal.aborted) return;
       if (failure instanceof CompanySettingsError && failure.status === 409) { setConflict(true); setError('Inställningarna ändrades av någon annan. Ditt utkast finns kvar. Hämta den senaste versionen innan du sparar.'); }
@@ -154,8 +155,7 @@ function CompanySettingsEditor({ user, actualUser, onNotice, onProfileChanged, s
                 <div className="environment-form-grid">
                   <label>Företagsnamn<input aria-label="Företagsnamn" value={draft.profile.name} required maxLength={200} onChange={event => changeProfile({ name: event.target.value })} /></label>
                   <label>Organisationsnummer<input aria-label="Organisationsnummer" value={settings.organisationNumber} readOnly disabled /><small className="company-settings-readonly"><LockKeyhole size={11} />Bolagets juridiska identitet ändras inte här.</small></label>
-                  <AddressAssist value={{ address: draft.profile.address, postalCode: draft.profile.postalCode, city: draft.profile.city, countryCode: 'SE' }} scopeKey={`company-profile:${settings.companyId}`} disabled={disabled} requestHeaders={scope.headers} onApply={address => changeProfile({ address: address.address, postalCode: address.postalCode, city: address.city })} />
-                  <label className="environment-full">Postadress<input aria-label="Postadress" autoComplete="street-address" value={draft.profile.address} maxLength={300} onChange={event => changeProfile({ address: event.target.value })} /></label>
+                  <label className="environment-full">Postadress<AddressField aria-label="Postadress" autoComplete="street-address" value={{ address: draft.profile.address, postalCode: draft.profile.postalCode, city: draft.profile.city, countryCode: 'SE' }} scopeKey={`company-profile:${settings.companyId}`} disabled={disabled} requestHeaders={scope.headers} maxLength={300} onChange={address => changeProfile({ address })} onApply={address => changeProfile({ address: address.address, postalCode: address.postalCode, city: address.city })} /></label>
                   <label>Postnummer<input aria-label="Postnummer" inputMode="numeric" autoComplete="postal-code" value={draft.profile.postalCode} maxLength={6} onChange={event => changeProfile({ postalCode: event.target.value })} /></label>
                   <label>Ort<input aria-label="Ort" autoComplete="address-level2" value={draft.profile.city} maxLength={150} onChange={event => changeProfile({ city: event.target.value })} /></label>
                   <label className="environment-full">Webbplats<input aria-label="Webbplats" type="url" placeholder="https://exempel.se" value={draft.profile.website} maxLength={300} onChange={event => changeProfile({ website: event.target.value })} /></label>
