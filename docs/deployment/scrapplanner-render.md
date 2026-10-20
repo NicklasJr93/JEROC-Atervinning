@@ -30,9 +30,17 @@ Om du bara har skapat workspacen:
 4. Granska förhandslistan. Den ska innehålla **en Static Site, en Web Service
    och en ny PostgreSQL-databas**. Kontrollera de betalda planerna och totalen
    innan du väljer **Deploy Blueprint**.
-5. Öppna sedan Blueprintens **Settings** och sätt **Auto Sync → No**. Fältet
-   `autoDeployTrigger: 'off'` stänger redan av automatisk koddeploy för båda
-   tjänsterna. Blueprintens automatiska synk är en separat inställning.
+5. Öppna sedan Blueprintens **Settings** och sätt **Auto Sync → No**.
+   Hemsidan har `autoDeployTrigger: 'commit'` och publicerar nya commits
+   automatiskt. Appen behåller `autoDeployTrigger: 'off'` och manuell deploy.
+   Blueprintens automatiska infrastruktursynk är en separat inställning.
+
+För en redan skapad hemsida med automatisk deploy avstängd: öppna
+**scrapplanner-website → Settings → Build & Deploy → Auto-Deploy → On Commit**.
+Att pusha den uppdaterade YAML-filen ändrar inte den befintliga tjänsten när
+Blueprintens Auto Sync är avstängd. Publicera den senaste versionen direkt med
+**Manual Deploy → Deploy latest commit**; följande hemsidescommits publiceras
+automatiskt. Appens inställningar behöver inte ändras.
 
 Render ansluter automatiskt den nya databasen via `DATABASE_URL`. Kopiera inte
 den gamla demodatabasens anslutningssträng eller gamla integrationshemligheter.
@@ -139,8 +147,9 @@ produktionsuppgifter i en sandboxinställning och förvänta dig skarp bokförin
   kontrollera nödvändig databasåtkomst innan instansen får trafik.
 - Håll appen på **en instans** i den första piloten. Skalning och separata
   bakgrundsarbetare är senare driftsteg med egna samtidighetstester.
-- Publicera granskad kod med **Manual Deploy** på respektive tjänst. Använd
-  **Manual Sync** när själva Blueprint-konfigurationen ska ändras. Kontrollera
+- Hemsidan publicerar nya commits automatiskt; publicera granskad appkod med
+  **Manual Deploy** på `scrapplanner-app`. Använd **Manual Sync** när själva
+  Blueprint-konfigurationen ska ändras. Kontrollera
   app, mobilinloggning och databas efter uppdatering. Återställning av en tidigare
   koddeploy återställer inte automatiskt databasen.
 

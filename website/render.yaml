@@ -3,6 +3,7 @@ services:
     runtime: static
     name: scrapplanner-website
     branch: main
+    autoDeployTrigger: 'commit'
     rootDir: website
     buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build
     staticPublishPath: dist

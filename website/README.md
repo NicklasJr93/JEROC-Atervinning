@@ -90,7 +90,9 @@ npm run test:e2e
 
 Webbläsartesterna kontrollerar navigation, mobilmeny, bilder, telefonproportioner, 404, formulärvalidering och att en förfrågan stannar i webbläsaren tills besökaren själv skickar mejlet. Sidbredd kontrolleras vid 320, 390, 768 och 1440 pixlar. Separata kontroller säkerställer att produktillustrationen inte täcker startsidans knappar vid mellanbredder, att typsnitt laddas lokalt och att gamla interna skärmbilder inte blir nedladdningsbara. GitHub Actions kör projektets egna tester när hemsidan ändras.
 
-I den gemensamma pilot-Blueprinten är automatisk deploy avstängd. Efter en push: **Render → scrapplanner-website → Manual Deploy → Deploy latest commit**. Denna hemsidesuppdatering behöver ingen databasändring och kräver ingen manuell deploy av appen.
+Hemsidan har **Auto-Deploy → On Commit** (`autoDeployTrigger: 'commit'`) i båda Blueprint-filerna. Appen behåller manuell deploy. Om tjänsten redan skapats med automatisk deploy avstängd måste inställningen också ändras på **Render → scrapplanner-website → Settings → Build & Deploy → Auto-Deploy → On Commit**. En push av YAML-filen ändrar inte en befintlig tjänst medan Blueprintens Auto Sync är avstängd.
+
+För att publicera den senast pushade versionen direkt: **Manual Deploy → Deploy latest commit** på `scrapplanner-website`. Därefter publiceras nya hemsidescommits automatiskt. Låt Blueprintens **Auto Sync** vara avstängd; den styr infrastruktursynk, inte hemsidans koddeploy. Denna hemsidesuppdatering behöver ingen databasändring eller manuell deploy av appen.
 
 ## Förhandsbilder av den byggda hemsidan
 
