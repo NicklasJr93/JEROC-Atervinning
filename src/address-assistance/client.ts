@@ -10,6 +10,16 @@ export class AddressAssistanceError extends Error {
   constructor(message: string, public code: string, public status = 0) { super(message); }
 }
 
+export type AddressSelectionStage = 'details' | 'components' | 'validation';
+
+/** Only our own sanitized errors may be shown. SDK errors can contain request URLs or keys. */
+export function addressSelectionFailure(failure: unknown, stage: AddressSelectionStage): string {
+  if (failure instanceof AddressAssistanceError) return failure.message;
+  if (stage === 'details') return 'Adressens detaljer kunde inte hämtas från Google. Försök igen eller fyll i adressen manuellt.';
+  if (stage === 'components') return 'Träffen saknar uppgifter för gata, postnummer eller ort. Välj en mer exakt adress eller fyll i adressen manuellt.';
+  return 'Serverns adresskontroll kunde inte nås. Försök igen eller fyll i adressen manuellt.';
+}
+
 export function parseAddressConfig(input: unknown): AddressConfig {
   const value = input as Partial<AddressConfig> | null;
   if (!value || typeof value !== 'object' || typeof value.configured !== 'boolean'

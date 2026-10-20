@@ -92,7 +92,7 @@ test('malformed, foreign, oversized and otherwise unexpected responses cannot en
 
 test('provider errors have safe bounded messages; no raw key, response or network error escapes', async () => {
   for (const [status, expected, code] of [[400, 422, 'address_validation_invalid'], [429, 429, 'address_validation_rate_limited'],
-    [401, 503, 'address_validation_unavailable'], [403, 503, 'address_validation_unavailable'], [500, 503, 'address_validation_unavailable']])
+    [401, 503, 'address_validation_access_denied'], [403, 503, 'address_validation_access_denied'], [500, 503, 'address_validation_unavailable']])
     await rejects(client(async () => response({ message: key }, status)).validate(address), expected, code);
   await rejects(client(async () => { throw new Error(key); }).validate(address), 503, 'address_validation_unavailable');
 });

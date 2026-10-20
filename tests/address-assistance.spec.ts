@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Request } from '@playwright/test';
-import { addressFromGooglePlace, parseAddressConfig, parseAddressValidation } from '../src/address-assistance/client';
+import { AddressAssistanceError, addressFromGooglePlace, addressSelectionFailure, parseAddressConfig, parseAddressValidation } from '../src/address-assistance/client';
 import { seedDemo, type DemoData } from '../src/model';
 import { emptyEmployeeFleet } from './helpers/employee-fleet';
 
@@ -26,13 +26,13 @@ test('Google-träff måste innehålla svensk gata, postnummer och postort utan a
   expect(() => addressFromGooglePlace({ addressComponents: addressComponents.map(component => component.types.includes('country') ? { ...component, shortText: 'US' } : component) })).toThrow();
 });
 
-async function customerAddress(page: Page, options: { configured?: boolean; deferValidation?: boolean } = {}) {
+async function customerAddress(page: Page, options: { configured?: boolean; deferValidation?: boolean; validationError?: { status: number; message: string; code: string }; detailsFailure?: boolean } = {}) {
   const personId = 'address-assistance-person';
   const data: DemoData = { ...seedDemo(), customers: [], drafts: [{ id: 'address-draft', number: 9103, siteId: 'norrtalje', createdAt: '2026-10-20T08:00:00.000Z', updatedAt: '2026-10-20T08:00:00.000Z', mode: 'direct', status: 'draft', rows: [], reference: '', origin: '' }] };
   const validations: Request[] = [];
   let releaseValidation: () => void = () => {};
   const validationGate = options.deferValidation ? new Promise<void>(resolve => { releaseValidation = resolve; }) : Promise.resolve();
-  await page.addInitScript(({ personId, data }) => {
+  await page.addInitScript(({ personId, data, detailsFailure }) => {
     const key = `jeroc.mobile.demo.v1.employee.${personId}`;
     localStorage.setItem(key, JSON.stringify(data));
     localStorage.setItem(`${key}.postgres-imported`, 'yes');
@@ -42,19 +42,19 @@ async function customerAddress(page: Page, options: { configured?: boolean; defe
         { types: ['postal_code'], longText: '761 41' }, { types: ['postal_town'], longText: 'Norrtälje' },
         { types: ['country'], longText: 'Sverige', shortText: 'SE' },
       ],
-      fetchFields: async () => ({}),
+      fetchFields: async () => { if (detailsFailure) throw new Error('SDK request failed: key=RAW-SECRET-MUST-NOT-SHOW'); return {}; },
     };
     Object.assign(window, { google: { maps: { importLibrary: async () => ({
       AutocompleteSessionToken: class {},
       AutocompleteSuggestion: { fetchAutocompleteSuggestions: async () => ({ suggestions: [{ placePrediction: { text: { toString: () => 'Testgatan 12, Norrtälje, Sverige' }, toPlace: () => place } }] }) },
     }) } } });
-  }, { personId, data });
+  }, { personId, data, detailsFailure: options.detailsFailure });
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/address-assistance/config') return route.fulfill({ json: options.configured === false
       ? { configured: false, validationConfigured: false, countryCode: 'SE' }
       : { configured: true, browserApiKey: 'public-browser-key', validationConfigured: true, countryCode: 'SE' } });
-    if (path === '/api/address-assistance/validate') { validations.push(request); await validationGate; return route.fulfill({ json: validation }); }
+    if (path === '/api/address-assistance/validate') { validations.push(request); await validationGate; return options.validationError ? route.fulfill({ status: options.validationError.status, json: { error: options.validationError.message, code: options.validationError.code } }) : route.fulfill({ json: validation }); }
     if (path === '/api/employee/fleet') return route.fulfill({ json: emptyEmployeeFleet(personId) });
     if (path.startsWith('/api/employee/')) return route.fulfill({ json: {
       person: { id: personId, name: 'Testmedarbetare', role: 'Invägare', team: 'Gården', siteIds: ['norrtalje'] },
@@ -107,4 +107,32 @@ test('saknad Googlekonfiguration lämnar manuella adressfält tillgängliga', as
   await page.getByLabel('Gatuadress (valfritt)', { exact: true }).fill('Skogsvägen bakom ladan');
   await expect(page.getByLabel('Gatuadress (valfritt)', { exact: true })).toHaveValue('Skogsvägen bakom ladan');
   await expect(page.getByRole('combobox', { name: 'Sök adress', exact: true })).toHaveCount(0);
+});
+
+
+test('nekad servernyckel visas som anslutningsfel utan att skuldbelägga adressen eller fylla fälten', async ({ page }) => {
+  const message = 'Google nekade serverns adresskontroll. Kontrollera servernyckeln, API-begränsningen och Render-IP-adresserna.';
+  await customerAddress(page, { validationError: { status: 403, message, code: 'address_validation_credentials_rejected' } });
+  await page.getByRole('button', { name: 'Sök och komplettera adress', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Sök adress', exact: true }).fill('Testgatan');
+  await page.getByRole('listbox', { name: 'Adressförslag' }).getByRole('option').click();
+  await expect(page.getByText(message, { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Gatuadress (valfritt)', { exact: true })).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Adressen stämmer – använd adressen', exact: true })).toHaveCount(0);
+});
+
+test('rått Google-SDK-fel visas inte och blandas inte ihop med servervalidering', async ({ page }) => {
+  const fixture = await customerAddress(page, { detailsFailure: true });
+  await page.getByRole('button', { name: 'Sök och komplettera adress', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Sök adress', exact: true }).fill('Testgatan');
+  await page.getByRole('listbox', { name: 'Adressförslag' }).getByRole('option').click();
+  await expect(page.getByText('Adressens detaljer kunde inte hämtas från Google. Försök igen eller fyll i adressen manuellt.', { exact: true })).toBeVisible();
+  await expect(page.getByText('RAW-SECRET-MUST-NOT-SHOW', { exact: false })).toHaveCount(0);
+  expect(fixture.validations).toHaveLength(0);
+});
+
+test('endast egna sanerade adressfel lämnas vidare till gränssnittet', () => {
+  expect(addressSelectionFailure(new AddressAssistanceError('Google nekade servernyckeln.', 'address_validation_credentials_rejected', 503), 'validation')).toBe('Google nekade servernyckeln.');
+  expect(addressSelectionFailure(new Error('URL med key=PRIVATE'), 'details')).not.toContain('PRIVATE');
+  expect(addressSelectionFailure(new Error('URL med key=PRIVATE'), 'validation')).toContain('Serverns adresskontroll');
 });

@@ -114,6 +114,8 @@ export function createGoogleAddressValidation({ env = process.env, fetchImpl = f
         void response.body?.cancel().catch(() => {});
         if (response.status === 400)
           fail('Adressen kunde inte kontrolleras. Kontrollera uppgifterna eller fyll i dem manuellt.', 422, 'address_validation_invalid');
+        if ([401, 403].includes(response.status))
+          fail('Google nekade serverns adresskontroll. Kontrollera servernyckeln, att Address Validation API är aktiverat samt appens utgående IP-adresser i Google Cloud.', 503, 'address_validation_access_denied');
         if (response.status === 429)
           fail('Adresskontrollen används mycket just nu. Vänta en stund eller fyll i adressen manuellt.', 429, 'address_validation_rate_limited');
         fail('Adresskontrollen kan inte nås just nu. Fyll i adressen manuellt.', 503, 'address_validation_unavailable');

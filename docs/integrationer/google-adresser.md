@@ -68,6 +68,12 @@ giltiga sessionsfixturer; den verkliga gatewayens åtkomstkontroll testas separa
 
 Automatiska tester använder syntetiska Google-/SCB-svar. Riktiga nycklar och anrop från Renders utgående IP-adresser behöver kontrolleras i den driftsatta appen; lokala tester bevisar inte att Googles projektinställningar är aktiverade.
 
+## Förtydligad feldiagnos 20 oktober 2026
+
+Adressförslaget kan visas även om ett senare detalj- eller valideringsanrop misslyckas. Dessa steg visar nu olika feltexter. Nekad servernyckel/API-åtkomst har en egen kategori (`address_validation_access_denied`) med instruktion att kontrollera Address Validation API, nyckel och Renders utgående IP-intervall. Råa Google-fel eller nycklar visas inte.
+
+Den rapporterade skärmbilden bevisar inte vilken av orsakerna som gäller. Prova igen efter deployment och använd den nya specifika feltexten. Funktionen fyller fortfarande inte i någon adress utan lyckad serverkontroll och användarens bekräftelse.
+
 ## Källor
 
 - [Google: Autocomplete Data API](https://developers.google.com/maps/documentation/javascript/place-autocomplete-data)

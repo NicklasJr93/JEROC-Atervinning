@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Check, ChevronDown, LoaderCircle, MapPin, Search, X } from 'lucide-react';
 import { companyLookupScope } from '../company-register/client';
-import { addressFromGooglePlace, loadAddressConfig, loadGooglePlaces, validateAddress, withAddressTimeout, type AddressPrediction, type AddressValidation, type AddressValue, type GooglePlacesLibrary } from './client';
+import { addressFromGooglePlace, addressSelectionFailure, loadAddressConfig, loadGooglePlaces, validateAddress, withAddressTimeout, type AddressPrediction, type AddressSelectionStage, type AddressValidation, type AddressValue, type GooglePlacesLibrary } from './client';
 import './address-assistance.css';
 
 export type { AddressValue } from './client';
@@ -105,17 +105,21 @@ export default function AddressAssist({ value, onApply, disabled = false, scopeK
     setPredictions([]);
     setActive(-1);
     setState({ key, phase: 'validating' });
+    let stage: AddressSelectionStage = 'details';
     try {
       const place = prediction.toPlace();
       await withAddressTimeout(place.fetchFields({ fields: ['addressComponents', 'formattedAddress'] }));
       if (!current(key, requestNumber) || controller.signal.aborted) return;
       token.current = new library.current!.AutocompleteSessionToken();
-      const result = await validateAddress(addressFromGooglePlace(place), scope, controller.signal);
+      stage = 'components';
+      const address = addressFromGooglePlace(place);
+      stage = 'validation';
+      const result = await validateAddress(address, scope, controller.signal);
       if (!current(key, requestNumber) || controller.signal.aborted) return;
       setState({ key, phase: 'confirm', result });
-    } catch {
+    } catch (failure) {
       if (current(key, requestNumber) && !controller.signal.aborted)
-        setState({ key, phase: 'unavailable', message: 'Träffen kunde inte kontrolleras som en komplett svensk adress. Fyll i adressen manuellt eller välj en annan träff.' });
+        setState({ key, phase: 'unavailable', message: addressSelectionFailure(failure, stage) });
     }
   };
   const apply = () => {
