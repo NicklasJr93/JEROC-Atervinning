@@ -623,14 +623,28 @@ test('intake callbacks roll back reservations and release is bound to intake and
   // Exercise the real shared-unit rollback-only fence around the terminal
   // repository. An old release must commit the outer application callback,
   // even while a different customer owns this terminal.
-  const calls = [], pool = { async connect() { return { query: async sql => { calls.push(sql); return { command: sql === 'COMMIT' ? 'COMMIT' : undefined }; }, release() {} }; } };
   const repository = f.service.repository;
-  const nestedService = createTerminalDemoStore({ repository: { ...repository,
-    transact: operation => runInDatabaseTransaction(pool, () => repository.transact(operation)) },
-    principalStore: f.pricing, now: () => new Date('2026-10-09T10:00:00.000Z') });
-  let reconciled = false;
-  await runInDatabaseTransaction(pool, () => nestedService.withIntakeTerminal({ ...use, operation: 'release' }, staffIdentity, () => { reconciled = true; }));
-  assert.equal(reconciled, true); assert.deepEqual(calls, ['BEGIN', 'COMMIT']);
+  const calls = [];
+  let postgresPool;
+  if (repository.kind === 'postgresql') {
+    const { Pool } = await import('pg');
+    // A real PG repository must share the fixture's exact connection/schema
+    // configuration. A configless fake pool correctly fails that safety fence.
+    postgresPool = new Pool({ connectionString: f.repositoryOptions.env.DATABASE_URL, max: 5, connectionTimeoutMillis: 8000 });
+  }
+  const pool = { ...(postgresPool ? { options: postgresPool.options } : {}), async connect() {
+    const client = await postgresPool?.connect();
+    return { async query(sql, parameters) { calls.push(sql); return client ? client.query(sql, parameters) : { command: sql === 'COMMIT' ? 'COMMIT' : undefined }; }, release() { client?.release(); } };
+  } };
+  try {
+    const nestedService = createTerminalDemoStore({ repository: { ...repository,
+      transact: operation => runInDatabaseTransaction(pool, () => repository.transact(operation)) },
+      principalStore: f.pricing, now: () => new Date('2026-10-09T10:00:00.000Z') });
+    let reconciled = false;
+    await runInDatabaseTransaction(pool, () => nestedService.withIntakeTerminal({ ...use, operation: 'release' }, staffIdentity, () => { reconciled = true; }));
+    assert.equal(reconciled, true);
+    assert.deepEqual(calls.filter(sql => /^(BEGIN|COMMIT|ROLLBACK)$/.test(sql)), ['BEGIN', 'COMMIT']);
+  } finally { await postgresPool?.end(); }
   assert.equal((await f.service.session(loggedIn.token)).terminal.activeIntakeId, 'next-customer');
 }));
 

@@ -112,9 +112,34 @@ test('nonhazardous cards skip the environment stage, while legacy matching recei
   const ungatedLegacyStore = createEnvironmentStore({ repository: f.environmentRepository, principalStore: f.pricing, now: () => new Date('2026-10-09T10:00:00Z') });
   const old = await ungatedLegacyStore.receive(f.receipt(legacy), f.staff.admin.environment);
   const review = await f.terminal.send(legacy, f.staff.kajsa.terminal); await f.approve(review);
+  assert.equal(old.snapshot.originAddress, origin);
+  assert.equal(review.snapshot.origin, 'Testgatan 12, 76141 Norrtälje');
   assert.equal((await f.terminal.attest(review.id, f.staff.anna.terminal)).status, 'attested');
-  assert.equal((await f.environment.state(f.staff.admin.environment)).receipts[0].originalHash, old.hash);
+  const preserved = (await f.environment.state(f.staff.admin.environment)).receipts[0];
+  assert.equal(preserved.originalHash, old.hash);
+  assert.equal(preserved.snapshot.originAddress, origin);
+  assert.deepEqual(preserved.snapshot, old.snapshot);
 }));
+
+test('legacy receipt comparison keeps different origins, sites, materials and weights distinct', async () => {
+  for (const difference of ['origin', 'site', 'material', 'weight']) await fixture(async f => {
+    const request = f.payload();
+    const ungatedLegacyStore = createEnvironmentStore({ repository: f.environmentRepository, principalStore: f.pricing, now: () => new Date('2026-10-09T10:00:00Z') });
+    if (difference === 'material') await f.environment.classify('lead', { expectedVersion: 0, hazardous: true, wasteCode: '160601', wasteDescription: 'Syntetiskt farligt testmaterial', handlingInstructions: '', adrRequired: false }, f.staff.admin.environment);
+    const input = f.receipt(request, {
+      ...(difference === 'origin' ? { originAddress: 'Testgatan 13, 761 41 Norrtälje', lastPlace: { ...place, address: 'Testgatan 13' } } : {}),
+      ...(difference === 'site' ? { siteId: 'rimbo' } : {}),
+      ...(difference === 'material' ? { rows: [{ articleId: 'lead', weight: 10 }] } : {}),
+      ...(difference === 'weight' ? { rows: [{ articleId: 'lead-battery', weight: 11 }] } : {}),
+    });
+    const old = await ungatedLegacyStore.receive(input, f.staff.admin.environment);
+    const approval = await f.terminal.send(request, f.staff.kajsa.terminal); await f.approve(approval);
+    await reject(() => f.terminal.attest(approval.id, f.staff.anna.terminal), difference === 'site' ? 'environment_receipt_required' : 'environment_receipt_mismatch');
+    const preserved = (await f.environment.state(f.staff.admin.environment)).receipts.find(receipt => receipt.id === old.id);
+    assert.equal(preserved.originalHash, old.hash);
+    assert.deepEqual(preserved.snapshot, old.snapshot);
+  });
+});
 
 test('physical receipt exception needs privileged permission, an actual change request and a reason; it never approves attest', async () => fixture(async f => {
   const request = f.payload(), approval = await f.terminal.send(request, f.staff.kajsa.terminal);

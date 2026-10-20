@@ -429,7 +429,7 @@ export function createTerminalDemoStore({ repository, principalStore = createPri
           if (approval.status !== 'change_requested') throw new TerminalDemoError('En mottagningsavvikelse kan bara registreras när kunden begärt ändring.', 409, 'receipt_exception_not_allowed');
         } else if (!['approved', 'attested'].includes(approval.status) || approval.approvedHash !== approval.snapshot.hash)
           throw new TerminalDemoError('Kunden behöver godkänna kortets aktuella avräkning före mottagningsbekräftelse.', 409, 'customer_approval_required');
-        if (!input.approvalExceptionReason && (input.originAddress ?? input.lastPlace.address).trim() !== approval.snapshot.origin.trim())
+        if (!input.approvalExceptionReason && normalizeOriginAddress(input.originAddress ?? input.lastPlace.address) !== normalizeOriginAddress(approval.snapshot.origin))
           throw new TerminalDemoError('Ursprunget har ändrats efter kundens avräkning. Skicka en ny version för kundgodkännande.', 409, 'customer_approval_mismatch');
         return operation(copy(approval));
       });

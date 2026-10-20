@@ -9,7 +9,7 @@ import { createNvvSandbox } from './nvv-sandbox.mjs';
 import { createNvvDiagnostics } from './nvv-diagnostics.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { afterDatabaseCommit } from './database-runtime.mjs';
-import { normalizeAddress, addressError, normalizePhoneNumber, phoneNumberError } from '../dist-server/domain-models.mjs';
+import { normalizeAddress, normalizeOriginAddress, addressError, normalizePhoneNumber, phoneNumberError } from '../dist-server/domain-models.mjs';
 import { facilityOpeningHoursSchema } from './facility-opening-hours.mjs';
 
 export const ENVIRONMENT_DEMO_PASSWORD = 'JerocDemo2026!';
@@ -756,7 +756,9 @@ export function createEnvironmentStore({ repository, principalStore, now = () =>
         const recorded = scopedRows(receipt.snapshot.rows, 'hazardous');
         const signature = rows => environmentHash(physicalRows(rows).sort((a, b) => a.articleId.localeCompare(b.articleId)));
         const origin = receipt.snapshot.originAddress ?? receipt.snapshot.lastPlace.address;
-        if (signature(recorded) !== signature(requiredRows) || origin.trim() !== approval.snapshot.origin.trim())
+        // Compare equivalent postal formatting without rewriting the immutable
+        // receipt, approval snapshot or their original integrity hashes.
+        if (signature(recorded) !== signature(requiredRows) || normalizeOriginAddress(origin) !== normalizeOriginAddress(approval.snapshot.origin))
           throw new EnvironmentError('Miljömottagningen stämmer inte med kundens godkända material, vikt eller ursprung. Gör en miljörättelse före attest.', 409, 'environment_receipt_mismatch');
         return { required: true, received: true, receiptId: receipt.id, version: receipt.version, hash: receipt.hash };
       }, { sourceId: approval.snapshot.card.sourceId, entities: ['classifications', 'receipts', 'corrections', 'reports'] });
