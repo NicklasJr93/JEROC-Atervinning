@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import { applyPilotSecurityHeaders, pilotRequestPolicy } from './pilot-http.mjs';
 
 const profile = { mode: 'pilot', pilot: true, appOrigin: 'https://app.scrapplanner.com', mobileOrigin: 'https://mobile.scrapplanner.com' };
-const request = (path, { host = 'app.scrapplanner.com', method = 'GET', ...headers } = {}) =>
-  pilotRequestPolicy({ method, headers: { host, ...headers } }, new URL(path, 'http://localhost'), profile);
+const request = (path, { host = 'app.scrapplanner.com', method = 'GET', expoGoEnabled = false, ...headers } = {}) =>
+  pilotRequestPolicy({ method, headers: { host, ...headers } }, new URL(path, 'http://localhost'), { ...profile, expoGoEnabled });
 
 test('pilot homepage selects only configured mobile host and preserves tenant query', () => {
   assert.deepEqual(request('/?company=company-one'), { status: 303, location: '/kontor/?company=company-one' });
@@ -16,6 +16,19 @@ test('pilot homepage selects only configured mobile host and preserves tenant qu
   assert.equal(request('/', { method: 'POST' }), null);
   assert.equal(request('/mobil/'), null);
   assert.equal(request('/api/platform/login', { method: 'POST' }), null);
+});
+
+test('explicit optional Expo hosting preserves pilot laboratory blocks and native manifest routing', () => {
+  for (const path of ['/expo', '/expo/status', '/expo/retry', '/expo-go', '/expo-go.html', '/expo-go-qr.svg',
+    '/manifest', '/index.exp', '/index.ts.bundle?platform=ios', '/assets/assets/icon.png'])
+    assert.equal(request(path, { expoGoEnabled: true }), null, path);
+  for (const headers of [{ 'expo-platform': 'ios' }, { 'exponent-platform': 'android' }, { accept: 'application/expo+json' }])
+    assert.equal(request('/', { ...headers, expoGoEnabled: true }), null);
+  assert.equal(request('/', { expoGoEnabled: true }).location, '/kontor/');
+  for (const path of ['/testbil1', '/rosttest', '/api/testcar/session', '/api/public/voice-test/calls',
+    '/kontor/integration/systemadminintegrationtest.html'])
+    assert.equal(request(path, { expoGoEnabled: true }).status, 404, path);
+  assert.equal(request('/assets/assets/icon.png').status, 404);
 });
 
 test('pilot rejects laboratory pages and APIs before they can allocate a demo runtime', () => {

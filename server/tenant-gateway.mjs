@@ -23,6 +23,7 @@ import { createPlatformPasswordReset } from './platform-password-reset.mjs';
 import { initialAdminProfileForDeployment } from './deployment-profile-seeds.mjs';
 import { createStaffInvitations, validateStaffInvitationTarget } from './staff-invitations.mjs';
 import { createPublicCustomerApproval } from './public-customer-approval.mjs';
+import { createGlobalEmployeeLogin } from './mobile-global-login.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -216,6 +217,8 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const staffInvitations = createStaffInvitations({ auth, email, repository, env,
     companyRepository: async company => (await bundle(company)).applicationApi.getRepository() });
   const platformApi = createPlatformApi({ auth, fleet: platformFleet, communications, passwordReset, staffInvitations, env });
+  const globalEmployeeLogin = createGlobalEmployeeLogin({ repository, auth, env, openCompany: bundle,
+    fallbackCompany: defaultCompany, sameOrigin, json });
   const fleetTimer = setInterval(() => { void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.')); }, 30_000);
   fleetTimer.unref();
   void platformFleet.reconcile().catch(() => console.warn('Trackerregistret väntar på synkronisering.'));
@@ -337,6 +340,7 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/')) return false;
     if (await customerApprovalLinks.handle(req, res, url)) return true;
+    if (await globalEmployeeLogin.handle(req, res, url)) return true;
     if (await companyRegisterApi(req, res, url)) return true;
     if (await addressAssistanceApi(req, res, url)) return true;
     if (url.pathname.startsWith('/api/public/voice-test')) {
@@ -375,12 +379,17 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
         if (platformCookieToken(req) !== undefined) context = await auth.resolveContext(req, { writes: false });
         company = context?.company ?? (await auth.resolveTenantSelector(req))?.company ?? defaultCompany;
       }
+      if (!company && url.pathname === '/api/employee/demo-config' && req.method === 'GET') {
+        json(res, 200, { enabled: false, accounts: { niklas: false, admin: false } }); return true;
+      }
+      if (!company && url.pathname.startsWith('/api/employee/')) throw new PlatformError('Logga in för att använda appen.', 401, 'employee_session_required');
       if (!company) throw new PlatformError('Öppna bolagets egen inloggningslänk för att fortsätta.', 409, 'platform_company_required');
       return await withBusinessIdentity(context, async () => {
       const expectedCompany = req.headers['x-client-company'] ?? req.headers['x-employee-company'] ?? url.searchParams.get('expectedCompany');
       if (expectedCompany !== undefined && expectedCompany !== null && expectedCompany !== company.id)
         throw new PlatformError('Bolaget har bytts i en annan flik. Logga in igen.', 409, 'company_selection_changed');
       const service = await bundle(company);
+      if (hasEmployeeSession(req) && (employeeRoute(url) || mediaRead)) await globalEmployeeLogin.authorizeSession(req, company, service);
       if (url.pathname === '/api/testcar/fleet') {
         const captured = { method: 'POST', headers: { ...req.headers,
           'x-platform-generation': String(context.generation), 'x-platform-organisation-id': company.id } };

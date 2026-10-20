@@ -14,6 +14,8 @@ import { employeeSites, employeeCompanyId, employeeActiveSite, saveEmployeeActiv
 import { employeeSicknessCommand, employeeSicknessProjection, refreshSicknessAbsences } from './employee-sickness.mjs';
 import { personnelFacilityScope, syncPersonnelFacilityAccess } from './facility-access.mjs';
 import { fleetTripGate, fleetVehicleEligible } from './fleet.mjs';
+import { globalEmployeeLoginContext, employeeLoginPasswordValid, employeeLoginAddress } from './mobile-global-login.mjs';
+import { PlatformError } from './platform-auth.mjs';
 
 const COOKIE = 'jeroc_employee';
 const SESSION_HOURS = 8;
@@ -100,6 +102,8 @@ function sessionIdentity(state, req, { now } = {}) {
   const user = person?.userId ? state.pricing?.users?.find(value => value.id === person.userId) : undefined;
   if (!session || !person?.active || person.kind !== 'employee' || !account?.active || person.userId && (!user || user.active === false))
     fail('Logga in igen för att använda appen.', 401);
+  if (session.platformUserId && (person.userId !== session.businessUserId || account.staffInvitationIdentityId && account.staffInvitationIdentityId !== session.platformUserId))
+    fail('Logga in igen för att använda appen.', 401);
   const accountUser = user ?? { id: person.id, name: person.name, level: 'Medarbetare', permissions: ['view', ...(person.canDrive ? ['transportRead'] : [])] };
   const siteIds = personnelFacilityScope(state, person);
   const employeeUser = { ...accountUser, siteIds };
@@ -173,7 +177,10 @@ function managePeople(state, identity) {
 }
 
 export function createMobileEmployeeApi({ getRepository, readBody, json, siteProvider = async () => [], now = () => new Date(), env = process.env }) {
-  const cookie = (res, token, req) => res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; Path=/api; SameSite=Strict; Max-Age=${token ? SESSION_HOURS * 3600 : 0}${req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`);
+  const cookie = (res, token, req) => {
+    const old = res.getHeader('Set-Cookie');
+    res.setHeader('Set-Cookie', [...(old ? Array.isArray(old) ? old : [old] : []), `${COOKIE}=${token}; HttpOnly; Path=/api; SameSite=Strict; Max-Age=${token ? SESSION_HOURS * 3600 : 0}${env.RENDER || req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`]);
+  };
   return async (req, res, url) => {
     if (!url.pathname.startsWith('/api/employee/')) return false;
     try {
@@ -184,7 +191,8 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         const protocol = req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? 'https:' : 'http:';
         if (origin.host !== req.headers.host || origin.protocol !== protocol) fail('Anropet måste komma från samma webbplats.', 403);
       }
-      const path = url.pathname.slice('/api/employee/'.length), payload = req.method === 'POST' ? await readBody(req) : undefined;
+      const globalLogin = globalEmployeeLoginContext(req);
+      const path = url.pathname.slice('/api/employee/'.length), payload = req.method === 'POST' ? globalLogin?.input ?? await readBody(req) : undefined;
       if (path === 'demo-config' && req.method === 'GET') {
         const repository = await getRepository();
         const config = await repository.read(state => {
@@ -208,7 +216,7 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
       }
       const siteCatalog = await siteProvider();
       const repository = await getRepository();
-      const operate = (state, _, audit = []) => {
+      const operate = async (state, _, audit = []) => {
         // Login and startup persist all required identities and policies. Reads
         // use a snapshot and never take a write lock or prune authentication.
         if (req.method === 'POST') { ensureMobileEmployeeAccounts(state); ensureLogistics(state); }
@@ -251,16 +259,23 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         if (path === 'login') {
           if (req.method !== 'POST') fail('Metoden stöds inte.', 405);
           const input = parse(z.object({ username: z.string().trim().toLowerCase().min(1).max(200), password: z.string().min(1).max(200) }).strict(), payload);
-          const address = hash(req.socket.remoteAddress ?? 'unknown');
+          const address = employeeLoginAddress(req, env);
           if (auth.attempts.filter(value => value.kind === 'employee' && value.address === address).length >= 12) fail('För många inloggningsförsök. Vänta 15 minuter.', 429);
-          const account = auth.accounts.find(value => value.username === input.username), person = state.personnel.people.find(value => value.id === account?.personId);
+          const candidates = globalLogin?.businessUserId ? auth.accounts.filter(value => state.personnel.people.some(person => person.id === value.personId && person.userId === globalLogin.businessUserId)) : undefined;
+          const account = candidates ? candidates.length === 1 ? candidates[0] : undefined : auth.accounts.find(value => value.username === input.username);
+          const person = state.personnel.people.find(value => value.id === account?.personId);
           const user = person?.userId ? state.pricing.users.find(value => value.id === person.userId) : undefined;
-          const validPassword = passwordValid(input.password, account?.password);
-          if (!validPassword || !account?.active || !person?.active || person.kind !== 'employee' || person.userId && (!user || user.active === false)) {
+          const validPassword = await employeeLoginPasswordValid(input.password, account?.password);
+          if (!validPassword || !account?.active || !person?.active || person.kind !== 'employee' || person.userId && (!user || user.active === false)
+            || account.staffInvitationIdentityId && account.staffInvitationIdentityId !== globalLogin?.platformUserId) {
             auth.attempts.push({ kind: 'employee', address, at }); return { failure: 'Fel inloggning eller inaktivt konto.' };
           }
+          if (req.headers['x-employee-person'] !== undefined && req.headers['x-employee-person'] !== person.id)
+            fail('Personalkontot har bytts i en annan flik. Logga in igen.', 409, { code: 'employee_selection_changed' });
+          await globalLogin?.authorize?.();
           const token = randomBytes(32).toString('base64url');
-          auth.sessions.push({ kind: 'employee', tokenHash: hash(token), personId: person.id, expiresAt: new Date(Date.parse(at) + SESSION_HOURS * 3600_000).toISOString() });
+          auth.sessions.push({ kind: 'employee', tokenHash: hash(token), personId: person.id, expiresAt: new Date(Date.parse(at) + SESSION_HOURS * 3600_000).toISOString(),
+            ...(globalLogin?.platformUserId && { platformUserId: globalLogin.platformUserId, businessUserId: globalLogin.businessUserId }) });
           account.lastLoginAt = at;
           enrollEmployeeTime(state, person, { now });
           audit.push({ action: 'employee.login', personId: person.id, actualUserId: user?.id ?? person.id, at });
@@ -441,10 +456,11 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
         ? await repository.read(operate, { domains: ['metadata', 'pricing', 'personnel', 'personnelAuth', 'employeeTime', 'employeeSickness', 'transport', 'logistics',
           'fleet', ...(path === 'equipment' ? ['equipment'] : [])] })
         : await repository.transact(operate);
-      if (result.failure) json(res, 401, { error: result.failure });
-      else { if (result.token !== undefined) cookie(res, result.token, req); json(res, 200, result.value); }
+      if (result.failure) json(res, 401, { error: result.failure, code: 'employee_login_failed' });
+      else { if (result.token && globalLogin) await globalLogin.finish(); if (result.token !== undefined) cookie(res, result.token, req); json(res, 200, result.value); }
     } catch (error) {
-      json(res, error instanceof PricingError ? error.status : 503, { error: error instanceof PricingError ? error.message : 'Appens personaltjänst kunde inte nås.', ...(error.code ? { code: error.code } : {}), ...(error.gate ? { gate: error.gate } : {}), ...(error.fleetGate ? { fleetGate: error.fleetGate } : {}) });
+      const known = error instanceof PricingError || error instanceof PlatformError;
+      json(res, known ? error.status : 503, { error: known ? error.message : 'Appens personaltjänst kunde inte nås.', ...(error.code ? { code: error.code } : {}), ...(error.gate ? { gate: error.gate } : {}), ...(error.fleetGate ? { fleetGate: error.fleetGate } : {}) });
     }
     return true;
   };

@@ -3609,3 +3609,30 @@ Status: Genomförd i kod 2026-10-20. Driftsatt prov sker efter deployment.
   docs/integrationer/systemutskick.md. Automatiska server- och browserprov
   använder syntetiska leverantörssvar och skickar inga verkliga mejl/SMS.
   Exakta kontrollresultat redovisas med leveransen.
+
+
+ÄL 145 – Expo Go för livepilot och mobilinloggning som hittar bolaget
+Status: Genomförd i kod 2026-10-20. Fysisk telefon provas efter deployment.
+- Mobilen ska kunna öppnas direkt utan bolagsval: användarnamn/e-post och
+  lösenord kopplar kontot till rätt aktivt bolag på servern. Verifieringen
+  använder bolagets aktuella personalkonto och ordinarie behörigheter.
+- Separata bolagsdatalager, sessionsgränser och skydd mot felaktiga
+  klientheaders kvarstår. Gamla cookies får inte styra en ny explicit login.
+- Aktiverad inbjudan/föreskrivet lösenordsbyte krävs. Okända, inaktiva och
+  tvetydiga kontokopplingar ger ingen åtkomst till bolag eller persondata.
+- Expo Go används tillfälligt för liveprov utan App Store-publicering.
+  QR-sidan ligger på app.scrapplanner.com/expo-go och skalet öppnar
+  mobile.scrapplanner.com/mobil/ med personliga konton. Inga demouppgifter
+  visas i liveflödet. QR och öppningslänk använder rätt Expo-tjänst.
+- Pilotens Expo-del kräver uttrycklig aktivering och privat Expo-token.
+  Mobilwebbens URL separeras från manifest/paketens publika Render-adress.
+  Övriga demolaboratorier förblir spärrade.
+- Befintlig Expo-konfiguration återanvänds i nya Render-tjänsten utan att
+  token visas i klienten, dokumentationen eller revisionsspåret.
+- Dokumentation: docs/expo-go-live.md. Automatiska prov använder isolerade
+  testkonton; fysisk Expo Go-inloggning provas därefter på telefonen.
+- Verifiering: produktionsbygge, Expo-typkontroll, 69 riktade serverprov,
+  gränsprov för adress/session/rate-limit och fem browserfall passerar.
+  Lokala iOS-/Android-paket byggs utan Expo-kontoinloggning och validerar
+  den inbyggda mobiladressen. Skarpa miljö-/manifestkontroller följer
+  efter den pinnade Render-deploymenten.

@@ -51,7 +51,7 @@ services:
     region: frankfurt
     plan: 0.5c-512mb
     numInstances: 1
-    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build:render
     startCommand: npm start
     healthCheckPath: /readyz
     domains:
@@ -77,6 +77,7 @@ services:
       - key: JEROC_DEMO_AUTO_SESSION
         value: "false"
       - key: EXPO_GO_ENABLED
+        # Temporary Live tests may explicitly override this and set EXPO_TOKEN.
         value: "false"
 
 databases:

@@ -1,5 +1,7 @@
 # Återanvänd Expo Go med QR-sida på Render
 
+För den separata ScrapPlanner-piloten, se [Expo Go för ScrapPlanner Live](expo-go-live.md). Adresserna till den äldre JEROC-demon nedan beskriver den ursprungliga testmiljön.
+
 Detta beskriver ScrapPilots implementation, granskad i koden 2026-10-17.
 Använd receptet i ett annat projekt med dess egna adresser, Expo-projekt och
 inloggning. Ingen av ScrapPilots hemligheter eller demokonton ska följa med.

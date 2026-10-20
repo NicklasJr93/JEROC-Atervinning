@@ -2,17 +2,68 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { request } from 'node:http';
 import { connect } from 'node:net';
+import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const expoRoot = fileURLToPath(new URL('../expo/', import.meta.url));
 const bundlePaths = new Set(['/index.bundle', '/index.ts.bundle']);
 const allowedPaths = new Set(['/', '/manifest', '/index.exp', ...bundlePaths]);
+// These are the only local files referenced by the Expo manifest. Do not open
+// Metro's general assets endpoint: it can resolve arbitrary project paths.
+const manifestAssets = new Set(['icon.png', 'splash.png', 'adaptive-icon.png'].map(name => `/assets/assets/${name}`));
+const expoRequire = createRequire(new URL('../expo/package.json', import.meta.url));
+let qrCache;
+
+export function expoGoEnabled(env = process.env) {
+  const tokenPresent = typeof env.EXPO_TOKEN === 'string' && Boolean(env.EXPO_TOKEN.trim());
+  return tokenPresent && (env.SCRAPPLANNER_DEPLOYMENT_MODE === 'pilot'
+    ? env.EXPO_GO_ENABLED === 'true' : env.EXPO_GO_ENABLED !== 'false');
+}
+
+/** The packager origin is infrastructure; the WebView target is the mobile
+ * product. Keep the two values identical between build and runtime so Metro's
+ * persistent transform cache contains the intended mobile URL. */
+export function expoGoConfiguration(env = process.env) {
+  const pilot = env.SCRAPPLANNER_DEPLOYMENT_MODE === 'pilot';
+  try {
+    const source = env.RENDER_EXTERNAL_URL ?? (!pilot ? env.EXPO_PUBLIC_WEB_APP_URL : undefined);
+    const packager = new URL(source);
+    if (!['https:', ...(!pilot ? ['http:'] : [])].includes(packager.protocol) || packager.username || packager.password
+      || packager.pathname !== '/' || packager.search || packager.hash) throw new Error();
+    const publicUrl = packager.origin;
+    const configuredWebUrl = env.EXPO_PUBLIC_WEB_APP_URL;
+    if (pilot && !configuredWebUrl) throw new Error();
+    const mobile = new URL(configuredWebUrl ?? publicUrl);
+    if (!['https:', ...(!pilot ? ['http:'] : [])].includes(mobile.protocol) || mobile.username || mobile.password
+      || mobile.search || mobile.hash) throw new Error();
+    if (pilot && (mobile.origin !== new URL(env.MOBILE_URL || 'https://mobile.scrapplanner.com').origin
+      || mobile.pathname !== '/mobil/')) throw new Error();
+    const webAppUrl = configuredWebUrl ? mobile.href : publicUrl;
+    const office = pilot ? new URL(env.APP_URL || 'https://app.scrapplanner.com') : undefined;
+    if (office && (office.protocol !== 'https:' || office.username || office.password
+      || office.pathname !== '/' || office.search || office.hash)) throw new Error();
+    const targetKey = createHash('sha256').update(`${publicUrl}\n${webAppUrl}`).digest('hex').slice(0, 24);
+    return { publicUrl, webAppUrl, deploymentMode: pilot ? 'pilot' : 'demo',
+      pageOrigins: [...new Set([publicUrl, mobile.origin, ...(office ? [office.origin] : [])])],
+      cacheDirectory: resolve(env.EXPO_METRO_CACHE_DIRECTORY || resolve(expoRoot, '.expo/metro-cache'), targetKey),
+      deepLink: `${packager.protocol === 'https:' ? 'exps:' : 'exp:'}//${packager.host}/expo` };
+  } catch {
+    throw Object.assign(new Error('Expo Go behöver en giltig offentlig serveradress och separat mobiladress. Pilot kräver HTTPS och mobiladressen /mobil/.'), { code: 'EXPO_CONFIGURATION_ERROR' });
+  }
+}
 
 export function expoProxyPath(url) {
-  const parsed = new URL(url, 'http://localhost');
+  let parsed;
+  try { parsed = new URL(url, 'http://localhost'); } catch { return null; }
   const path = parsed.pathname === '/expo' ? '/' : parsed.pathname.startsWith('/expo/') ? parsed.pathname.slice('/expo'.length) : parsed.pathname;
-  if (!allowedPaths.has(path)) return null;
+  if (!allowedPaths.has(path) && !manifestAssets.has(path)) return null;
+  if (manifestAssets.has(path)) {
+    const platform = parsed.searchParams.get('platform');
+    if (platform && !['ios', 'android'].includes(platform)) return null;
+    return path + (platform ? '?platform=' + platform : '');
+  }
   if (!bundlePaths.has(path)) {
     const platform = parsed.searchParams.get('platform');
     if (platform && platform !== 'ios' && platform !== 'android') return null;
@@ -76,15 +127,45 @@ export function expoBundlePath(platform) {
 
 export function expoStatus(control) {
   return { enabled: control.enabled, ready: control.ready, state: control.state,
-    compilingPlatform: control.compilingPlatform, warmedPlatforms: control.warmedPlatforms,
+    compilingPlatform: control.compilingPlatform ?? null, warmedPlatforms: control.warmedPlatforms ?? [],
+    ...(control.publicUrl ? { publicUrl: control.publicUrl, webAppUrl: control.webAppUrl,
+      deepLink: control.deepLink, deploymentMode: control.deploymentMode } : {}),
     retryable: Boolean(control.retryable), ...(control.retryAt ? { retryAt: control.retryAt } : {}),
     ...(control.errorCode ? { errorCode: control.errorCode } : {}) };
 }
 
+/** Generate the QR from configuration, never request Host/query values. The
+ * existing Expo CLI encoder is loaded only while Expo Go is enabled. */
+export function serveExpoQr(req, res, control) {
+  if (!control.enabled || !control.deepLink || !['GET', 'HEAD'].includes(req.method)) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : 'Not found'); return;
+  }
+  try {
+    if (qrCache?.deepLink !== control.deepLink) {
+      const pixels = expoRequire('toqr').toQR(control.deepLink), size = Math.sqrt(pixels.length);
+      if (!Number.isInteger(size) || size < 21 || size > 177) throw new Error();
+      const paths = [];
+      for (let index = 0; index < pixels.length; index++) if (pixels[index])
+        paths.push(`M${index % size + 4},${Math.floor(index / size) + 4}h1v1h-1z`);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size + 8} ${size + 8}" shape-rendering="crispEdges"><title>Öppna ScrapPlanner i Expo Go</title><rect width="100%" height="100%" fill="#fff"/><path d="${paths.join('')}" fill="#16334e"/></svg>`;
+      qrCache = { deepLink: control.deepLink, svg };
+    }
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Content-Length': Buffer.byteLength(qrCache.svg),
+      'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.end(req.method === 'HEAD' ? undefined : qrCache.svg);
+  } catch {
+    res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : 'Expo Go-koden kunde inte förberedas.');
+  }
+}
+
 export function retryExpo(req, res, control) {
-  // This public demo bundle is independent of company data. Only its own page
-  // may request preparation; the controller enforces single-flight/cooldown.
-  if (req.method !== 'POST' || !control.publicUrl || req.headers.origin !== new URL(control.publicUrl).origin) {
+  // This public wrapper bundle contains no company data. Only configured page
+  // origins may prepare it; the controller enforces single-flight/cooldown.
+  const origin = req.headers.origin;
+  const allowedOrigins = control.pageOrigins ?? [control.publicUrl, control.webAppUrl].filter(Boolean).map(value => new URL(value).origin);
+  if (req.method !== 'POST' || !control.publicUrl || !allowedOrigins.includes(origin)) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end('Expo-förberedelsen kan bara startas från den egna Expo-sidan.');
     return;
@@ -108,7 +189,9 @@ export function serveExpo(req, res, control) {
     return;
   }
   const { platform } = selected;
-  const ready = control.ready || (control.listening && control.warmedPlatforms.includes(platform));
+  const assetReady = manifestAssets.has(new URL(selected.path, 'http://localhost').pathname)
+    && control.listening && control.warmedPlatforms.length > 0;
+  const ready = control.ready || (control.listening && control.warmedPlatforms.includes(platform)) || assetReady;
   if (!control.enabled || !ready) {
     // Coalesced and cooled down inside the controller. Repeated native retries
     // cannot spawn another Metro or compile a concurrent second bundle.
@@ -171,12 +254,9 @@ function warmBundle({ port, publicUrl, platform, httpRequest, timeoutMs, maxByte
  * kill a healthy Metro. Injectable boundaries keep tests off real accounts. */
 export function startExpoGo({ onFailure = () => {}, env = process.env, spawnProcess = spawn,
   fileExists = existsSync, connectSocket = connect, httpRequest = request, timing = {} } = {}) {
-  const enabled = env.EXPO_GO_ENABLED !== 'false' && Boolean(env.EXPO_TOKEN);
+  const enabled = expoGoEnabled(env);
   if (!enabled) return { enabled: false, ready: false, state: 'disabled', compilingPlatform: null, warmedPlatforms: [], stop: async () => {} };
-  const publicUrl = env.RENDER_EXTERNAL_URL ?? env.EXPO_PUBLIC_WEB_APP_URL;
-  if (!publicUrl || !/^https?:\/\//.test(publicUrl)) {
-    throw new Error('Expo Go behöver RENDER_EXTERNAL_URL eller EXPO_PUBLIC_WEB_APP_URL.');
-  }
+  const configuration = expoGoConfiguration(env), { publicUrl, webAppUrl } = configuration;
   const cli = resolve(expoRoot, 'node_modules/expo/bin/cli');
   if (!fileExists(cli)) throw new Error('Expo-beroenden saknas. Använd npm run build:render i Render.');
   const port = Number(env.EXPO_INTERNAL_PORT ?? '8081');
@@ -188,15 +268,16 @@ export function startExpoGo({ onFailure = () => {}, env = process.env, spawnProc
     stopTimeoutMs: 5_000, maxBundleBytes: 64 * 1024 * 1024, ...timing };
   if (Object.values(bounds).some(value => !Number.isSafeInteger(value) || value <= 0)) throw new TypeError('Expo-startens gränser måste vara positiva heltal.');
   const control = { enabled: true, ready: false, state: 'starting', listening: false, retryable: false,
-    compilingPlatform: null, warmedPlatforms: [], port, publicUrl };
+    compilingPlatform: null, warmedPlatforms: [], port, ...configuration };
   const child = spawnProcess(process.execPath, [cli, 'start', '--lan', '--go', '--port', String(port), '--max-workers', '1', '--no-dev', '--minify'], {
     cwd: expoRoot,
     stdio: ['ignore', 'inherit', 'inherit'],
     env: {
       ...env, CI: '1', EXPO_UNSTABLE_HEADLESS: '1', EXPO_OFFLINE: '0', EXPO_NO_TELEMETRY: '1',
       NODE_OPTIONS: env.NODE_OPTIONS ?? '--max-old-space-size=256',
-      EXPO_PACKAGER_PROXY_URL: publicUrl.replace(/\/$/, ''),
-      EXPO_PUBLIC_WEB_APP_URL: publicUrl.replace(/\/$/, ''),
+      EXPO_PACKAGER_PROXY_URL: publicUrl,
+      EXPO_PUBLIC_WEB_APP_URL: webAppUrl,
+      EXPO_METRO_CACHE_DIRECTORY: configuration.cacheDirectory,
     },
   });
   let stopping = false, failed = false, compiling = false, attempts = 0, probe, startupDeadline, retryTimer, killDeadline, stopPromise;

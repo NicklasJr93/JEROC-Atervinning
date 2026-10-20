@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 test.setTimeout(45_000);
 test.describe.configure({ mode: 'serial' });
@@ -7,6 +8,8 @@ type ExpoStatus = { enabled: boolean; ready: boolean; state: 'starting' | 'compi
 const iosAgent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1';
 const androidAgent = 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36';
 const desktopAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36';
+const liveEntry = { publicUrl: 'https://scrapplanner-app.onrender.com', webAppUrl: 'https://mobile.scrapplanner.com/mobil/',
+  deepLink: 'exps://scrapplanner-app.onrender.com/expo', deploymentMode: 'pilot' };
 async function device(browser: Browser, agent: string): Promise<{ context: BrowserContext; page: Page }> {
   const mobile = agent !== desktopAgent;
   const context = await browser.newContext({ userAgent: agent, viewport: { width: mobile ? 390 : 1280, height: mobile ? 844 : 900 },
@@ -25,7 +28,7 @@ async function fixture(page: Page, initial: ExpoStatus, hangFirst = false) {
     requests.push(route.request().method());
     const state = structuredClone(controls.state);
     if (hangFirst && requests.length === 1) { firstStarted(); await gate; }
-    await route.fulfill({ json: state }).catch(error => { if (!/cancel|abort|closed|interception/i.test(String(error))) throw error; });
+    await route.fulfill({ json: { ...liveEntry, ...state } }).catch(error => { if (!/cancel|abort|closed|interception/i.test(String(error))) throw error; });
   });
   await page.route('**/expo/retry', async route => {
     posts.push({ origin: route.request().headers().origin, url: route.request().url() });
@@ -33,7 +36,7 @@ async function fixture(page: Page, initial: ExpoStatus, hangFirst = false) {
     const held = controls.holdRetry;
     if (held) { controls.holdRetry = undefined; held.ready(); await held.gate; }
     controls.state = { enabled: true, ready: false, state: 'compiling', compilingPlatform: 'ios', warmedPlatforms: [], retryable: false };
-    await route.fulfill({ json: { accepted: true, ...controls.state } });
+    await route.fulfill({ json: { accepted: true, ...liveEntry, ...controls.state } });
   });
   await page.goto('/expo-go.html');
   if (hangFirst) await started;
@@ -48,7 +51,7 @@ test('iPhone och desktop får en sanningsenlig öppningslänk så snart iOS är 
     const { context, page } = await device(browser, agent);
     const { controls, requests, posts, errors } = await fixture(page, structuredClone(iosPartial));
     await expect(page.getByRole('link', { name: 'Öppna i Expo Go', exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Öppna i Expo Go', exact: true })).toHaveAttribute('href', 'exps://jeroc-atervinning.onrender.com/expo');
+    await expect(page.getByRole('link', { name: 'Öppna i Expo Go', exact: true })).toHaveAttribute('href', liveEntry.deepLink);
     await expect(page.getByRole('status')).toContainText(agent === iosAgent ? 'Appaketet för iPhone är klart' : 'iPhone-appen är klar. Android är ännu inte klart');
     await expect(page.getByRole('status')).not.toContainText('Appaketen för iPhone och Android är förberedda');
     await expect(page.locator('#launch-platform')).toHaveText('Klart för iPhone. Android är ännu inte klart.');
@@ -119,5 +122,30 @@ test('statusanrop har timeout och återhämtar sig medan ett uttömt förberedel
   await expect.poll(() => requests.length).toBe(readsBefore + 1);
   await expect(page.getByRole('link', { name: 'Öppna i Expo Go', exact: true })).toBeVisible();
   expect(posts).toHaveLength(1); expect(errors).toEqual([]);
+  await context.close();
+});
+
+test('Live mobiladress visar den kanoniska Expo-länken och dynamisk QR utan gammal värd eller demokonton', async ({ browser }) => {
+  const { context, page } = await device(browser, iosAgent);
+  const html = await readFile(new URL('../public/expo-go.html', import.meta.url), 'utf8');
+  const state = { ...liveEntry, enabled: true, ready: true, state: 'ready', warmedPlatforms: ['ios', 'android'], retryable: false };
+  const requests: string[] = [];
+  await page.route('https://mobile.scrapplanner.com/**', async route => {
+    const url = new URL(route.request().url()); requests.push(url.pathname);
+    if (url.pathname === '/expo-go') return route.fulfill({ contentType: 'text/html', body: html });
+    if (url.pathname === '/expo/status') return route.fulfill({ json: state });
+    if (url.pathname === '/expo-go-qr.svg') return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100"/></svg>' });
+    return route.fulfill({ status: 404 });
+  });
+  await page.goto('https://mobile.scrapplanner.com/expo-go');
+  await expect(page.getByRole('link', { name: 'Öppna i Expo Go', exact: true })).toHaveAttribute('href', liveEntry.deepLink);
+  const qr = page.getByRole('img', { name: 'QR-kod till ScrapPlanner i Expo Go' });
+  await expect(qr).toBeVisible();
+  await expect.poll(() => qr.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await expect(qr).toHaveAttribute('src', '/expo-go-qr.svg');
+  expect(requests).toContain('/expo-go-qr.svg');
+  await expect(page.locator('body')).not.toContainText(/Demo123|niklas|JEROC|bolagsväljare/i);
+  expect(await page.content()).not.toContain('jeroc-atervinning.onrender.com');
+  expect(await page.locator('#launch-link').getAttribute('href')).not.toContain('mobile.scrapplanner.com');
   await context.close();
 });

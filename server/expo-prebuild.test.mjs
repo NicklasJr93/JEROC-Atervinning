@@ -8,7 +8,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { precompileExpo, readNativeBundle } from '../scripts/expo-prebuild.mjs';
-import { expoBundlePath } from './expo-go.mjs';
+import { expoBundlePath, expoGoConfiguration } from './expo-go.mjs';
 
 const publicUrl = 'https://native-build.example.invalid';
 function processFixture() {
@@ -38,6 +38,22 @@ test('offline prebuild uses the exact public runtime address, strips Expo creden
   assert.equal(result.skipped, false); assert.deepEqual(result.bundles.map(bundle => bundle.platform), ['ios', 'android']);
   assert.deepEqual(child.signals, ['SIGTERM']); assert.equal(logs.join('').includes('fictional-private-token'), false);
 });
+test('pilot prebuild and runtime compile the same explicit mobile target independently of the packager host', async () => {
+  const child = processFixture(), reads = []; let launch;
+  const mobileUrl = 'https://mobile.scrapplanner.com/mobil/';
+  const result = await precompileExpo({ env: { SCRAPPLANNER_DEPLOYMENT_MODE: 'pilot', EXPO_GO_ENABLED: 'true',
+    EXPO_TOKEN: 'fictional-private-token', RENDER_EXTERNAL_URL: `${publicUrl}/`, EXPO_PUBLIC_WEB_APP_URL: mobileUrl },
+    fileExists: () => true, choosePort: async () => 32123, waitReady: async () => {}, stopGraceMs: 10, log() {},
+    spawnProcess: (...args) => { launch = args; return child; },
+    readBundle: async options => { reads.push(options); return { platform: options.platform, bytes: 123, format: 'javascript', publicAddressPresent: true }; },
+  });
+  assert.equal(result.skipped, false); assert.equal(launch[2].env.EXPO_PACKAGER_PROXY_URL, publicUrl);
+  assert.equal(launch[2].env.EXPO_PUBLIC_WEB_APP_URL, mobileUrl); assert.equal(launch[2].env.EXPO_TOKEN, '');
+  assert.equal(launch[2].env.EXPO_METRO_CACHE_DIRECTORY, expoGoConfiguration({ SCRAPPLANNER_DEPLOYMENT_MODE: 'pilot',
+    RENDER_EXTERNAL_URL: publicUrl, EXPO_PUBLIC_WEB_APP_URL: mobileUrl }).cacheDirectory);
+  assert.deepEqual(reads.map(({ platform, publicUrl, webAppUrl }) => ({ platform, publicUrl, webAppUrl })),
+    ['ios', 'android'].map(platform => ({ platform, publicUrl, webAppUrl: mobileUrl })));
+});
 test('a compile failure preserves diagnosis, stops its own Metro and does not claim a ready cache', async () => {
   const child = processFixture(), requests = [], logs = [];
   await assert.rejects(precompileExpo({ env: { EXPO_TOKEN: 'fictional-private-token', RENDER_EXTERNAL_URL: publicUrl },
@@ -50,6 +66,8 @@ test('a compile failure preserves diagnosis, stops its own Metro and does not cl
 test('disabled or unconfigured prebuild skips and unsafe address fails before any subprocess', async () => {
   let starts = 0; const options = { spawnProcess: () => { starts++; }, log() {} };
   assert.equal((await precompileExpo({ ...options, env: {} })).reason, 'disabled');
+  assert.equal((await precompileExpo({ ...options, env: { SCRAPPLANNER_DEPLOYMENT_MODE: 'pilot', EXPO_TOKEN: 'fixture', RENDER_EXTERNAL_URL: publicUrl } })).reason, 'disabled');
+  assert.equal((await precompileExpo({ ...options, env: { SCRAPPLANNER_DEPLOYMENT_MODE: 'pilot', EXPO_TOKEN: 'fixture', EXPO_GO_ENABLED: 'false', RENDER_EXTERNAL_URL: publicUrl } })).reason, 'disabled');
   assert.equal((await precompileExpo({ ...options, env: { EXPO_TOKEN: 'fixture' } })).reason, 'missing_public_url');
   for (const value of ['file:///private', 'https://user:password@example.invalid']) await assert.rejects(precompileExpo({ ...options,
     env: { EXPO_TOKEN: 'fixture', RENDER_EXTERNAL_URL: value } }), error => error.code === 'EXPO_PREBUILD_INVALID_URL');
@@ -94,5 +112,19 @@ test('real local HTTP warming matches canonical bundle options and validates the
     await assert.rejects(readNativeBundle({ port, publicUrl: 'https://wrong-address.example.invalid', platform: 'android' }), error => error.code === 'EXPO_PREBUILD_INVALID_BUNDLE');
     await assert.rejects(readNativeBundle({ port, publicUrl, platform: 'web' }), error => error.code === 'EXPO_PREBUILD_PLATFORM');
     await assert.rejects(readNativeBundle({ port, publicUrl, platform: 'ios', maxBytes: 4 }), error => error.code === 'EXPO_PREBUILD_TOO_LARGE');
+  } finally { server.closeAllConnections(); await new Promise(done => server.close(done)); }
+});
+test('prebuild verifies the mobile URL in native bundle bytes instead of mistakenly accepting the packager origin', async () => {
+  const webAppUrl = 'https://mobile.scrapplanner.com/mobil/', seen = [];
+  const server = createServer((req, res) => {
+    seen.push(req.headers.host); res.writeHead(200, { 'content-type': 'application/javascript' });
+    res.write('const target="https://mobile.scrap'); res.end('planner.com/mobil/";');
+  });
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  try {
+    const port = server.address().port;
+    const result = await readNativeBundle({ port, publicUrl, webAppUrl, platform: 'ios' });
+    assert.equal(result.publicAddressPresent, true); assert.equal(seen[0], new URL(publicUrl).host);
+    await assert.rejects(readNativeBundle({ port, publicUrl, webAppUrl: publicUrl, platform: 'android' }), error => error.code === 'EXPO_PREBUILD_INVALID_BUNDLE');
   } finally { server.closeAllConnections(); await new Promise(done => server.close(done)); }
 });

@@ -3,6 +3,7 @@
 const laboratoryPage = /^\/(?:testbil1|rosttest)(?:\/|$)|^\/kontor\/rosttest(?:\/|$)|^\/kontor\/integration\/systemadmin(?:integration|visma|swish|bank)test\.html(?:\/|$)/;
 const laboratoryApi = /^\/api\/(?:testcar|public\/voice-test)(?:\/|$)/;
 const expoPage = /^\/expo(?:[/-]|$)|^\/(?:manifest|index\.exp|index(?:\.ts)?\.bundle)(?:\/|$)/;
+const expoManifestAsset = /^\/assets\/assets(?:\/|$)/;
 
 function requestPath(url) {
   try { return decodeURIComponent(url.pathname); }
@@ -17,8 +18,14 @@ export function pilotRequestPolicy(req, url, profile) {
   if (pathname === null) return { status: 400 };
   const nativeManifest = pathname === '/' && (req.headers['expo-platform']
     || req.headers['exponent-platform'] || req.headers.accept?.includes('application/expo+json'));
-  if (nativeManifest || laboratoryPage.test(pathname) || laboratoryApi.test(pathname) || expoPage.test(pathname))
+  if (laboratoryPage.test(pathname) || laboratoryApi.test(pathname))
     return { status: 404 };
+  if (nativeManifest || expoPage.test(pathname) || expoManifestAsset.test(pathname)) {
+    if (profile.expoGoEnabled !== true) return { status: 404 };
+    // Startup/status routes remain available while the optional bundle warms.
+    // Native requests at / must bypass the ordinary office/mobile redirect.
+    return null;
+  }
   if (pathname === '/' && ['GET', 'HEAD'].includes(req.method)) {
     const mobileHost = new URL(profile.mobileOrigin).host.toLowerCase();
     const mobile = req.headers.host?.toLowerCase() === mobileHost;

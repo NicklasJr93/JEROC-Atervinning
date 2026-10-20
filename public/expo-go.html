@@ -13,26 +13,27 @@
 </head>
 <body><main>
   <img class="brand-logo" src="/images/scrapplanner-logo.png" alt="ScrapPlanner">
-  <h1>Öppna gårdsappen i Expo Go</h1>
+  <h1>Öppna mobilappen i Expo Go</h1>
   <p>Appen öppnas utan webbläsarens adressfält. Datorn behöver inte vara igång.</p>
   <ol>
     <li>Installera senaste Expo Go på mobilen.</li>
-    <li>Logga in med samma Expo-konto som används för serverns Expo-token.</li>
+    <li>Logga vid behov in i Expo Go med det Expo-konto som systemadministratören har angett.</li>
     <li>Tryck på knappen på mobilen, eller skanna QR-koden med mobilkameran.</li>
   </ol>
   <p id="status" role="status">Kontrollerar Expo-servern…</p>
   <section id="launch" class="hidden">
-    <a class="button" href="exps://jeroc-atervinning.onrender.com/expo">Öppna i Expo Go</a>
+    <a id="launch-link" class="button">Öppna i Expo Go</a>
     <p id="launch-platform"></p>
-    <img src="/expo-go-qr.svg" alt="QR-kod till JEROC i Expo Go">
+    <img id="launch-qr" alt="QR-kod till ScrapPlanner i Expo Go">
   </section>
   <button id="retry" class="button hidden" type="button">Försök förbereda igen</button>
   <button id="check-again" class="button hidden" type="button">Kontrollera igen</button>
-  <p class="note">Logga in med ditt personalkonto. I det ursprungliga demot finns <strong>niklas / Demo123!</strong>.</p>
+  <p class="note">Logga in i mobilappen med ditt vanliga användarnamn eller din e-postadress och ditt lösenord. Företaget väljs automatiskt vid inloggning.</p>
   <p class="note">Öppningslänken visas när appaketet för din mobil är klart. Mobilen behöver därefter ladda ner paketet och ansluta till webbappen.</p>
 </main>
 <script>
   const status = document.getElementById('status'), launch = document.getElementById('launch');
+  const launchLink = document.getElementById('launch-link'), launchQr = document.getElementById('launch-qr');
   const retry = document.getElementById('retry'), checkAgain = document.getElementById('check-again');
   const agent = navigator.userAgent;
   const platform = /Android/i.test(agent) ? 'android' : /iPhone|iPad|iPod/i.test(agent)
@@ -41,12 +42,24 @@
   let lastState, pollTimer, cooldownTimer, controller, serial = 0, failures = 0, retrying = false, retryNeedsCheck = false;
   const say = message => { if (status.textContent !== message) status.textContent = message; };
   const retryTime = state => state?.retryAt ? Date.parse(state.retryAt) : 0;
+  function entryLink(value) {
+    if (value.publicUrl === undefined && value.deepLink === undefined) {
+      return `${location.protocol === 'https:' ? 'exps:' : 'exp:'}//${location.host}/expo`;
+    }
+    const origin = new URL(value.publicUrl), deep = new URL(value.deepLink);
+    if (!['https:', 'http:'].includes(origin.protocol) || origin.username || origin.password
+      || origin.pathname !== '/' || origin.search || origin.hash
+      || (location.protocol === 'https:' || value.deploymentMode === 'pilot') && origin.protocol !== 'https:'
+      || deep.protocol !== (origin.protocol === 'https:' ? 'exps:' : 'exp:') || deep.host !== origin.host
+      || deep.pathname !== '/expo' || deep.username || deep.password || deep.search || deep.hash) throw new Error('Invalid entry');
+    return deep.href;
+  }
   function parse(value) {
     if (!value || typeof value.enabled !== 'boolean' || typeof value.ready !== 'boolean'
       || !['starting', 'compiling', 'retrying', 'ready', 'error', 'disabled'].includes(value.state)
       || !Array.isArray(value.warmedPlatforms) || value.retryAt !== undefined
         && (typeof value.retryAt !== 'string' || !Number.isFinite(Date.parse(value.retryAt)))) throw new Error('Invalid status');
-    return { ...value, retryable: value.retryable === true,
+    return { ...value, deepLink: entryLink(value), retryable: value.retryable === true,
       compilingPlatform: value.compilingPlatform === 'ios' || value.compilingPlatform === 'android' ? value.compilingPlatform : null,
       warmedPlatforms: [...new Set(value.warmedPlatforms.filter(item => item === 'ios' || item === 'android'))] };
   }
@@ -68,6 +81,8 @@
     lastState = state;
     const ios = state.warmedPlatforms.includes('ios'), android = state.warmedPlatforms.includes('android');
     const usable = state.enabled && (platform ? state.warmedPlatforms.includes(platform) : ios || android);
+    launchLink.href = state.deepLink;
+    launchQr.src = '/expo-go-qr.svg';
     launch.classList.toggle('hidden', !usable);
     document.getElementById('launch-platform').textContent = ios && android ? 'Klart för iPhone och Android.'
       : ios ? 'Klart för iPhone. Android är ännu inte klart.' : android ? 'Klart för Android. iPhone är ännu inte klart.' : '';

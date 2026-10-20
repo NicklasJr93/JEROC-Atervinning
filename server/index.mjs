@@ -4,7 +4,7 @@ import { stat } from 'node:fs/promises';
 import { extname, isAbsolute, relative, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
-import { expoStatus, retryExpo, serveExpo, startExpoGo } from './expo-go.mjs';
+import { expoStatus, retryExpo, serveExpo, serveExpoQr, startExpoGo } from './expo-go.mjs';
 import { closePdfRenderer } from './documents/render-pool.mjs';
 import { measureDatabaseWork } from './database-runtime.mjs';
 import { createTenantGateway } from './tenant-gateway.mjs';
@@ -64,7 +64,7 @@ async function handle(req, res) {
     reply(res, 400, 'Invalid URL');
     return;
   }
-  const policy = pilotRequestPolicy(req, url, deployment);
+  const policy = pilotRequestPolicy(req, url, { ...deployment, expoGoEnabled: expoGo.enabled });
   if (policy) {
     if (policy.location) res.setHeader('Location', policy.location);
     reply(res, policy.status, policy.location ? 'Redirecting' : policy.status === 404 ? 'Not found' : 'Invalid URL');
@@ -109,8 +109,13 @@ async function handle(req, res) {
     res.end(req.method === 'HEAD' ? undefined : JSON.stringify(expoStatus(expoGo)));
     return;
   }
+  if (pathname === '/expo-go-qr.svg') {
+    serveExpoQr(req, res, expoGo);
+    return;
+  }
   const nativeManifest = pathname === '/' && (req.headers['expo-platform'] || req.headers['exponent-platform'] || req.headers.accept?.includes('application/expo+json'));
-  if (nativeManifest || ['/manifest', '/index.exp', '/index.bundle', '/index.ts.bundle'].includes(pathname) || pathname === '/expo' || pathname.startsWith('/expo/')) {
+  if (nativeManifest || ['/manifest', '/index.exp', '/index.bundle', '/index.ts.bundle'].includes(pathname)
+    || pathname === '/expo' || pathname.startsWith('/expo/') || pathname.startsWith('/assets/assets/')) {
     serveExpo(req, res, expoGo);
     return;
   }
@@ -182,8 +187,7 @@ const testCarApi = deployment.pilot ? Object.assign(async () => false, { close: 
 const tenantGateway = await createTenantGateway({ testCarApi });
 let expoGo;
 try {
-  expoGo = deployment.pilot ? { enabled: false, ready: false, state: 'disabled', stop: async () => {} }
-    : startExpoGo({ onFailure: state => { console.error('Expo Go kunde inte förberedas:', state.errorCode, 'Webbappen och dess API fortsätter fungera.'); } });
+  expoGo = startExpoGo({ onFailure: state => { console.error('Expo Go kunde inte förberedas:', state.errorCode, 'Webbappen och dess API fortsätter fungera.'); } });
 } catch {
   console.error('Expo Go-inställningarna kunde inte användas. Kontrollera Expo-konfigurationen i Render.');
   expoGo = { enabled: true, ready: false, state: 'error', compilingPlatform: null, warmedPlatforms: [], errorCode: 'EXPO_CONFIGURATION_ERROR', stop: async () => {} };

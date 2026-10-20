@@ -4,7 +4,7 @@ import { request } from 'node:http';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expoBundlePath } from '../server/expo-go.mjs';
+import { expoBundlePath, expoGoEnabled, expoGoConfiguration } from '../server/expo-go.mjs';
 
 const projectRoot = fileURLToPath(new URL('../expo/', import.meta.url));
 const fail = code => Object.assign(new Error('Expo-paketen kunde inte förberedas under bygget.'), { code });
@@ -36,11 +36,11 @@ async function waitForMetro({ port, child, timeoutMs, isFailed }) {
 
 /** Match the runtime's native request, not expo export's static serializer.
  * Only a prefix and a small address-search suffix survive each data chunk. */
-export function readNativeBundle({ port, publicUrl, platform, timeoutMs = 300000, maxBytes = 64 * 1024 * 1024 }) {
+export function readNativeBundle({ port, publicUrl, webAppUrl = publicUrl, platform, timeoutMs = 300000, maxBytes = 64 * 1024 * 1024 }) {
   if (!nativePlatforms.includes(platform)) return Promise.reject(fail('EXPO_PREBUILD_PLATFORM'));
   return new Promise((done, reject) => {
     let upstream, response, settled = false, bytes = 0, prefix = Buffer.alloc(0), suffix = Buffer.alloc(0), addressPresent = false, contentType;
-    const address = Buffer.from(publicUrl), url = new URL(publicUrl);
+    const address = Buffer.from(webAppUrl), url = new URL(publicUrl);
     const finish = (code) => {
       if (settled) return; settled = true; clearTimeout(deadline);
       if (code) { response?.destroy(); upstream?.destroy(); reject(fail(code)); return; }
@@ -85,17 +85,16 @@ async function stopMetro(child, graceMs) {
 export async function precompileExpo({ env = process.env, spawnProcess = spawn, choosePort = localPort,
   waitReady = waitForMetro, readBundle = readNativeBundle, fileExists = existsSync, log = console.log,
   startupTimeoutMs = 60000, bundleTimeoutMs = 300000, stopGraceMs = 5000 } = {}) {
-  if (env.EXPO_GO_ENABLED === 'false' || !env.EXPO_TOKEN) {
+  if (!expoGoEnabled(env)) {
     log('Expo-förbygget hoppas över: Expo Go är inte aktiverat.'); return { skipped: true, reason: 'disabled' };
   }
   const configuredUrl = env.RENDER_EXTERNAL_URL ?? env.EXPO_PUBLIC_WEB_APP_URL;
   if (!configuredUrl) {
     log('Expo-förbygget hoppas över: offentlig webbadress saknas under bygget.'); return { skipped: true, reason: 'missing_public_url' };
   }
-  let parsedUrl;
-  try { parsedUrl = new URL(configuredUrl); } catch { throw fail('EXPO_PREBUILD_INVALID_URL'); }
-  if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) throw fail('EXPO_PREBUILD_INVALID_URL');
-  const publicUrl = configuredUrl.replace(/\/$/, '');
+  let configuration;
+  try { configuration = expoGoConfiguration(env); } catch { throw fail('EXPO_PREBUILD_INVALID_URL'); }
+  const { publicUrl, webAppUrl } = configuration;
   if ([startupTimeoutMs, bundleTimeoutMs, stopGraceMs].some(value => !Number.isSafeInteger(value) || value <= 0)) throw fail('EXPO_PREBUILD_INVALID_BOUNDS');
   const cli = resolve(projectRoot, 'node_modules/expo/bin/cli');
   if (!fileExists(cli)) throw fail('EXPO_PREBUILD_DEPENDENCIES');
@@ -103,7 +102,8 @@ export async function precompileExpo({ env = process.env, spawnProcess = spawn, 
   const child = spawnProcess(process.execPath, [cli, 'start', '--lan', '--go', '--port', String(port), '--max-workers', '1', '--no-dev', '--minify'], {
     cwd: projectRoot, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...env, EXPO_TOKEN: '', CI: '1', EXPO_OFFLINE: '1', EXPO_UNSTABLE_HEADLESS: '1', EXPO_NO_TELEMETRY: '1',
-      NODE_OPTIONS: env.NODE_OPTIONS ?? '--max-old-space-size=256', EXPO_PACKAGER_PROXY_URL: publicUrl, EXPO_PUBLIC_WEB_APP_URL: publicUrl },
+      NODE_OPTIONS: env.NODE_OPTIONS ?? '--max-old-space-size=256', EXPO_PACKAGER_PROXY_URL: publicUrl, EXPO_PUBLIC_WEB_APP_URL: webAppUrl,
+      EXPO_METRO_CACHE_DIRECTORY: configuration.cacheDirectory },
   });
   // Build only needs local transforms, never Expo account access. Do not print
   // arbitrary subprocess output, environment values or authentication tokens.
@@ -116,7 +116,7 @@ export async function precompileExpo({ env = process.env, spawnProcess = spawn, 
     if (processError) throw processError;
     for (const platform of nativePlatforms) {
       const begin = performance.now();
-      const bundle = await readBundle({ port, publicUrl, platform, timeoutMs: bundleTimeoutMs });
+      const bundle = await readBundle({ port, publicUrl, webAppUrl, platform, timeoutMs: bundleTimeoutMs });
       if (processError || child.exitCode !== null || child.signalCode !== null) throw processError ?? fail('EXPO_PREBUILD_PROCESS_EXIT');
       bundles.push(bundle);
       log(JSON.stringify({ phase: 'expo-prebuild', platform, bytes: bundle.bytes, format: bundle.format, elapsedMs: Math.round(performance.now() - begin) }));

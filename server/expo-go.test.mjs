@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { after, before, test } from 'node:test';
-import { expoProxyPath, proxyExpo, expoBundlePath, retryExpo, serveExpo, startExpoGo } from './expo-go.mjs';
+import { expoProxyPath, proxyExpo, expoBundlePath, expoGoConfiguration, expoGoEnabled, expoStatus, retryExpo, serveExpo, serveExpoQr, startExpoGo } from './expo-go.mjs';
 
 let upstream, front, base, seen;
 before(async () => {
@@ -54,6 +54,16 @@ test('never exposes debugger, sockets, project files or non-native bundles throu
     assert.equal(seen, null, 'a conflicting platform must not reach Metro');
   }
 });
+test('only the three manifest image assets are proxied, with canonical native query options', async () => {
+  for (const name of ['icon', 'splash', 'adaptive-icon']) {
+    assert.equal((await fetch(`${base}/assets/assets/${name}.png?platform=ios&transform=private`)).status, 200);
+    assert.equal(seen.path, `/assets/assets/${name}.png?platform=ios`);
+  }
+  for (const path of ['/assets/.env', '/assets/assets/.env', '/assets/assets/private.png',
+    '/assets/assets/icon.svg', '/assets/assets/icon.png?platform=web', '/assets/server/index.mjs']) {
+    seen = null; assert.equal((await fetch(base + path)).status, 404, path); assert.equal(seen, null);
+  }
+});
 test('reports a unavailable Expo process without taking down the web server', async () => {
   await new Promise((done) => { upstream.close(done); upstream.closeAllConnections(); });
   const response = await fetch(`${base}/expo`);
@@ -71,7 +81,7 @@ function startupFixture(options = {}) {
   };
   const fixture = { child, requests, failures, launches };
   fixture.control = startExpoGo({
-    env: { EXPO_TOKEN: 'fictional-test-token', RENDER_EXTERNAL_URL: 'https://expo.example.invalid', PORT: '4173' },
+    env: { EXPO_TOKEN: 'fictional-test-token', RENDER_EXTERNAL_URL: 'https://expo.example.invalid', PORT: '4173', ...options.env },
     onFailure: value => failures.push(value.errorCode), fileExists: () => true,
     spawnProcess: (...args) => { launches.push(args); return child; },
     connectSocket: () => {
@@ -132,6 +142,74 @@ test('prewarms exact canonical native bundles sequentially before publishing rea
     assert.ok(launches[0][1].includes('--no-dev')); assert.ok(launches[0][1].includes('--minify'));
     assert.equal(launches[0][1][launches[0][1].indexOf('--max-workers') + 1], '1');
   } finally { await control.stop(); }
+});
+
+test('pilot Expo requires explicit opt-in and credentials, while the existing lab default is preserved', () => {
+  const base = { SCRAPPLANNER_DEPLOYMENT_MODE: 'pilot', EXPO_TOKEN: 'fictional-private-token' };
+  for (const env of [{}, base, { ...base, EXPO_GO_ENABLED: 'false' }, { ...base, EXPO_GO_ENABLED: 'TRUE' },
+    { ...base, EXPO_GO_ENABLED: 'true', EXPO_TOKEN: '  ' }, { EXPO_GO_ENABLED: 'true' }]) {
+    assert.equal(expoGoEnabled(env), false);
+    const control = startExpoGo({ env, spawnProcess: () => assert.fail('must not spawn') });
+    assert.equal(control.enabled, false); assert.equal(control.state, 'disabled');
+    assert.deepEqual(expoStatus(control).warmedPlatforms, []);
+  }
+  assert.equal(expoGoEnabled({ EXPO_TOKEN: 'fictional-private-token' }), true);
+  assert.equal(expoGoEnabled({ ...base, EXPO_GO_ENABLED: 'true' }), true);
+});
+
+test('public packager origin and mobile WebView target are validated separately and compiled unchanged in pilot', async () => {
+  const env = { SCRAPPLANNER_DEPLOYMENT_MODE: 'pilot', EXPO_GO_ENABLED: 'true',
+    RENDER_EXTERNAL_URL: 'https://scrapplanner-app.onrender.com/', EXPO_PUBLIC_WEB_APP_URL: 'https://mobile.scrapplanner.com/mobil/' };
+  const expected = expoGoConfiguration(env);
+  assert.equal(expected.publicUrl, 'https://scrapplanner-app.onrender.com');
+  assert.equal(expected.webAppUrl, 'https://mobile.scrapplanner.com/mobil/');
+  assert.equal(expected.deepLink, 'exps://scrapplanner-app.onrender.com/expo');
+  assert.deepEqual(expected.pageOrigins, ['https://scrapplanner-app.onrender.com', 'https://mobile.scrapplanner.com', 'https://app.scrapplanner.com']);
+  const { control, launches } = startupFixture({ env });
+  try {
+    assert.equal(launches[0][2].env.EXPO_PACKAGER_PROXY_URL, expected.publicUrl);
+    assert.equal(launches[0][2].env.EXPO_PUBLIC_WEB_APP_URL, expected.webAppUrl);
+    assert.equal(launches[0][2].env.EXPO_METRO_CACHE_DIRECTORY, expected.cacheDirectory);
+    const status = expoStatus(control);
+    assert.equal(status.publicUrl, expected.publicUrl); assert.equal(status.webAppUrl, expected.webAppUrl);
+    assert.equal(status.deepLink, expected.deepLink); assert.equal(status.deploymentMode, 'pilot');
+    assert.ok(!JSON.stringify(status).includes('fictional-test-token')); assert.ok(!('pageOrigins' in status));
+  } finally { await control.stop(); }
+  assert.equal(expoGoConfiguration({ RENDER_EXTERNAL_URL: 'http://localhost:3000' }).deepLink, 'exp://localhost:3000/expo');
+  assert.notEqual(expoGoConfiguration({ RENDER_EXTERNAL_URL: env.RENDER_EXTERNAL_URL }).cacheDirectory, expected.cacheDirectory,
+    'a prior demo target cannot share the live mobile transform cache');
+  for (const invalid of [
+    { ...env, RENDER_EXTERNAL_URL: undefined }, { ...env, RENDER_EXTERNAL_URL: 'http://scrapplanner-app.onrender.com' },
+    { ...env, RENDER_EXTERNAL_URL: 'https://user:secret@scrapplanner-app.onrender.com' },
+    { ...env, RENDER_EXTERNAL_URL: 'https://scrapplanner-app.onrender.com/path' },
+    { ...env, RENDER_EXTERNAL_URL: 'https://scrapplanner-app.onrender.com/?token=private' },
+    { ...env, EXPO_PUBLIC_WEB_APP_URL: undefined }, { ...env, EXPO_PUBLIC_WEB_APP_URL: 'https://mobile.scrapplanner.com/' },
+    { ...env, EXPO_PUBLIC_WEB_APP_URL: 'https://attacker.example/mobil/' },
+    { ...env, EXPO_PUBLIC_WEB_APP_URL: 'https://mobile.scrapplanner.com/mobil/?company=untrusted' },
+    { ...env, EXPO_PUBLIC_WEB_APP_URL: 'https://mobile.scrapplanner.com/mobil/#secret' },
+    { ...env, APP_URL: 'https://app.scrapplanner.com/kontor/' },
+  ]) assert.throws(() => expoGoConfiguration(invalid), error => error.code === 'EXPO_CONFIGURATION_ERROR');
+});
+
+test('dynamic QR uses only the configured canonical opening link, supports HEAD and is unavailable while disabled', async () => {
+  const configuration = expoGoConfiguration({ RENDER_EXTERNAL_URL: 'https://scrapplanner-app.onrender.com' });
+  const control = { enabled: true, ...configuration };
+  const server = createServer((req, res) => serveExpoQr(req, res, control));
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const response = await fetch(`${origin}/expo-go-qr.svg?url=https://attacker.example`, { headers: { Host: 'attacker.example' } });
+    assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.match(response.headers.get('content-type'), /image\/svg\+xml/);
+    const svg = await response.text(); assert.match(svg, /^<svg /); assert.match(svg, /<path d="M/);
+    assert.ok(!svg.includes('attacker.example')); assert.ok(!svg.includes('<script'));
+    assert.equal(await (await fetch(`${origin}/expo-go-qr.svg`)).text(), svg);
+    const head = await fetch(`${origin}/expo-go-qr.svg`, { method: 'HEAD' });
+    assert.equal(head.status, 200); assert.equal(head.headers.get('content-length'), String(Buffer.byteLength(svg))); assert.equal(await head.text(), '');
+    control.deepLink = 'exps://separate-pilot.example.invalid/expo';
+    assert.notEqual(await (await fetch(`${origin}/expo-go-qr.svg`)).text(), svg);
+    control.enabled = false; assert.equal((await fetch(`${origin}/expo-go-qr.svg`)).status, 404);
+  } finally { await new Promise(done => server.close(done)); }
 });
 
 test('a timed-out compile keeps Metro alive and recovers automatically without redoing a ready platform', async () => {
@@ -228,6 +306,7 @@ test('the native HTTP route admits a finished iPhone while Android compiles and 
     assert.equal(control.ready, false);
     assert.equal((await fetch(`${origin}/expo`, { headers: { 'Expo-Platform': 'ios' } })).status, 200);
     assert.equal((await fetch(`${origin}/index.ts.bundle?platform=ios`)).status, 200);
+    assert.equal((await fetch(`${origin}/assets/assets/icon.png`)).status, 200, 'finished iPhone can load manifest assets while Android compiles');
     const android = await fetch(`${origin}/expo`, { headers: { 'Expo-Platform': 'android' } });
     assert.equal(android.status, 503); assert.equal(android.headers.get('retry-after'), '3');
     assert.equal((await fetch(`${origin}/index.ts.bundle?platform=android`, { headers: { 'Expo-Platform': 'ios' } })).status, 404);
@@ -260,6 +339,25 @@ test('the recovery HTTP endpoint accepts only its own origin and an empty reques
     assert.equal(result.status, 200); assert.equal(result.headers.get('cache-control'), 'no-store');
     assert.equal((await result.json()).accepted, true); assert.equal(retries, 1);
   } finally { await new Promise(done => edge.close(done)); }
+});
+
+test('pilot recovery also accepts configured office/mobile aliases and rejects untrusted origins', async () => {
+  const configuration = expoGoConfiguration({ SCRAPPLANNER_DEPLOYMENT_MODE: 'pilot',
+    RENDER_EXTERNAL_URL: 'https://scrapplanner-app.onrender.com', EXPO_PUBLIC_WEB_APP_URL: 'https://mobile.scrapplanner.com/mobil/' });
+  let retries = 0;
+  const control = { ...configuration, enabled: true, ready: false, state: 'error', warmedPlatforms: [],
+    retry: () => { retries++; return true; } };
+  const server = createServer((req, res) => retryExpo(req, res, control));
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    for (const Origin of configuration.pageOrigins)
+      assert.equal((await fetch(`${origin}/expo/retry`, { method: 'POST', headers: { Origin } })).status, 200);
+    assert.equal(retries, 3);
+    for (const Origin of ['https://untrusted.example', 'https://app.scrapplanner.com.evil.example', 'http://app.scrapplanner.com'])
+      assert.equal((await fetch(`${origin}/expo/retry`, { method: 'POST', headers: { Origin } })).status, 403);
+    assert.equal(retries, 3);
+  } finally { await new Promise(done => server.close(done)); }
 });
 
 test('stopping during compilation cannot publish stale readiness or report a normal shutdown as failure', async () => {

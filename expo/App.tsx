@@ -16,41 +16,28 @@ import Constants from 'expo-constants';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import { documentAddress, localWebAppAddress, validWebAppAddress, webAppNavigationAllowed } from './web-app-address';
 
+const configuredAddress = process.env.EXPO_PUBLIC_WEB_APP_URL;
+const configured = configuredAddress !== undefined;
+
+const validAddress = (value: string) => validWebAppAddress(value, configured);
 function defaultAddress(): string {
-  const configured = process.env.EXPO_PUBLIC_WEB_APP_URL;
-  if (configured) return configured;
-  const host = Constants.expoConfig?.hostUri;
-  if (!host) return '';
-  try {
-    const url = new URL(host.includes('://') ? host : `http://${host}`);
-    return `http://${url.hostname}:4173`;
-  } catch {
-    return '';
-  }
-}
-function validAddress(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return (
-      (url.protocol === 'http:' || url.protocol === 'https:') &&
-      !url.username &&
-      !url.password
-    );
-  } catch {
-    return false;
-  }
+  if (configured) return configuredAddress!.trim();
+  return localWebAppAddress(Constants.expoConfig?.hostUri);
 }
 
 export default function App() {
   const [address, setAddress] = useState(defaultAddress);
-  const [editing, setEditing] = useState(!validAddress(address));
+  const [editing, setEditing] = useState(!configured && !validAddress(address));
   const [entry, setEntry] = useState(address);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(configured && !validAddress(address)
+    ? 'Mobilappens anslutning är inte korrekt konfigurerad. Kontakta systemadministratören.' : '');
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [canGoBack, setCanGoBack] = useState(false);
   const webview = useRef<WebView>(null);
+  const currentDocument = useRef(documentAddress(address));
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     const handler = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -64,19 +51,21 @@ export default function App() {
   }, [canGoBack, editing, error]);
 
   function retry() {
+    if (!validAddress(address)) return;
     setError('');
     setLoading(true);
     setReloadKey((key) => key + 1);
   }
   function connect() {
+    if (configured) return;
     const next = entry.trim();
     if (!validAddress(next)) {
-      setError('Ange en giltig http- eller https-adress till din JEROC-demo.');
+      setError('Ange en HTTPS-adress eller en lokal HTTP-adress till utvecklingsappen.');
       return;
     }
     setAddress(next);
     setEditing(false);
-    retry();
+    setError(''); setLoading(true); setReloadKey(key => key + 1);
   }
   const origin = validAddress(address) ? new URL(address).origin : '';
   return (
@@ -89,22 +78,22 @@ export default function App() {
             keyboardShouldPersistTaps="handled"
             automaticallyAdjustKeyboardInsets
           >
-            <Image
+            {origin ? <Image
               source={{
-                uri: `${origin || 'https://jeroc-atervinning.onrender.com'}/images/scrapplanner-logo.png`,
+                uri: `${origin}/images/scrapplanner-logo.png`,
               }}
               style={styles.brandLogo}
               resizeMode="contain"
               accessibilityLabel="ScrapPlanner"
-            />
-            <Text style={styles.subtitle}>ScrapPlanner · Expo-demo</Text>
+            /> : <Text style={styles.title}>ScrapPlanner</Text>}
+            <Text style={styles.subtitle}>{configured ? 'ScrapPlanner · Mobilappen' : 'ScrapPlanner · Lokal utveckling'}</Text>
             <Text style={styles.title}>
-              {editing ? 'Anslut till din demo' : 'Kan inte ansluta'}
+              {editing ? 'Anslut till utvecklingsappen' : 'Kan inte ansluta'}
             </Text>
             <Text style={styles.copy}>
-              {process.env.EXPO_PUBLIC_WEB_APP_URL
+              {configured
                 ? 'Kontrollera att mobilen har internet och försök igen.'
-                : 'Låt JEROC-startfönstret vara öppet på datorn. Datorn och mobilen ska vara på samma wifi.'}
+                : 'Låt startfönstret vara öppet på datorn. Datorn och mobilen ska vara på samma wifi.'}
             </Text>
             {error ? <Text style={styles.error}>{error}</Text> : null}
             {editing ? (
@@ -121,7 +110,7 @@ export default function App() {
                   onSubmitEditing={connect}
                 />
                 <Pressable style={styles.button} onPress={connect}>
-                  <Text style={styles.buttonText}>Öppna demon</Text>
+                  <Text style={styles.buttonText}>Öppna appen</Text>
                 </Pressable>
               </>
             ) : (
@@ -129,10 +118,10 @@ export default function App() {
                 <Text selectable style={styles.address}>
                   {address}
                 </Text>
-                <Pressable style={styles.button} onPress={retry}>
+                <Pressable style={styles.button} onPress={retry} disabled={!validAddress(address)}>
                   <Text style={styles.buttonText}>Försök igen</Text>
                 </Pressable>
-                <Pressable
+                {!configured && <Pressable
                   style={styles.secondary}
                   onPress={() => {
                     setEntry(address);
@@ -141,12 +130,12 @@ export default function App() {
                   }}
                 >
                   <Text style={styles.secondaryText}>Ändra adress</Text>
-                </Pressable>
+                </Pressable>}
               </>
             )}
-            <Text style={styles.note}>
-              Demokonto: niklas / Demo123!{'\n'}Färdiga vägningar visas på kontoret.
-            </Text>
+            <Text style={styles.note}>{configured
+              ? 'Logga in med ditt vanliga personalkonto. Ditt företag väljs automatiskt när du loggar in.'
+              : 'Den lokala demon använder de testkonton som visas på dess inloggningssida.'}</Text>
           </ScrollView>
         ) : (
           <View style={styles.webContainer}>
@@ -159,28 +148,29 @@ export default function App() {
               domStorageEnabled
               cacheEnabled
               javaScriptEnabled
+              mixedContentMode="never"
+              javaScriptCanOpenWindowsAutomatically={false}
+              setSupportMultipleWindows={false}
               allowsBackForwardNavigationGestures
               automaticallyAdjustContentInsets={false}
-              onShouldStartLoadWithRequest={(request) =>
-                request.url === 'about:blank' ||
-                request.url === 'about:srcdoc' ||
-                request.url === origin ||
-                request.url.startsWith(`${origin}/`)
-              }
+              onShouldStartLoadWithRequest={(request) => webAppNavigationAllowed(request.url, origin)}
               onNavigationStateChange={(state) => setCanGoBack(state.canGoBack)}
-              onLoadStart={() => setLoading(true)}
+              onLoadStart={(event) => { currentDocument.current = documentAddress(event.nativeEvent.url); setLoading(true); }}
               onLoadEnd={() => setLoading(false)}
               onError={() => {
                 setLoading(false);
                 setError(
-                  'Demon svarar inte. Kontrollera anslutningen och försök igen.',
+                  'Appen svarar inte. Kontrollera anslutningen och försök igen.',
                 );
               }}
               onHttpError={(event) => {
-                if (event.nativeEvent.statusCode >= 400) {
+                // Android also reports failed subresources here; a missing icon
+                // or unauthenticated API response must not replace the login page.
+                if (event.nativeEvent.statusCode >= 400
+                  && documentAddress(event.nativeEvent.url) === currentDocument.current) {
                   setLoading(false);
                   setError(
-                    `Demon kunde inte öppnas (HTTP ${event.nativeEvent.statusCode}).`,
+                    `Appen kunde inte öppnas (HTTP ${event.nativeEvent.statusCode}).`,
                   );
                 }
               }}
@@ -188,7 +178,7 @@ export default function App() {
             {loading && (
               <View style={styles.loading} pointerEvents="none">
                 <ActivityIndicator size="large" color="#008854" />
-                <Text style={styles.loadingText}>Öppnar gårdsappen…</Text>
+                <Text style={styles.loadingText}>Öppnar ScrapPlanner…</Text>
               </View>
             )}
           </View>
