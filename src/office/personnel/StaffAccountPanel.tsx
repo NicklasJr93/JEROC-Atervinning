@@ -5,6 +5,7 @@ import { useEnvironmentSession } from '../EnvironmentSession';
 import { OfficePageHeader } from '../OfficePageHeader';
 import { personnelClientScope } from './client';
 import { Alert } from './components/Ui';
+import { hasDelegatedUserManagement, mayDelegateUserManagement, mayGrantStaffOwnAttest, mayGrantStaffPermission, mayGrantStaffSite, staffAccountRestriction, staffAttestCeiling } from './account-permissions';
 import './personal.css';
 
 const permissionPrerequisites: Partial<Record<Permission, Permission[]>> = {
@@ -65,32 +66,40 @@ const accountSaveFailure = (reason?: unknown) => {
 export default function StaffAccountPanel(props: StaffAccountPanelProps) {
   const scope = personnelClientScope(props.actor, props.actualUser ?? props.actor);
   if (props.initialUserId && !props.users.some(user => user.id === props.initialUserId)) return <p className="office-muted">Det kopplade kontot kan inte visas med din aktuella åtkomst.</p>;
-  if (!props.users.length) return <p className="office-muted">Inga konton finns tillgängliga.</p>;
   return <StaffAccountEditor key={`${scope.key}:${props.initialUserId ?? 'catalog'}`} {...props} />;
 }
 function StaffAccountEditor({ users, initialUserId, embedded = false, navigation, actor, actualUser = actor, sites: fallbackSites, save, onSaved }: StaffAccountPanelProps) {
   const { state: environmentState } = useEnvironmentSession();
   const sites = environmentState?.sites ?? fallbackSites ?? [];
   const allSiteIds = sites.map(site => site.id);
-  const [selected, setSelected] = useState(users.find(person => person.id === initialUserId) ?? users[0]),
+  const availableSiteIds = sites.filter(site => mayGrantStaffSite(actor, actualUser, site.id)).map(site => site.id);
+  const newAccount = (): OfficeUser => ({ id: crypto.randomUUID(), name: '', level: 'Medarbetare',
+    permissions: mayGrantStaffPermission(actor, actualUser, 'view') ? ['view'] : [], siteIds: availableSiteIds,
+    maxAttest: 0, ownAttest: false, active: true });
+  const [selected, setSelected] = useState(users.find(person => person.id === initialUserId) ?? users[0] ?? newAccount()),
     [notice, setNotice] = useState(''),
     [error, setError] = useState(''),
     [saving, setSaving] = useState(false);
   const mounted = useRef(true), pending = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const unrestricted = [actualUser, actor].every(principal => !Array.isArray(principal.siteIds));
-  const withinActorScope = [actualUser, actor].every(principal => !Array.isArray(principal.siteIds) || Array.isArray(selected.siteIds) && selected.siteIds.every(id => principal.siteIds!.includes(id)));
-  const editable = [actualUser, actor].every(principal => can(principal, 'users')) && withinActorScope &&
-    (actor.level === 'Systemadmin' && actualUser.level === 'Systemadmin' || selected.level !== 'Systemadmin');
+  const delegating = mayDelegateUserManagement(actor, actualUser);
+  const delegated = hasDelegatedUserManagement(actor, actualUser);
+  const original = users.find(user => user.id === selected.id);
+  const restriction = staffAccountRestriction(actor, actualUser, original ?? selected);
+  const editable = !restriction;
+  const attestCeiling = staffAttestCeiling(actor, actualUser);
+  const grantable = (right: Permission) => mayGrantStaffPermission(actor, actualUser, right)
+    && (permissionPrerequisites[right] ?? []).every(required => mayGrantStaffPermission(actor, actualUser, required));
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (
-      !editable ||
-      selected.maxAttest < 0 ||
-      (actor.level !== 'Systemadmin' && selected.maxAttest > actor.maxAttest) ||
-      !Number.isFinite(selected.maxAttest)
-    )
-      return;
+    if (!editable) return;
+    const invalidTarget = staffAccountRestriction(actor, actualUser, selected);
+    if (invalidTarget) { setError(invalidTarget); return; }
+    if (selected.maxAttest < 0 || !Number.isFinite(selected.maxAttest)
+      || selected.maxAttest > attestCeiling && (delegated || selected.maxAttest !== original?.maxAttest)) {
+      setError('Attestgränsen får inte överstiga din och den faktiska användarens gemensamma gräns.'); return;
+    }
     if (pending.current) return;
     pending.current = true; setSaving(true); setNotice(''); setError('');
     try {
@@ -112,24 +121,15 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
         <div>
           <h1>Konton & behörigheter</h1>
           <p>
-            Hantera även konton utan anställning. Kontorets inloggning är fortfarande ett demoflöde.
+            Hantera konton, inloggningar och behörigheter för företaget.
           </p>
         </div>
         <button
           className="office-btn"
-          disabled={saving}
+          disabled={saving || ![actualUser, actor].every(principal => can(principal, 'users'))}
           onClick={() => {
             setNotice(''); setError('');
-            setSelected({
-              id: crypto.randomUUID(),
-              name: '',
-              level: 'Medarbetare',
-              permissions: ['view'],
-              siteIds: actor.siteIds ?? allSiteIds,
-              maxAttest: 0,
-              ownAttest: false,
-              active: true,
-            });
+            setSelected(newAccount());
           }}
         >
           <Plus size={17} />
@@ -161,7 +161,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
             {error && <Alert tone="red">{error}</Alert>}
             {!editable && (
               <div className="office-alert">
-                VD kan inte ändra ett systemadminkonto.
+                {restriction}
               </div>
             )}
             <label>
@@ -178,7 +178,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
             <label>
               Kontonivå
               <select
-                disabled={!editable || saving || selected.id === actor.id}
+                disabled={!editable || saving || !delegating || [actor.id, actualUser.id].includes(selected.id)}
                 value={selected.level}
                 onChange={(e) =>
                   setSelected({
@@ -187,11 +187,9 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
                   })
                 }
               >
-                {[
-                  'Medarbetare',
-                  'VD',
-                  ...(actor.level === 'Systemadmin' ? ['Systemadmin'] : []),
-                ].map((l) => (
+                {[...new Set(['Medarbetare', ...(delegating ? ['VD'] : []),
+                  ...([actor, actualUser].every(principal => principal.level === 'Systemadmin') ? ['Systemadmin'] : []),
+                  ...(!editable ? [selected.level] : [])])].map((l) => (
                   <option key={l}>{l}</option>
                 ))}
               </select>
@@ -201,8 +199,9 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
                 <label key={key}>
                   <input
                     type="checkbox"
-                    disabled={!editable || saving || (selected.level !== 'Medarbetare' && !(selected.level === 'VD' && sensitivePersonnelPermissions.includes(key as Permission)))}
-                    checked={can(selected, key as Permission)}
+                    disabled={!editable || saving || !grantable(key as Permission) || (selected.level !== 'Medarbetare' && !(selected.level === 'VD' && sensitivePersonnelPermissions.includes(key as Permission)))}
+                    title={!grantable(key as Permission) ? key === 'users' ? 'Endast VD eller Systemadmin kan delegera användarhantering.' : 'Du får endast ge behörigheter som både du och den faktiska användaren har.' : undefined}
+                    checked={key === 'users' && selected.level === 'Medarbetare' ? selected.permissions.includes('users') : can(selected, key as Permission)}
                     onChange={(e) =>
                       setSelected({
                         ...selected,
@@ -214,6 +213,8 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
                 </label>
               ))}
             </div>
+            {delegated && <p className="office-muted">Du kan hantera vanliga medarbetarkonton inom dina och den faktiska användarens gemensamma behörigheter, anläggningar och attestvillkor. Att ge användarhantering vidare eller ändra administratörskonton kräver VD eller Systemadmin.</p>}
+            {delegating && selected.level === 'Medarbetare' && <p className="office-muted">Hantera användare låter medarbetaren skapa och administrera vanliga konton inom sin egen åtkomst. Behörigheten kan bara ges eller tas bort av VD eller Systemadmin.</p>}
             <div role="group" aria-label="Anläggningsåtkomst">
               <h3>Anläggningsåtkomst</h3>
               <label className="office-checkbox">
@@ -226,7 +227,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
                   <label key={site.id}>
                     <input
                       type="checkbox"
-                      disabled={!editable || saving || (!Array.isArray(selected.siteIds)) || (![actualUser, actor].every(principal => !principal.siteIds || principal.siteIds.includes(site.id)) && !(selected.siteIds ?? allSiteIds).includes(site.id))}
+                      disabled={!editable || saving || (!Array.isArray(selected.siteIds)) || !mayGrantStaffSite(actor, actualUser, site.id)}
                       checked={(selected.siteIds ?? allSiteIds).includes(site.id)}
                       onChange={(event) => {
                         const current: NonNullable<OfficeUser['siteIds']> =
@@ -253,7 +254,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
                 type="number"
                 min="0"
                 max={
-                  actor.level === 'Systemadmin' ? undefined : actor.maxAttest
+                  Number.isFinite(attestCeiling) ? Math.max(attestCeiling, delegated ? 0 : original?.maxAttest ?? 0) : undefined
                 }
                 step="0.01"
                 value={selected.maxAttest}
@@ -270,7 +271,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
               <input
                 type="checkbox"
                 checked={selected.active !== false}
-                disabled={!editable || saving || selected.id === actor.id}
+                disabled={!editable || saving || [actor.id, actualUser.id].includes(selected.id)}
                 onChange={(e) => setSelected({ ...selected, active: e.target.checked })}
               />
               Aktivt inloggningskonto
@@ -279,7 +280,7 @@ function StaffAccountEditor({ users, initialUserId, embedded = false, navigation
               <input
                 type="checkbox"
                 checked={selected.ownAttest}
-                disabled={!editable || saving}
+                disabled={!editable || saving || !mayGrantStaffOwnAttest(actor, actualUser)}
                 onChange={(e) =>
                   setSelected({ ...selected, ownAttest: e.target.checked })
                 }

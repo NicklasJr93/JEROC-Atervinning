@@ -274,7 +274,7 @@ export const can = (user: OfficeUser, right: Permission) =>
     : sensitivePersonnelPermissions.includes(right)
     ? user.level === 'Systemadmin' || user.permissions.includes(right)
     : right === 'users'
-    ? user.level !== 'Medarbetare'
+    ? user.active !== false && (user.level !== 'Medarbetare' || user.permissions.includes(right))
     : user.level !== 'Medarbetare' || user.permissions.includes(right);
 export const amount = (card: OfficeCard) =>
   card.accounting?.gross ??

@@ -79,7 +79,7 @@ test('an authenticated platform administrator can persist every UI permission on
   assert.ok(allPermissions.includes('companySettingsRead')); assert.ok(allPermissions.includes('companySettingsWrite'));
   const before = await f.repository.read(state => structuredClone(state.personnel.people));
   const users = (await f.users()).map(user => user.id === f.person.userId ? { ...user, permissions: allPermissions } : user);
-  const saved = await f.admin.request('/api/pricing/users', { users });
+  const saved = await f.admin.request('/api/pricing/users', { users, userManagementDelegationVersion: 1 });
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
   const returned = saved.body.users.find(user => user.id === f.person.userId);
   assert.deepEqual(new Set(returned.permissions), new Set(allPermissions));
@@ -94,8 +94,9 @@ test('an authenticated platform administrator can persist every UI permission on
   assert.deepEqual(new Set(refreshed.body.users.find(user => user.id === f.person.userId).permissions), new Set(allPermissions));
   const asEmployee = await f.admin.request('/api/platform/switch', { organisationId: f.company.id, effectiveUserId: f.person.userId });
   assert.equal(asEmployee.status, 200, JSON.stringify(asEmployee.body));
-  const denied = await f.admin.request('/api/pricing/users', { users: saved.body.users });
-  assert.equal(denied.status, 403, 'Selecting all permissions must not turn the employee role into an account administrator.');
+  const denied = await f.admin.request('/api/pricing/users', { users: saved.body.users.map(user => user.level === 'VD'
+    ? { ...user, name: 'Forbidden VD mutation by delegated employee' } : user) });
+  assert.equal(denied.status, 403, 'An explicit users grant must not let an employee manage a VD account.');
 }));
 
 test('unknown permission strings are rejected atomically instead of widening the catalog', () => fixture(async f => {

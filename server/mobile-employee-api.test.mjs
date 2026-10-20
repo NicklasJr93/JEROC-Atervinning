@@ -86,6 +86,25 @@ test('payment-profile capability follows current employee permission and does no
   assert.equal((await request('session', undefined, employee.cookie)).capabilities.paymentDetails, false);
 }));
 
+test('delegated employee account management permits ordinary targets and revokes immediately with its users grant',async()=>fixture(async({request,login,repository})=>{
+  const actor=await login();
+  await repository.transact(state=>{const user=state.pricing.users.find(value=>value.id==='test-alice');user.permissions=['view','prepare','customers','users'];user.maxAttest=100;
+    state.pricing.users.find(value=>value.id==='test-bob').permissions=['view'];});
+  assert.equal((await request('session',undefined,actor.cookie)).capabilities.manageEmployeeAccounts,true);
+  let listed=await request('accounts',undefined,actor.cookie);assert.equal(listed.status,200);assert.ok(listed.people.some(value=>value.id==='person-test-bob'));
+  assert.ok(!listed.people.some(value=>value.id==='person-test-alice'));
+  assert.equal((await request('accounts/save',{personId:'person-test-bob',username:'bob.changed',active:true,password:'Changed-Delegated-2026!'},actor.cookie)).status,200);
+  for(const patch of [{level:'VD'},{level:'Systemadmin'},{permissions:['view','users']},{permissions:['view','salaryRead']},{maxAttest:101},{ownAttest:true},{siteIds:['rimbo']}]){
+    const original=await repository.read(state=>structuredClone(state.pricing.users.find(value=>value.id==='test-bob')));
+    await repository.transact(state=>Object.assign(state.pricing.users.find(value=>value.id==='test-bob'),patch));
+    assert.equal((await request('accounts/save',{personId:'person-test-bob',username:'forbidden',active:true,password:'Forbidden-Delegated-2026!'},actor.cookie)).status,403,JSON.stringify(patch));
+    await repository.transact(state=>{const index=state.pricing.users.findIndex(value=>value.id==='test-bob');state.pricing.users[index]=original;});
+  }
+  await repository.transact(state=>{state.pricing.users.find(value=>value.id==='test-alice').permissions=['view','prepare','customers'];});
+  assert.equal((await request('session',undefined,actor.cookie)).capabilities.manageEmployeeAccounts,false);
+  assert.equal((await request('accounts',undefined,actor.cookie)).status,403);
+}));
+
 test('active facility persists per tenant and person, rejects forged choices and remains available through the time gate', async () => fixture(async ({ request, login, repository, openRepository, clock, base, env }) => {
   await repository.transact(state => {
     const person = state.personnel.people.find(value => value.userId === 'test-alice'); person.siteIds = ['norrtalje', 'rimbo'];

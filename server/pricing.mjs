@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { principalOwnsUser } from './business-identity.mjs';
 import { permissionNames } from '../dist-server/domain-models.mjs';
+import { canManageStaffUsers, canDelegateUserManagement, assertStaffUserManagement, assertStaffUserTarget } from './user-administration.mjs';
 
 // Calculations stay in the store; application.mjs persists this state through
 // the shared repository without moving calculations into the clients.
@@ -674,7 +675,7 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     sensitivePersonnelPermissions.includes(permission)
       ? user.level === 'Systemadmin' || user.permissions.includes(permission)
       : permission === 'users'
-      ? user.level !== 'Medarbetare'
+      ? canManageStaffUsers(user)
       : user.level !== 'Medarbetare' || user.permissions.includes(permission);
   const demand = (principal, permission) => {
     if (!can(principal.user, permission))
@@ -1515,8 +1516,11 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     return readableQuote(row, principalValue);
   }
   function saveUsers(input, principalValue) {
-    demand(principalValue, 'users');
-    const parsed = validate(z.object({ users: z.array(userSchema).min(1).max(100), allSiteUserIds: z.array(id).max(100).optional() }), input);
+    // Resolve again: a cached pre-revocation principal cannot retain account
+    // administration, and Jobba som never widens the actual actor's rights.
+    principalValue = principal(principalValue.actor.id, principalValue.user.id);
+    assertStaffUserManagement(principalValue, { ErrorType: PricingError });
+    const parsed = validate(z.object({ users: z.array(userSchema).min(1).max(100), allSiteUserIds: z.array(id).max(100).optional(), userManagementDelegationVersion: z.literal(1).optional() }), input);
     const allSiteUsers = new Set(parsed.allSiteUserIds ?? []);
     if ([...allSiteUsers].some(userId => !parsed.users.some(user => user.id === userId))) throw new PricingError('Välj ett befintligt konto för åtkomst till alla anläggningar.', 422);
     if (allSiteUsers.size && [principalValue.actor, principalValue.user].some(user => Array.isArray(user.siteIds) || !can(user, 'users')))
@@ -1541,6 +1545,23 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     }));
     if (new Set(users.map((user) => user.id)).size !== users.length)
       throw new PricingError('Användar-id måste vara unika.');
+    const comparable = user => ({ id: user.id, name: user.name, level: user.level,
+      active: user.active ?? true, siteIds: user.siteIds?.toSorted(),
+      permissions: [...new Set(user.level === 'Systemadmin' ? permissions : user.level === 'VD'
+        ? permissions.filter(right => !sensitivePersonnelPermissions.includes(right) || user.permissions.includes(right))
+        : user.permissions)].sort(), maxAttest: user.maxAttest, ownAttest: user.ownAttest });
+    const previousUsers = new Map(state.users.map(user => [user.id, user]));
+    const nextUsers = new Map(users.map(user => [user.id, user]));
+    for (const userId of new Set([...previousUsers.keys(), ...nextUsers.keys()])) {
+      const previous = previousUsers.get(userId), next = nextUsers.get(userId);
+      if (previous && next && isDeepStrictEqual(comparable(previous), comparable(next))) continue;
+      assertStaffUserTarget(principalValue, previous, next ?? null, { ErrorType: PricingError, allowSelfNameChange: true });
+      if (!canDelegateUserManagement(principalValue) && Boolean(previous?.permissions.includes('users')) !== Boolean(next?.permissions.includes('users')))
+        throw new PricingError('Endast VD eller Systemadmin får ge eller återkalla användaradministration.', 403);
+      if (next?.level === 'Medarbetare' && next.permissions.includes('users') && !(previous?.level === 'Medarbetare' && previous.permissions.includes('users'))
+        && parsed.userManagementDelegationVersion !== 1)
+        throw Object.assign(new PricingError('Ladda om sidan innan du delegerar användarhantering.', 409), { code: 'user_management_reload_required' });
+    }
     for (const user of users) {
       const previous = state.users.find(entry => entry.id === user.id);
       const sitesChanged = !previous || !isDeepStrictEqual(previous.siteIds?.toSorted(), user.siteIds?.toSorted());
@@ -1619,8 +1640,8 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
       const newAdmins = users.filter((user) => user.level === 'Systemadmin');
       // PostgreSQL JSONB may reorder object keys; compare semantic records.
       if (!isDeepStrictEqual(
-        oldAdmins.toSorted((a, b) => a.id.localeCompare(b.id)),
-        newAdmins.toSorted((a, b) => a.id.localeCompare(b.id)),
+        oldAdmins.map(comparable).toSorted((a, b) => a.id.localeCompare(b.id)),
+        newAdmins.map(comparable).toSorted((a, b) => a.id.localeCompare(b.id)),
       ))
         throw new PricingError('VD får inte ändra Systemadmin-konton.', 403);
       for (const user of users) {
@@ -1667,9 +1688,14 @@ export function createPricingStore({ now = () => new Date(), initialState } = {}
     for (const row of input.customers) validate(customerSchema, row);
     const ids = new Set(input.snapshots.map(row => row.id));
     if (ids.size !== input.snapshots.length || input.snapshots.some(row => typeof row.id !== 'string' || !Array.isArray(row.rows) || !Number.isFinite(row.total)) || input.ledger.some(row => !ids.has(row.snapshotId))) throw new PricingError('Prisunderlaget eller volymjournalen är ofullständig.');
-    const checker = createPricingStore({ initialState: input });
-    checker.saveUsers({users: input.users}, checker.principal(principalValue.actor.id));
-    return { ...copy(input), groups: copy(importedGroups) };
+    // Restores cannot revive a historically inert delegation bit. Even a
+    // previously valid delegation must be explicitly re-granted by an owner
+    // after import; ordinary rights and owner roles remain untouched.
+    const imported = { ...copy(input), users: input.users.map(user => user.level === 'Medarbetare'
+      ? { ...copy(user), permissions: user.permissions.filter(right => right !== 'users') } : copy(user)) };
+    const checker = createPricingStore({ initialState: imported });
+    checker.saveUsers({users: imported.users}, checker.principal(principalValue.actor.id));
+    return { ...imported, groups: copy(importedGroups) };
   }
   return {
     validateMigration,

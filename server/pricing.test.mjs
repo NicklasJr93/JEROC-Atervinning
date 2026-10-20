@@ -9,6 +9,7 @@ import {
 } from './pricing.mjs';
 import { createPricingApi } from './pricing-api.mjs';
 import { officeSchema } from '../dist-server/domain-models.mjs';
+import { assertStaffUserTarget } from './user-administration.mjs';
 
 const clock = () => new Date('2026-10-07T12:00:00Z');
 const setup = () => {
@@ -643,6 +644,18 @@ test('VD cannot change Systemadmin and LME write permission requires LME read', 
   );
 });
 
+test('VD delegates despite omitted optional administrator fields in a JSON round trip', () => {
+  const initialState = setup().store.exportState();
+  Object.assign(initialState.users.find(user => user.id === 'admin'), { siteIds: undefined, active: undefined });
+  const store = createPricingStore({ now: clock, initialState });
+  const users = JSON.parse(JSON.stringify(store.exportState().users)).map(user => user.id === 'anna'
+    ? { ...user, permissions: [...user.permissions, 'users'] } : user);
+  const saved = store.saveUsers({ users, userManagementDelegationVersion: 1 }, store.principal('lars'));
+  assert.ok(saved.users.find(user => user.id === 'anna').permissions.includes('users'));
+  assert.throws(() => store.saveUsers({ users: saved.users.map(user => user.id === 'admin'
+    ? { ...user, name: 'Ändrad systemadmin' } : user) }, store.principal('lars')), error => error.status === 403);
+});
+
 test('transport permissions can be saved and planning requires reading', () => {
   const { store, admin } = setup();
   const users = store.read(admin).users;
@@ -661,7 +674,7 @@ test('all registered office permissions save atomically while unregistered right
   const all = [...officeSchema.shape.users.element.shape.permissions.element.options];
   assert.ok(all.includes('companySettingsRead')); assert.ok(all.includes('companySettingsWrite'));
   const users = store.exportState().users.map(user => user.id === 'anna' ? { ...user, permissions: all } : user);
-  const saved = store.saveUsers({ users }, admin);
+  const saved = store.saveUsers({ users, userManagementDelegationVersion: 1 }, admin);
   assert.deepEqual(saved.users.find(user => user.id === 'anna').permissions, all);
   const persisted = store.exportState();
   assert.deepEqual(persisted.audit.at(-1), { sequence: persisted.revision, at: clock().toISOString(), actor: 'admin', actingUser: 'admin', action: 'Användarbehörigheter ändrade' });
@@ -873,4 +886,122 @@ test('HTTP API validates identity, effective permissions, JSON, body size and sa
       .status,
     404,
   );
+});
+
+function delegatedSetup() {
+  const { store, admin } = setup();
+  const users = store.exportState().users.map(user => user.id === 'kajsa'
+    ? { ...user, permissions: ['view', 'prepare', 'customers', 'users', 'attest'], siteIds: ['norrtalje'], maxAttest: 10_000, ownAttest: false }
+    : user.id === 'anna' ? { ...user, permissions: ['view'], siteIds: ['norrtalje'], maxAttest: 0, ownAttest: false } : user);
+  users.push({ id: 'other-delegate', name: 'Annan kontoadministratör', level: 'Medarbetare', permissions: ['view', 'users'], siteIds: ['norrtalje'], maxAttest: 0, ownAttest: false });
+  store.saveUsers({ users, userManagementDelegationVersion: 1 }, admin);
+  return { store, admin: store.principal('admin'), delegate: store.principal('kajsa') };
+}
+
+test('delegated users permission creates and maintains ordinary staff within the owned scope', () => {
+  const { store, delegate } = delegatedSetup();
+  assert.equal(store.can(delegate.user, 'users'), true);
+  const users = store.read(delegate).users.map(user => user.id === 'anna' ? { ...user, name: 'Anna uppdaterad', maxAttest: 5_000, permissions: ['view', 'attest'] } : user);
+  users.push({ id: 'ordinary-new', name: 'Ny medarbetare', level: 'Medarbetare', permissions: ['view', 'prepare'], siteIds: ['norrtalje'], maxAttest: 0, ownAttest: false });
+  const saved = store.saveUsers({ users }, delegate);
+  assert.equal(saved.users.find(user => user.id === 'anna').name, 'Anna uppdaterad');
+  assert.deepEqual(saved.users.find(user => user.id === 'ordinary-new').permissions, ['view', 'prepare']);
+  assert.equal(saved.users.find(user => user.id === 'admin').level, 'Systemadmin');
+  assert.equal(saved.users.find(user => user.id === 'other-delegate').name, 'Annan kontoadministratör');
+});
+
+test('delegated administrators cannot elevate, delegate onward, edit privileged targets or widen their own account', () => {
+  const { store, delegate } = delegatedSetup();
+  const unchanged = store.exportState();
+  const changes = [
+    ['self permissions', 'kajsa', user => ({ ...user, permissions: [...user.permissions, 'pay'] })],
+    ['self limit', 'kajsa', user => ({ ...user, maxAttest: 20_000 })],
+    ['VD target', 'lars', user => ({ ...user, name: 'Ändrad VD' })],
+    ['Systemadmin target', 'admin', user => ({ ...user, name: 'Ändrad admin' })],
+    ['delegate target', 'other-delegate', user => ({ ...user, name: 'Ändrad delegat' })],
+    ['new delegation', 'anna', user => ({ ...user, permissions: [...user.permissions, 'users'] })],
+    ['unowned permission', 'anna', user => ({ ...user, permissions: [...user.permissions, 'pay'] })],
+    ['site widening', 'anna', user => ({ ...user, siteIds: ['norrtalje', 'rimbo'] })],
+    ['attest cap', 'anna', user => ({ ...user, maxAttest: 10_001 })],
+    ['own attest restriction', 'anna', user => ({ ...user, ownAttest: true })],
+    ['role escalation', 'anna', user => ({ ...user, level: 'VD' })],
+  ];
+  for (const [label, id, change] of changes) {
+    assert.throws(() => store.saveUsers({ users: unchanged.users.map(user => user.id === id ? change(user) : user) }, delegate),
+      error => error instanceof PricingError && error.status === 403, label);
+    assert.deepEqual(store.exportState(), unchanged, `${label} must roll back`);
+  }
+  fails(() => store.saveUsers({ users: unchanged.users.filter(user => user.id !== 'other-delegate') }, delegate), 403);
+  fails(() => store.saveUsers({ users: unchanged.users, allSiteUserIds: ['anna'] }, delegate), 403);
+  // A benign own display name edit does not alter the administration boundary.
+  const renamed = store.saveUsers({ users: unchanged.users.map(user => user.id === 'kajsa' ? { ...user, name: 'Kajsa ny stavning' } : user) }, delegate);
+  assert.equal(renamed.users.find(user => user.id === 'kajsa').name, 'Kajsa ny stavning');
+});
+
+test('delegated full existing target bounds and both actual/effective caps are enforced', () => {
+  const { store, admin } = delegatedSetup();
+  let users = store.exportState().users.map(user => user.id === 'anna' ? { ...user, maxAttest: 11_000 } : user);
+  store.saveUsers({ users }, admin);
+  fails(() => store.saveUsers({ users: store.exportState().users.map(user => user.id === 'anna' ? { ...user, name: 'Only rename' } : user) }, store.principal('kajsa')), 403);
+  users = store.exportState().users.map(user => user.id === 'anna' ? { ...user, maxAttest: 600 }
+    : user.id === 'admin' ? { ...user, maxAttest: 500 } : user);
+  store.saveUsers({ users }, store.principal('admin'));
+  // The effective delegate owns 10,000, but the actual administrator owns 500.
+  fails(() => store.saveUsers({ users: store.exportState().users.map(user => user.id === 'anna' ? { ...user, name: 'Cannot bypass actual cap' } : user) }, store.principal('admin', 'kajsa')), 403);
+});
+
+test('revoked or disabled account administration takes effect even with an older principal snapshot', () => {
+  const { store, admin, delegate } = delegatedSetup();
+  const users = store.exportState().users.map(user => user.id === 'kajsa' ? { ...user, permissions: user.permissions.filter(right => right !== 'users') } : user);
+  store.saveUsers({ users }, admin);
+  fails(() => store.saveUsers({ users: store.exportState().users }, delegate), 403);
+  const disabled = store.exportState().users.map(user => user.id === 'kajsa' ? { ...user, active: false, permissions: [...user.permissions, 'users'] } : user);
+  store.saveUsers({ users: disabled, userManagementDelegationVersion: 1 }, store.principal('admin'));
+  fails(() => store.saveUsers({ users: store.exportState().users }, delegate), 401);
+});
+
+test('price-register restore removes staff administration grants until an owner explicitly grants them again', () => {
+  const { store, admin } = delegatedSetup();
+  const original = store.exportState();
+  const imported = store.validateMigration(original, admin);
+  assert.equal(imported.users.find(user => user.id === 'kajsa').permissions.includes('users'), false);
+  assert.equal(imported.users.find(user => user.id === 'other-delegate').permissions.includes('users'), false);
+  assert.ok(imported.users.find(user => user.id === 'kajsa').permissions.includes('prepare'));
+  assert.equal(imported.users.find(user => user.id === 'admin').level, 'Systemadmin');
+  assert.deepEqual(store.exportState(), original);
+  assert.equal(original.users.find(user => user.id === 'kajsa').permissions.includes('users'), true);
+});
+
+
+test('shared account policy protects Systemadmin and VD grant limits for both owner principals', () => {
+  const { store } = setup();
+  const admin = store.principal('admin').user, vd = store.principal('lars').user;
+  const target = store.principal('anna').user;
+  for (const principal of [{ actor: vd, user: admin }, { actor: admin, user: vd }]) {
+    assert.throws(() => assertStaffUserTarget(principal, admin, { ...admin, name: 'Attempted change' }, { ErrorType: PricingError }),
+      error => error instanceof PricingError && error.status === 403);
+    assert.throws(() => assertStaffUserTarget(principal, target, { ...target, maxAttest: vd.maxAttest + 1 }, { ErrorType: PricingError }),
+      error => error instanceof PricingError && error.status === 403);
+  }
+  assert.doesNotThrow(() => assertStaffUserTarget({ actor: admin, user: admin }, target, { ...target, maxAttest: vd.maxAttest + 1 }, { ErrorType: PricingError }));
+});
+
+
+test('new delegation needs the current account editor version while unchanged grants roundtrip', () => {
+  const { store, admin } = setup();
+  const before = store.exportState();
+  const users = before.users.map(user => user.id === 'kajsa' ? { ...user, permissions: [...user.permissions, 'users'] } : user);
+  assert.throws(() => store.saveUsers({ users }, admin), error => error instanceof PricingError && error.status === 409 && error.code === 'user_management_reload_required');
+  assert.deepEqual(store.exportState(), before);
+  const downgradedOwner = before.users.map(user => user.id === 'lars' ? { ...user, level: 'Medarbetare' } : user);
+  // A role-implied owner bit is not an already explicit staff delegation.
+  fails(() => store.saveUsers({ users: downgradedOwner }, admin), 409);
+  assert.deepEqual(store.exportState(), before);
+  store.saveUsers({ users, userManagementDelegationVersion: 1 }, admin);
+  // A non-administration edit may roundtrip an already deliberate grant.
+  store.saveUsers({ users: store.exportState().users.map(user => user.id === 'anna' ? { ...user, name: 'Anna efter ny editor' } : user) }, store.principal('admin'));
+  assert.ok(store.exportState().users.find(user => user.id === 'kajsa').permissions.includes('users'));
+  const create = [...store.exportState().users, { id: 'new-grantee', name: 'Ny delegat', level: 'Medarbetare', permissions: ['view', 'users'], maxAttest: 0, ownAttest: false }];
+  fails(() => store.saveUsers({ users: create }, store.principal('admin')), 409);
+  assert.ok(!store.exportState().users.some(user => user.id === 'new-grantee'));
 });

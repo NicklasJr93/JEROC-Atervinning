@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { principalOwnsUser } from './business-identity.mjs';
 import { createHash } from 'node:crypto';
 import { guardCustomerIntakeDraftChange } from './customer-intake.mjs';
+import { migrateUserManagementDelegation } from './user-management-migration.mjs';
 import { z } from 'zod';
 import { createApplicationRepository } from './application-storage.mjs';
 import { createPricingStore, resolvePricingPrincipal, PricingError } from './pricing.mjs';
@@ -569,6 +570,7 @@ export function createApplicationService({ repository, env = process.env, seed =
         ensurePersonnel(state); refreshStaffingTasks(state); ensureFleet(state);
         ensureEmployeeTime(state); ensureMobileEmployeeAccounts(state);
         ensureEmployeeSickness(state);
+        migrateUserManagementDelegation(state);
         // Persist catalog upgrades once. Existing article revisions, financial
         // snapshots and category IDs are retained by the pricing migration.
         state.pricing = createPricingStore({ initialState: state.pricing }).exportState();

@@ -17,6 +17,7 @@ import { fleetTripGate, fleetVehicleEligible } from './fleet.mjs';
 import { globalEmployeeLoginContext, employeeLoginPasswordValid, employeeLoginAddress } from './mobile-global-login.mjs';
 import { PlatformError } from './platform-auth.mjs';
 import { mobileSupportIdentity, mobileSupportPrincipal } from './mobile-support-identity.mjs';
+import { canManageStaffUsers, assertStaffUserTarget } from './user-administration.mjs';
 
 const COOKIE = 'jeroc_employee';
 const SESSION_HOURS = 8;
@@ -281,7 +282,7 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
             capabilities: { yardWork, assignedOrders: Boolean(person.canDrive && person.driverId),
               paymentDetails: [principal.actor, principal.user].every(user => user.level !== 'Medarbetare' || user.permissions.includes('paymentDetails')),
               employeeTime: true, manageTimeRequirements: managePeople(state, identity).length > 0,
-              manageEmployeeAccounts: principal.user.level === 'Systemadmin' || principal.user.level === 'VD' } };
+              manageEmployeeAccounts: [principal.actor,principal.user].every(canManageStaffUsers) } };
         };
         if (path === 'login') {
           if (req.method !== 'POST') fail('Metoden stöds inte.', 405);
@@ -391,8 +392,9 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
           }) } };
         }
         if (['accounts', 'accounts/save'].includes(path)) {
-          if (principal.user.level !== 'Systemadmin' && principal.user.level !== 'VD') fail('Du saknar behörighet att administrera personalkonton.', 403);
-          const people = state.personnel.people.filter(value => value.kind === 'employee' && (!principal.user.siteIds || value.siteIds.every(id => principal.user.siteIds.includes(id))));
+          if (![principal.actor,principal.user].every(canManageStaffUsers)) fail('Du saknar behörighet att administrera personalkonton.', 403);
+          const people = state.personnel.people.filter(value => value.kind === 'employee' && [principal.actor,principal.user].every(user=>!user.siteIds || value.siteIds.every(id=>user.siteIds.includes(id))) &&
+            (!value.userId || (()=>{try{const target=state.pricing.users.find(user=>user.id===value.userId);assertStaffUserTarget(principal,target,target,{ErrorType:PricingError});return Boolean(target);}catch{return false;}})()));
           if (req.method === 'POST') {
             const input = parse(z.object({ personId: z.string().min(1).max(120), username: accountUsername, active: z.boolean(), password: z.string().min(10).max(200).optional(),
               siteIds: z.array(z.string().min(1).max(100)).max(100).optional() }).strict(), payload);
@@ -414,7 +416,8 @@ export function createMobileEmployeeApi({ getRepository, readBody, json, sitePro
               syncPersonnelFacilityAccess(state,{siteCatalog});
               linkedUser = state.pricing.users.find(value => value.id === id);
             }
-            if (principal.user.level !== 'Systemadmin' && linkedUser.level === 'Systemadmin') fail('Du kan inte ändra en systemadministratörs inloggning.', 403);
+            if ([principal.actor,principal.user].some(user=>user.level!=='Systemadmin') && linkedUser.level === 'Systemadmin') fail('Du kan inte ändra en systemadministratörs inloggning.', 403);
+            assertStaffUserTarget(principal,linkedUser,linkedUser,{ErrorType:PricingError});
             if (input.active && (!target.active || linkedUser.active === false)) fail('Aktivera personen och användarkontot först.', 422);
             if (auth.accounts.some(value => value.personId !== target.id && value.username === input.username)) fail('Inloggningsnamnet används redan.', 422);
             const old = auth.accounts.find(value => value.personId === target.id);

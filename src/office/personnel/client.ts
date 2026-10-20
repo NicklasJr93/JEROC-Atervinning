@@ -5,7 +5,7 @@ import { currentPlatformSession, platformRequestHeaders } from '../../platform/s
 const platformKey = () => { const session = currentPlatformSession(); return JSON.stringify(session?.authenticated ? [session.organisationId, session.generation] : 'legacy'); };
 export interface PersonnelClientScope { key: string; platformKey: string; headers: Readonly<Record<string, string>> }
 export function personnelClientScope(user: OfficeUser, actualUser: OfficeUser): PersonnelClientScope {
-  const identity = (person: OfficeUser) => [person.id, person.level, person.active !== false, [...person.permissions].sort(), person.siteIds ? [...person.siteIds].sort() : 'all'];
+  const identity = (person: OfficeUser) => [person.id, person.level, person.active !== false, [...person.permissions].sort(), person.siteIds ? [...person.siteIds].sort() : 'all', person.maxAttest, person.ownAttest];
   const platform = platformKey();
   return { key: JSON.stringify([platform, identity(actualUser), identity(user)]), platformKey: platform,
     headers: Object.freeze({ ...platformRequestHeaders(), 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }) };

@@ -23,6 +23,7 @@ import './personal.css';
 import { currentPlatformSession } from '../../platform/session';
 import StaffInvitationPanel, { type StaffInvitationAttempt } from './StaffInvitationPanel';
 import { sendStaffInvitation, setStaffTemporaryPassword, StaffInvitationError, type StaffProvisionMethod } from './staff-invitations-client';
+import { mayGrantStaffSite, staffAccountRestriction } from './account-permissions';
 
 export interface PersonalWorkspaceProps {
   user: OfficeUser; actualUser: OfficeUser; selectedSiteId?: string; users?: OfficeUser[];
@@ -121,13 +122,18 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
   }, [actualUser.id, user.id, scope, scopeKey]);
   const closeModal = useCallback(() => { setModal(null); setEditingCompetency(undefined); }, []);
   const invitationKey = (person: Person) => JSON.stringify([scopeKey, person.id, person.email?.trim().toLowerCase()]);
-  const provisionStaffLogin = async (person: Person, choice: StaffProvisionMethod) => {
+  const provisionStaffLogin = async (person: Person, choice: StaffProvisionMethod, savedAccount?: OfficeUser) => {
     const key = invitationKey(person);
     if (invitationLocks.current.has(key)) return;
     invitationLocks.current.add(key);
     const controller = new AbortController(); requests.current.add(controller);
     let attempt: StaffInvitationAttempt | undefined;
     try {
+      let target = savedAccount ?? (response?.users ?? users).find(account => account.id === person.userId);
+      if (!target && person.userId) target = (await refresh()).users?.find(account => account.id === person.userId);
+      if (identity.current !== scopeKey || controller.signal.aborted) throw new DOMException('Inloggningen har ändrats.', 'AbortError');
+      if (!target || staffAccountRestriction(user, actualUser, target))
+        throw new Error('Du kan inte skapa eller återställa inloggning för det här kontot. Be VD eller Systemadmin om hjälp.');
       const passwordFingerprint = choice.method === 'temporary'
         ? Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(choice.password))), value => value.toString(16).padStart(2, '0')).join('') : undefined;
       if (identity.current !== scopeKey || controller.signal.aborted) throw new DOMException('Inloggningen har ändrats.', 'AbortError');
@@ -180,7 +186,8 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
   const account = person && data.externalAccounts.find(value => value.personId === person.id);
   const accountUsers = response.users ?? users;
   const linkedUser = person && accountUsers.find(value => value.id === person.userId);
-  const canManageAccount = person?.kind === 'external' ? permitted('externalAccounts') : [user, actualUser].every(principal => can(principal, 'users'));
+  const canManageAccount = person?.kind === 'external' ? permitted('externalAccounts') : [user, actualUser].every(principal => can(principal, 'users'))
+    && (!person?.userId || Boolean(linkedUser && !staffAccountRestriction(user, actualUser, linkedUser)));
   const canReadIllness = mayReadSickness(user, actualUser);
   const ordinaryVehicle = person && response.transport.vehicles.find(vehicle => vehicle.id === person.vehicleId);
   const accessConflicts = person ? (response.facilityAccessConflicts ?? []).filter(conflict => conflict.personId === person.id && !conflict.resolvedAt) : [];
@@ -200,7 +207,7 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
         <button className="office-back" onClick={() => navigate('/personnel')}><ArrowLeft size={16} /> Till personal</button>
         <div className="hr-person-header"><div className={`hr-avatar large${person.kind === 'external' ? ' external' : ''}`}>{initials(person.name)}</div><div><h1>{person.name}</h1><div className="hr-person-badges"><Pill tone={person.active ? 'green' : 'grey'}>{person.kind === 'external' ? 'Extern chaufför' : 'Anställd'}</Pill>{person.canDrive && <Pill>Förare</Pill>}</div><p>{person.team || person.role} · {person.siteIds.map(siteName).join(', ')}{person.employeeNumber && ` · ${person.employeeNumber}`}{person.kind === 'external' && ` · ${companyName(person)}`}</p></div><div className="hr-header-actions">{availability(person)}{canManageAccount ? <button className="office-btn outline" onClick={() => openPerson(person.id, 'account')}><UserRound size={16} /> Inloggning<Pill tone={person.kind === 'external' ? account?.active ? 'green' : 'grey' : person.userId && linkedUser?.active !== false ? 'green' : 'grey'}>{person.kind === 'external' ? account ? account.active ? 'Aktivt' : 'Avaktiverat' : 'Ej skapat' : person.userId ? linkedUser?.active === false ? 'Spärrat' : 'Kopplat' : 'Ej skapat'}</Pill></button> : !person.userId && !account && <Pill tone="grey">Ingen inloggning</Pill>}</div></div>
       </OfficePageHeader>
-      {tab === 'account' && person.kind === 'employee' && person.userId && invitationsEnabled && <StaffInvitationPanel
+      {tab === 'account' && canManageAccount && person.kind === 'employee' && person.userId && invitationsEnabled && <StaffInvitationPanel
         key={`${scopeKey}:${person.id}:${person.email}`} person={person} scope={scope}
         attempt={invitationAttempts.current.get(invitationKey(person))} onSend={choice => provisionStaffLogin(person, choice)} onEdit={() => edit(person)} />}
       {tab === 'overview' && <>
@@ -244,7 +251,7 @@ function PersonnelRegistryWorkspace({ user, actualUser, selectedSiteId = 'all', 
       if (saved) openPerson(saved.id, createAccount || saved.userId !== editingPerson?.userId ? 'account' : 'overview');
       if (saved && invitationsEnabled && createAccount?.kind === 'staff' && loginChoice) {
         onNotice('Personen är sparad. Förbereder inloggningen…');
-        void provisionStaffLogin(saved, loginChoice).catch(() => {});
+        void provisionStaffLogin(saved, loginChoice, next.users?.find(account => account.id === saved.userId)).catch(() => {});
       } else onNotice(createAccount ? 'Personen och inloggningen är skapade.' : 'Personen är sparad.');
     }} />}
     {modal === 'vehicles' && <VehicleRegistry key={scopeKey} scope={scope} onClose={closeModal} onChanged={async () => { await refresh(); }} />}
@@ -282,13 +289,16 @@ function PersonForm({ response, person, users, user, actualUser, invitationsEnab
   const [kind, setKind] = useState<Person['kind']>(person?.kind ?? 'employee');
   const externalAccount = response.data.externalAccounts.find(account => account.personId === person?.id);
   const hasExternalAccount = Boolean(externalAccount);
-  const mayManageStaff = response.capabilities.includes('users');
+  const currentStaffAccount = person?.userId ? users.find(account => account.id === person.userId) : undefined;
+  const mayManageStaff = response.capabilities.includes('users') && [user, actualUser].every(principal => can(principal, 'users'))
+    && (!person?.userId || Boolean(currentStaffAccount && !staffAccountRestriction(user, actualUser, currentStaffAccount)));
   const mayManageExternal = response.capabilities.includes('externalAccounts');
   const [staffUserId, setStaffUserId] = useState(person?.userId ?? '');
   const [createLogin, setCreateLogin] = useState(() => (!person || createLoginOnEdit) && (person?.kind === 'external' ? mayManageExternal && !hasExternalAccount : mayManageStaff && !person?.userId));
   const [canDrive, setCanDrive] = useState(person?.canDrive || createLoginOnEdit && person?.kind === 'external' || false);
   const [vehicleId, setVehicleId] = useState(person?.vehicleId ?? '');
-  const [siteIds, setSiteIds] = useState<string[]>(person?.siteIds ?? (response.sites[0] ? [response.sites[0].id] : []));
+  const grantableSites = response.sites.filter(site => mayGrantStaffSite(user, actualUser, site.id));
+  const [siteIds, setSiteIds] = useState<string[]>(person?.siteIds ?? (grantableSites[0] ? [grantableSites[0].id] : []));
   const canCreateLogin = kind === 'employee' ? mayManageStaff && !staffUserId : mayManageExternal && !hasExternalAccount;
   const creatingAccount = createLogin && canCreateLogin;
   const creatingInvitedAccount = invitationsEnabled && creatingAccount && kind === 'employee';
@@ -311,6 +321,12 @@ function PersonForm({ response, person, users, user, actualUser, invitationsEnab
     if (!hasCanonicalAccount && !siteIds.length) throw new Error('Välj minst en anläggning.');
     if (creatingInvitedAccount && !String(values.get('email') || '').trim()) throw new Error('Ange personens e-postadress för inloggningen.');
     if (creatingInvitedAccount && loginMethod === 'temporary' && (temporaryPassword.length < 12 || temporaryPassword.length > 200)) throw new Error('Det tillfälliga lösenordet måste innehålla 12–200 tecken.');
+    if (kind === 'employee' && mayManageStaff && staffUserId && staffUserId !== person?.userId) {
+      const target = users.find(account => account.id === staffUserId);
+      if (!target || staffAccountRestriction(user, actualUser, target)) throw new Error('Det valda kontot kan inte kopplas med din aktuella behörighet.');
+    }
+    if (creatingAccount && siteIds.some(siteId => !mayGrantStaffSite(user, actualUser, siteId)))
+      throw new Error('Kontots anläggningsåtkomst måste ligga inom din och den faktiska användarens gemensamma åtkomst.');
     const next: Partial<Person> & Pick<Person, 'name' | 'kind'> = {
       ...person, id, name: String(values.get('name')).trim(), kind, active: values.get('active') === 'on',
       role: String(values.get('role')).trim(), team: String(values.get('team')).trim(),
@@ -337,7 +353,7 @@ function PersonForm({ response, person, users, user, actualUser, invitationsEnab
     setCreateLogin(nextKind === 'employee' ? mayManageStaff : mayManageExternal && !hasExternalAccount);
     if (nextKind === 'external') setCanDrive(true);
   };
-  const siteChoices = <div className="hr-field full"><span>{creatingAccount ? 'Anläggningsåtkomst *' : 'Anläggningstillhörighet *'}</span><div className="hr-checkbox-list">{response.sites.map(site => <label key={site.id}><input type="checkbox" checked={siteIds.includes(site.id)} onChange={event => setSiteIds(previous => event.target.checked ? [...previous, site.id] : previous.filter(value => value !== site.id))} />{site.name}</label>)}</div>{creatingAccount && <small>Kontots gemensamma åtkomst används även på personkortet.</small>}</div>;
+  const siteChoices = <div className="hr-field full"><span>{creatingAccount ? 'Anläggningsåtkomst *' : 'Anläggningstillhörighet *'}</span><div className="hr-checkbox-list">{response.sites.map(site => <label key={site.id}><input type="checkbox" checked={siteIds.includes(site.id)} disabled={creatingAccount && !mayGrantStaffSite(user, actualUser, site.id)} onChange={event => setSiteIds(previous => event.target.checked ? [...previous, site.id] : previous.filter(value => value !== site.id))} />{site.name}</label>)}</div>{creatingAccount && <small>Kontots gemensamma åtkomst används även på personkortet. Du kan bara välja anläggningar inom din och den faktiska användarens åtkomst.</small>}</div>;
   return <Dialog title={person ? 'Redigera person' : 'Lägg till person'} description="Personal, inloggning och förarprofil på samma personkort." onClose={close}>
     <form onSubmit={submit}><div className="hr-form-grid">
       <Field label="Namn *" full><input name="name" defaultValue={person?.name} required maxLength={150} /></Field>
@@ -375,7 +391,7 @@ function PersonForm({ response, person, users, user, actualUser, invitationsEnab
               : <p className="hr-muted">En engångslänk skickas automatiskt till personens e-postadress efter sparandet. Personen väljer sitt eget lösenord. Länken gäller i 24 timmar.</p>}
             <p className="hr-muted">Personens e-postadress används som användarnamn.</p>
           </>}
-          <Field label="Befintligt användarkonto" full><select name="userId" aria-label="Befintligt användarkonto" value={staffUserId} onChange={event => { setStaffUserId(event.target.value); if (event.target.value) setCreateLogin(false); }}><option value="">{createLogin ? 'Skapa ett nytt konto' : 'Inget konto kopplat'}</option>{staffUserId && !linkedAccount && <option value={staffUserId} disabled>Kopplat konto · begränsad åtkomst</option>}{users.filter(account => !response.data.people.some(value => value.id !== person?.id && value.userId === account.id)).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></Field>
+          <Field label="Befintligt användarkonto" full><select name="userId" aria-label="Befintligt användarkonto" value={staffUserId} onChange={event => { setStaffUserId(event.target.value); if (event.target.value) setCreateLogin(false); }}><option value="">{createLogin ? 'Skapa ett nytt konto' : 'Inget konto kopplat'}</option>{staffUserId && !linkedAccount && <option value={staffUserId} disabled>Kopplat konto · begränsad åtkomst</option>}{users.filter(account => !staffAccountRestriction(user, actualUser, account) && !response.data.people.some(value => value.id !== person?.id && value.userId === account.id)).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></Field>
           {staffUserId && <p className="hr-muted">Personen använder det befintliga kontots anläggningsåtkomst och behörigheter.</p>}
         </> : hasExternalAccount ? <p className="hr-muted">Personen har redan en chaufförsinloggning. Anläggningsåtkomst, lösenord och kontostatus hanteras på fliken Inloggning & behörigheter.</p> : createLogin && <div className="hr-form-grid">
           <Field label="Användarnamn *"><input name="username" required autoComplete="off" pattern="[a-zA-Z0-9._-]+" minLength={3} maxLength={80} placeholder="T.ex. kalle.akeri" /></Field>

@@ -133,9 +133,8 @@ test('nekad behörighetssparning visar ett rött fel, bevarar gjorda val och kan
   const fixture = await setup(page, { failFirstPermissionSave: true });
   await account(page);
   const editor = page.locator('.office-account-embedded');
-  // User administration remains role-bound; this editor is a Medarbetare.
-  const permissions = editor.locator('.office-permission-grid').first().locator('label')
-    .filter({ hasNotText: 'Hantera användare' }).locator('input[type="checkbox"]');
+  // A real owner can explicitly delegate user administration as well.
+  const permissions = editor.locator('.office-permission-grid').first().locator('input[type="checkbox"]');
   for (const permission of await permissions.all()) await permission.check();
   await editor.getByLabel('Maxbelopp för attest (kr)', { exact: true }).fill('15000');
   const before = structuredClone(fixture.state().pricing.users.find((value: OfficeUser) => value.id === userId));
@@ -153,6 +152,7 @@ test('nekad behörighetssparning visar ett rött fel, bevarar gjorda val och kan
   const first = fixture.statistics.pricing[0].users.find(value => value.id === userId)!;
   expect(first.permissions.length).toBe(await permissions.count());
   expect(first.permissions).toContain('companySettingsWrite');
+  expect(first.permissions).toContain('users');
   await editor.getByRole('button', { name: 'Spara behörigheter', exact: true }).click();
   await expect(editor.getByRole('status')).toContainText('har sparats.');
   await expect(editor.getByRole('alert')).toHaveCount(0);
@@ -197,6 +197,9 @@ test('fordon skapas inne i personalformuläret utan att osparade personuppgifter
   await dialog.getByLabel('Namn *', { exact: true }).fill(name);
   await dialog.getByLabel('Team', { exact: true }).fill('Osparat team');
   await dialog.getByLabel('Telefon', { exact: true }).fill('070-000 56 78');
+  // This case creates a person/vehicle. Login invitation coverage separately
+  // supplies the required email; do not request an account implicitly here.
+  await dialog.getByRole('checkbox', { name: 'Skapa inloggning', exact: true }).uncheck();
   await dialog.getByRole('checkbox', { name: 'Kan bokas som förare', exact: true }).check();
   await dialog.getByRole('button', { name: 'Skapa nytt fordon', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Spara person', exact: true })).toBeDisabled();
@@ -212,6 +215,7 @@ test('fordon skapas inne i personalformuläret utan att osparade personuppgifter
   await expect(dialog).toHaveCount(0); await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   const saved = fixture.state().personnel.people.find((value: Person) => value.name === name);
   expect(saved).toMatchObject({ team: 'Osparat team', phone: '+46700005678', vehicleId: vehicle.id, canDrive: true });
+  expect(saved.userId).toBeUndefined();
   expect(fixture.statistics.vehicles).toHaveLength(1); expect(fixture.statistics.pageErrors).toEqual([]);
 });
 

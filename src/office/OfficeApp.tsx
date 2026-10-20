@@ -1133,12 +1133,13 @@ export function OfficeApp() {
     (section === 'personnel' && location.pathname.split('/')[2] === 'accounts') ||
     (section === 'personnel' && user && !can(user, 'personnelRead') && can(user, 'users'));
   async function saveStaffUsers(users: OfficeUser[], allSiteUserIds?: string[]) {
-    if (!user || !actualUser || !can(user, 'users')) return false;
+    if (!user || !actualUser || ![user, actualUser].every(account => can(account, 'users'))) return false;
     const principal = principalRef.current;
     setMessage('');
     // The account editor keeps failed saves next to the unsaved choices.
     // A server rejection must not be promoted to the global success notice.
-    await pricingRequest('users', user, actualUser, { users, ...(allSiteUserIds?.length ? { allSiteUserIds } : {}) });
+    await pricingRequest('users', user, actualUser, { users, userManagementDelegationVersion: 1,
+      ...(allSiteUserIds?.length ? { allSiteUserIds } : {}) });
     if (principalRef.current !== principal) return false;
     await shared.refresh();
     return principalRef.current === principal;
@@ -2240,7 +2241,7 @@ export function OfficeApp() {
               key={`${actualUser!.id}:${user.id}`} user={user} actualUser={actualUser!}
               users={data.users} selectedSiteId={siteFilter} onNotice={setMessage}
               onAccountsChanged={() => shared.refresh()}
-              renderStaffAccount={(id, onSaved) => can(user, 'users') && data.users.some(account => account.id === id) ? <StaffAccountPanel
+              renderStaffAccount={(id, onSaved) => [user, actualUser!].every(account => can(account, 'users')) && data.users.some(account => account.id === id) ? <StaffAccountPanel
                 key={`${user.id}:${id}`} embedded users={data.users} initialUserId={id}
                 actor={user} actualUser={actualUser!} sites={terminalDemo.state?.sites} save={saveStaffUsers} onSaved={onSaved} /> : <p role="status">Hämtar det kopplade kontot…</p>}
               onOpenUser={id => navigate(`/personnel/accounts?user=${encodeURIComponent(id)}`)} /></Suspense>

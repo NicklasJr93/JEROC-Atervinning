@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { PlatformError, platformPasswordHash } from './platform-auth.mjs';
 import { personnelCan } from './personnel.mjs';
+import { assertStaffUserTarget } from './user-administration.mjs';
 
 const DAY = 86_400_000, WINDOW = 15 * 60_000;
 const derive = promisify(scrypt);
@@ -67,6 +68,7 @@ export function createStaffInvitations({ auth, repository = auth?.repository, co
     const user = state.pricing.users.find(value => value.id === person?.userId);
     if (!person || person.kind !== 'employee' || !user) fail('Välj en anställd med ett kopplat användarkonto.', 422);
     if (person.active !== true || user.active === false) fail('Aktivera personprofilen och användarkontot först.', 422);
+    assertStaffUserTarget({actor:actual,user:effective},user,user,{ErrorType:PlatformError});
     if (user.level === 'Systemadmin' && [actual, effective].some(value => value.level !== 'Systemadmin'))
       fail('Du kan inte skapa en systemadministratörs inloggning.', 403, 'staff_invitation_forbidden');
     if ([actual, effective].some(value => Array.isArray(value.siteIds)

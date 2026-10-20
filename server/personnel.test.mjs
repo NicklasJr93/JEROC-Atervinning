@@ -196,8 +196,8 @@ test('account creation rolls back profile and catalogs on invalid grants or driv
   const after=await a(personnel);assert.deepEqual(after.data,before.data);assert.deepEqual(after.users,before.users);assert.deepEqual(after.transport,before.transport);assert.deepEqual((await a('/api/pricing/state')).users,beforePricing.users);
 }));
 
-test('scoped VD cannot create systemadmin, excessive attest or cross-site accounts; staff users right cannot escalate',async()=>fixture(async({a})=>{
-  let users=(await a('/api/pricing/state')).users.map(u=>u.id==='lars'?{...u,siteIds:['norrtalje'],maxAttest:1000}:u.id==='kajsa'?{...u,siteIds:['norrtalje'],permissions:['personnelRead','personnelWrite','users']}:u);
+test('scoped VD cannot create systemadmin, excessive attest or cross-site accounts; staff without delegation cannot escalate',async()=>fixture(async({a})=>{
+  let users=(await a('/api/pricing/state')).users.map(u=>u.id==='lars'?{...u,siteIds:['norrtalje'],maxAttest:1000}:u.id==='kajsa'?{...u,siteIds:['norrtalje'],permissions:['personnelRead','personnelWrite']}:u);
   assert.equal((await a('/api/pricing/users',{users})).status,200);
   const rejected=[
     {person:{name:'Otillåten systemadmin',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff',level:'Systemadmin'}},
@@ -210,6 +210,40 @@ test('scoped VD cannot create systemadmin, excessive attest or cross-site accoun
   assert.equal((await a(personnel,{action:'person.save',person:{name:'Försök från medarbetare',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff'}},'kajsa')).status,403);
   const vdCreated=await a(personnel,{action:'person.save',person:{name:'Tillåtet VD-konto',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff',level:'VD',maxAttest:1000}},'lars');assert.equal(vdCreated.status,200,vdCreated.error);
   assert.ok(vdCreated.users.every(u=>u.siteIds && u.siteIds.every(id=>id==='norrtalje')));
+}));
+
+test('delegated staff create ordinary accounts within their own grants while privileged profiles and logins remain protected',async()=>fixture(async({a,repository})=>{
+  const rights=['view','personnelRead','personnelWrite','users'];
+  const users=(await a('/api/pricing/state')).users.map(user=>user.id==='kajsa'?{...user,siteIds:['norrtalje'],permissions:rights,maxAttest:100,ownAttest:false}:user);
+  assert.equal((await a('/api/pricing/users',{users,userManagementDelegationVersion:1})).status,200);
+  const current=await a(personnel,undefined,'kajsa');assert.ok(current.capabilities.includes('users'));
+  assert.ok(current.users.every(user=>user.level==='Medarbetare' && !user.permissions.includes('users') && user.permissions.every(right=>rights.includes(right))));
+  const input={id:`person-${randomUUID()}`,name:'Delegerat skapad',kind:'employee',siteIds:['norrtalje'],email:'created@example.test'};
+  const created=await a(personnel,{action:'person.save',person:input,createAccount:{kind:'staff',permissions:['view'],maxAttest:100}},'kajsa');
+  assert.equal(created.status,200,created.error);const person=created.data.people.find(value=>value.id===input.id);assert.ok(person.userId);
+  assert.equal((await a(personnel,{action:'employeeAccount.save',personId:person.id,username:'delegated-created',active:true,password:'Delegated-Password-2026!'},'kajsa')).status,200);
+  const protectedId=`person-${randomUUID()}`;
+  const protectedCreated=await a(personnel,{action:'person.save',person:{id:protectedId,name:'Skyddad bolagsledare',kind:'employee',siteIds:['norrtalje'],email:'owner@example.test'},createAccount:{kind:'staff',level:'VD'}});
+  assert.equal(protectedCreated.status,200,protectedCreated.error);
+  const protectedPerson=protectedCreated.data.people.find(value=>value.id===protectedId);
+  const contactEdit=await a(personnel,{action:'person.save',person:{...protectedPerson,phone:'0722002220'}},'kajsa');
+  assert.equal(contactEdit.status,200,contactEdit.error);
+  const protectedCurrent=contactEdit.data.people.find(value=>value.id===protectedId);
+  const repo=await repository(),before=await repo.read(state=>structuredClone({people:state.personnel.people,users:state.pricing.users,auth:state.personnelAuth}));
+  const rejected=[
+    {action:'person.save',person:{id:`person-${randomUUID()}`,name:'Forbidden VD',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff',level:'VD'}},
+    {action:'person.save',person:{id:`person-${randomUUID()}`,name:'Forbidden delegate',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff',permissions:['view','users']}},
+    {action:'person.save',person:{id:`person-${randomUUID()}`,name:'Forbidden salary',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff',permissions:['view','personnelRead','salaryRead']}},
+    {action:'person.save',person:{id:`person-${randomUUID()}`,name:'Forbidden attest',kind:'employee',siteIds:['norrtalje']},createAccount:{kind:'staff',maxAttest:101}},
+    {action:'person.save',person:{id:`person-${randomUUID()}`,name:'Forbidden link',kind:'employee',siteIds:['norrtalje'],userId:'admin'}},
+    {action:'person.save',person:{id:'person-anna',userId:'lars'}},
+    {action:'person.save',person:{...protectedCurrent,email:'takeover@example.test'}},
+    {action:'person.save',person:{...protectedCurrent,active:false}},
+    {action:'person.save',person:{...protectedCurrent},clearFields:['userId']},
+    {action:'employeeAccount.save',personId:protectedId,username:'takeover',active:true,password:'Forbidden-Password-2026!'},
+  ];
+  for(const command of rejected)assert.equal((await a(personnel,command,'kajsa')).status,403,JSON.stringify(command));
+  assert.deepEqual(await repo.read(state=>({people:state.personnel.people,users:state.pricing.users,auth:state.personnelAuth})),before);
 }));
 
 test('external person and hashed login are atomic and unchanged retry preserves active session',async()=>fixture(async({a,repository,instance})=>{

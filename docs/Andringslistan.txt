@@ -3732,3 +3732,24 @@ Status: Genomförd och lokalt verifierad 2026-10-20.
 - Verifiering: produktionsbygge, Expo-typkontroll, 73 riktade serverprov
   och 12 browserfall passerar. Befintlig mobil systemadmin och tidigare
   kundgodkännande kontrolleras tillsammans med det nya kundformuläret.
+
+
+ÄL 150 – Delegera Hantera användare till medarbetare
+Status: Genomförd och lokalt verifierad 2026-10-20.
+- VD och Systemadmin kan ge en medarbetare Hantera användare utan att
+  ändra personens kontonivå. Kryssrutan ska fungera och visa sparat val.
+- Delegerad personal kan skapa/koppla vanliga personalkonton och skicka
+  inbjudningar genom befintligt lösenordsflöde.
+- Både faktiskt och valt kontos rättigheter, anläggningar, attestgräns och
+  villkor begränsar åtgärden. Ingen självutökning eller vidaredelegering.
+- VD, Systemadmin och andra användaradministratörer är skyddade mål.
+  Samma kontroll gäller kontolänkar, inbjudningar och inloggningsändringar.
+- Historiska users-kryss som aldrig gav rättigheten aktiveras inte vid
+  uppdatering. VD/Systemadmin måste bevilja uttryckligen i nya formuläret.
+- En gammal flik får inte återaktivera äldre kryss vid ett annat sparande.
+  Befintliga personalprofiler och inloggningskonton ska finnas kvar.
+- Dokumentation: docs/delegerad-anvandarhantering.md.
+- Verifiering: produktionsbygge, Expo-typkontroll, 73 riktade serverprov
+  och 25 browserfall passerar. VD och Systemadmin kan ge rättigheten,
+  delegerad personal kan hantera vanliga konton och skyddade ändringar
+  stoppas. Inbjudningar, personalformulär och anläggningsval kontrolleras.

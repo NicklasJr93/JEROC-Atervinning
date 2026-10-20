@@ -35,7 +35,7 @@ function fixture() {
   };
   const service = createStaffInvitations({ auth, repository, email, companyRepository: async () => business,
     env: { APP_URL: 'https://app.scrapplanner.com' }, now: () => new Date(time++) });
-  return { service, repository, business, requests, req: { headers: {}, socket: { remoteAddress: '127.0.0.1' } },
+  return { service, repository, business, requests, context, req: { headers: {}, socket: { remoteAddress: '127.0.0.1' } },
     rejectProvider: value => { rejected = value; }, advance: value => { time += value; } };
 }
 
@@ -104,4 +104,39 @@ test('resend supersedes the previous proof, status expires, and conflicts never 
   const other = fixture(); await other.repository.transact(value => value.users.push({ id: 'existing', email: first.email, username: 'different', active: false }));
   await assert.rejects(other.service.send({ personId: 'person-alma', requestId: randomUUID() }, other.req), value => value.code === 'staff_invitation_email_conflict');
   assert.equal(await other.business.read(value => value.personnelAuth.accounts.length), 0);
+});
+
+async function delegatedFixture() {
+  const f=fixture(), manager={...f.context.actualUser,level:'Medarbetare',permissions:['view','personnelRead','personnelWrite','users'],maxAttest:100,ownAttest:false};
+  f.context.actualUser=clone(manager);f.context.user=clone(manager);
+  await f.business.transact(state=>{state.pricing.users[0]=clone(manager);});
+  return f;
+}
+test('explicitly delegated staff can invite an ordinary in-scope account without granting it delegation',async()=>{
+  const f=await delegatedFixture();
+  const result=await f.service.send({personId:'person-alma',requestId:randomUUID()},f.req);
+  assert.equal(result.status,'sent');assert.equal(f.requests.length,1);
+  assert.deepEqual(await f.business.read(state=>state.pricing.users[1].permissions),['view']);
+  assert.equal((await f.service.read('person-alma',f.req)).status,'sent');
+});
+test('delegated invitations enforce both live identities and reject privileged, self and stronger targets before sending',async()=>{
+  const changes=[
+    state=>{state.pricing.users[1].level='VD';},
+    state=>{state.pricing.users[1].level='Systemadmin';},
+    state=>{state.pricing.users[1].permissions.push('users');},
+    state=>{state.pricing.users[1].permissions.push('salaryRead');},
+    state=>{state.pricing.users[1].maxAttest=101;},
+    state=>{state.pricing.users[1].ownAttest=true;},
+    state=>{state.pricing.users[1].siteIds=['other'];},
+    state=>{state.personnel.people[0].userId='admin';},
+    state=>{state.pricing.users[0].permissions=state.pricing.users[0].permissions.filter(right=>right!=='users');},
+  ];
+  for(const change of changes){const f=await delegatedFixture();await f.business.transact(change);
+    await assert.rejects(f.service.send({personId:'person-alma',requestId:randomUUID()},f.req),error=>error.status===403);
+    assert.equal(f.requests.length,0);assert.equal(await f.business.read(state=>state.personnelAuth.accounts.length),0);
+  }
+  const f=await delegatedFixture();f.context.user={id:'weaker',level:'Medarbetare',permissions:['view','personnelRead'],active:true,siteIds:['main']};
+  await f.business.transact(state=>state.pricing.users.push(clone(f.context.user)));
+  await assert.rejects(f.service.temporaryPassword({personId:'person-alma',requestId:randomUUID(),password:PRIVATE},f.req),error=>error.status===403);
+  assert.equal(f.requests.length,0);
 });
