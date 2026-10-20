@@ -48,6 +48,7 @@ export interface TransportOrderEditorProps {
   onCancel(): void;
   onPickLocation(receive: (coords: Coordinates) => void): void;
   personnel?: PersonnelData;
+  submitDisabled?: boolean;
 }
 
 function validCoordinates(coords: Coordinates): boolean {
@@ -94,6 +95,7 @@ export default function TransportOrderEditor({
   onCancel,
   onPickLocation,
   personnel,
+  submitDisabled = false,
 }: TransportOrderEditorProps) {
   const formId = useId();
   const [draft, setDraft] = useState<TransportDraft>(() => ({
@@ -250,6 +252,7 @@ export default function TransportOrderEditor({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitDisabled) return;
     if (!draft.customerName.trim() || !draft.address.trim() || !draft.city.trim()) {
       onError('Ange kund, adress och ort.');
       return;
@@ -404,7 +407,7 @@ export default function TransportOrderEditor({
         {error && <div className="transport-editor-error" role="alert"><AlertCircle size={16} /><span>{error}</span></div>}
         <div>
           <button type="button" className="transport-editor-cancel" onClick={onCancel}>Avbryt</button>
-          <button type="submit" form={formId} className="transport-editor-save" disabled={finding}>{submitLabel}</button>
+          <button type="submit" form={formId} className="transport-editor-save" disabled={finding || submitDisabled}>{submitLabel}</button>
         </div>
       </footer>
     </section>

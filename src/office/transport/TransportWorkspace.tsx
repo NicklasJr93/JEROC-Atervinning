@@ -10,7 +10,7 @@ import './transport.css';
 import { useSharedData } from '../../shared-data';
 import TransportIntegrations from './TransportIntegrations';
 import { useTransportOutbox } from './integrations-client';
-import { readPersonnelAvailability } from '../personnel/client';
+import { PersonnelApiError, personnelClientScope, readPersonnelAvailability } from '../personnel/client';
 import { personnelPlanIssues } from '../personnel/model';
 import type { PersonnelResponse } from '../personnel/types';
 import { transportUnavailableSpans } from './personnel-availability';
@@ -86,29 +86,41 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const [picking, setPicking] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [personnel, setPersonnel] = useState<PersonnelResponse | null>(null);
-  const [personnelError, setPersonnelError] = useState('');
+  const personnelScope = personnelClientScope(user, actualUser);
+  const [availability, setAvailability] = useState<{ scope: string; value: PersonnelResponse } | null>(null);
+  const [availabilityFailure, setAvailabilityFailure] = useState<{ scope: string; message: string; denied: boolean } | null>(null);
+  const personnel = availability?.scope === personnelScope.key ? availability.value : null;
+  const personnelError = availabilityFailure?.scope === personnelScope.key ? availabilityFailure.message : '';
+  const availabilityDenied = availabilityFailure?.scope === personnelScope.key && availabilityFailure.denied;
+  const editorScope = useRef(personnelScope.key);
   const [availabilityRefresh, setAvailabilityRefresh] = useState(0);
   useEffect(() => {
     let active = true, loading = false;
-    setPersonnel(null); setPersonnelError('');
+    const controller = new AbortController();
     async function refresh() {
       if (loading) return;
       loading = true;
       try {
-        const result = await readPersonnelAvailability(actualUser.id, user.id);
-        if (active) { setPersonnel(result); setPersonnelError(''); }
+        const result = await readPersonnelAvailability(actualUser.id, user.id, { scope: personnelScope, signal: controller.signal });
+        if (active) { setAvailability({ scope: personnelScope.key, value: result }); setAvailabilityFailure(null); }
       } catch (reason) {
-        if (active) { setPersonnel(null); setPersonnelError(reason instanceof Error ? reason.message : 'Förarnas tillgänglighet kunde inte hämtas.'); }
+        if (active) {
+          const denied = reason instanceof PersonnelApiError && ([401, 403].includes(reason.status) || reason.code === 'PRINCIPAL_CHANGED');
+          // A failed read makes the previous availability stale; it must not
+          // act as Cancel on an open editor. Proven access loss is different.
+          if (denied) setAvailability(null);
+          setAvailabilityFailure({ scope: personnelScope.key, denied, message: reason instanceof Error ? reason.message : 'Förarnas tillgänglighet kunde inte hämtas.' });
+        }
       } finally { loading = false; }
     }
     void refresh();
     const timer = setInterval(() => void refresh(), 15000);
     const foreground = () => { if (!document.hidden) void refresh(); };
     document.addEventListener('visibilitychange', foreground);
-    return () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange', foreground); };
-  }, [actualUser.id, user.id, availabilityRefresh]);
-  const planning = can(user, 'transportPlan') && shared.ready && !blocked && !officeBlocked && Boolean(personnel);
+    return () => { active = false; controller.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', foreground); };
+  }, [personnelScope.key, availabilityRefresh]);
+  const planningAccess = user.active !== false && actualUser.active !== false && can(user, 'transportPlan') && can(actualUser, 'transportPlan') && !availabilityDenied;
+  const planning = planningAccess && shared.ready && !blocked && !officeBlocked && Boolean(personnel) && !personnelError;
   const actor: TransportActor = {
     canPlan: planning, actualUserId: actualUser.id, effectiveUserId: user.id,
     actor: (actualUser.id === user.id ? user.name : actualUser.name + ' som ' + user.name) + ' · Kontor Norrtälje',
@@ -130,8 +142,10 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
   const editor = panel && ['create', 'edit', 'book'].includes(panel.kind);
 
   useEffect(() => {
-    if (!planning && editor) { setPanel(null); setPicking(false); picker.current = null; }
-  }, [planning, editor]);
+    const changedScope = editorScope.current !== personnelScope.key;
+    editorScope.current = personnelScope.key;
+    if ((!planningAccess || changedScope) && editor) { setPanel(null); setPicking(false); picker.current = null; }
+  }, [planningAccess, personnelScope.key, editor]);
   useEffect(() => {
     if (!planning) return;
     function expireRequests() {
@@ -178,7 +192,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
     setSelectedDriverIds(ids => ids.includes(id) ? ids.filter(other => other !== id) : [...ids, id]);
   }
   function save(next: TransportData, _expected: TransportData): boolean {
-    if (!personnel) { setError('Hämta förarnas tillgänglighet innan du ändrar planeringen.'); return false; }
+    if (!planning || !personnel) { setError(personnelError ? 'Tillgängligheten är inte aktuell. Uppdatera innan du sparar planeringen; ditt formulär finns kvar.' : 'Hämta förarnas tillgänglighet innan du ändrar planeringen.'); return false; }
     for (const order of effectiveTransportOrders(next)) {
       const previous = effectiveTransportOrders(_expected).find(old => old.id === order.id);
       const departing = order.status === 'on_way' && previous?.status !== 'on_way';
@@ -278,7 +292,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
     setError('');
   }
   function submit(draft: TransportDraft, options: { repeat: 'none' | 'weekly' | 'biweekly'; scope: 'one' | 'series' }) {
-    if (!panel) return false;
+    if (!panel || !planning) return false;
     const current = panel;
     const previousIds = new Set(data.orders.map(order => order.id));
     const intendedPlan = draft.status === 'booked' ? transportPlanOf({ ...draft, id: '', audit: [], updatedAt: '', bookingVersion: 0 }) : undefined;
@@ -384,7 +398,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
       {helpOpen && <div className="transport-help-popover"><button aria-label="Stäng information" onClick={() => setHelpOpen(false)}><X size={17} /></button>
         <strong>Transportplanering</strong><p>Karta, planerare och arbetsordrar visar samma uppgifter. Kontur visar förare, fyllning visar kärltyp. Obokade nålar skakar kort. Klicka på förarnas namn för att välja vilka nålar du ser.</p>
         <p>Schema, frånvaro och verifierade kompetenser hämtas från personalregistret. Skrafferade tider kan inte bokas. Befintliga bokningar ligger kvar om en förare blir otillgänglig, med en bemanningsvarning. Restid bedöms manuellt.</p></div>}
-      {!personnel && <div className={'transport-message ' + (personnelError ? 'error' : '')} role={personnelError ? 'alert' : 'status'}><span>{personnelError || 'Hämtar förarnas tillgänglighet…'}</span>{personnelError && <button onClick={() => setAvailabilityRefresh(value => value + 1)}>Försök igen</button>}</div>}
+      {(!personnel || personnelError) && <div className={'transport-message ' + (personnelError ? 'error' : '')} role={personnelError ? 'alert' : 'status'}><span>{personnelError || 'Hämtar förarnas tillgänglighet…'}{personnelError && !availabilityDenied && ' Planering kan sparas när tillgängligheten hämtats igen. Ett öppet formulär och dess uppgifter finns kvar.'}</span>{personnelError && <button onClick={() => setAvailabilityRefresh(value => value + 1)}>Försök igen</button>}</div>}
       {staffingWarningCount > 0 && <div className="transport-staffing-warning" role="status"><AlertCircle size={18} /><div><strong>{staffingWarningCount} uppdrag behöver bemanningskontroll</strong><span>Bokningarna finns kvar. Kontrollera tillgänglighet och kompetenser innan uppdragen körs.</span></div>{onOpenStaffing && personnel?.capabilities.includes('personnelRead') && <button onClick={onOpenStaffing}>Bemanning att lösa</button>}</div>}
       {((error && !editor) || (!error && notice)) && <div className={'transport-message ' + (error ? 'error' : '')} role={error ? 'alert' : 'status'}>
         <span>{error || notice}</span>
@@ -419,6 +433,7 @@ export default function TransportWorkspace({ user, actualUser, customers, onExit
         <aside className={'transport-side ' + (editor ? 'is-editor' : '')} aria-label="Arbetsordrar">
           {editor && panel ? <TransportOrderEditor key={editorKey} order={selected} data={data} customers={customers}
             personnel={personnel?.data}
+            submitDisabled={!planning}
             mode={panel.kind as 'create' | 'edit' | 'book'} initialPlan={panel.kind === 'book' ? panel.plan : undefined} error={error} onError={setError}
             onSubmit={submit} onCancel={() => { setPicking(false); picker.current = null; if (selectedId) setPanel({ kind: 'details', id: selectedId }); else closePanel(); if (!blocked) setError(''); }}
             onPickLocation={receive => { picker.current = receive; setPicking(true); if (layout === 'plan') setLayout('both'); }} />
