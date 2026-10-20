@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { articleGroups, updateArticleCatalog, updateCustomerPriceCatalog } from './data';
 import { currentPlatformSession } from './platform/session';
+import { cleanAcknowledgedRecovery, newRecoveryId, readBusinessRecovery, saveBusinessRecovery, type PendingBusinessChange, type RecoveryDescriptor, type RecoveryState } from './shared-data-recovery';
 
 type Identity = { actor: string; user: string } | { mobile: true } | { employee: string; companyId?: string };
 function platformSessionForIdentity(identity: Identity | undefined) {
@@ -21,8 +22,8 @@ export const sharedBusinessIdentity = (identity: Identity | undefined) => {
  return session?.organisationId ? `${session.organisationId}:${session.generation}:${principal}` : principal;
 };
 const identityScope = sharedBusinessIdentity;
-/** Recovery data is never reused by another company, acting account or session
- * generation. These keys are client recovery aids, not authorization. */
+/** Read caches remain generation-scoped. Durable pending work has a separate
+ * principal key below, so signing in again does not strand an unsent queue. */
 export function sharedBusinessCacheKey(key: string, identity?: Identity) {
  const session = platformSessionForIdentity(identity);
  if (identity && 'employee' in identity && identity.companyId) {
@@ -33,7 +34,34 @@ export function sharedBusinessCacheKey(key: string, identity?: Identity) {
   ? `${key}.company.${encodeURIComponent(session.organisationId)}.principal.${encodeURIComponent(`${identity && 'actor' in identity ? identity.actor : ''}/${identity && 'actor' in identity ? identity.user : ''}`)}.generation.${encodeURIComponent(String(session.generation))}`
   : key;
 }
-type Pending<T> = { base: T; next: T };
+function businessRecoveryDescriptor(key: string, domain: string, identity: Identity | undefined, writer?: string): RecoveryDescriptor {
+ const session = platformSessionForIdentity(identity);
+ const principal = !identity ? [] : 'employee' in identity ? ['employee', identity.companyId ?? '', identity.employee]
+  : 'actor' in identity ? ['office', identity.actor, identity.user] : ['mobile'];
+ const durableIdentity = JSON.stringify([domain, session?.organisationId ?? '', session?.actor.id ?? '', ...principal]);
+ const cacheKey = sharedBusinessCacheKey(key, identity), requestIdentity = sharedBusinessIdentity(identity);
+ const legacyPrefix = session ? `${cacheKey.slice(0, cacheKey.lastIndexOf('.generation.'))}.generation.` : '';
+ const legacy = (candidate: string) => {
+  if (!session) return candidate === `${cacheKey}.server-pending.${requestIdentity}`;
+  if (!candidate.startsWith(legacyPrefix)) return false;
+  const separator = candidate.indexOf('.server-pending.', legacyPrefix.length);
+  if (separator < 0) return false;
+  let generation: string;
+  try { generation = decodeURIComponent(candidate.slice(legacyPrefix.length, separator)); } catch { return false; }
+  const oldIdentity = identity && 'employee' in identity
+   ? `${session.organisationId}:${generation}:platform-admin:${session.actor.id}:${identity.companyId}:employee:${identity.employee}`
+   : `${session.organisationId}:${generation}:${identity && 'actor' in identity ? `${identity.actor}:${identity.user}` : ''}`;
+  return candidate.slice(separator + '.server-pending.'.length) === oldIdentity;
+ };
+ const prefix = `${key}.recovery.v2.${encodeURIComponent(durableIdentity)}.writer.`;
+ return { key: writer ? `${prefix}${writer}` : prefix, identity: durableIdentity, legacy,
+  branch: candidate => candidate.startsWith(prefix) && /^[a-f0-9-]{36}$/i.test(candidate.slice(prefix.length)),
+  // Old office admin keys used one virtual business actor for every platform
+  // administrator, so the actual owner cannot safely be reconstructed.
+  legacyOwnerKnown: !(session && identity && 'actor' in identity && identity.actor === '__platform-admin') };
+}
+export function sharedBusinessRecoveryKey(key: string, domain: string, identity?: Identity) { return businessRecoveryDescriptor(key, domain, identity).key; }
+type Pending<T> = PendingBusinessChange<T>;
 type Options<T> = {
  domain: 'office' | 'mobile' | 'transport'; key: string; identity?: Identity;
  current: { current: T }; accept(data: T): void; error(message: string): void;
@@ -61,6 +89,7 @@ type SyncState<T> = {
  scope: string; ready: boolean; queue: Pending<T>[]; flight?: Promise<void>;
  observedRevision: number; confirmedRevision: number; confirmedEpoch: number;
  targetRevision: number; pendingChange: boolean; failure?: Error;
+ recoverySources?: RecoveryState<T>['sources']; recoveryBlocked?: string; recovering?: boolean; cacheWarning?: string;
 };
 const equalValue = (first: unknown, second: unknown) => JSON.stringify(first) === JSON.stringify(second);
 const objectValue = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -117,21 +146,28 @@ export function useSharedData<T>(options: Options<T>) {
  const [, refreshCatalog] = useState(0), catalogSignature = useRef('');
  const state = useRef<SyncState<T>>({ scope: '', ready: false, queue: [], observedRevision: 0, confirmedRevision: 0, confirmedEpoch: 0, targetRevision: 0, pendingChange: false });
  const runner = useRef<() => Promise<void>>(async () => {});
- const recoveryKey = `${scopedOptions.key}.server-pending.${identityKey}`;
+ const writer = useRef<string | undefined>(undefined); writer.current ??= newRecoveryId();
+ const recovery = businessRecoveryDescriptor(options.key, options.domain, options.identity, writer.current);
+ function optionalCacheWrite(key: string, value: string) {
+  try { localStorage.setItem(key, value); return true; }
+  catch { state.current.cacheWarning = 'Serverns uppgifter kan användas, men den lokala läscachen kunde inte uppdateras.'; return false; }
+ }
+ function optionalCacheRead(key: string) {
+  try { return localStorage.getItem(key); }
+  catch { state.current.cacheWarning = 'Serverns uppgifter kan användas, men webbläsarens lokala lagring är inte tillgänglig.'; return null; }
+ }
  function enqueue(next: T): boolean {
   const o = latest.current, s = state.current;
   if (!s.ready || s.scope !== identityKey || identityScope(o.identity) !== identityKey) { o.error('Ansluter till den gemensamma databasen. Vänta ett ögonblick.'); return false; }
+  if (s.recoveryBlocked || s.recovering) { o.error(s.recoveryBlocked ?? 'Tidigare osända ändringar återhämtas. Vänta tills de har kontrollerats av servern.'); return false; }
   try {
    const parsed = o.parse(next), item = { base: structuredClone(o.current.current), next: parsed };
-   const queue = [...s.queue, item], previousCache = localStorage.getItem(o.key);
-   try {
-    localStorage.setItem(o.key, JSON.stringify(parsed));
-    localStorage.setItem(recoveryKey, JSON.stringify(queue));
-   } catch (error) {
-    try { if (previousCache === null) localStorage.removeItem(o.key); else localStorage.setItem(o.key, previousCache); } catch { /* Retain the previous durable queue. */ }
-    throw error;
-   }
+   const queue = [...s.queue, item];
+   // The pending queue is mandatory. A read cache is optional and must never
+   // decide whether an otherwise durable change can be accepted.
+   saveBusinessRecovery(recovery, { queue, sources: s.recoverySources ?? [] });
    s.queue = queue; s.failure = undefined;
+   optionalCacheWrite(o.key, JSON.stringify(parsed));
    o.current.current = parsed; o.accept(parsed);
    void runner.current(); return true;
   } catch { o.error('Ändringen kunde inte sparas i återhämtningscachen.'); return false; }
@@ -140,6 +176,14 @@ export function useSharedData<T>(options: Options<T>) {
   const o = latest.current, s = state.current;
   if (s.scope !== identityKey || identityScope(o.identity) !== identityKey || !s.ready) return;
   if (revision !== undefined && revision < s.confirmedRevision) return;
+  if (s.recovering) {
+   // A previous session's optimistic snapshot has not passed today's access
+   // checks. Only display the current server projection and confirmed action.
+   const parsed = o.parse(updater(o.current.current));
+   o.current.current = parsed; o.accept(parsed); s.confirmedEpoch += 1;
+   if (revision !== undefined) { s.confirmedRevision = Math.max(s.confirmedRevision, revision); s.observedRevision = Math.max(s.observedRevision, revision); }
+   optionalCacheWrite(o.key, JSON.stringify(parsed)); return;
+  }
   let acknowledged = s.queue.length ? o.parse(updater(s.queue[0].base)) : o.parse(updater(o.current.current));
   const queue = s.queue.map(item => {
    const rebased = rebaseConfirmedChanges(item.base, item.next, acknowledged);
@@ -153,16 +197,20 @@ export function useSharedData<T>(options: Options<T>) {
   s.queue = queue; s.confirmedEpoch += 1;
   if (revision !== undefined) { s.confirmedRevision = Math.max(s.confirmedRevision, revision); s.observedRevision = Math.max(s.observedRevision, revision); }
   o.current.current = parsed; o.accept(parsed);
-  try { localStorage.setItem(o.key, JSON.stringify(parsed)); localStorage.setItem(recoveryKey, JSON.stringify(queue)); }
+  try {
+   saveBusinessRecovery(recovery, { queue, sources: s.recoverySources ?? [] });
+   cleanAcknowledgedRecovery(recovery, { queue, sources: s.recoverySources ?? [] });
+   optionalCacheWrite(o.key, JSON.stringify(parsed));
+  }
   catch { o.error('Serverändringen är sparad, men återhämtningscachen kunde inte uppdateras.'); }
  }
  async function flush() {
   const s = state.current;
   if (s.scope !== identityKey || identityScope(latest.current.identity) !== identityKey) throw new Error('Användaren har ändrats. Försök igen.');
-  if (s.ready && !s.queue.length && !s.failure) return;
+  if (s.ready && !s.queue.length && !s.failure && !s.recoveryBlocked) return;
   await runner.current();
   if (state.current !== s) throw new Error('Användaren har ändrats. Försök igen.');
-  if (!s.ready || s.queue.length || s.failure) throw s.failure ?? new Error('Osparade ändringar kunde inte sparas. Försök igen.');
+  if (!s.ready || s.queue.length || s.failure || s.recoveryBlocked) throw s.failure ?? new Error(s.recoveryBlocked ?? 'Osparade ändringar kunde inte sparas. Försök igen.');
  }
  useEffect(() => {
   const o = latest.current;
@@ -237,7 +285,7 @@ export function useSharedData<T>(options: Options<T>) {
    if (!currentScope()) return;
    const parsed = latest.current.parse(data);
    if (JSON.stringify(latest.current.current.current) !== JSON.stringify(parsed)) { latest.current.current.current = parsed; latest.current.accept(parsed); }
-   localStorage.setItem(o.key, JSON.stringify(parsed));
+   optionalCacheWrite(o.key, JSON.stringify(parsed));
   }
   function acceptResult(result: { data: T; revision?: number; confirmedEpoch: number }) {
    if (result.revision !== undefined) s.observedRevision = Math.max(s.observedRevision, result.revision);
@@ -256,44 +304,65 @@ export function useSharedData<T>(options: Options<T>) {
     try {
      s.failure = undefined;
      if (!s.ready) {
-      const legacy = localStorage.getItem(o.key);
+      const legacy = optionalCacheRead(o.key);
       let result = await request();
       // A platform account always starts with its server projection. Importing
       // browser demo state into a selected company would cross company scopes.
       const allowLegacyImport = !platformSession && !('employee' in principal && principal.companyId && principal.companyId !== 'jeroc-demo');
-      if (allowLegacyImport && legacy && !localStorage.getItem(`${o.key}.postgres-imported`)) {
-       if (!localStorage.getItem(`${o.key}.legacy-before-postgres`)) localStorage.setItem(`${o.key}.legacy-before-postgres`, legacy);
+      if (allowLegacyImport && legacy && !optionalCacheRead(`${o.key}.postgres-imported`)
+        && (optionalCacheRead(`${o.key}.legacy-before-postgres`) || optionalCacheWrite(`${o.key}.legacy-before-postgres`, legacy))) {
        let legacyData;
        try { legacyData = o.parse(JSON.parse(legacy)); }
        catch { await request({ kind: 'archive', data: { raw: legacy, reason: 'Lokalt register kunde inte tolkas' } }); }
        if (legacyData) result = await request({ kind: 'import', data: legacyData });
-       localStorage.setItem(`${o.key}.postgres-imported`, 'yes');
+       optionalCacheWrite(`${o.key}.postgres-imported`, 'yes');
        if (result.importConflicts) latest.current.error('Äldre lokala uppgifter har bevarats separat där de skiljer sig från servern. Serverns aktuella uppgifter visas.');
       }
-      if (!legacy) localStorage.setItem(`${o.key}.postgres-imported`, 'yes');
-      const recovery = JSON.parse(localStorage.getItem(recoveryKey) ?? '[]') as Pending<T>[];
-      s.queue = recovery.map(item => ({ base: o.parse(item.base), next: o.parse(item.next) }));
-      if (s.queue.length) accept(s.queue[s.queue.length - 1].next); else acceptResult(result);
+      if (!legacy) optionalCacheWrite(`${o.key}.postgres-imported`, 'yes');
+      // A fresh authenticated read is shown before any previous-session work.
+      // Recovered changes are checked by current server permissions and their
+      // original conflict baselines before they can appear in the UI.
+      acceptResult(result);
+      const restored = readBusinessRecovery(recovery, o.parse);
+      s.queue = restored.queue; s.recoverySources = restored.sources; s.recoveryBlocked = restored.blocked;
+      s.recovering = Boolean(restored.queue.length);
       s.ready = true; setReady(true); bootstrapped = true;
-      if (!result.importConflicts) latest.current.error('');
+      if (!result.importConflicts) latest.current.error(s.recoveryBlocked ?? s.cacheWarning ?? '');
+     } else if (s.recoveryBlocked && !s.queue.length) {
+      const result = await request(); acceptResult(result);
+      const restored = readBusinessRecovery(recovery, o.parse);
+      s.queue = restored.queue; s.recoverySources = restored.sources; s.recoveryBlocked = restored.blocked;
+      s.recovering = Boolean(restored.queue.length);
+      latest.current.error(s.recoveryBlocked ?? s.cacheWarning ?? '');
      }
-     if (s.queue.length) {
+     if (s.queue.length && !s.recoveryBlocked) {
       while (currentScope() && s.queue.length) {
        const item = s.queue[0], result = await request({ kind: 'update', ...item });
-       s.queue.shift(); localStorage.setItem(recoveryKey, JSON.stringify(s.queue));
+       // Do not lose the durable operation if acknowledging its local queue
+       // cannot be stored. A later retry remains protected by the old base.
+       const remaining = s.queue.slice(1);
+       try { saveBusinessRecovery(recovery, { queue: remaining, sources: s.recoverySources ?? [] }); }
+       catch {
+        if (s.recovering) accept(result.data);
+        throw new Error('Ändringen är sparad på servern, men den lokala återhämtningskön kunde inte uppdateras. Kontrollera webbläsarens lagring innan du gör fler ändringar.');
+       }
+       s.queue = remaining;
        acceptResult(result);
-       if (!s.queue.length) latest.current.error('');
+       if (!s.queue.length) { s.recovering = false; cleanAcknowledgedRecovery(recovery, { queue: [], sources: s.recoverySources ?? [] }); latest.current.error(s.cacheWarning ?? ''); }
       }
      } else if (!bootstrapped) { const result = await request(); acceptResult(result); }
     } catch (error) {
      if (!currentScope()) return;
      s.failure = error instanceof Error ? error : new Error('Anslutningen avbröts.');
      if ((error as { status?: number }).status === 409 && s.queue.length) {
-      s.ready = false; setReady(false);
       try {
-       localStorage.setItem(`${o.key}.conflict.${Date.now()}`, JSON.stringify(s.queue));
+       // The original durable queue is kept until server archive and readback
+       // both succeed. A full optional cache must not hide healthy server data.
+       optionalCacheWrite(`${o.key}.conflict.${Date.now()}`, JSON.stringify(s.queue));
        for (const item of s.queue) await request({ kind: 'archive', data: item });
-       const result = await request(); s.queue = []; localStorage.setItem(recoveryKey, '[]'); acceptResult(result); s.ready = true; setReady(true);
+       const result = await request();
+       saveBusinessRecovery(recovery, { queue: [], sources: s.recoverySources ?? [] });
+       s.queue = []; s.recovering = false; cleanAcknowledgedRecovery(recovery, { queue: [], sources: s.recoverySources ?? [] }); acceptResult(result); s.ready = true; setReady(true);
        latest.current.error('Samtidig ändring: serverns aktuella uppgifter visas. Ditt osparade underlag har bevarats separat. Kontrollera och gör ändringen igen.');
       } catch { latest.current.error('Konflikten kunde inte arkiveras. Osparat arbete finns kvar på denna enhet.'); }
      } else latest.current.error(s.failure.message + (s.queue.length ? ' Osparat arbete finns kvar på denna enhet.' : ''));
@@ -350,5 +419,6 @@ export function useSharedData<T>(options: Options<T>) {
   window.addEventListener(changeEvent, onChange); window.addEventListener('online', online); document.addEventListener('visibilitychange', visible);
   return () => { active = false; clearInterval(timer); if (followUp) clearTimeout(followUp); window.removeEventListener(changeEvent, onChange); window.removeEventListener('online', online); document.removeEventListener('visibilitychange', visible); };
  }, [identityKey, options.domain, scopedOptions.key]);
- return { ready: ready && state.current.scope === identityKey, save: enqueue, refresh: () => runner.current(), flush, applyConfirmed };
+ return { ready: ready && state.current.scope === identityKey, save: enqueue, refresh: () => runner.current(), flush, applyConfirmed,
+  pendingRecovery: state.current.recovering ? state.current.queue.length : 0, recoveryBlocked: state.current.recoveryBlocked };
 }
