@@ -1,6 +1,6 @@
 # Planerade framtida uppdateringar
 
-Senast uppdaterad: 2026-10-16.
+Senast uppdaterad: 2026-10-20.
 
 Utbetalningsbuntar/betalfil och dashboards avvaktar fortsatt enligt
 användarens beslut. Mejlinkorgens nya bildmockuper är klara enligt ÄL 111;
@@ -9,6 +9,22 @@ Google, svar och AI-förslag återstår.
 Bankmottagare och Open Payments-bankmotor
 är levererade i sandbox enligt ÄL 109; produktionsanslutning återstår.
 Ordningen är inte en prioritering.
+
+## Kundregistrering: nummer först och elektrisk fokusram
+
+Status: Planerad enligt **ÄL 138**. Ingen kodändring är beställd.
+
+- Organisations-/personnummer blir första rutan i kundformuläret, före kundtyp
+  och namn. Samma ordning används på kontoret, i snabbregistreringen och mobilen.
+- Giltigt format, datum och kontrollsiffra ger typförslag. Användaren kan ändra
+  kundtyp, bland annat för enskild firma som använder personnummer och för BRF.
+- Nummersteget får samma blå elektriska fokusram som nya viktkort, med stilla
+  kontur vid minskad rörelse. SCB används bara för juridiska organisationsnummer;
+  framtida personuppslag är separat.
+
+Underlag: [Ändringslistan, ÄL 138](Andringslistan.txt),
+[SCB-uppslaget](integrationer/scb-foretagsregister.md) och
+[godkänd elektrisk fokusram](mockups/kortfokus-elektrisk/README.md).
 
 ## FTC134 och egen körjournal
 

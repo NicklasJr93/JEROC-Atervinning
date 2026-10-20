@@ -3317,3 +3317,42 @@ Status: Implementerad 2026-10-17 i kontor 0.30.6. Mobilwebben kvar på 0.13.0.
   egna transkript, dubbelförsök och isolerat avslut/sluttranskript.
   Typkontroll, produktionsbygge och byggd isolerad server passerade.
   Inga externa eller betalda API-anrop i verifieringen.
+
+ÄL 138 – Nummer först vid kundregistrering och blå elektrisk fokusram
+Status: Planerad 2026-10-20. Endast dokumentation; implementation beställs separat.
+- Börja med en tydlig ruta för organisations-/personnummer, före kundtyp,
+  kundnummer och namn. Kundtyp blir ett automatiskt förslag som kan ändras.
+  Samma grundordning ska användas i kontorets fullständiga kundformulär,
+  snabbregistreringen på viktkort och mobilens Ny kund.
+- Identifiera numret först när det är komplett och giltigt. Använd inte
+  antagandet att alla företag börjar på 5: organisationsnumrets tredje siffra
+  är minst 2, medan personnumrets tredje siffra är månadens första (0 eller 1).
+  Kontrollera dessutom hela formatet, riktigt kalenderdatum och Luhn-siffra.
+- Hantera personnummer med tio/tolv siffror, bindestreck/blanksteg och
+  plusseparator. Samordningsnummer har dag +60; datumkontrollen tar bort 60
+  men kontrollsiffran beräknas på originalnumret. Tolvsiffrigt företagsnummer
+  med SCB-prefixet 16 skiljs från personnummer och normaliseras till tio siffror.
+  Gissa inte saknat århundrade för senare personuppslag eller betalning.
+- Nummerformatet skiljer juridisk person från personidentitet, men avgör inte
+  om en person är privatkund eller enskild näringsidkare. Behåll ett tydligt
+  manuellt val Företag för enskild firma. Ett aktivt manuellt val ska inte
+  skrivas över av automatiken. BRF kräver manuellt val eller säker registeruppgift.
+- Visa begriplig status för ofullständigt nummer, ogiltigt nummer, sökning,
+  träff och ingen träff. Undvik att kundtypen hoppar medan användaren skriver.
+  Ett giltigt nummerformat är inte bevis för att företaget/personen finns.
+- Återanvänd SCB-uppslaget för giltiga juridiska organisationsnummer.
+  Person-/samordningsnummer skickas inte till SCB. Framtida personuppslag
+  kopplas separat; tills dess kan personuppgifter anges manuellt.
+- Ge nummer-/identifieringsrutan samma godkända sammanhängande blå elektriska
+  fokusram som nästa moment på ett nytt viktkort, enligt ÄL 063. Återanvänd
+  befintlig komponent, lugn rörelse, stabila hörn och stilla innehåll.
+  Markera det aktuella första steget och tona ned ramen när steget är klart.
+  Minskad rörelse ger stilla kontur; fel visas även med tydlig text.
+- Behåll granskning före sparande, befintliga momsregler och manuella val.
+  Ändra inga sparade kunder eller låsta underlag enbart genom identifieringen.
+- Acceptans: testa företag vars nummer inte börjar på 5, privatperson,
+  enskild firma, BRF, samordningsnummer, tio/tolv siffror, fel datum/Luhn,
+  manuellt typbyte, långsamt registeranrop samt minskad rörelse.
+- Underlag: docs/integrationer/scb-foretagsregister.md och
+  docs/mockups/kortfokus-elektrisk/README.md. Detta är ett kommande formulärflöde,
+  inte besked om att framtida personuppslag eller UI-ändringen är levererade.
