@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { build } from '../scripts/build.mjs';
@@ -62,4 +62,36 @@ test('sitemap and robots describe the public origin without app routes or the 40
   assert.ok(!sitemap.includes('404'));
   assert.equal(await readFile(join(output, 'robots.txt'), 'utf8'), `User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`);
   assert.match(await readFile(join(output, '404.html'), 'utf8'), /name="robots" content="noindex"/);
+});
+
+test('the public build publishes curated illustrations instead of internal application screenshots', async () => {
+  const files = await readdir(join(output, 'assets'), { recursive: true });
+  const internalScreenshots = /(?:^|\/)(?:office-(?:overview|weighing|work-orders)|mobile-(?:home|weighing))(?:-\d+)?\.(?:webp|png|jpe?g)$/i;
+  assert.deepEqual(files.filter(file => internalScreenshots.test(file)), [], 'old application screenshots must not remain downloadable');
+  for (const route of routes) {
+    const html = await readFile(join(output, route, 'index.html'), 'utf8');
+    for (const match of html.matchAll(/\b(?:src|srcset)="([^"]+)"/g)) {
+      assert.ok(!/(?:office-(?:overview|weighing|work-orders)|mobile-(?:home|weighing))/.test(match[1]), `${route}: internal screenshot reference`);
+    }
+  }
+});
+
+test('the rounded typeface is self-hosted and Naturvårdsverket is described as under verification', async () => {
+  const css = await readFile(join(output, 'styles.css'), 'utf8');
+  const fontFaces = [...css.matchAll(/@font-face\s*\{([^}]+)\}/g)];
+  assert.ok(fontFaces.length, 'the premium headline typeface must be included');
+  for (const [, declaration] of fontFaces) {
+    const sources = [...declaration.matchAll(/url\(\s*['"]?([^'"\s)]+)['"]?\s*\)/g)];
+    assert.ok(sources.length, 'each font face needs an actual font asset');
+    for (const [, source] of sources) {
+      const url = new URL(source, origin + '/styles.css');
+      assert.equal(url.origin, origin, 'font loading must not send visitor requests to another provider');
+      assert.ok((await stat(resolve(output, `.${decodeURIComponent(url.pathname)}`))).size > 1000, source);
+    }
+  }
+  for (const route of ['/', '/integrationer/']) {
+    const html = await readFile(join(output, route, 'index.html'), 'utf8');
+    assert.match(html, /Naturvårdsverket/, route);
+    assert.match(html, /Anslutning under verifiering/, route);
+  }
 });

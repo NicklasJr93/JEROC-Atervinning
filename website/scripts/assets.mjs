@@ -1,37 +1,39 @@
 import sharp from 'sharp';
-import { mkdir, readFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const projectDir = dirname(dirname(fileURLToPath(import.meta.url)));
 const sourcesDir = join(projectDir, 'source-assets');
 
-const pictures = [
-  ['office-overview', [1440, 960, 640]],
-  ['office-weighing', [1440, 960, 640]],
-  ['office-work-orders', [1440, 960, 640]],
-  ['mobile-home', [780, 390]],
-  ['mobile-weighing', [780, 390]],
-  ['yard-illustration', [2172, 1440, 960]],
-  ['logo', [2172]],
-];
+const heroWidths = [640, 960, 1440, 1920];
 
-/** Build responsive web assets from the checked-in, unchanged source images. */
+/** Build the approved public artwork. Product previews are synthetic HTML UI. */
 export async function prepareAssets(distDir) {
   const assetsDir = join(distDir, 'assets');
   await mkdir(assetsDir, { recursive: true });
 
-  await Promise.all(
-    pictures.flatMap(([name, widths]) =>
-      widths.map(async (width, index) => {
-        const filename = `${name}${index === 0 ? '' : `-${width}`}.webp`;
-        await sharp(join(sourcesDir, `${name}.png`))
-          .resize({ width, withoutEnlargement: true })
-          .webp({ quality: name === 'logo' ? 94 : 85, effort: 5 })
-          .toFile(join(assetsDir, filename));
-      }),
+  // Only this curated illustration and the wordmark are published. Internal
+  // application screenshots are deliberately excluded from the public build.
+  await Promise.all([
+    ...heroWidths.map((width) =>
+      sharp(join(sourcesDir, 'industrial-hero.png'))
+        .resize({ width })
+        .webp({ quality: 84, effort: 5 })
+        .toFile(join(assetsDir, `hero-${width}.webp`)),
     ),
-  );
+    sharp(join(sourcesDir, 'logo.png'))
+      .webp({ quality: 94, effort: 5 })
+      .toFile(join(assetsDir, 'logo.webp')),
+    copyFile(
+      join(sourcesDir, 'fonts', 'nunito-variable.woff2'),
+      join(assetsDir, 'nunito-variable.woff2'),
+    ),
+    copyFile(
+      join(sourcesDir, 'fonts', 'Nunito-OFL.txt'),
+      join(assetsDir, 'Nunito-OFL.txt'),
+    ),
+  ]);
 
   const symbol = await readFile(join(projectDir, 'public', 'favicon.svg'));
   await Promise.all([

@@ -19,13 +19,15 @@ npm run build
 npm run preview
 ```
 
-`dist/` innehåller hela den publicerbara webbplatsen. Produktbilder optimeras till WebP i flera storlekar under bygget; originalen ligger oförändrade i `source-assets/`. SP-symbolen i `public/favicon.svg` är en vektor. Den godkända fullständiga logotypen är en optimerad rasterbild.
+`dist/` innehåller hela den publicerbara webbplatsen. Den godkända premiumdesignen har mörkblå industrimiljö, dämpad grön färg och rundade Nunito-rubriker. Miljöbilden byggs till responsiva WebP-bilder; originalet finns i `source-assets/`. Nunito laddas lokalt från en WOFF2-fil med medföljande OFL-licens. SP-symbolen i `public/favicon.svg` är en vektor. Den godkända fullständiga logotypen är en optimerad rasterbild.
+
+Produktvyerna är syntetiska illustrationer i HTML/SVG. Inga interna skärmbilder, kunduppgifter eller fullständiga arbetsflöden publiceras i bygget. Telefonillustrationen har ett fast bildförhållande på 390:810, så att dess innehåll inte kan göra den oproportionerligt lång. Den publika sidan beskriver NVV-kopplingen som **anslutning under verifiering**.
 
 ## Sidor
 
 | Adress | Innehåll |
 | --- | --- |
-| `/` | Startsida med plattformens arbetsflöden och produktbilder |
+| `/` | Premiumstartsida med industriell miljöbild, utvalda produktillustrationer och NVV-koppling |
 | `/plattformen/` | Material, planering, personal och fordon |
 | `/integrationer/` | Integrationer med tydlig information om respektive läge |
 | `/priser/` | Pris enligt offert och vägen till ett eget upplägg |
@@ -47,7 +49,7 @@ Värdena läses när webbplatsen **byggs**. Bygg om efter en ändring.
 
 Formuläret skickar inte mejl och har ingen formulärserver. Det förbereder en text i besökarens webbläsare som kan kopieras. Med `CONTACT_EMAIL` konfigurerad kan besökaren också öppna ett förberett mejl och skicka det själv. E-postadressen blir publik i webbplatsens filer; lägg aldrig API-nycklar eller andra hemligheter i dessa variabler.
 
-Publicera riktiga företags- och kontaktuppgifter när de är bestämda. Produktbilderna visar exempeldata. Miljöbilden är en illustration och visar inte en faktisk kundanläggning. JEROC Återvinning presenteras som första kund, inte som leverantören av ScrapPlanner.
+Publicera riktiga företags- och kontaktuppgifter när de är bestämda. Produktillustrationerna visar generiska exempel. Miljöbilden är en illustration och visar inte en faktisk kundanläggning. JEROC Återvinning presenteras som första kund, inte som leverantören av ScrapPlanner.
 
 ## Render – separat Static Site
 
@@ -86,7 +88,9 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Webbläsartesterna kontrollerar navigation, mobilmeny, bilder, 404, formulärvalidering och att en förfrågan stannar i webbläsaren tills besökaren själv skickar mejlet. Sidbredd kontrolleras vid 320, 390, 768 och 1440 pixlar. GitHub Actions kör projektets egna tester när hemsidan ändras.
+Webbläsartesterna kontrollerar navigation, mobilmeny, bilder, telefonproportioner, 404, formulärvalidering och att en förfrågan stannar i webbläsaren tills besökaren själv skickar mejlet. Sidbredd kontrolleras vid 320, 390, 768 och 1440 pixlar. Separata kontroller säkerställer att produktillustrationen inte täcker startsidans knappar vid mellanbredder, att typsnitt laddas lokalt och att gamla interna skärmbilder inte blir nedladdningsbara. GitHub Actions kör projektets egna tester när hemsidan ändras.
+
+I den gemensamma pilot-Blueprinten är automatisk deploy avstängd. Efter en push: **Render → scrapplanner-website → Manual Deploy → Deploy latest commit**. Denna hemsidesuppdatering behöver ingen databasändring och kräver ingen manuell deploy av appen.
 
 ## Förhandsbilder av den byggda hemsidan
 

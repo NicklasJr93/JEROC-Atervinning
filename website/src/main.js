@@ -37,9 +37,13 @@ if (form) {
   const status = document.querySelector('#form-status');
   const emailLink = document.querySelector('#email-enquiry');
   const recipient = form.dataset.recipient ?? '';
-  if (new URLSearchParams(location.search).get('amne') === 'offert') {
+  const topic = new URLSearchParams(location.search).get('amne');
+  if (topic === 'offert') {
     form.elements.message.value =
       'Hej! Vi vill gärna få en offert och en genomgång av ScrapPlanner.\n\nOm vår verksamhet: ';
+  } else if (topic === 'nvv') {
+    form.elements.message.value =
+      'Hej! Vi vill veta mer om kopplingen till Naturvårdsverkets avfallsregister och förutsättningarna för vår verksamhet.\n\nOm vårt rapporteringsbehov: ';
   }
   form.addEventListener('submit', (event) => {
     event.preventDefault();

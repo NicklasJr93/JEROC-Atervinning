@@ -48,6 +48,51 @@ test('navigation and feature anchors open the requested content', async ({ page 
   await expect(page.locator('main')).toContainText('offert');
 });
 
+test('product phones keep realistic device proportions on desktop and mobile', async ({ page }) => {
+  let checked = 0;
+  for (const route of ['/', '/plattformen/']) {
+    await page.goto(route);
+    await page.evaluate(() => document.fonts.ready);
+    const phones = page.locator('main .phone');
+    for (let index = 0; index < await phones.count(); index += 1) {
+      const phone = phones.nth(index);
+      await phone.scrollIntoViewIfNeeded();
+      await expect(phone).toBeVisible();
+      // Transforms change the bounding rectangle; the underlying device frame is
+      // what must retain its proportions when text and responsive layouts change.
+      const dimensions = await phone.evaluate(device => ({ width: device.offsetWidth, height: device.offsetHeight }));
+      expect(dimensions.width, `${route}: visible phone width`).toBeGreaterThan(80);
+      expect(dimensions.height / dimensions.width, `${route}: phone height/width`).toBeGreaterThanOrEqual(2);
+      expect(dimensions.height / dimensions.width, `${route}: phone height/width`).toBeLessThanOrEqual(2.2);
+      checked += 1;
+    }
+    await expect(page.locator('main').getByText(/illustrativ[\s\S]*produktvy|illustrativ[\s\S]*produktvyer|utvalt produktutsnitt/i).first()).toBeVisible();
+  }
+  expect(checked, 'the product story should include a phone illustration').toBeGreaterThan(0);
+});
+
+test('the hero illustration never covers the primary or secondary action', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'The responsive breakpoint sweep is checked once.');
+  for (const width of [320, 390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/');
+    await page.evaluate(() => document.fonts.ready);
+    const actions = await page.evaluate(() => {
+      const illustration = document.querySelector('.hero-workspace').getBoundingClientRect();
+      return [...document.querySelectorAll('.hero-actions a')].map(action => {
+        const bounds = action.getBoundingClientRect();
+        return {
+          label: action.textContent.trim(),
+          covered: bounds.left < illustration.right && bounds.right > illustration.left
+            && bounds.top < illustration.bottom && bounds.bottom > illustration.top,
+        };
+      });
+    });
+    expect(actions.length).toBe(2);
+    for (const action of actions) expect(action.covered, `${width}px: ${action.label}`).toBe(false);
+  }
+});
+
 test('contact information stays on the device until the visitor sends their own email', async ({ page }) => {
   const dataRequests = [];
   const requests = [];
