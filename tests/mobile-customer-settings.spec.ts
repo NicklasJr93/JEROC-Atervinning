@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { seedDemo, type DemoData } from '../src/model';
+import { emptyEmployeeFleet } from './helpers/employee-fleet';
 
 test('demoknappar fyller bara formuläret och döljs när servern stänger demon', async ({ page }) => {
   let enabled = true, logins = 0;
@@ -38,6 +39,10 @@ async function customerFixture(page: Page, paymentDetails = false) {
   }, { personId, data });
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
+    if (path === '/api/employee/fleet') return route.fulfill({ json: emptyEmployeeFleet(personId) });
+    if (path === '/api/company-register/lookup') return route.fulfill({ status: 503, json: {
+      code: 'company_lookup_not_configured', error: 'Företagsuppslaget är inte aktiverat ännu.',
+    } });
     if (path.startsWith('/api/employee/')) return route.fulfill({ json: {
       person: { id: personId, name: 'Testmedarbetare', role: 'Invägare', team: 'Gårdsplan', siteIds: ['norrtalje'] },
       capabilities: { yardWork: true, employeeTime: true, assignedOrders: false, paymentDetails }, activeSiteId: 'norrtalje', sites: [{ id: 'norrtalje', name: 'Norrtälje', active: true }],

@@ -1,0 +1,24 @@
+.company-register-lookup { grid-column: 1 / -1; min-width: 0; border: 1px solid #dce7f4; border-radius: 10px; padding: 13px 15px; background: #f7faff; color: #203553; font-size: 12px; line-height: 1.55; }
+.company-register-lookup .company-register-lookup-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 9px; }
+.company-register-lookup .company-register-lookup-title { display: inline-flex; align-items: center; gap: 7px; color: #385676; font-size: 12px; font-weight: 700; }
+.company-register-lookup button { font: inherit; cursor: pointer; }
+.company-register-lookup .company-register-lookup-search { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: transparent; color: #1265dc; padding: 3px 0; min-height: 28px; font-size: 12px; }
+.company-register-lookup .company-register-lookup-search:hover { text-decoration: underline; }
+.company-register-lookup button:focus-visible { outline: 3px solid #1265dc; outline-offset: 3px; }
+.company-register-lookup button:disabled { cursor: default; opacity: .6; }
+.company-register-lookup .company-register-lookup-status p { color: #546f8b; margin: 6px 0 0; font-size: 12px; }
+.company-register-lookup .company-register-lookup-status p.is-warning { color: #a34534; }
+.company-register-lookup .company-register-lookup-result { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid #dce7f4; margin-top: 12px; padding-top: 12px; }
+.company-register-lookup .company-register-lookup-company { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.company-register-lookup .company-register-lookup-company strong { color: #203553; font-size: 14px; }
+.company-register-lookup .company-register-lookup-company span { color: #486783; font-size: 12px; }
+.company-register-lookup .company-register-lookup-company small { margin-top: 5px; color: #627d98; font-size: 11px; }
+.company-register-lookup .company-register-lookup-apply { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex-shrink: 0; border: 1px solid #1265dc; border-radius: 7px; background: #1265dc; color: #fff; min-height: 38px; padding: 8px 11px; font-size: 12px; font-weight: 600; }
+.company-register-lookup .company-register-lookup-apply:hover:not(:disabled) { background: #0b55be; }
+.company-register-lookup .company-register-lookup-note { margin: 11px 0 0; color: #627d98; font-size: 11px; }
+@media (max-width: 600px) {
+  .company-register-lookup { padding: 12px; }
+  .company-register-lookup .company-register-lookup-result { flex-direction: column; align-items: stretch; gap: 13px; }
+  .company-register-lookup .company-register-lookup-apply { width: 100%; }
+  .company-register-lookup .company-register-lookup-search { min-height: 34px; }
+}

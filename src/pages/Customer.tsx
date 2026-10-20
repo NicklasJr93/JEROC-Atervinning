@@ -21,6 +21,9 @@ import { id, type Draft } from '../model';
 import { customerIdentifierError, formatAddress, normalizeAddress, normalizeCustomerDetails, normalizeOriginAddress, phoneNumberError, validateCustomerDetails } from '../data-format';
 import { MissingDraft, useDraft } from './shared';
 import { useEmployee } from '../employee/EmployeeProvider';
+import { employeeCompanyId } from '../employee/cache';
+import CompanyLookup from '../company-register/CompanyLookup';
+import { formatCompanyRegisterAddress, normalizeCompanyLookupNumber } from '../company-register/client';
 import type { PaymentDetails } from '../payment-details';
 import MobilePaymentFields from './MobilePaymentFields';
 import './customer.css';
@@ -218,7 +221,7 @@ export function CustomerPage() {
 }
 export function NewCustomerPage() {
   const { draft, addCustomer } = useDraft();
-  const { session } = useEmployee();
+  const { session, sessionGeneration } = useEmployee();
   const navigate = useNavigate();
   const [type, setType] = useState<Customer['type']>('Företag');
   const [name, setName] = useState('');
@@ -311,6 +314,27 @@ export function NewCustomerPage() {
             />
             {numberError && <span id="mobile-customer-number-error" className="red-text" role="alert">{numberError}</span>}
           </label>
+          {type !== 'Privatperson' && <CompanyLookup
+            organisationNumber={number}
+            enabled={Boolean(session && session.capabilities.yardWork)}
+            requestHeaders={session ? {
+              'X-Employee-Company': employeeCompanyId(session.companyId),
+              'X-Employee-Person': session.person.id,
+            } : undefined}
+            scopeKey={JSON.stringify([session?.companyId, session?.person.id, sessionGeneration, draft.id, type, name, address, postalCode, city, vatRegistered])}
+            onApply={company => {
+              if (normalizeCompanyLookupNumber(number) !== company.organisationNumber) return;
+              setName(company.name);
+              setNumber(company.organisationNumber);
+              const registeredAddress = formatCompanyRegisterAddress(company);
+              if (registeredAddress) setAddress(registeredAddress);
+              if (company.postalCode.trim()) setPostalCode(company.postalCode);
+              if (company.city.trim()) setCity(company.city);
+              if (typeof company.vatRegistered === 'boolean') setVatRegistered(company.vatRegistered);
+              setNumberError('');
+              setError('');
+            }}
+          />}
           {type !== 'Privatperson' && <label>
             Momsregistrerad
             <select aria-label="Momsregistrerad" value={vatRegistered ? 'yes' : 'no'} onChange={event => setVatRegistered(event.target.value === 'yes')}>

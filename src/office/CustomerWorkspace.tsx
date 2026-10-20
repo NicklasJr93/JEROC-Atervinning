@@ -62,8 +62,9 @@ import {
   type QuoteRow,
 } from './pricing-client';
 import PaymentEditor, { PaymentReadOnly } from './PaymentEditor';
+import CompanyLookup from '../company-register/CompanyLookup';
 import { cardRoute, safeAuditText } from './workflow';
-import { createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
+import { applyCompanyLookupToCustomer, createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
 import { customerIdentifierError, normalizeOriginAddress, phoneNumberError } from '../data-format';
 import './customer.css';
 
@@ -379,6 +380,7 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
             customer={freshCustomer}
             customers={data.customers}
             user={user}
+            actualUser={actualUser}
             onSave={save}
             onCancel={cancelNewCustomer}
             formId={detailsFormId}
@@ -707,6 +709,7 @@ export default function CustomerWorkspace(props: CustomerWorkspaceProps) {
           customer={customer}
           customers={data.customers}
           user={user}
+          actualUser={actualUser}
           onSave={save}
           onCancel={() => {
             setEditing(false);
@@ -1339,6 +1342,7 @@ function CustomerDetails({
   customer,
   customers,
   user,
+  actualUser,
   onSave,
   onCancel,
   fresh = false,
@@ -1349,6 +1353,7 @@ function CustomerDetails({
   customer: OfficeCustomer;
   customers: OfficeCustomer[];
   user: OfficeUser;
+  actualUser: OfficeUser;
   onSave: (customer: OfficeCustomer) => Promise<boolean>;
   onCancel: () => void;
   fresh?: boolean;
@@ -1475,6 +1480,19 @@ function CustomerDetails({
               {input('customerNumber', 'Kundnummer')}
               {input('name', 'Namn', true)}
               {input('number', 'Organisations-/personnummer')}
+              {edit && draft.type !== 'Privatperson' && (
+                <div className="customer-form-wide">
+                  <CompanyLookup
+                    organisationNumber={draft.number}
+                    disabled={busy}
+                    scopeKey={JSON.stringify([draft.id, draft.type, draft.name, draft.address, draft.postalCode, draft.city, draft.countryCode, draft.vatRegistered])}
+                    requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
+                    onApply={(company) => {
+                      if (!busy && edit) setDraft((current) => applyCompanyLookupToCustomer(current, company));
+                    }}
+                  />
+                </div>
+              )}
               {input('address', 'Adress')}
               {input('postalCode', 'Postnummer')}
               {input('city', 'Ort')}

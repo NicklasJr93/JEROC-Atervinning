@@ -31,6 +31,13 @@ jobs:
           server/pilot-integrations.test.mjs
           server/platform-auth.test.mjs
           server/platform-fleet.test.mjs
+          server/scb-company-register.test.mjs
+          server/company-register-api.test.mjs
+          server/company-register-gateway.test.mjs
           server/tenant-gateway.test.mjs
           server/tenant-runtime.test.mjs
           server/application.test.mjs
+      - name: Install browser for company lookup form checks
+        run: npx playwright install --with-deps chromium
+      - name: Verify company lookup previews and explicit form application
+        run: npx playwright test tests/company-register-entrypoints.spec.ts tests/customer-form.spec.ts --workers=2

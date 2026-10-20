@@ -122,6 +122,18 @@ export function employeeRequestPrincipal(state, req, { enforceGate = false, now 
   return identity.principal;
 }
 
+/** Internal scope for an asynchronous customer-register lookup. Session keys
+ * and account bindings never leave the backend or grant access from headers.
+ */
+export function employeeCompanyLookupContext(state, req, { now } = {}) {
+  const identity = sessionIdentity(state, req, { now });
+  if (!identity) fail('Logga in för att använda appen.', 401);
+  if (req.headers['x-employee-person'] !== undefined && req.headers['x-employee-person'] !== identity.person.id)
+    fail('Personalkontot har bytts i en annan flik. Logga in igen.', 409, { code: 'employee_selection_changed' });
+  return { ...identity.principal, personId: identity.person.id,
+    sessionKey: identity.session.tokenHash, expiresAt: identity.session.expiresAt };
+}
+
 const safePerson = (person, account) => Object.fromEntries(['id', 'name', 'kind', 'role', 'team', 'phone', 'email', 'employeeNumber', 'siteIds', 'userId', 'driverId']
   .filter(key => person[key] !== undefined).map(key => [key, clone(person[key])]).concat([['username', account.username]]));
 function employeeHomeActivity(state, principal, siteId, date) {

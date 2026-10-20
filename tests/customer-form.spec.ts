@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { officeSchema, seedOffice } from '../src/office/model';
-import { cleanCustomerDraft, createCustomerDraft, customerDraftError, customerDraftForSave } from '../src/office/customer-form';
+import { applyCompanyLookupToCustomer, cleanCustomerDraft, createCustomerDraft, customerDraftError, customerDraftForSave } from '../src/office/customer-form';
+import type { CompanyRegisterCompany } from '../src/company-register/client';
 import { testOrganisationNumber, testPersonalNumber } from './helpers/customer-identity';
 
 test('kunddubbletter stoppas även när organisationsnumret har olika formatering', () => {
@@ -99,4 +100,82 @@ test('kundsparande använder kanoniskt nummer, telefon och uppdelad adress utan 
   expect(draft.address).toContain('761 41');
   expect(customerDraftError({ ...draft, number: `${number}1` }, [])).toContain('10 siffror');
   expect(customerDraftError({ ...draft, phone: 'ABC123' }, [])).toContain('telefonnummer');
+});
+
+const registerCompany = (number: string): CompanyRegisterCompany => ({
+  organisationNumber: number,
+  name: 'Registerföretaget AB',
+  address: 'Registergatan 1',
+  postalCode: '76130',
+  city: 'Norrtälje',
+  countryCode: 'SE',
+  source: 'SCB',
+  fetchedAt: '2026-10-20T12:00:00.000Z',
+});
+
+test('företagsuppslag kompletterar identitet utan att ändra kontakt, villkor eller betalningsprofil', () => {
+  const number = testOrganisationNumber();
+  const customer = {
+    ...createCustomerDraft(seedOffice()),
+    number: `${number.slice(0, 6)}-${number.slice(6)}`,
+    name: 'Manuellt namn',
+    email: 'kontakt@example.test',
+    phone: '+46722002220',
+    contactPerson: 'Kundens kontaktperson',
+    origins: ['Arbetsplatsen 1'],
+    references: ['Projekt A'],
+    paymentTermDays: 45,
+    vatRegistered: false,
+    paymentProfile: { method: 'swish' as const, phone: '+46722002220', recipient: 'Mottagaren' },
+  };
+  const result = applyCompanyLookupToCustomer(customer, { ...registerCompany(number), vatRegistered: true });
+  expect(result).toMatchObject({
+    number, name: 'Registerföretaget AB', address: 'Registergatan 1', postalCode: '76130', city: 'Norrtälje',
+    email: customer.email, phone: customer.phone, contactPerson: customer.contactPerson,
+    paymentTermDays: 45, vatRegistered: true, paymentProfile: customer.paymentProfile,
+    origins: customer.origins, references: customer.references,
+  });
+  expect(customer.name).toBe('Manuellt namn');
+  expect(customer.number).toContain('-');
+});
+
+test('ett gammalt företagsuppslag kan inte fylla i en annan identitet eller en privatkund', () => {
+  const number = testOrganisationNumber();
+  const customer = { ...createCustomerDraft(seedOffice()), number };
+  let otherNumber = testOrganisationNumber();
+  while (otherNumber === number) otherNumber = testOrganisationNumber();
+  const staleCompany = { ...registerCompany(number), organisationNumber: otherNumber };
+  expect(applyCompanyLookupToCustomer(customer, staleCompany)).toBe(customer);
+  const privateCustomer = { ...customer, type: 'Privatperson' as const };
+  expect(applyCompanyLookupToCustomer(privateCustomer, registerCompany(number))).toBe(privateCustomer);
+});
+
+test('saknad registeradress tömmer inte manuella uppgifter och känt momsbesked fyller i momsvalet', () => {
+  const number = testOrganisationNumber();
+  const customer = { ...createCustomerDraft(seedOffice()), number: `16${number}`, address: 'Manuell gata 2', postalCode: '12345', city: 'Rimbo' };
+  const company = { ...registerCompany(number), address: '', postalCode: '', city: '' };
+  const result = applyCompanyLookupToCustomer(customer, company);
+  expect(result).toMatchObject({ number, address: 'Manuell gata 2', postalCode: '12345', city: 'Rimbo', vatRegistered: true });
+  expect(applyCompanyLookupToCustomer(customer, { ...company, vatRegistered: false }).vatRegistered).toBe(false);
+  expect(applyCompanyLookupToCustomer({ ...customer, vatRegistered: undefined }, { ...company, vatRegistered: true }).vatRegistered).toBe(true);
+  expect(applyCompanyLookupToCustomer({ ...customer, vatRegistered: false }, company).vatRegistered).toBe(false);
+  expect(applyCompanyLookupToCustomer({ ...customer, vatRegistered: undefined }, company).vatRegistered).toBeUndefined();
+});
+
+test('F-skatt styr inte momsvalet och ett ifyllt momsval kan ändras manuellt före sparande', () => {
+  const number = testOrganisationNumber();
+  const customer = { ...createCustomerDraft(seedOffice()), number, vatRegistered: false };
+  const result = applyCompanyLookupToCustomer(customer, { ...registerCompany(number), vatRegistered: true, fTaxRegistered: false });
+  expect(result.vatRegistered).toBe(true);
+  expect(customerDraftForSave({ ...result, vatRegistered: false }).vatRegistered).toBe(false);
+  expect(applyCompanyLookupToCustomer(customer, { ...registerCompany(number), fTaxRegistered: true }).vatRegistered).toBe(false);
+});
+
+test('registeradress bevarar både c/o-mottagare och gatuadress i kundkortets adressfält', () => {
+  const number = testOrganisationNumber();
+  const customer = { ...createCustomerDraft(seedOffice()), number };
+  const result = applyCompanyLookupToCustomer(customer, { ...registerCompany(number), careOf: 'c/o Registerförvaltaren AB' });
+  expect(result.address).toContain('Registerförvaltaren AB');
+  expect(result.address).toContain('Registergatan 1');
+  expect(result.postalCode).toBe('76130');
 });

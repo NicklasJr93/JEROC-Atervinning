@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Building2, Check, Copy, Eye, EyeOff, Plus, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { customerIdentifierError, normalizeOrganisationNumber } from '../data-format';
+import CompanyLookup from '../company-register/CompanyLookup';
+import { normalizeCompanyLookupNumber } from '../company-register/client';
 import { platformApi } from './client';
 import PlatformCompanySwitcher from './PlatformCompanySwitcher';
 import PlatformFleet from './PlatformFleet';
@@ -105,6 +107,17 @@ export default function PlatformAdmin({ session, onSwitch }: {
       <form className="platform-form platform-company-form" onSubmit={submit}>
         <label>Bolagsnamn<input aria-label="Bolagsnamn" value={form.name} maxLength={200} required disabled={busy} onChange={event => setForm(current => ({ ...current, name: event.target.value }))} /></label>
         <label>Organisationsnummer<input aria-label="Bolagets organisationsnummer" value={form.organisationNumber} placeholder="XXXXXX-XXXX" maxLength={30} required disabled={busy} onChange={event => setForm(current => ({ ...current, organisationNumber: event.target.value }))} /></label>
+        <CompanyLookup
+          organisationNumber={form.organisationNumber}
+          enabled={session.actor.platformAdmin}
+          disabled={busy}
+          applyLabel="Använd bolagsnamn och organisationsnummer"
+          helpText="Fyller i bolagsnamn och organisationsnummer. VD-kontot anges separat. Bolaget skapas först när du väljer att skapa det."
+          scopeKey={JSON.stringify([session.actor.id, session.generation, form.name])}
+          onApply={company => setForm(current => normalizeCompanyLookupNumber(current.organisationNumber) === company.organisationNumber
+            ? { ...current, name: company.name, organisationNumber: company.organisationNumber }
+            : current)}
+        />
         <label>VD:s namn<input aria-label="VD:s namn" value={form.vdName} maxLength={200} required disabled={busy} onChange={event => setForm(current => ({ ...current, vdName: event.target.value }))} /></label>
         <label>VD:s e-post<input aria-label="VD:s e-post" value={form.vdEmail} type="email" autoComplete="email" maxLength={200} required disabled={busy} onChange={event => setForm(current => ({ ...current, vdEmail: event.target.value }))} /></label>
         {formError && <p className="platform-error" role="alert">{formError}</p>}

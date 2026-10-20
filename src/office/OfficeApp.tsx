@@ -1369,7 +1369,7 @@ export function OfficeApp() {
             onSave={kilograms => saveMaterialChange({ cardId: editMaterial.cardId, expectedRows: editMaterial.expectedRows,
               operation: editMaterial.mode, rowIndex: editMaterial.rowIndex, ...(kilograms === undefined ? {} : { weight: kilograms }) })}
             onClose={() => setEditMaterial(undefined)} />}
-        {quickCustomerOpen && selected && can(user, 'customers') && <QuickCustomerModal data={data} user={user}
+        {quickCustomerOpen && selected && can(user, 'customers') && <QuickCustomerModal data={data} user={user} actualUser={actualUser}
           onSave={customer => selectCreatedCustomer(customer, selected.id, principalRef.current)}
           onSelectExisting={customer => selectCreatedCustomer(customer, selected.id, principalRef.current, true)}
           onOpenFull={draft => {

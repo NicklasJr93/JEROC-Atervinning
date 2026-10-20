@@ -5,12 +5,14 @@ import { createPlatformAuth, getPlatformContext, platformCookieToken, PlatformEr
 import { createPlatformApi } from './platform-api.mjs';
 import { tenantRuntimeEnvironment, tenantInitialSites, createTenantApplicationState } from './tenant-runtime.mjs';
 import { createTenantServices } from './tenant-services.mjs';
-import { employeeRequestPrincipal, hasEmployeeSession } from './mobile-employee-api.mjs';
+import { employeeRequestPrincipal, employeeCompanyLookupContext, hasEmployeeSession } from './mobile-employee-api.mjs';
 import { withBusinessIdentity } from './business-identity.mjs';
 import { createPlatformFleet } from './platform-fleet.mjs';
 import { applyFleetDeviceAssignment } from './fleet-telematics.mjs';
 import { createFleetSimulatorBridge } from './fleet-simulator.mjs';
 import { readDeploymentProfile } from './deployment-profile.mjs';
+import { createScbCompanyRegister } from './scb-company-register.mjs';
+import { createCompanyRegisterApi } from './company-register-api.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -40,7 +42,7 @@ function sameOrigin(req) {
  * comes from the platform registry and a server-authenticated session. Public
  * login endpoints select a bundle but still require its own employee/device or
  * partner credentials; a tenant selector is never a permission grant. */
-export async function createTenantGateway({ env = process.env, makeServices = createTenantServices, testCarApi, platformRepository } = {}) {
+export async function createTenantGateway({ env = process.env, makeServices = createTenantServices, testCarApi, platformRepository, companyRegister } = {}) {
   const profile = readDeploymentProfile(env);
   const bundles = new Map(), streams = new Set();
   const fleetSimulator = createFleetSimulatorBridge({ testCarApi });
@@ -195,8 +197,47 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
       return writeHead.apply(this, args);
     };
   }
+  const companyRegisterApi = createCompanyRegisterApi({ register: companyRegister ?? createScbCompanyRegister({ env }),
+    authorize: async req => {
+      const allowed = user => user?.active !== false && (user?.level && user.level !== 'Medarbetare' || user?.permissions?.includes('customers'));
+      if (platformCookieToken(req) !== undefined) {
+        const identity = await auth.checkRequest(req, { write: true });
+        const selected = identity.company;
+        if (!selected && identity.actor.platformAdmin) {
+          return { rateKey: `platform:${identity.actor.id}`, scopeKey: JSON.stringify([
+            identity.actor.id, identity.session.tokenHash, identity.session.generation, null,
+          ]) };
+        }
+        const context = await auth.resolveContext(req, { writes: true });
+        bindIdentity(req, context);
+        if (!allowed(context.actualUser) || !allowed(context.user))
+          throw new PlatformError('Du saknar behörighet att registrera kunder.', 403, 'company_lookup_forbidden');
+        const expected = req.headers['x-client-company'] ?? req.headers['x-employee-company'];
+        if (expected !== undefined && expected !== context.company.id)
+          throw new PlatformError('Bolaget har bytts i en annan flik. Sök igen.', 409, 'company_selection_changed');
+        return { rateKey: `platform:${context.actorId}:${context.company.id}`, scopeKey: JSON.stringify([
+          context.actorId, context.actualUser.id, context.user.id, context.company.id, context.sessionKey, context.generation,
+        ]) };
+      }
+      // A mobile lookup requires its real employee cookie and the signed tenant
+      // selector, never an actor/user or company ID supplied by the browser.
+      if (!hasEmployeeSession(req)) throw new PlatformError('Logga in för att söka företag.', 401, 'company_lookup_session_required');
+      const company = (await auth.resolveTenantSelector(req))?.company ?? defaultCompany;
+      if (!company) throw new PlatformError('Öppna bolagets egen inloggningslänk.', 409, 'platform_company_required');
+      const expected = req.headers['x-employee-company'] ?? req.headers['x-client-company'];
+      if (expected !== undefined && expected !== company.id)
+        throw new PlatformError('Bolaget har bytts i en annan flik. Sök igen.', 409, 'company_selection_changed');
+      const service = await bundle(company);
+      const identity = await (await service.applicationApi.getRepository()).read(state => employeeCompanyLookupContext(state, req), { domains: ['pricing', 'personnel', 'personnelAuth'] });
+      if (!allowed(identity.actor) || !allowed(identity.user))
+        throw new PlatformError('Du saknar behörighet att registrera kunder.', 403, 'company_lookup_forbidden');
+      return { rateKey: `employee:${identity.actor.id}:${company.id}`, scopeKey: JSON.stringify([
+        identity.actor.id, identity.user.id, identity.personId, company.id, identity.sessionKey,
+      ]) };
+    } });
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/')) return false;
+    if (await companyRegisterApi(req, res, url)) return true;
     if (url.pathname.startsWith('/api/public/voice-test')) {
       if (profile.pilot) { json(res, 404, { error: 'Rösttestet är inte tillgängligt i pilotmiljön.', code: 'not_found' }); return true; }
       // This capability is for the fixed demo tenant, never for a caller's

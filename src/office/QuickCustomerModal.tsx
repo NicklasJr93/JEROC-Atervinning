@@ -1,13 +1,15 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Building2, Check, ExternalLink, Info, UserRound, Users, X } from 'lucide-react';
+import CompanyLookup from '../company-register/CompanyLookup';
 import { can, type OfficeCustomer, type OfficeData, type OfficeUser } from './model';
-import { cleanCustomerDraft, createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
+import { applyCompanyLookupToCustomer, cleanCustomerDraft, createCustomerDraft, customerDraftDuplicates, customerDraftError, customerDraftForSave } from './customer-form';
 import { customerIdentifierError, phoneNumberError } from '../data-format';
 import './quick-customer.css';
 
 export type QuickCustomerModalProps = {
   data: OfficeData;
   user: OfficeUser;
+  actualUser?: OfficeUser;
   initialDraft?: OfficeCustomer;
   onSave: (customer: OfficeCustomer) => boolean | Promise<boolean>;
   onSelectExisting?: (customer: OfficeCustomer) => boolean | Promise<boolean>;
@@ -23,7 +25,7 @@ const customerTypes = [
 
 /** Native dialog supplies focus containment and restores focus to its opener. */
 export default function QuickCustomerModal({
-  data, user, initialDraft, onSave, onSelectExisting, onOpenFull, onClose,
+  data, user, actualUser = user, initialDraft, onSave, onSelectExisting, onOpenFull, onClose,
 }: QuickCustomerModalProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const headingId = useId(), descriptionId = useId();
@@ -163,6 +165,19 @@ export default function QuickCustomerModal({
         <div className="quick-customer-fields">
           {field('name', draft.type === 'Privatperson' ? 'Namn' : draft.type === 'BRF' ? 'Föreningsnamn' : 'Företagsnamn', draft.type === 'Privatperson' ? 'Ange för- och efternamn' : 'Ange namn', draft.type === 'Privatperson' ? 'name' : 'organization')}
           {field('number', draft.type === 'Privatperson' ? 'Personnummer' : 'Organisationsnummer', draft.type === 'Privatperson' ? 'ÅÅÅÅMMDD-XXXX' : 'XXXXXX-XXXX')}
+          {allowed && draft.type !== 'Privatperson' && (
+            <div className="quick-customer-wide">
+              <CompanyLookup
+                organisationNumber={draft.number}
+                disabled={busy}
+                scopeKey={JSON.stringify([draft.id, draft.type, draft.name, draft.address, draft.postalCode, draft.city, draft.countryCode, draft.vatRegistered])}
+                requestHeaders={{ 'X-Demo-Actor': actualUser.id, 'X-Demo-User': user.id }}
+                onApply={(company) => {
+                  if (!busy && allowed) setDraft((current) => applyCompanyLookupToCustomer(current, company));
+                }}
+              />
+            </div>
+          )}
           {field('phone', 'Telefon', '070-123 45 67', 'tel')}
           {field('email', 'E-post', 'namn@example.se', 'email')}
           {field('address', 'Gatuadress', 'T.ex. Storgatan 12', 'street-address')}

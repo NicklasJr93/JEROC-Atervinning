@@ -1,5 +1,27 @@
 import type { OfficeCustomer, OfficeData } from './model';
+import { companyLookupNumberError, formatCompanyRegisterAddress, normalizeCompanyLookupNumber, type CompanyRegisterCompany } from '../company-register/client';
 import { customerIdentityKey, normalizeCustomerDetails, validateCustomerDetails } from '../data-format';
+
+/** Apply identity/address and known VAT status; keep contact, payment and commercial details. */
+export function applyCompanyLookupToCustomer(
+  customer: OfficeCustomer,
+  company: CompanyRegisterCompany,
+): OfficeCustomer {
+  const number = normalizeCompanyLookupNumber(company.organisationNumber);
+  if (customer.type === 'Privatperson' || companyLookupNumberError(number) ||
+      normalizeCompanyLookupNumber(customer.number) !== number) return customer;
+  const address = formatCompanyRegisterAddress(company);
+  return {
+    ...customer,
+    number,
+    ...(company.name.trim() ? { name: company.name } : {}),
+    ...(address ? { address } : {}),
+    ...(company.postalCode.trim() ? { postalCode: company.postalCode } : {}),
+    ...(company.city.trim() ? { city: company.city } : {}),
+    countryCode: company.countryCode,
+    ...(typeof company.vatRegistered === 'boolean' ? { vatRegistered: company.vatRegistered } : {}),
+  };
+}
 
 /** Drafts use the existing office customer model, including the same optional fields. */
 export function createCustomerDraft(
