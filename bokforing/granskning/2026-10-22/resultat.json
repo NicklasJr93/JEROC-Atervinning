@@ -1,0 +1,113 @@
+{
+  "reviewedAt": "2026-10-22T18:10:24.578Z",
+  "url": "https://app.scrapplanner.com/bokforing",
+  "sourceCommit": "2326d37edcb9f5df9f379fd96c490eab98d0d4f6",
+  "liveModelSHA256": "61cc0b04e94533c25a480fdd00bc74042057ea11757663808b5e87019a57d51e",
+  "liveAppSHA256": "361f04fe325c3f14da2eaa12983c83e647e027b9fcc717ffa5b0dfbeea48788d",
+  "method": "Playwright Chromium, anonymous isolated browser contexts, synthetic local demo data. Cases completed in main run and targeted follow-up. No application source was changed.",
+  "summary": {
+    "scenariosCompleted": 15,
+    "acceptedAccountingOrStorageGaps": 4,
+    "assistantPointerOverlap": true,
+    "pageErrorsObserved": 0,
+    "unexpectedNetworkRequestsObserved": 0
+  },
+  "results": [
+    {
+      "name": "desktop overview and navigation",
+      "completed": true,
+      "outcome": "works",
+      "views": 7
+    },
+    {
+      "name": "invalid amount and one-cent imbalance",
+      "completed": true,
+      "outcome": "blocked",
+      "cases": 5
+    },
+    {
+      "name": "balanced rows with wrong invoice total",
+      "completed": true,
+      "outcome": "blocked",
+      "error": "Leverantörsskulden måste motsvara underlagets totalbelopp."
+    },
+    {
+      "name": "balanced rows with wrong standard VAT",
+      "completed": true,
+      "outcome": "blocked",
+      "error": "Ingående moms måste motsvara momsen i underlaget."
+    },
+    {
+      "name": "VAT on private seller example",
+      "completed": true,
+      "outcome": "blocked",
+      "error": "Det här privata inköpsunderlaget har ingen moms att bokföra."
+    },
+    {
+      "name": "reverse VAT missing both tax rows",
+      "completed": true,
+      "outcome": "blocked",
+      "error": "Underlaget med omvänd moms behöver båda de föreslagna momsraderna."
+    },
+    {
+      "name": "wrong substantive account for office invoice",
+      "completed": true,
+      "outcome": "accepted-gap",
+      "note": "Office cost can be posted to bank account 1930 instead of expense 6110"
+    },
+    {
+      "name": "reset restores booked demo and survives reload",
+      "completed": true,
+      "outcome": "works",
+      "entries": 12,
+      "drafts": 8,
+      "cancelPreservesChanges": true
+    },
+    {
+      "name": "extra reverse VAT pair on ordinary invoice",
+      "completed": true,
+      "outcome": "accepted-gap",
+      "pointerBlockedByAssistant": true,
+      "note": "Extra debit2647 / credit2614 25kr accepted on a standard purchase"
+    },
+    {
+      "name": "duplicate click, booked document and persistence",
+      "completed": true,
+      "outcome": "blocked",
+      "entryCount": 13,
+      "onePostingForDocument": true
+    },
+    {
+      "name": "bank matching creates no second posting",
+      "completed": true,
+      "outcome": "works",
+      "entryCountUnchanged": true
+    },
+    {
+      "name": "ledger search, CSV and assistant escaping",
+      "completed": true,
+      "outcome": "works",
+      "download": "huvudbok-demo-oktober-2026.csv",
+      "injectedHTMLRenderedAsText": true
+    },
+    {
+      "name": "two tabs lose an earlier independent posting",
+      "completed": true,
+      "outcome": "accepted-gap",
+      "note": "Second tab overwrote first tab posting; office reverted to draft"
+    },
+    {
+      "name": "blocked browser storage loses posting on reload",
+      "completed": true,
+      "outcome": "accepted-gap",
+      "note": "With simulated storage failure the UI posts in memory and loses posting on reload"
+    },
+    {
+      "name": "mobile layout, menu, editor and assistant",
+      "completed": true,
+      "outcome": "works",
+      "horizontalOverflow": false,
+      "mobilePosting": true
+    }
+  ]
+}

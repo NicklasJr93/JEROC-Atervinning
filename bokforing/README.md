@@ -6,7 +6,7 @@ Här samlas designförslag för ett **fristående bokföringsprogram med egen we
 
 ## Klickbar demo
 
-Testadress efter appens Render-publicering: **https://app.scrapplanner.com/bokforing**.
+Publik demo, verifierad 2026-10-22: **https://app.scrapplanner.com/bokforing**.
 
 - Översikt med beräknade nyckeltal och senaste verifikationer.
 - Underlagsinkorg och fakturavy med redigerbara konteringsrader.
@@ -27,6 +27,10 @@ Skärmbilder från den körbara demon:
 Bygg med `npm run build` och starta med `npm start`. Appens vanliga driftinställningar gäller. Publicering på app-domänen följer [driftguidens manuella Render-deploy](../docs/drift/README.md#uppdatera-och-kontrollera); en GitHub-push betyder inte ensam att den nya versionen är live.
 
 Verifierat lokalt: produktionsbygge, 25 modelltester, sex pilotpolicytester och ett HTTP-integrationstest. Browserprov i Chromium täcker granskning, obalansspärr, bokföring, omladdning, huvudbok/CSV, bankmatchning, rapportvyer, assistent, återställning och mobilmeny. Inga JavaScript-fel eller externa/API-anrop observerades i dessa flöden.
+
+## Provgranskning av liveversionen
+
+[Provrapport 2026-10-22](granskning/2026-10-22.md) beskriver 15 genomförda scenarier, inklusive medvetna fel, reset och mobilbokföring. Flera grundspärrar fungerar, men granskningen visar också sakligt felaktiga konteringar som godtas, extra momsrader, förlust av bokningar mellan flikar och fortsatt bokföring i minnet vid simulerat sparfel. Ande kan dessutom skymma bokföringsknappen. Rapporten innehåller steg för att upprepa fynden och en beskrivning för extern granskning. Detta är inte ett godkännande av regelefterlevnad.
 
 ## Bildmockuper
 

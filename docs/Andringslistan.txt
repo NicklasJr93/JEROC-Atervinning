@@ -3967,3 +3967,17 @@ Status: Testimplementation 2026-10-22; separat Render-publicering krävs.
   rapportvyer, assistent och återställning; inga JavaScript-fel eller
   externa/API-anrop observerades. Oberoende kodgranskning är genomförd.
 - Skärmbilder från den körbara versionen finns i bokforing/preview/.
+
+
+ÄL 159 – Provgranskning av publik bokföringsdemo
+Status: Genomförd och dokumenterad 2026-10-22; appkoden ändras inte.
+- Liveversionens model.js och app.js matchar granskad commit 2326d37.
+- 15 scenarier mot den publika sidan med isolerade Chromiumsessioner och
+  fiktiv demodata: grundspärrar, bokföring, reset, bank, CSV, Ande och mobil.
+- Felaktigt kontoval och extra omvända momsrader kan godtas. Samtidiga
+  flikar kan skriva över varandras bokningar. Simulerat localStorage-fel
+  tillåter bokföring i minnet som försvinner efter omladdning.
+- Ande kan skymma bokföringsknappen med fler rader i konteringen.
+- Provrapport, reproduktionssteg, resultat och skärmbilder finns i
+  bokforing/granskning/. Ingen säkerhetscertifiering eller verifiering av
+  full regelefterlevnad görs. Fynden är kvarstående utvecklingsarbete.
