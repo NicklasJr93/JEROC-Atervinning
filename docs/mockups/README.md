@@ -6,6 +6,10 @@
 
 Bilderna är statiska designförslag. Aktuell implementationsstatus framgår på respektive sida.
 
+## Fristående bokföringssystem
+
+- [Bokföring – tio designförslag med AI-assistent](../../bokforing/README.md)
+
 ## Företagsinställningar
 
 - [Företagsinställningar – VD-vy](foretagsinstallningar/README.md)

@@ -3931,3 +3931,16 @@ Status: Implementerad och lokalt verifierad 2026-10-20.
   verkligt Render-backupåterläsningsprov och uppmätt last/anslutningsbudget.
   Säkerhetsgranskningens hela ÄL 123 och backupomfånget ÄL 045 är inte
   automatiskt klara genom denna avgränsade leverans.
+
+
+ÄL 157 – Fristående bokföringssystem – tio bildmockuper
+Status: Designförslag publicerade 2026-10-22; ingen bokföringsmodul implementerad.
+- Egen mapp bokforing/ med tio numrerade PNG-original och en läsbar
+  README med klickbar bildöversikt och korta beskrivningar.
+- Förslagen visar översikt, bankavstämning, mörk ekonomivy, underlag
+  och kontering, arbetskö, huvudbok, AI-samtal, periodavslut,
+  extern granskning samt mobil- och datorvy.
+- Bokföringen planeras som ett fristående system med API. Bilderna
+  har fiktiva demouppgifter och är inte redovisningsvaliderade.
+- Länk: bokforing/README.md. Ingen appkod, konfiguration eller drift ändras.
+- Verifiering: tio PNG-original och samtliga bildreferenser kontrollerade.
