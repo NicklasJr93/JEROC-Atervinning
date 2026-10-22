@@ -2,6 +2,8 @@
 
 Här samlas designförslag för ett **fristående bokföringsprogram med egen webbapp, eget API och en AI-assistent**. Skrotappen är en tänkt ansluten källa; bokföringsprogrammet ska även kunna användas självständigt och ta emot underlag från andra system.
 
+**Nytt: [Tio mockuper för hela ekonomiarbetet i Åkes Hantverk AB](helhet-mockups/README.md)** – företagsstart, offert och faktura, inköp, betalningar, lön, inventarier, moms och bokslut i en sammanhängande designserie. Bilderna visar planerad funktionalitet; de första tio stilförslagen finns kvar nedan.
+
 **Status 2026-10-22:** klickbar demo i `public/bokforing/`, med efterföljande rättningar av kända konterings-, lagrings- och layoutfel. Publicering av rättningarna på Render är ett separat steg; den ursprungliga liveversionen är verifierad. De tio bildmockuperna nedan finns kvar som designunderlag. Detta är en testmiljö med fiktiv bokföring, inte ett system för skarp redovisning.
 
 ## Klickbar demo

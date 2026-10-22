@@ -4001,3 +4001,18 @@ Status: Implementerat och lokalt verifierat 2026-10-22; Render-publicering åter
 - Uppföljning: bokforing/granskning/2026-10-22-uppfoljning.md. Ursprunglig
   provrapport bevaras som historik. Manuellt val mellan tillåtna kostnadsslag
   och framtida skarp serverbok/arkivering omfattas inte av dessa rättningar.
+
+
+ÄL 161 – Tio sammanhängande mockuper för företagets ekonomi
+Status: Statiska designförslag 2026-10-22; ingen appkod eller drift ändras.
+- Ny bildserie i bokforing/helhet-mockups/ följer Åkes Hantverk AB från
+  företagsstart och offert till fakturering, inköp, bank, lön och bokslut.
+- Tio PNG-original visar även kundfordringar, ROT, huvudbok, skattekonto,
+  AGI, inventarier, materiallager, moms och underlag för extern granskning.
+- Klickbart README-galleri med korta bildtexter. Länkar läggs till i
+  bokföringsprojektets README och docs/mockups/README.md.
+- Bilderna avser planerad funktionalitet och fiktiva, fristående exempel.
+  Ande föreslår och förklarar; användaren granskar och fattar beslut.
+- De första tio stilförslagen och den befintliga klickbara demon bevaras.
+  Ingen bokföringsfunktion, integration eller regelvalidering implementeras
+  genom denna bildleverans.

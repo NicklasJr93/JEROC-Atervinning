@@ -8,6 +8,7 @@ Bilderna är statiska designförslag. Aktuell implementationsstatus framgår på
 
 ## Fristående bokföringssystem
 
+- [Bokföring – tio sammanhängande mockuper från företagsstart till bokslut](../../bokforing/helhet-mockups/README.md)
 - [Bokföring – tio designförslag med AI-assistent](../../bokforing/README.md)
 
 ## Företagsinställningar
