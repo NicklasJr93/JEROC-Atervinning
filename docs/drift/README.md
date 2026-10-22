@@ -107,6 +107,14 @@ skilj testresultatet från konfigurationsstatusen.
 
 ## Uppdatera och kontrollera
 
+Den publika bokföringsdemon ligger på `/bokforing` och `/bokforing/` i
+apptjänsten. `public/bokforing/` kopieras av webbbygget och serveras separat
+från kontorets inloggade gränssnitt. Demon använder endast fiktiva uppgifter
+i besökarens webbläsare; den kräver inga nya miljövariabler eller databasändringar.
+Kontrollera efter publicering att båda adresserna och deras JS/CSS svarar utan
+inloggning, att `/readyz` är redo och att vanliga API:er fortfarande kräver session.
+Se [demon och dess avgränsning](../../bokforing/README.md).
+
 Pilotens Blueprint har hemsidans automatiska deploy på commit och appens
 automatiska deploy avstängd. Blueprintens **Auto Sync** är en separat inställning
 och ska hanteras separat från appkodens deployment.

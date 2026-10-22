@@ -54,6 +54,17 @@ test('existing demo routing and optional laboratories are unchanged', () => {
     assert.equal(pilotRequestPolicy({ method: 'GET', headers: {} }, new URL(path, 'http://localhost'), { pilot: false }), null);
 });
 
+test('the synthetic bookkeeping page stays public without relaxing pilot laboratory or API policy', () => {
+  for (const method of ['GET', 'HEAD']) {
+    for (const path of ['/bokforing', '/bokforing/', '/bokforing/app.js', '/bokforing/model.js', '/bokforing/styles.css']) {
+      assert.equal(request(path, { method }), null, `${method} ${path}`);
+    }
+  }
+  assert.equal(request('/api/testcar/session').status, 404);
+  assert.equal(request('/api/employee/session'), null);
+  assert.equal(request('/').location, '/kontor/');
+});
+
 test('pilot applies frame and type protections, and HSTS only on HTTPS', () => {
   for (const [req, https] of [[{ headers: {}, socket: {} }, false], [{ headers: { 'x-forwarded-proto': 'https' } }, true],
     [{ headers: {}, socket: { encrypted: true } }, true]]) {

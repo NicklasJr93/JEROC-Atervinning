@@ -3944,3 +3944,26 @@ Status: Designförslag publicerade 2026-10-22; ingen bokföringsmodul implemente
   har fiktiva demouppgifter och är inte redovisningsvaliderade.
 - Länk: bokforing/README.md. Ingen appkod, konfiguration eller drift ändras.
 - Verifiering: tio PNG-original och samtliga bildreferenser kontrollerade.
+
+
+ÄL 158 – Publik klickbar bokföringsdemo
+Status: Testimplementation 2026-10-22; separat Render-publicering krävs.
+- Egen demosida på app.scrapplanner.com/bokforing utan inloggning.
+  Endast exakt /bokforing och /bokforing/ får den nya statiska mappningen.
+  Kontorets autentisering, bolagsval och produktions-API:er ändras inte.
+- Översikt, underlag, redigerbara konteringar, huvudbok, bankmatchning,
+  momsunderlag och rapporter använder fiktiv lokal demodata.
+- Konteringen kräver balanserade heltalsbelopp i ören, giltiga konton,
+  rätt underlagsversion och kontrollerad moms; dubbelbokning nekas.
+- Flytande AI-ande med exempelbaserade förklaringar och frågor.
+  Ingen extern AI eller auktoriserad redovisningskompetens ingår i demon.
+- Browserlagring kan återställas. Inga produktionsuppgifter, betalningar,
+  nya miljövariabler, serverlagrade verifikat eller migrationer ingår.
+- Källkod: public/bokforing/. Omfång och körning: bokforing/README.md.
+  Driftguiden beskriver publicering och kontroll av den publika sidan.
+- Verifierat lokalt: produktionsbygge, 25 modelltester, sex pilotpolicytester
+  och ett HTTP-integrationstest. Chromiumflöden på dator och mobil omfattar
+  granskning, obalansspärr, bokföring, omladdning, huvudbok/CSV, bankmatchning,
+  rapportvyer, assistent och återställning; inga JavaScript-fel eller
+  externa/API-anrop observerades. Oberoende kodgranskning är genomförd.
+- Skärmbilder från den körbara versionen finns i bokforing/preview/.

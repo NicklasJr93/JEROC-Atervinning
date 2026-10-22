@@ -2,7 +2,35 @@
 
 Här samlas designförslag för ett **fristående bokföringsprogram med egen webbapp, eget API och en AI-assistent**. Skrotappen är en tänkt ansluten källa; bokföringsprogrammet ska även kunna användas självständigt och ta emot underlag från andra system.
 
-**Status 2026-10-22:** tio statiska bildmockuper för val av utseende och arbetssätt. Detta är designunderlag inför en testversion, inte en implementerad bokföringsmodul. Bildernas belopp, konton, förklaringar och statusar är fiktiva illustrationer och ska inte användas som redovisningsregler.
+**Status 2026-10-22:** första klickbara demoversionen är implementerad i `public/bokforing/`. De tio bildmockuperna nedan finns kvar som designunderlag. Detta är en testmiljö med fiktiv bokföring, inte ett system för skarp redovisning.
+
+## Klickbar demo
+
+Testadress efter appens Render-publicering: **https://app.scrapplanner.com/bokforing**.
+
+- Översikt med beräknade nyckeltal och senaste verifikationer.
+- Underlagsinkorg och fakturavy med redigerbara konteringsrader.
+- Demobokföring som kontrollerar belopp, moms, balans och underlagsversion samt stoppar dubbel bokföring.
+- Huvudbok, bankmatchning, momsunderlag och rapporter som följer demobokens poster.
+- En svävande demoassistent med kontextfrågor och exempelbaserade svar.
+- Sparat demoläge i den egna webbläsaren och möjlighet att återställa exemplen.
+
+Demon kräver ingen inloggning. Den använder en egen lagringsnyckel i webbläsaren och gör inga anrop till appens produktions-API:er, betalningstjänster eller externa AI-leverantörer. AI-svaren i denna version är exempelbaserade. Underlag och rapporter avser enbart Exempelbolaget AB.
+
+Appservern mappar exakt `/bokforing` och `/bokforing/` till den fristående demosidan. Övrig autentisering och åtkomst till bolag ändras inte. Källkoden finns i [public/bokforing](../public/bokforing/).
+
+Skärmbilder från den körbara demon:
+
+[![Översikt i den klickbara demon](preview/oversikt.png)](preview/oversikt.png)
+[![Underlag och kontering i den klickbara demon](preview/kontering.png)](preview/kontering.png)
+
+Bygg med `npm run build` och starta med `npm start`. Appens vanliga driftinställningar gäller. Publicering på app-domänen följer [driftguidens manuella Render-deploy](../docs/drift/README.md#uppdatera-och-kontrollera); en GitHub-push betyder inte ensam att den nya versionen är live.
+
+Verifierat lokalt: produktionsbygge, 25 modelltester, sex pilotpolicytester och ett HTTP-integrationstest. Browserprov i Chromium täcker granskning, obalansspärr, bokföring, omladdning, huvudbok/CSV, bankmatchning, rapportvyer, assistent, återställning och mobilmeny. Inga JavaScript-fel eller externa/API-anrop observerades i dessa flöden.
+
+## Bildmockuper
+
+Bildernas belopp, konton, förklaringar och statusar är fiktiva illustrationer och ska inte användas som redovisningsregler.
 
 ## Bildöversikt
 
@@ -31,8 +59,8 @@ Klicka på en bild för att öppna PNG-originalet. Numren 01–10 används när 
 | 09 | [Förberett för granskning](mockups/09-forberett-for-granskning.png) | Granskningsvy med rapporter, öppna frågor, avstämningar och dokument. |
 | 10 | [Bokföring på språng](mockups/10-bokforing-pa-sprang.png) | Mobil granskning och godkännande tillsammans med en datorvy. |
 
-## Nästa designsteg
+## Fortsatt utveckling
 
-Välj en eller flera riktningar som grund för den klickbara testversionen. Layout, konteringsvy, AI-samtal och mobilvy kan kombineras. AI-assistentens förslag ska skiljas från godkända och bokförda poster i den fortsatta implementationen.
+Den klickbara demon kombinerar den ljusa översikten, vyn för underlag och kontering samt den svävande AI-assistenten. Prova arbetsflödena före nästa designbeslut. Ett skarpt fristående system kräver bland annat eget server-API, behörigheter, beständig och spårbar bokföring, periodlåsning, säker dokumentarkivering och redovisningsgranskning. Dessa delar ingår inte i webbläsardemon.
 
 Bilderna ligger i [mockups/](mockups/). Övriga projektmockuper finns i [den gemensamma översikten](../docs/mockups/README.md).

@@ -60,6 +60,7 @@ skript beskriver demoprojektet. Vanliga användare öppnar pilotens webb-/mobila
 | `tests/` | Playwright-prov och isolerade API-fixturer |
 | `expo/` | Expo-skal som öppnar mobilwebben i WebView |
 | `website/` | Fristående publik webbplats med egen låsfil och egna prov |
+| `public/bokforing/` | Publik bokföringsdemo med separat lokal demodata; inget produktions-API |
 | `scripts/` | Bygge, start, kontroller och uttryckliga import-/exportverktyg |
 | `docs/` | Manual, drift, ämnesguider, ÄL och designunderlag |
 

@@ -11,6 +11,21 @@ knappar visas efter kontots behörigheter och företagets aktiverade funktioner.
 | Skicka avräkning för godkännande och få PDF efter attest | [Vägning och kunduppgifter](vagning-och-kunduppgifter.md#kundgodkännande-och-attest) |
 | Arbeta som systemadmin och följa tjänsteförbrukning | [Systemadmin](systemadmin.md) |
 | Konfigurera en integration eller felsöka servern | [Teknisk dokumentation](../README.md) |
+| Prova den fristående bokföringsdemon | [Bokföringsdemo](../../bokforing/README.md#klickbar-demo) |
+
+## Prova bokföringsdemon
+
+Efter publicering öppnas demon på
+[app.scrapplanner.com/bokforing](https://app.scrapplanner.com/bokforing)
+utan inloggning. Välj **Granska underlag**, kontrollera fakturan och ändra
+konteringsraderna. **Godkänn och bokför** aktiveras när debet och kredit
+balanserar; övriga fel förklaras vid bokföringsförsöket. Följ sedan posten i
+**Bokföring**, **Moms** och **Rapporter**. I **Bank** kan du prova matchning.
+
+**Fråga Ande** öppnar en demoassistent med exempelbaserade svar.
+Ändringarna sparas i den egna webbläsaren. **Återställ demo** tar tillbaka
+exempeluppgifterna efter bekräftelse. Allt avser Exempelbolaget AB och används
+för att prova arbetsflödet; inga verkliga underlag eller betalningar hanteras.
 
 ## Logga in och hitta rätt
 
