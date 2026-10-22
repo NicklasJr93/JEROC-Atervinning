@@ -74,6 +74,7 @@ jobs:
       - name: Verify customer, staff, settings and billing workflows
         run: >-
           npx playwright test
+          tests/bokforing-demo.spec.ts
           tests/company-register-entrypoints.spec.ts
           tests/customer-form.spec.ts
           tests/customer-intake.spec.ts

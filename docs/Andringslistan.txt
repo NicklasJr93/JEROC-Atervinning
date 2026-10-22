@@ -3981,3 +3981,23 @@ Status: Genomförd och dokumenterad 2026-10-22; appkoden ändras inte.
 - Provrapport, reproduktionssteg, resultat och skärmbilder finns i
   bokforing/granskning/. Ingen säkerhetscertifiering eller verifiering av
   full regelefterlevnad görs. Fynden är kvarstående utvecklingsarbete.
+
+
+ÄL 160 – Rättade konterings-, lagrings- och layoutfel i bokföringsdemon
+Status: Implementerat och lokalt verifierat 2026-10-22; Render-publicering återstår.
+- Inköpsflödet begränsar kontotyper, momskombinationer, moms-/skuldsida och
+  kostnadsnetto. Extra momspar och motbokade bruttoförhöjningar nekas.
+- Ny browserlokal lagringsmodul med Web Locks, rårevision och ny token vid
+  varje lyckad skrivning/reset. Gamla uppdaterade flikar spärras från att
+  skriva över nyare bokföring; läs in senaste innan fortsatt arbete.
+- Bokförd vy och lyckad kvittens ges först efter lyckad skrivning/återläsning.
+  Lagringsfel eller osäker kvittens ger synligt fel och pausad skrivning.
+- Ogiltiga äldre demodata bevaras till explicit reset. Misslyckad reset
+  rensar inte den befintliga vyn. Webbläsare utan Web Locks får läsläge.
+- Ande har reserverad plats i sidhuvudet och skymmer inte bokföringsknappen.
+- Verifierat: produktionsbygge, 48 modelltester, 23 lagringstester, sex
+  pilotpolicytester, ett HTTP-integrationstest och tio browserregressioner.
+  Kodgranskning genomförd. Browserproven läggs till i CI:s prioriterade urval.
+- Uppföljning: bokforing/granskning/2026-10-22-uppfoljning.md. Ursprunglig
+  provrapport bevaras som historik. Manuellt val mellan tillåtna kostnadsslag
+  och framtida skarp serverbok/arkivering omfattas inte av dessa rättningar.

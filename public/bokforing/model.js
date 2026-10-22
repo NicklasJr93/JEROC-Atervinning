@@ -25,6 +25,10 @@ export const ACCOUNTS = Object.freeze([
 ].map(([number, name]) => Object.freeze({ number, name })));
 
 const accountNumbers = new Set(ACCOUNTS.map(account => account.number));
+// This demo only posts positive supplier purchases. Cash/bank transactions,
+// sales, assets and credit notes need separate reviewed posting flows.
+const purchaseExpenseAccounts = new Set(['4010', '5010', '5410', '5460', '5710', '6110', '6212', '6540', '6570', '6991']);
+const vatAccounts = new Set(['2611', '2614', '2641', '2647']);
 const MAX_CENTS = 1_000_000_000_000;
 const clone = value => structuredClone(value);
 const debit = (account, amount) => ({ account, debitCents: amount, creditCents: 0 });
@@ -36,6 +40,15 @@ const text = (value, max = 300) => typeof value === 'string' && value.length > 0
 const isoDate = value => typeof value === 'string' && /^2026-10-(?:0[1-9]|[12]\d|3[01])$/.test(value);
 
 function fail(message) { throw new Error(message); }
+
+export function purchaseAccountOptions(document) {
+  if (!document || !['standard', 'private', 'reverse'].includes(document.category)) return [];
+  const allowed = new Set(document.category === 'reverse' ? ['4415'] : purchaseExpenseAccounts);
+  allowed.add('2440');
+  if (document.category === 'standard' && document.vatCents) allowed.add('2641');
+  if (document.category === 'reverse') { allowed.add('2647'); allowed.add('2614'); }
+  return ACCOUNTS.filter(account => allowed.has(account.number));
+}
 
 function sum(values) {
   let total = 0;
@@ -64,20 +77,43 @@ function accountBalance(rows, account) {
 
 function validatePurchaseRows(document, rows) {
   const checked = validatedRows(rows);
-  if (accountBalance(checked, '2440') !== -document.totalCents || checked.some(row => row.account === '2440' && row.debitCents)) {
+  const payableRows = checked.filter(row => row.account === '2440');
+  if (payableRows.some(row => row.debitCents) || sum(payableRows.map(row => row.creditCents)) !== document.totalCents) {
     fail('Leverantörsskulden måste motsvara underlagets totalbelopp.');
   }
-  if (document.category === 'standard' && accountBalance(checked, '2641') !== document.vatCents) {
-    fail('Ingående moms måste motsvara momsen i underlaget.');
-  }
-  if (document.category === 'private' && checked.some(row => ['2611', '2614', '2641', '2647'].includes(row.account))) {
+  const taxRows = checked.filter(row => vatAccounts.has(row.account));
+  if (document.category === 'private' && (document.vatCents || taxRows.length)) {
     fail('Det här privata inköpsunderlaget har ingen moms att bokföra.');
   }
+  const expectedTax = new Map();
+  if (document.category === 'standard') expectedTax.set('2641', { debitCents: document.vatCents, creditCents: 0 });
   if (document.category === 'reverse') {
+    if (document.vatCents) fail('Underlaget med omvänd moms får inte innehålla debiterad leverantörsmoms.');
     const reverseVat = Math.round(document.netCents / 4);
-    if (accountBalance(checked, '2647') !== reverseVat || accountBalance(checked, '2614') !== -reverseVat) {
-      fail('Underlaget med omvänd moms behöver båda de föreslagna momsraderna.');
+    expectedTax.set('2647', { debitCents: reverseVat, creditCents: 0 });
+    expectedTax.set('2614', { debitCents: 0, creditCents: reverseVat });
+  }
+  if (taxRows.some(row => !expectedTax.has(row.account))) {
+    fail('Momskontot hör inte till det här underlagets momstyp.');
+  }
+  for (const [account, expected] of expectedTax) {
+    const actual = taxRows.filter(row => row.account === account);
+    if (actual.some(row => expected.debitCents ? row.creditCents : row.debitCents) ||
+      sum(actual.map(row => row.debitCents)) !== expected.debitCents || sum(actual.map(row => row.creditCents)) !== expected.creditCents) {
+      fail(document.category === 'reverse'
+        ? 'Underlaget med omvänd moms behöver båda de föreslagna momsraderna med rätt belopp och sida.'
+        : 'Ingående moms måste motsvara momsen i underlaget utan extra motbokningar.');
     }
+  }
+  const purchaseRows = checked.filter(row => row.account !== '2440' && !vatAccounts.has(row.account));
+  const allowedExpenses = document.category === 'reverse' ? new Set(['4415']) : purchaseExpenseAccounts;
+  if (purchaseRows.some(row => !allowedExpenses.has(row.account))) {
+    fail(document.category === 'reverse'
+      ? 'Det här demounderlaget med omvänd moms ska bokföras som varuinköp på konto 4415.'
+      : 'Välj ett kostnadskonto för inköpet. Bank, fordringar, intäkter och eget kapital hör inte till det här inköpsflödet.');
+  }
+  if (purchaseRows.some(row => row.creditCents) || sum(purchaseRows.map(row => row.debitCents)) !== document.netCents) {
+    fail('Inköpsradernas debet måste motsvara underlagets nettobelopp utan extra motbokningar.');
   }
   return checked;
 }
@@ -144,7 +180,7 @@ export function createState() {
   };
 }
 
-function validateState(state) {
+export function validateState(state) {
   if (!state || state.schemaVersion !== 1 || state.company?.name !== 'Exempelbolaget AB' || state.company?.period !== 'Oktober 2026') fail('Demodata har fel version.');
   const bounds = { documents: 100, entries: 1_000, bankTransactions: 1_000, activity: 1_000 };
   for (const [key, maximum] of Object.entries(bounds)) {
@@ -166,7 +202,8 @@ function validateState(state) {
     if (!text(item.supplier) || !text(item.title) || !text(item.number, 100) || !text(item.source) || !isoDate(item.date) || !isoDate(item.dueDate) ||
       !validCents(item.totalCents) || item.totalCents === 0 || !validCents(item.netCents) || !validCents(item.vatCents) || item.netCents + item.vatCents !== item.totalCents ||
       !['standard', 'private', 'reverse'].includes(item.category) || !['draft', 'booked'].includes(item.status) || !Number.isSafeInteger(item.version) || item.version < 1 || item.version > 1_000_000) fail('Ett demounderlag är ogiltigt.');
-    if (!Array.isArray(item.items) || !item.items.length || item.items.length > 100 || item.items.some(row => !text(row?.description) || !Number.isSafeInteger(row.quantity) || row.quantity < 1 || !validCents(row.netCents))) fail('Underlagets rader är ogiltiga.');
+    if (!Array.isArray(item.items) || !item.items.length || item.items.length > 100 || item.items.some(row => !text(row?.description) || !Number.isSafeInteger(row.quantity) || row.quantity < 1 || !validCents(row.netCents)) ||
+      sum(item.items.map(row => row.netCents)) !== item.netCents) fail('Underlagets rader måste motsvara underlagets nettobelopp.');
     validatePurchaseRows(item, item.rows);
     const booked = state.entries.filter(entry => entry.documentId === item.id);
     if (booked.length !== (item.status === 'booked' ? 1 : 0)) fail('Underlagets bokföringsstatus stämmer inte.');

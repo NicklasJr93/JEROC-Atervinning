@@ -2,7 +2,7 @@
 
 Här samlas designförslag för ett **fristående bokföringsprogram med egen webbapp, eget API och en AI-assistent**. Skrotappen är en tänkt ansluten källa; bokföringsprogrammet ska även kunna användas självständigt och ta emot underlag från andra system.
 
-**Status 2026-10-22:** första klickbara demoversionen är implementerad i `public/bokforing/`. De tio bildmockuperna nedan finns kvar som designunderlag. Detta är en testmiljö med fiktiv bokföring, inte ett system för skarp redovisning.
+**Status 2026-10-22:** klickbar demo i `public/bokforing/`, med efterföljande rättningar av kända konterings-, lagrings- och layoutfel. Publicering av rättningarna på Render är ett separat steg; den ursprungliga liveversionen är verifierad. De tio bildmockuperna nedan finns kvar som designunderlag. Detta är en testmiljö med fiktiv bokföring, inte ett system för skarp redovisning.
 
 ## Klickbar demo
 
@@ -15,6 +15,12 @@ Publik demo, verifierad 2026-10-22: **https://app.scrapplanner.com/bokforing**.
 - En svävande demoassistent med kontextfrågor och exempelbaserade svar.
 - Sparat demoläge i den egna webbläsaren och möjlighet att återställa exemplen.
 
+Rättningarna begränsar inköpseditorns kontoval till det stödjade inköpsfallet och kontrollerar kostnadsnetto, skuld och tillåtna momsrader även i bokföringsfunktionen. En vanlig inköpsfaktura kan exempelvis inte få extra omvända momsrader eller bokas som en ökning av bankkontot. Ande ligger i reserverad plats i sidhuvudet.
+
+Sparandet samordnas mellan uppdaterade demoflikar med Web Locks och kontroll av aktuell lagringsrevision. En gammal flik får inte skriva över nyare demodata. En bokning visas som genomförd först efter lyckad skrivning och återläsning. Vid konflikt, sparfel eller osäker kvittens pausas skrivningen med en synlig banner och **Läs in senaste demodata**. Den åtgärden återställer osparade ändringar i editorn. Ogiltiga äldre demodata bevaras tills användaren uttryckligen väljer reset.
+
+Stäng och öppna äldre demoflikar efter publicering av rättningarna. Samordningen skyddar flikar som använder den uppdaterade koden; tidigare öppna versioner och direkt ändring av localStorage omfattas inte. Om webbläsaren saknar stöd för Web Locks visas demon i läsläge. Det är fortfarande browserlokal demodata, inte ett serverarkiv eller ett skydd mot manipulation.
+
 Demon kräver ingen inloggning. Den använder en egen lagringsnyckel i webbläsaren och gör inga anrop till appens produktions-API:er, betalningstjänster eller externa AI-leverantörer. AI-svaren i denna version är exempelbaserade. Underlag och rapporter avser enbart Exempelbolaget AB.
 
 Appservern mappar exakt `/bokforing` och `/bokforing/` till den fristående demosidan. Övrig autentisering och åtkomst till bolag ändras inte. Källkoden finns i [public/bokforing](../public/bokforing/).
@@ -26,11 +32,11 @@ Skärmbilder från den körbara demon:
 
 Bygg med `npm run build` och starta med `npm start`. Appens vanliga driftinställningar gäller. Publicering på app-domänen följer [driftguidens manuella Render-deploy](../docs/drift/README.md#uppdatera-och-kontrollera); en GitHub-push betyder inte ensam att den nya versionen är live.
 
-Verifierat lokalt: produktionsbygge, 25 modelltester, sex pilotpolicytester och ett HTTP-integrationstest. Browserprov i Chromium täcker granskning, obalansspärr, bokföring, omladdning, huvudbok/CSV, bankmatchning, rapportvyer, assistent, återställning och mobilmeny. Inga JavaScript-fel eller externa/API-anrop observerades i dessa flöden.
+Verifierat lokalt efter rättningarna: produktionsbygge, 48 modelltester, 23 lagringstester, sex pilotpolicytester och ett HTTP-integrationstest. Tio browserregressioner täcker bland annat två flikar, sparfel, osäker kvittens, reset och pekarklick på femradig kontering på dator/mobil. Se [uppföljningen med rättningar och avgränsning](granskning/2026-10-22-uppfoljning.md).
 
 ## Provgranskning av liveversionen
 
-[Provrapport 2026-10-22](granskning/2026-10-22.md) beskriver 15 genomförda scenarier, inklusive medvetna fel, reset och mobilbokföring. Flera grundspärrar fungerar, men granskningen visar också sakligt felaktiga konteringar som godtas, extra momsrader, förlust av bokningar mellan flikar och fortsatt bokföring i minnet vid simulerat sparfel. Ande kan dessutom skymma bokföringsknappen. Rapporten innehåller steg för att upprepa fynden och en beskrivning för extern granskning. Detta är inte ett godkännande av regelefterlevnad.
+[Provrapport 2026-10-22](granskning/2026-10-22.md) beskriver 15 genomförda scenarier mot den ursprungliga liveversionen, inklusive medvetna fel, reset och mobilbokföring. Den bevaras som historiskt underlag för rättningarna ovan. Rapporten innehåller reproduktionssteg och en beskrivning för extern granskning. Ett godtyckligt sakligt fel mellan tillåtna kostnadsslag kan fortfarande kräva mänsklig bedömning; rättningarna är inte ett godkännande av full regelefterlevnad.
 
 ## Bildmockuper
 

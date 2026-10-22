@@ -56,7 +56,7 @@ test('existing demo routing and optional laboratories are unchanged', () => {
 
 test('the synthetic bookkeeping page stays public without relaxing pilot laboratory or API policy', () => {
   for (const method of ['GET', 'HEAD']) {
-    for (const path of ['/bokforing', '/bokforing/', '/bokforing/app.js', '/bokforing/model.js', '/bokforing/styles.css']) {
+    for (const path of ['/bokforing', '/bokforing/', '/bokforing/app.js', '/bokforing/model.js', '/bokforing/storage.js', '/bokforing/styles.css']) {
       assert.equal(request(path, { method }), null, `${method} ${path}`);
     }
   }

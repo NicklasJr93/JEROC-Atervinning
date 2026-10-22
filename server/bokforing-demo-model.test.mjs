@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   ACCOUNTS, STORAGE_KEY, assistantAnswer, bookDraft, createState,
-  getReports, getSummary, getVatReport, matchBank, money, restoreState,
+  getReports, getSummary, getVatReport, matchBank, money, purchaseAccountOptions, restoreState, validateState,
 } from '../public/bokforing/model.js';
 
 const office = state => state.documents.find(document => document.id === 'doc-office');
@@ -132,6 +132,84 @@ test('invalid draft entries fail before any accounting or document state changes
   assert.throws(() => bookDraft(state, document.id, [], document.version));
 });
 
+test('balanced but invalid supplier purchase rows are rejected without changing the ledger', async t => {
+  const d = (account, cents) => ({ account, debitCents: cents, creditCents: 0 });
+  const c = (account, cents) => ({ account, debitCents: 0, creditCents: cents });
+  const cases = [
+    ['bank instead of office expense', 'doc-office', rows => { rows[0].account = '1930'; }, /kostnadskonto/],
+    ['customer receivable instead of expense', 'doc-office', rows => { rows[0].account = '1510'; }, /kostnadskonto/],
+    ['equity instead of expense', 'doc-office', rows => { rows[0].account = '2091'; }, /kostnadskonto/],
+    ['sales account instead of expense', 'doc-office', rows => { rows[0].account = '3010'; }, /kostnadskonto/],
+    ['reverse purchase account on standard invoice', 'doc-office', rows => { rows[0].account = '4415'; }, /kostnadskonto/],
+    ['extra reverse VAT pair on standard invoice', 'doc-office', rows => { rows.push(d('2647', 2500), c('2614', 2500)); }, /Momskontot/],
+    ['extra output VAT funded by additional expense', 'doc-office', rows => { rows.push(d('6110', 2500), c('2611', 2500)); }, /Momskontot/],
+    ['input VAT with offsetting gross amounts', 'doc-office', rows => { rows[1].debitCents += 1000; rows.push(c('2641', 1000)); }, /Ingående moms/],
+    ['supplier debt with offsetting gross amounts', 'doc-office', rows => { rows[2].creditCents += 1000; rows.push(d('2440', 1000)); }, /Leverantörsskulden/],
+    ['expense with offsetting gross amounts', 'doc-office', rows => { rows[0].debitCents += 1000; rows.push(c('6110', 1000)); }, /Inköpsradernas/],
+    ['reverse VAT on private purchase', 'doc-private', rows => { rows.push(d('2647', 2500), c('2614', 2500)); }, /ingen moms/],
+    ['offsetting ordinary VAT on private purchase', 'doc-private', rows => { rows.push(d('2641', 2500), c('2641', 2500)); }, /ingen moms/],
+    ['reverse purchase account on private purchase', 'doc-private', rows => { rows[0].account = '4415'; }, /kostnadskonto/],
+    ['ordinary expense account on reverse purchase', 'doc-reverse', rows => { rows[0].account = '4010'; }, /konto 4415/],
+    ['ordinary VAT added to reverse purchase', 'doc-reverse', rows => { rows.push(d('2641', 2500), c('2611', 2500)); }, /Momskontot/],
+    ['offsetting reverse input VAT', 'doc-reverse', rows => { rows[1].debitCents += 1000; rows.push(c('2647', 1000)); }, /rätt belopp och sida/],
+    ['offsetting reverse output VAT', 'doc-reverse', rows => { rows[2].creditCents += 1000; rows.push(d('2614', 1000)); }, /rätt belopp och sida/],
+    ['missing reverse VAT rows despite balance', 'doc-reverse', rows => { rows.splice(1, 2); }, /båda/],
+  ];
+  for (const [label, documentId, alter, message] of cases) {
+    await t.test(label, () => {
+      const state = createState();
+      const before = structuredClone(state);
+      const document = state.documents.find(item => item.id === documentId);
+      const rows = rowsOf(document);
+      alter(rows);
+      assert.equal(rows.reduce((total, row) => total + row.debitCents - row.creditCents, 0), 0,
+        'the new purchase guard must reject this case even though it balances');
+      assert.throws(() => bookDraft(state, document.id, rows, document.version), message);
+      assert.deepEqual(state, before);
+    });
+  }
+});
+
+test('the purchase editor offers only accounts supported for each invoice tax category', () => {
+  const state = createState();
+  const accountNumbers = documentId => purchaseAccountOptions(state.documents.find(item => item.id === documentId)).map(account => account.number);
+  const ordinary = accountNumbers('doc-office');
+  const privatePurchase = accountNumbers('doc-private');
+  const reverse = accountNumbers('doc-reverse');
+  assert.ok(ordinary.includes('6110') && ordinary.includes('5460') && ordinary.includes('2641') && ordinary.includes('2440'));
+  assert.ok(!ordinary.some(number => ['1930', '1510', '2091', '3010', '4415', '2611', '2614', '2647'].includes(number)));
+  assert.ok(privatePurchase.includes('4010') && privatePurchase.includes('2440'));
+  assert.ok(!privatePurchase.some(number => number.startsWith('26')));
+  assert.deepEqual(new Set(reverse), new Set(['4415', '2440', '2647', '2614']));
+  assert.deepEqual(purchaseAccountOptions({ category: 'unknown' }), []);
+});
+
+test('supported purchases can still split net expense and use an alternative expense account', () => {
+  const state = createState();
+  const document = office(state);
+  const rows = rowsOf(document);
+  rows[0] = { account: '5460', debitCents: 60_000, creditCents: 0 };
+  rows.push({ account: '6110', debitCents: 40_000, creditCents: 0 });
+  const next = bookDraft(state, document.id, rows, document.version);
+  assert.equal(getSummary(next).expenseCents - getSummary(state).expenseCents, document.netCents);
+  assert.equal(getSummary(next).bankCents, getSummary(state).bankCents);
+  assert.equal(getVatReport(next).inputVatCents - getVatReport(state).inputVatCents, document.vatCents);
+  assert.deepEqual(office(next).rows, rows);
+});
+
+test('all supplied draft examples remain bookable with consistent VAT and persisted references', () => {
+  let state = createState();
+  const originals = state.documents.filter(item => item.status === 'draft');
+  const before = getSummary(state);
+  for (const document of originals) state = bookDraft(state, document.id, rowsOf(document), document.version);
+  assert.equal(getSummary(state).draftCount, 0);
+  assert.equal(state.entries.length, 12 + originals.length);
+  assert.equal(getSummary(state).bankCents, before.bankCents);
+  assert.equal(validateState(state), state);
+  assertPersistedIntegrity(state);
+  assert.deepEqual(restoreState(JSON.parse(JSON.stringify(state))), state);
+});
+
 test('reverse VAT is reported on both sides while private purchase creates no VAT', () => {
   let state = createState();
   const reverse = state.documents.find(document => document.status === 'draft' && document.category === 'reverse');
@@ -202,6 +280,7 @@ test('damaged browser state is replaced by a fresh demo instead of importing cor
     'duplicate journal number': state => {
       state.entries.push({ ...structuredClone(state.entries[0]), id: 'duplicate-journal-number' });
     },
+    'invoice lines do not add up to invoice net': state => { office(state).items[0].netCents += 1; },
   };
   for (const [label, change] of Object.entries(cases)) {
     await t.test(label, () => {

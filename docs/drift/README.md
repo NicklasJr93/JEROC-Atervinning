@@ -115,6 +115,12 @@ Kontrollera efter publicering att båda adresserna och deras JS/CSS svarar utan
 inloggning, att `/readyz` är redo och att vanliga API:er fortfarande kräver session.
 Se [demon och dess avgränsning](../../bokforing/README.md).
 
+Demons lokala skrivningar kräver en säker browserkontext med Web Locks
+(HTTPS på app-domänen eller localhost vid utveckling). Vid uppdatering ska
+besökaren stänga/ladda om äldre demoflikar så att de använder samma lagringskod.
+Ogiltiga äldre exempel bevaras för explicit reset; giltiga gamla exempel kan
+läsas och får en ny lagringsrevision vid nästa lyckade skrivning.
+
 Pilotens Blueprint har hemsidans automatiska deploy på commit och appens
 automatiska deploy avstängd. Blueprintens **Auto Sync** är en separat inställning
 och ska hanteras separat från appkodens deployment.

@@ -27,6 +27,14 @@ balanserar; övriga fel förklaras vid bokföringsförsöket. Följ sedan posten
 exempeluppgifterna efter bekräftelse. Allt avser Exempelbolaget AB och används
 för att prova arbetsflödet; inga verkliga underlag eller betalningar hanteras.
 
+I den uppdaterade demon stoppas sparandet vid konflikt mellan flikar eller
+lagringsfel. Läs bannern och välj **Läs in senaste demodata** för att fortsätta;
+osparade konteringsändringar återställs. En osäker sparningskvittens kan betyda
+att bokningen redan finns, så läs in innan du försöker igen. Ogiltiga äldre
+demouppgifter ersätts först efter uttrycklig återställning. Stäng och öppna gamla
+demoflikar när en ny version publicerats. Utan stöd för samordning mellan flikar
+är demon i läsläge.
+
 ## Logga in och hitta rätt
 
 Kontoret öppnas på [app.scrapplanner.com/kontor/](https://app.scrapplanner.com/kontor/).

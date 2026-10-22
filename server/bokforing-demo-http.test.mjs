@@ -35,7 +35,7 @@ test('public bookkeeping demo serves its own assets without granting office acce
       assert.match(html, /\/bokforing\/app\.js/);
       assert.match(html, /\/bokforing\/styles\.css/);
     }
-    for (const [path, type] of [['styles.css', /text\/css/], ['app.js', /javascript/], ['model.js', /javascript/]]) {
+    for (const [path, type] of [['styles.css', /text\/css/], ['app.js', /javascript/], ['model.js', /javascript/], ['storage.js', /javascript/]]) {
       const response = await fetch(`${url}/bokforing/${path}`);
       assert.equal(response.status, 200, path);
       assert.match(response.headers.get('content-type'), type);

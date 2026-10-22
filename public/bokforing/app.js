@@ -1,4 +1,5 @@
-import { STORAGE_KEY, ACCOUNTS, createState, restoreState, money, getSummary, getReports, getVatReport, bookDraft, matchBank, assistantAnswer } from './model.js';
+import { STORAGE_KEY, ACCOUNTS, purchaseAccountOptions, money, getSummary, getReports, getVatReport, bookDraft, matchBank, assistantAnswer } from './model.js';
+import { createDemoStorage } from './storage.js';
 
 const app = document.querySelector('#app');
 const icons = {
@@ -45,10 +46,12 @@ const integer = value => Number.isSafeInteger(value) ? value : 0;
 const amount = cents => (integer(cents) / 100).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const plainAmount = cents => (integer(cents) / 100).toFixed(2).replace('.', ',');
 const ghost = (size = '') => `<span class="ghost ${size}" aria-hidden="true"><span class="ghost-face"><i></i><i></i></span></span>`;
-let state;
-let persistenceAvailable = true;
-try { const raw = localStorage.getItem(STORAGE_KEY); state = raw ? restoreState(JSON.parse(raw)) : createState(); }
-catch { state = createState(); persistenceAvailable = false; }
+const demoStorage = createDemoStorage({ getStorage: () => window.localStorage, locks: navigator.locks });
+let storageSnapshot = demoStorage.load();
+let state = storageSnapshot.state;
+let storageIssue = storageSnapshot.error;
+let storageChangedElsewhere = false;
+let writePending = false;
 let currentView = 'overview';
 let selectedDocumentId = null;
 let search = '';
@@ -62,10 +65,38 @@ let toastTimer;
 const draftEdits = new Map();
 const messages = [{ role: 'assistant', text: 'Hej! Jag är Ande, din demoassistent. Jag hjälper dig att förstå underlagen, hitta nästa steg och granska konteringsförslag.', links: [] }];
 
-function persist() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); persistenceAvailable = true; }
-  catch { persistenceAvailable = false; toast('Webbläsaren kan inte spara just nu. Du kan fortsätta prova i den här fliken.', 'info'); }
-  updateChrome();
+function canWriteDemo() { return storageSnapshot.writable && !storageIssue && !writePending && !storageChangedElsewhere; }
+function canResetDemo() { return Boolean(navigator.locks?.request) && !writePending && !storageChangedElsewhere && ((!storageIssue && storageSnapshot.writable) || storageIssue?.code === 'INVALID_DATA'); }
+function showWriteError(error, documentId = null) {
+  if (error.code) storageIssue = error;
+  if (error.code === 'STALE_STATE') storageChangedElsewhere = true;
+  const box = documentId === selectedDocumentId ? document.querySelector('#draft-error') : null;
+  if (box) { box.textContent = error.message; box.hidden = false; }
+  const resetError = document.querySelector('#reset-error');
+  if (resetError && document.querySelector('#reset-dialog').open) { resetError.textContent = error.message; resetError.hidden = false; }
+  toast(error.message, 'info');
+}
+async function writeDemo({ transition, reset = false, documentId = null, message, afterSave = () => {} }) {
+  if (writePending) return;
+  if (reset ? !canResetDemo() : !canWriteDemo()) {
+    showWriteError(new Error(storageChangedElsewhere ? 'Demodata har ändrats i en annan flik. Läs in senaste demodata och granska igen.' : storageIssue?.message || 'Sparandet är pausat. Läs in demodata igen.'), documentId);
+    return;
+  }
+  writePending = true;
+  updateChrome(); updateDraftSummary();
+  try {
+    const saved = reset ? await demoStorage.reset(storageSnapshot) : await demoStorage.commit(storageSnapshot, transition);
+    // Publish the new view only after the coordinated storage write succeeds.
+    storageSnapshot = saved; state = saved.state; storageIssue = null; storageChangedElsewhere = false;
+    afterSave(); render(); toast(message);
+  } catch (error) { showWriteError(error, documentId); }
+  finally { writePending = false; updateChrome(); updateDraftSummary(); }
+}
+function reloadDemo() {
+  storageSnapshot = demoStorage.load(); state = storageSnapshot.state; storageIssue = storageSnapshot.error;
+  storageChangedElsewhere = false; draftEdits.clear();
+  render();
+  toast(storageIssue?.message || 'Senaste demodata är inlästa. Granska konteringen innan du bokför.', 'info');
 }
 function go(view, documentId = null) {
   const target = views.has(view) ? view : 'overview';
@@ -85,7 +116,17 @@ function updateChrome() {
   document.querySelectorAll('[data-nav]').forEach(a => { const active = a.dataset.nav === currentView; a.classList.toggle('active', active); if (active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   const count = state.documents.filter(d => d.status === 'draft').length;
   document.querySelectorAll('[data-draft-count]').forEach(el => { el.textContent = String(count); });
-  document.querySelector('#storage-status').textContent = persistenceAvailable ? 'Demodata sparas i din webbläsare' : 'Demodata i den här fliken';
+  document.querySelector('#storage-status').textContent = writePending ? 'Sparar demodata…' : storageChangedElsewhere ? 'Pausat: demodata har ändrats i en annan flik' : storageIssue ? 'Sparandet behöver åtgärdas' : 'Demodata sparas i din webbläsare';
+  const notice = document.querySelector('#storage-notice');
+  notice.hidden = !storageIssue && !storageChangedElsewhere;
+  notice.classList.toggle('is-error', Boolean(storageIssue));
+  document.querySelector('#storage-notice-text').textContent = storageChangedElsewhere
+    ? 'En annan flik har ändrat demoboken. Inget har skrivits över från den här fliken. Läs in senaste demodata och granska igen. Dina osparade konteringsändringar återställs när du läser in senaste.'
+    : storageIssue ? `${storageIssue.message} Läs in senaste demodata innan du fortsätter. Återställ demon uttryckligen om sparade exempel är ogiltiga.` : '';
+  document.querySelector('#main-content').setAttribute('aria-busy', String(writePending));
+  document.querySelectorAll('[data-action="match-bank"], [data-action="add-row"], [data-action="remove-row"], [data-row][data-field]').forEach(el => { el.disabled = !canWriteDemo(); });
+  document.querySelector('[data-action="confirm-reset"]').disabled = !canResetDemo();
+  document.querySelector('[data-action="reload-demo"]').disabled = writePending;
   document.querySelector('#sidebar').classList.toggle('is-open', sidebarOpen);
   document.querySelector('#sidebar-backdrop').hidden = !sidebarOpen;
   document.querySelector('#mobile-menu').setAttribute('aria-expanded', String(sidebarOpen));
@@ -145,18 +186,19 @@ function getEdits(doc) { let edit = draftEdits.get(doc.id); if (!edit || edit.ve
 function renderDocument(doc) {
   const rows = doc.status === 'draft' ? getEdits(doc).rows : doc.rows;
   const reverse = rows.some(r => String(r.account) === '2614');
-  return `<button class="back-link" data-action="document-back">${icon('arrow')}Till inkorgen</button>${pageHeader('GRANSKA UNDERLAG', doc.supplier, `${doc.title} · ${doc.number}`, `${badge(doc.status)}${aiButton('Förklara underlaget', 'Förklara det här underlaget och konteringsförslaget.', doc.id)}`)}<div class="document-workspace"><section class="panel preview-panel"><div class="preview-toolbar"><span>${icon('documents')}${escape(doc.number)}</span><span class="quiet-pill">Förhandsvisning</span></div><div class="invoice-paper"><div class="invoice-head"><span class="invoice-logo">${escape(doc.supplier.slice(0, 1))}</span><div><strong>${escape(doc.supplier)}</strong><small>Exempelunderlag</small></div></div><div class="invoice-title"><div><p class="eyebrow">FAKTURA / UNDERLAG</p><h2>${escape(doc.number)}</h2></div><span class="paper-stamp">DEMO</span></div><div class="invoice-parties"><div><small>Till</small><strong>${escape(state.company.name)}</strong><span>Exempelgatan 12</span><span>111 22 Stockholm</span></div><dl><div><dt>Datum</dt><dd>${escape(doc.date)}</dd></div><div><dt>Förfallodag</dt><dd>${escape(doc.dueDate)}</dd></div></dl></div><table class="invoice-lines"><thead><tr><th>Beskrivning</th><th class="number">Belopp</th></tr></thead><tbody>${(doc.items?.length ? doc.items : [{ description: doc.title, netCents: doc.netCents }]).map(item => `<tr><td>${escape(item.description)}${item.quantity ? `<small>${escape(item.quantity)} st</small>` : ''}</td><td class="number">${money(item.netCents)}</td></tr>`).join('')}</tbody></table><div class="invoice-totals"><div><span>Summa exkl. moms</span><strong>${money(doc.netCents)}</strong></div><div><span>Debiterad moms</span><strong>${money(doc.vatCents)}</strong></div><div class="invoice-total"><span>Att betala</span><strong>${money(doc.totalCents)}</strong></div></div>${reverse ? '<div class="invoice-note">Omvänd betalningsskyldighet. Moms framgår av konteringsförslaget.</div>' : ''}<div class="invoice-footer">Fiktivt underlag för att prova arbetsflödet.<br>Inga pengar skickas från den här demon.</div></div></section><section class="panel entry-editor"><div class="panel-heading"><div><h2>${doc.status === 'draft' ? 'Granska kontering' : 'Bokförd kontering'}</h2><p>${doc.status === 'draft' ? 'Kontrollera förslaget innan du bokför.' : 'Underlaget finns nu i huvudboken.'}</p></div><span class="quiet-pill">${icon('documents')}${escape(doc.source)}</span></div><div class="ai-explanation">${ghost('small')}<div><strong>${doc.status === 'draft' ? 'Ett förslag att ta ställning till' : 'Klart för nästa steg'}</strong><p>${doc.status === 'draft' ? 'Konton och belopp är förberedda. Du kan ändra raderna eller be mig förklara dem.' : 'Du kan följa verifikationen i huvudboken eller gå vidare till nästa underlag.'}</p><button class="text-button" data-action="ask-ai" data-question="Varför föreslås de här kontona?" data-context="${escape(doc.id)}">Varför dessa konton? ${icon('arrow')}</button></div></div><div class="table-scroll editor-table-wrap"><table class="editor-table"><thead><tr><th>Konto</th><th class="number">Debet, kr</th><th class="number">Kredit, kr</th><th><span class="sr-only">Ta bort</span></th></tr></thead><tbody>${rows.map((row, i) => `<tr><td>${doc.status === 'draft' ? `<select aria-label="Konto på rad ${i + 1}" data-row="${i}" data-field="account">${ACCOUNTS.map(a => `<option value="${escape(a.number)}" ${String(a.number) === String(row.account) ? 'selected' : ''}>${escape(a.number)} · ${escape(a.name)}</option>`).join('')}</select>` : `<strong>${escape(row.account)}</strong><small class="account-name">${escape(accountName(row.account))}</small>`}</td><td class="number">${doc.status === 'draft' ? `<input aria-label="Debet på rad ${i + 1}" inputmode="decimal" data-row="${i}" data-field="debitCents" value="${row.debitCents ? escape(plainAmount(row.debitCents)) : ''}" placeholder="0,00">` : amount(row.debitCents)}</td><td class="number">${doc.status === 'draft' ? `<input aria-label="Kredit på rad ${i + 1}" inputmode="decimal" data-row="${i}" data-field="creditCents" value="${row.creditCents ? escape(plainAmount(row.creditCents)) : ''}" placeholder="0,00">` : amount(row.creditCents)}</td><td>${doc.status === 'draft' && rows.length > 2 ? `<button class="icon-button remove-row" data-action="remove-row" data-row="${i}" aria-label="Ta bort rad ${i + 1}">${icon('close')}</button>` : ''}</td></tr>`).join('')}</tbody><tfoot><tr><td>Summa</td><td class="number" id="draft-debit-total"></td><td class="number" id="draft-credit-total"></td><td></td></tr></tfoot></table></div>${doc.status === 'draft' ? `<button class="text-button add-row" data-action="add-row">${icon('plus')}Lägg till rad</button>` : ''}<div id="draft-balance" class="balance-notice"></div><div id="draft-error" class="inline-error" role="alert" hidden></div><div class="editor-footer"><button class="button button-secondary" data-action="document-back">Till inkorgen</button>${doc.status === 'draft' ? `<button class="button button-primary" id="book-document" data-action="book-document">${icon('book')}Godkänn och bokför</button>` : `<button class="button button-primary" data-view="ledger">Visa i huvudboken ${icon('arrow')}</button>`}</div></section></div>`;
+  return `<button class="back-link" data-action="document-back">${icon('arrow')}Till inkorgen</button>${pageHeader('GRANSKA UNDERLAG', doc.supplier, `${doc.title} · ${doc.number}`, `${badge(doc.status)}${aiButton('Förklara underlaget', 'Förklara det här underlaget och konteringsförslaget.', doc.id)}`)}<div class="document-workspace"><section class="panel preview-panel"><div class="preview-toolbar"><span>${icon('documents')}${escape(doc.number)}</span><span class="quiet-pill">Förhandsvisning</span></div><div class="invoice-paper"><div class="invoice-head"><span class="invoice-logo">${escape(doc.supplier.slice(0, 1))}</span><div><strong>${escape(doc.supplier)}</strong><small>Exempelunderlag</small></div></div><div class="invoice-title"><div><p class="eyebrow">FAKTURA / UNDERLAG</p><h2>${escape(doc.number)}</h2></div><span class="paper-stamp">DEMO</span></div><div class="invoice-parties"><div><small>Till</small><strong>${escape(state.company.name)}</strong><span>Exempelgatan 12</span><span>111 22 Stockholm</span></div><dl><div><dt>Datum</dt><dd>${escape(doc.date)}</dd></div><div><dt>Förfallodag</dt><dd>${escape(doc.dueDate)}</dd></div></dl></div><table class="invoice-lines"><thead><tr><th>Beskrivning</th><th class="number">Belopp</th></tr></thead><tbody>${(doc.items?.length ? doc.items : [{ description: doc.title, netCents: doc.netCents }]).map(item => `<tr><td>${escape(item.description)}${item.quantity ? `<small>${escape(item.quantity)} st</small>` : ''}</td><td class="number">${money(item.netCents)}</td></tr>`).join('')}</tbody></table><div class="invoice-totals"><div><span>Summa exkl. moms</span><strong>${money(doc.netCents)}</strong></div><div><span>Debiterad moms</span><strong>${money(doc.vatCents)}</strong></div><div class="invoice-total"><span>Att betala</span><strong>${money(doc.totalCents)}</strong></div></div>${reverse ? '<div class="invoice-note">Omvänd betalningsskyldighet. Moms framgår av konteringsförslaget.</div>' : ''}<div class="invoice-footer">Fiktivt underlag för att prova arbetsflödet.<br>Inga pengar skickas från den här demon.</div></div></section><section class="panel entry-editor"><div class="panel-heading"><div><h2>${doc.status === 'draft' ? 'Granska kontering' : 'Bokförd kontering'}</h2><p>${doc.status === 'draft' ? 'Kontrollera förslaget innan du bokför.' : 'Underlaget finns nu i huvudboken.'}</p></div><span class="quiet-pill">${icon('documents')}${escape(doc.source)}</span></div><div class="ai-explanation">${ghost('small')}<div><strong>${doc.status === 'draft' ? 'Ett förslag att ta ställning till' : 'Klart för nästa steg'}</strong><p>${doc.status === 'draft' ? 'Konton och belopp är förberedda. Du kan ändra raderna eller be mig förklara dem.' : 'Du kan följa verifikationen i huvudboken eller gå vidare till nästa underlag.'}</p><button class="text-button" data-action="ask-ai" data-question="Varför föreslås de här kontona?" data-context="${escape(doc.id)}">Varför dessa konton? ${icon('arrow')}</button></div></div><div class="table-scroll editor-table-wrap"><table class="editor-table"><thead><tr><th>Konto</th><th class="number">Debet, kr</th><th class="number">Kredit, kr</th><th><span class="sr-only">Ta bort</span></th></tr></thead><tbody>${rows.map((row, i) => `<tr><td>${doc.status === 'draft' ? `<select aria-label="Konto på rad ${i + 1}" data-row="${i}" data-field="account">${purchaseAccountOptions(doc).map(a => `<option value="${escape(a.number)}" ${String(a.number) === String(row.account) ? 'selected' : ''}>${escape(a.number)} · ${escape(a.name)}</option>`).join('')}</select>` : `<strong>${escape(row.account)}</strong><small class="account-name">${escape(accountName(row.account))}</small>`}</td><td class="number">${doc.status === 'draft' ? `<input aria-label="Debet på rad ${i + 1}" inputmode="decimal" data-row="${i}" data-field="debitCents" value="${row.debitCents ? escape(plainAmount(row.debitCents)) : ''}" placeholder="0,00">` : amount(row.debitCents)}</td><td class="number">${doc.status === 'draft' ? `<input aria-label="Kredit på rad ${i + 1}" inputmode="decimal" data-row="${i}" data-field="creditCents" value="${row.creditCents ? escape(plainAmount(row.creditCents)) : ''}" placeholder="0,00">` : amount(row.creditCents)}</td><td>${doc.status === 'draft' && rows.length > 2 ? `<button class="icon-button remove-row" data-action="remove-row" data-row="${i}" aria-label="Ta bort rad ${i + 1}">${icon('close')}</button>` : ''}</td></tr>`).join('')}</tbody><tfoot><tr><td>Summa</td><td class="number" id="draft-debit-total"></td><td class="number" id="draft-credit-total"></td><td></td></tr></tfoot></table></div>${doc.status === 'draft' ? `<button class="text-button add-row" data-action="add-row">${icon('plus')}Lägg till rad</button>` : ''}<div id="draft-balance" class="balance-notice"></div><div id="draft-error" class="inline-error" role="alert" hidden></div><div class="editor-footer"><button class="button button-secondary" data-action="document-back">Till inkorgen</button>${doc.status === 'draft' ? `<button class="button button-primary" id="book-document" data-action="book-document">${icon('book')}Godkänn och bokför</button>` : `<button class="button button-primary" data-view="ledger">Visa i huvudboken ${icon('arrow')}</button>`}</div></section></div>`;
 }
 function updateDraftSummary() {
   const doc = state.documents.find(d => d.id === selectedDocumentId); if (!doc) return;
   const rows = doc.status === 'draft' ? getEdits(doc).rows : doc.rows;
-  const valid = rows.every(r => Number.isSafeInteger(r.debitCents) && Number.isSafeInteger(r.creditCents) && r.debitCents >= 0 && r.creditCents >= 0);
-  const debit = rows.reduce((sum, r) => sum + integer(r.debitCents), 0); const credit = rows.reduce((sum, r) => sum + integer(r.creditCents), 0); const balanced = valid && debit === credit && debit > 0;
+  const allowed = new Set(purchaseAccountOptions(doc).map(account => account.number));
+  const valid = rows.every(r => allowed.has(r.account) && Number.isSafeInteger(r.debitCents) && Number.isSafeInteger(r.creditCents) && r.debitCents >= 0 && r.creditCents >= 0 && (r.debitCents > 0) !== (r.creditCents > 0));
+  const debit = rows.reduce((sum, r) => sum + integer(r.debitCents), 0); const credit = rows.reduce((sum, r) => sum + integer(r.creditCents), 0); const balanced = valid && Number.isSafeInteger(debit) && Number.isSafeInteger(credit) && debit === credit && debit > 0;
   const debitEl = document.querySelector('#draft-debit-total'); if (!debitEl) return;
   debitEl.textContent = amount(debit); document.querySelector('#draft-credit-total').textContent = amount(credit);
   const notice = document.querySelector('#draft-balance'); notice.className = `balance-notice ${balanced ? 'balanced' : 'unbalanced'}`;
   notice.innerHTML = `${icon(balanced ? 'check' : 'help')}<div><strong>${balanced ? 'Debet och kredit balanserar' : valid ? 'Konteringen behöver justeras' : 'Kontrollera beloppen på raderna'}</strong><span>${valid ? `Differens: ${money(Math.abs(debit - credit))}` : 'Använd belopp med högst två decimaler.'}</span></div>`;
-  const book = document.querySelector('#book-document'); if (book) book.disabled = !balanced;
+  const book = document.querySelector('#book-document'); if (book) book.disabled = !balanced || !canWriteDemo();
 }
 
 function renderLedger() {
@@ -236,7 +278,16 @@ function openEntry(id) {
 
 app.innerHTML = `<div class="app-shell"><aside id="sidebar" class="sidebar" aria-label="Huvudnavigation"><a class="brand" href="#overview"><span class="brand-mark">${icon('book')}</span><span>Bokföring<small>en del av ScrapPlanner</small></span></a><div class="workspace-label">DIN ARBETSPLATS</div><nav>${navItems.map(([view, label]) => `<a href="#${view}" data-nav="${view}">${icon(view)}<span>${label}</span>${view === 'documents' ? '<span class="nav-count" data-draft-count></span>' : ''}</a>`).join('')}</nav><div class="sidebar-bottom"><div class="sidebar-ande">${ghost('small')}<strong>En hjälpande ande.</strong><p>Fråga, förstå och kom vidare.</p><button class="sidebar-ai-button" data-action="ask-ai">${icon('sparkle')}Prata med Ande</button></div><button class="sidebar-help" data-action="reset">${icon('refresh')}Återställ demo</button><a class="back-to-scrapplanner" href="/kontor/">Till ScrapPlanner ${icon('external')}</a></div></aside><button id="sidebar-backdrop" class="sidebar-backdrop" aria-label="Stäng navigation" hidden></button><div class="app-body"><header class="topbar"><button id="mobile-menu" class="icon-button mobile-menu" data-action="toggle-menu" aria-label="Öppna navigation" aria-controls="sidebar" aria-expanded="false">${icon('menu')}</button><div class="topbar-breadcrumb"><span class="tiny-brand">${icon('book')}</span><span>Din bokföring</span><span class="demo-badge">DEMO</span></div><label class="global-search">${icon('search')}<input id="global-search" type="search" placeholder="Sök underlag, leverantör…" aria-label="Sök bland underlag"><kbd>↵</kbd></label><div class="company-switcher"><span class="company-icon">${icon('bank')}</span><span>Exempelbolaget AB</span></div><span class="topbar-period">${icon('calendar')}Oktober 2026</span><button class="icon-button notifications" data-action="next-document" aria-label="Visa underlag att granska">${icon('bell')}<i></i></button><span class="user-avatar" aria-label="Exempelbolaget">EB</span></header><main id="main-content" tabindex="-1"><div id="workspace" class="workspace"></div><footer class="app-footer"><span><i class="status-dot"></i><span id="storage-status"></span></span><span>En första version, skapad för att provas.</span></footer></main></div></div><button id="assistant-launcher" class="assistant-launcher" data-action="ask-ai" aria-label="Öppna Ande, AI-demoassistent" aria-expanded="false" aria-controls="assistant-panel">${ghost()}<span><strong>Fråga Ande</strong><small>Din AI-demoassistent</small></span>${icon('sparkle')}</button><section id="assistant-panel" class="assistant-panel" aria-label="Ande, AI-demoassistent" hidden><header class="assistant-header">${ghost('small')}<div><strong>Ande</strong><span>AI-demoassistent <i></i></span></div><button class="icon-button" data-action="close-ai" aria-label="Minimera Ande">${icon('close')}</button></header><p id="assistant-context" class="assistant-context"></p><div id="assistant-messages" class="assistant-messages" aria-live="polite" aria-relevant="additions"></div><div class="assistant-suggestions"><button data-quick-question="Vad behöver jag granska?">Vad återstår?</button><button data-quick-question="Förklara företagets resultat">Förklara resultatet</button><button data-quick-question="Förklara omvänd moms">Omvänd moms?</button></div><form id="assistant-form" class="assistant-form"><label class="sr-only" for="assistant-input">Fråga Ande</label><input id="assistant-input" placeholder="Fråga om en post eller rapport…" autocomplete="off" maxlength="1600"><button class="send-button" type="submit" aria-label="Skicka fråga">${icon('send')}</button></form><p class="assistant-footnote">Svar och förslag i den här demon bygger på exempeldata.</p></section><div id="toast" class="toast" role="status" aria-live="polite"></div><dialog id="entry-dialog" class="entry-dialog"></dialog><dialog id="reset-dialog" class="reset-dialog"><div class="dialog-heading"><h2>Börja om från början?</h2><button class="icon-button" data-action="close-dialog" aria-label="Avbryt">${icon('close')}</button></div><p>Dina ändringar i den här bokföringsdemon ersätts med de ursprungliga exempeluppgifterna.</p><div class="dialog-actions"><button class="button button-secondary" data-action="close-dialog">Avbryt</button><button class="button button-primary" data-action="confirm-reset">${icon('refresh')}Återställ demo</button></div></dialog>`;
 
-document.addEventListener('click', event => {
+const storageNotice = document.createElement('section');
+storageNotice.id = 'storage-notice'; storageNotice.className = 'storage-notice'; storageNotice.hidden = true;
+storageNotice.setAttribute('role', 'alert');
+storageNotice.innerHTML = '<p id="storage-notice-text"></p><button class="button button-secondary" data-action="reload-demo">Läs in senaste demodata</button>';
+document.querySelector('#workspace').before(storageNotice);
+const resetError = document.createElement('p');
+resetError.id = 'reset-error'; resetError.className = 'inline-error'; resetError.hidden = true; resetError.setAttribute('role', 'alert');
+document.querySelector('#reset-dialog .dialog-actions').before(resetError);
+
+document.addEventListener('click', async event => {
   const el = event.target.closest('button, a, [data-document], [data-entry]'); if (!el) return;
   if (el.classList.contains('skip-link')) { event.preventDefault(); const main = document.querySelector('#main-content'); main.focus(); main.scrollIntoView({ block: 'start' }); return; }
   if (el.dataset.nav) { event.preventDefault(); go(el.dataset.nav); return; }
@@ -251,23 +302,28 @@ document.addEventListener('click', event => {
   if (action === 'ask-ai') openAI(el.dataset.question, el.dataset.context);
   if (action === 'close-ai') { aiOpen = false; updateChrome(); document.querySelector('#assistant-launcher').focus(); }
   if (action === 'toggle-menu') { sidebarOpen = !sidebarOpen; updateChrome(); }
+  if (action === 'reload-demo' && !writePending) reloadDemo();
   if (action === 'clear-search') { search = ''; statusFilter = 'all'; ledgerAccount = 'all'; document.querySelector('#global-search').value = ''; render(); }
   if (action === 'next-document') { search = ''; const doc = state.documents.find(d => d.status === 'draft'); if (doc) go('documents', doc.id); else { toast('Alla underlag är bokförda. Du kan återställa demon och prova igen.', 'info'); go('documents'); } }
   if (action === 'document-back') { selectedDocumentId = null; go('documents'); }
-  if (action === 'add-row' || action === 'remove-row') { const doc = state.documents.find(d => d.id === selectedDocumentId); if (doc?.status !== 'draft') return; const edit = getEdits(doc); if (action === 'add-row') edit.rows.push({ account: String(ACCOUNTS[0].number), debitCents: 0, creditCents: 0 }); else edit.rows.splice(Number(el.dataset.row), 1); render(); }
+  if (action === 'add-row' || action === 'remove-row') { const doc = state.documents.find(d => d.id === selectedDocumentId); if (doc?.status !== 'draft' || !canWriteDemo()) return; const edit = getEdits(doc); if (action === 'add-row') edit.rows.push({ account: purchaseAccountOptions(doc).find(account => /^[4-7]/.test(account.number)).number, debitCents: 0, creditCents: 0 }); else edit.rows.splice(Number(el.dataset.row), 1); render(); }
   if (action === 'book-document') {
     const doc = state.documents.find(d => d.id === selectedDocumentId); if (!doc || doc.status !== 'draft') return;
-    try { const edit = getEdits(doc); state = bookDraft(state, doc.id, edit.rows, edit.version); draftEdits.delete(doc.id); persist(); render(); toast(`${doc.number} är bokförd. Huvudbok och rapporter är uppdaterade.`); }
-    catch (error) { const box = document.querySelector('#draft-error'); if (box) { box.textContent = error.message; box.hidden = false; } else toast(error.message, 'info'); }
+    const edit = getEdits(doc); const rows = structuredClone(edit.rows); const version = edit.version;
+    await writeDemo({ transition: latest => bookDraft(latest, doc.id, rows, version), documentId: doc.id,
+      message: `${doc.number} är bokförd och sparad. Huvudbok och rapporter är uppdaterade.`, afterSave: () => draftEdits.delete(doc.id) });
   }
-  if (action === 'match-bank') { try { state = matchBank(state, el.dataset.bankId, el.dataset.entryId); persist(); render(); toast('Bankhändelsen är matchad med verifikationen.'); } catch (error) { toast(error.message, 'info'); } }
+  if (action === 'match-bank') await writeDemo({ transition: latest => matchBank(latest, el.dataset.bankId, el.dataset.entryId), message: 'Bankhändelsen är matchad och sparad.' });
   if (action === 'source-documents') { statusFilter = 'all'; search = 'ScrapPlanner'; document.querySelector('#global-search').value = ''; go('documents'); }
   if (action === 'export-ledger') exportLedger();
   if (action === 'export-reports') { const report = getReports(state); downloadCsv('kontosaldon-demo-oktober-2026.csv', [['Konto', 'Benämning', 'Debet', 'Kredit', 'Saldo'], ...report.accounts.map(a => [a.number, a.name, plainAmount(a.debitCents), plainAmount(a.creditCents), plainAmount(a.debitCents - a.creditCents)])]); }
   if (action === 'export-vat') { const vat = getVatReport(state); downloadCsv('momsunderlag-demo-oktober-2026.csv', [['Post', 'Belopp'], ['Momspliktig försäljning', plainAmount(vat.salesBaseCents)], ['Utgående moms', plainAmount(vat.outputVatCents)], ['Ingående moms', plainAmount(vat.inputVatCents)], ['Omvänd utgående moms', plainAmount(vat.reverseOutputVatCents)], ['Omvänd ingående moms', plainAmount(vat.reverseInputVatCents)], ['Moms att betala', plainAmount(vat.payableCents)]]); }
-  if (action === 'reset') document.querySelector('#reset-dialog').showModal();
+  if (action === 'reset') { document.querySelector('#reset-error').hidden = true; document.querySelector('#reset-dialog').showModal(); }
   if (action === 'close-dialog') el.closest('dialog')?.close();
-  if (action === 'confirm-reset') { state = createState(); draftEdits.clear(); messages.splice(1); search = ''; ledgerAccount = 'all'; statusFilter = 'all'; document.querySelector('#global-search').value = ''; document.querySelector('#reset-dialog').close(); persist(); renderMessages(); go('overview'); toast('Demon är återställd. Du kan börja om.'); }
+  if (action === 'confirm-reset') await writeDemo({ reset: true, message: 'Demon är återställd och sparad. Du kan börja om.', afterSave: () => {
+    draftEdits.clear(); messages.splice(1); search = ''; ledgerAccount = 'all'; statusFilter = 'all';
+    document.querySelector('#global-search').value = ''; document.querySelector('#reset-dialog').close(); renderMessages(); go('overview');
+  } });
 });
 document.querySelector('#sidebar-backdrop').addEventListener('click', () => { sidebarOpen = false; updateChrome(); });
 document.addEventListener('keydown', event => {
@@ -288,4 +344,9 @@ document.querySelector('#global-search').addEventListener('keydown', event => { 
 document.querySelector('#assistant-form').addEventListener('submit', event => { event.preventDefault(); const input = document.querySelector('#assistant-input'); const value = input.value; input.value = ''; ask(value, selectedDocumentId || currentView); input.focus(); });
 document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } }));
 window.addEventListener('hashchange', () => { readLocation(); window.scrollTo({ top: 0, behavior: 'instant' }); });
+window.addEventListener('storage', event => {
+  if (event.key !== null && event.key !== STORAGE_KEY) return;
+  if (event.key === STORAGE_KEY && event.newValue === storageSnapshot.revision) return;
+  storageChangedElsewhere = true; updateChrome(); updateDraftSummary();
+});
 readLocation();
