@@ -9,13 +9,13 @@ import { exportYearReview, openNextYear } from '../public/bokforing/suite/financ
 import { createDeclaration } from '../public/bokforing/suite/declarations.js';
 import { createCashState, createCashDocument, issueCashDocument, payCashDocument, creditCashDocument, recognizeCashYearEnd, refundCashDocument } from '../public/bokforing/suite/cash-method.js';
 
-function fxDraft() {
+function fxDraft(orgNumber = '5599001236') {
   return createFxDocument(createEmptyState(), {
     side: 'customer', currency: 'EUR', number: 'DRAFT-2026',
     date: '2026-10-01', dueDate: '2026-10-31',
-    partyName: 'Exempelkund', partyAddress: 'Kundgatan 1',
+    partyName: 'Exempelkund', partyAddress: 'Kundgatan 1', partyPostalCode:'12345',partyCity:'Demostaden',partyCountry:'SE',performance:{mode:'invoice-date',confirmed:true},
     sellerName: 'Exempel AB', sellerAddress: 'Säljgatan 2',
-    sellerOrgNumber: 'DEMO', sellerVatNumber: 'SE-DEMO',
+    sellerOrgNumber: orgNumber, sellerVatNumber: `SE${orgNumber}01`,sellerPostalCode:'12345',sellerCity:'Demostaden',sellerCountry:'SE',
     paymentReference: 'Fakturareferens', taxTreatment: 'domestic', taxReviewed: true,
     rate: '11', rateSource: 'Granskat underlag',
     lines: [{ description: 'Utfört arbete', foreignNetMinor: 8000, vatRate: 25 }],
@@ -70,8 +70,9 @@ function close(state) {
 }
 
 test('year review includes FX originals, SIE source and a declaration created after its reporting period', () => {
-  let state = fxDraft();
+  let state = fxDraft('5560269986');
   state.company.orgNumber = '5560269986';
+  state.company.vatNumber = 'SE556026998601';
   const id = state.fxDocuments[0].id;
   state = issueFxDocument(state, id);
   state = importSie4(state, `#FLAGGA 0
@@ -111,7 +112,7 @@ test('year review includes FX originals, SIE source and a declaration created af
 
 test('cash credit evidence remains frozen in the old-year archive after a next-year refund', () => {
   let state = createCashState({ eligibilityConfirmed: true, expectedTurnoverCents: 1000000, vatPeriod: 'year' });
-  state = createCashDocument(state, { side: 'customer', partyName: 'Exempelkund', partyAddress: 'Kundgatan 1', reference: 'CASH-1', date: '2026-10-01', dueDate: '2026-10-31', supplyConfirmed: true, lines: [{ description: 'Arbete', netCents: 100000, vatRate: 25 }] });
+  state = createCashDocument(state, { side: 'customer', partyName: 'Exempelkund', partyAddress: 'Kundgatan 1', partyPostalCode:'12345',partyCity:'Demostaden',partyCountry:'SE',performance:{mode:'invoice-date',confirmed:true}, reference: 'CASH-1', date: '2026-10-01', dueDate: '2026-10-31', supplyConfirmed: true, lines: [{ description: 'Arbete', netCents: 100000, vatRate: 25 }] });
   const id = state.cashDocuments[0].id;
   state = issueCashDocument(state, id);
   state = payCashDocument(state, id, { date: '2026-10-02', amountCents: 125000, reference: 'BETALNING' });

@@ -26,6 +26,8 @@ async function savedState(page: Page) {
   return page.evaluate(key => JSON.parse(localStorage.getItem(key)!), storageKey);
 }
 async function save(page: Page) {
+  // These existing arithmetic/navigation fixtures represent completed work.
+  await editor(page).locator('[name="performance.confirmed"]').check();
   await editor(page).locator('button[type="submit"]').click();
   await expect(editor(page)).toHaveCount(0);
   await expect(page).toHaveURL(/#sales\/[^/]+$/);

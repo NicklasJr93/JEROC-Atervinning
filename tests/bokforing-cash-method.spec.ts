@@ -16,7 +16,7 @@ async function start(page:Page){
 async function issue(page:Page){
  const f=form(page,'save-document');
  await f.locator('[name="partyName"]').fill('Kund AB');await f.locator('[name="partyAddress"]').fill('Testgatan 1');await f.locator('[name="reference"]').fill('K-001');await f.locator('[name="date"]').fill('2026-10-01');await f.locator('[name="dueDate"]').fill('2026-10-31');
- await f.locator('[name="line-description-0"]').fill('Utfört arbete');await f.locator('[name="line-net-0"]').fill('1000');await f.locator('[name="supplyConfirmed"]').check();await f.getByRole('button',{name:'Spara utkast'}).click();
+ await f.locator('[name="line-description-0"]').fill('Utfört arbete');await f.locator('[name="line-net-0"]').fill('1000');await f.locator('[name="supplyConfirmed"]').check();await f.locator('[name="partyPostalCode"]').fill('111 22');await f.locator('[name="partyCity"]').fill('Demostaden');await f.locator('[name="performanceConfirmed"]').check();await f.getByRole('button',{name:'Spara utkast'}).click();
  await expect.poll(async()=> (await state(page)).cashDocuments.length).toBe(1);
  await page.getByRole('button',{name:'Utfärda / registrera utan direkt bokföring'}).click();
  await expect.poll(async()=> (await state(page)).cashDocuments[0].status).toBe('issued');
@@ -53,4 +53,19 @@ test('year-end cash recognition carries a receivable that settles next year with
 });
 test('cash workspace fits a mobile screen and adds invoice rows',async({page})=>{
  await page.setViewportSize({width:390,height:844});await start(page);const f=form(page,'save-document');await f.getByRole('button',{name:'Lägg till rad'}).click();await expect(f.locator('[data-cash-line]')).toHaveCount(3);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+});
+
+test('cash outgoing invoice remains a draft until postal details and performance are completed',async({page})=>{
+ await start(page);
+ let f=form(page,'save-document');
+ await f.locator('[name="partyName"]').fill('Fiktiv köpare AB');await f.locator('[name="partyAddress"]').fill('Testvägen 7');await f.locator('[name="reference"]').fill('KRAV-BROWSER');
+ await f.locator('[name="date"]').fill('2026-10-01');await f.locator('[name="dueDate"]').fill('2026-10-31');await f.locator('[name="line-description-0"]').fill('Utförd tjänst');await f.locator('[name="line-net-0"]').fill('1000');await f.locator('[name="supplyConfirmed"]').check();
+ await f.getByRole('button',{name:'Spara utkast'}).click();await expect.poll(async()=> (await state(page)).cashDocuments.length).toBe(1);
+ await page.getByRole('button',{name:'Utfärda / registrera utan direkt bokföring'}).click();await expect(page.locator('#suite-toast')).toContainText('kompletteras');
+ expect((await state(page)).cashDocuments[0].status).toBe('draft');expect((await state(page)).entries).toHaveLength(0);
+ f=page.locator('form[data-feature-form="cash"][data-action="save-document"]:has(input[name="id"])');
+ await f.locator('[name="partyPostalCode"]').fill('111 22');await f.locator('[name="partyCity"]').fill('Demostaden');await f.locator('[name="performanceConfirmed"]').check();
+ await f.getByRole('button',{name:'Spara utkast'}).click();await page.getByRole('button',{name:'Utfärda / registrera utan direkt bokföring'}).click();
+ await expect.poll(async()=> (await state(page)).cashDocuments[0].status).toBe('issued');
+ expect((await state(page)).cashDocuments[0].requirementsVersion).toBe(1);
 });

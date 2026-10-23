@@ -1,13 +1,14 @@
+import { createCustomer, createEmptyState, createInvoice } from './fixtures/bokforing-compliant-invoices.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { createEmptyState, transact, appendEntry } from '../public/bokforing/suite/core.js';
+import { transact, appendEntry } from '../public/bokforing/suite/core.js';
 import { closeYear, lockPeriod, fileVatPeriod } from '../public/bokforing/suite/finance.js';
 import { validateSuiteState } from '../public/bokforing/suite/validate.js';
 import { buildAgiXml, buildVatXml, buildSruFiles, zipFiles, encodeLatin1, organisationNumber, personalNumber, createDeclaration, getDeclarationFile, suggestSruFields, buildAnnualReportHtml, validateDeclarations, SRU_FIELDS, getDeclarationRescontra } from '../public/bokforing/suite/declarations.js';
-import { createCustomer, createInvoice, issueInvoice, receivePayment } from '../public/bokforing/suite/sales.js';
+import { issueInvoice, receivePayment } from '../public/bokforing/suite/sales.js';
 import { createBill, bookBill, payBill } from '../public/bokforing/suite/operations.js';
 import { createCreditNote, refundCredit } from '../public/bokforing/suite/settlements.js';
 import { createFxDocument, issueFxDocument, settleFxDocument, creditFxDocument, revalueFxDocument } from '../public/bokforing/suite/fx.js';
@@ -113,7 +114,7 @@ test('mixed FX credits use each documents SEK carrying amount, not the net contr
  for(const side of ['customer','supplier']){
   let state=initial();
   for(let i=0;i<2;i++){
-   state=createFxDocument(state,{side,currency:'EUR',number:'FX-'+side+i,date:'2026-10-01',dueDate:'2026-10-31',partyName:'Part '+i,partyAddress:'Gatan 1',sellerName:'Test AB',sellerAddress:'Gatan 2',sellerOrgNumber:'DEMO',sellerVatNumber:'SE-DEMO',paymentReference:'FX',taxTreatment:'domestic',taxReviewed:true,rate:'10',rateSource:'Granskad kurs',lines:[{description:'Arbete',foreignNetMinor:8000,vatRate:25,account:side==='customer'?'3000':'4010'}]});
+   state=createFxDocument(state,{side,currency:'EUR',number:'FX-'+side+i,date:'2026-10-01',dueDate:'2026-10-31',partyName:'Part '+i,partyAddress:'Gatan 1',sellerName:'Test AB',sellerAddress:'Gatan 2',sellerOrgNumber:'5599001236',sellerVatNumber:'SE559900123601',sellerPostalCode:'12345',sellerCity:'Demostaden',sellerCountry:'SE',partyPostalCode:'12345',partyCity:'Demostaden',partyCountry:'SE',performance:{mode:'invoice-date',confirmed:true},paymentReference:'FX',taxTreatment:'domestic',taxReviewed:true,rate:'10',rateSource:'Granskad kurs',lines:[{description:'Arbete',foreignNetMinor:8000,vatRate:25,account:side==='customer'?'3000':'4010'}]});
    const id=state.fxDocuments.at(-1).id;state=issueFxDocument(state,id);
    if(i){state=settleFxDocument(state,id,{date:'2026-10-02',foreignMinor:10000,bankCents:100000,reference:'FX-PAY'});state=creditFxDocument(state,id,{date:'2026-10-03',lines:[{index:0,foreignNetMinor:2400}],reason:'Retur',reference:'FX-CREDIT',rate:'10',rateSource:'Granskad kurs',rateReviewed:true});}
   }

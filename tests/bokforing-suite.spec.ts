@@ -36,6 +36,7 @@ async function saveDialog(page: Page) {
   await expect(modal(page)).not.toBeVisible();
 }
 async function saveInvoicePage(page: Page) {
+  await page.locator('#invoice-page-form [name="performance.confirmed"]').check();
   await page.locator('#invoice-page-form button[type="submit"]').click();
   await expect(page.locator('#invoice-page-form')).toHaveCount(0);
   await expect(page).toHaveURL(/#sales\/[^/]+$/);

@@ -8,3 +8,6 @@
 # and whitespace emitted by the test runner.
 public/bokforing/granskning/*.csv -text whitespace=cr-at-eol
 public/bokforing/granskning/*.txt -text -whitespace
+
+public/bokforing/granskning/atgarder/*.csv -text whitespace=cr-at-eol
+public/bokforing/granskning/atgarder/*.txt -text -whitespace

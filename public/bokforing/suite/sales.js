@@ -1,6 +1,8 @@
 import { transact, appendEntry, nextId, addActivity, assert, cents, validDate, requireOpenPeriod } from './core.js';
 import { calculateLineAmounts, calculateRot, ROT_RULES_2026 } from './rot.js';
 import { normalizeInvoiceDetails, validateInvoiceDetails } from './invoice-data.js';
+import { INVOICE_REQUIREMENTS_VERSION, assertInvoiceIssuanceReady, invoiceSellerVatRequired } from './invoice-requirements.js';
+import { normalizeVatExemption } from './vat-classification.js';
 
 const text = (value, label, max = 300) => {
   assert(typeof value === 'string' && value.trim() && value.length <= max, `${label} saknas eller är för lång.`);
@@ -36,7 +38,7 @@ export function invoiceBookingSnapshot(invoice) {
     lines: invoice.lines.map(line => {
       const { description, kind, quantity, unitCents, vatRate } = line;
       const frozen = { description, kind, quantity, unitCents, vatRate };
-      for (const key of ['articleNumber', 'unit', 'discountBps', 'unitPriceIncludesVat', 'rotEligible', 'chargeType']) if (line[key] !== undefined) frozen[key] = line[key];
+      for (const key of ['articleNumber', 'unit', 'discountBps', 'unitPriceIncludesVat', 'rotEligible', 'chargeType', 'vatExemption']) if (line[key] !== undefined) frozen[key] = line[key];
       return frozen;
     }),
     reason: invoice.reason ?? null, rot,
@@ -53,7 +55,8 @@ function linesFor(lines) {
   assert(Array.isArray(lines) && lines.length >= 1 && lines.length <= 100, 'Ange 1–100 fakturarader.');
   const result = lines.map(line => {
     const clean = { description: text(line.description, 'Radbeskrivning'), kind: line.kind, quantity: line.quantity, unitCents: line.unitCents, vatRate: line.vatRate ?? 25 };
-    for (const key of ['articleNumber', 'unit', 'discountBps', 'unitPriceIncludesVat', 'rotEligible', 'chargeType']) if (line[key] !== undefined) clean[key] = line[key];
+    for (const key of ['articleNumber', 'unit', 'discountBps', 'unitPriceIncludesVat', 'rotEligible', 'chargeType', 'vatExemption']) if (line[key] !== undefined) clean[key] = line[key];
+    if (clean.vatExemption !== undefined) clean.vatExemption = normalizeVatExemption(clean.vatExemption);
     calculateLineAmounts(clean);
     return clean;
   });
@@ -153,6 +156,16 @@ function issueInDraft(state, id) {
   requireOpenPeriod(state, invoice.date);
   invoice.details = normalizeInvoiceDetails(state, invoice);
   validateInvoiceDetails(invoice.details);
+  assertInvoiceIssuanceReady({seller:invoice.details.seller,customer:invoice.details.customer,date:invoice.date,performance:invoice.details.performance,vatMode:invoice.vatMode,sellerVatRequired:invoiceSellerVatRequired(invoice.lines,invoice.vatMode)});
+  for (const line of invoice.lines) {
+    if (invoice.vatMode === 'standard' && line.vatRate === 0) line.vatExemption = normalizeVatExemption(line.vatExemption, {required:true});
+    else assert(line.vatExemption === undefined, 'Undantag från moms får bara anges på vanliga fakturarader med 0 % moms.');
+  }
+  assert(invoice.details.performance.mode !== 'advance-payment', 'Mottagna förskott kräver ett separat förskottsflöde och kan inte utfärdas som vanlig försäljning här.');
+  const performanceEnd = invoice.details.performance.mode === 'period' ? invoice.details.performance.to : invoice.details.performance.mode === 'invoice-date' ? invoice.date : invoice.details.performance.date;
+  assert(performanceEnd <= invoice.date, 'Fakturering före leverans eller utförande kräver ett separat kontrollerat förskotts-/periodiseringsflöde.');
+  if (invoice.details.performance.mode === 'invoice-date') invoice.details.performance = {mode:'date', date:invoice.date, confirmed:true};
+  invoice.details.requirementsVersion = INVOICE_REQUIREMENTS_VERSION;
   if (invoice.vatMode === 'reverse-construction') {
     assert(invoice.buyerConstructionConfirmed === true, 'Bekräfta köparens verksamhet och villkoren för omvänd byggmoms.');
     assert(!invoice.rot, 'Omvänd byggmoms och ROT får inte kombineras.');
@@ -182,6 +195,11 @@ export function createCustomer(state, payload) {
   return transact(state, draft => {
     const customer = { id: nextId(draft, 'customer'), name: text(payload.name, 'Kundnamn', 150), email: String(payload.email ?? '').trim(), address: String(payload.address ?? '').trim() };
     assert(customer.email.length <= 254 && customer.address.length <= 500, 'Kunduppgifterna är för långa.');
+    for (const key of ['orgNumber','address2','postalCode','city','vatNumber']) {
+      if (payload[key] !== undefined) { assert(typeof payload[key] === 'string' && payload[key].length <= 150, 'Kunduppgifterna är för långa.'); customer[key] = payload[key].trim(); }
+    }
+    customer.country = payload.country ?? 'SE';
+    assert(customer.country === 'SE', 'Kundregistret stödjer svenska adresser.');
     if (customer.email) assert(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email), 'Ange en giltig e-postadress.');
     draft.customers.push(customer);
     addActivity(draft, `Kund ${customer.name} skapad`, customer.id);
@@ -277,6 +295,7 @@ export function copyInvoice(state, id, { date, dueDate }) {
     const invoice = draftInvoice(draft, { customerId: source.customerId, projectId: source.projectId, date, dueDate,
       vatMode: source.vatMode, buyerConstructionConfirmed: source.buyerConstructionConfirmed,
       lines: structuredClone(source.lines), details: structuredClone(source.details), invoiceDiscountBps: source.invoiceDiscountBps ?? 0, rot });
+    if (invoice.details.performance) invoice.details.performance.confirmed = false;
     invoice.copiedFromId = source.id;
     draft.invoices.push(invoice);
     addActivity(draft, `Fakturautkast kopierat från ${source.number || 'utkast'}`, invoice.id);

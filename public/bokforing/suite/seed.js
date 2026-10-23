@@ -9,8 +9,8 @@ export const DEMO_DATE = '2026-10-23';
 export function createSuiteState() {
   let state = transact(createEmptyState(), draft => {
     draft.customers.push(
-      { id: 'c-maria', name: 'Maria Lind · demokund', email: 'maria@example.invalid', address: 'Exempelvägen 12, Demostaden' },
-      { id: 'c-ekbacken', name: 'Ekbacken AB · demokund', email: 'ekbacken@example.invalid', address: 'Exempelgatan 4, Demostaden' },
+      { id: 'c-maria', name: 'Maria Lind · demokund', email: 'maria@example.invalid', address: 'Exempelvägen 12', postalCode: '12345', city: 'Demostaden', country: 'SE' },
+      { id: 'c-ekbacken', name: 'Ekbacken AB · demokund', email: 'ekbacken@example.invalid', address: 'Exempelgatan 4', postalCode: '12345', city: 'Demostaden', country: 'SE', vatNumber: 'SE559999998301' },
     );
     draft.projects.push({ id: 'p-solsidan', name: 'Projekt Solsidan', customerId: 'c-maria', budgetCents: 12_000_000, status: 'active', items: [
       { id: 'pi-arbete', description: 'Snickeriarbete', kind: 'labor', quantity: 32, unitCents: 55_000, vatRate: 25 },
@@ -27,7 +27,7 @@ export function createSuiteState() {
       { account: '2091', debitCents: 0, creditCents: 47_500_000 },
     ] });
   });
-  state = createInvoice(state, { customerId: 'c-ekbacken', date: '2026-10-01', dueDate: '2026-10-18', vatMode: 'standard', lines: [
+  state = createInvoice(state, { customerId: 'c-ekbacken', date: '2026-10-01', dueDate: '2026-10-18', vatMode: 'standard', details: {performance:{mode:'invoice-date',confirmed:true}}, lines: [
     { description: 'Kontorsrenovering', kind: 'labor', quantity: 64, unitCents: 50_000, vatRate: 25 },
   ] });
   state = issueInvoice(state, state.invoices.at(-1).id);
@@ -43,6 +43,7 @@ export function createSuiteState() {
   state = createQuote(state, { customerId: 'c-maria', projectId: 'p-solsidan', date: '2026-10-02', validUntil: '2026-11-02', lines });
   state = acceptQuote(state, state.quotes.at(-1).id);
   state = createInvoice(state, { customerId: 'c-maria', projectId: 'p-solsidan', date: DEMO_DATE, dueDate: '2026-11-22', vatMode: 'standard', lines,
+    details: {performance:{mode:'invoice-date',confirmed:true}},
     rot: { paymentYear: 2026, property: 'DEMOFASTIGHET 1:23', personId: 'DEMO-MARIA-2026', eligibleConfirmed: true, availableCents: 5_000_000 } });
   state = createPayrollRun(state, { month: '2026-10', date: '2026-10-25', hours: 160 });
   state = createBankEvent(state, { date: DEMO_DATE, description: 'Ekbacken AB · fiktiv delbetalning', amountCents: 1_000_000, account: '1930' });

@@ -2,6 +2,7 @@
 // Originals are never rewritten. New documents are independently journaled.
 import { assert, cents, validDate, requireOpenPeriod, transact, nextId, appendEntry, addActivity } from './core.js';
 import { calculateLineAmounts } from './rot.js';
+import { validateVatExemption } from './vat-classification.js';
 import { invoiceBookingSnapshot, getInvoiceTotals } from './sales.js';
 import { billSnapshot } from './purchase-data.js';
 import * as Purchases from './operations.js';
@@ -60,7 +61,7 @@ export function getCreditSourceLines(state, side, id) {
     }
     const creditedNetCents = sum(records(state).filter(record => record.kind === 'credit' && record.side === side && record.documentId === id)
       .flatMap(record => record.lines.filter(item => item.index === index).map(item => item.netCents)));
-    return { index, description: line.description || `Rad ${index + 1}`, netCents, creditedNetCents, remainingNetCents: netCents - creditedNetCents, rows };
+    return { index, description: line.description || `Rad ${index + 1}`, netCents, creditedNetCents, remainingNetCents: netCents - creditedNetCents, rows, ...(side === 'customer' && line.vatExemption !== undefined ? {vatExemption: validateVatExemption(line.vatExemption)} : {}) };
   });
 }
 
@@ -85,7 +86,7 @@ function creditRows(state, side, id, selections, priorCredits = null, beforeEntr
     const lineGross = side === 'customer' ? delta : -delta;
     cents(lineGross, false);
     posting.push(...partial, side === 'customer' ? row(control, 0, lineGross) : row(control, lineGross));
-    selected.push({ index: selection.index, netCents: amount });
+    selected.push({ index: selection.index, netCents: amount, ...(original.vatExemption ? {vatExemption: structuredClone(original.vatExemption)} : {}) });
     if (priorCredits) priorCredits.set(selection.index, before + amount);
   }
   const amountCents = sum(posting.filter(item => item.account === control).map(item => side === 'customer' ? item.creditCents : item.debitCents));

@@ -9,9 +9,9 @@ import { createBill } from '../public/bokforing/suite/operations.js';
 import { validateSuiteState } from '../public/bokforing/suite/validate.js';
 import { getTaxDeclarationReport } from '../public/bokforing/suite/tax-ledger.js';
 
-const start=()=>createCashState({eligibilityConfirmed:true,expectedTurnoverCents:100_000_000,vatPeriod:'year'});
+const start=()=>createCashState({eligibilityConfirmed:true,expectedTurnoverCents:100_000_000,vatPeriod:'year',orgNumber:'559900-1236',vatNumber:'SE559900123601',postalCode:'111 22',city:'Demostaden',country:'SE'});
 function draft(state=start(), extra={}) {
-  return createCashDocument(state,{side:'customer',partyName:'Provkund AB',partyAddress:'Testgatan 1',reference:'REF-1',date:'2026-10-01',dueDate:'2026-10-31',supplyConfirmed:true,lines:[{description:'Utfört arbete',netCents:100_000,vatRate:25}],...extra});
+  return createCashDocument(state,{side:'customer',partyName:'Provkund AB',partyAddress:'Testgatan 1',partyPostalCode:'111 22',partyCity:'Demostaden',partyCountry:'SE',performance:{mode:'invoice-date',confirmed:true},reference:'REF-1',date:'2026-10-01',dueDate:'2026-10-31',supplyConfirmed:true,lines:[{description:'Utfört arbete',netCents:100_000,vatRate:25}],...extra});
 }
 function issued(state=start(),extra={}) {const next=draft(state,extra);return issueCashDocument(next,next.cashDocuments.at(-1).id);}
 const id=s=>s.cashDocuments.at(-1).id;
@@ -98,7 +98,7 @@ test('supplier credit is a separate receivable at year-end and its next-year ref
   validateSuiteState(JSON.parse(JSON.stringify(s)));
 });
 test('cash VAT report classifies taxable and exempt paid portions and unsupported combinations fail closed',()=>{
-  let s=issued(start(),{vatReason:'Undantag från skatteplikt, granskat i övningen',lines:[{description:'Utfört arbete',netCents:100_000,vatRate:25},{description:'Momsfri prestation',netCents:50_000,vatRate:0}]}),doc=id(s);
+  let s=issued(start(),{vatExemption:{code:'property-rental',legalBasis:'Granskad fiktiv momsfri lokalhyra enligt 10 kap. 35 § ML',confirmed:true},vatReason:'Undantag från skatteplikt, granskat i övningen',lines:[{description:'Utfört arbete',netCents:100_000,vatRate:25},{description:'Momsfri prestation',netCents:50_000,vatRate:0}]}),doc=id(s);
   s=payCashDocument(s,doc,{date:'2026-10-05',amountCents:175_000,reference:'p1'});
   const report=getTaxDeclarationReport(s,{from:'2026-01-01',to:'2026-12-31'});
   assert.equal(report.boxes['05'],100_000);assert.equal(report.boxes['42'],50_000);assert.equal(report.boxes['10'],25_000);assert.equal(report.reconciled,true);

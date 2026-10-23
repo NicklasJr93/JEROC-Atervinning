@@ -83,7 +83,7 @@ export function articleLines(state, customerId, selections) {
 }
 
 function appendInvoice(draft, payload, lines, source = {}) {
-  const next = createInvoice(draft, { customerId: payload.customerId, projectId: payload.projectId || null, date: payload.date, dueDate: payload.dueDate, vatMode: 'standard', lines: lines.map(invoiceLine) });
+  const next = createInvoice(draft, { customerId: payload.customerId, projectId: payload.projectId || null, date: payload.date, dueDate: payload.dueDate, vatMode: 'standard', details: payload.details, lines: lines.map(invoiceLine) });
   Object.assign(draft, next);
   const invoice = draft.invoices.at(-1);
   draft.commercialInvoiceOrigins.push({ id: nextId(draft, 'invoice-origin'), invoiceId: invoice.id, lines: structuredClone(lines), lineSnapshot: snapshot(invoice.lines), ...source });

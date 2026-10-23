@@ -107,7 +107,10 @@ export function createEmptyState() {
     schemaVersion: 2,
     sequence: 0,
     company: {
-      name: 'Åkes Hantverk AB', orgNumber: 'DEMO',
+      name: 'Åkes Hantverk AB', orgNumber: '5599999991',
+      legalForm: 'AB', registeredOffice: 'Demostaden', inLiquidation: false,
+      address: 'Exempelgatan 1', postalCode: '12345', city: 'Demostaden', country: 'SE',
+      vatNumber: 'SE559999999101',
       fiscalYearStart: '2026-01-01', fiscalYearEnd: '2026-12-31',
       method: 'invoice', vatPeriod: 'quarter', currency: 'SEK',
     },
@@ -215,6 +218,9 @@ export function validateState(state) {
   assert(Number.isSafeInteger(state.sequence) && state.sequence >= 0, 'Demons ID-serie är ogiltig.');
   const company = state.company;
   assert(company && boundedText(company.name, 150) && boundedText(company.orgNumber, 40), 'Företagsuppgifterna är ogiltiga.');
+  if (company.legalForm !== undefined) assert(['AB','sole-trader','other'].includes(company.legalForm), 'Bolagsformen stöds inte.');
+  if (company.registeredOffice !== undefined) assert(typeof company.registeredOffice === 'string' && company.registeredOffice.length <= 150, 'Styrelsens sätesort är ogiltig.');
+  if (company.inLiquidation !== undefined) assert(typeof company.inLiquidation === 'boolean', 'Likvidationsuppgiften är ogiltig.');
   assert(company.currency === 'SEK' && ['invoice', 'cash'].includes(company.method) && ['month', 'quarter', 'year'].includes(company.vatPeriod),
     'Demons företagsinställningar stöds inte.');
   assert(validDate(company.fiscalYearStart) && validDate(company.fiscalYearEnd) && company.fiscalYearStart <= company.fiscalYearEnd,

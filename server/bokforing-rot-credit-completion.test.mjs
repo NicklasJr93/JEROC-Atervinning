@@ -1,9 +1,10 @@
+import { createCustomer, createEmptyState, createInvoice } from './fixtures/bokforing-compliant-invoices.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createEmptyState,accountBalance,validateState} from '../public/bokforing/suite/core.js';
-import {createCustomer,createInvoice,issueInvoice,receivePayment,getInvoiceOutstanding} from '../public/bokforing/suite/sales.js';
+import { accountBalance, validateState } from '../public/bokforing/suite/core.js';
+import { issueInvoice, receivePayment, getInvoiceOutstanding } from '../public/bokforing/suite/sales.js';
 import {createCreditNote,refundCredit,getDocumentSettlementSummary,validateSettlements} from '../public/bokforing/suite/settlements.js';
-import {createRevenueSchedule,recognizeRevenueMonth,validateCommercialState} from '../public/bokforing/suite/commercial.js';
+import { createRevenueSchedule, recognizeRevenueMonth, validateCommercialState } from '../public/bokforing/suite/commercial.js';
 import {createRotPlan,prepareRotApplication,decideRotApplication,receiveRotApplicationPayment,validateRotApplications} from '../public/bokforing/suite/rot-extended.js';
 import {getRotCreditState,prepareCorrectedRotRequest,decideCorrectedRotRequest,receiveCorrectedRotPayment,validateRotCreditEvents,repayCorrectedRot} from '../public/bokforing/suite/rot-credit.js';
 import {handleAction,renderWorkspace} from '../public/bokforing/suite/credit-workspace.js';

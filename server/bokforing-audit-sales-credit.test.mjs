@@ -1,7 +1,8 @@
+import { createCustomer, createEmptyState, createInvoice, invoiceTestExemption } from './fixtures/bokforing-compliant-invoices.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEmptyState, accountBalance } from '../public/bokforing/suite/core.js';
-import { createCustomer, createInvoice, issueInvoice, getInvoiceTotals, getInvoiceOutstanding, receivePayment, creditInvoice, copyInvoice } from '../public/bokforing/suite/sales.js';
+import { accountBalance } from '../public/bokforing/suite/core.js';
+import { issueInvoice, getInvoiceTotals, getInvoiceOutstanding, receivePayment, creditInvoice, copyInvoice } from '../public/bokforing/suite/sales.js';
 import { createBill, bookBill, payBill, getBillOutstanding } from '../public/bokforing/suite/operations.js';
 import { createCreditNote, refundCredit, offsetCredit, getDocumentSettlementSummary, getCreditSourceLines, previewCreditNote } from '../public/bokforing/suite/settlements.js';
 import { createRevenueSchedule, recognizeRevenueMonth, getRevenueDueMonths } from '../public/bokforing/suite/commercial.js';
@@ -16,7 +17,7 @@ let number = 0;
 const audit = (description, fn) => test(`AUDIT-SALES-${String(++number).padStart(3, '0')} ${description}`, fn);
 const round = (numerator, denominator) => Number((2n * BigInt(numerator) + BigInt(denominator)) / (2n * BigInt(denominator)));
 const ratio = (value, numerator, denominator) => round(BigInt(value) * BigInt(numerator), denominator);
-const line = (unitCents = 10003, vatRate = 25, extra = {}) => ({ description: 'Avtalad tjänst', kind: 'other', quantity: 1, unitCents, vatRate, ...extra });
+const line = (unitCents = 10003, vatRate = 25, extra = {}) => ({ description: vatRate === 0 ? 'Momsfri upplåtelse (fiktivt beräkningsfall)' : 'Avtalad tjänst', kind: 'other', quantity: 1, unitCents, vatRate, ...(vatRate === 0 ? { vatExemption: { ...invoiceTestExemption } } : {}), ...extra });
 const base = () => createCustomer(createEmptyState(), { name: 'Svensk avtalspart AB', email: 'faktura@example.test', address: 'Testgatan 1' });
 const originalDate = '2026-01-01';
 function customer(options = {}, state = base()) {
@@ -361,7 +362,7 @@ for (const mode of ['standard', 'reverse-construction']) {
     const before = januaryBoxes(state);
     state = unchanged(state, () => credit(state, 'customer', id, [{ index: 0, netCents: 1 }], 'FEB-CREDIT', { date: '2026-02-01' }));
     assert.deepEqual(januaryBoxes(state), before);
-    assert.equal(getTaxDeclarationReport(state, { from: '2026-02-01', to: '2026-02-28' }).boxes[mode === 'standard' ? '05' : '41'], -1);
+    assert.equal(getTaxDeclarationReport(state, { from: '2026-02-01', to: '2026-02-28' }).boxes[mode === 'standard' ? '42' : '41'], -1);
   });
   audit(`payment on ${mode} invoice remains allowed in finalized VAT period`, () => {
     let { state, id } = customer(options); state = freezeJanuary(state);

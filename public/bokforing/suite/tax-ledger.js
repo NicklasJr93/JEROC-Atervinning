@@ -4,6 +4,7 @@ import { calculateLineAmounts } from './rot.js';
 import { calculatePurchaseLines } from './purchase-lines.js';
 import { getFxTaxRows } from './fx.js';
 import { getCashTaxRows } from './cash-method.js';
+import { validateVatExemption, vatExemptionBox } from './vat-classification.js';
 
 export const VAT_SOURCE = 'https://www.skatteverket.se/foretag/moms/deklareramoms/fyllaimomsdeklarationen.4.3a2a542410ab40a421c80004214.html';
 export const VAT_RULE_VERSION = 'SE-VAT-2026-10-23';
@@ -47,9 +48,15 @@ const sum = values => values.reduce((a, b) => { assert(Number.isSafeInteger(a + 
 const label = (value, name, max = 160) => { assert(typeof value === 'string' && value.trim() && value.length <= max && !/[\u0000-\u001f]/.test(value), `Ange ${name}.`); return value.trim(); };
 const checkRate = value => assert([0, 6, 12, 25].includes(value), 'Välj 0, 6, 12 eller 25 procent moms.');
 const txRows = record => record.rows;
-const snapshot = record => JSON.stringify([record.kind, record.date, record.reference, record.counterparty, record.country, record.vatNumber, record.netCents, record.vatRate, record.deductibleBps, record.account, record.conditionsConfirmed, record.ruleVersion, record.originalId ?? null, record.rows, record.boxes, record.reason ?? null]);
+const snapshot = record => {
+  const fields = [record.kind, record.date, record.reference, record.counterparty, record.country, record.vatNumber, record.netCents, record.vatRate, record.deductibleBps, record.account, record.conditionsConfirmed, record.ruleVersion, record.originalId ?? null, record.rows, record.boxes, record.reason ?? null];
+  // Keep pre-classification snapshots unchanged. New explicit grounds are part
+  // of the immutable record, including a reversal's copied classification.
+  if (record.vatExemption !== undefined || record.vatClassificationVersion !== undefined) fields.push({ vatExemption: record.vatExemption, vatClassificationVersion: record.vatClassificationVersion });
+  return JSON.stringify(fields);
+};
 
-export function calculateTaxTransaction(payload) {
+export function calculateTaxTransaction(payload, { allowLegacyUnclassified = false } = {}) {
   assert(payload && typeof payload === 'object', 'Momsuppgifterna saknas.');
   const kind = VAT_KINDS.find(item => item.id === payload.kind); assert(kind, 'Välj ett granskat momsfall.');
   const date = payload.date; assert(validDate(date), 'Ange ett giltigt datum.');
@@ -66,14 +73,23 @@ export function calculateTaxTransaction(payload) {
   if (isEu && !kind.purchase) assert(/^[A-Z]{2}[A-Z0-9]{2,28}$/.test(vatNumber), 'Ange köparens VAT-nummer och granska att det är giltigt.');
   assert(payload.conditionsConfirmed === true, 'Bekräfta bedömningen av momsfall, underlag och eventuell avdragsrätt.');
   const netCents = cents(payload.netCents, false), vatRate = kind.exempt ? 0 : payload.vatRate ?? 25;
-  checkRate(vatRate); if (kind.reverse) assert(vatRate > 0, 'Detta omvända momsfall kräver 6, 12 eller 25 procent.');
+  checkRate(vatRate);
+  const zeroDomesticSale = kind.id === 'domestic-sale' && vatRate === 0;
+  let exemption;
+  if (zeroDomesticSale) {
+    exemption = allowLegacyUnclassified && payload.vatExemption === undefined ? undefined : validateVatExemption(payload.vatExemption);
+    if (payload.vatClassificationVersion !== undefined) assert(payload.vatClassificationVersion === 1, 'Momsundantagets regelversion stöds inte.');
+  } else {
+    assert(payload.vatExemption === undefined && payload.vatClassificationVersion === undefined, 'Momsundantag får endast anges för svensk försäljning med 0 %.');
+  }
+  if (kind.reverse) assert(vatRate > 0, 'Detta omvända momsfall kräver 6, 12 eller 25 procent.');
   const deductibleBps = kind.purchase ? payload.deductibleBps ?? 10000 : 0;
   assert(Number.isInteger(deductibleBps) && deductibleBps >= 0 && deductibleBps <= 10000, 'Avdragsrätten ska vara 0–100 procent.');
   const account = kind.purchase ? payload.account ?? '4010' : '3000';
   assert(kind.purchase ? EXPENSE.has(account) : account === '3000', 'Välj ett tillåtet kostnadskonto.');
   const tax = round(netCents, vatRate, 100), deductible = round(tax, deductibleBps), excluded = tax - deductible;
   const boxes = {}, rows = [];
-  if (kind.basis) boxes[kind.basis] = netCents;
+  if (kind.basis) boxes[exemption ? '42' : kind.basis] = netCents;
   if (kind.purchase) {
     if (!kind.import) rows.push(debit(account, netCents + excluded), credit('1930', netCents + (kind.reverse ? 0 : tax)));
     else if (excluded) rows.push(debit(account, excluded));
@@ -83,7 +99,7 @@ export function calculateTaxTransaction(payload) {
     rows.push(debit('1930', netCents + tax), credit(account, netCents));
     if (tax) { rows.push(credit(standardAccount(vatRate), tax)); boxes[ordinaryBox(vatRate)] = tax; }
   }
-  return { kind: kind.id, date, reference, counterparty, country, vatNumber, netCents, vatRate, deductibleBps, account, conditionsConfirmed: true, ruleVersion: VAT_RULE_VERSION, rows: rows.filter(row => row.debitCents || row.creditCents), boxes };
+  return { kind: kind.id, date, reference, counterparty, country, vatNumber, netCents, vatRate, deductibleBps, account, conditionsConfirmed: true, ruleVersion: VAT_RULE_VERSION, ...(exemption ? {vatExemption: exemption, vatClassificationVersion: 1} : {}), rows: rows.filter(row => row.debitCents || row.creditCents), boxes };
 }
 
 export function validateTaxTransactions(state) {
@@ -94,11 +110,13 @@ export function validateTaxTransactions(state) {
     const original = record.originalId ? records.find(item => item.id === record.originalId) : null;
     if (original) {
       assert(!original.originalId && record.date >= original.date && !records.some(item => item.id !== record.id && item.originalId === original.id), 'Momsrättelsen har en ogiltig eller dubbel originalreferens.');
+      assert(JSON.stringify(record.vatExemption) === JSON.stringify(original.vatExemption) && record.vatClassificationVersion === original.vatClassificationVersion, 'Momsrättelsen måste bevara originalets klassning.');
       const reversed = original.rows.map(row => ({ account: row.account, debitCents: row.creditCents, creditCents: row.debitCents }));
       assert(JSON.stringify(record.rows) === JSON.stringify(reversed) && JSON.stringify(record.boxes) === JSON.stringify(Object.fromEntries(Object.entries(original.boxes).map(([key, amount]) => [key, -amount]))), 'Momsrättelsen återför inte originalets belopp.');
     } else {
       assert(!record.originalId, 'Momsrättelsens original saknas.');
-      const recalculated = calculateTaxTransaction(record);
+      if (record.vatExemption !== undefined) assert(record.vatClassificationVersion === 1, 'Momsundantagets regelversion saknas eller är ogiltig.');
+      const recalculated = calculateTaxTransaction(record, {allowLegacyUnclassified: record.vatClassificationVersion === undefined});
       assert(JSON.stringify(record.rows) === JSON.stringify(recalculated.rows) && JSON.stringify(record.boxes) === JSON.stringify(recalculated.boxes), 'Momsregistreringens beräkning har ändrats.');
       const ref = `${record.counterparty.toLocaleLowerCase('sv')}:${record.reference.toLocaleLowerCase('sv')}`;
       assert(!references.has(ref), 'Momsunderlaget har registrerats flera gånger.'); references.add(ref);
@@ -167,11 +185,9 @@ export function getTaxDeclarationReport(state, { from = state.company.fiscalYear
     const sign = invoice.kind === 'credit' ? -1 : 1, values = {};
     for (const line of invoice.lines) {
       const amount = calculateLineAmounts(line, invoice.vatMode, invoice.invoiceDiscountBps ?? 0);
-      // A percentage alone does not establish an exemption or its declaration
-      // field. Keep the existing arithmetic visible but block an unreviewable
-      // declaration until this native workflow has explicit tax treatment.
-      if (invoice.vatMode === 'standard' && line.vatRate === 0 && amount.netCents > 0) warnUnclassifiedZeroSale(invoice.date);
-      const basis = invoice.vatMode === 'reverse-construction' ? '41' : '05'; values[basis] = (values[basis] ?? 0) + sign * amount.netCents;
+      const exemptBox = invoice.vatMode === 'standard' && line.vatRate === 0 ? vatExemptionBox(line.vatExemption) : undefined;
+      if (invoice.vatMode === 'standard' && line.vatRate === 0 && !exemptBox && amount.netCents > 0) warnUnclassifiedZeroSale(invoice.date);
+      const basis = invoice.vatMode === 'reverse-construction' ? '41' : exemptBox ?? '05'; values[basis] = (values[basis] ?? 0) + sign * amount.netCents;
       if (amount.vatCents) { const box = ordinaryBox(line.vatRate); values[box] = (values[box] ?? 0) + sign * amount.vatCents; }
     }
     add(invoice.entryId, invoice.date, values, invoice.number);
@@ -190,12 +206,16 @@ export function getTaxDeclarationReport(state, { from = state.company.fiscalYear
     if (bill.creditEntryId) { const creditEntry = state.entries.find(item => item.id === bill.creditEntryId); if (creditEntry) add(creditEntry.id, creditEntry.date, Object.fromEntries(Object.entries(values).map(([key, amount]) => [key, -amount])), `Kredit ${bill.number}`); }
   }
   for(const item of getFxTaxRows(state)){
-    const values=item.side==='supplier'?{'48':item.vatCents}:{'05':item.baseCents,...(item.vatCents?{[ordinaryBox(item.vatRate)]:item.vatCents}:{})};
+    if (item.requiresVatReview) warnUnclassifiedZeroSale(item.date);
+    const values=item.side==='supplier'?{'48':item.vatCents}:{[item.basisBox ?? '05']:item.baseCents,...(item.vatCents?{[ordinaryBox(item.vatRate)]:item.vatCents}:{})};
     add(item.entryId,item.date,values,'Valutafaktura');
   }
-  for(const item of getCashTaxRows(state))add(item.entryId,item.date,item.boxes,item.description);
+  for(const item of getCashTaxRows(state)){
+    if (item.requiresVatReview) warnUnclassifiedZeroSale(item.date);
+    add(item.entryId,item.date,item.boxes,item.description);
+  }
   for (const record of state.taxTransactions ?? []) {
-    if (record.kind === 'domestic-sale' && record.vatRate === 0) warnUnclassifiedZeroSale(record.date);
+    if (record.kind === 'domestic-sale' && record.vatRate === 0 && !record.vatExemption) warnUnclassifiedZeroSale(record.date);
     add(record.entryId, record.date, record.boxes, record.reference);
   }
   for (const asset of state.assets) if (asset.disposalEntryId) add(asset.disposalEntryId, asset.disposalDate, { '05': asset.proceedsCents, '10': round(asset.proceedsCents, 25, 100) }, `Avyttring ${asset.name}`);
@@ -211,8 +231,9 @@ export function getTaxDeclarationReport(state, { from = state.company.fiscalYear
     for (const selected of record.lines) {
       const originalLine = source.lines?.[selected.index] ?? source;
       const mode = record.side === 'customer' ? source.vatMode : originalLine.vatMode;
-      if (record.side === 'customer' && mode === 'standard' && originalLine.vatRate === 0 && selected.netCents > 0) warnUnclassifiedZeroSale(entry.date);
-      const basis = record.side === 'customer' ? (mode === 'reverse-construction' ? '41' : '05') : mode === 'reverse-construction' ? '24' : null;
+      const exemptBox = record.side === 'customer' && mode === 'standard' && originalLine.vatRate === 0 ? vatExemptionBox(originalLine.vatExemption) : undefined;
+      if (record.side === 'customer' && mode === 'standard' && originalLine.vatRate === 0 && !exemptBox && selected.netCents > 0) warnUnclassifiedZeroSale(entry.date);
+      const basis = record.side === 'customer' ? (mode === 'reverse-construction' ? '41' : exemptBox ?? '05') : mode === 'reverse-construction' ? '24' : null;
       if (basis) values[basis] = (values[basis] ?? 0) - selected.netCents;
     }
     for (const row of entry.rows) {

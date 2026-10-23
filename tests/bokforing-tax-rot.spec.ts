@@ -15,8 +15,8 @@ async function seed(page:Page, withRot = false) {
     const core=await import(corePath),sales=await import(salesPath);
     let state=core.transact(core.createEmptyState(),(draft: {entries:unknown[]})=>core.appendEntry(draft,{date:'2026-01-01',description:'Ingående balans',sourceType:'opening',sourceId:'opening',rows:[{account:'1930',debitCents:100000000,creditCents:0},{account:'2081',debitCents:0,creditCents:100000000}]}));
     if(withRot){
-      state=sales.createCustomer(state,{name:'Två testpersoner'});
-      state=sales.createInvoice(state,{customerId:state.customers[0].id,date:'2026-10-01',dueDate:'2026-11-01',vatMode:'standard',lines:[{kind:'labor',description:'Arbete',quantity:1,unitCents:3200000,vatRate:25},{kind:'material',description:'Material',quantity:1,unitCents:1920000,vatRate:25}],rot:{personId:'LEGACY-TEST',property:'DEMO 1:1',paymentYear:2026,availableCents:5000000,eligibleConfirmed:true}});
+      state=sales.createCustomer(state,{address:'Fiktivgatan 1',postalCode:'12345',city:'Demostaden',country:'SE',vatNumber:'SE559900123601',name:'Två testpersoner'});
+      state=sales.createInvoice(state,{details:{performance:{mode:'invoice-date',confirmed:true}},customerId:state.customers[0].id,date:'2026-10-01',dueDate:'2026-11-01',vatMode:'standard',lines:[{kind:'labor',description:'Arbete',quantity:1,unitCents:3200000,vatRate:25},{kind:'material',description:'Material',quantity:1,unitCents:1920000,vatRate:25}],rot:{personId:'LEGACY-TEST',property:'DEMO 1:1',paymentYear:2026,availableCents:5000000,eligibleConfirmed:true}});
       state=sales.issueInvoice(state,state.invoices[0].id);
       state=sales.receivePayment(state,state.invoices[0].id,{date:'2026-10-10',amountCents:3900000,reference:'DELPAY-1'});
     }

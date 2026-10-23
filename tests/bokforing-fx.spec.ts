@@ -17,7 +17,10 @@ async function create(page:Page,side='customer') {
  await f.locator('[name="partyName"]').fill('Exempelkund');
  await f.locator('[name="partyAddress"]').fill('Exempelgatan 1');
  await f.locator('[name="sellerAddress"]').fill('Säljgatan 2');
- await f.locator('[name="sellerVatNumber"]').fill('SE-DEMO');
+ await f.locator('[name="sellerVatNumber"]').fill('SE559900123601');await f.locator('[name="sellerOrgNumber"]').fill('559900-1236');
+ await f.locator('[name="partyPostalCode"]').fill('111 22');
+ await f.locator('[name="partyCity"]').fill('Demostaden');
+ await f.locator('[name="performanceConfirmed"]').check();
  await f.locator('[name="paymentReference"]').fill('Referens för test');
  await f.locator('[name="rate"]').fill('11,00');
  await f.locator('[name="rateSource"]').fill('Granskat kursunderlag');
@@ -58,4 +61,19 @@ test('mobile overpayment is rejected without a new journal entry',async({page})=
  await page.setViewportSize({width:390,height:844});await create(page);const before=await saved(page);await payment(page,'100,01','1100,11');
  await expect(page.locator('#suite-toast')).toContainText('överstiger');expect((await saved(page)).entries).toEqual(before.entries);
  const width=await page.evaluate(()=>({actual:document.documentElement.scrollWidth,viewport:innerWidth}));expect(width.actual).toBeLessThanOrEqual(width.viewport);
+});
+
+test('FX exempt customer invoice requires reviewed legal grounds before issuance',async({page})=>{
+ await page.goto('/bokforing/#fx');const f=form(page,'create');
+ await f.locator('[name="number"]').fill('FX-MOMSFRI');await f.locator('[name="date"]').fill('2026-10-01');await f.locator('[name="dueDate"]').fill('2026-10-31');
+ await f.locator('[name="partyName"]').fill('Fiktiv hyresgäst');await f.locator('[name="partyAddress"]').fill('Testgatan 1');await f.locator('[name="partyPostalCode"]').fill('111 22');await f.locator('[name="partyCity"]').fill('Demostaden');
+ await f.locator('[name="sellerAddress"]').fill('Testvägen 2');await f.locator('[name="sellerVatNumber"]').fill('SE559900123601');await f.locator('[name="sellerOrgNumber"]').fill('559900-1236');await f.locator('[name="sellerPostalCode"]').fill('222 33');await f.locator('[name="sellerCity"]').fill('Exempelorten');
+ await f.locator('[name="performanceConfirmed"]').check();await f.locator('[name="paymentReference"]').fill('Fiktiv betalningsreferens');await f.locator('[name="rateSource"]').fill('Fiktivt kursunderlag');
+ await f.locator('[name="taxTreatment"]').selectOption('no-vat');await f.locator('[name="taxReason"]').fill('Momsfri uthyrning enligt granskat hyresavtal');await f.locator('[name="lines"]').fill('Momsfri lokalhyra; 100,00; 0; 4010');await f.locator('[name="reviewed"]').check();
+ await f.getByRole('button',{name:'Spara valutautkast'}).click();await expect.poll(async()=>(await saved(page)).fxDocuments?.length).toBe(1);
+ await form(page,'issue').getByRole('button',{name:'Utfärda och bokför'}).click();await expect(page.locator('#suite-toast')).toContainText('momsundantag');expect((await saved(page)).fxDocuments[0].status).toBe('draft');
+ await page.locator('.fx-document summary').filter({hasText:'Redigera utkast'}).click();const edit=form(page,'edit');
+ await edit.locator('[name="vatExemptionCode"]').selectOption('property-rental');await edit.locator('[name="vatExemptionLegalBasis"]').fill('Fiktivt hyresavtal utan frivillig beskattning; 10 kap. 35 § ML.');await edit.locator('[name="vatExemptionConfirmed"]').check();await edit.locator('[name="reviewed"]').check();
+ await edit.getByRole('button',{name:'Spara ändrat valutautkast'}).click();await form(page,'issue').getByRole('button',{name:'Utfärda och bokför'}).click();await expect.poll(async()=>(await saved(page)).fxDocuments[0].status).toBe('issued');
+ expect((await saved(page)).fxDocuments[0].vatExemption.code).toBe('property-rental');
 });

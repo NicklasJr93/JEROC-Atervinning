@@ -25,7 +25,9 @@ const atomicReject = (state, action, pattern = /./) => {
   assert.deepEqual(state, before, 'A rejected operation must leave its input unchanged');
   checked(state);
 };
-const header = '#FLAGGA 0\n#PROGRAM "Independent audit fixture" "1"\n#FORMAT PC8\n#GEN 20261023\n#SIETYP 4\n#FNAMN "Åkes Hantverk AB"\n#ORGNR "DEMO"\n#RAR 0 20260101 20261231\n#VALUTA SEK\n';
+// Explicit fictional organisation fixture matching the current demo company.
+// Keep the mismatch/missing-identity cases below as independent negative tests.
+const header = '#FLAGGA 0\n#PROGRAM "Independent audit fixture" "1"\n#FORMAT PC8\n#GEN 20261023\n#SIETYP 4\n#FNAMN "Åkes Hantverk AB"\n#ORGNR "5599999991"\n#RAR 0 20260101 20261231\n#VALUTA SEK\n';
 const voucher = ({ series = 'B', number = '1', date = '20260615', text = 'Handskriven avgift', debit = '6570', credit = '1930', amount = '123.45', extra = '' } = {}) =>
   `#VER "${series}" "${number}" ${date} "${text}"\n{\n#TRANS ${debit} {} ${amount}\n#TRANS ${credit} {} -${amount}\n${extra}}\n`;
 const source = overrides => header + voucher(overrides);
@@ -185,7 +187,7 @@ for (const [label,replace] of [
   ['wrong SIE type',s=>s.replace('#SIETYP 4','#SIETYP 3')],['missing SIE type',s=>s.replace('#SIETYP 4\n','')],
   ['missing company name',s=>s.replace('#FNAMN "Åkes Hantverk AB"\n','')],['empty company name',s=>s.replace('Åkes Hantverk AB',' ')],
   ['currency mismatch',s=>s.replace('#VALUTA SEK','#VALUTA EUR')],['year mismatch',s=>s.replace('20260101 20261231','20250101 20251231')],
-  ['organisation mismatch',s=>s.replace('#ORGNR "DEMO"','#ORGNR "OTHER"')],['invalid voucher date',s=>s.replace('20260615','20260431')],
+  ['organisation mismatch',s=>s.replace('#ORGNR "5599999991"','#ORGNR "OTHER"')],['invalid voucher date',s=>s.replace('20260615','20260431')],
   ['voucher outside year',s=>s.replace('20260615','20270101')],['missing brace',s=>s.replace('\n{\n','\n')],
   ['unfinished voucher',s=>s.slice(0,s.lastIndexOf('}'))],['extra closing brace',s=>s+'}\n'],
   ['unknown record',s=>s+'#UNKNOWN 1\n'],['unchecked checksum',s=>s+'#KSUMMA 123\n'],
@@ -346,7 +348,7 @@ audit('SIE quantity is retained in original text with warning but not imported a
   assert.equal(state.entries[0].rows[0].quantity,undefined);assert.match(state.sieImports[0].sourceText,/Tio stycken/);
 });
 audit('SIE missing organisation number gives an explicit ownership warning',()=>{
-  const text=source().replace('#ORGNR "DEMO"\n','');
+  const text=source().replace('#ORGNR "5599999991"\n','');
   const preview=previewSieImport(createEmptyState(),text);assert.ok(preview.warnings.some(x=>/saknar organisationsnummer/.test(x)));
   const state=checked(importSie4(createEmptyState(),text,{confirmed:true}));assert.equal(state.entries.length,1);
 });

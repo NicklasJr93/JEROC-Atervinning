@@ -1,10 +1,11 @@
+import { createArticleInvoice, createCustomer, createEmptyState, reviewInvoiceFixture } from './fixtures/bokforing-compliant-invoices.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEmptyState, accountBalance, transact } from '../public/bokforing/suite/core.js';
-import { createCustomer, createProject, issueInvoice, receivePayment, getInvoiceTotals } from '../public/bokforing/suite/sales.js';
+import { accountBalance, transact } from '../public/bokforing/suite/core.js';
+import { createProject, issueInvoice, receivePayment, getInvoiceTotals } from '../public/bokforing/suite/sales.js';
 import { createSuiteState } from '../public/bokforing/suite/seed.js';
 import { createStockItem, recordStockMovement } from '../public/bokforing/suite/inventory.js';
-import { saveArticle, saveCustomerPrice, setArticleActive, createArticleInvoice, createRecurringPlan, generateRecurringInvoices, anchoredMonthDate, prepareReminder, issueProjectStock, createRevenueSchedule, recognizeRevenueMonth, getRevenueDueMonths, addProjectWorkpaper, validateCommercialState } from '../public/bokforing/suite/commercial.js';
+import { saveArticle, saveCustomerPrice, setArticleActive, createRecurringPlan, generateRecurringInvoices, anchoredMonthDate, prepareReminder, issueProjectStock, createRevenueSchedule, recognizeRevenueMonth, getRevenueDueMonths, addProjectWorkpaper, validateCommercialState } from '../public/bokforing/suite/commercial.js';
 import { renderWorkspace, handleAction } from '../public/bokforing/suite/commercial-workspace.js';
 import { closeYear } from '../public/bokforing/suite/finance.js';
 import { openNextYear } from '../public/bokforing/suite/financial-years.js';
@@ -90,7 +91,7 @@ test('project stock issue is one atomic material movement with separate cost and
 });
 
 test('revenue deferral preserves VAT and receivable and exact monthly rounding', () => {
-  let state = invoice(setup()); state = issueInvoice(state, state.invoices[0].id);
+  let state = invoice(setup()); state = reviewInvoiceFixture(state, state.invoices[0].id); state = issueInvoice(state, state.invoices[0].id);
   const vat = accountBalance(state, '2611'); const receivable = accountBalance(state, '1510');
   state = createRevenueSchedule(state, { invoiceId: state.invoices[0].id, name: 'Serviceavtal', date: '2026-01-01', amountCents: 100000, startMonth: '2026-01', months: 3 });
   assert.equal(accountBalance(state, '3000'), 0);
@@ -109,7 +110,7 @@ test('revenue deferral preserves VAT and receivable and exact monthly rounding',
 });
 
 test('a one-cent deferral uses zero-posting months without zero-valued journals', () => {
-  let state = invoice(setup()); state = issueInvoice(state, state.invoices[0].id);
+  let state = invoice(setup()); state = reviewInvoiceFixture(state, state.invoices[0].id); state = issueInvoice(state, state.invoices[0].id);
   state = createRevenueSchedule(state, { invoiceId: state.invoices[0].id, name: 'Öresplan', date: '2026-01-01', amountCents: 1, startMonth: '2026-01', months: 3 });
   const id = state.revenueSchedules[0].id;
   for (const date of ['2026-01-31', '2026-02-28', '2026-03-31']) state = recognizeRevenueMonth(state, id, { date });
@@ -121,7 +122,7 @@ test('a one-cent deferral uses zero-posting months without zero-valued journals'
 test('reminder prepares auditable record, rejects duplicates or unissued/not-overdue invoices', () => {
   let state = invoice(setup()); const id = state.invoices[0].id;
   assert.throws(() => prepareReminder(state, { invoiceId: id, date: '2026-02-01', note: 'Betala' }), /utfärdad/);
-  state = issueInvoice(state, id);
+  state = reviewInvoiceFixture(state, state.invoices[0].id); state = issueInvoice(state, id);
   assert.throws(() => prepareReminder(state, { invoiceId: id, date: '2026-01-31', note: 'Betala' }), /efter/);
   state = prepareReminder(state, { invoiceId: id, date: '2026-02-01', note: 'Vänligen betala' });
   assert.equal(state.commercialReminders[0].status, 'prepared');
@@ -131,7 +132,7 @@ test('reminder prepares auditable record, rejects duplicates or unissued/not-ove
 
 test('a customer reminder excludes the expected tax-authority ROT portion', () => {
   let state = createSuiteState(); const rotInvoice = state.invoices.find(item => item.rot);
-  state = issueInvoice(state, rotInvoice.id);
+  state = reviewInvoiceFixture(state, rotInvoice.id); state = issueInvoice(state, rotInvoice.id);
   const due = getInvoiceTotals(state.invoices.find(item => item.id === rotInvoice.id)).customerCents;
   state = receivePayment(state, rotInvoice.id, { date: '2026-11-01', amountCents: due, payer: 'customer' });
   assert.throws(() => prepareReminder(state, { invoiceId: rotInvoice.id, date: '2026-12-01', note: 'Felaktigt krav på väntad ROT' }), /obetald kundandel/);
@@ -165,7 +166,7 @@ test('revenue plan continues across year end, but new deferral of historic reven
   let state = setup(); state = saveArticle(state, { ...state.commercialArticles[0], vatRate: 0 });
   state = invoice(state, { date: '2026-12-01', dueDate: '2026-12-31' });
   const invoiceId = state.invoices[0].id;
-  state = issueInvoice(state, invoiceId);
+  state = reviewInvoiceFixture(state, state.invoices[0].id); state = issueInvoice(state, invoiceId);
   state = createRevenueSchedule(state, { invoiceId, name: 'Vinterservice', date: '2026-12-01', amountCents: 100000, startMonth: '2026-12', months: 3 });
   const scheduleId = state.revenueSchedules[0].id;
   assert.deepEqual(getRevenueDueMonths(state).map(item => item.month), ['2026-12']);
@@ -186,7 +187,7 @@ test('recurring plan continues into a new fiscal year without duplicating Decemb
   let state = setup(); state = saveArticle(state, { ...state.commercialArticles[0], vatRate: 0 });
   state = plan(state, { startDate: '2026-12-31' });
   state = generateRecurringInvoices(state, { asOf: '2026-12-31' });
-  state = issueInvoice(state, state.invoices[0].id);
+  state = reviewInvoiceFixture(state, state.invoices[0].id); state = issueInvoice(state, state.invoices[0].id);
   state = nextYear(state);
   state = generateRecurringInvoices(state, { asOf: '2027-01-31' });
   assert.deepEqual(state.recurringPlans[0].generated.map(item => item.date), ['2026-12-31', '2027-01-31']);
@@ -196,7 +197,7 @@ test('recurring plan continues into a new fiscal year without duplicating Decemb
 });
 
 test('commercial invoices, stock links and deferred revenue pass the shared restore validator', () => {
-  let state = invoice(setup()); state = issueInvoice(state, state.invoices[0].id);
+  let state = invoice(setup()); state = reviewInvoiceFixture(state, state.invoices[0].id); state = issueInvoice(state, state.invoices[0].id);
   state = createRevenueSchedule(state, { invoiceId: state.invoices[0].id, name: 'Plan', date: '2026-01-01', amountCents: 1000, startMonth: '2026-01', months: 1 });
   state = plan(state); state = generateRecurringInvoices(state, { asOf: '2026-02-28' });
   state = createStockItem(state, { name: 'Reglar', unit: 'm', unitCostCents: 1000 });
@@ -206,7 +207,7 @@ test('commercial invoices, stock links and deferred revenue pass the shared rest
 });
 
 test('a credited invoice cannot receive a new revenue plan, and a planned invoice cannot be credited', () => {
-  let state = invoice(setup()); state = issueInvoice(state, state.invoices[0].id);
+  let state = invoice(setup()); state = reviewInvoiceFixture(state, state.invoices[0].id); state = issueInvoice(state, state.invoices[0].id);
   const payload = { side: 'customer', documentId: state.invoices[0].id, date: '2026-02-01', reason: 'Prisjustering', reference: 'CREDIT-1', lines: [{ index: 0, netCents: 100 }] };
   const credited = createCreditNote(state, payload);
   assert.throws(() => createRevenueSchedule(credited, { invoiceId: state.invoices[0].id, name: 'Ej möjlig', date: '2026-02-02', amountCents: 1000, startMonth: '2026-02', months: 1 }), /krediterad/);

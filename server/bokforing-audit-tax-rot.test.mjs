@@ -1,7 +1,8 @@
+import { createCustomer, createEmptyState, createInvoice, legacyZeroVatFixture, invoiceTestParty, invoiceTestExemption } from './fixtures/bokforing-compliant-invoices.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEmptyState, accountBalance } from '../public/bokforing/suite/core.js';
-import { createCustomer, createInvoice, issueInvoice, receivePayment, getInvoiceOutstanding, requestRot, decideRot } from '../public/bokforing/suite/sales.js';
+import { accountBalance } from '../public/bokforing/suite/core.js';
+import { issueInvoice, receivePayment, getInvoiceOutstanding, requestRot, decideRot } from '../public/bokforing/suite/sales.js';
 import { calculateLineAmounts, calculateRot } from '../public/bokforing/suite/rot.js';
 import { calculateTaxTransaction, postTaxTransaction, reverseTaxTransaction, getTaxDeclarationReport, taxReportCsv } from '../public/bokforing/suite/tax-ledger.js';
 import { createRotPlan, prepareRotApplication, decideRotApplication, receiveRotApplicationPayment, repayRotApplication } from '../public/bokforing/suite/rot-extended.js';
@@ -91,7 +92,7 @@ for (const [kind, country, basis, reverse, imported, purchase] of kinds) {
   }
 }
 for (const kind of ['domestic-sale', 'domestic-purchase']) scenario(`zero-rated supported ${kind}`, () => {
-  const state = verify(postTaxTransaction(empty(), taxPayload({ kind, vatRate: 0 })));
+  const state = verify(postTaxTransaction(empty(), taxPayload({ kind, vatRate: 0, ...(kind === 'domestic-sale' ? {vatExemption:{...invoiceTestExemption}} : {}) })));
   assert.equal(getTaxDeclarationReport(state).boxes['49'], 0); assert.equal(Math.abs(accountBalance(state, '1930')), 123457);
 });
 for (const net of [1, 2, 49, 50, 51, 99, 100, 101, 399, 401]) scenario(`mixed VAT aggregates before whole-krona export, base ${net}`, () => {
@@ -214,24 +215,24 @@ for(const date of ['2027-01-01','2027-01-31'])scenario(`2027 customer payment re
 const vatDeclaration = {kind:'vat',orgNumber:'5560269986',from:'2026-10-01',to:'2026-12-31',reviewed:true,createdAt:'2026-10-23T12:00:00Z'};
 const unknownZero = report => report.warnings.some(message=>/0 %.*momsklassificering/.test(message));
 for(const lines of [[row('material',{vatRate:0})],[row(),row('other',{vatRate:0})]])scenario(`unclassified native zero-VAT ${lines.length===1?'sole':'mixed'} invoice blocks declaration`,()=>{
- const state=invoice({rot:null,lines});const report=getTaxDeclarationReport(state);
+ const state=verify(legacyZeroVatFixture(lines.length===1?'sole':'mixed'));const report=getTaxDeclarationReport(state);
  assert.equal(report.boxes['05'],lines.reduce((sum,l)=>sum+l.unitCents,0));assert.equal(report.boxes['42'],0);assert.equal(report.reconciled,true);assert.equal(unknownZero(report),true);
  assert.match(taxReportCsv(state),/Granskningsvarning;.*0 %.*momsklassificering/);
  untouched(state,()=>createDeclaration(state,vatDeclaration),/oklassificerade/);
 });
 scenario('unclassified direct domestic zero-VAT sale blocks declaration',()=>{
- const state=verify(postTaxTransaction(empty(),taxPayload({kind:'domestic-sale',vatRate:0})));
+ const state=verify(legacyZeroVatFixture('direct'));
  const report=getTaxDeclarationReport(state);assert.equal(report.boxes['05'],123457);assert.equal(report.boxes['42'],0);assert.equal(unknownZero(report),true);
  untouched(state,()=>createDeclaration(state,vatDeclaration),/oklassificerade/);
 });
 scenario('prior-period zero-VAT invoice warns in its own period only',()=>{
- const state=invoice({rot:null,date:'2026-09-01',dueDate:'2026-09-30',lines:[row('material',{vatRate:0})]});
+ const state=verify(legacyZeroVatFixture('prior'));
  assert.equal(unknownZero(getTaxDeclarationReport(state,{from:'2026-09-01',to:'2026-09-30'})),true);
  assert.equal(unknownZero(getTaxDeclarationReport(state,{from:'2026-10-01',to:'2026-12-31'})),false);
  verify(createDeclaration(state,vatDeclaration));
 });
 scenario('zero-value discounted zero-VAT line does not create classification warning',()=>{
- const state=invoice({rot:null,lines:[row(),row('material',{vatRate:0,discountBps:10000})]});
+ const state=verify(legacyZeroVatFixture('discounted'));
  assert.equal(unknownZero(getTaxDeclarationReport(state)),false);verify(createDeclaration(state,vatDeclaration));
 });
 scenario('zero rounded VAT on a positive 6 percent rate remains explicitly taxable',()=>{
@@ -239,7 +240,7 @@ scenario('zero rounded VAT on a positive 6 percent rate remains explicitly taxab
  const report=getTaxDeclarationReport(state);assert.equal(report.boxes['05'],1);assert.equal(report.boxes['12'],0);assert.equal(unknownZero(report),false);verify(createDeclaration(state,vatDeclaration));
 });
 scenario('prior-period zero-VAT invoice credit warns in credit period',()=>{
- let state=invoice({rot:null,date:'2026-09-01',dueDate:'2026-09-30',lines:[row('material',{vatRate:0})]});
+ let state=verify(legacyZeroVatFixture('prior'));
  state=verify(createCreditNote(state,{side:'customer',documentId:state.invoices[0].id,date:'2026-10-15',reason:'Korrigerad prestation',reference:'ZERO-CREDIT',lines:[{index:0,netCents:50000}]}));
  const report=getTaxDeclarationReport(state,{from:'2026-10-01',to:'2026-12-31'});assert.equal(report.boxes['05'],-50000);assert.equal(unknownZero(report),true);untouched(state,()=>createDeclaration(state,vatDeclaration),/oklassificerade/);
 });
@@ -249,7 +250,7 @@ scenario('known EU zero-VAT sale retains explicit field 35 without warning',()=>
 });
 scenario('reviewed domestic exempt cash sale retains field 42 and declaration support',()=>{
  let state=createCashState({eligibilityConfirmed:true,expectedTurnoverCents:100000000,vatPeriod:'quarter'});
- state=createCashDocument(state,{side:'customer',partyName:'Fiktiv hyresgäst',partyAddress:'Exempelgatan 1',reference:'EXEMPT-CASH',date:'2026-10-01',dueDate:'2026-10-31',supplyConfirmed:true,vatReason:'Granskat undantag för momsfri fastighetsuthyrning',lines:[{description:'Momsfri hyra',netCents:100000,vatRate:0}]});
+ state=createCashDocument(state,{side:'customer',partyName:'Fiktiv hyresgäst',partyAddress:'Exempelgatan 1',partyPostalCode:'12345',partyCity:'Demostaden',partyCountry:'SE',performance:{mode:'invoice-date',confirmed:true},vatExemption:{...invoiceTestExemption},reference:'EXEMPT-CASH',date:'2026-10-01',dueDate:'2026-10-31',supplyConfirmed:true,vatReason:'Granskat undantag för momsfri fastighetsuthyrning',lines:[{description:'Momsfri hyra',netCents:100000,vatRate:0}]});
  state=issueCashDocument(state,state.cashDocuments[0].id);state=verify(payCashDocument(state,state.cashDocuments[0].id,{date:'2026-10-02',amountCents:100000,reference:'EXEMPT-PAYMENT'}));
  const report=getTaxDeclarationReport(state);assert.equal(report.boxes['42'],100000);assert.equal(report.boxes['05'],0);assert.equal(unknownZero(report),false);verify(createDeclaration(state,vatDeclaration));
 });

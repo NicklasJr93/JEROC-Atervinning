@@ -1,12 +1,13 @@
+import { createCustomer, createEmptyState, createInvoice } from './fixtures/bokforing-compliant-invoices.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { createEmptyState, transact, appendEntry, accountBalance } from '../public/bokforing/suite/core.js';
+import { transact, appendEntry, accountBalance } from '../public/bokforing/suite/core.js';
 import { lockPeriod, closeYear, fileVatPeriod, createEmployee, createPayrollRun, postPayroll, payPayroll } from '../public/bokforing/suite/finance.js';
 import { getYearReports, openNextYear, annualReportDraft, exportYearReview, prepareCorporateTax, saveYearWorkpaper, closeReviewedYear } from '../public/bokforing/suite/financial-years.js';
 import { buildAgiXml, buildVatXml, buildSruFiles, buildAnnualReportHtml, createDeclaration, getDeclarationFile, suggestSruFields, getDeclarationRescontra, VAT_XML_FIELDS, SRU_FIELDS, encodeLatin1, zipFiles } from '../public/bokforing/suite/declarations.js';
-import { createCustomer, createInvoice, issueInvoice, receivePayment } from '../public/bokforing/suite/sales.js';
+import { issueInvoice, receivePayment } from '../public/bokforing/suite/sales.js';
 import { createBill, bookBill, payBill } from '../public/bokforing/suite/operations.js';
 import { createCreditNote } from '../public/bokforing/suite/settlements.js';
 import { validateSuiteState } from '../public/bokforing/suite/validate.js';

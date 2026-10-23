@@ -56,6 +56,11 @@ export function buildAgiXml(data) {
     assert(!seen.has(identity) && Number.isInteger(specification) && specification >= 1 && specification <= 9999999999 && !specs.has(`${identity}:${specification}`), 'Person eller specifikationsnummer är dubblerat eller ogiltigt.'); seen.add(identity); specs.add(`${identity}:${specification}`);
     for (const key of ['grossCents', 'benefitCents', 'withholdingCents', 'employerCents']) assert(moneyValue(person[key]) >= 0, 'AGI-beloppen får inte vara negativa.');
     for (const key of ['grossCents', 'benefitCents', 'withholdingCents']) assert(kronor(person[key]) <= 9999999999, 'AGI-individbeloppet överskrider XSD-gränsen BELOPP10 (10 siffror).');
+    const annualFields=['contributionGrossCents','contributionBenefitCents','exemptGrossCents','exemptBenefitCents','previouslyReportedCents'];
+    if(annualFields.some(key=>person[key]!==undefined)){
+      for(const key of annualFields)assert(moneyValue(person[key])>=0&&kronor(person[key])<=(key==='previouslyReportedCents'?9999999:9999999999),'AGI-årsgränsens belopp saknas eller överskrider XSD-gränsen.');
+      assert(sum(annualFields.slice(0,4).map(key=>person[key]))===sum([person.grossCents,person.benefitCents,person.previouslyReportedCents]),'AGI-årsgränsens avgiftspliktiga och avgiftsfria delar stämmer inte med utbetalt belopp.');
+    }
     return { ...person, identity, specification };
   });
   const employerKronor = data.employerKronor ?? kronor(sum(people.map(person => person.employerCents)));
@@ -65,7 +70,11 @@ export function buildAgiXml(data) {
   const contactXml = cell('Namn', c.name) + cell('Telefon', c.phone) + cell('Epostadress', c.email);
   const envelope = content => tag('Blankett', tag('Arendeinformation', cell('Arendeagare', org) + cell('Period', p)) + tag('Blankettinnehall', content));
   const hu = tag('HU', tag('ArbetsgivareHUGROUP', cell('AgRegistreradId', org, '201')) + cell('RedovisningsPeriod', p, '006') + cell('SummaArbAvgSlf', employerKronor, '487') + cell('SummaSkatteavdr', withholdingKronor, '497'));
-  const individuals = people.map(person => envelope(tag('IU', tag('ArbetsgivareIUGROUP', cell('AgRegistreradId', org, '201')) + tag('BetalningsmottagareIUGROUP', tag('BetalningsmottagareIDChoice', cell('BetalningsmottagarId', person.identity, '215'))) + cell('RedovisningsPeriod', p, '006') + cell('Specifikationsnummer', person.specification, '570') + cell('AvdrPrelSkatt', kronor(person.withholdingCents), '001') + cell('KontantErsattningUlagAG', kronor(person.grossCents), '011') + (person.benefitCents ? cell('SkatteplOvrigaFormanerUlagAG', kronor(person.benefitCents), '012') : '')))).join('\n');
+  const salaryFields = person => {
+    if(person.contributionGrossCents===undefined)return cell('KontantErsattningUlagAG',kronor(person.grossCents),'011')+(person.benefitCents?cell('SkatteplOvrigaFormanerUlagAG',kronor(person.benefitCents),'012'):'');
+    return (person.contributionGrossCents?cell('KontantErsattningUlagAG',kronor(person.contributionGrossCents),'011'):'')+(person.contributionBenefitCents?cell('SkatteplOvrigaFormanerUlagAG',kronor(person.contributionBenefitCents),'012'):'')+(person.exemptGrossCents?cell('KontantErsattningEjUlagSA',kronor(person.exemptGrossCents),'131'):'')+(person.exemptBenefitCents?cell('SkatteplOvrigaFormanerEjUlagSA',kronor(person.exemptBenefitCents),'132'):'')+(person.previouslyReportedCents?cell('AvrakningAvgiftsfriErs',kronor(person.previouslyReportedCents),'010'):'');
+  };
+  const individuals = people.map(person => envelope(tag('IU', tag('ArbetsgivareIUGROUP', cell('AgRegistreradId', org, '201')) + tag('BetalningsmottagareIUGROUP', tag('BetalningsmottagareIDChoice', cell('BetalningsmottagarId', person.identity, '215'))) + cell('RedovisningsPeriod', p, '006') + cell('Specifikationsnummer', person.specification, '570') + cell('AvdrPrelSkatt', kronor(person.withholdingCents), '001') + salaryFields(person)))).join('\n');
   const absenceSeen = new Set();
   assert(data.absences === undefined || Array.isArray(data.absences) && data.absences.length <= 10000, 'Frånvarolistan är ogiltig eller för stor.');
   const absences = (data.absences ?? []).map(item => {

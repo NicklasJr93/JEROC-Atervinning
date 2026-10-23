@@ -1,6 +1,8 @@
 import { assert, money, toCents } from './core.js';
 import { createFxDocument, issueFxDocument, settleFxDocument, creditFxDocument, revalueFxDocument, reverseFxRevaluation, getFxPosition, formatFxMinor, formatFxRate, fxInvoiceHtml, updateFxDraft, removeFxDraft, fxCreditHtml } from './fx.js';
 
+import { VAT_EXEMPTION_REASONS } from './vat-classification.js';
+
 const e = value => String(value ?? '').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const field = (label,name,value='',type='text',extra='') => `<label>${e(label)}<input name="${name}" type="${type}" value="${e(value)}" ${extra}></label>`;
 const select = (label,name,options,value) => `<label>${e(label)}<select name="${name}">${options.map(([key,title])=>`<option value="${e(key)}" ${key===value?'selected':''}>${e(title)}</option>`).join('')}</select></label>`;
@@ -9,6 +11,12 @@ const hidden = id => `<input type="hidden" name="id" value="${e(id)}">`;
 const amount = (label,name,value='0') => field(label,name,value,'text','inputmode="decimal" required');
 const table = (headers,rows) => `<div class="fx-table"><table><thead><tr>${headers.map(h=>`<th>${e(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(cell=>`<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 const safeDate = state => { const now=new Date().toISOString().slice(0,10);return now<state.company.fiscalYearStart?state.company.fiscalYearStart:now>state.company.fiscalYearEnd?state.company.fiscalYearEnd:now; };
+function customerRequirements(doc,date) {
+  const performance=doc?.performance, exemption=doc?.vatExemption;
+  return field('Köparens postnummer','partyPostalCode',doc?.partyPostalCode||'')+field('Köparens ort','partyCity',doc?.partyCity||'')+field('Köparens landkod','partyCountry',doc?.partyCountry||'SE','text','maxlength="2"')+field('Säljarens postnummer','sellerPostalCode',doc?.sellerPostalCode||'')+field('Säljarens ort','sellerCity',doc?.sellerCity||'')+field('Säljarens landkod','sellerCountry',doc?.sellerCountry||'SE','text','maxlength="2"')+select('Säljarens bolagsform','sellerLegalForm',[['','Välj bolagsform'],['AB','Aktiebolag'],['sole-trader','Enskild näringsverksamhet'],['other','Annan bolagsform']],doc?.sellerLegalForm||'')+field('Styrelsens sätesort (AB)','sellerRegisteredOffice',doc?.sellerRegisteredOffice||'')+`<label class="fx-full fx-check"><input name="sellerInLiquidation" type="checkbox" ${doc?.sellerInLiquidation?'checked':''}>Aktiebolaget är under likvidation.</label>`+select('Leverans / utförande','performanceMode',[['invoice-date','Samma dag som fakturan'],['date','Annan dag'],['period','Utförandeperiod']],performance?.mode||'invoice-date')+field('Utförandedatum','performanceDate',performance?.date||date,'date')+field('Period från','performanceFrom',performance?.from||date,'date')+field('Period till','performanceTo',performance?.to||date,'date')+`<label class="fx-full fx-check"><input name="performanceConfirmed" type="checkbox" ${performance?.confirmed?'checked':''}>Jag bekräftar leverans-/utförandedatum eller period för kundfakturan.</label>`+select('Momsundantag för samtliga eventuella 0 %-kundrader','vatExemptionCode',[['','Välj rättslig grund vid 0 %'],...VAT_EXEMPTION_REASONS.map(reason=>[reason.code,reason.label])],exemption?.code||'')+field('Bedömning och underlag för momsundantaget','vatExemptionLegalBasis',exemption?.legalBasis||'','text','maxlength="500"')+`<label class="fx-full fx-check"><input name="vatExemptionConfirmed" type="checkbox" ${exemption?.confirmed?'checked':''}>Jag har granskat villkoren för det svenska momsundantaget. Det gäller samtliga 0 %-rader.</label>`;
+}
+const performanceInput=data=>({mode:data.performanceMode||'invoice-date',confirmed:data.performanceConfirmed==='on',date:data.performanceDate||'',from:data.performanceFrom||'',to:data.performanceTo||''});
+const exemptionInput=data=>({code:data.vatExemptionCode||'',legalBasis:data.vatExemptionLegalBasis||'',confirmed:data.vatExemptionConfirmed==='on'});
 function creation(state) {
   const date = safeDate(state);
   return form('create',select('Kund- eller leverantörsfaktura','side',[['customer','Kundfaktura'],['supplier','Leverantörsfaktura']],'customer')+
@@ -17,18 +25,18 @@ function creation(state) {
     field('Fakturadatum','date',date,'date','required')+field('Förfallodatum','dueDate',date,'date','required')+
     field('Motpartens namn','partyName','','text','required maxlength="150"')+field('Motpartens adress','partyAddress','','text','required maxlength="500"')+
     field('Säljarens namn (för leverantörsfaktura: leverantören)','sellerName',state.company.name,'text','required maxlength="150"')+
-    field('Säljarens adress','sellerAddress','','text','required maxlength="500"')+field('Säljarens organisationsnummer','sellerOrgNumber',state.company.orgNumber,'text','required maxlength="50"')+
-    field('Säljarens momsnummer','sellerVatNumber','','text','maxlength="50"')+field('Betalningsuppgifter och referens','paymentReference','','text','required maxlength="200"')+
+    field('Säljarens adress','sellerAddress',state.company.address||'','text','required maxlength="500"')+field('Säljarens organisationsnummer','sellerOrgNumber',state.company.orgNumber,'text','required maxlength="50"')+
+    field('Säljarens momsnummer','sellerVatNumber',state.company.vatNumber||'','text','maxlength="50"')+field('Betalningsuppgifter och referens','paymentReference','','text','required maxlength="200"')+
     field('Kurs: SEK per 1 EUR/USD','rate','11,00','text','inputmode="decimal" required')+field('Kurskälla och underlagsreferens','rateSource','','text','required maxlength="200"')+
     select('Momsbedömning','taxTreatment',[['domestic','Svensk moms (granskad svensk affär)'],['no-vat','Ingen moms (ange motivering)']],'domestic')+
-    field('Motivering till ingen moms','taxReason','','text','maxlength="300"')+
+    field('Motivering till ingen moms','taxReason','','text','maxlength="300"')+customerRequirements({sellerPostalCode:state.company.postalCode,sellerCity:state.company.city,sellerCountry:state.company.country,sellerLegalForm:state.company.legalForm,sellerRegisteredOffice:state.company.registeredOffice,sellerInLiquidation:state.company.inLiquidation},date)+
     '<label class="fx-full">Fakturarader – en per rad: beskrivning; nettobelopp i valuta; momssats; kostnadskonto<textarea name="lines" rows="4" required placeholder="Konsultarbete; 100,00; 25; 6540"></textarea></label><p class="fx-full muted">Kundrader bokförs på 3000. För leverantörsrader kan 4010, 5010, 5410, 5460, 6110, 6540, 6570 eller 6991 anges. Blandade momssatser är tillåtna. Fritext och radbelopp följer med på utskriften.</p>'+
     '<label class="fx-full fx-check"><input type="checkbox" name="reviewed" required> Jag har granskat att vald svensk moms/ingen moms är rätt och att kursen avser fakturadatum. EU-/exportregler, omvänd moms och ROT i valuta hanteras inte här.</label>', 'Spara valutautkast');
 }
 function editForm(doc) {
   const common=['number','partyName','partyAddress','sellerName','sellerAddress','sellerOrgNumber','sellerVatNumber','paymentReference','taxReason'];
   const names={number:'Fakturanummer',partyName:'Motpartens namn',partyAddress:'Motpartens adress',sellerName:'Säljarens namn',sellerAddress:'Säljarens adress',sellerOrgNumber:'Organisationsnummer',sellerVatNumber:'Momsnummer',paymentReference:'Betalningsuppgifter',taxReason:'Motivering till ingen moms'};
-  return form('edit',hidden(doc.id)+field('Fakturadatum','date',doc.date,'date','required')+field('Förfallodatum','dueDate',doc.dueDate,'date','required')+common.map(key=>field(names[key],key,doc[key])).join('')+field('Kurs SEK per valutaenhet','rate',formatFxRate(doc.rate),'text','required')+field('Kurskälla','rateSource',doc.rate.source,'text','required')+select('Momsbehandling','taxTreatment',[['domestic','Svensk moms'],['no-vat','Ingen moms']],doc.taxTreatment)+`<label class="fx-full">Rader: beskrivning; nettobelopp i valuta; moms; konto<textarea name="lines" rows="4" required>${e(doc.lines.map(line=>[line.description,(line.foreignNetMinor/100).toFixed(2),line.vatRate,line.account].join('; ')).join('\n'))}</textarea></label><label class="fx-full fx-check"><input type="checkbox" name="reviewed" required> Jag har granskat uppgifterna och kursen.</label>`,'Spara ändrat valutautkast');
+  return form('edit',hidden(doc.id)+field('Fakturadatum','date',doc.date,'date','required')+field('Förfallodatum','dueDate',doc.dueDate,'date','required')+common.map(key=>field(names[key],key,doc[key])).join('')+field('Kurs SEK per valutaenhet','rate',formatFxRate(doc.rate),'text','required')+field('Kurskälla','rateSource',doc.rate.source,'text','required')+select('Momsbehandling','taxTreatment',[['domestic','Svensk moms'],['no-vat','Ingen moms']],doc.taxTreatment)+customerRequirements(doc,doc.date)+`<label class="fx-full">Rader: beskrivning; nettobelopp i valuta; moms; konto<textarea name="lines" rows="4" required>${e(doc.lines.map(line=>[line.description,(line.foreignNetMinor/100).toFixed(2),line.vatRate,line.account].join('; ')).join('\n'))}</textarea></label><label class="fx-full fx-check"><input type="checkbox" name="reviewed" required> Jag har granskat uppgifterna och kursen.</label>`,'Spara ändrat valutautkast');
 }
 function documentPanel(state,doc) {
   const pos=getFxPosition(state,doc.id), date=safeDate(state), eventList=(state.fxEvents??[]).filter(event=>event.documentId===doc.id), paid=pos.foreignBalanceMinor===0;
@@ -55,8 +63,8 @@ function parseLines(value) {
   });
 }
 export function handleAction(state,action,data) {
-  if(action==='create')return createFxDocument(state,{...data,taxReviewed:data.reviewed==='on',lines:parseLines(data.lines)});
-  if(action==='edit')return updateFxDraft(state,data.id,{...data,taxReviewed:data.reviewed==='on',lines:parseLines(data.lines)});
+  if(action==='create')return createFxDocument(state,{...data,taxReviewed:data.reviewed==='on',sellerInLiquidation:data.sellerInLiquidation===true||data.sellerInLiquidation==='on',performance:performanceInput(data),vatExemption:exemptionInput(data),lines:parseLines(data.lines)});
+  if(action==='edit')return updateFxDraft(state,data.id,{...data,taxReviewed:data.reviewed==='on',sellerInLiquidation:data.sellerInLiquidation===true||data.sellerInLiquidation==='on',performance:performanceInput(data),vatExemption:exemptionInput(data),lines:parseLines(data.lines)});
   if(action==='remove-draft')return removeFxDraft(state,data.id);
   if(action==='issue')return issueFxDocument(state,data.id);
   if(action==='pay'||action==='refund')return settleFxDocument(state,data.id,{date:data.date,foreignMinor:toCents(data.foreignAmount),bankCents:toCents(data.bankAmount),feeCents:toCents(data.feeAmount),reference:data.reference,refund:action==='refund',bankEventId:data.existingBankId||null});

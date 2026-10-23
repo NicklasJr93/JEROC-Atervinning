@@ -10,7 +10,15 @@ Här samlas designförslag för ett **fristående bokföringsprogram med egen we
 
 Granskningen tillför **1 798 nya auditfall**. Tillsammans med **455 befintliga tester** är **2 253 tester godkända**. **13 fynd har rättats eller fått skyddsspärrar**, bland annat inom återläsning, ROT, semester, kreditnotor, moms och deklarationsfiler. Rapporten och den fullständiga testlistan publiceras tillsammans med versionen: [granskningsrapport för redovisare (PDF)](../public/bokforing/granskning/granskningsrapport-2026-10-23.pdf) och [testresultat (CSV)](../public/bokforing/granskning/testresultat-2026-10-23.csv).
 
-Godkända tester är ingen garanti för full regelefterlevnad eller ett myndighetsgodkännande. Före skarp användning återstår bland annat fullständiga obligatoriska fakturauppgifter, beständig arkivering med verifierat innehållsbevarande, identifierade användare, behörigheter och bolagsisolering. Automatisk hantering av årsgränsen **1 000 kr för arbetsgivaravgifter** saknas också. En redovisare behöver bedöma dessa luckor och reglernas tillämpning på de verkliga affärerna.
+Ovanstående resultat avser den första granskningen. Uppföljningen nedan rättar de då identifierade funktionsluckorna. Godkända tester är ingen garanti för full regelefterlevnad eller ett myndighetsgodkännande; en redovisare behöver bedöma tillämpningen på de verkliga affärerna.
+
+### Åtgärder efter granskningen
+
+Nya kundfakturor i de ordinarie flödena, valuta- och kontantmetodsflödena kontrolleras före utfärdande: fullständiga parter och adresser, relevanta momsnummer, aktiebolagsuppgifter och uttryckligt bekräftat utförandedatum eller period. Kopior måste granskas på nytt; sparade original ändras inte. Förskott och framtida prestationer stoppas tills ett korrekt separat flöde finns.
+
+Momsfria försäljningsrader kräver ett stött, uttryckligt undantag med dokumenterad bedömning och går till ruta 42. Äldre oklassade underlag behåller sin historik och stoppar fastställande och XML-export. Lönen hanterar årsgränsen **1 000 kr för arbetsgivaravgifter**, tidigare avgiftsfri ersättning vid gränspassage, relevanta AGI-fält samt spårbara årsavstämningar efter återkrav. [Regler och arbetsgång för lönegränsen](lon-arsgrans-2026.md).
+
+[Den korta åtgärdsrapporten (PDF)](../public/bokforing/granskning/atgardsrapport-2026-10-23.pdf) och [det nya testprotokollet (CSV)](../public/bokforing/granskning/atgarder/testresultat-2026-10-23.csv) kompletterar den ursprungliga rapporten. Serverlagring, identifierade användare, bolagsisolering och hållbar arkivering kvarstår i den senare driftetappen. Alla bransch-, löne- och skattesärregler omfattas ännu inte.
 
 ### Den senaste utbyggnaden
 

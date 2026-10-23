@@ -6,7 +6,7 @@ import { closeYear, fileVatPeriod, lockPeriod } from '../public/bokforing/suite/
 import { openNextYear } from '../public/bokforing/suite/financial-years.js';
 import { validateSuiteState } from '../public/bokforing/suite/validate.js';
 import { handleAction } from '../public/bokforing/suite/fx-workspace.js';
-const base={side:'customer',currency:'EUR',number:'FX-1',date:'2026-10-01',dueDate:'2026-10-31',partyName:'Exempelkund',partyAddress:'Kundgatan 1',sellerName:'Exempel AB',sellerAddress:'Säljgatan 2',sellerOrgNumber:'DEMO',sellerVatNumber:'SE-DEMO',paymentReference:'Referens FX-1',taxTreatment:'domestic',taxReviewed:true,rate:'11,00',rateSource:'Dokumenterad manuell kurs',lines:[{description:'Tjänst',foreignNetMinor:8000,vatRate:25,account:'4010'}]};
+const base={side:'customer',currency:'EUR',number:'FX-1',date:'2026-10-01',dueDate:'2026-10-31',partyName:'Exempelkund',partyAddress:'Kundgatan 1',sellerName:'Exempel AB',sellerAddress:'Säljgatan 2',sellerOrgNumber:'559900-1236',sellerVatNumber:'SE559900123601',sellerPostalCode:'111 22',sellerCity:'Demostaden',sellerCountry:'SE',partyPostalCode:'111 22',partyCity:'Demostaden',partyCountry:'SE',performance:{mode:'invoice-date',confirmed:true},paymentReference:'Referens FX-1',taxTreatment:'domestic',taxReviewed:true,rate:'11,00',rateSource:'Dokumenterad manuell kurs',lines:[{description:'Tjänst',foreignNetMinor:8000,vatRate:25,account:'4010'}]};
 function fixture(overrides={}) { let state=createFxDocument(createEmptyState(),{...base,...overrides});const id=state.fxDocuments[0].id;state=issueFxDocument(state,id);return{state,id}; }
 const verify=state=>{validateState(state);validateSuiteState(state);const checks=validateFxState(state);assert.equal(accountBalance(state,'1510'),checks.receivableAdjustmentCents);assert.equal(accountBalance(state,'2440'),(-checks.payableAdjustmentCents)||0);return state;};
 const pay=(state,id,foreignMinor,bankCents,reference='BET-1',extra={})=>settleFxDocument(state,id,{date:'2026-10-10',foreignMinor,bankCents,reference,...extra});
@@ -96,7 +96,7 @@ test('period locks, missing review, unsupported foreign VAT and tampered origina
  for(const mutation of [s=>s.fxDocuments[0].grossCents++,s=>s.fxEvents[0].reference='Ändrat',s=>s.entries[0].rows[0].debitCents++]){const bad=structuredClone(state);mutation(bad);assert.throws(()=>validateFxState(bad));}
 });
 test('a printed foreign invoice shows currency and frozen SEK VAT, escapes content, and workspace actions use real engine operations',()=>{
- let state=handleAction(createEmptyState(),'create',{...base,reviewed:'on',lines:'Arbete; 80,00; 25; 4010'});const id=state.fxDocuments[0].id;
+ let state=handleAction(createEmptyState(),'create',{...base,reviewed:'on',performanceConfirmed:'on',lines:'Arbete; 80,00; 25; 4010'});const id=state.fxDocuments[0].id;
  state=handleAction(state,'issue',{id});const html=fxInvoiceHtml(state,id);
  assert.match(html,/EUR/);assert.match(html,/220\.00 SEK/);assert.match(html,/11/);
  const custom=structuredClone(state);custom.fxDocuments[0].partyName='<script>alert(1)</script>';const out=fxInvoiceHtml(custom,id);assert.ok(!out.includes('<script>'));assert.match(out,/&lt;script&gt;/);

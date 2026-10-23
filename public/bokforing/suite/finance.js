@@ -9,6 +9,7 @@ import { getCashClosingIssues } from './cash-method.js';
 import { getFxClosingIssues } from './fx.js';
 import { getRotCreditState, getRotCreditClosingIssues } from './rot-credit.js';
 import { assertLegacyPayrollPaymentMonth } from './payroll-engine.js';
+import { getTaxDeclarationReport } from './tax-ledger.js';
 
 const copy = value => structuredClone(value);
 const debit = (account, value) => ({ account, debitCents: value, creditCents: 0 });
@@ -288,6 +289,8 @@ export function fileVatPeriod(state, { from, to, date }) {
     assert(!draft.vatReturns.some(item => item.from <= to && item.to >= from), 'Perioden överlappar redan fastställd moms.');
     const unfinished = [...draft.invoices, ...draft.bills].some(item => item.status === 'draft' && item.date >= from && item.date <= to);
     assert(!unfinished, 'Granska fakturautkast i momsperioden innan underlaget fastställs.');
+    const declaration = getTaxDeclarationReport(draft, { from, to });
+    assert(declaration.warnings.length === 0, 'Momsunderlaget har oklassificerade eller ofullständiga poster. Utred granskningsvarningarna innan perioden fastställs.');
     const record = { id: nextId(draft, 'vat'), from, to, date, outputCents: report.outputCents, inputCents: report.inputCents,
       payableCents: report.payableCents, status: 'filed', entryId: null, settlementEntryIds: [], evidenceEntryIds: report.entries.map(entry => entry.id), balances: copy(report.balances) };
     const rows = [...outputAccounts, ...inputAccounts].flatMap(account => report.balances[account] > 0 ? [credit(account, report.balances[account])] : report.balances[account] < 0 ? [debit(account, -report.balances[account])] : []);
@@ -427,6 +430,13 @@ export function updateCompany(state, payload) {
     checkUnclosed(draft);
     if (payload.name !== undefined) draft.company.name = label(payload.name, 'Företagsnamn');
     if (payload.orgNumber !== undefined) draft.company.orgNumber = label(payload.orgNumber, 'Organisationsnummer');
+    for (const key of ['address','address2','postalCode','city','country','vatNumber']) if (payload[key] !== undefined) {
+      assert(typeof payload[key] === 'string' && payload[key].length <= 300, 'Företagets adress- eller momsuppgift är ogiltig.');
+      draft.company[key] = payload[key].trim();
+    }
+    if (payload.legalForm !== undefined) { assert(['AB','sole-trader','other'].includes(payload.legalForm), 'Välj bolagsform.'); draft.company.legalForm = payload.legalForm; }
+    if (payload.registeredOffice !== undefined) { assert(typeof payload.registeredOffice === 'string' && payload.registeredOffice.length <= 150, 'Styrelsens sätesort är ogiltig.'); draft.company.registeredOffice = payload.registeredOffice.trim(); }
+    if (payload.inLiquidation !== undefined) { assert(typeof payload.inLiquidation === 'boolean', 'Ange om bolaget är under likvidation.'); draft.company.inLiquidation = payload.inLiquidation; }
     if (payload.method !== undefined) { assert(payload.method === draft.company.method, 'Metoden kan inte bytas på befintlig bokföring. Starta ett nytt övningsbolag för att välja kontantmetoden.'); }
     if (payload.vatPeriod !== undefined) { assert(['month', 'quarter', 'year'].includes(payload.vatPeriod), 'Välj månad, kvartal eller år för moms.'); assert(!draft.vatReturns.length || payload.vatPeriod === draft.company.vatPeriod, 'Momsperioden kan inte ändras efter fastställt underlag.'); draft.company.vatPeriod = payload.vatPeriod; }
     for (const key of ['fiscalYearStart', 'fiscalYearEnd']) if (payload[key] !== undefined) {

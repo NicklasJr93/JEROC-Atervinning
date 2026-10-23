@@ -1,12 +1,9 @@
+import { createCustomer, createEmptyState, createInvoice, invoiceFromQuote } from './fixtures/bokforing-compliant-invoices.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEmptyState, validateState, accountBalance } from '../public/bokforing/suite/core.js';
+import { validateState, accountBalance } from '../public/bokforing/suite/core.js';
 import { calculateRot, calculateLineAmounts } from '../public/bokforing/suite/rot.js';
-import {
-  createCustomer, createProject, recordProjectItem, createQuote, acceptQuote, invoiceFromQuote,
-  createInvoice, updateInvoiceDraft, issueInvoice, creditInvoice, receivePayment, recordReminder,
-  requestRot, decideRot, getInvoiceTotals, getInvoiceOutstanding,
-} from '../public/bokforing/suite/sales.js';
+import { createProject, recordProjectItem, createQuote, acceptQuote, updateInvoiceDraft, issueInvoice, creditInvoice, receivePayment, recordReminder, requestRot, decideRot, getInvoiceTotals, getInvoiceOutstanding } from '../public/bokforing/suite/sales.js';
 
 const line = (kind = 'labor', unitCents = 100_000, quantity = 1, vatRate = 25) => ({ description: kind, kind, quantity, unitCents, vatRate });
 const base = () => createCustomer(createEmptyState(), { name: 'Fiktiv kund', email: 'demo@example.test' });

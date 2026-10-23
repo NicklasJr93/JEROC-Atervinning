@@ -6,10 +6,10 @@ import { calculateLineAmounts, calculateRot } from '../public/bokforing/suite/ro
 import { copyInvoice, createCustomer, createInvoice, creditInvoice, getInvoiceTotals, invoiceBookingSnapshot, issueInvoice, receivePayment, updateInvoiceDraft } from '../public/bokforing/suite/sales.js';
 import { validateSuiteState } from '../public/bokforing/suite/validate.js';
 
-const base = () => createCustomer(createEmptyState(), { name: 'Testkund', email: 'kund@example.test', address: 'Kundgatan 1' });
+const base = () => createCustomer(createEmptyState(), { name: 'Testkund', email: 'kund@example.test', address: 'Kundgatan 1', postalCode:'12345',city:'Teststad',country:'SE',vatNumber:'SE559999998301' });
 const line = overrides => ({ description: 'Arbete', kind: 'labor', quantity: 1, unitCents: 10000, vatRate: 25, ...overrides });
 function draft(payload = {}, state = base()) {
-  return createInvoice(state, { customerId: state.customers[0].id, date: '2026-10-23', dueDate: '2026-11-22', lines: [line()], ...payload });
+  return createInvoice(state, { customerId: state.customers[0].id, date: '2026-10-23', dueDate: '2026-11-22', lines: [line()], ...payload, details:{...payload.details,performance:payload.details?.performance??{mode:'invoice-date',confirmed:true}} });
 }
 const last = state => state.invoices.at(-1);
 const issue = state => issueInvoice(state, last(state).id);
@@ -87,7 +87,7 @@ test('one invoice price basis is inferred, checked and preserved on restoration'
 });
 
 test('mixed VAT discounts and untaxed discount exclusion for fees post correct journals', () => {
-  const lines = [[25,12500],[12,11200],[6,10600],[0,10000]].map(([vatRate,unitCents]) => line({ vatRate, unitCents, discountBps: 1000, unitPriceIncludesVat: true }));
+  const lines = [[25,12500],[12,11200],[6,10600],[0,10000]].map(([vatRate,unitCents]) => line({ vatRate, unitCents, discountBps: 1000, unitPriceIncludesVat: true, ...(vatRate===0?{vatExemption:{code:'healthcare',legalBasis:'Granskat vårdfall enligt 10 kap. ML',confirmed:true}}:{}) }));
   lines.push(line({ description: 'Frakt', kind: 'other', unitCents: 1250, unitPriceIncludesVat: true, chargeType: 'freight', rotEligible: false }));
   const state = issue(draft({ lines, invoiceDiscountBps: 1000 }));
   assert.deepEqual(getInvoiceTotals(last(state)), { netCents: 33400, vatCents: 3733, grossCents: 37133, rotCents: 0, customerCents: 37133 });

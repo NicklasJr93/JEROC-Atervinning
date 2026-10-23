@@ -1,3 +1,4 @@
+import { postTaxTransaction } from '../public/bokforing/suite/tax-ledger.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { accountBalance, appendEntry, createEmptyState, transact, validateState } from '../public/bokforing/suite/core.js';
@@ -18,7 +19,7 @@ function employeeState() {
   return createEmployee(opened(), { name: 'Åke', payType: 'monthly', baseCents: 3_200_000, withholdingCents: 750_000, employerRateBps: 3142 });
 }
 function saleState() {
-  return transact(opened(), state => appendEntry(state, { date: '2026-03-15', description: 'Försäljning', sourceType: 'test-sale', sourceId: 'sale', rows: [debit('1930', 1_250_000), credit('3000', 1_000_000), credit('2611', 250_000)] }));
+  return postTaxTransaction(opened(), {kind:'domestic-sale',date:'2026-03-15',reference:'sale',counterparty:'Fiktiv testkund',country:'SE',netCents:1_000_000,vatRate:25,conditionsConfirmed:true});
 }
 const journalUnchanged = (state, fn, pattern) => { const original = JSON.stringify(state); assert.throws(fn, pattern); assert.equal(JSON.stringify(state), original); };
 
@@ -142,14 +143,14 @@ test('momsunderlag omför rätt konton och betalning går via skattekontot en g�
   assert.equal(accountBalance(state, '2611'), 0); assert.equal(accountBalance(state, '2650'), -250_000);
   assert.equal(getVatReport(state, range).outputCents, 250_000, 'omföring ska inte nolla rapportens bevisbelopp');
   journalUnchanged(state, () => fileVatPeriod(state, range), /överlappar/);
-  const bank = accountBalance(state, '1930'); state = settleVat(state, id, { date: '2026-04-12' });
+  const bank = accountBalance(state, '1930'), eventsBefore = state.bankTransactions.length; state = settleVat(state, id, { date: '2026-04-12' });
   assert.equal(accountBalance(state, '2650'), 0); assert.equal(accountBalance(state, '1630'), 0); assert.equal(accountBalance(state, '1930'), bank - 250_000);
-  assert.equal(state.bankTransactions.length, 3); assert.equal(getReports(state).balanced, true);
+  assert.equal(state.bankTransactions.length, eventsBefore + 3); assert.equal(getReports(state).balanced, true);
   journalUnchanged(state, () => settleVat(state, id, { date: '2026-04-13' }), /redan/);
 });
 
 test('momsåterbetalning har omvända sidor och ökar bank utan resultatpåverkan', () => {
-  let state = transact(opened(), draft => appendEntry(draft, { date: '2026-02-01', description: 'Inköp', sourceType: 'test-vat-buy', sourceId: '1', rows: [debit('4010', 100_000), debit('2641', 25_000), credit('1930', 125_000)] }));
+  let state = postTaxTransaction(opened(), {kind:'domestic-purchase',date:'2026-02-01',reference:'test-vat-buy',counterparty:'Fiktiv leverantör',country:'SE',netCents:100_000,vatRate:25,deductibleBps:10000,account:'4010',conditionsConfirmed:true});
   state = fileVatPeriod(state, { from: '2026-01-01', to: '2026-03-31', date: '2026-03-31' }); const id = state.vatReturns[0].id;
   assert.equal(accountBalance(state, '2650'), 25_000); const bank = accountBalance(state, '1930'); const result = getReports(state).resultCents;
   state = settleVat(state, id, { date: '2026-04-12' }); assert.equal(accountBalance(state, '1930'), bank + 25_000); assert.equal(accountBalance(state, '2650'), 0);

@@ -1,7 +1,8 @@
+import { createCustomer, createEmptyState, createInvoice } from './fixtures/bokforing-compliant-invoices.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { accountBalance, appendEntry, createEmptyState, transact } from '../public/bokforing/suite/core.js';
-import { createCustomer, createInvoice, issueInvoice, receivePayment } from '../public/bokforing/suite/sales.js';
+import { accountBalance, appendEntry, transact } from '../public/bokforing/suite/core.js';
+import { issueInvoice, receivePayment } from '../public/bokforing/suite/sales.js';
 import { bookBill, createBill, payBill, postManualEntry } from '../public/bokforing/suite/operations.js';
 import { closeYear, createAsset, createEmployee, createPayrollRun, depreciateAsset, fileVatPeriod, getReports, lockPeriod, payPayroll, postPayroll, settlePayrollTaxes, updateCompany } from '../public/bokforing/suite/finance.js';
 import { createAccrual, postAccrualMonth } from '../public/bokforing/suite/periodization.js';

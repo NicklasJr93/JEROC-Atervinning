@@ -1,7 +1,8 @@
+import { createEmptyState, createInvoice, invoiceTestParty } from './fixtures/bokforing-compliant-invoices.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendEntry, accountBalance, createEmptyState, transact } from '../public/bokforing/suite/core.js';
-import { createInvoice, issueInvoice, receivePayment, getInvoiceOutstanding } from '../public/bokforing/suite/sales.js';
+import { appendEntry, accountBalance, transact } from '../public/bokforing/suite/core.js';
+import { issueInvoice, receivePayment, getInvoiceOutstanding } from '../public/bokforing/suite/sales.js';
 import { createBill, bookBill } from '../public/bokforing/suite/operations.js';
 import { createCreditNote } from '../public/bokforing/suite/settlements.js';
 import { validateSuiteState } from '../public/bokforing/suite/validate.js';
@@ -11,7 +12,7 @@ import { handleAction as taxAction } from '../public/bokforing/suite/tax-workspa
 
 function open() {
   return transact(createEmptyState(), state => {
-    state.customers.push({ id: 'person', name: 'Testkund', email: '', address: '' });
+    state.customers.push({ id: 'person', name: 'Testkund', email: '', ...invoiceTestParty });
     appendEntry(state, { date: '2026-01-01', description: 'Ingående balans', sourceType: 'opening', sourceId: 'opening', rows: [{ account: '1930', debitCents: 100_000_000, creditCents: 0 }, { account: '2081', debitCents: 0, creditCents: 100_000_000 }] });
   });
 }

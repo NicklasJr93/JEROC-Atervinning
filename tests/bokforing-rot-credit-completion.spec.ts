@@ -6,7 +6,7 @@ async function seed(page:Page,mode:'rot'|'revenue'){
  await page.evaluate(async ({key,mode})=>{
   const core=await import('/bokforing/suite/core.js' as string),sales=await import('/bokforing/suite/sales.js' as string),commercial=await import('/bokforing/suite/commercial.js' as string);
   let s=sales.createCustomer(core.createEmptyState(),{name:'Granskningskund'});
-  s=sales.createInvoice(s,{customerId:s.customers[0].id,date:'2026-10-01',dueDate:'2026-10-31',lines:[{description:'Avtalsarbete',kind:'labor',quantity:1,unitCents:100000,vatRate:25}],...(mode==='rot'?{rot:{personId:'DEMO-A',property:'DEMO 1:1',paymentYear:2026,availableCents:5000000,eligibleConfirmed:true}}:{})});s=sales.issueInvoice(s,s.invoices[0].id);
+  s=sales.createInvoice(s,{details:{performance:{mode:'invoice-date',confirmed:true}},customerId:s.customers[0].id,date:'2026-10-01',dueDate:'2026-10-31',lines:[{description:'Avtalsarbete',kind:'labor',quantity:1,unitCents:100000,vatRate:25}],...(mode==='rot'?{rot:{personId:'DEMO-A',property:'DEMO 1:1',paymentYear:2026,availableCents:5000000,eligibleConfirmed:true}}:{})});s=sales.issueInvoice(s,s.invoices[0].id);
   if(mode==='revenue'){s=commercial.createRevenueSchedule(s,{invoiceId:s.invoices[0].id,name:'Fyra månader',date:'2026-10-01',startMonth:'2026-10',months:4,amountCents:100000});s=commercial.recognizeRevenueMonth(s,s.revenueSchedules[0].id,{date:'2026-10-02'});}
   localStorage.setItem(key,JSON.stringify(s));
  },{key,mode});

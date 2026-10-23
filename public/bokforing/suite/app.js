@@ -188,11 +188,11 @@ async function action(name,id,el){
   const container=document.querySelector('#invoice-page-lines');if(!container)return;
   const includesVat=document.querySelector('#invoice-page-form [name="pricesIncludeVat"]')?.checked||false;
   const rotEnabled=document.querySelector('#invoice-page-form [name="rotEnabled"]')?.checked||false;
-  container.insertAdjacentHTML('beforeend',createInvoiceLineHTML({description:'',kind:'labor',quantity:1,unitCents:0,vatRate:25,unit:'tim',articleNumber:'',discountBps:0,unitPriceIncludesVat:includesVat,rotEligible:true},container.querySelectorAll('[data-invoice-line]').length,{includesVat,rotEnabled}));
+  container.insertAdjacentHTML('beforeend',createInvoiceLineHTML({description:'',kind:'labor',quantity:1,unitCents:0,vatRate:25,unit:'tim',articleNumber:'',discountBps:0,unitPriceIncludesVat:includesVat,rotEligible:true},container.querySelectorAll('[data-invoice-line]').length,{includesVat,rotEnabled,vatMode:document.querySelector('#invoice-page-form [name="vatMode"]')?.value}));
   refreshInvoiceSummary();return;
  }
- case 'remove-invoice-line':el.closest('[data-invoice-line]')?.remove();refreshInvoiceSummary();return;
- case 'new-customer':openDialog('Ny kund','customer',`${field('Namn','name','','text','required maxlength="200"')}${field('E-post','email','','email','maxlength="250"')}${field('Adress','address','','text','maxlength="300"')}`);return;
+ case 'remove-invoice-line':{const row=el.closest('[data-invoice-line]');if(row?.nextElementSibling?.matches('[data-vat-exemption-row]'))row.nextElementSibling.remove();row?.remove();refreshInvoiceSummary();return;}
+ case 'new-customer':openDialog('Ny kund','customer',`${field('Namn','name','','text','required maxlength="200"')}${field('E-post','email','','email','maxlength="250"')}${field('Adress','address','','text','maxlength="300"')}${field('Postnummer','postalCode','','text','maxlength="30"')}${field('Ort','city','','text','maxlength="150"')}${field('Momsregistreringsnummer','vatNumber','','text','maxlength="40"')}`);return;
  case 'new-project':openDialog('Nytt projekt','project',`${field('Projektnamn','name','','text','required maxlength="200"')}${select('Kund','customerId',customerOptions())}${moneyField('Budget exkl. moms','budgetCents',0)}`);return;
  case 'project-item':openDialog('Registrera tid eller material','project-item',`<input type="hidden" name="projectId" value="${e(id)}">${select('Typ','kind',[['labor','Arbete'],['material','Material'],['other','Övrigt']])}${field('Beskrivning','description','','text','required maxlength="300"')}<div class="form-grid">${field('Antal (timmar / stycken)','quantity',1,'text','required inputmode="decimal"')}${moneyField('À-pris exkl. moms','unitCents',55000)}</div>`);return;
  case 'new-quote':{const p=selected(id,state.projects);openDialog('Skapa offert','quote',`<input type="hidden" name="projectId" value="${e(id)}">${select('Kund','customerId',customerOptions(),p?.customerId||'')}<div class="form-grid">${dateField()}${dateField('validUntil','Giltig till','2026-11-22')}</div>${lineEditor(p?.items.length?p.items.map(x=>({...x,vatRate:25})):[{description:'Snickeriarbete',kind:'labor',quantity:1,unitCents:55000,vatRate:25}])}`,'Spara offert');return;}
@@ -230,7 +230,7 @@ async function action(name,id,el){
  case 'lock-period':confirmAction(name,id,'Stäm av och lås '+id,'Alla kontohändelser och utkast i perioden måste vara hanterade. Nya bokningar i den låsta månaden stoppas.',{checkbox:'Jag har granskat periodens avstämningar',submit:'Lås perioden'});return;
  case 'unlock-period':confirmAction(name,id,'Öppna perioden '+id,'Öppningen kräver en orsak och sparas i behandlingshistoriken.',{reason:true,submit:'Öppna perioden'});return;
  case 'close-year':openDialog('Bokför årets resultat','close-year',`${dateField('date','Bokslutsdatum',state.company.fiscalYearEnd)}${check('Jag har granskat samtliga avstämningar och bokslutsunderlaget','confirmed',false,'required')}${help('Alla kontroller måste vara klara. Resultatet bokförs och ingående balanser för nästa år förbereds som arbetsmaterial.')}`,'Bokför årsresultat');return;
- case 'edit-company':openDialog('Företagsuppgifter','company',`${field('Företagsnamn','name',state.company.name,'text','required maxlength="200"')}${field('Organisationsnummer (demo)','orgNumber',state.company.orgNumber,'text','required maxlength="50"')}${select('Momsperiod','vatPeriod',[['quarter','Kvartal'],['month','Månad']],state.company.vatPeriod)}${help('Redovisningsvalutan är SEK. Räkenskapsår och metod ändras inte på befintlig bokföring. Starta en separat kontantövning i Kontantmetoden om du vill byta metod.')}`);return;
+ case 'edit-company':openDialog('Företagsuppgifter','company',`${field('Företagsnamn','name',state.company.name,'text','required maxlength="200"')}${field('Organisationsnummer (demo)','orgNumber',state.company.orgNumber,'text','required maxlength="50"')}${select('Bolagsform','legalForm',[['','Välj bolagsform'],['AB','Aktiebolag'],['sole-trader','Enskild näringsverksamhet'],['other','Annan företagsform']],state.company.legalForm||'')}${field('Styrelsens sätesort (aktiebolag)','registeredOffice',state.company.registeredOffice||'','text','maxlength="150"')}${check('Aktiebolaget är under likvidation','inLiquidation',state.company.inLiquidation===true)}${field('Företagets adress','address',state.company.address||'','text','maxlength="300"')}${field('Postnummer','postalCode',state.company.postalCode||'','text','maxlength="30"')}${field('Ort','city',state.company.city||'','text','maxlength="150"')}${field('Momsregistreringsnummer','vatNumber',state.company.vatNumber||'','text','maxlength="40"')}<input type="hidden" name="country" value="SE">${help('Fiktiva exempeluppgifter. Momsnumrets format kontrolleras vid utfärdande; ingen registerkontroll görs.')}${select('Momsperiod','vatPeriod',[['quarter','Kvartal'],['month','Månad']],state.company.vatPeriod)}${help('Redovisningsvalutan är SEK. Räkenskapsår och metod ändras inte på befintlig bokföring. Starta en separat kontantövning i Kontantmetoden om du vill byta metod.')}`);return;
  case 'export-ledger':exportLedger();return;
  case 'export-reports':exportReports();return;
  case 'export-review':exportReview();return;
@@ -257,7 +257,7 @@ async function submit(form){
   message='Fakturautkastet är sparat.';
   after=s=>{invoiceDirty=false;invoiceDraft=null;invoiceDraftRoute='';navigate(invoiceLocation(invoiceId||s.invoices.at(-1).id));};break;
  }
- case 'customer':transition=s=>Sales.createCustomer(s,{name:get('name'),email:get('email'),address:get('address')});message='Kunden är sparad.';break;
+ case 'customer':transition=s=>Sales.createCustomer(s,{name:get('name'),email:get('email'),address:get('address'),postalCode:get('postalCode'),city:get('city'),vatNumber:get('vatNumber'),country:'SE'});message='Kunden är sparad.';break;
  case 'project':transition=s=>Sales.createProject(s,{name:get('name'),customerId:get('customerId'),budgetCents:amount('budgetCents')});after=s=>{ui.projectId=s.projects.at(-1).id;};break;
  case 'project-item':{const quantity=Number(get('quantity').replace(',','.'));transition=s=>Sales.recordProjectItem(s,{projectId:get('projectId'),description:get('description'),kind:get('kind'),quantity,unitCents:amount('unitCents')});break;}
  case 'quote':{const payload={customerId:get('customerId'),projectId:get('projectId')||undefined,date:get('date'),validUntil:get('validUntil'),lines:readLines(form)};transition=s=>Sales.createQuote(s,payload);message='Offerten är sparad.';break;}
@@ -282,7 +282,7 @@ async function submit(form){
  case 'vat-filter':ui.vatFrom=get('from');ui.vatTo=get('to');assert(ui.vatFrom<=ui.vatTo,'Periodens slut måste ligga efter starten.');render();return;
  case 'file-vat':transition=s=>Finance.fileVatPeriod(s,{from:get('from'),to:get('to'),date:get('date')});message='Momsperioden är bokförd, inte inskickad.';break;
  case 'close-year':transition=s=>Finance.closeYear(s,{date:get('date'),confirmed:checked('confirmed')});message='Årets resultat är bokfört och årsunderlaget förberett.';break;
- case 'company':transition=s=>Finance.updateCompany(s,{name:get('name'),orgNumber:get('orgNumber'),vatPeriod:get('vatPeriod')});after=s=>{const p=Finance.getVatPeriodBounds(s,TODAY);ui.vatFrom=p.from;ui.vatTo=p.to;};break;
+ case 'company':transition=s=>Finance.updateCompany(s,{name:get('name'),orgNumber:get('orgNumber'),vatPeriod:get('vatPeriod'),address:get('address'),postalCode:get('postalCode'),city:get('city'),country:get('country'),vatNumber:get('vatNumber'),legalForm:get('legalForm'),registeredOffice:get('registeredOffice'),inLiquidation:checked('inLiquidation')});after=s=>{const p=Finance.getVatPeriodBounds(s,TODAY);ui.vatFrom=p.from;ui.vatTo=p.to;};break;
  case 'confirm-action':{
   const name=get('action'),payload={date:get('date'),reason:get('reason')};
   const actions={
@@ -343,11 +343,17 @@ document.addEventListener('change',event=>{
    const date=form.elements.namedItem('date').value,days=(Date.parse(target.value+'T12:00:00Z')-Date.parse(date+'T12:00:00Z'))/86400000;
    if(Number.isInteger(days)&&days>=0&&days<=365)form.elements.namedItem('paymentTermsDays').value=String(days);
   }
+  if(target.matches('[data-line-field="vatRate"]')) { const row=target.closest('[data-invoice-line]');if(row?.nextElementSibling?.matches('[data-vat-exemption-row]'))row.nextElementSibling.hidden=Number(target.value)!==0; }
+  if(['freightVatRate','invoiceFeeVatRate'].includes(target.name)) {const type=target.name==='freightVatRate'?'freight':'invoice-fee';const panel=form.querySelector(`[data-fee-exemption="${type}"]`);if(panel)panel.hidden=Number(target.value)!==0;}
   if(target.name==='pricesIncludeVat')applyInvoicePriceMode(form,target.checked);
   if(target.name==='vatMode'&&target.value==='reverse-construction')form.elements.namedItem('rotEnabled').checked=false;
   const rotEnabled=form.elements.namedItem('rotEnabled')?.checked||false;
   const fields=form.querySelector('.invoice-rot-fields');if(fields)fields.hidden=!rotEnabled;
-  for(const row of form.querySelectorAll('[data-invoice-line]'))updateInvoiceLineKind(row,rotEnabled);
+  for(const row of form.querySelectorAll('[data-invoice-line]')) {
+   updateInvoiceLineKind(row,rotEnabled);
+   if(row.nextElementSibling?.matches('[data-vat-exemption-row]'))row.nextElementSibling.hidden=form.elements.namedItem('vatMode').value!=='standard'||Number(row.querySelector('[data-line-field="vatRate"]').value)!==0;
+  }
+  for(const [type,name] of [['freight','freightVatRate'],['invoice-fee','invoiceFeeVatRate']]) {const panel=form.querySelector(`[data-fee-exemption="${type}"]`);if(panel)panel.hidden=form.elements.namedItem('vatMode').value!=='standard'||Number(form.elements.namedItem(name).value)!==0;}
   refreshInvoiceSummary();return;
  }
  if(target.name==='bankEventId'&&target.value){const payment=state.bankTransactions.find(x=>x.id===target.value);if(payment){const parent=target.form;parent.querySelector('[name="date"]').value=payment.date;parent.querySelector('[name="amountCents"]').value=fmt(Math.abs(payment.amountCents));}}

@@ -1,6 +1,7 @@
 // Invoice-specific document fields. No lookup or transmission to an external
 // register happens here; issued documents keep their own customer/seller data.
 import { assert, validDate } from './core.js';
+import { normalizeVatNumber, normalizePerformance } from './invoice-requirements.js';
 
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key);
 const record = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -24,6 +25,11 @@ function party(input, fallback, label, { seller = false } = {}) {
     orgNumber: text(field(input, 'orgNumber', fallback.orgNumber ?? ''), `${label}: organisationsnummer`, 50),
     address: text(field(input, 'address', fallback.address ?? ''), `${label}: adress`, 300),
     email: email(field(input, 'email', fallback.email ?? ''), `${label}: e-post`),
+    address2: text(field(input, 'address2', fallback.address2 ?? ''), `${label}: adressrad 2`, 300),
+    postalCode: text(field(input, 'postalCode', fallback.postalCode ?? ''), `${label}: postnummer`, 30),
+    city: text(field(input, 'city', fallback.city ?? ''), `${label}: ort`, 150),
+    country: field(input, 'country', fallback.country ?? 'SE'),
+    vatNumber: normalizeVatNumber(text(field(input, 'vatNumber', fallback.vatNumber ?? ''), `${label}: momsregistreringsnummer`, 40)),
   };
   if (!seller) Object.assign(out, {
     address2: text(field(input, 'address2', fallback.address2 ?? ''), `${label}: adressrad 2`, 300),
@@ -33,6 +39,13 @@ function party(input, fallback, label, { seller = false } = {}) {
     phone: text(field(input, 'phone', fallback.phone ?? ''), `${label}: telefon`, 50),
     reminderEmail: email(field(input, 'reminderEmail', fallback.reminderEmail ?? ''), `${label}: e-post för påminnelser`),
   });
+  if (seller) {
+    out.legalForm = field(input, 'legalForm', fallback.legalForm);
+    out.registeredOffice = text(field(input, 'registeredOffice', fallback.registeredOffice ?? ''), 'Styrelsens sätesort', 150);
+    out.inLiquidation = own(input, 'inLiquidation') ? input.inLiquidation : fallback.inLiquidation;
+    assert(out.inLiquidation === undefined || typeof out.inLiquidation === 'boolean', 'Likvidationsuppgiften är ogiltig.');
+  }
+  if (seller) assert(out.country === 'SE', 'Den här fakturaversionen kräver svensk säljaradress.');
   if (!seller) assert(out.country === 'SE', 'Den här fakturaversionen stödjer svenska adresser.');
   return out;
 }
@@ -79,6 +92,8 @@ export function normalizeInvoiceDetails(state, payload) {
     pricesIncludeVat,
     language: field(input, 'language', 'sv'),
   };
+  const performance = normalizePerformance(input.performance);
+  if (performance !== undefined) details.performance = performance;
   assert(typeof details.pricesIncludeVat === 'boolean', 'Prisernas momsinställning är ogiltig.');
   assert(details.language === 'sv', 'Den här fakturaversionen stödjer svenska dokument.');
   return details;
@@ -93,6 +108,8 @@ export function validateInvoiceDetails(details) {
   party(details.customer, {}, 'Fakturamottagare');
   normalizedDelivery(details.delivery);
   party(details.seller, {}, 'Säljare', { seller: true });
+  if (details.performance !== undefined) normalizePerformance(details.performance);
+  if (details.requirementsVersion !== undefined) assert(details.requirementsVersion === 1, 'Fakturans kravversion stöds inte.');
   assert(typeof details.pricesIncludeVat === 'boolean' && details.language === 'sv', 'Fakturans språk- eller momsinställning är ogiltig.');
   return details;
 }

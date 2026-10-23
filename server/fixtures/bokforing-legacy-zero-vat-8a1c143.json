@@ -1,0 +1,813 @@
+{
+  "sourceRevision": "8a1c143",
+  "description": "Actual serialized states emitted by the pre-requirements version; intentionally missing VAT classification. Used only for backward-compatibility and warning tests.",
+  "scenarios": {
+    "sole": {
+      "schemaVersion": 2,
+      "sequence": 7,
+      "company": {
+        "name": "Åkes Hantverk AB",
+        "orgNumber": "DEMO",
+        "fiscalYearStart": "2026-01-01",
+        "fiscalYearEnd": "2026-12-31",
+        "method": "invoice",
+        "vatPeriod": "quarter",
+        "currency": "SEK"
+      },
+      "lockedPeriods": [],
+      "entries": [
+        {
+          "id": "entry-5",
+          "number": "A1",
+          "date": "2026-10-01",
+          "description": "Kundfaktura F-0001",
+          "sourceType": "invoice",
+          "sourceId": "invoice-3",
+          "rows": [
+            {
+              "account": "1510",
+              "debitCents": 100000,
+              "creditCents": 0
+            },
+            {
+              "account": "3000",
+              "debitCents": 0,
+              "creditCents": 100000
+            }
+          ],
+          "createdAt": "2026-10-23T19:15:14.202Z",
+          "actor": "Åke"
+        }
+      ],
+      "activity": [
+        {
+          "id": "activity-2",
+          "label": "Kund Fiktiv ROT-kund skapad",
+          "entityId": "customer-1",
+          "date": "2026-10-23T19:15:14.183Z",
+          "createdAt": "2026-10-23T19:15:14.183Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-4",
+          "label": "Kundfakturautkast skapat",
+          "entityId": "invoice-3",
+          "date": "2026-10-23T19:15:14.196Z",
+          "createdAt": "2026-10-23T19:15:14.196Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-6",
+          "label": "A1 · Kundfaktura F-0001",
+          "entityId": "entry-5",
+          "date": "2026-10-23T19:15:14.202Z",
+          "createdAt": "2026-10-23T19:15:14.202Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-7",
+          "label": "Kundfaktura F-0001 utfärdad och bokförd",
+          "entityId": "invoice-3",
+          "date": "2026-10-23T19:15:14.202Z",
+          "createdAt": "2026-10-23T19:15:14.202Z",
+          "actor": "Åke"
+        }
+      ],
+      "customers": [
+        {
+          "id": "customer-1",
+          "name": "Fiktiv ROT-kund",
+          "email": "audit@example.test",
+          "address": ""
+        }
+      ],
+      "suppliers": [],
+      "projects": [],
+      "quotes": [],
+      "invoices": [
+        {
+          "id": "invoice-3",
+          "number": "F-0001",
+          "kind": "invoice",
+          "customerId": "customer-1",
+          "projectId": null,
+          "date": "2026-10-01",
+          "dueDate": "2026-10-30",
+          "status": "issued",
+          "vatMode": "standard",
+          "buyerConstructionConfirmed": false,
+          "lines": [
+            {
+              "description": "Material",
+              "kind": "material",
+              "quantity": 1,
+              "unitCents": 100000,
+              "vatRate": 0
+            }
+          ],
+          "rot": null,
+          "payments": [],
+          "reminders": [],
+          "details": {
+            "paymentTermsDays": 29,
+            "ourReference": "",
+            "customerReference": "",
+            "customerOrderNumber": "",
+            "costCenter": "",
+            "invoiceText": "",
+            "priceListName": "",
+            "customer": {
+              "name": "Fiktiv ROT-kund",
+              "orgNumber": "",
+              "address": "",
+              "email": "audit@example.test",
+              "address2": "",
+              "postalCode": "",
+              "city": "",
+              "country": "SE",
+              "phone": "",
+              "reminderEmail": ""
+            },
+            "delivery": {
+              "name": "",
+              "address": "",
+              "address2": "",
+              "postalCode": "",
+              "city": "",
+              "method": "",
+              "terms": "",
+              "country": "SE",
+              "date": ""
+            },
+            "seller": {
+              "name": "Åkes Hantverk AB",
+              "orgNumber": "DEMO",
+              "address": "",
+              "email": ""
+            },
+            "pricesIncludeVat": false,
+            "language": "sv"
+          },
+          "invoiceDiscountBps": 0,
+          "entryId": "entry-5",
+          "bookingSnapshot": "{\"id\":\"invoice-3\",\"number\":\"F-0001\",\"kind\":\"invoice\",\"originalInvoiceId\":null,\"customerId\":\"customer-1\",\"projectId\":null,\"date\":\"2026-10-01\",\"dueDate\":\"2026-10-30\",\"vatMode\":\"standard\",\"buyerConstructionConfirmed\":false,\"lines\":[{\"description\":\"Material\",\"kind\":\"material\",\"quantity\":1,\"unitCents\":100000,\"vatRate\":0}],\"reason\":null,\"rot\":null,\"details\":{\"paymentTermsDays\":29,\"ourReference\":\"\",\"customerReference\":\"\",\"customerOrderNumber\":\"\",\"costCenter\":\"\",\"invoiceText\":\"\",\"priceListName\":\"\",\"customer\":{\"name\":\"Fiktiv ROT-kund\",\"orgNumber\":\"\",\"address\":\"\",\"email\":\"audit@example.test\",\"address2\":\"\",\"postalCode\":\"\",\"city\":\"\",\"country\":\"SE\",\"phone\":\"\",\"reminderEmail\":\"\"},\"delivery\":{\"name\":\"\",\"address\":\"\",\"address2\":\"\",\"postalCode\":\"\",\"city\":\"\",\"method\":\"\",\"terms\":\"\",\"country\":\"SE\",\"date\":\"\"},\"seller\":{\"name\":\"Åkes Hantverk AB\",\"orgNumber\":\"DEMO\",\"address\":\"\",\"email\":\"\"},\"pricesIncludeVat\":false,\"language\":\"sv\"},\"invoiceDiscountBps\":0}"
+        }
+      ],
+      "bills": [],
+      "bankTransactions": [],
+      "employees": [],
+      "payrollRuns": [],
+      "assets": [],
+      "accruals": [],
+      "inventoryItems": [],
+      "inventoryValuations": [],
+      "vatReturns": [],
+      "rotClaims": [],
+      "yearClosures": []
+    },
+    "mixed": {
+      "schemaVersion": 2,
+      "sequence": 7,
+      "company": {
+        "name": "Åkes Hantverk AB",
+        "orgNumber": "DEMO",
+        "fiscalYearStart": "2026-01-01",
+        "fiscalYearEnd": "2026-12-31",
+        "method": "invoice",
+        "vatPeriod": "quarter",
+        "currency": "SEK"
+      },
+      "lockedPeriods": [],
+      "entries": [
+        {
+          "id": "entry-5",
+          "number": "A1",
+          "date": "2026-10-01",
+          "description": "Kundfaktura F-0001",
+          "sourceType": "invoice",
+          "sourceId": "invoice-3",
+          "rows": [
+            {
+              "account": "1510",
+              "debitCents": 225000,
+              "creditCents": 0
+            },
+            {
+              "account": "3000",
+              "debitCents": 0,
+              "creditCents": 200000
+            },
+            {
+              "account": "2611",
+              "debitCents": 0,
+              "creditCents": 25000
+            }
+          ],
+          "createdAt": "2026-10-23T19:15:14.205Z",
+          "actor": "Åke"
+        }
+      ],
+      "activity": [
+        {
+          "id": "activity-2",
+          "label": "Kund Fiktiv ROT-kund skapad",
+          "entityId": "customer-1",
+          "date": "2026-10-23T19:15:14.203Z",
+          "createdAt": "2026-10-23T19:15:14.203Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-4",
+          "label": "Kundfakturautkast skapat",
+          "entityId": "invoice-3",
+          "date": "2026-10-23T19:15:14.204Z",
+          "createdAt": "2026-10-23T19:15:14.204Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-6",
+          "label": "A1 · Kundfaktura F-0001",
+          "entityId": "entry-5",
+          "date": "2026-10-23T19:15:14.205Z",
+          "createdAt": "2026-10-23T19:15:14.205Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-7",
+          "label": "Kundfaktura F-0001 utfärdad och bokförd",
+          "entityId": "invoice-3",
+          "date": "2026-10-23T19:15:14.206Z",
+          "createdAt": "2026-10-23T19:15:14.206Z",
+          "actor": "Åke"
+        }
+      ],
+      "customers": [
+        {
+          "id": "customer-1",
+          "name": "Fiktiv ROT-kund",
+          "email": "audit@example.test",
+          "address": ""
+        }
+      ],
+      "suppliers": [],
+      "projects": [],
+      "quotes": [],
+      "invoices": [
+        {
+          "id": "invoice-3",
+          "number": "F-0001",
+          "kind": "invoice",
+          "customerId": "customer-1",
+          "projectId": null,
+          "date": "2026-10-01",
+          "dueDate": "2026-10-30",
+          "status": "issued",
+          "vatMode": "standard",
+          "buyerConstructionConfirmed": false,
+          "lines": [
+            {
+              "description": "Arbete",
+              "kind": "labor",
+              "quantity": 1,
+              "unitCents": 100000,
+              "vatRate": 25
+            },
+            {
+              "description": "Material",
+              "kind": "other",
+              "quantity": 1,
+              "unitCents": 100000,
+              "vatRate": 0
+            }
+          ],
+          "rot": null,
+          "payments": [],
+          "reminders": [],
+          "details": {
+            "paymentTermsDays": 29,
+            "ourReference": "",
+            "customerReference": "",
+            "customerOrderNumber": "",
+            "costCenter": "",
+            "invoiceText": "",
+            "priceListName": "",
+            "customer": {
+              "name": "Fiktiv ROT-kund",
+              "orgNumber": "",
+              "address": "",
+              "email": "audit@example.test",
+              "address2": "",
+              "postalCode": "",
+              "city": "",
+              "country": "SE",
+              "phone": "",
+              "reminderEmail": ""
+            },
+            "delivery": {
+              "name": "",
+              "address": "",
+              "address2": "",
+              "postalCode": "",
+              "city": "",
+              "method": "",
+              "terms": "",
+              "country": "SE",
+              "date": ""
+            },
+            "seller": {
+              "name": "Åkes Hantverk AB",
+              "orgNumber": "DEMO",
+              "address": "",
+              "email": ""
+            },
+            "pricesIncludeVat": false,
+            "language": "sv"
+          },
+          "invoiceDiscountBps": 0,
+          "entryId": "entry-5",
+          "bookingSnapshot": "{\"id\":\"invoice-3\",\"number\":\"F-0001\",\"kind\":\"invoice\",\"originalInvoiceId\":null,\"customerId\":\"customer-1\",\"projectId\":null,\"date\":\"2026-10-01\",\"dueDate\":\"2026-10-30\",\"vatMode\":\"standard\",\"buyerConstructionConfirmed\":false,\"lines\":[{\"description\":\"Arbete\",\"kind\":\"labor\",\"quantity\":1,\"unitCents\":100000,\"vatRate\":25},{\"description\":\"Material\",\"kind\":\"other\",\"quantity\":1,\"unitCents\":100000,\"vatRate\":0}],\"reason\":null,\"rot\":null,\"details\":{\"paymentTermsDays\":29,\"ourReference\":\"\",\"customerReference\":\"\",\"customerOrderNumber\":\"\",\"costCenter\":\"\",\"invoiceText\":\"\",\"priceListName\":\"\",\"customer\":{\"name\":\"Fiktiv ROT-kund\",\"orgNumber\":\"\",\"address\":\"\",\"email\":\"audit@example.test\",\"address2\":\"\",\"postalCode\":\"\",\"city\":\"\",\"country\":\"SE\",\"phone\":\"\",\"reminderEmail\":\"\"},\"delivery\":{\"name\":\"\",\"address\":\"\",\"address2\":\"\",\"postalCode\":\"\",\"city\":\"\",\"method\":\"\",\"terms\":\"\",\"country\":\"SE\",\"date\":\"\"},\"seller\":{\"name\":\"Åkes Hantverk AB\",\"orgNumber\":\"DEMO\",\"address\":\"\",\"email\":\"\"},\"pricesIncludeVat\":false,\"language\":\"sv\"},\"invoiceDiscountBps\":0}"
+        }
+      ],
+      "bills": [],
+      "bankTransactions": [],
+      "employees": [],
+      "payrollRuns": [],
+      "assets": [],
+      "accruals": [],
+      "inventoryItems": [],
+      "inventoryValuations": [],
+      "vatReturns": [],
+      "rotClaims": [],
+      "yearClosures": []
+    },
+    "prior": {
+      "schemaVersion": 2,
+      "sequence": 7,
+      "company": {
+        "name": "Åkes Hantverk AB",
+        "orgNumber": "DEMO",
+        "fiscalYearStart": "2026-01-01",
+        "fiscalYearEnd": "2026-12-31",
+        "method": "invoice",
+        "vatPeriod": "quarter",
+        "currency": "SEK"
+      },
+      "lockedPeriods": [],
+      "entries": [
+        {
+          "id": "entry-5",
+          "number": "A1",
+          "date": "2026-09-01",
+          "description": "Kundfaktura F-0001",
+          "sourceType": "invoice",
+          "sourceId": "invoice-3",
+          "rows": [
+            {
+              "account": "1510",
+              "debitCents": 100000,
+              "creditCents": 0
+            },
+            {
+              "account": "3000",
+              "debitCents": 0,
+              "creditCents": 100000
+            }
+          ],
+          "createdAt": "2026-10-23T19:15:14.208Z",
+          "actor": "Åke"
+        }
+      ],
+      "activity": [
+        {
+          "id": "activity-2",
+          "label": "Kund Fiktiv ROT-kund skapad",
+          "entityId": "customer-1",
+          "date": "2026-10-23T19:15:14.206Z",
+          "createdAt": "2026-10-23T19:15:14.206Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-4",
+          "label": "Kundfakturautkast skapat",
+          "entityId": "invoice-3",
+          "date": "2026-10-23T19:15:14.207Z",
+          "createdAt": "2026-10-23T19:15:14.207Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-6",
+          "label": "A1 · Kundfaktura F-0001",
+          "entityId": "entry-5",
+          "date": "2026-10-23T19:15:14.208Z",
+          "createdAt": "2026-10-23T19:15:14.208Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-7",
+          "label": "Kundfaktura F-0001 utfärdad och bokförd",
+          "entityId": "invoice-3",
+          "date": "2026-10-23T19:15:14.208Z",
+          "createdAt": "2026-10-23T19:15:14.208Z",
+          "actor": "Åke"
+        }
+      ],
+      "customers": [
+        {
+          "id": "customer-1",
+          "name": "Fiktiv ROT-kund",
+          "email": "audit@example.test",
+          "address": ""
+        }
+      ],
+      "suppliers": [],
+      "projects": [],
+      "quotes": [],
+      "invoices": [
+        {
+          "id": "invoice-3",
+          "number": "F-0001",
+          "kind": "invoice",
+          "customerId": "customer-1",
+          "projectId": null,
+          "date": "2026-09-01",
+          "dueDate": "2026-09-30",
+          "status": "issued",
+          "vatMode": "standard",
+          "buyerConstructionConfirmed": false,
+          "lines": [
+            {
+              "description": "Material",
+              "kind": "material",
+              "quantity": 1,
+              "unitCents": 100000,
+              "vatRate": 0
+            }
+          ],
+          "rot": null,
+          "payments": [],
+          "reminders": [],
+          "details": {
+            "paymentTermsDays": 29,
+            "ourReference": "",
+            "customerReference": "",
+            "customerOrderNumber": "",
+            "costCenter": "",
+            "invoiceText": "",
+            "priceListName": "",
+            "customer": {
+              "name": "Fiktiv ROT-kund",
+              "orgNumber": "",
+              "address": "",
+              "email": "audit@example.test",
+              "address2": "",
+              "postalCode": "",
+              "city": "",
+              "country": "SE",
+              "phone": "",
+              "reminderEmail": ""
+            },
+            "delivery": {
+              "name": "",
+              "address": "",
+              "address2": "",
+              "postalCode": "",
+              "city": "",
+              "method": "",
+              "terms": "",
+              "country": "SE",
+              "date": ""
+            },
+            "seller": {
+              "name": "Åkes Hantverk AB",
+              "orgNumber": "DEMO",
+              "address": "",
+              "email": ""
+            },
+            "pricesIncludeVat": false,
+            "language": "sv"
+          },
+          "invoiceDiscountBps": 0,
+          "entryId": "entry-5",
+          "bookingSnapshot": "{\"id\":\"invoice-3\",\"number\":\"F-0001\",\"kind\":\"invoice\",\"originalInvoiceId\":null,\"customerId\":\"customer-1\",\"projectId\":null,\"date\":\"2026-09-01\",\"dueDate\":\"2026-09-30\",\"vatMode\":\"standard\",\"buyerConstructionConfirmed\":false,\"lines\":[{\"description\":\"Material\",\"kind\":\"material\",\"quantity\":1,\"unitCents\":100000,\"vatRate\":0}],\"reason\":null,\"rot\":null,\"details\":{\"paymentTermsDays\":29,\"ourReference\":\"\",\"customerReference\":\"\",\"customerOrderNumber\":\"\",\"costCenter\":\"\",\"invoiceText\":\"\",\"priceListName\":\"\",\"customer\":{\"name\":\"Fiktiv ROT-kund\",\"orgNumber\":\"\",\"address\":\"\",\"email\":\"audit@example.test\",\"address2\":\"\",\"postalCode\":\"\",\"city\":\"\",\"country\":\"SE\",\"phone\":\"\",\"reminderEmail\":\"\"},\"delivery\":{\"name\":\"\",\"address\":\"\",\"address2\":\"\",\"postalCode\":\"\",\"city\":\"\",\"method\":\"\",\"terms\":\"\",\"country\":\"SE\",\"date\":\"\"},\"seller\":{\"name\":\"Åkes Hantverk AB\",\"orgNumber\":\"DEMO\",\"address\":\"\",\"email\":\"\"},\"pricesIncludeVat\":false,\"language\":\"sv\"},\"invoiceDiscountBps\":0}"
+        }
+      ],
+      "bills": [],
+      "bankTransactions": [],
+      "employees": [],
+      "payrollRuns": [],
+      "assets": [],
+      "accruals": [],
+      "inventoryItems": [],
+      "inventoryValuations": [],
+      "vatReturns": [],
+      "rotClaims": [],
+      "yearClosures": []
+    },
+    "discounted": {
+      "schemaVersion": 2,
+      "sequence": 7,
+      "company": {
+        "name": "Åkes Hantverk AB",
+        "orgNumber": "DEMO",
+        "fiscalYearStart": "2026-01-01",
+        "fiscalYearEnd": "2026-12-31",
+        "method": "invoice",
+        "vatPeriod": "quarter",
+        "currency": "SEK"
+      },
+      "lockedPeriods": [],
+      "entries": [
+        {
+          "id": "entry-5",
+          "number": "A1",
+          "date": "2026-10-01",
+          "description": "Kundfaktura F-0001",
+          "sourceType": "invoice",
+          "sourceId": "invoice-3",
+          "rows": [
+            {
+              "account": "1510",
+              "debitCents": 125000,
+              "creditCents": 0
+            },
+            {
+              "account": "3000",
+              "debitCents": 0,
+              "creditCents": 100000
+            },
+            {
+              "account": "2611",
+              "debitCents": 0,
+              "creditCents": 25000
+            }
+          ],
+          "createdAt": "2026-10-23T19:15:14.209Z",
+          "actor": "Åke"
+        }
+      ],
+      "activity": [
+        {
+          "id": "activity-2",
+          "label": "Kund Fiktiv ROT-kund skapad",
+          "entityId": "customer-1",
+          "date": "2026-10-23T19:15:14.209Z",
+          "createdAt": "2026-10-23T19:15:14.209Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-4",
+          "label": "Kundfakturautkast skapat",
+          "entityId": "invoice-3",
+          "date": "2026-10-23T19:15:14.209Z",
+          "createdAt": "2026-10-23T19:15:14.209Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-6",
+          "label": "A1 · Kundfaktura F-0001",
+          "entityId": "entry-5",
+          "date": "2026-10-23T19:15:14.209Z",
+          "createdAt": "2026-10-23T19:15:14.209Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-7",
+          "label": "Kundfaktura F-0001 utfärdad och bokförd",
+          "entityId": "invoice-3",
+          "date": "2026-10-23T19:15:14.209Z",
+          "createdAt": "2026-10-23T19:15:14.209Z",
+          "actor": "Åke"
+        }
+      ],
+      "customers": [
+        {
+          "id": "customer-1",
+          "name": "Fiktiv ROT-kund",
+          "email": "audit@example.test",
+          "address": ""
+        }
+      ],
+      "suppliers": [],
+      "projects": [],
+      "quotes": [],
+      "invoices": [
+        {
+          "id": "invoice-3",
+          "number": "F-0001",
+          "kind": "invoice",
+          "customerId": "customer-1",
+          "projectId": null,
+          "date": "2026-10-01",
+          "dueDate": "2026-10-30",
+          "status": "issued",
+          "vatMode": "standard",
+          "buyerConstructionConfirmed": false,
+          "lines": [
+            {
+              "description": "Arbete",
+              "kind": "labor",
+              "quantity": 1,
+              "unitCents": 100000,
+              "vatRate": 25
+            },
+            {
+              "description": "Material",
+              "kind": "material",
+              "quantity": 1,
+              "unitCents": 100000,
+              "vatRate": 0,
+              "discountBps": 10000
+            }
+          ],
+          "rot": null,
+          "payments": [],
+          "reminders": [],
+          "details": {
+            "paymentTermsDays": 29,
+            "ourReference": "",
+            "customerReference": "",
+            "customerOrderNumber": "",
+            "costCenter": "",
+            "invoiceText": "",
+            "priceListName": "",
+            "customer": {
+              "name": "Fiktiv ROT-kund",
+              "orgNumber": "",
+              "address": "",
+              "email": "audit@example.test",
+              "address2": "",
+              "postalCode": "",
+              "city": "",
+              "country": "SE",
+              "phone": "",
+              "reminderEmail": ""
+            },
+            "delivery": {
+              "name": "",
+              "address": "",
+              "address2": "",
+              "postalCode": "",
+              "city": "",
+              "method": "",
+              "terms": "",
+              "country": "SE",
+              "date": ""
+            },
+            "seller": {
+              "name": "Åkes Hantverk AB",
+              "orgNumber": "DEMO",
+              "address": "",
+              "email": ""
+            },
+            "pricesIncludeVat": false,
+            "language": "sv"
+          },
+          "invoiceDiscountBps": 0,
+          "entryId": "entry-5",
+          "bookingSnapshot": "{\"id\":\"invoice-3\",\"number\":\"F-0001\",\"kind\":\"invoice\",\"originalInvoiceId\":null,\"customerId\":\"customer-1\",\"projectId\":null,\"date\":\"2026-10-01\",\"dueDate\":\"2026-10-30\",\"vatMode\":\"standard\",\"buyerConstructionConfirmed\":false,\"lines\":[{\"description\":\"Arbete\",\"kind\":\"labor\",\"quantity\":1,\"unitCents\":100000,\"vatRate\":25},{\"description\":\"Material\",\"kind\":\"material\",\"quantity\":1,\"unitCents\":100000,\"vatRate\":0,\"discountBps\":10000}],\"reason\":null,\"rot\":null,\"details\":{\"paymentTermsDays\":29,\"ourReference\":\"\",\"customerReference\":\"\",\"customerOrderNumber\":\"\",\"costCenter\":\"\",\"invoiceText\":\"\",\"priceListName\":\"\",\"customer\":{\"name\":\"Fiktiv ROT-kund\",\"orgNumber\":\"\",\"address\":\"\",\"email\":\"audit@example.test\",\"address2\":\"\",\"postalCode\":\"\",\"city\":\"\",\"country\":\"SE\",\"phone\":\"\",\"reminderEmail\":\"\"},\"delivery\":{\"name\":\"\",\"address\":\"\",\"address2\":\"\",\"postalCode\":\"\",\"city\":\"\",\"method\":\"\",\"terms\":\"\",\"country\":\"SE\",\"date\":\"\"},\"seller\":{\"name\":\"Åkes Hantverk AB\",\"orgNumber\":\"DEMO\",\"address\":\"\",\"email\":\"\"},\"pricesIncludeVat\":false,\"language\":\"sv\"},\"invoiceDiscountBps\":0}"
+        }
+      ],
+      "bills": [],
+      "bankTransactions": [],
+      "employees": [],
+      "payrollRuns": [],
+      "assets": [],
+      "accruals": [],
+      "inventoryItems": [],
+      "inventoryValuations": [],
+      "vatReturns": [],
+      "rotClaims": [],
+      "yearClosures": []
+    },
+    "direct": {
+      "schemaVersion": 2,
+      "sequence": 7,
+      "company": {
+        "name": "Åkes Hantverk AB",
+        "orgNumber": "DEMO",
+        "fiscalYearStart": "2026-01-01",
+        "fiscalYearEnd": "2026-12-31",
+        "method": "invoice",
+        "vatPeriod": "quarter",
+        "currency": "SEK"
+      },
+      "lockedPeriods": [],
+      "entries": [
+        {
+          "id": "entry-4",
+          "number": "A1",
+          "date": "2026-10-03",
+          "description": "Betald svensk försäljning · AUDIT-TAX",
+          "sourceType": "tax-transaction",
+          "sourceId": "tax-event-3",
+          "rows": [
+            {
+              "account": "1930",
+              "debitCents": 123457,
+              "creditCents": 0
+            },
+            {
+              "account": "3000",
+              "debitCents": 0,
+              "creditCents": 123457
+            }
+          ],
+          "createdAt": "2026-10-23T19:15:14.213Z",
+          "actor": "Åke"
+        }
+      ],
+      "activity": [
+        {
+          "id": "activity-2",
+          "label": "Kund Fiktiv ROT-kund skapad",
+          "entityId": "customer-1",
+          "date": "2026-10-23T19:15:14.210Z",
+          "createdAt": "2026-10-23T19:15:14.210Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-5",
+          "label": "A1 · Betald svensk försäljning · AUDIT-TAX",
+          "entityId": "entry-4",
+          "date": "2026-10-23T19:15:14.213Z",
+          "createdAt": "2026-10-23T19:15:14.213Z",
+          "actor": "Åke"
+        },
+        {
+          "id": "activity-7",
+          "label": "Momsfall registrerat: AUDIT-TAX. Bedömning bekräftad; inget skickat.",
+          "entityId": "tax-event-3",
+          "date": "2026-10-23T19:15:14.214Z",
+          "createdAt": "2026-10-23T19:15:14.214Z",
+          "actor": "Åke"
+        }
+      ],
+      "customers": [
+        {
+          "id": "customer-1",
+          "name": "Fiktiv ROT-kund",
+          "email": "audit@example.test",
+          "address": ""
+        }
+      ],
+      "suppliers": [],
+      "projects": [],
+      "quotes": [],
+      "invoices": [],
+      "bills": [],
+      "bankTransactions": [
+        {
+          "id": "bank-6",
+          "date": "2026-10-03",
+          "description": "Fiktiv leverantör · AUDIT-TAX",
+          "account": "1930",
+          "amountCents": 123457,
+          "matchedEntryId": "entry-4"
+        }
+      ],
+      "employees": [],
+      "payrollRuns": [],
+      "assets": [],
+      "accruals": [],
+      "inventoryItems": [],
+      "inventoryValuations": [],
+      "vatReturns": [],
+      "rotClaims": [],
+      "yearClosures": [],
+      "taxTransactions": [
+        {
+          "id": "tax-event-3",
+          "kind": "domestic-sale",
+          "date": "2026-10-03",
+          "reference": "AUDIT-TAX",
+          "counterparty": "Fiktiv leverantör",
+          "country": "SE",
+          "vatNumber": "",
+          "netCents": 123457,
+          "vatRate": 0,
+          "deductibleBps": 0,
+          "account": "3000",
+          "conditionsConfirmed": true,
+          "ruleVersion": "SE-VAT-2026-10-23",
+          "rows": [
+            {
+              "account": "1930",
+              "debitCents": 123457,
+              "creditCents": 0
+            },
+            {
+              "account": "3000",
+              "debitCents": 0,
+              "creditCents": 123457
+            }
+          ],
+          "boxes": {
+            "05": 123457
+          },
+          "entryId": "entry-4",
+          "bookingSnapshot": "[\"domestic-sale\",\"2026-10-03\",\"AUDIT-TAX\",\"Fiktiv leverantör\",\"SE\",\"\",123457,0,0,\"3000\",true,\"SE-VAT-2026-10-23\",null,[{\"account\":\"1930\",\"debitCents\":123457,\"creditCents\":0},{\"account\":\"3000\",\"debitCents\":0,\"creditCents\":123457}],{\"05\":123457},null]"
+        }
+      ]
+    }
+  }
+}

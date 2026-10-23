@@ -4230,3 +4230,24 @@ faktisk deploystatus kontrolleras separat.
   arkivering med verifierat innehållsbevarande, identifierade användare,
   behörigheter och bolagsisolering. Automatisk hantering av årsgränsen
   1 000 kr för arbetsgivaravgifter saknas också.
+
+
+ÄL 171 – Åtgärder efter regelgranskning: faktura, moms och årsgräns
+Status: Implementerade funktionsrättningar 2026-10-23. Slutresultat och testad
+kodrevision redovisas i bokforing/granskning/2026-10-23-atgarder.json.
+- Gemensamma krav på nya kundfakturors parter, adresser, VAT-nummer,
+  aktiebolagsuppgifter och uttryckligt bekräftad prestation. Samma spärrar
+  i valuta- och kontantmetodsflöden; frysta original och legacy-läsning.
+- Stödda svenska momsundantag kräver klassning och dokumenterad bedömning.
+  Ruta 42 och krediter följer klassningen. Oklassade äldre nollmomsunderlag
+  stoppar fastställande och XML-export utan att historien skrivs om.
+- Lönens årsgräns 1 000 kr, tidigare avgiftsfri ersättning, AGI 010/011/012
+  och 131/132 samt separat historik för årsavstämningar och återkrav.
+  Skatteavdragsprognosen hålls skild från faktisk avgiftsgrund.
+- Förskott och framtida prestationer stoppas i de vanliga fakturaflödena.
+  Ogiltiga eller motsägande fakturauppgifter blockeras även vid återläsning
+  av nya dokument. Äldre original omtolkas inte automatiskt.
+- Nya negativa och positiva modellprov samt browserfall. Den korta
+  åtgärdsrapporten och aktuella testprotokollet kompletterar ÄL 170.
+- Serverlagring, inloggning, bolagsisolering och hållbar arkivering kvarstår
+  i den av användaren valda senare driftetappen.

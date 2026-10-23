@@ -29,9 +29,9 @@ const distributed = (amount, weights) => {
 };
 const checked = state => { validateSuiteState(state); validateSuiteState(JSON.parse(JSON.stringify(state))); return state; };
 const balances = (state, expected) => { for (const [account, value] of Object.entries(expected)) assert.equal(accountBalance(state, account), value || 0, account); };
-const cashStart = () => createCashState({ eligibilityConfirmed: true, expectedTurnoverCents: 50_000_000, vatPeriod: 'year' });
+const cashStart = () => createCashState({ eligibilityConfirmed: true, expectedTurnoverCents: 50_000_000, vatPeriod: 'year', orgNumber: '559900-1236', vatNumber: 'SE559900123601', postalCode: '111 22', city: 'Demostaden', country: 'SE' });
 function cashIssue({ side = 'customer', lines = [{ description: 'Arbete', netCents: 10000, vatRate: 25 }], ...extra } = {}) {
-  let state = createCashDocument(cashStart(), { side, partyName: 'Granskningsmotpart AB', partyAddress: 'Granskningsgatan 7', reference: 'REV-2026', date: '2026-10-01', dueDate: '2026-10-31', supplyConfirmed: true, vatReason: 'Granskad svensk momsfri omsättning', lines, ...extra });
+  let state = createCashDocument(cashStart(), { side, partyName: 'Granskningsmotpart AB', partyAddress: 'Granskningsgatan 7', partyPostalCode: '111 22', partyCity: 'Demostaden', partyCountry: 'SE', performance: { mode: 'invoice-date', confirmed: true }, vatExemption: lines.some(line => line.vatRate === 0) ? { code: 'property-rental', legalBasis: 'Granskad fiktiv momsfri lokalhyra enligt 10 kap. 35 § ML', confirmed: true } : undefined, reference: 'REV-2026', date: '2026-10-01', dueDate: '2026-10-31', supplyConfirmed: true, vatReason: 'Granskad svensk momsfri omsättning', lines, ...extra });
   const id = state.cashDocuments[0].id;
   state = checked(issueCashDocument(state, id));
   return { state, id };
@@ -46,10 +46,10 @@ function nextYear(state) {
   state = closeYear(state, { date: `${year}-12-31`, confirmed: true });
   return checked(openNextYear(state, { confirmed: true }));
 }
-const fxBase = { side: 'customer', currency: 'EUR', number: 'FX-AUDIT', date: '2026-10-01', dueDate: '2026-10-31', partyName: 'Granskningsmotpart', partyAddress: 'Kundgatan 2', sellerName: 'Leverantören AB', sellerAddress: 'Säljgatan 1', sellerOrgNumber: 'DEMO', sellerVatNumber: 'SE-DEMO', paymentReference: 'FX-AUDIT', taxTreatment: 'domestic', taxReviewed: true, rate: '11', rateSource: 'Dokumenterat granskningsunderlag', taxReason: 'Granskad svensk momsfri omsättning', lines: [{ description: 'Arbete', account: '4010', foreignNetMinor: 8000, vatRate: 25 }] };
+const fxBase = { side: 'customer', currency: 'EUR', number: 'FX-AUDIT', date: '2026-10-01', dueDate: '2026-10-31', partyName: 'Granskningsmotpart', partyAddress: 'Kundgatan 2', sellerName: 'Leverantören AB', sellerAddress: 'Säljgatan 1', sellerOrgNumber: '559900-1236', sellerVatNumber: 'SE559900123601', sellerPostalCode: '111 22', sellerCity: 'Demostaden', sellerCountry: 'SE', partyPostalCode: '111 22', partyCity: 'Demostaden', partyCountry: 'SE', performance: { mode: 'invoice-date', confirmed: true }, paymentReference: 'FX-AUDIT', taxTreatment: 'domestic', taxReviewed: true, rate: '11', rateSource: 'Dokumenterat granskningsunderlag', taxReason: 'Granskad svensk momsfri omsättning', lines: [{ description: 'Arbete', account: '4010', foreignNetMinor: 8000, vatRate: 25 }] };
 function fxIssue(extra = {}) {
   const start = createEmptyState(); start.company.vatPeriod = 'year';
-  let state = createFxDocument(start, { ...fxBase, ...extra });
+  let state = createFxDocument(start, { ...fxBase, ...extra, vatExemption: (extra.lines ?? fxBase.lines).some(line => line.vatRate === 0) ? { code: 'property-rental', legalBasis: 'Granskad fiktiv momsfri lokalhyra enligt 10 kap. 35 § ML', confirmed: true } : undefined });
   const id = state.fxDocuments[0].id;
   state = checked(issueFxDocument(state, id));
   return { state, id };
@@ -357,7 +357,7 @@ for (const side of ['customer', 'supplier']) scenario(`cash ${side} permits carr
 });
 
 for (const kind of ['no-vat', 'rounded-zero']) for (const operation of ['issue', 'credit']) scenario(`FX customer ${kind} ${operation} cannot change a filed VAT base`, () => {
-  const input = { ...fxBase, taxTreatment: kind === 'no-vat' ? 'no-vat' : 'domestic', lines: [{ description: 'Momsbas med noll skatt', foreignNetMinor: kind === 'no-vat' ? 101 : 1, vatRate: kind === 'no-vat' ? 0 : 25, account: '4010' }] };
+  const input = { ...fxBase, vatExemption: kind === 'no-vat' ? { code: 'property-rental', legalBasis: 'Granskad fiktiv momsfri lokalhyra enligt 10 kap. 35 § ML', confirmed: true } : undefined, taxTreatment: kind === 'no-vat' ? 'no-vat' : 'domestic', lines: [{ description: 'Momsbas med noll skatt', foreignNetMinor: kind === 'no-vat' ? 101 : 1, vatRate: kind === 'no-vat' ? 0 : 25, account: '4010' }] };
   const start = createEmptyState(); start.company.vatPeriod = 'year';
   let state = createFxDocument(start, input), id = state.fxDocuments[0].id;
   if (operation === 'credit') state = checked(issueFxDocument(state, id));

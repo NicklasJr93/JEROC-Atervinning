@@ -2,6 +2,7 @@
 // workflow, not a certificate of payroll or collective-agreement compliance.
 import { assert, cents, validDate, nextId, addActivity, appendEntry, requireOpenPeriod, transact } from './core.js';
 import { TAX_TABLES_2026 } from './payroll-tax-tables-2026.js';
+import { annualContributionSchedule, PAYROLL_ANNUAL_LIMIT_CENTS, PAYROLL_ANNUAL_RULE, PAYROLL_ANNUAL_SOURCE } from './payroll-threshold.js';
 
 export const PAYROLL_RULES = Object.freeze({
   version: 'SE-2026-2026-10-23', year: 2026, maximumTableIncomeCents: 8_000_000,
@@ -81,7 +82,7 @@ export function calculateOneOffTax({ year = 2026, column, annualSalaryCents, amo
 }
 
 // Tax year and payment date, not employee age today, control the rate. Domestic
-// ordinary employer only. Other exemptions/thresholds require a separate review.
+// ordinary employer only. The annual small-remuneration rule is applied by the year schedule.
 export function calculateEmployerContributions({ birthYear, paymentDate, taxableCents, previousTaxableCents = 0 }) {
   assert(validDate(paymentDate) && paymentDate.startsWith('2026-'), 'Arbetsgivaravgiftsreglerna i denna version gäller utbetalningar 2026.');
   integer(birthYear, 1900, 2010, 'Födelseår'); cents(taxableCents); cents(previousTaxableCents);
@@ -117,6 +118,11 @@ function checkedProfile(state, input) {
   integer(profile.vacationSupplementBps, 0, 1000, 'Semestertillägg i baspunkter'); integer(profile.vacationPercentBps, 0, 5000, 'Semesterprocent i baspunkter');
   integer(profile.paidVacationDays, 0, 366, 'Tillgängliga betalda semesterdagar');
   assert(profile.reviewed && profile.domesticOrdinary, 'Bekräfta individuellt underlag och vanlig svensk anställning. Specialfall måste granskas separat.');
+  if (input.contributionAnnualExpectation !== undefined) {
+    assert(['at-least-1000', 'below-1000'].includes(input.contributionAnnualExpectation), 'Välj granskad förväntan om årets ersättning.');
+    profile.contributionAnnualExpectation = input.contributionAnnualExpectation;
+    profile.contributionAnnualReference = text(input.contributionAnnualReference, 'underlag för bedömningen av årsersättningen');
+  }
   return profile;
 }
 
@@ -174,6 +180,7 @@ export function calculatePayrollPerson(state, input, { paymentDate, month, exclu
     ...(row.vacationYearId ? vacationContext(state, row.vacationYearId, employee.id, excludeId) : {}),
     usedVacationDays: (state.payrollBatches ?? []).filter(batch => isActive(batch) && batch.id !== excludeId).flatMap(batch => batch.people).filter(person => person.employeeId === employee.id && !person.input.vacationYearId).reduce((a, person) => a + person.input.vacationDays, 0),
     priorKarensCents: 0,
+    ...(profile.contributionAnnualExpectation ? { annualContribution: annualPayrollContext(state, employee.id, paymentDate, excludeId) } : {}),
   };
   if (!row.vacationYearId) assert(context.usedVacationDays + row.vacationDays <= profile.paidVacationDays, 'Semesterdagarna överstiger granskat saldo.');
   else {
@@ -239,8 +246,16 @@ export function calculatePayrollPerson(state, input, { paymentDate, month, exclu
     tax = { taxCents: row.manualTaxCents, incrementalTaxCents: row.manualTaxCents, decisionReference: profile.taxDecisionReference };
     periodicWithholdingCents = Math.min(grossCents, row.manualTaxCents);
   }
+  if (context.annualContribution && (taxableCents < 10_000 || (profile.contributionAnnualExpectation === 'below-1000' && sum([taxableCents,...context.annualContribution.events.map(item => item.grossCents+item.benefitCents)]) < PAYROLL_ANNUAL_LIMIT_CENTS))) {
+    periodicWithholdingCents=0;oneOffWithholdingCents=0;tax={...tax,incrementalTaxCents:0,withholdingExemption:taxableCents<10_000?'payment-below-100':'expected-year-below-1000'};
+  }
   const withholdingCents = sum([periodicWithholdingCents, oneOffWithholdingCents]);
-  const employer = calculateEmployerContributions({ birthYear: profile.birthYear, paymentDate, taxableCents, previousTaxableCents: context.previousTaxableCents });
+  let employer = calculateEmployerContributions({ birthYear: profile.birthYear, paymentDate, taxableCents, previousTaxableCents: context.previousTaxableCents });
+  if(context.annualContribution){
+    const event={key:'current',type:'current',id:'current',date:paymentDate,grossCents,benefitCents:row.benefitCents,birthYear:profile.birthYear,expectedAtLeast1000:profile.contributionAnnualExpectation==='at-least-1000',legacyAssessed:false,recoveryIds:[]};
+    const schedule=annualContributionSchedule([...context.annualContribution.events,event],calculateEmployerContributions),result=schedule.events.at(-1);
+    employer={...employer,contributionCents:result.employerCents,annualRule:PAYROLL_ANNUAL_RULE,annualTaxableCents:result.annualTaxableCents,thresholdExempt:result.thresholdExempt,carriedGrossCents:result.carriedGrossCents,carriedBenefitCents:result.carriedBenefitCents,previouslyReportedCents:result.previouslyReportedCents,classification:result.thresholdExempt?'annual-below-1000':employer.classification,annualSourceUrl:PAYROLL_ANNUAL_SOURCE};
+  }
   return { employeeId: employee.id, name: employee.name, employee: structuredClone(employee), profile: structuredClone(profile), input: row, context,
     salaryCents, vacationPayCents, absenceDeductionCents, sickPayCents, karensCents, grossCents, taxableCents, periodicTaxableCents, oneOffCents, periodicWithholdingCents, oneOffWithholdingCents,
     benefitCents: row.benefitCents, reimbursementCents: row.reimbursementCents, withholdingCents, unwithheldTaxCents: tax.incrementalTaxCents - withholdingCents,
@@ -315,7 +330,12 @@ export function payPayrollBatch(state, id, { date }) {
       batch.payments.push({ date, amountCents: amount, entryId: entry.id });
       draft.bankTransactions.push({ id: nextId(draft, 'bank'), date, description: `Nettolön ${batch.month}`, account: '1930', amountCents: -amount, matchedEntryId: entry.id });
     }
-    batch.status = 'paid'; addActivity(draft, `Nettolön ${batch.month} registrerad som utbetald i demon`, id);
+    batch.status = 'paid';
+    for(const person of batch.people) if(person.context.annualContribution){
+      assert(person.context.annualContribution.events.every(event=>event.type==='modern'?find(draft,event.id).status==='paid':draft.payrollRuns.find(run=>run.id===event.id)?.status==='paid'),'Betala tidigare löner i årsunderlaget före denna utbetalning.');
+      appendContributionReview(draft,{employeeId:person.employeeId,year:Number(batch.month.slice(0,4)),date,reference:`Utbetalning ${batch.id}`,reviewed:true,finalBelowThreshold:false,automatic:true});
+    }
+    addActivity(draft, `Nettolön ${batch.month} registrerad som utbetald i demon`, id);
   });
 }
 
@@ -337,7 +357,7 @@ export function reversePayrollBatch(state, id, { date, reason }) {
   return payrollTransaction(state, draft => {
     const batch = find(draft, id); assert(batch.status === 'posted' && !batch.payments.length && !batch.taxSettlement, 'Utbetald lön kan inte raderas eller återföras som om betalningen aldrig hänt. Positiv komplettering finns; negativ rättelse behöver separat granskat återkravsflöde.');
     requireOpenPeriod(draft, date); assert(date >= batch.date, 'Rättelsen får inte ligga före lönen.'); text(reason, 'rättelseorsak');
-    assert(!draft.payrollBatches.some(other => isActive(other) && other.id !== id && other.people.some(person => person.context.priorPayrollBatchIds.includes(id))), 'Senare kompletteringslön beror på denna körning. Rätta den först.');
+    assert(!draft.payrollBatches.some(other => isActive(other) && other.id !== id && other.people.some(person => person.context.priorPayrollBatchIds.includes(id) || person.context.annualContribution?.events.some(event=>event.type==='modern'&&event.id===id))), 'Senare kompletteringslön beror på denna körning. Rätta den först.');
     assert(!draft.payrollBatches.some(other => isActive(other) && other.id !== id && other.date > batch.date && other.people.some(person => person.input.sickHoursHundredths && batch.people.some(original => original.employeeId === person.employeeId && original.input.sickHoursHundredths && original.input.sickStart === person.input.sickStart))), 'En senare lönekörning använder karenshistoriken från denna körning. Rätta den senare körningen först.');
     const years = new Set(batch.people.map(person => person.input.vacationYearId).filter(Boolean));
     const position = draft.payrollBatches.findIndex(item => item.id === id);
@@ -400,6 +420,17 @@ export function validatePayrollBatches(state) {
         const expectedIds = earlierBatches.filter(prior => isActive(prior) && prior.status !== 'draft' && prior.month === batch.month && prior.people.some(row => row.employeeId === person.employeeId)).map(prior => prior.id);
         assert(JSON.stringify(expectedIds) === JSON.stringify(person.context.priorPayrollBatchIds), 'En tidigare lönekörning saknas i skatteunderlaget.');
       }
+      if(person.context.annualContribution){
+        const annual=person.context.annualContribution;
+        assert(annual.ruleVersion===PAYROLL_ANNUAL_RULE&&annual.year===Number(batch.month.slice(0,4))&&Array.isArray(annual.events),'Lönens årsunderlag är ogiltigt.');
+        assert(new Set(annual.events.map(event=>event.key)).size===annual.events.length,'Lönens årsunderlag innehåller dubbletter.');
+        for(const event of annual.events){
+          assert(event.date<=batch.date,'Årsunderlaget innehåller en framtida betalning.');
+          if(event.type==='modern')assert(earlierBatches.some(item=>item.id===event.id),'Årsunderlaget hänvisar inte till en tidigare lön.');
+          const actual=annualPayrollEvent(state,person.employeeId,event.type,event.id,event.recoveryIds,person.profile.birthYear);
+          assert(JSON.stringify(actual)===JSON.stringify(event),'Lönens historiska årsunderlag har ändrats.');
+        }
+      }
       const expected = calculatePayrollPerson(state, person.input, { paymentDate: batch.date, month: batch.month, excludeId: batch.id, profile: person.profile, employee: person.employee, context: person.context });
       assert(JSON.stringify(expected) === JSON.stringify(person), 'Löneberäkningen stämmer inte med det sparade underlaget.');
     }
@@ -435,6 +466,7 @@ export function validatePayrollBatches(state) {
   }
   validateVacationYears(state);
   validatePayrollRecoveries(state, addEntry);
+  validateContributionReviews(state,addEntry);
   for (const entry of state.entries) if (entry.sourceType.startsWith('payroll-v2')) assert(entryIds.has(entry.id), 'Löneverifikationen saknar ett verifierbart löneunderlag.');
   return { entryIds, accountBalances };
 }
@@ -533,7 +565,7 @@ const recoveryComponent = (person, component, taxClass) => {
   const oneOff = component === 'salary' ? (person.input.extraTaxMode === 'one-off' ? person.input.additionalGrossCents : 0) : (person.input.vacationTaxMode === 'one-off' ? total : 0);
   return taxClass === 'one-off' ? oneOff : total - oneOff;
 };
-const recoverySnapshot = record => immutableFields(Object.fromEntries(['batchId', 'originalEntryId', 'employeeId', 'month', 'date', 'component', 'taxClass', 'grossCents', 'employerReductionCents', 'contributionHandling', 'basisBatchIds', 'basisLegacyRunIds', 'priorRecoveryIds', 'basisTaxableCents', 'birthYear', 'paymentDate', 'reason', 'reference', 'reviewed', 'agiCorrectionConfirmed'].map(key => [key, record[key]])));
+const recoverySnapshot = record => immutableFields({...Object.fromEntries(['batchId', 'originalEntryId', 'employeeId', 'month', 'date', 'component', 'taxClass', 'grossCents', 'employerReductionCents', 'contributionHandling', 'basisBatchIds', 'basisLegacyRunIds', 'priorRecoveryIds', 'basisTaxableCents', 'birthYear', 'paymentDate', 'reason', 'reference', 'reviewed', 'agiCorrectionConfirmed'].map(key => [key, record[key]])),...(record.annualContributionRule?{annualContributionRule:record.annualContributionRule}:{})});
 const remainingEmployer = (batch, employeeId, state) => batch.people.find(person => person.employeeId === employeeId).employerCents - sum((state.payrollRecoveries ?? []).filter(item => item.batchId === batch.id && item.employeeId === employeeId).map(item => item.employerReductionCents));
 function recoveryRows(record) { return [debit('1680', record.grossCents), credit(record.component === 'salary' ? '7010' : '7082', record.grossCents), debit('2731', record.employerReductionCents), credit('7510', record.employerReductionCents)].filter(row => row.debitCents || row.creditCents); }
 
@@ -557,16 +589,18 @@ export function createPayrollRecovery(state, input) {
     const basisTaxableCents = sum([...basisBatches.flatMap(item => item.people.filter(row => row.employeeId === person.employeeId).map(row => row.taxableCents)), ...basisLegacy.flatMap(item => item.lines.filter(row => row.employeeId === person.employeeId).map(row => row.grossCents + row.benefitCents))]) - sum(prior.map(item => item.grossCents));
     assert(grossCents <= basisTaxableCents, 'Återkravet överstiger månadens kvarvarande skattepliktiga lön.');
     const calc = taxableCents => calculateEmployerContributions({ birthYear: person.profile.birthYear, paymentDate: batch.date, taxableCents }).contributionCents;
-    const employerReductionCents = calc(basisTaxableCents) - calc(basisTaxableCents - grossCents);
+    const annualContributionRule=person.context.annualContribution?PAYROLL_ANNUAL_RULE:undefined;
+    const employerReductionCents = annualContributionRule?0:calc(basisTaxableCents) - calc(basisTaxableCents - grossCents);
     assert(employerReductionCents <= remainingEmployer(batch, person.employeeId, draft), 'Avgiftsminskningen överstiger personens avgifter i originalkörningen. Granska fördelningen mellan körningarna.');
     const contributionHandling = batch.taxSettlement ? 'tax-credit' : 'reduce-unpaid';
     if (batch.taxSettlement) assert(input.date >= batch.taxSettlement.date, 'Återkravet får inte bokföras före den redan registrerade skatteregleringen.');
     const record = { id: nextId(draft, 'payroll-recovery'), batchId: batch.id, originalEntryId: batch.entryId, employeeId: person.employeeId, month: batch.month, date: input.date, component, taxClass, grossCents, employerReductionCents, contributionHandling,
       basisBatchIds: basisBatches.map(item => item.id), basisLegacyRunIds: basisLegacy.map(item => item.id), priorRecoveryIds: prior.map(item => item.id), basisTaxableCents,
-      birthYear: person.profile.birthYear, paymentDate: batch.date, reason: text(input.reason, 'orsak till återkrav'), reference: text(input.reference, 'återkravets referens'), reviewed: true, agiCorrectionConfirmed: true, payments: [], taxCredit: null };
+      birthYear: person.profile.birthYear, paymentDate: batch.date, ...(annualContributionRule?{annualContributionRule}:{}), reason: text(input.reason, 'orsak till återkrav'), reference: text(input.reference, 'återkravets referens'), reviewed: true, agiCorrectionConfirmed: true, payments: [], taxCredit: null };
     assert(!draft.payrollRecoveries.some(item => item.reference === record.reference), 'Återkravets referens finns redan.');
     const entry = appendEntry(draft, { date: input.date, description: `Bruttolöneåterkrav ${batch.month} · ${record.reason}`, sourceType: 'payroll-v2-recovery', sourceId: record.id, rows: recoveryRows(record) });
     record.entryId = entry.id; record.snapshot = recoverySnapshot(record); draft.payrollRecoveries.push(record);
+    if(annualContributionRule)appendContributionReview(draft,{employeeId:person.employeeId,year:Number(batch.month.slice(0,4)),date:input.date,reference:`Återkrav ${record.id}`,reviewed:true,finalBelowThreshold:[...(draft.payrollContributionReviews??[])].reverse().find(item=>item.employeeId===person.employeeId&&item.year===Number(batch.month.slice(0,4)))?.finalBelowThreshold===true,automatic:true});
     addActivity(draft, `Bruttolöneåterkrav registrerat; innehållen skatt ändras inte`, record.id);
   });
 }
@@ -621,7 +655,7 @@ function validatePayrollRecoveries(state, addEntry) {
     const componentGross = sum([...prior.filter(item => item.batchId === record.batchId && item.component === record.component && item.taxClass === record.taxClass).map(item => item.grossCents), record.grossCents]);
     assert(componentGross <= recoveryComponent(person, record.component, record.taxClass), 'Bruttolöneåterkravet överstiger originalets löneslag.');
     const calc = taxableCents => calculateEmployerContributions({ birthYear: person.profile.birthYear, paymentDate: batch.date, taxableCents }).contributionCents;
-    assert(record.birthYear === person.profile.birthYear && record.paymentDate === batch.date && record.employerReductionCents === calc(expectedBasis) - calc(expectedBasis - record.grossCents), 'Återkravets arbetsgivaravgift är fel.');
+    assert(record.birthYear === person.profile.birthYear && record.paymentDate === batch.date && record.employerReductionCents === (record.annualContributionRule===PAYROLL_ANNUAL_RULE?0:calc(expectedBasis) - calc(expectedBasis - record.grossCents)), 'Återkravets arbetsgivaravgift är fel.');
     assert(sum([...prior.filter(item => item.batchId === batch.id).map(item => item.employerReductionCents), record.employerReductionCents]) <= person.employerCents, 'Återkravets avgiftsminskning överstiger personens originalkörning.');
     assert(['reduce-unpaid', 'tax-credit'].includes(record.contributionHandling), 'Återkravets avgiftshantering är fel.');
     if (record.contributionHandling === 'tax-credit') assert(batch.taxSettlement && record.date >= batch.taxSettlement.date, 'Avgiften hade inte reglerats före krediteringskravet.');
@@ -662,5 +696,121 @@ export function getPayrollDeclarationPeople(state, month) {
     row.grossCents -= record.grossCents; row.employerCents -= record.employerReductionCents; row.recoveryIds.push(record.id);
   }
   for (const row of people.values()) for (const key of ['grossCents', 'benefitCents', 'withholdingCents', 'employerCents']) cents(row[key]);
+  for(const row of people.values()){
+    const latest=[...(state.payrollContributionReviews??[])].reverse().find(item=>item.employeeId===row.employeeId&&String(item.year)===month.slice(0,4));
+    if(latest){
+      const current=annualPayrollEvents(state,row.employeeId,latest.year,{paidOnly:true});
+      assert(JSON.stringify(current)===JSON.stringify(latest.events),'Årsunderlaget har ändrats. Granska årsersättningen och avgifterna igen före AGI.');
+      const target=latest.periods.find(item=>item.month===month);
+      if(target){row.employerCents=target.employerCents;for(const key of ['contributionGrossCents','contributionBenefitCents','exemptGrossCents','exemptBenefitCents','previouslyReportedCents'])row[key]=target[key];row.contributionReviewId=latest.id;}
+    }
+  }
   return [...people.values()];
+}
+
+// Annual contribution reviews are separate immutable records. They correct
+// contribution liabilities and AGI classification without changing salary originals.
+const signedSum = values => values.reduce((a,b)=>{assert(Number.isSafeInteger(b)&&Number.isSafeInteger(a+b),'Avgiftsdifferensen är för stor.');return a+b;},0);
+function annualPayrollEvent(state,employeeId,type,id,recoveryIds=[],fallbackBirthYear) {
+  assert(['modern','legacy'].includes(type)&&Array.isArray(recoveryIds)&&new Set(recoveryIds).size===recoveryIds.length,'Årsunderlagets referenser är fel.');
+  const run=(type==='modern'?state.payrollBatches:state.payrollRuns)?.find(item=>item.id===id);
+  const person=run&&(type==='modern'?run.people:run.lines).find(item=>item.employeeId===employeeId);
+  assert(person,'Årsunderlaget saknar ursprunglig lönerad.');
+  const recoveries=recoveryIds.map(key=>(state.payrollRecoveries??[]).find(item=>item.id===key));
+  assert(recoveries.every(item=>item&&type==='modern'&&item.batchId===id&&item.employeeId===employeeId),'Årsunderlagets återkrav hör inte till löneraden.');
+  return {key:`${type}:${id}`,type,id,date:type==='modern'?run.date:(run.paidDate??run.date),grossCents:cents(person.grossCents-sum(recoveries.map(item=>item.grossCents))),benefitCents:person.benefitCents,
+    birthYear:type==='modern'?person.profile.birthYear:fallbackBirthYear,expectedAtLeast1000:type==='legacy'||person.profile.contributionAnnualExpectation!=='below-1000',legacyAssessed:type==='legacy'||!person.context.annualContribution,recoveryIds:[...recoveryIds]};
+}
+function annualPayrollEvents(state,employeeId,year,{paidOnly=false,excludeId='',date='9999-12-31'}={}) {
+  const birthYear=(state.payrollProfiles??[]).find(item=>item.employeeId===employeeId)?.birthYear;
+  const events=[];
+  for(const run of state.payrollBatches??[])if(run.id!==excludeId&&isActive(run)&&run.status!=='draft'&&(!paidOnly||run.status==='paid')&&run.date.startsWith(`${year}-`)&&run.people.some(person=>person.employeeId===employeeId)){
+    const ids=(state.payrollRecoveries??[]).filter(item=>item.batchId===run.id&&item.employeeId===employeeId&&item.date<=date).map(item=>item.id);
+    events.push(annualPayrollEvent(state,employeeId,'modern',run.id,ids,birthYear));
+  }
+  for(const run of state.payrollRuns)if(run.status!=='draft'&&(!paidOnly||run.status==='paid')&&(run.paidDate??run.date).startsWith(`${year}-`)&&run.lines.some(person=>person.employeeId===employeeId))events.push(annualPayrollEvent(state,employeeId,'legacy',run.id,[],birthYear));
+  events.sort((a,b)=>a.date.localeCompare(b.date));
+  return events;
+}
+function annualPayrollContext(state,employeeId,paymentDate,excludeId) {
+  const year=Number(paymentDate.slice(0,4));
+  const latest=[...(state.payrollContributionReviews??[])].reverse().find(item=>item.employeeId===employeeId&&item.year===year);
+  assert(!latest?.finalBelowThreshold,'Året har slutligt granskats som under 1 000 kr. Gör en ny årsavstämning innan ytterligare löneutbetalning.');
+  assert(!(state.payrollRecoveries??[]).some(item=>item.employeeId===employeeId&&item.month.startsWith(`${year}-`)&&item.date>paymentDate),'Ny lön får inte dateras före ett redan registrerat återkrav i samma årsunderlag.');
+  const events=annualPayrollEvents(state,employeeId,year,{excludeId,date:paymentDate});
+  assert(events.every(item=>item.date<=paymentDate),'Ny årslöneberäkning får inte dateras före redan bokförda löner i samma år.');
+  return {ruleVersion:PAYROLL_ANNUAL_RULE,year,events};
+}
+function bookedAnnualEmployer(state,employeeId,events) {
+  return signedSum(events.map(event=>{
+    const run=(event.type==='modern'?state.payrollBatches:state.payrollRuns).find(item=>item.id===event.id);
+    const row=(event.type==='modern'?run.people:run.lines).find(person=>person.employeeId===employeeId);
+    const corrections=event.recoveryIds.map(id=>state.payrollRecoveries.find(item=>item.id===id).employerReductionCents);
+    return row.employerCents-sum(corrections);
+  }));
+}
+const contributionReviewSnapshot = record => JSON.stringify(Object.fromEntries(['employeeId','year','date','reference','reviewed','finalBelowThreshold','automatic','events','periods','previousIds','deltaCents','ruleVersion'].map(key=>[key,record[key]])));
+function contributionReviewRows(delta) {return delta>0?[debit('7510',delta),credit('2731',delta)]:delta<0?[debit('2731',-delta),credit('7510',-delta)]:[];}
+function appendContributionReview(state,input) {
+  assert(input.reviewed===true&&Number.isInteger(input.year)&&input.year===2026,'Årsavgiftskontrollen kräver granskat 2026-underlag.');
+  assert((state.payrollProfiles??[]).some(item=>item.employeeId===input.employeeId),'Granska en individuell löneprofil före årskontrollen.');
+  requireOpenPeriod(state,input.date);
+  const events=annualPayrollEvents(state,input.employeeId,input.year,{paidOnly:true});
+  assert(events.length&&events.every(item=>item.date<=input.date),'Årsavgiftskontrollen ska dateras efter årets berörda utbetalningar.');
+  assert(events.every(event=>event.recoveryIds.every(id=>state.payrollRecoveries.find(item=>item.id===id).date<=input.date)),'Årsavgiftskontrollen får inte använda framtida återkrav.');
+  assert(events.every(item=>item.birthYear===events[0].birthYear),'Födelseåret skiljer sig mellan årets löneunderlag. Granska först.');
+  const prior=(state.payrollContributionReviews??[]).filter(item=>item.employeeId===input.employeeId&&item.year===input.year);
+  assert(prior.every(item=>item.date<=input.date),'Årsavgiftskontroller ska registreras i datumordning.');
+  const finalBelowThreshold=input.finalBelowThreshold===true;
+  const calculated=annualContributionSchedule(events,calculateEmployerContributions,{finalBelowThreshold});
+  const deltaCents=signedSum([sum(calculated.periods.map(item=>item.employerCents)),-bookedAnnualEmployer(state,input.employeeId,events),-signedSum(prior.map(item=>item.deltaCents))]);
+  const record={id:nextId(state,'payroll-contribution-review'),employeeId:input.employeeId,year:input.year,date:input.date,reference:text(input.reference,'årskontrollens underlagsreferens'),reviewed:true,finalBelowThreshold,automatic:input.automatic===true,events,periods:calculated.periods,previousIds:prior.map(item=>item.id),deltaCents,ruleVersion:PAYROLL_ANNUAL_RULE,entryId:null,settlement:null};
+  if(deltaCents){const entry=appendEntry(state,{date:record.date,description:`Årsavstämning arbetsgivaravgift ${record.year} · ${record.reference}`,sourceType:'payroll-v2-contribution-review',sourceId:record.id,rows:contributionReviewRows(deltaCents)});record.entryId=entry.id;}
+  record.snapshot=contributionReviewSnapshot(record);state.payrollContributionReviews??=[];state.payrollContributionReviews.push(record);
+  addActivity(state,`Årsavgift ${record.year} granskad med spårbar AGI-klassning`,record.id);
+  return record;
+}
+export function reviewPayrollAnnualContributions(state,input){return payrollTransaction(state,draft=>{appendContributionReview(draft,input);});}
+export function settlePayrollContributionReview(state,id,{date,reference,confirmed=false}) {
+  return payrollTransaction(state,draft=>{
+    const record=(draft.payrollContributionReviews??[]).find(item=>item.id===id);assert(record&&record.deltaCents&&!record.settlement,'Årsavgiftsdifferensen saknas eller är redan reglerad.');
+    assert(confirmed===true,'Bekräfta faktisk betalning eller kreditering på skattekontot.');requireOpenPeriod(draft,date);assert(date>=record.date,'Skattekontohändelsen får inte ligga före årskontrollen.');
+    const amount=Math.abs(record.deltaCents),rows=record.deltaCents>0?[debit('2731',amount),credit('1630',amount)]:[debit('1630',amount),credit('2731',amount)];
+    const entry=appendEntry(draft,{date,description:'Skattekontoreglering av årsavgiftsdifferens',sourceType:'payroll-v2-contribution-payment',sourceId:record.id,rows});
+    record.settlement={date,reference:text(reference,'skattekontoreferens'),entryId:entry.id};draft.bankTransactions.push({id:nextId(draft,'bank'),date,description:'Årsavgiftsdifferens på skattekontot',account:'1630',amountCents:-record.deltaCents,matchedEntryId:entry.id});
+    addActivity(draft,'Årsavgiftsdifferens reglerad mot faktisk skattekontohändelse',record.id);
+  });
+}
+function validateContributionReviews(state,addEntry) {
+  assert(state.payrollContributionReviews===undefined||Array.isArray(state.payrollContributionReviews),'Årsavgiftskontrollerna är ogiltiga.');
+  const ids=new Set();
+  for(const [index,record] of (state.payrollContributionReviews??[]).entries()){
+    assert(typeof record.id==='string'&&!ids.has(record.id)&&record.ruleVersion===PAYROLL_ANNUAL_RULE&&record.reviewed===true&&record.year===2026&&validDate(record.date)&&typeof record.finalBelowThreshold==='boolean'&&typeof record.automatic==='boolean','Årsavgiftskontrollen har fel ID, datum eller regelversion.');ids.add(record.id);
+    text(record.reference,'årskontrollens referens');assert(record.snapshot===contributionReviewSnapshot(record),'Årsavgiftskontrollens original har ändrats.');
+    assert(Array.isArray(record.events)&&record.events.length&&new Set(record.events.map(item=>item.key)).size===record.events.length,'Årsavgiftsunderlaget saknas eller har dubbletter.');
+    for(const event of record.events){
+      const run=(event.type==='modern'?state.payrollBatches:state.payrollRuns)?.find(item=>item.id===event.id);assert(run?.status==='paid'&&event.date<=record.date&&event.date.startsWith(`${record.year}-`),'Årsavgiftskontrollen kräver utbetalda löner i rätt år.');
+      const expected=annualPayrollEvent(state,record.employeeId,event.type,event.id,event.recoveryIds,event.birthYear);assert(JSON.stringify(expected)===JSON.stringify(event),'Årsavgiftskontrollens löne-/återkravsunderlag stämmer inte.');
+      assert(event.recoveryIds.every(id=>state.payrollRecoveries.find(item=>item.id===id).date<=record.date),'Årsavgiftskontrollen innehåller framtida återkrav.');
+    }
+    const prior=(state.payrollContributionReviews??[]).slice(0,index).filter(item=>item.employeeId===record.employeeId&&item.year===record.year);
+    assert(JSON.stringify(prior.map(item=>item.id))===JSON.stringify(record.previousIds)&&prior.every(item=>item.date<=record.date),'Årsavgiftskontrollens tidigare versioner är fel.');
+    const calculated=annualContributionSchedule(record.events,calculateEmployerContributions,{finalBelowThreshold:record.finalBelowThreshold});
+    assert(JSON.stringify(calculated.periods)===JSON.stringify(record.periods),'Årsavgiftskontrollens AGI-perioder stämmer inte.');
+    const expectedDelta=signedSum([sum(calculated.periods.map(item=>item.employerCents)),-bookedAnnualEmployer(state,record.employeeId,record.events),-signedSum(prior.map(item=>item.deltaCents))]);
+    assert(record.deltaCents===expectedDelta,'Årsavgiftskontrollens bokförda differens är fel.');
+    if(record.deltaCents)addEntry(record.entryId,'payroll-v2-contribution-review',record.id,record.date,contributionReviewRows(record.deltaCents));else assert(record.entryId===null,'En nollavstämning ska inte skapa en verifikation.');
+    if(record.settlement){
+      const item=record.settlement,amount=Math.abs(record.deltaCents);assert(amount&&validDate(item.date)&&item.date>=record.date&&text(item.reference,'skattekontoreferens'),'Årsavgiftskontrollens reglering är fel.');
+      addEntry(item.entryId,'payroll-v2-contribution-payment',record.id,item.date,record.deltaCents>0?[debit('2731',amount),credit('1630',amount)]:[debit('1630',amount),credit('2731',amount)]);
+      const bank=state.bankTransactions.filter(value=>value.matchedEntryId===item.entryId);assert(bank.length===1&&bank[0].account==='1630'&&bank[0].date===item.date&&bank[0].amountCents===-record.deltaCents,'Årsavgiftsregleringens skattekontohändelse saknas.');
+    }
+  }
+}
+
+export function getPayrollAnnualContributionReview(state,employeeId,year=2026) {
+  const events=annualPayrollEvents(state,employeeId,year,{paidOnly:true});
+  const history=(state.payrollContributionReviews??[]).filter(item=>item.employeeId===employeeId&&item.year===year);
+  const latest=history.at(-1),current=latest&&JSON.stringify(latest.events)===JSON.stringify(events);
+  return {events,history,latest,current,annualTaxableCents:sum(events.map(item=>sum([item.grossCents,item.benefitCents])))};
 }

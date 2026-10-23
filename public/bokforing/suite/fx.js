@@ -2,6 +2,8 @@
 // have explicit Minor names. Customer/supplier control accounts stay in SEK.
 import { ACCOUNTS, MAX_CENTS, assert, cents, validDate, requireOpenPeriod, transact, nextId, appendEntry, addActivity } from './core.js';
 import { fiscalPeriodForDate } from './fiscal-periods.js';
+import { INVOICE_REQUIREMENTS_VERSION, normalizePerformance, assertInvoiceIssuanceReady, invoicePerformanceText } from './invoice-requirements.js';
+import { normalizeVatExemption, validateVatExemption, vatExemptionInvoiceText } from './vat-classification.js';
 
 const currencies = new Set(['EUR', 'USD']);
 const accounts = new Set(ACCOUNTS.map(item => item.number));
@@ -47,6 +49,17 @@ export function formatFxMinor(amount, currency) {
 }
 export function formatFxRate(rate) { validateRate(rate); return (rate.numerator / rate.denominator).toLocaleString('sv-SE', { maximumFractionDigits: 8 }); }
 
+function assertFxInvoiceReady(doc) {
+  assert(doc.performance?.mode !== 'advance-payment', 'Förskottsfakturor stöds inte i detta valutaflöde.');
+  const performedUntil = doc.performance?.mode === 'period' ? doc.performance.to : doc.performance?.mode === 'date' ? doc.performance.date : doc.date;
+  assert(!performedUntil || performedUntil <= doc.date, 'Framtida leverans/utförande kräver ett separat förskottsflöde.');
+  assertInvoiceIssuanceReady({ seller: { name: doc.sellerName, address: doc.sellerAddress, postalCode: doc.sellerPostalCode, city: doc.sellerCity, country: doc.sellerCountry, vatNumber: doc.sellerVatNumber, orgNumber: doc.sellerOrgNumber, legalForm: doc.sellerLegalForm, registeredOffice: doc.sellerRegisteredOffice, inLiquidation: doc.sellerInLiquidation },
+    customer: { name: doc.partyName, address: doc.partyAddress, postalCode: doc.partyPostalCode, city: doc.partyCity, country: doc.partyCountry },
+    date: doc.date, performance: doc.performance, sellerVatRequired: doc.lines.some(line => line.vatRate > 0) });
+  if (doc.lines.some(line => line.vatRate === 0)) validateVatExemption(doc.vatExemption);
+  else assert(doc.vatExemption === undefined || doc.vatExemption?.code === '' && doc.vatExemption?.legalBasis === '' && doc.vatExemption?.confirmed === false, 'Momsundantag kan bara anges för fakturor med 0 %-rader.');
+}
+const taxBasis = (doc, line) => doc.side !== 'customer' ? {} : doc.requirementsVersion === INVOICE_REQUIREMENTS_VERSION ? { basisBox: line.vatRate === 0 ? '42' : '05' } : line.vatRate === 0 ? { requiresVatReview: true } : {};
 function calculateDocument(doc) {
   assert(['customer','supplier'].includes(doc.side) && currencies.has(doc.currency), 'Välj kund/leverantör och EUR eller USD.');
   assert(doc.taxTreatment === 'domestic' || doc.taxTreatment === 'no-vat', 'Momstypen stöds inte för valutafakturor.');
@@ -57,7 +70,7 @@ function calculateDocument(doc) {
   valueText(doc.partyAddress, 'Motpartens adress', 500); valueText(doc.sellerName, 'Säljarens namn', 150);
   valueText(doc.sellerAddress, 'Säljarens adress', 500); valueText(doc.sellerOrgNumber, 'Säljarens organisationsnummer', 50);
   valueText(doc.sellerVatNumber, 'Säljarens momsnummer', 50, doc.taxTreatment === 'no-vat'); valueText(doc.paymentReference, 'Betalningsuppgifter', 200);
-  if (doc.taxTreatment === 'no-vat') valueText(doc.taxReason, 'Orsak till ingen moms', 300);
+  if (doc.taxTreatment === 'no-vat') valueText(doc.taxReason || doc.vatExemption?.legalBasis, 'Orsak till ingen moms', 500);
   assert(Array.isArray(doc.lines) && doc.lines.length > 0 && doc.lines.length <= 100, 'Fakturan behöver 1–100 rader.');
   const lines = doc.lines.map(line => {
     valueText(line.description, 'Radbeskrivning', 300); cents(line.foreignNetMinor, false);
@@ -67,8 +80,9 @@ function calculateDocument(doc) {
     const netCents = convertFxMinor(line.foreignNetMinor, doc.rate), vatCents = convertFxMinor(foreignVatMinor, doc.rate);
     return { ...line, foreignVatMinor, foreignGrossMinor: sum([line.foreignNetMinor,foreignVatMinor]), netCents, vatCents, grossCents: sum([netCents,vatCents]) };
   });
+  if (doc.requirementsVersion !== undefined) { assert(doc.side === 'customer' && doc.requirementsVersion === INVOICE_REQUIREMENTS_VERSION, 'Fakturakravens version är ogiltig.'); assertFxInvoiceReady(doc); }
   assert(sum(lines.map(line => line.grossCents)) > 0, 'Fakturabeloppet är för litet efter omräkning till SEK.');
-  if(lines.some(line => line.vatRate === 0)) valueText(doc.taxReason, 'Motivering till nollmoms', 300);
+  if(lines.some(line => line.vatRate === 0)) valueText(doc.taxReason || doc.vatExemption?.legalBasis, 'Motivering till nollmoms', 500);
   return { lines, foreignNetMinor: sum(lines.map(line => line.foreignNetMinor)), foreignVatMinor: sum(lines.map(line => line.foreignVatMinor)), foreignGrossMinor: sum(lines.map(line => line.foreignGrossMinor)), netCents: sum(lines.map(line => line.netCents)), vatCents: sum(lines.map(line => line.vatCents)), grossCents: sum(lines.map(line => line.grossCents)) };
 }
 function addFxDifference(rows) {
@@ -92,7 +106,7 @@ function calculateEvent(doc, event, position, priorEvents) {
     for (const line of doc.lines) {
       rows.push(signedRow(line.account, -sign * line.netCents));
       if (line.vatCents) rows.push(signedRow(doc.side === 'customer' ? ({25:'2611',12:'2621',6:'2631'}[line.vatRate]) : '2641', -sign * line.vatCents));
-      taxRows.push({ vatRate: line.vatRate, baseCents: line.netCents, vatCents: line.vatCents });
+      taxRows.push({ vatRate: line.vatRate, baseCents: line.netCents, vatCents: line.vatCents, ...taxBasis(doc,line) });
     }
   } else {
     assert(position.issued, 'Bokför fakturan före betalning eller rättelse.');
@@ -121,7 +135,7 @@ function calculateEvent(doc, event, position, priorEvents) {
         foreignGross = sum([foreignGross,selected.foreignNetMinor,foreignVat]);
         rows.push(signedRow(line.account, sign * net));
         if (vat) rows.push(signedRow(doc.side === 'customer' ? ({25:'2611',12:'2621',6:'2631'}[line.vatRate]) : '2641', sign * vat));
-        taxRows.push({ vatRate: line.vatRate, baseCents: -net, vatCents: -vat });
+        taxRows.push({ vatRate: line.vatRate, baseCents: -net, vatCents: -vat, ...taxBasis(doc,line) });
         position.creditNet.set(selected.index, after);
       }
       let carried;
@@ -220,6 +234,10 @@ export function createFxDocument(state,payload) {
       number:valueText(payload.number,'Fakturanummer',100),partyName:valueText(payload.partyName,'Motpartens namn',150),partyAddress:valueText(payload.partyAddress,'Motpartens adress',500),
       sellerName:valueText(payload.sellerName ?? draft.company.name,'Säljarens namn',150),sellerAddress:valueText(payload.sellerAddress,'Säljarens adress',500),
       sellerOrgNumber:valueText(payload.sellerOrgNumber ?? draft.company.orgNumber,'Säljarens organisationsnummer',50),sellerVatNumber:payload.sellerVatNumber ?? '',
+      partyPostalCode: valueText(payload.partyPostalCode ?? '', 'Motpartens postnummer', 30, true), partyCity: valueText(payload.partyCity ?? '', 'Motpartens ort', 150, true), partyCountry: valueText(payload.partyCountry ?? 'SE', 'Motpartens land', 2, true),
+      sellerPostalCode: valueText(payload.sellerPostalCode ?? draft.company.postalCode ?? '', 'Säljarens postnummer', 30, true), sellerCity: valueText(payload.sellerCity ?? draft.company.city ?? '', 'Säljarens ort', 150, true), sellerCountry: valueText(payload.sellerCountry ?? draft.company.country ?? 'SE', 'Säljarens land', 2, true),
+      sellerLegalForm: payload.sellerLegalForm ?? draft.company.legalForm, sellerRegisteredOffice: payload.sellerRegisteredOffice ?? draft.company.registeredOffice, sellerInLiquidation: payload.sellerInLiquidation ?? draft.company.inLiquidation,
+      performance: normalizePerformance(payload.performance), vatExemption: normalizeVatExemption(payload.vatExemption),
       paymentReference:valueText(payload.paymentReference,'Betalningsuppgifter',200),taxTreatment:payload.taxTreatment,taxReason:payload.taxReason ?? '',taxReviewed:payload.taxReviewed === true,rate,
       lines:(payload.lines ?? []).map(line => ({description:line.description,account:payload.side === 'customer' ? '3000' : line.account,foreignNetMinor:line.foreignNetMinor,vatRate:line.vatRate})) };
     Object.assign(doc,calculateDocument(doc)); (draft.fxDocuments ??= []).push(doc);
@@ -257,6 +275,7 @@ export function issueFxDocument(state,id) {
   return change(state,draft => {
     const doc = lookup(draft,id); assert(doc.status === 'draft','Valutafakturan är redan bokförd.');
     assert(draft.company.method === 'invoice', 'Valutafakturor kan bara utfärdas med faktureringsmetoden.');
+    if (doc.side === 'customer') { assertFxInvoiceReady(doc); if (!doc.lines.some(line => line.vatRate === 0)) delete doc.vatExemption; if (doc.performance.mode === 'invoice-date') doc.performance = { mode: 'date', date: doc.date, confirmed: true }; doc.requirementsVersion = INVOICE_REQUIREMENTS_VERSION; }
     const event = appendFxEvent(draft,doc,{type:'issue',date:doc.date,reference:doc.number});
     doc.status = 'issued'; doc.issuedEntryId = event.entryId; doc.snapshot = snapshot(doc);
   });
@@ -279,7 +298,7 @@ export function reverseFxRevaluation(state,id,{date,reversesEventId,reference,re
 const html = value => String(value ?? '').replace(/[&<>"']/g,ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 export function fxInvoiceHtml(state,id) {
   const doc = lookup(state,id); const position = getFxPosition(state,id);
-  return `<!doctype html><html lang="sv"><meta charset="utf-8"><title>${html(doc.number)}</title><style>body{font:15px Arial;max-width:850px;margin:40px auto;color:#182536}header{display:flex;justify-content:space-between}table{width:100%;border-collapse:collapse;margin:32px 0}td,th{text-align:left;border-bottom:1px solid #ddd;padding:10px}td:last-child,th:last-child{text-align:right}.total{text-align:right;font-size:20px}small{color:#526273}@media print{body{margin:15mm}}</style><body><header><section><h1>${doc.status==='draft'?'UTKAST · ':''}${doc.side==='customer'?'FAKTURA':'LEVERANTÖRSUNDERLAG'}</h1><h2>${html(doc.sellerName)}</h2><p>${html(doc.sellerAddress)}</p><p>Org.nr ${html(doc.sellerOrgNumber)} · Momsnr ${html(doc.sellerVatNumber)}</p></section><section><h2>${html(doc.number)}</h2><p>Fakturadatum ${html(doc.date)}<br>Förfallodatum ${html(doc.dueDate)}</p><p>${html(doc.partyName)}<br>${html(doc.partyAddress)}</p></section></header><table><thead><tr><th>Beskrivning</th><th>Netto ${html(doc.currency)}</th><th>Moms</th><th>Summa ${html(doc.currency)}</th></tr></thead><tbody>${doc.lines.map(line=>`<tr><td>${html(line.description)}</td><td>${html(formatFxMinor(line.foreignNetMinor,doc.currency))}</td><td>${line.vatRate}%</td><td>${html(formatFxMinor(line.foreignGrossMinor,doc.currency))}</td></tr>`).join('')}</tbody></table><p class="total">Totalt: ${html(formatFxMinor(doc.foreignGrossMinor,doc.currency))}</p><p class="total">${doc.status==='issued'?'Återstår: '+html(formatFxMinor(Math.max(0,position.foreignBalanceMinor),doc.currency)):''}</p><p>Moms att redovisa i SEK: ${html((doc.vatCents/100).toFixed(2))} SEK.<br><small>Fryst fakturakurs ${html(formatFxRate(doc.rate))} SEK per 1 ${html(doc.currency)} · ${html(doc.rate.date)} · ${html(doc.rate.source)}. Nettobelopp och moms omräknas och avrundas separat.</small></p>${doc.taxTreatment==='no-vat'?`<p>Momsupplysning: ${html(doc.taxReason)}</p>`:''}<p>Betalningsuppgifter: ${html(doc.paymentReference)}</p><p><small>Skapad från valutafakturans frysta uppgifter. Underlag för manuell leverans; inget skickas automatiskt.</small></p></body></html>`;
+  return `<!doctype html><html lang="sv"><meta charset="utf-8"><title>${html(doc.number)}</title><style>body{font:15px Arial;max-width:850px;margin:40px auto;color:#182536}header{display:flex;justify-content:space-between}table{width:100%;border-collapse:collapse;margin:32px 0}td,th{text-align:left;border-bottom:1px solid #ddd;padding:10px}td:last-child,th:last-child{text-align:right}.total{text-align:right;font-size:20px}small{color:#526273}@media print{body{margin:15mm}}</style><body><header><section><h1>${doc.status==='draft'?'UTKAST · ':''}${doc.side==='customer'?'FAKTURA':'LEVERANTÖRSUNDERLAG'}</h1><h2>${html(doc.sellerName)}</h2><p>${html(doc.sellerAddress)}<br>${html(doc.sellerPostalCode)} ${html(doc.sellerCity)} ${html(doc.sellerCountry)}</p><p>Org.nr ${html(doc.sellerOrgNumber)} · Momsnr ${html(doc.sellerVatNumber)}${doc.sellerLegalForm==='AB'?`<br>Styrelsens säte: ${html(doc.sellerRegisteredOffice)}${doc.sellerInLiquidation?'<br>Under likvidation':''}`:''}</p></section><section><h2>${html(doc.number)}</h2><p>Fakturadatum ${html(doc.date)}<br>Förfallodatum ${html(doc.dueDate)}</p><p>${html(doc.partyName)}<br>${html(doc.partyAddress)}<br>${html(doc.partyPostalCode)} ${html(doc.partyCity)} ${html(doc.partyCountry)}</p></section></header><table><thead><tr><th>Beskrivning</th><th>Netto ${html(doc.currency)}</th><th>Moms</th><th>Summa ${html(doc.currency)}</th></tr></thead><tbody>${doc.lines.map(line=>`<tr><td>${html(line.description)}</td><td>${html(formatFxMinor(line.foreignNetMinor,doc.currency))}</td><td>${line.vatRate}%</td><td>${html(formatFxMinor(line.foreignGrossMinor,doc.currency))}</td></tr>`).join('')}</tbody></table><p class="total">Totalt: ${html(formatFxMinor(doc.foreignGrossMinor,doc.currency))}</p><p class="total">${doc.status==='issued'?'Återstår: '+html(formatFxMinor(Math.max(0,position.foreignBalanceMinor),doc.currency)):''}</p><p>Moms att redovisa i SEK: ${html((doc.vatCents/100).toFixed(2))} SEK.<br><small>Fryst fakturakurs ${html(formatFxRate(doc.rate))} SEK per 1 ${html(doc.currency)} · ${html(doc.rate.date)} · ${html(doc.rate.source)}. Nettobelopp och moms omräknas och avrundas separat.</small></p>${doc.performance?`<p>${html(invoicePerformanceText(doc.performance,doc.date))}</p>`:''}${doc.lines.some(line=>line.vatRate===0)&&doc.vatExemption?.confirmed?`<p>Momsundantaget gäller endast rader med 0 % moms. ${html(vatExemptionInvoiceText(doc.vatExemption))}</p>`:doc.taxTreatment==='no-vat'?`<p>Momsupplysning: ${html(doc.taxReason)}</p>`:''}<p>Betalningsuppgifter: ${html(doc.paymentReference)}</p><p><small>Skapad från valutafakturans frysta uppgifter. Underlag för manuell leverans; inget skickas automatiskt.</small></p></body></html>`;
 }
 
 export function getFxClosingIssues(state) {
@@ -297,9 +316,11 @@ export function updateFxDraft(state,id,payload) {
   return change(state,draft=>{
     const doc=lookup(draft,id);assert(doc.status==='draft','En bokförd valutafaktura kan inte redigeras. Skapa en kreditnota.');
     const next={...doc};
-    for(const key of ['number','date','dueDate','partyName','partyAddress','sellerName','sellerAddress','sellerOrgNumber','sellerVatNumber','paymentReference','taxTreatment','taxReason'])if(payload[key]!==undefined)next[key]=payload[key];
+    for(const key of ['number','date','dueDate','partyName','partyAddress','sellerName','sellerAddress','sellerOrgNumber','sellerVatNumber','sellerPostalCode','sellerCity','sellerCountry','sellerLegalForm','sellerRegisteredOffice','sellerInLiquidation','partyPostalCode','partyCity','partyCountry','paymentReference','taxTreatment','taxReason'])if(payload[key]!==undefined)next[key]=payload[key];
     requireOpenPeriod(draft,next.date);
     if(payload.rate!==undefined)next.rate=typeof payload.rate==='object'?structuredClone(payload.rate):parseFxRate(payload.rate,{date:next.date,source:payload.rateSource??doc.rate.source});
+    if (payload.performance !== undefined) next.performance=normalizePerformance(payload.performance);
+    if (payload.vatExemption !== undefined) next.vatExemption=normalizeVatExemption(payload.vatExemption);
     next.taxReviewed=payload.taxReviewed===true;
     if(payload.lines!==undefined)next.lines=payload.lines.map(line=>({description:line.description,account:doc.side==='customer'?'3000':line.account,foreignNetMinor:line.foreignNetMinor,vatRate:line.vatRate}));
     Object.assign(next,calculateDocument(next));Object.assign(doc,next);addActivity(draft,`Valutautkast ${doc.number} uppdaterat.`,doc.id);
@@ -321,5 +342,5 @@ export function fxCreditHtml(state,eventId) {
     return{description:line.description,net:selection.foreignNetMinor,vat,total:selection.foreignNetMinor+vat,vatRate:line.vatRate};
   });
   const vatCents=-sum(getFxTaxRows(state).filter(row=>row.entryId===event.entryId).map(row=>row.vatCents));
-  return `<!doctype html><html lang="sv"><meta charset="utf-8"><title>Kreditnota ${html(event.reference)}</title><style>body{font:15px Arial;max-width:850px;margin:40px auto}table{width:100%;border-collapse:collapse}th,td{padding:12px;border-bottom:1px solid #ddd;text-align:left}@media print{body{margin:15mm}}</style><body><h1>KREDITNOTA ${html(event.reference)}</h1><p>Unikt kredit-ID: ${html(event.id)}<br>Datum: ${html(event.date)}<br>Avser faktura ${html(doc.number)}, ${html(doc.date)}</p><h2>${html(doc.sellerName)}</h2><p>${html(doc.sellerAddress)}<br>Org.nr ${html(doc.sellerOrgNumber)} · Momsnr ${html(doc.sellerVatNumber)}</p><h2>${html(doc.partyName)}</h2><p>${html(doc.partyAddress)}</p><p>Orsak: ${html(event.reason)}</p><table><thead><tr><th>Rad</th><th>Krediterat netto</th><th>Moms</th><th>Kreditbelopp</th></tr></thead><tbody>${lines.map(line=>`<tr><td>${html(line.description)}</td><td>${html(formatFxMinor(line.net,doc.currency))}</td><td>${line.vatRate}% · ${html(formatFxMinor(line.vat,doc.currency))}</td><td>${html(formatFxMinor(line.total,doc.currency))}</td></tr>`).join('')}</tbody></table><h2>Totalt krediterat ${html(formatFxMinor(sum(lines.map(line=>line.total)),doc.currency))}</h2><p>Återförd moms i SEK: ${html((vatCents/100).toFixed(2))} SEK. Skattebeloppen följer ursprungsfakturans frysta kurs; eventuell kursdifferens bokförs separat.</p></body></html>`;
+  return `<!doctype html><html lang="sv"><meta charset="utf-8"><title>Kreditnota ${html(event.reference)}</title><style>body{font:15px Arial;max-width:850px;margin:40px auto}table{width:100%;border-collapse:collapse}th,td{padding:12px;border-bottom:1px solid #ddd;text-align:left}@media print{body{margin:15mm}}</style><body><h1>KREDITNOTA ${html(event.reference)}</h1><p>Unikt kredit-ID: ${html(event.id)}<br>Datum: ${html(event.date)}<br>Avser faktura ${html(doc.number)}, ${html(doc.date)}</p><h2>${html(doc.sellerName)}</h2><p>${html(doc.sellerAddress)}<br>${html(doc.sellerPostalCode)} ${html(doc.sellerCity)} ${html(doc.sellerCountry)}<br>Org.nr ${html(doc.sellerOrgNumber)} · Momsnr ${html(doc.sellerVatNumber)}${doc.sellerLegalForm==='AB'?`<br>Styrelsens säte: ${html(doc.sellerRegisteredOffice)}${doc.sellerInLiquidation?'<br>Under likvidation':''}`:''}</p><h2>${html(doc.partyName)}</h2><p>${html(doc.partyAddress)}<br>${html(doc.partyPostalCode)} ${html(doc.partyCity)} ${html(doc.partyCountry)}</p><p>Orsak: ${html(event.reason)}</p>${doc.performance?`<p>${html(invoicePerformanceText(doc.performance,doc.date))}</p>`:''}${doc.lines.some(line=>line.vatRate===0)&&doc.vatExemption?.confirmed?`<p>Momsundantaget gäller endast rader med 0 % moms. ${html(vatExemptionInvoiceText(doc.vatExemption))}</p>`:''}<table><thead><tr><th>Rad</th><th>Krediterat netto</th><th>Moms</th><th>Kreditbelopp</th></tr></thead><tbody>${lines.map(line=>`<tr><td>${html(line.description)}</td><td>${html(formatFxMinor(line.net,doc.currency))}</td><td>${line.vatRate}% · ${html(formatFxMinor(line.vat,doc.currency))}</td><td>${html(formatFxMinor(line.total,doc.currency))}</td></tr>`).join('')}</tbody></table><h2>Totalt krediterat ${html(formatFxMinor(sum(lines.map(line=>line.total)),doc.currency))}</h2><p>Återförd moms i SEK: ${html((vatCents/100).toFixed(2))} SEK. Skattebeloppen följer ursprungsfakturans frysta kurs; eventuell kursdifferens bokförs separat.</p></body></html>`;
 }

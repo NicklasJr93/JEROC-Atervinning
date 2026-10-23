@@ -13,8 +13,8 @@ async function seed(page: Page, side: 'customer' | 'supplier') {
     let state = core.createEmptyState();
     let id: string;
     if (side === 'customer') {
-      state = sales.createCustomer(state, { name: 'Testkund AB' });
-      state = sales.createInvoice(state, { customerId: state.customers[0].id, date: '2026-10-01', dueDate: '2026-10-31',
+      state = sales.createCustomer(state, {address:'Fiktivgatan 1',postalCode:'12345',city:'Demostaden',country:'SE',vatNumber:'SE559900123601', name: 'Testkund AB' });
+      state = sales.createInvoice(state, {details:{performance:{mode:'invoice-date',confirmed:true}}, customerId: state.customers[0].id, date: '2026-10-01', dueDate: '2026-10-31',
         lines: [{ description: 'Målning', kind: 'labor', quantity: 1, unitCents: 10000, vatRate: 25 }] });
       id = state.invoices[0].id;
       state = sales.issueInvoice(state, id);

@@ -1,0 +1,307 @@
+{
+  "sourceRevision": "8a1c143",
+  "source": "Generated with the unmodified public/bokforing/suite modules at commit 8a1c143. Fictional companies; no real payment.",
+  "fx": {
+    "schemaVersion": 2,
+    "sequence": 5,
+    "company": {
+      "name": "Åkes Hantverk AB",
+      "orgNumber": "559900-1236",
+      "fiscalYearStart": "2026-01-01",
+      "fiscalYearEnd": "2026-12-31",
+      "method": "invoice",
+      "vatPeriod": "quarter",
+      "currency": "SEK"
+    },
+    "lockedPeriods": [],
+    "entries": [
+      {
+        "id": "entry-4",
+        "number": "A1",
+        "date": "2026-10-01",
+        "description": "Valuta OLD-EXEMPT · faktura",
+        "sourceType": "fx-issue",
+        "sourceId": "fx-event-3",
+        "rows": [
+          {
+            "account": "1510",
+            "debitCents": 110000,
+            "creditCents": 0
+          },
+          {
+            "account": "3000",
+            "debitCents": 0,
+            "creditCents": 110000
+          }
+        ],
+        "createdAt": "2026-10-23T19:17:58.912Z",
+        "actor": "Åke"
+      }
+    ],
+    "activity": [
+      {
+        "id": "activity-2",
+        "label": "Valutafakturautkast OLD-EXEMPT · EUR",
+        "entityId": "fx-doc-1",
+        "date": "2026-10-23T19:17:58.901Z",
+        "createdAt": "2026-10-23T19:17:58.901Z",
+        "actor": "Åke"
+      },
+      {
+        "id": "activity-5",
+        "label": "A1 · Valuta OLD-EXEMPT · faktura",
+        "entityId": "entry-4",
+        "date": "2026-10-23T19:17:58.912Z",
+        "createdAt": "2026-10-23T19:17:58.912Z",
+        "actor": "Åke"
+      }
+    ],
+    "customers": [],
+    "suppliers": [],
+    "projects": [],
+    "quotes": [],
+    "invoices": [],
+    "bills": [],
+    "bankTransactions": [],
+    "employees": [],
+    "payrollRuns": [],
+    "assets": [],
+    "accruals": [],
+    "inventoryItems": [],
+    "inventoryValuations": [],
+    "vatReturns": [],
+    "rotClaims": [],
+    "yearClosures": [],
+    "fxDocuments": [
+      {
+        "id": "fx-doc-1",
+        "status": "issued",
+        "side": "customer",
+        "currency": "EUR",
+        "date": "2026-10-01",
+        "dueDate": "2026-10-31",
+        "number": "OLD-EXEMPT",
+        "partyName": "Fiktiv hyresgäst",
+        "partyAddress": "Testgatan 1",
+        "sellerName": "Fiktiv hyresvärd",
+        "sellerAddress": "Testvägen 2",
+        "sellerOrgNumber": "559900-1236",
+        "sellerVatNumber": "",
+        "paymentReference": "OLD-EXEMPT",
+        "taxTreatment": "no-vat",
+        "taxReason": "Momsfri fastighetsuthyrning enligt 10 kap. 35 § ML, ingen frivillig beskattning.",
+        "taxReviewed": true,
+        "rate": {
+          "numerator": 11,
+          "denominator": 1,
+          "date": "2026-10-01",
+          "source": "Fiktivt underlag"
+        },
+        "lines": [
+          {
+            "description": "Momsfri lokalhyra",
+            "account": "3000",
+            "foreignNetMinor": 10000,
+            "vatRate": 0,
+            "foreignVatMinor": 0,
+            "foreignGrossMinor": 10000,
+            "netCents": 110000,
+            "vatCents": 0,
+            "grossCents": 110000
+          }
+        ],
+        "foreignNetMinor": 10000,
+        "foreignVatMinor": 0,
+        "foreignGrossMinor": 10000,
+        "netCents": 110000,
+        "vatCents": 0,
+        "grossCents": 110000,
+        "issuedEntryId": "entry-4",
+        "snapshot": "{\"id\":\"fx-doc-1\",\"status\":\"issued\",\"side\":\"customer\",\"currency\":\"EUR\",\"date\":\"2026-10-01\",\"dueDate\":\"2026-10-31\",\"number\":\"OLD-EXEMPT\",\"partyName\":\"Fiktiv hyresgäst\",\"partyAddress\":\"Testgatan 1\",\"sellerName\":\"Fiktiv hyresvärd\",\"sellerAddress\":\"Testvägen 2\",\"sellerOrgNumber\":\"559900-1236\",\"sellerVatNumber\":\"\",\"paymentReference\":\"OLD-EXEMPT\",\"taxTreatment\":\"no-vat\",\"taxReason\":\"Momsfri fastighetsuthyrning enligt 10 kap. 35 § ML, ingen frivillig beskattning.\",\"taxReviewed\":true,\"rate\":{\"numerator\":11,\"denominator\":1,\"date\":\"2026-10-01\",\"source\":\"Fiktivt underlag\"},\"lines\":[{\"description\":\"Momsfri lokalhyra\",\"account\":\"3000\",\"foreignNetMinor\":10000,\"vatRate\":0,\"foreignVatMinor\":0,\"foreignGrossMinor\":10000,\"netCents\":110000,\"vatCents\":0,\"grossCents\":110000}],\"foreignNetMinor\":10000,\"foreignVatMinor\":0,\"foreignGrossMinor\":10000,\"netCents\":110000,\"vatCents\":0,\"grossCents\":110000,\"issuedEntryId\":\"entry-4\"}"
+      }
+    ],
+    "fxEvents": [
+      {
+        "id": "fx-event-3",
+        "documentId": "fx-doc-1",
+        "type": "issue",
+        "date": "2026-10-01",
+        "reference": "OLD-EXEMPT",
+        "entryId": "entry-4",
+        "snapshot": "{\"id\":\"fx-event-3\",\"documentId\":\"fx-doc-1\",\"type\":\"issue\",\"date\":\"2026-10-01\",\"reference\":\"OLD-EXEMPT\",\"entryId\":\"entry-4\"}"
+      }
+    ]
+  },
+  "cash": {
+    "schemaVersion": 2,
+    "sequence": 9,
+    "company": {
+      "name": "Åkes kontantmetod AB",
+      "orgNumber": "559900-1236",
+      "fiscalYearStart": "2026-01-01",
+      "fiscalYearEnd": "2026-12-31",
+      "method": "cash",
+      "vatPeriod": "quarter",
+      "currency": "SEK",
+      "address": "Exempelvägen 1, Demostaden",
+      "cashMethodSetup": {
+        "eligibilityConfirmed": true,
+        "expectedTurnoverCents": 10000000
+      }
+    },
+    "lockedPeriods": [],
+    "entries": [
+      {
+        "id": "entry-6",
+        "number": "A1",
+        "date": "2026-10-02",
+        "description": "CF-0001 · betalning",
+        "sourceType": "cash-payment",
+        "sourceId": "cash-event-5",
+        "rows": [
+          {
+            "account": "1930",
+            "debitCents": 100000,
+            "creditCents": 0
+          },
+          {
+            "account": "3000",
+            "debitCents": 0,
+            "creditCents": 100000
+          }
+        ],
+        "createdAt": "2026-10-23T19:17:58.947Z",
+        "actor": "Åke"
+      }
+    ],
+    "activity": [
+      {
+        "id": "activity-1",
+        "label": "Nytt övningsbolag med kontantmetoden; tidigare demobok ändras inte av denna beräkning.",
+        "entityId": "",
+        "date": "2026-10-23T19:17:58.917Z",
+        "createdAt": "2026-10-23T19:17:58.917Z",
+        "actor": "Åke"
+      },
+      {
+        "id": "activity-3",
+        "label": "Kontantmetod: fakturautkast OLD-CASH-EXEMPT registrerat utan bokföring.",
+        "entityId": "cash-document-2",
+        "date": "2026-10-23T19:17:58.928Z",
+        "createdAt": "2026-10-23T19:17:58.928Z",
+        "actor": "Åke"
+      },
+      {
+        "id": "activity-4",
+        "label": "CF-0001 utfärdad/registrerad. Bokföring sker vid betalning eller årsslut.",
+        "entityId": "cash-document-2",
+        "date": "2026-10-23T19:17:58.930Z",
+        "createdAt": "2026-10-23T19:17:58.930Z",
+        "actor": "Åke"
+      },
+      {
+        "id": "activity-7",
+        "label": "A1 · CF-0001 · betalning",
+        "entityId": "entry-6",
+        "date": "2026-10-23T19:17:58.947Z",
+        "createdAt": "2026-10-23T19:17:58.947Z",
+        "actor": "Åke"
+      },
+      {
+        "id": "activity-9",
+        "label": "CF-0001: payment registrerad med bevarat original.",
+        "entityId": "cash-event-5",
+        "date": "2026-10-23T19:17:58.947Z",
+        "createdAt": "2026-10-23T19:17:58.947Z",
+        "actor": "Åke"
+      }
+    ],
+    "customers": [],
+    "suppliers": [],
+    "projects": [],
+    "quotes": [],
+    "invoices": [],
+    "bills": [],
+    "bankTransactions": [
+      {
+        "id": "bank-8",
+        "date": "2026-10-02",
+        "account": "1930",
+        "description": "CF-0001 · OLD-PAY",
+        "amountCents": 100000,
+        "matchedEntryId": "entry-6"
+      }
+    ],
+    "employees": [],
+    "payrollRuns": [],
+    "assets": [],
+    "accruals": [],
+    "inventoryItems": [],
+    "inventoryValuations": [],
+    "vatReturns": [],
+    "rotClaims": [],
+    "yearClosures": [],
+    "cashDocuments": [
+      {
+        "id": "cash-document-2",
+        "side": "customer",
+        "partyName": "Fiktiv hyresgäst",
+        "partyAddress": "Testgatan 1",
+        "partyOrgNumber": "",
+        "date": "2026-10-01",
+        "dueDate": "2026-10-31",
+        "reference": "OLD-CASH-EXEMPT",
+        "vatReason": "Momsfri fastighetsuthyrning enligt 10 kap. 35 § ML, ingen frivillig beskattning.",
+        "supplyConfirmed": true,
+        "status": "issued",
+        "number": "CF-0001",
+        "lines": [
+          {
+            "description": "Momsfri lokalhyra",
+            "account": "3000",
+            "netCents": 100000,
+            "vatRate": 0,
+            "vatCents": 0,
+            "deductibleBps": 10000,
+            "deductibleVatCents": 0,
+            "grossCents": 100000
+          }
+        ],
+        "companyDetails": {
+          "name": "Åkes kontantmetod AB",
+          "orgNumber": "559900-1236",
+          "address": "Exempelvägen 1, Demostaden"
+        },
+        "snapshot": "{\"id\":\"cash-document-2\",\"side\":\"customer\",\"partyName\":\"Fiktiv hyresgäst\",\"partyAddress\":\"Testgatan 1\",\"partyOrgNumber\":\"\",\"companyDetails\":{\"name\":\"Åkes kontantmetod AB\",\"orgNumber\":\"559900-1236\",\"address\":\"Exempelvägen 1, Demostaden\"},\"date\":\"2026-10-01\",\"dueDate\":\"2026-10-31\",\"number\":\"CF-0001\",\"reference\":\"OLD-CASH-EXEMPT\",\"vatReason\":\"Momsfri fastighetsuthyrning enligt 10 kap. 35 § ML, ingen frivillig beskattning.\",\"supplyConfirmed\":true,\"lines\":[{\"description\":\"Momsfri lokalhyra\",\"account\":\"3000\",\"netCents\":100000,\"vatRate\":0,\"vatCents\":0,\"deductibleBps\":10000,\"deductibleVatCents\":0,\"grossCents\":100000}]}"
+      }
+    ],
+    "cashEvents": [
+      {
+        "id": "cash-event-5",
+        "documentId": "cash-document-2",
+        "kind": "payment",
+        "date": "2026-10-02",
+        "reference": "OLD-PAY",
+        "amountCents": 100000,
+        "allocations": [
+          100000
+        ],
+        "rows": [
+          {
+            "account": "1930",
+            "debitCents": 100000,
+            "creditCents": 0
+          },
+          {
+            "account": "3000",
+            "debitCents": 0,
+            "creditCents": 100000
+          }
+        ],
+        "createdAt": "2026-10-23T19:17:58.947Z",
+        "entryId": "entry-6",
+        "bankEventId": "bank-8"
+      }
+    ]
+  }
+}

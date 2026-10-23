@@ -34,6 +34,7 @@ async function profile(page: Page) {
   const form = page.locator('[data-feature-form="payroll-v2"][data-action="profile"]').first();
   await form.locator('[name="birthYear"]').fill('1985');
   await form.locator('[name="agreementNote"]').fill('Granskat fiktivt anställningsavtal');
+  await form.locator('[name="contributionAnnualReference"]').fill('Granskad årslön minst 1 000 kr');
   await form.locator('[name="domesticOrdinary"]').check();
   await form.locator('[name="reviewed"]').check();
   await form.getByRole('button', { name: 'Spara granskad löneprofil' }).click();

@@ -7,6 +7,8 @@ import { getReports, getVatPeriodBounds, getVatReport, validatePayrollRun } from
 import { accrualBookingSnapshot, getAccrualRemaining, getExpenseBasisEntries } from './periodization.js';
 import { validateInventoryState } from './inventory.js';
 import { validateInvoiceDetails } from './invoice-data.js';
+import { assertInvoiceIssuanceReady, invoiceSellerVatRequired } from './invoice-requirements.js';
+import { normalizeVatExemption } from './vat-classification.js';
 import { billSnapshot, validateBillDetails, validateBillAttachments, validateBillAttachmentAdditions } from './purchase-data.js';
 import { validateBillFinancials, getBillBookingRows } from './operations.js';
 import { fiscalPeriodForDate, historicalCompany } from './fiscal-periods.js';
@@ -117,6 +119,13 @@ export function validateSuiteState(state) {
     fieldLines(invoice.lines, 'Kundfakturan'); requireArray(invoice.payments, 'Kundbetalningarna'); requireArray(invoice.reminders, 'Påminnelserna');
     if (invoice.details !== undefined) {
       validateInvoiceDetails(invoice.details);
+      if (invoice.details.requirementsVersion === 1 && invoice.status !== 'draft') {
+        assertInvoiceIssuanceReady({seller:invoice.details.seller,customer:invoice.details.customer,date:invoice.date,performance:invoice.details.performance,vatMode:invoice.vatMode,sellerVatRequired:invoiceSellerVatRequired(invoice.lines,invoice.vatMode)});
+        for (const line of invoice.lines) {
+          if (invoice.vatMode === 'standard' && line.vatRate === 0) normalizeVatExemption(line.vatExemption,{required:true});
+          else assert(line.vatExemption === undefined,'Fakturans momsundantag är felaktigt placerat.');
+        }
+      }
       assert(invoice.lines.every(line => (line.unitPriceIncludesVat ?? false) === invoice.details.pricesIncludeVat), 'Fakturans prisinställning och fakturaraderna stämmer inte överens.');
     }
     const charges = invoice.lines.filter(line => line.chargeType).map(line => line.chargeType);

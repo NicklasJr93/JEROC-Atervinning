@@ -1,0 +1,27 @@
+import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+import { relative, join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
+const [casePath,tapPath,reportPath,directory,startPath]=process.argv.slice(2);
+if(!startPath)throw new Error('Usage: node scripts/collect-bokforing-remediation-results.mjs cases.jsonl results.tap report.json output-dir started.txt');
+const cases=readFileSync(casePath,'utf8').trim().split('\n').map(line=>JSON.parse(line));
+const raw=readFileSync(tapPath),tap=raw.toString();
+const expected=Number(/^# tests (\d+)$/m.exec(tap)?.[1]);
+if(!expected||expected!==cases.length||cases.some(item=>item.status!=='passed'||item.skip||item.todo))throw new Error('Test evidence is incomplete or not all tests passed.');
+for(const key of ['fail','skipped','todo','cancelled'])if(!new RegExp(`^# ${key} 0$`,'m').test(tap))throw new Error(`Unexpected ${key} count.`);
+const addedFiles=new Set(['bokforing-invoice-requirements.test.mjs','bokforing-special-invoice-requirements.test.mjs','bokforing-vat-classification.test.mjs','bokforing-vat-finalization.test.mjs','bokforing-payroll-threshold.test.mjs']);
+const fileName=item=>relative(process.cwd(),item.file??'');
+const isNew=item=>addedFiles.has(fileName(item).split('/').at(-1));
+const added=cases.filter(isNew).length;
+const report=JSON.parse(readFileSync(reportPath,'utf8'));
+if(expected-added!==report.baselineTestCount)throw new Error('The original-suite case count changed; review the claimed baseline before publishing.');
+report.tests={totalPassed:expected,newPassed:added,originalPassed:expected-added,auditRetested:cases.filter(item=>item.name.startsWith('AUDIT-')).length,failed:0,skipped:0,startedAt:readFileSync(startPath,'utf8').trim(),finishedAt:statSync(tapPath).mtime.toISOString(),durationMs:Number(/^# duration_ms ([\d.]+)$/m.exec(tap)?.[1]),logSha256:createHash('sha256').update(raw).digest('hex')};
+report.testFiles=[...addedFiles].map(file=>({file:`server/${file}`,passed:cases.filter(item=>fileName(item).endsWith(file)).length}));
+const csv=value=>{let text=String(value??'');if(/^[=+\-@\t\r]/.test(text))text="'"+text;return '"'+text.replaceAll('"','""')+'"';};
+const rows=[['Fall-ID','Område','Testnamn','Status','Tid (ms)','Testfil','Rad']];
+for(const item of cases){const file=fileName(item),id=/^(AUDIT-[A-Z]+-\d+)/.exec(item.name)?.[1]??`CHECK-${createHash('sha256').update(file+'\n'+item.line+'\n'+item.name).digest('hex').slice(0,12)}`;rows.push([id,isNew(item)?'Nya åtgärdsprov':'Befintlig regression',item.name,'Godkänt',item.durationMs,file,item.line]);}
+mkdirSync(directory,{recursive:true});
+writeFileSync(join(directory,'testresultat-2026-10-23.csv'),'\uFEFF'+rows.map(row=>row.map(csv).join(';')).join('\r\n')+'\r\n');
+writeFileSync(join(directory,'testlogg-2026-10-23.tap.gz'),gzipSync(raw));
+writeFileSync(reportPath,JSON.stringify(report,null,2)+'\n');
+console.log(JSON.stringify(report.tests));

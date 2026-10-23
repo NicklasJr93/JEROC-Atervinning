@@ -2,11 +2,14 @@
 // year-end recognition. Originals and event snapshots are kept for replay.
 import { ACCOUNTS, createEmptyState, transact, appendEntry, nextId, addActivity, assert, cents, validDate, requireOpenPeriod } from './core.js';
 import { fiscalPeriodForDate } from './fiscal-periods.js';
+import { INVOICE_REQUIREMENTS_VERSION, normalizePerformance, assertInvoiceIssuanceReady } from './invoice-requirements.js';
+import { normalizeVatExemption, validateVatExemption } from './vat-classification.js';
 
 const EXPENSES = new Set(ACCOUNTS.filter(a => /^[456]/.test(a.number) && !['4960'].includes(a.number)).map(a => a.number));
 const VAT_ACCOUNTS = { 25: '2611', 12: '2621', 6: '2631' };
 const sum = values => values.reduce((total, value) => { assert(Number.isSafeInteger(value) && Number.isSafeInteger(total + value), 'Kontantmetodens belopp är för stort.'); return total + value; }, 0);
 const txt = (value, label, max = 300) => { assert(typeof value === 'string' && value.trim() && value.length <= max && !/[\u0000-\u001f]/.test(value), `${label} saknas eller är ogiltig.`); return value.trim(); };
+const optionalText = (value, label, max) => { assert(typeof value === 'string' && value.length <= max && !/[\u0000-\u001f]/.test(value), `${label} har fel format.`); return value.trim(); };
 const clone = value => structuredClone(value);
 const round = (value, numerator, denominator) => Number((BigInt(value) * BigInt(numerator) + BigInt(denominator) / 2n) / BigInt(denominator));
 const byAccount = rows => {
@@ -39,8 +42,21 @@ function linesFor(input, side) {
   });
 }
 function snapshot(doc) {
-  return JSON.stringify(Object.fromEntries(['id', 'side', 'partyName', 'partyAddress', 'partyOrgNumber', 'companyDetails', 'date', 'dueDate', 'number', 'reference', 'vatReason', 'supplyConfirmed', 'lines'].map(key => [key, doc[key]])));
+  const result = Object.fromEntries(['id', 'side', 'partyName', 'partyAddress', 'partyOrgNumber', 'companyDetails', 'date', 'dueDate', 'number', 'reference', 'vatReason', 'supplyConfirmed', 'lines'].map(key => [key, doc[key]]));
+  for (const key of ['partyPostalCode','partyCity','partyCountry','performance','vatExemption','requirementsVersion']) if (doc[key] !== undefined) result[key] = doc[key];
+  return JSON.stringify(result);
 }
+function assertCashInvoiceReady(doc) {
+  assert(doc.performance?.mode !== 'advance-payment', 'Förskott stöds inte i kontantmetodens fakturaflöde.');
+  const performedUntil = doc.performance?.mode === 'period' ? doc.performance.to : doc.performance?.mode === 'date' ? doc.performance.date : doc.date;
+  assert(!performedUntil || performedUntil <= doc.date, 'Framtida leverans/utförande kräver ett separat förskottsflöde.');
+  assertInvoiceIssuanceReady({ seller: doc.companyDetails,
+    customer: { name: doc.partyName, address: doc.partyAddress, postalCode: doc.partyPostalCode, city: doc.partyCity, country: doc.partyCountry },
+    date: doc.date, performance: doc.performance, sellerVatRequired: doc.lines.some(line => line.vatRate > 0) });
+  if (doc.lines.some(line => line.vatRate === 0)) validateVatExemption(doc.vatExemption);
+  else assert(doc.vatExemption === undefined || doc.vatExemption?.code === '' && doc.vatExemption?.legalBasis === '' && doc.vatExemption?.confirmed === false, 'Momsundantag kan bara anges för fakturor med 0 %-rader.');
+}
+
 function progress(doc) { return doc.lines.map(line => ({ effective: line.grossCents, recognized: 0, paid: 0 })); }
 function allocate(amount, weights) {
   cents(amount); const total = sum(weights);
@@ -135,13 +151,15 @@ function checked(state, mutate) {
   ensureCash(state); validateCashState(state);
   const next = transact(state, mutate); validateCashState(next); return next;
 }
-export function createCashState({ name = 'Åkes kontantmetod AB', orgNumber = 'DEMO', address = 'Exempelvägen 1, Demostaden', start = '2026-01-01', end = '2026-12-31', vatPeriod = 'quarter', expectedTurnoverCents = 0, eligibilityConfirmed = false } = {}) {
+export function createCashState({ name = 'Åkes kontantmetod AB', orgNumber, address = 'Exempelvägen 1, Demostaden', start = '2026-01-01', end = '2026-12-31', vatPeriod = 'quarter', expectedTurnoverCents = 0, eligibilityConfirmed = false, postalCode, city, country, vatNumber, legalForm, registeredOffice, inLiquidation } = {}) {
   assert(eligibilityConfirmed === true, 'Bekräfta att företaget får använda kontantmetoden.');
   cents(expectedTurnoverCents); assert(expectedTurnoverCents <= 300_000_000, 'Den här kontantmetoden förutsätter normalt högst tre miljoner kronor i årsomsättning.');
   assert(validDate(start) && validDate(end) && start <= end && ['month', 'quarter', 'year'].includes(vatPeriod), 'Kontrollera räkenskapsår och momsperiod.');
   const state = createEmptyState();
-  Object.assign(state.company, { name: txt(name, 'Företagsnamn', 150), orgNumber: txt(orgNumber, 'Organisationsnummer', 40), address: txt(address, 'Företagets adress'), method: 'cash', currency: 'SEK', fiscalYearStart: start, fiscalYearEnd: end, vatPeriod,
+  Object.assign(state.company, { name: txt(name, 'Företagsnamn', 150), orgNumber: txt(orgNumber ?? state.company.orgNumber, 'Organisationsnummer', 40), address: txt(address, 'Företagets adress'), method: 'cash', currency: 'SEK', fiscalYearStart: start, fiscalYearEnd: end, vatPeriod,
     cashMethodSetup: { eligibilityConfirmed: true, expectedTurnoverCents } });
+  for (const [key,value] of Object.entries({postalCode,city,country,vatNumber,legalForm,registeredOffice})) if (value !== undefined) state.company[key] = String(value).trim();
+  if (inLiquidation !== undefined) { assert(typeof inLiquidation === 'boolean', 'Likvidationsstatus ska vara ja eller nej.'); state.company.inLiquidation = inLiquidation; }
   state.cashDocuments = []; state.cashEvents = [];
   addActivity(state, 'Nytt övningsbolag med kontantmetoden; tidigare demobok ändras inte av denna beräkning.');
   return state;
@@ -159,6 +177,8 @@ export function createCashDocument(state, payload) {
     assert(!existing || existing.status === 'draft', 'En utfärdad kontantfaktura får inte ändras.');
     const doc = { id: existing?.id ?? nextId(draft, 'cash-document'), side: payload.side, partyName: txt(payload.partyName, 'Motpartens namn', 150), partyAddress: txt(payload.partyAddress, 'Motpartens adress'),
       partyOrgNumber: String(payload.partyOrgNumber ?? '').trim().slice(0, 40), date: payload.date, dueDate: payload.dueDate, reference, vatReason: String(payload.vatReason ?? '').trim().slice(0, 300), supplyConfirmed: payload.supplyConfirmed === true,
+      partyPostalCode: optionalText(payload.partyPostalCode ?? '', 'Motpartens postnummer', 30), partyCity: optionalText(payload.partyCity ?? '', 'Motpartens ort', 150), partyCountry: optionalText(payload.partyCountry ?? 'SE', 'Motpartens landkod', 2),
+      performance: normalizePerformance(payload.performance), vatExemption: normalizeVatExemption(payload.vatExemption),
       status: 'draft', number: '', lines };
     draft.cashDocuments ??= []; if (existing) Object.assign(existing, doc); else draft.cashDocuments.push(doc);
     addActivity(draft, `Kontantmetod: fakturautkast ${reference} registrerat utan bokföring.`, doc.id);
@@ -168,11 +188,18 @@ export function issueCashDocument(state, id) {
   return checked(state, draft => {
     const doc = documentFor(draft, id); assert(doc.status === 'draft', 'Fakturan är redan utfärdad.'); requireOpenPeriod(draft, doc.date);
     assert(doc.supplyConfirmed, 'Bekräfta att leveransen eller arbetet är utfört; förskott ingår inte i detta flöde.');
-    assert(doc.lines.every(line => line.vatRate !== 0) || doc.vatReason, 'Ange skälet till fakturering utan moms.');
+    assert(doc.lines.every(line => line.vatRate !== 0) || doc.vatReason || doc.vatExemption?.confirmed, 'Ange skälet till fakturering utan moms.');
     const prefix = doc.side === 'customer' ? 'CF' : 'CL';
     const numbers = draft.cashDocuments.map(item => new RegExp(`^${prefix}-(\\d+)$`).exec(item.number)).filter(Boolean).map(match => Number(match[1]));
     doc.number = `${prefix}-${String(Math.max(0, ...numbers) + 1).padStart(4, '0')}`; doc.status = 'issued';
     doc.companyDetails = { name: draft.company.name, orgNumber: draft.company.orgNumber, address: draft.company.address };
+    if (doc.side === 'customer') {
+      for (const key of ['postalCode','city','country','vatNumber','legalForm','registeredOffice','inLiquidation']) doc.companyDetails[key] = draft.company[key];
+      assertCashInvoiceReady(doc);
+      if (!doc.lines.some(line => line.vatRate === 0)) delete doc.vatExemption;
+      if (doc.performance.mode === 'invoice-date') doc.performance = { mode: 'date', date: doc.date, confirmed: true };
+      doc.requirementsVersion = INVOICE_REQUIREMENTS_VERSION;
+    }
     doc.snapshot = snapshot(doc);
     addActivity(draft, `${doc.number} utfärdad/registrerad. Bokföring sker vid betalning eller årsslut.`, doc.id);
   });
@@ -256,7 +283,8 @@ export function validateCashState(state) {
     else {
       assert(new RegExp(`^${doc.side === 'customer' ? 'CF' : 'CL'}-\\d{4,}$`).test(doc.number) && !numbers.has(doc.number) && doc.snapshot === snapshot(doc) && doc.supplyConfirmed, 'Originalfakturan eller dess nummer har ändrats.'); numbers.add(doc.number);
       txt(doc.companyDetails?.name, 'Ursprungligt företagsnamn', 150); txt(doc.companyDetails?.orgNumber, 'Ursprungligt organisationsnummer', 40); txt(doc.companyDetails?.address, 'Ursprunglig företagsadress');
-      assert(doc.lines.every(line => line.vatRate !== 0) || doc.vatReason, 'Momsfri faktura saknar motivering.');
+      assert(doc.lines.every(line => line.vatRate !== 0) || doc.vatReason || doc.vatExemption?.confirmed, 'Momsfri faktura saknar motivering.');
+      if (doc.requirementsVersion !== undefined) { assert(doc.side === 'customer' && doc.requirementsVersion === INVOICE_REQUIREMENTS_VERSION, 'Fakturakravens version är ogiltig.'); assertCashInvoiceReady(doc); }
     }
     let current = progress(doc), lastDate = doc.date;
     for (const event of events.filter(item => item.documentId === doc.id)) {
@@ -300,7 +328,7 @@ export function getCashTaxRows(state) {
         const boxes = eventTaxBoxes(doc, previous, next, event.rows);
         // A zero-net closing allocation may still reclassify taxable/exempt
         // bases even when no ledger account changes by a whole öre.
-        if (event.entryId || Object.values(boxes).some(amount => amount !== 0)) output.push({entryId:event.entryId ?? null,date:event.date,description:`${doc.number} · kontantmetoden`,boxes});
+        if (event.entryId || Object.values(boxes).some(amount => amount !== 0)) output.push({entryId:event.entryId ?? null,date:event.date,description:`${doc.number} · kontantmetoden`,boxes,...(doc.side === 'customer' && doc.requirementsVersion !== INVOICE_REQUIREMENTS_VERSION && (boxes['42'] ?? 0) !== 0 ? {requiresVatReview:true} : {})});
       }
       previous=next;
     }

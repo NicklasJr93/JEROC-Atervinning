@@ -1,7 +1,8 @@
+import { createCustomer, createEmptyState, createInvoice } from './fixtures/bokforing-compliant-invoices.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEmptyState } from '../public/bokforing/suite/core.js';
-import { createCustomer, createInvoice, issueInvoice } from '../public/bokforing/suite/sales.js';
+
+import { issueInvoice } from '../public/bokforing/suite/sales.js';
 import { createRevenueSchedule } from '../public/bokforing/suite/commercial.js';
 import { createCreditNote, previewCreditNote } from '../public/bokforing/suite/settlements.js';
 import { validateSuiteState } from '../public/bokforing/suite/validate.js';
