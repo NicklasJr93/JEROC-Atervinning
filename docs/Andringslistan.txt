@@ -4107,3 +4107,20 @@ Status: Implementerad och lokalt verifierad demofunktion 2026-10-23; faktisk dep
   inventarier och register finns i bokforing/leverantorsfakturor-och-arbetsytor.md.
   Render-dokumentationen skiljer nu repots Blueprint från faktisk Dashboard-
   inställning och kontrollerar Events vid automatisk eller manuell deploy.
+
+
+ÄL 165 – Sökbar bokföringswiki för användare och granskare
+Status: Implementerad och lokalt verifierad mockup 2026-10-23.
+- Publik läsvy på /bokforing/wiki och /bokforing/wiki/ med länk i appmenyn.
+  Tjugo artiklar beskriver arbetsflöden, kontroller, kända begränsningar,
+  tester och utvecklingshistorik. Ingen inloggning eller bokföringsåtkomst.
+- Fulltextsökning även utan svenska accenter, områdesfilter, delbara
+  artikeladresser, innehållsförteckning och mobilanpassad navigering.
+- Särskild granskningsguide. Statusarna skiljer på implementerad demo,
+  avgränsade funktioner, planerat arbete och guider. Källor till kod och
+  dokumentation är låsta till den beskrivna demoversionen 920a135.
+- Wikin ger inga revisionsutlåtanden och har inget redaktörsgränssnitt
+  eller delad granskningslogg. Den läser inte lokala fakturor eller underlag.
+- Verifierat: produktionsbygge, ett HTTP-integrationstest och sju browserfall
+  (sex wikifall och en befintlig mobilregression). Skärmbilder av startsida,
+  granskningsguide och mobilvy finns under bokforing/preview/.

@@ -128,6 +128,8 @@ async function handle(req, res) {
   // browser-local data. It never shares the office SPA or tenant/API access.
   const staticPath = pathname === '/bokforing' || pathname === '/bokforing/'
     ? '/bokforing/index.html'
+    : pathname === '/bokforing/wiki' || pathname === '/bokforing/wiki/'
+      ? '/bokforing/wiki/index.html'
     : ['/', '/testbil1', '/testbil1/', '/rosttest', '/rosttest/', '/godkann', '/godkann/', '/kunduppgifter', '/kunduppgifter/', '/kontor/rosttest', '/kontor/rosttest/', '/kontor', '/kontor/', '/kontor/integration/systemadminintegrationtest.html', '/kontor/integration/systemadminvismatest.html', '/kontor/integration/systemadminswishtest.html', '/kontor/integration/systemadminbanktest.html', '/mobil', '/mobil/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/'].includes(pathname) ? '/index.html' : pathname === '/expo-go' ? '/expo-go.html' : pathname;
   const file = resolve(dist, `.${staticPath}`);
   const within = relative(dist, file);

@@ -4,7 +4,23 @@ Här samlas designförslag för ett **fristående bokföringsprogram med egen we
 
 **Nytt: [Tio mockuper för hela ekonomiarbetet i Åkes Hantverk AB](helhet-mockups/README.md)** – företagsstart, offert och faktura, inköp, betalningar, lön, inventarier, moms och bokslut i en sammanhängande designserie. Bilderna visar planerad funktionalitet; de första tio stilförslagen finns kvar nedan.
 
-**Status 2026-10-23:** en utökad ekonomidemo är kodad i `public/bokforing/suite/`. Kund- och leverantörsfakturor har egna sidor för lista, nytt utkast, redigering och visning. Leverantörsflödet har även en lokal inkorg för PDF och bilder; slutproven för denna etapp återstår. Arbetsflödena använder en gemensam verifikationsbok och fiktiva uppgifter för Åkes Hantverk AB. Den tidigare inköpsdemon och båda serierna med bildmockuper bevaras. En GitHub-push måste följas upp mot faktisk deploystatus: Render kan vara inställt på automatisk deploy, men en push bevisar inte att versionen är live.
+**Status 2026-10-23:** en utökad ekonomidemo är kodad i `public/bokforing/suite/`. Kund- och leverantörsfakturor har egna sidor för lista, nytt utkast, redigering och visning. Leverantörsflödet har även en lokalt verifierad inkorg för PDF och bilder. Arbetsflödena använder en gemensam verifikationsbok och fiktiva uppgifter för Åkes Hantverk AB. Den tidigare inköpsdemon och båda serierna med bildmockuper bevaras. En GitHub-push måste följas upp mot faktisk deploystatus: Render kan vara inställt på automatisk deploy, men en push bevisar inte att versionen är live.
+
+## Sökbar wiki för användare och granskare
+
+Den klickbara wikimockupen finns efter publicering på **https://app.scrapplanner.com/bokforing/wiki/** och öppnas även via **Wiki & granskning** i appmenyn. Den innehåller 20 artiklar inom sex områden: kom igång, arbetsflöden, kontroller, moms/ROT, granskning och utveckling.
+
+Sök på exempelvis `radera faktura`, `ROT`, `underlag` eller `sparfel`, filtrera på område och dela länken till en enskild artikel. **För revisorn** ger en läsordning från omfattning och kända begränsningar till konkreta flöden, kod och tester. Artiklarna skiljer mellan implementerat i demon, avgränsade funktioner, planerat arbete och guider.
+
+Wikin är en publik läsvy. Den läser inte besökarens bokföring, dokumentdatabas eller företagsuppgifter och ger inga granskningsgodkännanden. Beskrivningarna och testantalen avser uttryckligen demoversion `920a135`; källänkar till kod och dokumentation är låsta till samma version. Det är dokumentation av programmets funktion, inte ett revisionsutlåtande.
+
+Innehållet underhålls i [wiki/content.js](../public/bokforing/wiki/content.js), separat från layout och sökning. Vid nya funktionsändringar ska berörda artiklar, begränsningar, versionsreferens och testbevis uppdateras tillsammans. Det finns ännu inget redaktörsgränssnitt eller gemensamma granskningsanteckningar.
+
+[![Wikins startsida](preview/wiki-start.png)](preview/wiki-start.png)
+
+[Granskningsguiden](preview/wiki-granskning.png) · [Wiki på mobil](preview/wiki-mobil.png)
+
+Wikietappen är lokalt verifierad med produktionsbygge, ett HTTP-integrationstest och sju browserfall: sex för wikin och en befintlig mobilregression för bokföringsappen. Sökning, delbara adresser, filter, källor, statusar och isolering från bokföringsdata ingår.
 
 ## Klickbar demo
 

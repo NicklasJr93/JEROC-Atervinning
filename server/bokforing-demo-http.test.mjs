@@ -54,6 +54,18 @@ test('public bookkeeping demo serves its own assets without granting office acce
     const purchaseStyles = await fetch(`${url}/bokforing/suite/purchase-page.css`);
     assert.equal(purchaseStyles.status, 200);
     assert.match(purchaseStyles.headers.get('content-type'), /text\/css/);
+    for (const path of ['/bokforing/wiki', '/bokforing/wiki/']) {
+      const response = await fetch(`${url}${path}`, { redirect: 'error' });
+      assert.equal(response.status, 200, path);
+      assert.equal(response.headers.get('set-cookie'), null, 'the public wiki must not allocate an authenticated session');
+      assert.match(response.headers.get('content-type'), /text\/html/);
+      assert.match(await response.text(), /Bokföringswiki|Bokföringswikin|Kunskapsbank/i);
+    }
+    for (const [path, type] of [['wiki/app.js', /javascript/], ['wiki/content.js', /javascript/], ['wiki/styles.css', /text\/css/]]) {
+      const response = await fetch(`${url}/bokforing/${path}`);
+      assert.equal(response.status, 200, path);
+      assert.match(response.headers.get('content-type'), type);
+    }
     const head = await fetch(`${url}/bokforing`, { method: 'HEAD' });
     assert.equal(head.status, 200);
     assert.equal(await head.text(), '');

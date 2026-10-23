@@ -146,6 +146,13 @@ omladdning, saknat original, bokföring med bilaga och komplettering av en
 bokförd faktura provas. **Återställ demo** återställer bokföringskopplingar
 men behåller uppladdade filer. Rensning av browserdata kan radera filerna.
 
+Den publika läswikin ligger på `/bokforing/wiki` och `/bokforing/wiki/`.
+Båda mappar till `public/bokforing/wiki/index.html` efter webbbygget. Kontrollera
+även `wiki/app.js`, `wiki/styles.css` och `wiki/content.js`, sökning samt en
+direkt artikellänk efter publicering. Wikin använder inga privata API:er eller
+besökarens bokföringslagring. Innehållets uttryckliga versionsreferens är en
+dokumenterad ögonblicksbild och ska inte blandas ihop med aktuell deploystatus.
+
 Demons lokala skrivningar kräver en säker browserkontext med Web Locks
 (HTTPS på app-domänen eller localhost vid utveckling). Vid uppdatering ska
 besökaren stänga/ladda om äldre demoflikar så att de använder samma lagringskod.

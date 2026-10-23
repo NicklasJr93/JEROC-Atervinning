@@ -79,6 +79,7 @@ jobs:
           tests/bokforing-invoice-pages.spec.ts
           tests/bokforing-purchase-pages.spec.ts
           tests/bokforing-documents.spec.ts
+          tests/bokforing-wiki.spec.ts
           tests/company-register-entrypoints.spec.ts
           tests/customer-form.spec.ts
           tests/customer-intake.spec.ts

@@ -13,6 +13,18 @@ knappar visas efter kontots behörigheter och företagets aktiverade funktioner.
 | Konfigurera en integration eller felsöka servern | [Teknisk dokumentation](../README.md) |
 | Prova den fristående bokföringsdemon | [Bokföringsdemo](../../bokforing/README.md#klickbar-demo) |
 
+## Bokföringswiki
+
+Öppna **Wiki & granskning** i bokföringsdemons meny eller gå direkt till
+`/bokforing/wiki/`. Sök efter ett arbetsflöde eller en kontroll och filtrera
+på område. Varje artikel kan delas som egen länk och innehåller källor till
+den dokumenterade kodversionen. **För revisorn** beskriver en rekommenderad
+granskningsordning. Statusen i en artikel avser demofunktionens omfattning,
+inte att en revisor har godkänt programmet.
+
+Wikin visar gemensam dokumentation. Den öppnar inte dina lokalt sparade
+fakturor eller uppladdade underlag och ger inte andra tillgång till dem.
+
 ## Prova bokföringsdemon
 
 Efter publicering öppnas demon på
