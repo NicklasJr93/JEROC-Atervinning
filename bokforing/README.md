@@ -20,11 +20,11 @@ Flera valutor och kontantmetoden är fortfarande planerade. [Den tekniska genomg
 
 ## Sökbar wiki för användare och granskare
 
-Den klickbara wikimockupen finns efter publicering på **https://app.scrapplanner.com/bokforing/wiki/** och öppnas även via **Wiki & granskning** i appmenyn. Den innehåller 20 artiklar inom sex områden: kom igång, arbetsflöden, kontroller, moms/ROT, granskning och utveckling.
+Den klickbara wikimockupen finns efter publicering på **https://app.scrapplanner.com/bokforing/wiki/** och öppnas även via **Wiki & granskning** i appmenyn. Den innehåller 27 artiklar inom sex områden: kom igång, arbetsflöden, kontroller, moms/ROT, granskning och utveckling.
 
 Sök på exempelvis `radera faktura`, `ROT`, `underlag` eller `sparfel`, filtrera på område och dela länken till en enskild artikel. **För revisorn** ger en läsordning från omfattning och kända begränsningar till konkreta flöden, kod och tester. Artiklarna skiljer mellan implementerat i demon, avgränsade funktioner, planerat arbete och guider.
 
-Wikin är en publik läsvy. Den läser inte besökarens bokföring, dokumentdatabas eller företagsuppgifter och ger inga granskningsgodkännanden. Beskrivningarna och testantalen avser uttryckligen demoversion `920a135`; källänkar till kod och dokumentation är låsta till samma version. Det är dokumentation av programmets funktion, inte ett revisionsutlåtande.
+Wikin är en publik läsvy. Den läser inte besökarens bokföring, dokumentdatabas eller företagsuppgifter och ger inga granskningsgodkännanden. Beskrivningarna och testantalen avser uttryckligen demoversion `c5134ec`; källänkar till kod och dokumentation är låsta till samma version. Det är dokumentation av programmets funktion, inte ett revisionsutlåtande.
 
 Innehållet underhålls i [wiki/content.js](../public/bokforing/wiki/content.js), separat från layout och sökning. Vid nya funktionsändringar ska berörda artiklar, begränsningar, versionsreferens och testbevis uppdateras tillsammans. Det finns ännu inget redaktörsgränssnitt eller gemensamma granskningsanteckningar.
 
@@ -129,6 +129,8 @@ Granskningspaket, AGI-CSV, bolagsskatteberäkning och årsredovisningsunderlag �
 Bygg med `npm run build` och starta med `npm start`. [Driftguiden](../docs/drift/README.md#uppdatera-och-kontrollera) beskriver separat publicering på Render. Inga nya miljövariabler, databasändringar eller produktionsanslutningar införs.
 
 Modell- och lagringstester finns i `server/bokforing-*.test.mjs`. Browserproven i `tests/bokforing-*.spec.ts` omfattar även de nya arbetsytorna för krediter, individuell lön, moms/ROT, kommersiella flöden och årshantering. Regressionstesterna för den tidigare versionen är kvar. Se även [provgranskningen av den äldre versionen](granskning/2026-10-22.md) och dess [uppföljning](granskning/2026-10-22-uppfoljning.md).
+
+**Verifierat för den senaste utbyggnaden 2026-10-23:** produktionsbygge, slutlig typkontroll, 320 modell-/lagringstester, ett isolerat HTTP-test och 75 unika browserfall mot byggd app/server. Ett längre lagerprov nådde först sin tidigare totalgräns; samma prov passerade med längre tidsmarginal och oförändrade kontroller. [Verifieringsrapport och körinstruktioner](granskning/2026-10-23-utbyggnad.md).
 
 **Historisk verifiering av leverantörsetappen 2026-10-23:** produktionsbygge, 211 modell-/lagringstester inklusive den tidigare demon, ett HTTP-integrationstest och 49 browserfall mot den då byggda servern. De antalen gäller etappen före den senaste funktionsutbyggnaden. Proven täckte egna kund- och leverantörsfakturasidor, PDF/bilder, riktig IndexedDB-lagring, dubbletter, filgränser, kvotfel, ändrade original, bilagekomplettering utan ny skuld, osparade ändringar och sena svar efter navigering/reset. Tidigare betalnings-, kredit-, ROT-, löne-, moms-, lager- och periodiseringsflöden ingick också. Drag och släpp samt visning vid 1600 och 390 pixlar provades manuellt utan JavaScript-fel eller horisontellt sidöverflöde. Kameraprovet använde filinput med kameraattribut; fysisk kamerahårdvara provades inte. Detta är teknisk verifiering av demofallen, ingen redovisningscertifiering.
 

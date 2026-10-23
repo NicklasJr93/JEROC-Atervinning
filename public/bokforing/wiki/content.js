@@ -1,6 +1,6 @@
 // Editorial snapshot for the public, read-only bookkeeping wiki.
 // Text describes the verified demo version below, not a production certification.
-const revision = '920a135afd425a0ce440002a991605038ebe8ed1';
+const revision = 'c5134ecddc624c1e3a0e30e3e3f6058bcc8d0b95';
 const repository = `https://github.com/NicklasJr93/JEROC-Atervinning/blob/${revision}`;
 const source = (label, path) => ({ label, url: `${repository}/${path}` });
 const updated = '2026-10-23';
@@ -8,11 +8,11 @@ const updated = '2026-10-23';
 export const wikiMeta = {
   title: 'Bokföringswikin',
   product: 'ScrapPlanner',
-  version: '920a135',
+  version: 'c5134ec',
   asOf: updated,
   versionUrl: `https://github.com/NicklasJr93/JEROC-Atervinning/commit/${revision}`,
   scope: 'Dokumentation av den lokala bokföringsdemon',
-  verification: { model: 211, http: 1, browser: 49 },
+  verification: { model: 320, http: 1, browser: 75 },
   description: 'Förstå arbetssätten, följ kontrollerna till koden och se vad som återstår.',
 };
 
@@ -83,15 +83,15 @@ export const articles = [
     status: 'limited', updated, tags: ['omfattning', 'mvp', 'funktioner', 'API', 'integration'],
     sections: [
       { id: 'finns', title: 'Det går att prova', bullets: [
-        'Kunder, projekt, tid/material, offerter och kundfakturor med ett avgränsat ROT-flöde.',
-        'Leverantörsfakturor med lokala PDF-/bildunderlag, bokföring, betalning och vissa krediter.',
+        'Kunder, projekt, tid/material, offerter och kundfakturor samt artiklar, kundpriser och återkommande fakturautkast.',
+        'Leverantörsfakturor med flera konteringsrader, blandad moms, lokala PDF-/bildunderlag, betalning samt delkrediter och återbetalningar.',
         'Gemensam huvudbok, manuella verifikationer, bankavstämning och rapporter.',
-        'Demolön, inventarier, handelsvarulager, förutbetalda kostnader, momsperiod och årsavslut.',
+        'Individuella löneunderlag med avgränsat skattetabellstöd, inventarier, lager, kostnads-/intäktsperiodisering, momsrapport, bokslutsbilagor och fortsatt bokföring nästa år.',
       ] },
       { id: 'ramar', title: 'Gemensamma ramar', table: {
         headers: ['Område', 'Den dokumenterade versionen'],
         rows: [
-          ['År och valuta', 'Kalenderår 2026 och SEK.'],
+          ['År och valuta', 'Startår 2026, fortsatt bokföring efter årsavslut och SEK. ROT och officiella lönetabeller har särskilda årsgränser.'],
           ['Metod', 'Faktureringsmetoden i ett fiktivt demobolag.'],
           ['Lagring', 'Bokföring i localStorage, underlagsfiler i IndexedDB.'],
           ['Användare', 'Ingen inloggning, rollstyrning eller delad bolagsbok.'],
@@ -124,12 +124,12 @@ export const articles = [
         'Nya utfärdade fakturor behåller sina sparade kund- och säljaruppgifter även om registeruppgifter ändras senare.',
       ] },
       { id: 'avgransning', title: 'Avgränsning', paragraphs: [
-        'Artikelnummer, enhet och prislistnamn kan sparas, men en automatisk artikel- och prismotor saknas. Flera valutor, återkommande fakturor, e-faktura, delkrediter och återbetalningar återstår.',
-        'En utfärdad faktura redigeras inte i det vanliga formuläret. Det stödda kreditflödet gäller en helt obetald faktura.',
+        'Artiklar, kundspecifika priser och återkommande fakturautkast finns i Artiklar & avtal. Krediter & återbetalningar har separata delkredit-, återbetalnings- och kvittningsflöden. Flera valutor, kontantmetoden, e-faktura och verkliga utskick återstår.',
+        'En utfärdad faktura redigeras inte i det vanliga formuläret. Delkrediter och krediter efter betalning bevarar originalet. ROT-fakturor och fakturor med intäktsperiodisering kräver ytterligare rättelseflöden och är spärrade i den nya kreditvyn.',
       ] },
     ],
     sources: [source('Faktureringens funktioner och luckor', 'bokforing/fakturering-jamforelse.md'), source('Fakturans modell', 'public/bokforing/suite/sales.js'), source('Pris- och ROT-beräkning', 'public/bokforing/suite/rot.js')],
-    related: ['rot-2026', 'rattelser', 'kontering'],
+    related: ['rot-2026', 'krediter-aterbetalningar', 'artiklar-avtal', 'kontering'],
   },
   {
     id: 'leverantorsfakturor', category: 'arbetsfloden', title: 'Leverantörsfaktura med originalunderlag',
@@ -146,14 +146,14 @@ export const articles = [
         'En påminnelse är inte automatiskt en ny leverantörsfaktura. Den kan kopplas till den befintliga fakturan, även efter bokföring.',
         'Senare bilagor sparas som kompletteringar med en händelse i historiken. Fakturans ursprungliga uppgifter, originalbilagor, verifikation och skuld skrivs inte om av kompletteringen.',
       ] },
-      { id: 'avgransning', title: 'Vad som återstår', bullets: [
-        'En kostnadsrad och en momstyp per faktura. Flera kostnadsrader, blandade momssatser och radvisa dimensioner återstår.',
+      { id: 'avgransning', title: 'Omfattning och avgränsning', bullets: [
+        'Flera konteringsrader med eget kostnadskonto, momssats och avdragsandel finns. Vanlig moms, ingen moms och omvänd byggmoms kan blandas. Vald avdragsrätt och eventuell omvänd moms måste bedömas av användaren.',
         'OCR/betalningsreferens, bankgiro, plusgiro och IBAN är sparade uppgifter; de verifierar inte mottagaren och utlöser ingen banköverföring.',
         'Ingen automatisk fakturatolkning, e-postmottagning eller fleranvändarattest är ansluten.',
       ] },
     ],
     sources: [source('Leverantörsflödet och kommande arbetsytor', 'bokforing/leverantorsfakturor-och-arbetsytor.md'), source('Inköp och betalningar', 'public/bokforing/suite/operations.js'), source('Dokumentuppgifter och kompletteringar', 'public/bokforing/suite/purchase-data.js')],
-    related: ['underlagsinkorg', 'kontering', 'rattelser'],
+    related: ['underlagsinkorg', 'kontering', 'krediter-aterbetalningar'],
   },
   {
     id: 'underlagsinkorg', category: 'arbetsfloden', title: 'Underlagsinkorgen: filer, bilder och kamera',
@@ -214,13 +214,13 @@ export const articles = [
         'Vanlig redigering av en bokförd faktura är spärrad. Befintliga verifikationer ändras eller raderas inte genom programmets normala bokföringsfunktioner.',
       ] },
       { id: 'stodda-rattelser', title: 'Rättelseflöden som finns', bullets: [
-        'En helt obetald kundfaktura kan få en länkad helkredit.',
-        'En helt obetald leverantörsfaktura kan krediteras med en länkad motbokning.',
+        'Kundfakturor kan del- eller helkrediteras per ursprungsrad, även efter betalning, i Krediter & återbetalningar. Ursprunglig faktura och verifikation bevaras.',
+        'Leverantörsfakturor kan krediteras per ursprungsrad med samma moms och avdragsandel. Ett återbetalningsbart saldo kan regleras eller kvittas mot samma motpart.',
         'Manuella rättelser använder en länk till den ursprungliga verifikationen.',
         'En bokförd leverantörsfaktura kan få kompletterande underlag utan ändring av det ursprungliga dokumentet eller dess skuld.',
       ] },
       { id: 'granser', title: 'Gränser för skyddet', paragraphs: [
-        'Delkrediter, kredit efter betalning, återbetalningar och fler rättelsefall återstår.',
+        'Krediter av ROT-fakturor och intäktsperiodiserade fakturor är spärrade tills underliggande ärenden kan rättas tillsammans. Utbetald lön saknar ännu ett negativt återkravsflöde. Automatiska bokslutsomklassificeringar av kreditbalanser återstår.',
         'Skyddet gäller programmets funktioner och konsistenskontroller. Lokal browserlagring och kontrollkopior är inte ett manipulationssäkert serverarkiv eller en extern revisionslogg.',
       ] },
     ],
@@ -276,9 +276,9 @@ export const articles = [
         ],
       } },
       { id: 'arbetsgang-och-bedömning', title: 'Arbetsgång och bedömning', paragraphs: [
-        'Demon stöder en person per faktura och kundbetalningar under 2026. Hela kundandelen ska vara betald innan en demobegäran förbereds. Användaren bekräftar bland annat utfört arbete och elektronisk betalning.',
+        'Det äldre ROT-flödet finns kvar. Den utökade arbetsytan kan fördela en redan utfärdad fakturas frysta ROT-belopp på 1–10 personer och förbereda proportionella delbegäranden efter elektroniska kundbetalningar under 2026.',
         'Demobeslut och skatteutbetalning registreras separat. Ett avslag lämnar motsvarande belopp som kundfordran.',
-        'Programmet verifierar inte identitet, F-skatt, ägande, arbetets art, betalningsbevis eller kundens faktiska skatteutrymme. Flera personer, proportionella delbegäranden och årsskiften återstår. Ingen begäran skickas till Skatteverket.',
+        'Programmet verifierar inte identitet, F-skatt, ägande, arbetets art, betalningsbevis eller faktiskt skatteutrymme. Begärans metadata kan dateras till 31 januari 2027 för betalningar 2026; kundbetalningar under 2027, RUT och fullständiga årsskiftesfall återstår. Ingen begäran skickas till Skatteverket.',
       ] },
     ],
     sources: [source('Regelunderlag och avgränsning', 'bokforing/rot-regler.md'), source('ROT-beräkning', 'public/bokforing/suite/rot.js'), { label: 'Skatteverket: ROT för företag', url: 'https://www.skatteverket.se/foretag/skatterochavdrag/rotochrut/safungerarrotavdraget.4.2ef18e6a125660db8b080002709.html' }, { label: 'Lag (2009:194) om förfarandet vid skattereduktion för hushållsarbete', url: 'https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/lag-2009194-om-forfarandet-vid-skattereduktion_sfs-2009-194/' }],
@@ -308,11 +308,11 @@ export const articles = [
   },
   {
     id: 'moms', category: 'regler', title: 'Moms: stödda fall och periodkontroller',
-    summary: 'Vanlig svensk moms, avgränsad omvänd byggmoms och ett momsunderlag från huvudboken.',
+    summary: 'Svensk moms, valda internationella affärsfall och en ruta-för-ruta-rapport som stäms av mot huvudboken.',
     status: 'limited', updated, tags: ['moms', 'omvänd byggmoms', 'momsperiod', 'deklaration'],
     sections: [
       { id: 'affarsfall', title: 'Stödda affärsfall', paragraphs: [
-        'Kundfakturor stöder vanlig svensk moms och ett avgränsat fall med omvänd byggmoms. Leverantörsfakturor stöder vanlig moms, inköp utan moms och bekräftad omvänd byggmoms.',
+        'Kundfakturor stöder svensk moms och avgränsad omvänd byggmoms. Leverantörsfakturor kan ha blandade momsrader och avdragsandel. Moms & ROT har dessutom separata, redan betalda SEK-händelser för valda EU-, export- och importmomsfall.',
         'Momsvalet måste motsvara den verkliga affären. Att välja omvänd byggmoms kräver en bedömning av bland annat köparens och arbetets förutsättningar.',
       ] },
       { id: 'momsperiod', title: 'Momsperiodens arbetsgång', steps: [
@@ -323,32 +323,32 @@ export const articles = [
       ] },
       { id: 'begransningar', title: 'Gränser', paragraphs: [
         'Momsunderlaget bygger på huvudbokens momskonton. Fastställda perioder spärrar nya momsverifikationer i perioden.',
-        'EU-/exportförsäljning, fler internationella fall och fler avdragsbegränsningar återstår. Underlaget skickas inte till Skatteverket.',
+        'Särregler såsom vinstmarginalbeskattning, uttag, vissa hyresfall, trepartshandel och övrig momsfri försäljning är inte automatiskt klassificerade. Rapporten visar begränsningar och oklassificerade poster. Ingen myndighetsfil, VIES-kontroll eller periodisk sammanställning ingår.',
       ] },
     ],
-    sources: [source('Moms och periodhantering', 'public/bokforing/suite/finance.js'), source('Kontoval i ROT-regelunderlaget', 'bokforing/rot-regler.md'), source('Kontroller vid återläsning', 'public/bokforing/suite/validate.js')],
-    related: ['kontering', 'bokslut-rapporter', 'kanda-begransningar'],
+    sources: [source('Momsrapport och klassificering', 'public/bokforing/suite/tax-ledger.js'), source('Moms och ROT: avgränsning', 'bokforing/moms-och-rot-utbyggnad.md'), source('Kontroller vid återläsning', 'public/bokforing/suite/validate.js')],
+    related: ['individuell-lon', 'kontering', 'bokslut-rapporter', 'kanda-begransningar'],
   },
   {
     id: 'lon', category: 'arbetsfloden', title: 'Lön och arbetsgivardeklarationsunderlag',
-    summary: 'Demolönekörning med manuella belopp och tydlig avgränsning mot en komplett lönemotor.',
+    summary: 'Individuella löneunderlag, officiella skattetabeller inom angivna gränser och spårbara lönerättelser.',
     status: 'limited', updated, tags: ['lön', 'lönebesked', 'anställd', 'AGI', 'skatt', 'semester'],
     sections: [
       { id: 'arbetsgang', title: 'Arbetsgång', steps: [
-        'Lägg upp en demoanställd med månads- eller timlön och de skatte-/avgiftsbelopp som ska användas i exemplet.',
+        'Lägg upp en anställd och en individuell löneprofil med födelseår, arbetstid och skattetabell/kolumn enligt skatteunderlaget eller ett dokumenterat skattebeslut.',
         'Skapa löneutkast, granska lönebesked och kontrollera lön, avdrag, semester, förmåner och utlägg.',
         'Bokför lönekörningen och registrera demoutbetalning och reglering av skatt/avgifter.',
         'Exportera vid behov AGI-underlag som gransknings-CSV.',
       ] },
       { id: 'bedomning', title: 'Manuella antaganden', paragraphs: [
-        'Skatteavdrag och arbetsgivaravgifter bygger på angivna demovärden. Ingen aktuell skattetabell eller komplett arbetsrättslig beräkning är ansluten.',
-        'Den enkla skapa-dialogen använder samma angivna frånvaro-/semester-/förmåns-/utläggsbelopp för varje vald anställd. Individuell granskning och en mer komplett lönemotor är ett eget utvecklingsområde.',
+        'Den nya lönearbetsytan använder officiella månadstabeller 29–42, kolumn 1 och 3 för 2026, upp till 80 000 kr. Arbetsgivaravgifter beräknas för stödda födelseårs- och betalningsdatumfall. Äldre manuella lönekörningar bevaras.',
+        'Frånvaro, semester, förmåner och utlägg granskas individuellt i den nya arbetsytan. Beräkningarna täcker avgränsade standardfall, inte samtliga kollektivavtal, semesterårsbyten, pensions-/försäkringsregler eller negativa rättelser efter utbetalning.',
       ] },
       { id: 'export', title: 'Exportens status', callout: {
         title: 'Arbetsmaterial', text: 'AGI-CSV är ett granskningsunderlag. Det är inte en färdig myndighetsfil och skickas inte till Skatteverket.', tone: 'info',
       } },
     ],
-    sources: [source('Löneberäkning och bokföring', 'public/bokforing/suite/finance.js'), source('Nuvarande gränser och nästa lönearbetsyta', 'bokforing/leverantorsfakturor-och-arbetsytor.md')],
+    sources: [source('Individuell löneberäkning', 'public/bokforing/suite/payroll-engine.js'), source('Löneregler och avgränsning', 'bokforing/lon-regler-och-avgransning.md')],
     related: ['kontering', 'bokslut-rapporter', 'kanda-begransningar'],
   },
   {
@@ -364,7 +364,7 @@ export const articles = [
       ] },
       { id: 'aterstar', title: 'Vad som behöver byggas vidare', paragraphs: [
         'Projekt-, tid- och offertregistreringen använder ännu enkla formulär. En samlad projektsida, offertversioner, tydligare villkor och uppföljning av vad som redan fakturerats är föreslagna nästa steg.',
-        'Registrerad projektförbrukning skapar inte automatiskt lageruttag. Kostnadsuppföljning, lager och fakturering behöver kopplas ihop i fler granskade flöden.',
+        'Artiklar & avtal kan göra ett lageruttag och skapa en kopplad materialrad i projektet i samma åtgärd. Kostnadspriset och försäljningspriset hålls isär; bokförd lagerkostnad följer den periodiska lagervärderingen.',
       ] },
     ],
     sources: [source('Projekt och offert i modellen', 'public/bokforing/suite/sales.js'), source('Föreslagna projektarbetsytor', 'bokforing/leverantorsfakturor-och-arbetsytor.md')],
@@ -391,7 +391,7 @@ export const articles = [
       ] },
       { id: 'bedomningar', title: 'Bedömningar och luckor', paragraphs: [
         'Kostnad eller tillgång, nyttjandeperiod, restvärde och periodtillhörighet måste bedömas. Kontoexemplen är modellens valda klassificeringar.',
-        'Pågående arbeten, produktion och andra lagerslag ingår inte. Kundfakturans intäktsperiodisering är inte samma sak som den befintliga modellen för förutbetalda kostnader.',
+        'Intäktsperiodisering finns nu för utfärdade, okrediterade kundfakturor utan ROT, separat från förutbetalda kostnader. Pågående arbeten har en bedömningsbilaga men ingen automatisk värderingsbokning. Produktion och fler lagerslag återstår.',
       ] },
     ],
     sources: [source('Inventarier', 'public/bokforing/suite/finance.js'), source('Lager', 'public/bokforing/suite/inventory.js'), source('Förutbetalda kostnader', 'public/bokforing/suite/periodization.js')],
@@ -410,11 +410,11 @@ export const articles = [
         'Kontrollera kontohändelser, kund- och leverantörsposter, moms, löner och tillgångar.',
         'Gå igenom avstämningschecklistan i Bokslut och utred kvarstående differenser.',
         'Lås en period när den ska vara stängd. Upplåsning kräver en dokumenterad orsak i demoflödet.',
-        'När årsmodellens villkor är uppfyllda kan årets resultat bokföras och ingående balansunderlag för nästa år förberedas.',
+        'När villkoren är uppfyllda bokförs årets resultat. Nästa räkenskapsår kan öppnas med bevarad historik, obetalda fakturor, tillgångar, lager och periodiseringsplaner.',
       ] },
       { id: 'dokumentens-status', title: 'Vad exporten inte är', paragraphs: [
         'Granskningspaket och nästa års balansunderlag är arbetsmaterial. De är inte en färdig årsredovisning, inkomstdeklaration eller revisionsberättelse.',
-        'Fler rapportval, jämförelseperioder, bokslutsbilagor och direkt navigering från varje rapportsiffra till originalunderlaget återstår.',
+        'Bokslutsbilagor med versioner och granskningsstatus, jämförelsetal mellan registrerade år samt skatte-/årsredovisningsunderlag finns. Fullständig årsredovisning, INK2, underskrifter och myndighetsinlämning återstår.',
       ] },
     ],
     sources: [source('Rapporter, periodlås och årsavslut', 'public/bokforing/suite/finance.js'), source('Export av granskningspaket', 'public/bokforing/suite/app.js'), source('Bokslutets kontroller', 'server/bokforing-suite-finance.test.mjs')],
@@ -422,17 +422,17 @@ export const articles = [
   },
   {
     id: 'verifiering', category: 'granskning', title: 'Verifiering: vad har testats?',
-    summary: 'Spårbara testresultat för version 920a135 och deras praktiska gränser.',
-    status: 'guide', updated, tags: ['tester', 'bevis', 'testresultat', 'kvalitet', '211', '49', 'version'],
+    summary: 'Spårbara testresultat för version c5134ec och deras praktiska gränser.',
+    status: 'guide', updated, tags: ['tester', 'bevis', 'testresultat', 'kvalitet', '320', '75', 'version'],
     sections: [
       { id: 'resultat', title: 'Dokumenterat resultat', table: {
         headers: ['Kontroll', 'Resultat i denna version'],
         rows: [
           ['Produktionsbygge', 'Godkänt lokalt.'],
-          ['Modell- och lagringstester', '211 godkända.'],
+          ['Modell- och lagringstester', '320 godkända.'],
           ['HTTP-integrationstest', '1 godkänt.'],
-          ['Browserfall mot den byggda servern', '49 godkända.'],
-          ['Manuella visuella prov', 'Dator 1600 px och mobilvy 390 px; inga noterade JavaScript-fel eller horisontellt sidöverflöde.'],
+          ['Browserfall mot den byggda servern', '75 godkända.'],
+          ['Manuella visuella prov', 'Skrivbords- och mobilvyer; inga noterade JavaScript-fel eller horisontellt sidöverflöde i genomförda prov.'],
         ],
       } },
       { id: 'exempel', title: 'Exempel på testade fel', bullets: [
@@ -443,11 +443,11 @@ export const articles = [
         'Frysta fakturauppgifter, ROT, bankmatchning, lön, lager och periodisering.',
       ] },
       { id: 'bevisets-grans', title: 'Så ska resultatet läsas', paragraphs: [
-        'Antalen avser den lokalt verifierade versionen 920a135, inte en löpande mätning av den senast publicerade appen. Källänkarna nedan är låsta till samma kodversion.',
+        'Antalen avser den lokalt verifierade versionen c5134ec, inte en löpande mätning av den senast publicerade appen. Källänkarna nedan är låsta till samma kodversion.',
         'Kameraprovet använder filinput med kameraattribut; fysisk telefonkamera har inte provats. Tester av de stödda fallen är inte en redovisningscertifiering eller en kontroll av varje tänkbart affärsfall.',
       ] },
     ],
-    sources: [source('Dokumenterat testresultat', 'bokforing/README.md'), source('Leverantörsvyernas browserprov', 'tests/bokforing-purchase-pages.spec.ts'), source('Dokumentlagringens browserprov', 'tests/bokforing-documents.spec.ts'), source('Kundfakturornas browserprov', 'tests/bokforing-invoice-pages.spec.ts'), source('Sammanhängande browserflöden', 'tests/bokforing-suite.spec.ts'), source('Kontroll vid återläsning', 'server/bokforing-suite-validation.test.mjs')],
+    sources: [source('Slutlig verifiering och omprov', 'bokforing/granskning/2026-10-23-utbyggnad.md'), source('Dokumenterat testresultat', 'bokforing/README.md'), source('Leverantörsvyernas browserprov', 'tests/bokforing-purchase-pages.spec.ts'), source('Dokumentlagringens browserprov', 'tests/bokforing-documents.spec.ts'), source('Kundfakturornas browserprov', 'tests/bokforing-invoice-pages.spec.ts'), source('Sammanhängande browserflöden', 'tests/bokforing-suite.spec.ts'), source('Kontroll vid återläsning', 'server/bokforing-suite-validation.test.mjs')],
     related: ['for-revisorn', 'kanda-begransningar', 'andringar'],
   },
   {
@@ -462,11 +462,11 @@ export const articles = [
         'Fortsatt systemdokumentation, granskade redovisningsfall och extern bedömning av systemet.',
       ] },
       { id: 'affarsfall', title: 'Fler affärsfall', bullets: [
-        'Delkrediter, betalda krediter, återbetalningar och mer avancerad betalningsfördelning.',
-        'Flera valutor, internationella momsfall, fler avdragsbegränsningar och fler konteringsrader på leverantörsfakturan.',
-        'Återkommande fakturor, verkliga artikel-/prisregister och kundfakturans intäktsperiodisering.',
-        'Fler ROT-personer, RUT, proportionella begäranden, årsskiften och återkrav.',
-        'Komplett lönemotor, fler lager-/produktionsfall och fler avsluts-/deklarationsunderlag.',
+        'Rättelse av ROT-fakturor och intäktsperiodiserade fakturor, negativa lönerättelser efter utbetalning och mer avancerad bankbetalningsfördelning.',
+        'Flera valutor, kontantmetoden, återstående momssärregler och verifiering av verklig avdragsrätt, motpart och underlag.',
+        'Automatiska utskick och serverstyrd schemaläggning av återkommande fakturor, indexering, dröjsmålsränta och inkassoflöden.',
+        'RUT, kundbetalningar under andra ROT-regelår och fullständig hantering av beslut som ändras efter utbetalning.',
+        'Återstående lönefall och avtalsregler, AGI-inlämning, bokförd värdering av pågående arbeten, full årsredovisning och inkomstdeklaration.',
       ] },
       { id: 'ansvar', title: 'Vad systemet inte kan bevisa', callout: {
         title: 'Begränsningarna är en del av dokumentationen', text: 'Demon kan inte garantera att varje verklig affär är rätt klassificerad eller att all regelefterlevnad är uppfylld. Affärens innebörd, underlagets kvalitet och de relevanta reglerna behöver fortfarande granskas.', tone: 'info',
@@ -486,17 +486,18 @@ export const articles = [
           ['Utökad ekonomidemo', 'Gemensam huvudbok för fakturor, betalningar, ROT, lön, lager, periodisering, moms och bokslut.'],
           ['Egna kundfakturasidor', 'Stor editor, egna adresser, fakturauppgifter, rabatter/avgifter, kopiering och frysta dokumentuppgifter.'],
           ['Leverantörssidor och underlagsinkorg', 'Egna sidor, lokal fil-/kamerainmatning, originalvisning, dubblettkontroll och kompletteringar efter bokföring.'],
+          ['Utbyggda ekonomiflöden', 'Fler inköpsrader, delkrediter/återbetalningar, individuella löner, utökad moms/ROT, artikel-/avtalsflöden och fortsatt bokföring nästa år.'],
         ],
       } },
       { id: 'den-har-wikin', title: 'Den här wikins version', paragraphs: [
-        'Innehållet beskriver källkodsversion 920a135 från den 23 oktober 2026. Wikins eget gränssnitt kan publiceras i en senare commit utan att den dokumenterade bokföringsversionen ändras.',
+        'Innehållet beskriver källkodsversion c5134ec från den 23 oktober 2026. Wikins eget gränssnitt kan publiceras i en senare commit utan att den dokumenterade bokföringsversionen ändras.',
         'En GitHub-push och en färdig publicering är olika händelser. Faktisk driftversion behöver kontrolleras mot den tjänst som serverar appen.',
       ] },
       { id: 'nasta-prioriteringar', title: 'Prioriterad fortsättning', bullets: [
         'Verifikationssida med direkt väg till originalunderlag och rättelser.',
-        'Samlad projekt-/offertarbetsyta och individuella lönebesked.',
+        'Fördjupad projekt-/offertarbetsyta och återstående individuella löne-/semesterfall.',
         'Tydligare bankavstämning och navigering från rapporter till underlag.',
-        'Fler inköpsrader, blandad moms samt riktig e-postmottagning och granskad fakturatolkning.',
+        'Riktig e-postmottagning, granskad fakturatolkning och bolagsavgränsad serverlagring.',
       ] },
     ],
     sources: [source('Projektets ändringslista', 'docs/Andringslistan.txt'), source('Prioriterade nästa arbetsytor', 'bokforing/leverantorsfakturor-och-arbetsytor.md')],
@@ -516,7 +517,182 @@ export const articles = [
         'Ett framtida AI-förslag behöver visa vilka uppgifter och regler det bygger på, skilja förslag från bokförda beslut och lämna osäkra fall för granskning.',
       ] },
     ],
-    sources: [source('Assistentens exempelbaserade svar', 'public/bokforing/suite/app.js'), source('Demons avgränsning', 'bokforing/README.md')],
-    related: ['for-revisorn', 'kontering', 'kanda-begransningar'],
+    sources: [source('Assistentens exempelbaserade svar', 'public/bokforing/suite/app.js'), source('Demons avgränsning', 'bokforing/README.md'), source('Plan för personlig SaaS-assistent', 'bokforing/ai-ande-saas.md')],
+    related: ['ande-saas', 'for-revisorn', 'kontering', 'kanda-begransningar'],
+  },
+  {
+    id: 'krediter-aterbetalningar', category: 'arbetsfloden', title: 'Delkrediter, återbetalningar och kvittning',
+    summary: 'Rätta hela eller delar av en faktura, även efter betalning, med bevarat original och korrekt kvarvarande saldo.',
+    status: 'limited', updated, tags: ['kredit', 'delkredit', 'återbetalning', 'kvittning', 'betald faktura', 'reskontra'],
+    sections: [
+      { id: 'arbetsgang', title: 'Arbetsgång', steps: [
+        'Öppna Krediter & återbetalningar och välj en utfärdad kundfaktura eller bokförd leverantörsfaktura.',
+        'Ange kreditbelopp per ursprungsrad, datum, referens och orsak. Granska hur den valda raden påverkar moms och konto.',
+        'Bokför kreditnotan. Originalets uppgifter och verifikation bevaras; krediten får eget nummer och egen verifikation.',
+        'Om krediten ger ett belopp att återbetala, registrera en återbetalning eller kvitta mot en annan obetald faktura till samma motpart.',
+      ] },
+      { id: 'kontroller', title: 'Belopps- och sambandskontroller', bullets: [
+        'Sammanlagda delkrediter får inte överstiga ursprungsradens nettobelopp. Momsen fördelas kumulativt så att full kreditering återför exakt originalets ören.',
+        'Blandade leverantörsrader behåller sina konton, momssatser och avdragsandelar i kreditens beräkning.',
+        'Återbetalning får inte överstiga återbetalningsbart saldo. Bankkonto, datum, belopp och riktning kontrolleras när en befintlig bankhändelse används.',
+        'Kvittning kräver samma motpart och får inte överstiga motfakturans återstående belopp. Datum, låsta perioder och dubbla referenser kontrolleras.',
+      ] },
+      { id: 'granser', title: 'Viktiga avgränsningar', paragraphs: [
+        'ROT-fakturor och fakturor med intäktsperiodisering är spärrade i detta kreditflöde. De behöver särskild rättelse av underliggande ärenden eller planer.',
+        'En leverantörskredit stoppas om den tar bort kostnaden som bär en inventarie, lagervärdering eller periodisering. Dessa samband måste först rättas genom ett granskat flöde.',
+        'En återbetalning registreras bara i demoboken; ingen banköverföring skickas. Vid bokslut behöver eventuella kreditbalanser i kund- och leverantörsreskontra bedömas och vid behov klassificeras om.',
+      ] },
+    ],
+    sources: [source('Krediter och reglering', 'public/bokforing/suite/settlements.js'), source('Krediternas modellprov', 'server/bokforing-settlements.test.mjs'), source('Krediternas browserprov', 'tests/bokforing-settlements.spec.ts')],
+    related: ['rattelser', 'kundfakturor', 'leverantorsfakturor', 'bokslut-rapporter'],
+  },
+  {
+    id: 'individuell-lon', category: 'arbetsfloden', title: 'Individuell lön, skattetabeller och rättelser',
+    summary: 'Den nya lönearbetsytan har personliga underlag och avgränsat stöd för officiella svenska tabeller 2026.',
+    status: 'limited', updated, tags: ['lön', 'skattetabell', '2026', 'semester', 'sjuklön', 'karens', 'förmåner', 'rättelse'],
+    sections: [
+      { id: 'profil-och-tabell', title: 'Löneprofil och skatteunderlag', paragraphs: [
+        'Varje anställd får en profil med bland annat födelseår, arbetstid och skatteunderlag. Tabell och kolumn väljs från A-skattsedeln; systemet hämtar inte den personens beslut från Skatteverket.',
+        'Officiella månadstabeller 29–42, kolumn 1 och 3 för 2026 är inlästa för inkomster till och med 80 000 kr per månad. Källdata har versionsuppgift och kontrollsumma. Andra år eller tabellfall kräver ett separat granskat skatteunderlag.',
+        'Arbetsgivaravgifter beräknas för modellens stödda födelseårs- och betalningsdatumfall 2026, inklusive det avgränsade ungdomsfallet från april. Tidigare utbetalningar i samma månad räknas med där månadstaket kräver det.',
+      ] },
+      { id: 'personligt-underlag', title: 'Individuellt underlag och granskning', bullets: [
+        'Månads- eller timlön, frånvaro, sjuklön och karens registreras per person. Arbetsschema och uppgifter om sjukperioden behöver granskas.',
+        'Semesterberäkning har avgränsade standardalternativ med uttryckligt underlag. Semesterintjäning, årsbyten och kollektivavtalsvarianter är inte en komplett motor.',
+        'Skattepliktiga förmåner och skattefria utlägg hålls isär i beräkning och lönebesked.',
+        'Varje lönebesked granskas innan lönekörningen bokförs. Utbetalning och reglering av skatt/avgifter är separata demohändelser.',
+      ] },
+      { id: 'rattelser', title: 'Rättelser och gränser', paragraphs: [
+        'En bokförd men ännu inte utbetald lönekörning kan återföras med länk till originalet. Positiva kompletteringar finns för tidigare bokförd eller betald lön.',
+        'Negativa rättelser efter utbetalning, återkrav, engångsskatt, fler avgiftsnedsättningar, pensions-/försäkringshantering och fullständiga kollektivavtal återstår.',
+        'Exporten är en gransknings-CSV. Den är inte AGI-XML och skickas inte till Skatteverket.',
+      ] },
+    ],
+    sources: [source('Löneregler och avgränsning', 'bokforing/lon-regler-och-avgransning.md'), source('Lönemotor', 'public/bokforing/suite/payroll-engine.js'), source('Källdata för skattetabeller', 'public/bokforing/suite/payroll-tax-tables-2026.js'), source('Löneprov', 'server/bokforing-payroll-engine.test.mjs')],
+    related: ['lon', 'kontering', 'nytt-rakenskapsar', 'kanda-begransningar'],
+  },
+  {
+    id: 'moms-utland', category: 'regler', title: 'Momsrutor, avdragsandel och utlandsaffärer',
+    summary: 'Valda betalda SEK-affärer kan klassificeras och följas till momsrapportens rutor och huvudboken.',
+    status: 'limited', updated, tags: ['moms', 'EU', 'import', 'export', 'avdragsrätt', 'momsdeklaration', 'ruta'],
+    sections: [
+      { id: 'stodda-fall', title: 'Affärsfall som finns', paragraphs: [
+        'Utöver kund- och leverantörsfakturorna finns separata redan betalda händelser för svenska inköp/försäljningar, vissa svenska omvända momsfall, varuinköp från EU, tjänsteinköp enligt huvudregeln från EU eller tredje land samt valda EU-/exportförsäljningar.',
+        'Importmoms kan bokföras från tullunderlag. Det är en separat momsberäkning som inte bokför själva varuinköpet en andra gång.',
+        'Land, VAT-nummer när det behövs, underlagsreferens och avdragsandel anges uttryckligt. Användaren bekräftar att det valda fallet motsvarar den verkliga affären.',
+      ] },
+      { id: 'rapport', title: 'Rapport och avstämning', bullets: [
+        'Rapporten hämtar stödda fakturor, blandade leverantörsrader, delkrediter och särskilt klassificerade momshändelser.',
+        'Alla 28 visade momsrutor har beskrivning. Beloppen kan följas till underlag och jämföras med momskontona i huvudboken.',
+        'Rutor 06, 07, 08, 37, 38 och 42 är uttryckligen inte fullt klassificerade. Oklassificerade momsverifikationer och differenser visas som granskningspunkter.',
+        'Ett granskningsunderlag kan exporteras som CSV. Fastställande och reglering i demon är skilda steg.',
+      ] },
+      { id: 'granser', title: 'Avgränsning', paragraphs: [
+        'Utlandsflödena är inte fakturering i andra valutor eller kontantmetoden. De särskilda transaktionerna avser redan betalda SEK-belopp.',
+        'Ingen kontroll av VAT-nummer mot VIES, återbetalning av utländsk moms, periodisk sammanställning eller myndighetsinlämning är ansluten. Avdragsandelen är ett granskat användarval, inte en automatisk rättslig bedömning.',
+      ] },
+    ],
+    sources: [source('Momsklassificering och rapport', 'public/bokforing/suite/tax-ledger.js'), source('Avgränsning för moms och ROT', 'bokforing/moms-och-rot-utbyggnad.md'), source('Moms-/ROT-prov', 'server/bokforing-tax-rot-extended.test.mjs')],
+    related: ['moms', 'leverantorsfakturor', 'krediter-aterbetalningar', 'kontering'],
+  },
+  {
+    id: 'rot-delbegaran', category: 'regler', title: 'ROT för flera personer och delbetalningar',
+    summary: 'Fördela ett befintligt ROT-belopp, skapa proportionella delbegäranden och följ beslut, utbetalningar och återkrav.',
+    status: 'limited', updated, tags: ['ROT', 'delbetalning', 'flera personer', 'återkrav', '2026', 'årsskifte'],
+    sections: [
+      { id: 'fordelning', title: 'Fördela det frysta fakturabeloppet', paragraphs: [
+        'Utgå från en redan utfärdad ROT-faktura och ange 1–10 personer. Fördelningen måste summera till fakturans redan frysta ROT-belopp; originalfakturan skrivs inte om.',
+        'Tillgängligt utrymme och villkor bekräftas per person. Andra ROT-belopp för samma person i den lokala demoboken räknas med i kontrollen.',
+        'Fler personer höjer inte det äldre fakturaflödets ursprungliga maxbelopp på 50 000 kr. Detta är en avgränsad utbyggnad av en befintlig faktura.',
+      ] },
+      { id: 'delbegaran', title: 'Delbegäran, beslut och pengar', steps: [
+        'Registrera en elektronisk kundbetalning under 2026 och bekräfta utfört arbete.',
+        'Förbered en delbegäran. Modellen beräknar det sammanlagda möjliga beloppet utifrån kundens betalningar och drar av det som redan har begärts.',
+        'Registrera ett demobeslut per person och följ godkänt eller avslaget belopp.',
+        'Registrera skatteutbetalning separat. Ett avslag lämnar fordran på kunden.',
+        'Om utbetalt ROT behöver återbetalas, registrera ett dokumenterat återkrav. Bankutbetalningen bokförs och motsvarande kundfordran öppnas igen.',
+      ] },
+      { id: 'granser', title: 'År och rättelser', paragraphs: [
+        'Stödet gäller kundbetalningar under 2026. Begärans metadata kan dateras till 31 januari 2027; det innebär inte stöd för kundbetalningar under 2027 eller alla årsskiftesfall.',
+        'RUT, ändring av ett redan registrerat beslut och kredit av själva ROT-fakturan behöver fler sammanhängande rättelseflöden. Inga kontroller eller ansökningar görs mot Skatteverket.',
+      ] },
+    ],
+    sources: [source('ROT-planer och delbegäranden', 'public/bokforing/suite/rot-extended.js'), source('Regler och avgränsningar', 'bokforing/moms-och-rot-utbyggnad.md'), source('Verifiering av ROT-fallen', 'server/bokforing-tax-rot-extended.test.mjs')],
+    related: ['rot-2026', 'kundfakturor', 'bankavstamning', 'kanda-begransningar'],
+  },
+  {
+    id: 'artiklar-avtal', category: 'arbetsfloden', title: 'Artiklar, kundpriser, avtal och projektmaterial',
+    summary: 'Från artikelregister och återkommande utkast till lageruttag och periodisering av fakturerade intäkter.',
+    status: 'limited', updated, tags: ['artikelregister', 'prislista', 'kundpris', 'återkommande', 'påminnelse', 'lageruttag', 'intäktsperiodisering'],
+    sections: [
+      { id: 'artiklar', title: 'Artiklar och återkommande fakturor', paragraphs: [
+        'Registrera artiklar med pris, enhet, momssats och aktiv status. Ett kundspecifikt pris kan användas när ett nytt fakturautkast skapas; utkastet får en kopia av artikel- och prisuppgifterna.',
+        'Återkommande planer kan generera utkast varje, var tredje, sjätte eller tolfte månad. Samma plan och period skapar inte dubbletter. Datum följer planens ursprungliga dag även när en månad är kortare.',
+        'Planen kan pausas. Körningen startas i demon och skickar inga fakturor. Serverstyrda jobb, indexering och faktisk distribution återstår.',
+      ] },
+      { id: 'projekt-och-intakt', title: 'Projekt, lager och intäkter', bullets: [
+        'Ett projektanknutet lageruttag och motsvarande materialrad skapas tillsammans. Kostnadspris och försäljningspris hålls isär.',
+        'Lagrets redovisade kostnad bokförs genom den periodiska lagervärderingen. Uttaget skapar inte en extra kostnadsbokning för samma material.',
+        'Intäktsperiodisering för en utfärdad, okrediterad faktura utan ROT använder 2990 och en månadsplan med exakt sammanlagd öresfördelning. Planen kan fortsätta över årsskifte.',
+        'Pågående arbeten har en dokumenterad bedömningsbilaga. Automatisk värderingsbokning eller fullständig successiv vinstavräkning ingår inte.',
+      ] },
+      { id: 'paminnelse', title: 'Påminnelseförberedelser', paragraphs: [
+        'En daterad påminnelse kan förberedas för förfallen kundandel. Planerat ROT från Skatteverket krävs inte av kunden genom detta flöde.',
+        'Text och saldo sparas som underlag. Ingen påminnelse skickas, och avgifter, dröjsmålsränta eller inkasso bokförs inte automatiskt.',
+      ] },
+    ],
+    sources: [source('Kommersiella flöden och gränser', 'bokforing/utveckling/kommersiella-floden.md'), source('Artiklar, avtal och periodisering', 'public/bokforing/suite/commercial.js'), source('Prov av kommersiella flöden', 'server/bokforing-commercial.test.mjs')],
+    related: ['kundfakturor', 'projekt-offert', 'tillgangar-periodisering', 'nytt-rakenskapsar'],
+  },
+  {
+    id: 'nytt-rakenskapsar', category: 'arbetsfloden', title: 'Bokslutsbilagor, årsarkiv och nästa räkenskapsår',
+    summary: 'Avsluta året med spårbara bilagor och fortsätt bokföra med samma reskontra, tillgångar och historik.',
+    status: 'limited', updated, tags: ['bokslut', 'räkenskapsår', 'årsbyte', 'årsredovisning', 'INK2', 'bokslutsbilaga', 'arkiv'],
+    sections: [
+      { id: 'granskning', title: 'Avstämning och bilagor', paragraphs: [
+        'Bokslut & räkenskapsår visar avstämningskontroller och bilagor med konto, kommentar, underlagsreferens och versionshistorik.',
+        'Granskad i demon kräver olika angivna namn för upprättare och granskare samt underlagsreferens. Namnen är formuläruppgifter; detta är inte identifierad attest eller ett externt revisionsgodkännande.',
+        'Om ett granskat kontosaldo ändras behöver bilagan uppdateras och granskas igen innan årsavslut via arbetsytan.',
+      ] },
+      { id: 'arsbyte', title: 'Vad som händer när nästa år öppnas', bullets: [
+        'Nästa år börjar dagen efter föregående års slut. Ett avslutat år och dess verifikationer bevaras.',
+        'Ingående balans visas från den bevarade huvudboken. Samma tillgångar och skulder bokförs inte en gång till.',
+        'Obetalda fakturor, tillgångar, lager samt fleråriga kostnads- och intäktsplaner fortsätter. Exempelvis kan en decemberfaktura betalas i januari.',
+        'Föregående års resultat flyttas från 2099 till 2098 i det nya året. Slutlig resultatdisposition beslutas separat.',
+        'Balansrapporter summerar fram till valt slutdatum; resultatkonton och resultatrapport avser den valda perioden.',
+      ] },
+      { id: 'export', title: 'Exportens gränser', paragraphs: [
+        'Årsarkivet innehåller en fryst ögonblicksbild och kan exporteras tillsammans med granskningsunderlag. Senare betalningar skriver inte om den sparade ögonblicksbilden.',
+        'Beräkningsunderlag för bolagsskatt och utkast till årsredovisningsunderlag finns. Skattemässiga bedömningar, tillämpligt K-regelverk, fullständiga noter, resultatdisposition, underskrifter, INK2 och myndighetsinlämning återstår.',
+        'Kreditbalanser i reskontra kan behöva särskild bokslutsklassificering. Lokal webbläsarlagring är inte ett hållbart serverarkiv.',
+      ] },
+    ],
+    sources: [source('Årsflödet och avgränsningar', 'bokforing/bokslut-och-rakenskapsar.md'), source('Årsöppning och bilagor', 'public/bokforing/suite/financial-years.js'), source('Rapporternas perioder', 'public/bokforing/suite/fiscal-reports.js'), source('Prov av fortsatt bokföring', 'server/bokforing-year-continuation.test.mjs')],
+    related: ['bokslut-rapporter', 'lagring-och-reset', 'individuell-lon', 'artiklar-avtal'],
+  },
+  {
+    id: 'ande-saas', category: 'utveckling', title: 'Plan: en personlig Ande per kundbolag',
+    summary: 'Föreslagen serverarkitektur för gemensam regelkunskap, bolagets kontext och personligt minne.',
+    status: 'planned', updated, tags: ['AI', 'Ande', 'SaaS', 'API-nyckel', 'tokens', 'minne', 'bolagsgräns'],
+    sections: [
+      { id: 'nyckel-och-kunskap', title: 'Modellåtkomst och kunskap', paragraphs: [
+        'Planen använder ett modell-API med API-nyckel på servern. Kunden behöver normalt ingen egen nyckel. Tokens är de textenheter som förbrukas av frågor, kontext och svar.',
+        'En gemensam grundmodell kan kombineras med daterade, granskade regelkällor från exempelvis BFN och Skatteverket. Separat modellträning per kund behövs inte för att göra assistenten personlig.',
+        'Kundbolagets egna fakturor, saldon och godkända arbetssätt hämtas som avgränsad kontext. Assistentens namn och förklaringsstil kan vara personliga.',
+      ] },
+      { id: 'bolagsgranser', title: 'Bolagsgränsen ska upprätthållas av servern', bullets: [
+        'Session, medlemskap och roll ska kontrolleras vid varje läsning, sökning, minnesändring och förslag.',
+        'Konversationer, dokument, sökindex och cache ska avgränsas per bolag. Ett inskickat companyId är ingen behörighet.',
+        'Dokumentens text ska behandlas som underlag. En instruktion inuti en faktura får inte styra verktyg eller ge åtkomst till ett annat bolag.',
+        'En byrå kan ha delegerad åtkomst till flera kundbolag, men deras kontext och minnen ska hållas åtskilda.',
+      ] },
+      { id: 'forslag-och-ansvar', title: 'Förslag, granskning och ansvar', paragraphs: [
+        'Första anslutna versionen är tänkt att läsa, förklara och föreslå kontering med källor och osäkerheter. Godkända förslag ska passera samma bokföringskontroller som manuell registrering.',
+        'Kunskapsmålet är kvalificerat redovisningsstöd. En språkmodell blir inte auktoriserad revisor genom träning och kan inte lämna ett oberoende revisionsuttalande.',
+        'Detta är en plan. Den nuvarande Ande använder lokala exempelsvar; extern modell, SaaS-minne och serverbaserad bolagsisolering är inte implementerade i demon.',
+      ] },
+    ],
+    sources: [source('Arkitektur, ansvar och planerade API-kontrakt', 'bokforing/ai-ande-saas.md'), source('Nuvarande lokala assistent', 'public/bokforing/suite/app.js')],
+    related: ['ande', 'for-revisorn', 'kanda-begransningar'],
   },
 ];
