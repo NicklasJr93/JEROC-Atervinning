@@ -39,7 +39,7 @@ const xmlAscii = value => xml(value).replace(/[^\x00-\x7f]/gu, c => `&#${c.codeP
 const cell = (name, value, code) => `<agd:${name}${code ? ` faltkod="${code}"` : ''}>${xml(value)}</agd:${name}>`;
 const tag = (name, contents) => `<agd:${name}>${contents}</agd:${name}>`;
 const period = value => { assert(/^2026-(0[1-9]|1[0-2])$/.test(value), 'Den versionerade deklarationsmodulen stödjer redovisningsmånader under 2026.'); return value.replace('-', ''); };
-const timestamp = value => { assert(typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(value) && Number.isFinite(Date.parse(value)), 'Framställningstid saknas.'); return value.slice(0, 19); };
+const timestamp = value => { assert(typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(value) && validDate(value.slice(0, 10)) && Number.isFinite(Date.parse(value)), 'Framställningstid saknas eller har ogiltigt kalenderdatum.'); return value.slice(0, 19); };
 function contact(input) {
   const name = text(input.contactName, 'Kontaktperson', 50), phone = text(input.contactPhone, 'Telefon', 20), email = text(input.contactEmail, 'E-post', 254);
   assert(/^[A-Za-z0-9_]+([-+.'\u0026][A-Za-z0-9_]+)*@[A-Za-z0-9_]+([-.][A-Za-z0-9_]+)*\.[A-Za-z0-9_]+([-.][A-Za-z0-9_]+)*$/.test(email), 'Ange giltig e-postadress.');
@@ -55,13 +55,16 @@ export function buildAgiXml(data) {
     const identity = personalNumber(person.personalNumber), specification = Number(person.specification);
     assert(!seen.has(identity) && Number.isInteger(specification) && specification >= 1 && specification <= 9999999999 && !specs.has(`${identity}:${specification}`), 'Person eller specifikationsnummer är dubblerat eller ogiltigt.'); seen.add(identity); specs.add(`${identity}:${specification}`);
     for (const key of ['grossCents', 'benefitCents', 'withholdingCents', 'employerCents']) assert(moneyValue(person[key]) >= 0, 'AGI-beloppen får inte vara negativa.');
+    for (const key of ['grossCents', 'benefitCents', 'withholdingCents']) assert(kronor(person[key]) <= 9999999999, 'AGI-individbeloppet överskrider XSD-gränsen BELOPP10 (10 siffror).');
     return { ...person, identity, specification };
   });
   const employerKronor = data.employerKronor ?? kronor(sum(people.map(person => person.employerCents)));
   assert(Number.isSafeInteger(employerKronor) && employerKronor >= 0 && employerKronor <= 999999999999, 'Arbetsgivaravgiften ska vara ett granskat belopp i hela kronor.');
+  const withholdingKronor = sum(people.map(person => kronor(person.withholdingCents)));
+  assert(withholdingKronor <= 999999999999, 'AGI:s summerade skatteavdrag överskrider XSD-gränsen BELOPP12 (12 siffror).');
   const contactXml = cell('Namn', c.name) + cell('Telefon', c.phone) + cell('Epostadress', c.email);
   const envelope = content => tag('Blankett', tag('Arendeinformation', cell('Arendeagare', org) + cell('Period', p)) + tag('Blankettinnehall', content));
-  const hu = tag('HU', tag('ArbetsgivareHUGROUP', cell('AgRegistreradId', org, '201')) + cell('RedovisningsPeriod', p, '006') + cell('SummaArbAvgSlf', employerKronor, '487') + cell('SummaSkatteavdr', sum(people.map(person => kronor(person.withholdingCents))), '497'));
+  const hu = tag('HU', tag('ArbetsgivareHUGROUP', cell('AgRegistreradId', org, '201')) + cell('RedovisningsPeriod', p, '006') + cell('SummaArbAvgSlf', employerKronor, '487') + cell('SummaSkatteavdr', withholdingKronor, '497'));
   const individuals = people.map(person => envelope(tag('IU', tag('ArbetsgivareIUGROUP', cell('AgRegistreradId', org, '201')) + tag('BetalningsmottagareIUGROUP', tag('BetalningsmottagareIDChoice', cell('BetalningsmottagarId', person.identity, '215'))) + cell('RedovisningsPeriod', p, '006') + cell('Specifikationsnummer', person.specification, '570') + cell('AvdrPrelSkatt', kronor(person.withholdingCents), '001') + cell('KontantErsattningUlagAG', kronor(person.grossCents), '011') + (person.benefitCents ? cell('SkatteplOvrigaFormanerUlagAG', kronor(person.benefitCents), '012') : '')))).join('\n');
   const absenceSeen = new Set();
   assert(data.absences === undefined || Array.isArray(data.absences) && data.absences.length <= 10000, 'Frånvarolistan är ogiltig eller för stor.');

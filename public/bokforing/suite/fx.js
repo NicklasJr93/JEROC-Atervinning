@@ -231,6 +231,10 @@ function appendFxEvent(draft,doc,payload) {
   const id = nextId(draft,'fx-event'), event = {id,documentId:doc.id,...payload};
   const position = replay(draft,doc), prior = events(draft).filter(item => item.documentId === doc.id).map(item => ({ ...item,calculatedRows:draft.entries.find(entry => entry.id === item.entryId)?.rows }));
   const calculated = calculateEvent(doc,event,position,prior);
+  // Taxable/exempt bases can change even when rounded VAT is zero, so a
+  // posted return must protect more than the journal's VAT accounts.
+  const changesVat = calculated.taxRows.some(row => row.vatCents !== 0 || doc.side === 'customer' && row.baseCents !== 0);
+  assert(!changesVat || !draft.vatReturns.some(period => event.date >= period.from && event.date <= period.to), 'Momsperioden är redan fastställd. En senare momsändring behöver bokföras i en öppen, ännu inte fastställd period.');
   const entry = calculated.rows.length ? appendEntry(draft,{date:event.date,description:`Valuta ${doc.number} · ${{issue:'faktura',payment:'betalning',credit:'kredit',refund:'återbetalning',revalue:'balansdagsvärdering','revalue-reversal':'rättelse av värdering'}[event.type]}`,sourceType:`fx-${event.type}`,sourceId:id,rows:calculated.rows}) : null;
   event.entryId = entry?.id ?? null;
   const bankAmount = sum(calculated.rows.filter(row => row.account === '1930').map(row => row.debitCents - row.creditCents));

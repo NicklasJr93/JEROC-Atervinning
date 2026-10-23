@@ -74,6 +74,7 @@ export function calculateRot(invoice) {
   const deductionCents = Math.floor(Math.min(
     safe(Math.floor(laborGrossCents * ROT_RULES_2026.ratePercent / 100)),
     ROT_RULES_2026.capCents,
+    rot.availableCents,
     remainingCents,
   ) / 100) * 100;
   return { deductionCents, laborGrossCents, ratePercent: 30, capCents: ROT_RULES_2026.capCents };

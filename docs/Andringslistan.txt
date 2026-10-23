@@ -4208,3 +4208,25 @@ i bokforing/granskning/2026-10-23-funktionskomplettering.md.
   utkast/årsslutsvärderingar och nya källunderlag i granskningspaket.
 - Uppdaterade wikiartiklar, användarguide och Andes kunskapspaket.
   Browserlagring och publik demo kvarstår enligt den valda etappindelningen.
+
+
+ÄL 170 – Utökad bokföringsgranskning och underlag för redovisare
+Status: Rättningar och skyddsspärrar implementerade och modelltestade
+2026-10-23. Rapport och testlista publiceras tillsammans med versionen;
+faktisk deploystatus kontrolleras separat.
+- 1 798 nya auditfall och 455 befintliga tester: totalt 2 253 godkända.
+  Separata scenarier täcker bokföring/SIE, fakturor/krediter, kontantmetod,
+  valuta, lön/semester, moms/ROT, bokslut och deklarationsfiler.
+- 13 fynd har rättats eller fått skyddsspärrar. Bland annat har återläsning,
+  ROT-fördelning, semesteråterföring, kreditnotor, momsunderlag och
+  deklarationsexport förstärkts med regressionstester.
+- PDF för redovisare med fynd, regelkällor och kvarstående luckor:
+  public/bokforing/granskning/granskningsrapport-2026-10-23.pdf
+  Fullständig testlista:
+  public/bokforing/granskning/testresultat-2026-10-23.csv
+- Godkända tester garanterar inte full regelefterlevnad och är inget
+  myndighetsgodkännande. Verkliga affärer behöver granskas av redovisare.
+- Före skarp användning återstår obligatoriska fakturauppgifter, beständig
+  arkivering med verifierat innehållsbevarande, identifierade användare,
+  behörigheter och bolagsisolering. Automatisk hantering av årsgränsen
+  1 000 kr för arbetsgivaravgifter saknas också.

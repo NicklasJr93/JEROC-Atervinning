@@ -6,6 +6,12 @@ Här samlas designförslag för ett **fristående bokföringsprogram med egen we
 
 **Status 2026-10-23:** en utökad ekonomidemo är kodad i `public/bokforing/suite/`. Den senaste etappen tillför SIE 4, valutafakturor, en separat kontantmetodsarbetsyta, semesterkonton, löneåterkrav, fler kreditfall och deklarationsexport. De stödda flödena delar samma verifikationsbok. Uppgifterna är fiktiva och sparas lokalt; inloggning och serverlagring är inte införda. Den tidigare inköpsdemon och bildmockuperna bevaras. En GitHub-push måste följas upp mot faktisk deploystatus: automatisk deploy innebär inte att versionen redan är live.
 
+### Utökad teknisk granskning 2026-10-23
+
+Granskningen tillför **1 798 nya auditfall**. Tillsammans med **455 befintliga tester** är **2 253 tester godkända**. **13 fynd har rättats eller fått skyddsspärrar**, bland annat inom återläsning, ROT, semester, kreditnotor, moms och deklarationsfiler. Rapporten och den fullständiga testlistan publiceras tillsammans med versionen: [granskningsrapport för redovisare (PDF)](../public/bokforing/granskning/granskningsrapport-2026-10-23.pdf) och [testresultat (CSV)](../public/bokforing/granskning/testresultat-2026-10-23.csv).
+
+Godkända tester är ingen garanti för full regelefterlevnad eller ett myndighetsgodkännande. Före skarp användning återstår bland annat fullständiga obligatoriska fakturauppgifter, beständig arkivering med verifierat innehållsbevarande, identifierade användare, behörigheter och bolagsisolering. Automatisk hantering av årsgränsen **1 000 kr för arbetsgivaravgifter** saknas också. En redovisare behöver bedöma dessa luckor och reglernas tillämpning på de verkliga affärerna.
+
 ### Den senaste utbyggnaden
 
 - **[Krediter och återbetalningar](https://app.scrapplanner.com/bokforing/#settlements):** delkrediter, krediter efter betalning, återbetalningar och kvittning mellan samma motparts fakturor. ROT-krediter och krediter av intäktsperiodiserade fakturor har nu egna kontrollerade rättelseflöden med bevarade original. [Arbetsgång och gränser](../docs/bokforing/rot-credit-completion.md).
@@ -137,7 +143,7 @@ Bygg med `npm run build` och starta med `npm start`. [Driftguiden](../docs/drift
 
 Modell- och lagringstester finns i `server/bokforing-*.test.mjs`. Browserproven i `tests/bokforing-*.spec.ts` omfattar även de nya arbetsytorna för krediter, individuell lön, moms/ROT, kommersiella flöden och årshantering. Regressionstesterna för den tidigare versionen är kvar. Se även [provgranskningen av den äldre versionen](granskning/2026-10-22.md) och dess [uppföljning](granskning/2026-10-22-uppfoljning.md).
 
-**Verifierat för funktionskompletteringen 2026-10-23:** produktionsbygge, slutlig typkontroll, 455 automatiska serverkontroller (inklusive ett HTTP-test) och 107 unika webbläsarfall efter grundkörning och omprov. [Slutrapport, upptäckta fel och avgränsningar](granskning/2026-10-23-funktionskomplettering.md).
+**Historisk verifiering av funktionskompletteringen 2026-10-23, före den utökade granskningen:** produktionsbygge, slutlig typkontroll, 455 automatiska serverkontroller (inklusive ett HTTP-test) och 107 unika webbläsarfall efter grundkörning och omprov. [Slutrapport, upptäckta fel och avgränsningar](granskning/2026-10-23-funktionskomplettering.md).
 
 **Historisk verifiering av föregående utbyggnad, version `c5134ec`, 2026-10-23:** produktionsbygge, slutlig typkontroll, 320 modell-/lagringstester, ett isolerat HTTP-test och 75 unika browserfall mot byggd app/server. Ett längre lagerprov nådde först sin tidigare totalgräns; samma prov passerade med längre tidsmarginal och oförändrade kontroller. [Historisk verifieringsrapport och körinstruktioner](granskning/2026-10-23-utbyggnad.md). Antalen är historiska; den nya etappens slutrapport finns ovan.
 

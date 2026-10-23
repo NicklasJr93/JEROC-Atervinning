@@ -64,6 +64,20 @@ function economicRows(rows, doc, index, before, after) {
     add(rows, line.account, grossDelta - vatDelta); add(rows, '2641', vatDelta);
   }
 }
+function eventTaxBoxes(doc, previous, next, rows) {
+  const boxes = {};
+  if (doc.side === 'customer') doc.lines.forEach((line, index) => {
+    const delta = next[index].recognized - previous[index].recognized;
+    const vatDelta = round(next[index].recognized, line.vatCents, line.grossCents) - round(previous[index].recognized, line.vatCents, line.grossCents);
+    const field = line.vatRate === 0 ? '42' : '05';
+    boxes[field] = (boxes[field] ?? 0) + delta - vatDelta;
+  });
+  for (const row of rows) {
+    const signed = row.debitCents - row.creditCents, field = ({ '2611': '10', '2621': '11', '2631': '12', '2641': '48' })[row.account];
+    if (field) boxes[field] = (boxes[field] ?? 0) + (field === '48' ? signed : -signed);
+  }
+  return boxes;
+}
 function calculateEvent(doc, current, kind, amount) {
   const next = clone(current), rows = [], sideSign = doc.side === 'customer' ? 1 : -1;
   let allocations;
@@ -172,7 +186,11 @@ function appendCashEvent(state, id, { kind, date, amountCents = 0, reference, ba
     const ref = txt(reference, 'Händelsereferens', 100);
     assert(!(draft.cashEvents ?? []).some(e => e.reference === ref), 'Händelsereferensen finns redan.');
     const before = currentProgress(draft, doc), calculated = calculateEvent(doc, before, kind, amountCents);
-    if (kind === 'year-end') assert(calculated.rows.length > 0, 'Fakturan har inget kvar att bokföra vid årsslut.');
+    const taxBoxes = eventTaxBoxes(doc, before, calculated.next, calculated.rows);
+    assert(!Object.values(taxBoxes).some(amount => amount !== 0) || !draft.vatReturns.some(period => date >= period.from && date <= period.to), 'Momsperioden är redan fastställd. En senare momsändring behöver bokföras i en öppen, ännu inte fastställd period.');
+    // Equal-account line movements can cancel in the ledger while their
+    // recognition allocations still need to be closed for the next year.
+    if (kind === 'year-end') assert(calculated.allocations.some(part => part !== 0), 'Fakturan har inget kvar att bokföra vid årsslut.');
     const event = { id: nextId(draft, 'cash-event'), documentId: id, kind, date, reference: ref, amountCents,
       allocations: calculated.allocations, rows: calculated.rows, createdAt: new Date().toISOString() };
     if (kind === 'credit' && doc.side === 'supplier') {
@@ -257,7 +275,7 @@ export function validateCashState(state) {
           const bank = state.bankTransactions.find(item => item.id === event.bankEventId), sign = (doc.side === 'customer' ? 1 : -1) * (event.kind === 'refund' ? -1 : 1);
           assert(bank && bank.matchedEntryId === entry.id && bank.account === '1930' && bank.date === event.date && bank.amountCents === sign * event.amountCents, 'Kontantmetodens bankhändelse saknas eller har ändrats.');
         } else assert(!event.bankEventId, 'Händelsen har en otillåten bankkoppling.');
-      } else assert(!event.entryId && !event.bankEventId && event.kind === 'credit', 'En händelse saknar bokföring.');
+      } else assert(!event.entryId && !event.bankEventId && (event.kind === 'credit' || event.kind === 'year-end' && expected.allocations.some(part => part !== 0)), 'En händelse saknar bokföring.');
       current = expected.next;
     }
     const balance = sum(current.map(line => line.recognized - line.paid));
@@ -277,18 +295,12 @@ export function getCashTaxRows(state) {
   for (const doc of state.cashDocuments ?? []) {
     let previous=progress(doc);
     for (const event of (state.cashEvents ?? []).filter(item=>item.documentId===doc.id)) {
-      const next=calculateEvent(doc,previous,event.kind,event.amountCents).next, boxes={};
-      if (event.entryId) {
-        if(doc.side==='customer') doc.lines.forEach((line,index)=>{
-          const delta=next[index].recognized-previous[index].recognized;
-          const vatDelta=round(next[index].recognized,line.vatCents,line.grossCents)-round(previous[index].recognized,line.vatCents,line.grossCents);
-          const field=line.vatRate===0?'42':'05'; boxes[field]=(boxes[field]??0)+delta-vatDelta;
-        });
-        for(const row of event.rows) {
-          const signed=row.debitCents-row.creditCents,field=({'2611':'10','2621':'11','2631':'12','2641':'48'})[row.account];
-          if(field) boxes[field]=(boxes[field]??0)+(field==='48'?signed:-signed);
-        }
-        output.push({entryId:event.entryId,date:event.date,description:`${doc.number} · kontantmetoden`,boxes});
+      const next=calculateEvent(doc,previous,event.kind,event.amountCents).next;
+      if (event.entryId || event.kind === 'year-end') {
+        const boxes = eventTaxBoxes(doc, previous, next, event.rows);
+        // A zero-net closing allocation may still reclassify taxable/exempt
+        // bases even when no ledger account changes by a whole öre.
+        if (event.entryId || Object.values(boxes).some(amount => amount !== 0)) output.push({entryId:event.entryId ?? null,date:event.date,description:`${doc.number} · kontantmetoden`,boxes});
       }
       previous=next;
     }

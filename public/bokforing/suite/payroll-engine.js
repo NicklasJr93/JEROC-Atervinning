@@ -180,6 +180,12 @@ export function calculatePayrollPerson(state, input, { paymentDate, month, exclu
     const year = (state.payrollVacationYears ?? []).find(item => item.id === row.vacationYearId);
     assert(year && year.employeeId === employee.id && year.method === profile.vacationMethod, 'Semesteråret passar inte den anställdes semesterregel.');
     assert(paymentDate >= year.leaveStart && paymentDate <= year.leaveEnd, 'Löneutbetalningen ligger utanför semesterårets uttagsperiod.');
+    // A new calculation must not use a balance released by a later-dated
+    // reversal. Historical rows keep their original context; same-day undo
+    // and replacement are ordered by the journal and are supported.
+    if (!historicalContext) assert(!(state.payrollBatches ?? []).some(batch => batch.status === 'reversed' &&
+      batch.reversal.date > paymentDate && batch.people.some(person => person.employeeId === employee.id && person.input.vacationYearId === row.vacationYearId)),
+    'Nytt semesteruttag får inte dateras före en redan registrerad återföring för samma semesterår.');
     assert(context.vacationYearUsedDays + row.vacationDays <= year.availableDays, 'Semesterdagarna överstiger det intjänade semestersaldot.');
     assert(row.vacationDays > 0, 'Välj dagar för uttaget från semesteråret.');
     if (year.method === 'percentage' && row.kind !== 'vacation-final') assert(row.vacationHoursHundredths > 0 && row.unpaidHoursHundredths + row.sickHoursHundredths + row.vacationHoursHundredths <= row.scheduledHoursHundredths, 'Ange de schemalagda semestertimmarna så att tim-/grundlön inte betalas dubbelt.');
@@ -373,7 +379,13 @@ export function validatePayrollBatches(state) {
       const earlierBatches = state.payrollBatches.slice(0, batchIndex);
       assert(Array.isArray(person.context.priorPayrollBatchIds) && new Set(person.context.priorPayrollBatchIds).size === person.context.priorPayrollBatchIds.length && person.context.priorPayrollBatchIds.every(id => earlierBatches.some(prior => prior.id === id && prior.month === batch.month)), 'Lönens tidigare körningsreferenser är ogiltiga.');
       if (person.input.vacationYearId) {
-        const used = earlierBatches.filter(isActive).flatMap(item => item.people).filter(row => row.employeeId === person.employeeId && row.input.vacationYearId === person.input.vacationYearId);
+        // A reversed run retains the vacation balance that was valid when it
+        // was posted. Earlier runs can subsequently be reversed as well; use
+        // journal order so same-day reversals/replacements remain unambiguous.
+        const postedIndex = state.entries.findIndex(entry => entry.id === batch.entryId);
+        const used = earlierBatches.filter(prior => isActive(prior) || (batch.status === 'reversed' &&
+          state.entries.findIndex(entry => entry.id === prior.reversal?.entryId) > postedIndex))
+          .flatMap(item => item.people).filter(row => row.employeeId === person.employeeId && row.input.vacationYearId === person.input.vacationYearId);
         assert(person.context.vacationYearUsedDays === used.reduce((n, row) => n + row.input.vacationDays, 0) && person.context.vacationYearUsedMoneyCents === sum(used.map(row => row.vacationPayCents)), 'Semesteruttagets tidigare dagar och belopp stämmer inte.');
       }
       assert(Array.isArray(person.context.priorLegacyRunIds) && new Set(person.context.priorLegacyRunIds).size === person.context.priorLegacyRunIds.length && person.context.priorLegacyRunIds.every(id => state.payrollRuns.some(prior => prior.id === id && prior.status !== 'draft' && prior.month === batch.month)), 'Lönens tidigare äldre körningsreferenser är ogiltiga.');

@@ -158,12 +158,19 @@ export function getTaxDeclarationReport(state, { from = state.company.fiscalYear
   const boxes = Object.fromEntries(VAT_BOXES.map(item => [item.id, 0]));
   const evidence = [], covered = new Set(), warnings = [];
   const inPeriod = date => date >= from && date <= to;
+  const warnUnclassifiedZeroSale = date => {
+    if (inPeriod(date)) warnings.push('Försäljning med 0 % saknar uttrycklig momsklassificering. Bedöm rätt deklarationsfält före användning.');
+  };
   const add = (id, date, values, label) => { if (!inPeriod(date)) return; for (const [key, amount] of Object.entries(values)) boxes[key] = sum([boxes[key] ?? 0, amount]); if (id) covered.add(id); evidence.push({ entryId: id, date, label, boxes: values }); };
   for (const invoice of state.invoices) {
     if (invoice.status === 'draft') continue;
     const sign = invoice.kind === 'credit' ? -1 : 1, values = {};
     for (const line of invoice.lines) {
       const amount = calculateLineAmounts(line, invoice.vatMode, invoice.invoiceDiscountBps ?? 0);
+      // A percentage alone does not establish an exemption or its declaration
+      // field. Keep the existing arithmetic visible but block an unreviewable
+      // declaration until this native workflow has explicit tax treatment.
+      if (invoice.vatMode === 'standard' && line.vatRate === 0 && amount.netCents > 0) warnUnclassifiedZeroSale(invoice.date);
       const basis = invoice.vatMode === 'reverse-construction' ? '41' : '05'; values[basis] = (values[basis] ?? 0) + sign * amount.netCents;
       if (amount.vatCents) { const box = ordinaryBox(line.vatRate); values[box] = (values[box] ?? 0) + sign * amount.vatCents; }
     }
@@ -187,7 +194,10 @@ export function getTaxDeclarationReport(state, { from = state.company.fiscalYear
     add(item.entryId,item.date,values,'Valutafaktura');
   }
   for(const item of getCashTaxRows(state))add(item.entryId,item.date,item.boxes,item.description);
-  for (const record of state.taxTransactions ?? []) add(record.entryId, record.date, record.boxes, record.reference);
+  for (const record of state.taxTransactions ?? []) {
+    if (record.kind === 'domestic-sale' && record.vatRate === 0) warnUnclassifiedZeroSale(record.date);
+    add(record.entryId, record.date, record.boxes, record.reference);
+  }
   for (const asset of state.assets) if (asset.disposalEntryId) add(asset.disposalEntryId, asset.disposalDate, { '05': asset.proceedsCents, '10': round(asset.proceedsCents, 25, 100) }, `Avyttring ${asset.name}`);
   // Use the selected original net rows for credit bases and the actual credit
   // journal for rounded VAT; repeated small credits then keep exact öre totals.
@@ -201,6 +211,7 @@ export function getTaxDeclarationReport(state, { from = state.company.fiscalYear
     for (const selected of record.lines) {
       const originalLine = source.lines?.[selected.index] ?? source;
       const mode = record.side === 'customer' ? source.vatMode : originalLine.vatMode;
+      if (record.side === 'customer' && mode === 'standard' && originalLine.vatRate === 0 && selected.netCents > 0) warnUnclassifiedZeroSale(entry.date);
       const basis = record.side === 'customer' ? (mode === 'reverse-construction' ? '41' : '05') : mode === 'reverse-construction' ? '24' : null;
       if (basis) values[basis] = (values[basis] ?? 0) - selected.netCents;
     }
@@ -226,6 +237,7 @@ export function taxReportCsv(state, period) {
   const report = getTaxDeclarationReport(state, period);
   const rows = ['MOMSUNDERLAG;Granskningsfil, inte myndighetsinlämning', `Period;${report.from};${report.to}`, 'Fält;Beskrivning;Belopp i ören;Hela kronor;Status'];
   for (const box of VAT_BOXES) rows.push(`${box.id};${box.title};${report.boxes[box.id]};${Math.trunc(report.boxes[box.id] / 100)};${report.unsupportedBoxes.includes(box.id) ? 'Kräver separat bedömning' : 'Beräknat för stödda affärsfall'}`);
+  for (const warning of report.warnings) rows.push(`Granskningsvarning;${warning}`);
   rows.push(`Avstämning;${report.reconciled ? 'STÄMMER FÖR KLASSADE POSTER' : 'DIFFERENS – GRANSKA'}`);
   return '\uFEFF' + rows.join('\r\n');
 }

@@ -228,6 +228,14 @@ export function validateState(state) {
     const ids = new Set();
     for (const item of state[key]) {
       assert(item && typeof item === 'object' && identifier(item.id) && !ids.has(item.id), `Demodata för ${key} innehåller ogiltiga eller dubbla ID:n.`);
+      // Journal/history IDs are allocated from the shared sequence. Accepting a
+      // restored counter behind them would reuse source IDs on the next write.
+      const allocated = /^(?:entry|activity)-([1-9]\d*)$/.exec(item.id);
+      if (allocated) {
+        const value = Number(allocated[1]);
+        assert(Number.isSafeInteger(value) && value > 0 && value <= state.sequence,
+          'Demons ID-serie täcker inte sparade verifikationer eller historikhändelser.');
+      }
       ids.add(item.id);
     }
   }

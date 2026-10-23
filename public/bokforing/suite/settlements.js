@@ -161,6 +161,13 @@ function uniqueReference(state, side, kind, sourceId, reference) {
   assert(!records(state).some(record => record.side === side && record.kind === kind && record.documentId === sourceId && record.reference === reference), 'Åtgärden med den här referensen är redan bokförd.');
 }
 
+function requireCreditTaxPeriodOpen(state, side, source, date, selections) {
+  // Zero output tax can still change declared sales or reverse-charge bases.
+  const changesBasis=selections.some(selection=>selection.netCents>0&&(side==='customer'||(source.lines?.[selection.index]?.vatMode??source.vatMode)==='reverse-construction'));
+  assert(!changesBasis || !state.vatReturns.some(period=>date>=period.from&&date<=period.to),
+    'Momsperioden är redan fastställd. En senare momsändring behöver bokföras i en öppen, ännu inte fastställd period.');
+}
+
 // A preview is calculated from the original journal and current correction history.
 // The fingerprint prevents a saved review from silently applying to a new balance.
 export function previewCreditNote(state,payload) {
@@ -170,6 +177,7 @@ export function previewCreditNote(state,payload) {
   uniqueReference(state,side,'credit',documentId,payload.reference);
   assert((state.revenueSchedules??[]).filter(item=>item.invoiceId===documentId).every(item=>item.date<=date&&item.postings.every(posting=>posting.date<=date)),'Krediten får inte dateras före intäktsperiodiseringens start eller redan bokförd intäktsföring.');
   const calculated=creditRows(state,side,documentId,payload.lines);
+  requireCreditTaxPeriodOpen(state,side,source,date,calculated.lines);
   const hasRevenue=side==='customer'&&(state.revenueSchedules??[]).some(item=>item.invoiceId===documentId);
   let rot=null;
   if(source.rot){
@@ -192,6 +200,7 @@ export function createCreditNote(state, { side, documentId, date, reason, refere
     reason = text(reason, 'Krediteringsorsak'); reference = text(reference, 'Kreditens referens', 100);
     uniqueReference(draft, side, 'credit', documentId, reference);
     const calculated = creditRows(draft, side, documentId, lines);
+    requireCreditTaxPeriodOpen(draft, side, source, date, calculated.lines);
     const hasRevenue=side==='customer'&&(draft.revenueSchedules??[]).some(item=>item.invoiceId===documentId);
     if(hasRevenue||source.rot)assert(specialReviewed===true,'Granska och bekräfta ROT eller intäktsperiodisering före bokföring.');
     const record=addRecord(draft, { kind: 'credit', side, documentId, sourceEntryId: source.entryId, sourceSnapshot: documentSnapshot(side, source),
@@ -279,7 +288,12 @@ export function validateSettlements(state) {
     let expected;
     if (record.kind === 'credit') {
       text(record.reason, 'Krediteringsorsak');
-      if(record.side==='customer')assert((state.revenueSchedules??[]).filter(plan=>plan.invoiceId===record.documentId).every(plan=>plan.date<=record.date),'Krediten får inte dateras före intäktsperiodiseringens start.');
+      if(record.side==='customer') {
+        const creditEntryIndex=state.entries.findIndex(entry=>entry.id===record.entryId);
+        assert((state.revenueSchedules??[]).filter(plan=>plan.invoiceId===record.documentId).every(plan=>plan.date<=record.date&&plan.postings
+          .filter(posting=>posting.entryId?state.entries.findIndex(entry=>entry.id===posting.entryId)<creditEntryIndex:(posting.entryCount??0)<=creditEntryIndex)
+          .every(posting=>posting.date<=record.date)), 'Krediten får inte dateras före intäktsperiodiseringens start eller redan bokförd intäktsföring.');
+      }
       assert(new RegExp(`^${record.side === 'customer' ? 'K' : 'LK'}-\\d{4,}$`).test(record.number) && !numbers.has(record.number), 'Kreditnotans nummer är ogiltigt eller återanvänt.'); numbers.add(record.number);
       assert(record.sourceSnapshot === documentSnapshot(record.side, source), 'Kreditnotans originaluppgifter har ändrats.');
       const idKey = key(record.side, source.id); if (!byLine.has(idKey)) byLine.set(idKey, new Map());

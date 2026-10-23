@@ -160,6 +160,8 @@ function issueInDraft(state, id) {
   validateRotRoom(state, invoice);
   const totals = getInvoiceTotals(invoice);
   assert(totals.grossCents > 0, 'Fakturans totalbelopp måste vara större än noll innan den utfärdas.');
+  assert(!totals.netCents || !state.vatReturns.some(period => invoice.date >= period.from && invoice.date <= period.to),
+    'Momsperioden är redan fastställd. En senare momsändring behöver bokföras i en öppen, ännu inte fastställd period.');
   invoice.number = nextNumber(state, 'F', state.invoices);
   const rows = [row('1510', totals.grossCents), row(invoice.vatMode === 'reverse-construction' ? '3231' : '3000', 0, totals.netCents)];
   if (invoice.vatMode === 'standard') {
@@ -293,6 +295,8 @@ export function creditInvoice(state, id, { date, reason }) {
     assert(date >= invoice.date, 'Kreditdatum får inte ligga före originalfakturan.');
     assert(invoice.payments.length === 0, 'Denna demo krediterar bara helt obetalda fakturor. Hantera betalningen och återbetalningen separat före kreditering.');
     assert(!draft.rotClaims.some(claim => claim.invoiceId === id), 'En faktura med registrerad ROT-begäran kan inte krediteras i detta demoflöde.');
+    assert(!getInvoiceTotals(invoice).netCents || !draft.vatReturns.some(period => date >= period.from && date <= period.to),
+      'Momsperioden är redan fastställd. En senare momsändring behöver bokföras i en öppen, ännu inte fastställd period.');
     const original = draft.entries.find(entry => entry.id === invoice.entryId);
     assert(original, 'Originalfakturans verifikation saknas.');
     const credit = structuredClone(invoice);

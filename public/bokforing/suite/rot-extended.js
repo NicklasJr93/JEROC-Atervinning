@@ -34,7 +34,7 @@ function participantValues(input) {
   });
 }
 
-function allocationAt(plan, paidCents) {
+function allocationAt(plan, paidCents, previouslyRequested = new Map()) {
   const applied = Math.min(paidCents, plan.customerPortionCents);
   const target = Math.floor(Number(BigInt(plan.reservedCents) * BigInt(applied) / BigInt(plan.customerPortionCents)) / 100) * 100;
   const amounts = plan.participants.map(person => Math.floor(Number(BigInt(person.allocationCents) * BigInt(applied) / BigInt(plan.customerPortionCents)) / 100) * 100);
@@ -42,6 +42,25 @@ function allocationAt(plan, paidCents) {
   const ranked = plan.participants.map((person, index) => ({ index, remainder: BigInt(person.allocationCents) * BigInt(applied) % (BigInt(plan.customerPortionCents) * 100n) })).sort((a, b) => a.remainder === b.remainder ? a.index - b.index : a.remainder > b.remainder ? -1 : 1);
   for (const { index } of ranked) if (remainder >= 100 && amounts[index] + 100 <= plan.participants[index].allocationCents) { amounts[index] += 100; remainder -= 100; }
   assert(remainder === 0, 'ROT-fördelningen kunde inte summeras i hela kronor.');
+  // Largest-remainder apportionment can reduce one person's share as the
+  // cumulative payment increases. A submitted share cannot be withdrawn by a
+  // later request. Preserve those floors, removing any excess from the most
+  // overallocated participant who still has an unsubmitted share.
+  const floors = plan.participants.map(person => previouslyRequested.get(personKey(person.personId)) ?? 0);
+  assert(sum(floors) <= target, 'Tidigare ROT-begäranden överstiger betald andel.');
+  amounts.forEach((amount, index) => { amounts[index] = Math.max(amount, floors[index]); });
+  let excess = sum(amounts) - target;
+  while (excess > 0) {
+    let selected = -1, largest;
+    for (let index = 0; index < amounts.length; index++) {
+      if (amounts[index] <= floors[index]) continue;
+      const over = BigInt(amounts[index]) * BigInt(plan.customerPortionCents) - BigInt(plan.participants[index].allocationCents) * BigInt(applied);
+      // On equal surplus retain the earlier participant's rounding priority.
+      if (selected < 0 || over > largest || over === largest && index > selected) { selected = index; largest = over; }
+    }
+    assert(selected >= 0, 'ROT-fördelningen kan inte minska tidigare begärda personbelopp.');
+    amounts[selected] -= 100; excess -= 100;
+  }
   return plan.participants.map((person, index) => ({ personId: person.personId, amountCents: amounts[index] }));
 }
 
@@ -92,7 +111,7 @@ function validateOriginalRotApplications(state) {
     assert(app.basisPaidCents === sum(app.basisPayments.map(item => item.amountCents)), 'ROT-begärans betalningssumma har ändrats.');
     const prior = previous.get(plan.id) ?? { requested: new Map(), date: plan.date, basis: new Set() };
     assert(app.date >= prior.date && [...prior.basis].every(id => app.basisPayments.some(item => item.id === id)), 'ROT-delbegäranden måste följa datum och tidigare betalningsunderlag.');
-    const cumulative = allocationAt(plan, app.basisPaidCents);
+    const cumulative = allocationAt(plan, app.basisPaidCents, prior.requested);
     const expected = cumulative.map(person => ({ personId: person.personId, amountCents: person.amountCents - (prior.requested.get(personKey(person.personId)) ?? 0) }));
     assert(expected.every(person => person.amountCents >= 0) && JSON.stringify(app.personLines) === JSON.stringify(expected) && app.requestedCents === sum(expected.map(person => person.amountCents)) && app.requestedCents > 0, 'ROT-delbegäran överstiger betald andel eller använder samma del flera gånger.');
     assert(app.bookingSnapshot === requestSnapshot(app), 'ROT-delbegärans ursprungliga underlag har ändrats.');
@@ -164,8 +183,10 @@ export function prepareRotApplication(state, planId, payload) {
     assert(payload.date <= `${plan.paymentYear + 1}-01-31`, 'Begäran ska lämnas senast 31 januari efter betalningsåret.');
     const basisPayments = invoice.payments.filter(payment => payment.payer === 'customer' && payment.date <= payload.date && payment.date.slice(0, 4) === String(plan.paymentYear)).map(({ id, date, amountCents }) => ({ id, date, amountCents }));
     const basisPaidCents = sum(basisPayments.map(item => item.amountCents)); assert(basisPaidCents > 0, 'Registrera kundens elektroniska delbetalning först.');
-    const cumulative = allocationAt(plan, basisPaidCents), previous = (draft.rotApplications ?? []).filter(item => item.planId === planId);
-    const personLines = cumulative.map(person => ({ personId: person.personId, amountCents: person.amountCents - sum(previous.flatMap(app => app.personLines.filter(line => personKey(line.personId) === personKey(person.personId)).map(line => line.amountCents))) }));
+    const previous = (draft.rotApplications ?? []).filter(item => item.planId === planId);
+    const previouslyRequested = new Map(plan.participants.map(person => [personKey(person.personId), sum(previous.flatMap(app => app.personLines.filter(line => personKey(line.personId) === personKey(person.personId)).map(line => line.amountCents)))]));
+    const cumulative = allocationAt(plan, basisPaidCents, previouslyRequested);
+    const personLines = cumulative.map(person => ({ personId: person.personId, amountCents: person.amountCents - previouslyRequested.get(personKey(person.personId)) }));
     const requestedCents = sum(personLines.map(person => person.amountCents)); assert(requestedCents > 0, 'Det finns ingen ny betald ROT-andel att begära.');
     const app = { id: nextId(draft, 'rot-part'), planId, date: payload.date, paymentYear: plan.paymentYear, basisPayments, basisPaidCents, requestedCents, personLines, workCompletedConfirmed: true, electronicPaymentConfirmed: true, receiptIds: [] };
     app.bookingSnapshot = requestSnapshot(app); draft.rotApplications.push(app); addActivity(draft, `ROT-delbegäran förberedd för ${invoice.number}; inget skickat.`, app.id); validateRotApplications(draft);
