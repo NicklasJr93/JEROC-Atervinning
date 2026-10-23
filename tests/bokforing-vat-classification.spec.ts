@@ -16,8 +16,9 @@ async function fill(page:Page,rate:string){
 }
 test('explicit domestic exemption is required, persisted and visible after reload',async({page})=>{
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await open(page);const target=await fill(page,'0');
+ const beforeRejectedPost=await read(page);
  await target.getByRole('button',{name:'Granska och bokför affären'}).click();await expect(page.locator('#suite-toast')).toContainText('momsundantag');
- expect((await read(page)).taxTransactions).toHaveLength(0);await expect(target.locator('[name="reference"]')).toHaveValue('MOMS-UI');
+ const afterRejectedPost=await read(page);expect(afterRejectedPost).toEqual(beforeRejectedPost);expect(afterRejectedPost.taxTransactions??[]).toHaveLength(0);await expect(target.locator('[name="reference"]')).toHaveValue('MOMS-UI');
  await target.locator('[name="vatExemptionCode"]').selectOption('education');await target.locator('[name="vatExemptionLegalBasis"]').fill('Utbildningens anordnare och villkor enligt 10 kap. ML är granskade');await target.locator('[name="vatExemptionConfirmed"]').check();
  await target.getByRole('button',{name:'Granska och bokför affären'}).click();await expect.poll(async()=>((await read(page)).taxTransactions??[]).length).toBe(1);
  const record=(await read(page)).taxTransactions[0];expect(record.boxes).toEqual({'42':50000});expect(record.vatExemption.code).toBe('education');
