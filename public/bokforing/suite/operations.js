@@ -1,6 +1,9 @@
 // Supplier purchases, bank reconciliation and manual journals for the synthetic demo.
 // No function in this module sends a payment or accesses a bank.
 import { transact, appendEntry, nextId, addActivity, assert, cents, validDate, requireOpenPeriod, accountBalance } from './core.js';
+import { billSnapshot, normalizeBillDetails, normalizeBillAttachments, validateBillDetails, validateBillAttachments, validateBillAttachmentAdditions, getBillAttachments } from './purchase-data.js';
+
+export { copyBillPayload, getBillAttachments } from './purchase-data.js';
 
 const EXPENSE_ACCOUNTS = new Set(['4010', '5010', '5410', '5460', '6110', '6540', '6570', '6991']);
 const BANK_ACCOUNTS = new Set(['1930', '1910', '1630']);
@@ -38,6 +41,9 @@ function findBill(state, id) {
   cents(bill.netCents, false);
   const expectedVat = bill.vatMode === 'standard' ? taxAmount(bill.netCents, bill.vatRate) : 0;
   assert(bill.vatCents === expectedVat && bill.totalCents === bill.netCents + expectedVat, 'Leverantörsfakturans belopp stämmer inte med underlaget.');
+  if (bill.details !== undefined) validateBillDetails(bill.details);
+  if (bill.attachments !== undefined) validateBillAttachments(bill.attachments);
+  validateBillAttachmentAdditions(bill);
   assert(Array.isArray(bill.payments), 'Leverantörsfakturans betalningshistorik saknas.');
   if (bill.status !== 'draft') {
     assert(bill.bookingSnapshot === billSnapshot(bill), 'Bokförda fakturauppgifter får inte ändras. Skapa en kredit i stället.');
@@ -45,11 +51,6 @@ function findBill(state, id) {
     assert(entry?.sourceType === 'bill' && entry.sourceId === bill.id, 'Fakturans bokförda verifikation saknas.');
   }
   return bill;
-}
-
-function billSnapshot(bill) {
-  return JSON.stringify([bill.supplier, bill.number, bill.date, bill.dueDate, bill.netCents, bill.vatRate, bill.vatMode,
-    bill.account, bill.vatCents, bill.totalCents, bill.reverseConfirmed, bill.projectId ?? null]);
 }
 
 function assertManagedExpenseCoverage(draft, forceTools = false) {
@@ -95,14 +96,13 @@ export function getBillOutstanding(bill) {
   return bill.totalCents - paid;
 }
 
-export function createBill(state, payload) {
-  return transact(state, draft => {
+function billValues(draft, payload, excludeId = null) {
     assert(payload && typeof payload === 'object', 'Fakturauppgifterna saknas.');
     const supplier = trim(payload.supplier, 'leverantör');
     const number = trim(payload.number, 'leverantörens fakturanummer', 100);
     const date = checkedDate(draft, payload.date);
     assert(validDate(payload.dueDate) && payload.dueDate >= date, 'Förfallodagen får inte ligga före fakturadagen.');
-    assert(!draft.bills.some(item => item.supplier.toLocaleLowerCase('sv') === supplier.toLocaleLowerCase('sv') && item.number.toLocaleLowerCase('sv') === number.toLocaleLowerCase('sv')),
+    assert(!draft.bills.some(item => item.id !== excludeId && item.supplier.toLocaleLowerCase('sv') === supplier.toLocaleLowerCase('sv') && item.number.toLocaleLowerCase('sv') === number.toLocaleLowerCase('sv')),
       'Leverantörens fakturanummer finns redan. Underlaget får inte registreras två gånger.');
     const vatMode = payload.vatMode ?? 'standard';
     assert(BILL_MODES.has(vatMode), 'Välj en momstyp som stöds av demon.');
@@ -115,11 +115,61 @@ export function createBill(state, payload) {
     const netCents = cents(payload.netCents, false);
     const vatCents = vatMode === 'standard' ? taxAmount(netCents, vatRate) : 0;
     const totalCents = cents(netCents + vatCents, false);
-    const bill = { id: nextId(draft, 'bill'), supplier, number, date, dueDate: payload.dueDate,
+    return { supplier, number, date, dueDate: payload.dueDate,
       netCents, vatRate, vatMode, account, vatCents, totalCents, reverseConfirmed: payload.reverseConfirmed === true,
-      status: 'draft', payments: [], ...(payload.projectId ? { projectId: payload.projectId } : {}) };
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
+      ...(payload.details === undefined ? {} : { details: normalizeBillDetails(payload.details) }),
+      ...(payload.attachments === undefined ? {} : { attachments: normalizeBillAttachments(payload.attachments) }) };
+}
+
+export function createBill(state, payload) {
+  return transact(state, draft => {
+    const bill = { id: nextId(draft, 'bill'), ...billValues(draft, payload), status: 'draft', payments: [] };
     draft.bills.push(bill);
-    addActivity(draft, `Leverantörsfaktura ${number} skapad som utkast`, bill.id);
+    addActivity(draft, `Leverantörsfaktura ${bill.number} skapad som utkast`, bill.id);
+  });
+}
+
+export function updateBillDraft(state, id, payload) {
+  return transact(state, draft => {
+    const bill = findBill(draft, id);
+    assert(bill.status === 'draft', 'Endast ett leverantörsfakturautkast kan redigeras.');
+    assert(payload && typeof payload === 'object' && !Array.isArray(payload), 'Fakturauppgifterna saknas.');
+    const values = billValues(draft, { ...bill, ...payload }, id);
+    delete bill.projectId;
+    Object.assign(bill, values);
+    addActivity(draft, `Leverantörsfaktura ${bill.number} uppdaterad som utkast`, bill.id);
+  });
+}
+
+export function getBillBookingRows(bill) {
+  assert(bill && BILL_MODES.has(bill.vatMode) && VAT_RATES.has(bill.vatRate), 'Leverantörsfakturans momstyp är ogiltig.');
+  assert(bill.vatMode === 'reverse-construction' ? bill.account === '4425' && bill.vatRate === 25 : EXPENSE_ACCOUNTS.has(bill.account), 'Kostnadskontot hör inte till fakturans inköpstyp.');
+  assert(bill.vatMode !== 'no-vat' || bill.vatRate === 0, 'Ett inköp utan moms ska ha noll i momssats.');
+  cents(bill.netCents, false);
+  const expectedVat = bill.vatMode === 'standard' ? taxAmount(bill.netCents, bill.vatRate) : 0;
+  cents(bill.netCents + expectedVat, false);
+  assert(bill.vatCents === expectedVat && bill.totalCents === bill.netCents + expectedVat, 'Leverantörsfakturans belopp stämmer inte med underlaget.');
+  const rows = [debit(bill.account, bill.netCents)];
+  if (expectedVat) rows.push(debit('2641', expectedVat));
+  if (bill.vatMode === 'reverse-construction') {
+    const reverseVat = taxAmount(bill.netCents, 25);
+    if (reverseVat) rows.push(debit('2647', reverseVat), credit('2614', reverseVat));
+  }
+  rows.push(credit('2440', bill.totalCents));
+  return rows;
+}
+
+export function addBillAttachments(state, id, attachments) {
+  return transact(state, draft => {
+    const bill = findBill(draft, id);
+    assert(['booked', 'credited'].includes(bill.status), 'Spara underlag på fakturautkastet innan bokföring.');
+    const additions = normalizeBillAttachments(attachments);
+    assert(additions.length > 0, 'Välj minst ett underlag att komplettera fakturan med.');
+    normalizeBillAttachments([...getBillAttachments(bill), ...additions]);
+    bill.additionalAttachments = [...(bill.additionalAttachments ?? []), ...additions];
+    bill.additionalAttachmentsSnapshot = JSON.stringify(bill.additionalAttachments);
+    addActivity(draft, `${additions.length} kompletterande underlag kopplade till leverantörsfaktura ${bill.number}`, bill.id);
   });
 }
 
@@ -128,14 +178,8 @@ export function bookBill(state, id) {
     const bill = findBill(draft, id);
     assert(bill.status === 'draft', 'Leverantörsfakturan är redan bokförd.');
     checkedDate(draft, bill.date);
-    const rows = [debit(bill.account, bill.netCents)];
-    if (bill.vatMode === 'standard' && bill.vatCents) rows.push(debit('2641', bill.vatCents));
-    if (bill.vatMode === 'reverse-construction') {
-      assert(bill.reverseConfirmed, 'Bekräfta att villkoren för omvänd byggmoms är uppfyllda innan du bokför.');
-      const reverseVat = taxAmount(bill.netCents, 25);
-      rows.push(debit('2647', reverseVat), credit('2614', reverseVat));
-    }
-    rows.push(credit('2440', bill.totalCents));
+    if (bill.vatMode === 'reverse-construction') assert(bill.reverseConfirmed, 'Bekräfta att villkoren för omvänd byggmoms är uppfyllda innan du bokför.');
+    const rows = getBillBookingRows(bill);
     const entry = appendEntry(draft, { date: bill.date, description: `${bill.supplier} · ${bill.number}`,
       sourceType: 'bill', sourceId: bill.id, rows });
     bill.status = 'booked';

@@ -4074,3 +4074,36 @@ Status: Implementerad och lokalt verifierad demofunktion 2026-10-23; separat pub
 - Lokalt verifierat: produktionsbygge, 200 modell-/lagringstester, ett
   HTTP-integrationstest och 30 browserfall inklusive reset från fakturasida.
   Nya skärmbilder visar egna fakturasidor på dator och mobil.
+
+
+ÄL 164 – Leverantörsarbetsyta och lokal underlagsinkorg
+Status: Implementerad och lokalt verifierad demofunktion 2026-10-23; faktisk deploystatus kontrolleras separat.
+- Leverantörsfakturor öppnas på egna sidor. Nytt och redigerat utkast har
+  fakturauppgifter, konteringsförslag och underlag på samma arbetsyta.
+  Bokförd faktura visar kopplad verifikation, betalningar och historik.
+- Lokal inkorg i IndexedDB tar emot PDF/JPEG/PNG/WebP via filväljare,
+  drag och släpp eller kameraval på stödd mobil. Filsignatur, storlek och
+  SHA-256 kontrolleras; identiskt filinnehåll återanvänds som samma underlag.
+- Underlag kan skapa ett manuellt registrerat fakturautkast eller kopplas
+  till en befintlig faktura, exempelvis som påminnelse eller komplettering.
+  Komplettering av bokförd faktura skapar ingen ny skuld eller verifikation
+  och ändrar inte ursprungliga bokförda uppgifter eller bilagesnapshot.
+- Referenser, leverantörskontakt och betalningsuppgifter kan sparas på
+  fakturan. OCR/betalningsreferens och bankuppgifter är dokumentuppgifter,
+  inte automatiskt verifierade betalningsinstruktioner. En kostnadsrad per
+  faktura, samma stödda momstyper och konton som i tidigare inköpsflöde.
+- Utkast kan redigeras och kopieras. Kopia får tomt fakturanummer och tar
+  inte med originalets bilagor eller betalningar. Bokförda original bevaras.
+- Reset återställer bokföring och dokumentkopplingar men BEHÅLLER egna
+  uppladdade filer i inkorgen. Filerna är browserlokala; ingen e-postserver,
+  OCR-/AI-tolkning, fleranvändarattest eller produktionsarkiv ingår.
+- Verifierat: produktionsbygge, 211 modell-/lagringstester, ett HTTP-test
+  och 49 browserfall mot den byggda servern. Prov av sena bilagekopplingar
+  efter navigering och reset ingår. Fysiska telefonkameror är inte provade.
+- Skärmbilder, fiktivt uppladdningsunderlag och prioriterad genomgång av
+  kommande verifikations-, projekt-, löne-, bank- och bokslutsarbetsytor finns
+  under bokforing/. Befintlig On Commit-inställning för Render behålls.
+- Förslag för verifikationer, projekt/offert, lön, bank, rapporter/bokslut,
+  inventarier och register finns i bokforing/leverantorsfakturor-och-arbetsytor.md.
+  Render-dokumentationen skiljer nu repots Blueprint från faktisk Dashboard-
+  inställning och kontrollerar Events vid automatisk eller manuell deploy.

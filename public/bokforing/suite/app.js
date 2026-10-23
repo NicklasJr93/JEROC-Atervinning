@@ -5,6 +5,7 @@ import * as Finance from './finance.js';
 import * as Periodization from './periodization.js';
 import * as Inventory from './inventory.js';
 import { createSuiteStorage } from './storage.js';
+import { createPurchaseWorkspace } from './purchase-workspace.js';
 import { renderView, escapeHtml as e, icon, ghost, nav, numberInput } from './views.js';
 import { createInvoiceEditorDraft, renderInvoiceEditor, readInvoiceEditor, renderInvoiceSummary,
  renderInvoiceDetail, renderInvoiceList, invoiceDocumentHTML, createInvoiceLineHTML,
@@ -19,6 +20,7 @@ let invoiceDraft=null, invoiceDraftRoute='', invoiceDirty=false, acceptedHash=lo
 const ui={view:'overview',search:'',invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null,bankAccount:'1930',vatFrom:'2026-10-01',vatTo:'2026-12-31',assistantOpen:false};
 const validViews=new Set(nav.map(x=>x[0]));
 const fmt=numberInput;
+const purchaseWorkspace=createPurchaseWorkspace({getState:()=>state,readStoredState:()=>{const latest=store.load();if(latest.error)throw latest.error;return latest.state;},write,toast,canWrite:()=>canWrite(),navigate,openDialog,closeDialog:()=>dialog.close(),rerender:render});
 const selected=(id,list)=>list.find(x=>x.id===id);
 const option=(value,label,isSelected=false)=>`<option value="${e(value)}" ${isSelected?'selected':''}>${e(label)}</option>`;
 const select=(label,name,options,value='',required=true)=>`<label>${e(label)}<select name="${e(name)}" ${required?'required':''}>${options.map(x=>option(x[0],x[1],x[0]===value)).join('')}</select></label>`;
@@ -49,7 +51,7 @@ function updateChrome(){
  document.querySelector('#save-status').textContent=busy?'Sparar…':stale||snapshot.error?'Sparandet är pausat':'Fiktiva uppgifter · sparas i din webbläsare';
  document.querySelector('#suite-main').setAttribute('aria-busy',String(busy));
  document.querySelector('#suite-assistant').hidden=!ui.assistantOpen;
- document.querySelectorAll('button[data-action]').forEach(el=>{const exempt=['toggle-assistant','close-dialog','reload','reset','print-invoice','export-ledger','export-reports','export-review','export-agi','show-entry','show-invoice','invoice-back','add-line','remove-line','add-entry-row','remove-entry-row'];if(!exempt.includes(el.dataset.action))el.disabled=!canWrite();});
+ document.querySelectorAll('button[data-action]').forEach(el=>{const exempt=['toggle-assistant','close-dialog','reload','reset','print-invoice','export-ledger','export-reports','export-review','export-agi','show-entry','show-invoice','invoice-back','purchase-back','show-bill','open-document-inbox','select-document','select-inbox-document','download-document','document-zoom-in','document-zoom-out','document-rotate','document-reset','reload-documents','add-line','remove-line','add-entry-row','remove-entry-row'];if(!exempt.includes(el.dataset.action))el.disabled=!canWrite();});
  document.querySelectorAll('#suite-main button[type="submit"],#suite-dialog button[type="submit"]').forEach(el=>{el.disabled=el.dataset.blocked==='true'||(el.closest('form')?.dataset.form==='reset'?!canReset():!canWrite());});
  document.querySelector('[data-action="reset"]').disabled=!canReset();
 }
@@ -59,7 +61,8 @@ function navigate(hash){if(location.hash===hash)route();else location.hash=hash;
 function render(){
  try{
   let html;
-  if(ui.view!=='sales')html=renderView(state,ui);
+  if(ui.view==='purchases')html=purchaseWorkspace.render(ui);
+  else if(ui.view!=='sales')html=renderView(state,ui);
   else if(ui.invoiceMode==='list')html=renderInvoiceList(state,ui.search);
   else if(ui.invoiceMode==='detail'){
    const invoice=selected(ui.invoiceId,state.invoices);
@@ -75,25 +78,32 @@ function render(){
    html=renderInvoiceEditor(state,invoiceDraft,{isNew:ui.invoiceMode==='new',busy});
   }
   document.querySelector('#suite-main').innerHTML=html;
- }catch(err){document.querySelector('#suite-main').innerHTML=`<div class="panel error-panel"><h1>Vyn kunde inte öppnas</h1><p>${e(errorMessage(err))}</p><a class="button secondary" href="#sales">Till fakturalistan</a></div>`;}
+ }catch(err){document.querySelector('#suite-main').innerHTML=`<div class="panel error-panel"><h1>Vyn kunde inte öppnas</h1><p>${e(errorMessage(err))}</p><a class="button secondary" href="${ui.view==='purchases'?'#purchases':'#sales'}">Till fakturalistan</a></div>`;}
  const editStatus=document.querySelector('#invoice-editor-status');if(editStatus)editStatus.textContent=invoiceDirty?'Osparade ändringar':'Utkast';
  updateChrome();
+ if(ui.view==='purchases')purchaseWorkspace.mount().catch(showError);
 }
 function route(){
  const target=location.hash||'#overview';
  const changed=target!==acceptedHash;
- if(invoiceDirty&&target!==acceptedHash){
+ if((invoiceDirty||purchaseWorkspace.isDirty())&&target!==acceptedHash){
   if(!window.confirm('Du har osparade ändringar på fakturan. Vill du lämna sidan och kasta ändringarna?')){
    history.replaceState(null,'',acceptedHash);return;
   }
   invoiceDirty=false;
  }
- if(target!==acceptedHash){invoiceDraft=null;invoiceDraftRoute='';}
+ if(target!==acceptedHash){invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard();}
  acceptedHash=target;
  let parts;try{parts=target.slice(1).split('/').map(decodeURIComponent);}catch{parts=['sales'];}
  ui.view=validViews.has(parts[0])?parts[0]:'overview';
  ui.invoiceMode=!parts[1]?'list':parts[1]==='new'?'new':parts[2]==='edit'?'edit':'detail';
  if(ui.view==='sales')ui.invoiceId=['list','new'].includes(ui.invoiceMode)?null:parts[1];
+ if(ui.view==='purchases'){
+  ui.purchaseMode=!parts[1]?'list':['new','inbox','copy'].includes(parts[1])?parts[1]:parts[2]==='edit'?'edit':'detail';
+  ui.billId=['detail','edit'].includes(ui.purchaseMode)?parts[1]:null;
+  ui.purchaseSourceId=['new','copy'].includes(ui.purchaseMode)?parts[2]||null:null;
+  ui.purchaseRouteKey=target;
+ }
  document.querySelector('#suite-sidebar').classList.remove('open');document.querySelector('#suite-backdrop').hidden=true;
  document.querySelector('#suite-menu').setAttribute('aria-expanded','false');render();
  if(changed){window.scrollTo(0,0);document.querySelector('#suite-main').focus({preventScroll:true});}
@@ -120,7 +130,7 @@ function openDialog(title,formName,content,submit='Spara',extra=''){
  body.innerHTML=`<form data-form="${e(formName)}" ${extra}><div id="dialog-error" class="form-error" role="alert" hidden></div>${content}<div class="dialog-actions"><button type="button" class="button secondary" data-action="close-dialog">Avbryt</button><button type="submit" class="button primary">${e(submit)}</button></div></form>`;
  dialog.showModal();updateChrome();setTimeout(()=>body.querySelector('input:not([type="hidden"]),select,textarea')?.focus(),20);
 }
-function showError(err){const box=document.querySelector('#dialog-error'),pageBox=document.querySelector('#invoice-page-error');if(dialog.open&&box){box.textContent=errorMessage(err);box.hidden=false;}else if(pageBox&&invoiceEditorOpen()){pageBox.textContent=errorMessage(err);pageBox.hidden=false;pageBox.scrollIntoView({block:'nearest'});}else toast(errorMessage(err),true);}
+function showError(err){const box=document.querySelector('#dialog-error'),pageBox=document.querySelector('#invoice-page-error')||document.querySelector('#purchase-page-error');if(dialog.open&&box){box.textContent=errorMessage(err);box.hidden=false;}else if(pageBox&&(invoiceEditorOpen()||purchaseWorkspace.isEditor())){pageBox.textContent=errorMessage(err);pageBox.hidden=false;pageBox.scrollIntoView({block:'nearest'});}else toast(errorMessage(err),true);}
 async function write(transition,message,{close=true,after}={}){
  if(!canWrite()){showError(new Error(stale?'Läs in senaste demodata innan du fortsätter.':snapshot.error?.message||'Sparandet är pausat.'));return false;}
  busy=true;updateChrome();
@@ -128,7 +138,7 @@ async function write(transition,message,{close=true,after}={}){
  catch(err){if(err.code){snapshot={...snapshot,error:err};if(err.code==='STALE_STATE')stale=true;}showError(err);return false;}
  finally{busy=false;updateChrome();}
 }
-function reload(){snapshot=store.load();state=snapshot.state;stale=false;invoiceDirty=false;invoiceDraft=null;invoiceDraftRoute='';dialog.close();render();toast(snapshot.error?errorMessage(snapshot.error):'Senaste demodata är inlästa. Osparade ändringar har återställts.',!!snapshot.error);}
+function reload(){snapshot=store.load();state=snapshot.state;stale=false;invoiceDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);dialog.close();render();toast(snapshot.error?errorMessage(snapshot.error):'Senaste demodata är inlästa. Osparade ändringar har återställts.',!!snapshot.error);}
 function download(text,filename,type='text/csv;charset=utf-8'){const blob=new Blob([type.startsWith('text/csv')?'\uFEFF':'',text],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function csv(rows){return rows.map(row=>row.map(v=>{let s=String(v??'');if(/^[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';}).join(';')).join('\r\n');}
 function exportLedger(){download(csv([['Verifikation','Datum','Beskrivning','Konto','Debet','Kredit','Källa','Rättar'],...state.entries.flatMap(x=>x.rows.map(r=>[x.number,x.date,x.description,r.account,fmt(r.debitCents),fmt(r.creditCents),x.sourceType,x.correctsEntryId||'']))]),'huvudbok-demo.csv');}
@@ -142,6 +152,7 @@ function entryRow(row={account:'6570',side:'debit',amountCents:0}){return `<div 
 function confirmAction(action,id,title,text,{date=false,reason=false,dateValue=TODAY,checkbox='Jag har granskat uppgifterna',submit='Bekräfta'}={}){openDialog(title,'confirm-action',`<input type="hidden" name="action" value="${e(action)}"><input type="hidden" name="id" value="${e(id)}"><p>${e(text)}</p>${date?dateField('date','Datum',dateValue):''}${reason?field('Orsak','reason','','text','required maxlength="500"'):''}${check(checkbox,'reviewed',false,'required')}`,submit);}
 
 async function action(name,id,el){
+ if(purchaseWorkspace.handlesAction(name)){await purchaseWorkspace.action(name,id,el);return;}
  switch(name){
  case 'close-dialog':dialog.close();return;
  case 'reload':reload();return;
@@ -181,8 +192,6 @@ async function action(name,id,el){
  case 'remind-invoice':await write(s=>Sales.recordReminder(s,id),'Påminnelse noterad i historiken. Inget meddelande skickat.');return;
  case 'request-rot':openDialog('Förbered ROT-begäran','request-rot',`<input type="hidden" name="id" value="${e(id)}">${dateField('date','Datum för demobegäran')}${check('Arbetet är utfört','workCompletedConfirmed',false,'required')}${check('Kundens betalning är elektronisk och spårbar','electronicPaymentConfirmed',false,'required')}${help('Hela kundens del måste vara betald först. Begäran sparas som demounderlag och skickas inte till Skatteverket.')}`,'Förbered begäran');return;
  case 'decide-rot':{const claim=state.rotClaims.find(c=>c.invoiceId===id);openDialog('Registrera demobeslut om ROT','decide-rot',`<input type="hidden" name="id" value="${e(id)}">${dateField('date','Beslutsdatum')}${moneyField('Beviljat belopp i exemplet','approvedCents',claim?.requestedCents||0)}${field('Motivering','reason','','text','maxlength="500"')}${help('Ange 0 för avslag. En ej beviljad del blir återstående skuld för kunden. Det är inget beslut från Skatteverket.')}`,'Spara demobeslut');return;}
- case 'new-bill':openDialog('Nytt inköp eller utlägg','bill',`<div class="form-grid">${field('Leverantör / säljare','supplier','','text','required maxlength="200"')}${field('Faktura- / kvittonummer','number','','text','required maxlength="100"')}${dateField('date','Fakturadatum')}${dateField('dueDate','Förfallodag','2026-11-22')}${moneyField('Kostnad exkl. moms','netCents',0)}${select('Moms','vatRate',[[25,'25 %'],[12,'12 %'],[6,'6 %'],[0,'0 %']].map(x=>[String(x[0]),x[1]]),'25')}${select('Momstyp','vatMode',[['standard','Vanlig moms'],['no-vat','Ingen moms'],['reverse-construction','Omvänd byggmoms']])}${select('Kostnadskonto','account',ACCOUNTS.filter(a=>['4010','5010','5410','5460','6110','6540','6570','6991'].includes(a.number)).map(a=>[a.number,a.number+' · '+a.name]),'4010')}${select('Projekt','projectId',projectOptions(),'',false)}</div>${check('Förutsättningarna för omvänd byggmoms är granskade','reverseConfirmed')}${help('Vid omvänd byggmoms används inköpskontot 4425 automatiskt. Ett kontant utlägg kan sedan registreras som en betald skuld i demon.')}`,'Spara inköpsutkast');return;
- case 'book-bill':{const x=selected(id,state.bills);confirmAction(name,id,'Granska och bokför inköp',`${x.supplier}, ${x.number}: ${money(x.totalCents)}. Inköp och leverantörsskuld bokförs tillsammans.`,{submit:'Bokför inköp'});return;}
  case 'bill-payment':{const x=selected(id,state.bills);openDialog('Registrera leverantörsbetalning','bill-payment',`<input type="hidden" name="id" value="${e(id)}">${bankEventField('out')}${dateField()}${moneyField('Betalt belopp','amountCents',Operations.getBillOutstanding(x))}${help('Betalningen bokförs mellan leverantörsskuld och företagskonto. Ingen riktig betalning skickas.')}`,'Bokför betalning');return;}
  case 'credit-bill':confirmAction(name,id,'Kreditera inköpet','Den obetalda leverantörsfakturan får en länkad motbokning. Originalet bevaras.',{date:true,reason:true,submit:'Bokför kredit'});return;
  case 'new-bank':openDialog('Ny fiktiv kontohändelse','bank',`${dateField()}${field('Beskrivning','description','','text','required maxlength="300"')}<div class="form-grid">${select('Konto','account',[['1930','Företagskonto'],['1910','Kassa'],['1630','Skattekonto']],ui.bankAccount)}${select('Riktning','direction',[['in','Pengar in'],['out','Pengar ut']])}${moneyField('Belopp','amountCents',0)}</div>`);return;
@@ -212,12 +221,13 @@ async function action(name,id,el){
  case 'export-ledger':exportLedger();return;
  case 'export-reports':exportReports();return;
  case 'export-review':exportReview();return;
- case 'reset':openDialog('Återställ den här demon','reset',`<p>Alla egna ändringar i den nya ekonomidemon ersätts med fiktiva startuppgifter. Den tidigare inköpsdemons data påverkas inte.</p>${check('Jag vill återställa de fiktiva demouppgifterna','confirmed',false,'required')}`,'Återställ demo');return;
+ case 'reset':openDialog('Återställ den här demon','reset',`<p>Alla egna ändringar i den nya ekonomidemon ersätts med fiktiva startuppgifter. Uppladdade filer behålls i den lokala underlagsinkorgen. Den tidigare inköpsdemons data påverkas inte.</p>${check('Jag vill återställa de fiktiva demouppgifterna','confirmed',false,'required')}`,'Återställ demo');return;
  default:throw new Error('Åtgärden finns inte i denna vy.');
  }
 }
 
 async function submit(form){
+ if(purchaseWorkspace.handlesForm(form.dataset.form)){await purchaseWorkspace.submit(form);return;}
  const d=new FormData(form), get=name=>String(d.get(name)??''), amount=name=>toCents(get(name)), checked=name=>d.get(name)!==null,id=get('id');
  let transition,message='Uppgifterna är sparade i demon.',after;
  switch(form.dataset.form){
@@ -235,7 +245,6 @@ async function submit(form){
  case 'invoice-payment':transition=s=>Sales.receivePayment(s,id,{date:get('date'),amountCents:amount('amountCents'),payer:get('payer'),reference:get('reference'),bankEventId:get('bankEventId')||undefined});message='Fakturabetalningen är bokförd.';break;
  case 'request-rot':transition=s=>Sales.requestRot(s,id,{date:get('date'),workCompletedConfirmed:checked('workCompletedConfirmed'),electronicPaymentConfirmed:checked('electronicPaymentConfirmed')});message='ROT-begäran är förberedd som demounderlag.';break;
  case 'decide-rot':transition=s=>Sales.decideRot(s,id,{date:get('date'),approvedCents:amount('approvedCents'),reason:get('reason')});message='Demobeslutet är registrerat.';break;
- case 'bill':transition=s=>Operations.createBill(s,{supplier:get('supplier'),number:get('number'),date:get('date'),dueDate:get('dueDate'),netCents:amount('netCents'),vatRate:Number(get('vatRate')),vatMode:get('vatMode'),account:get('account'),reverseConfirmed:checked('reverseConfirmed'),projectId:get('projectId')||undefined});after=s=>{ui.billId=s.bills.at(-1).id;location.hash='purchases';};message='Inköpsutkastet är sparat.';break;
  case 'bill-payment':transition=s=>Operations.payBill(s,id,{date:get('date'),amountCents:amount('amountCents'),bankEventId:get('bankEventId')||undefined});message='Leverantörsbetalningen är bokförd.';break;
  case 'bank':transition=s=>Operations.createBankEvent(s,{date:get('date'),description:get('description'),amountCents:amount('amountCents')*(get('direction')==='out'?-1:1),account:get('account')});after=s=>{ui.bankAccount=get('account');ui.bankId=s.bankTransactions.at(-1).id;};break;
  case 'bank-match':transition=s=>Operations.matchBankEvent(s,id,get('entryId'));message='Kontohändelsen är matchad.';break;
@@ -258,7 +267,7 @@ async function submit(form){
   const name=get('action'),payload={date:get('date'),reason:get('reason')};
   const actions={
    'issue-invoice':s=>Sales.issueInvoice(s,id),'credit-invoice':s=>Sales.creditInvoice(s,id,payload),
-   'book-bill':s=>Operations.bookBill(s,id),'credit-bill':s=>Operations.creditBill(s,id,payload),
+   'credit-bill':s=>Operations.creditBill(s,id,payload),
    'correct-entry':s=>Operations.correctEntry(s,id,payload),'post-payroll':s=>Finance.postPayroll(s,id),'pay-payroll':s=>Finance.payPayroll(s,id,payload),
    'settle-payroll-taxes':s=>Finance.settlePayrollTaxes(s,id,payload),
    'depreciate-asset':s=>Finance.depreciateAsset(s,id,payload),'settle-vat':s=>Finance.settleVat(s,id,payload),
@@ -267,7 +276,7 @@ async function submit(form){
  }
  case 'reset':{
   if(busy||stale)return;busy=true;updateChrome();
-  try{snapshot=await store.reset(snapshot);state=snapshot.state;stale=false;invoiceDirty=false;invoiceDraft=null;invoiceDraftRoute='';Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});dialog.close();if(ui.view==='sales')navigate('#sales');else render();toast('Demon är återställd till fiktiva startuppgifter.');}catch(err){if(err.code)snapshot={...snapshot,error:err};showError(err);}finally{busy=false;updateChrome();}return;
+  try{snapshot=await store.reset(snapshot);state=snapshot.state;stale=false;invoiceDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});dialog.close();if(ui.view==='sales')navigate('#sales');else if(ui.view==='purchases')navigate('#purchases');else render();toast('Demon är återställd till fiktiva startuppgifter. Uppladdade underlag finns kvar i inkorgen.');}catch(err){if(err.code)snapshot={...snapshot,error:err};showError(err);}finally{busy=false;updateChrome();}return;
  }
  default:throw new Error('Formuläret kan inte sparas.');
  }
@@ -291,20 +300,23 @@ function chat(question){const list=document.querySelector('#assistant-messages')
 
 document.addEventListener('click',event=>{
  const el=event.target.closest('button,a');
- if(!el){const row=event.target.closest('[data-invoice-row]');if(row)navigate(invoiceLocation(row.dataset.invoiceRow));return;}
+ if(!el){const row=event.target.closest('[data-invoice-row]'),billRow=event.target.closest('[data-purchase-row]');if(row)navigate(invoiceLocation(row.dataset.invoiceRow));else if(billRow)navigate('#purchases/'+encodeURIComponent(billRow.dataset.purchaseRow));return;}
  if(el.dataset.invoiceSection){event.preventDefault();const section=document.getElementById(el.dataset.invoiceSection);if(section){if(section.tagName==='DETAILS')section.open=true;section.scrollIntoView({behavior:'smooth',block:'start'});}return;}
  if(el.classList.contains('skip-link')){event.preventDefault();document.querySelector('#suite-main').focus();return;}
  const selectMap={selectInvoice:'invoiceId',selectBill:'billId',selectEntry:'entryId',selectProject:'projectId',selectBank:'bankId',selectPayroll:'payrollId',selectAsset:'assetId'};
- for(const [key,target] of Object.entries(selectMap)){if(el.dataset[key]){if(key==='selectInvoice'){event.preventDefault();navigate(invoiceLocation(el.dataset[key]));return;}if(el.tagName!=='A')event.preventDefault();ui[target]=el.dataset[key];render();return;}}
+ for(const [key,target] of Object.entries(selectMap)){if(el.dataset[key]){if(key==='selectInvoice'){event.preventDefault();navigate(invoiceLocation(el.dataset[key]));return;}if(key==='selectBill'){event.preventDefault();navigate('#purchases/'+encodeURIComponent(el.dataset[key]));return;}if(el.tagName!=='A')event.preventDefault();ui[target]=el.dataset[key];render();return;}}
  if(el.dataset.bankAccount){ui.bankAccount=el.dataset.bankAccount;ui.bankId=null;render();return;}
  if(el.dataset.question){chat(el.dataset.question);return;}
  if(el.dataset.action){event.preventDefault();Promise.resolve(action(el.dataset.action,el.dataset.id||'',el)).catch(showError);}
 });
 document.addEventListener('submit',event=>{const form=event.target;if(form.id==='assistant-form'){event.preventDefault();const input=document.querySelector('#assistant-input');chat(input.value);input.value='';return;}if(form.dataset.form){event.preventDefault();submit(form).catch(showError);}});
-document.addEventListener('input',event=>{if(event.target.closest('#invoice-page-form'))refreshInvoiceSummary();});
+document.addEventListener('input',event=>{if(event.target.closest('#invoice-page-form'))refreshInvoiceSummary();purchaseWorkspace.input(event.target);});
+document.addEventListener('dragover',event=>{const zone=event.target.closest('[data-document-drop][data-upload-enabled="true"]');if(zone){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='copy';}});
+document.addEventListener('drop',event=>{const zone=event.target.closest('[data-document-drop][data-upload-enabled="true"]');if(!zone)return;event.preventDefault();const input=zone.querySelector('[data-document-upload][data-source="file"]');if(input&&event.dataTransfer?.files.length){input.files=event.dataTransfer.files;purchaseWorkspace.change(input).catch(showError);}});
 document.addEventListener('change',event=>{
  try{
  const target=event.target,form=target.closest('#invoice-page-form');
+ if(purchaseWorkspace.handlesChange(target)){purchaseWorkspace.change(target).catch(showError);return;}
  if(form){
   if(target.name==='customerId')applyInvoiceCustomer(form,state,target.value);
   if(target.name==='paymentTermsDays'||target.name==='date')invoiceDueDate(form);
@@ -325,13 +337,15 @@ document.addEventListener('change',event=>{
 document.querySelector('#suite-search').addEventListener('input',event=>{
  ui.search=event.target.value;
  if(invoiceEditorOpen()){navigate('#sales');return;}
- if(ui.search&&!['sales','ledger'].includes(ui.view)){navigate(/^A\d/i.test(ui.search)?'#ledger':'#sales');return;}
+ if(purchaseWorkspace.isEditor()){navigate('#purchases');return;}
+ if(ui.search&&ui.view==='purchases'&&ui.purchaseMode!=='list'){navigate('#purchases');return;}
+ if(ui.search&&!['sales','ledger','purchases'].includes(ui.view)){navigate(/^A\d/i.test(ui.search)?'#ledger':'#sales');return;}
  render();
 });
 document.querySelector('#suite-menu').addEventListener('click',()=>{document.querySelector('#suite-sidebar').classList.add('open');document.querySelector('#suite-backdrop').hidden=false;document.querySelector('#suite-menu').setAttribute('aria-expanded','true');});
 document.querySelector('#suite-backdrop').addEventListener('click',()=>{document.querySelector('#suite-sidebar').classList.remove('open');document.querySelector('#suite-backdrop').hidden=true;document.querySelector('#suite-menu').setAttribute('aria-expanded','false');});
 window.addEventListener('hashchange',route);
-window.addEventListener('beforeunload',event=>{if(invoiceDirty){event.preventDefault();event.returnValue='';}});
+window.addEventListener('beforeunload',event=>{if(invoiceDirty||purchaseWorkspace.isDirty()){event.preventDefault();event.returnValue='';}});
 window.addEventListener('storage',event=>{if(event.key===STORE_KEY||event.key===null){stale=true;updateChrome();}});
 dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});
 chat();route();

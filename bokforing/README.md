@@ -4,7 +4,7 @@ Här samlas designförslag för ett **fristående bokföringsprogram med egen we
 
 **Nytt: [Tio mockuper för hela ekonomiarbetet i Åkes Hantverk AB](helhet-mockups/README.md)** – företagsstart, offert och faktura, inköp, betalningar, lön, inventarier, moms och bokslut i en sammanhängande designserie. Bilderna visar planerad funktionalitet; de första tio stilförslagen finns kvar nedan.
 
-**Status 2026-10-23:** en utökad ekonomidemo är kodad i `public/bokforing/suite/`. Faktureringen har egna sidor för lista, nytt utkast, redigering och visning. Arbetsflödena använder en gemensam verifikationsbok och fiktiva uppgifter för Åkes Hantverk AB. Den tidigare inköpsdemon och båda serierna med bildmockuper bevaras. GitHub-version och publicering på app-domänen är separata steg; en push publicerar inte automatiskt på Render.
+**Status 2026-10-23:** en utökad ekonomidemo är kodad i `public/bokforing/suite/`. Kund- och leverantörsfakturor har egna sidor för lista, nytt utkast, redigering och visning. Leverantörsflödet har även en lokal inkorg för PDF och bilder; slutproven för denna etapp återstår. Arbetsflödena använder en gemensam verifikationsbok och fiktiva uppgifter för Åkes Hantverk AB. Den tidigare inköpsdemon och båda serierna med bildmockuper bevaras. En GitHub-push måste följas upp mot faktisk deploystatus: Render kan vara inställt på automatisk deploy, men en push bevisar inte att versionen är live.
 
 ## Klickbar demo
 
@@ -16,7 +16,7 @@ Efter publicering öppnas den utökade versionen på **https://app.scrapplanner.
 | Projekt och offert | Kunder, projekt, tid/material, offert, registrerat kundgodkännande och fakturautkast från offert. |
 | Kundfakturor | Egna fakturasidor, kund-/leveransuppgifter, referenser, villkor, artikelnummer/enhet, rabatter, avgifter och pris inklusive/exklusive moms. Utfärdande med verifikation och fakturanummer, kopia till nytt utkast, utskrift/spara som PDF, delbetalningar, förberedda påminnelser och länkad helkredit av obetald faktura. |
 | ROT | Markerade arbetsrader efter rabatt, 2026-beräkning, uppgivet personutrymme, kundbetalning, demobegäran, demobeslut, delvis/helt avslag och separat skatteutbetalning. Material, resor, frakt och fakturaavgift ingår inte i underlaget. [Regler och avgränsning](rot-regler.md). |
-| Inköp | Leverantörsfakturor, kvitto-/utläggsexempel, vanlig moms, inköp utan moms och bekräftad omvänd byggmoms. Bokföring, delbetalning och helkredit av obetalda fakturor. |
+| Inköp | Egna leverantörsfakturasidor med underlagsvisare, lokal fil-/kamerainkorg, dokumentkoppling, kontakt-/betalningsreferenser och redigerbara utkast. Vanlig moms, inköp utan moms och bekräftad omvänd byggmoms, med en kostnadsrad per faktura. Bokföring, delbetalning och helkredit av obetalda fakturor. |
 | Bank, kassa och skatt | Fiktiva kontohändelser, matchning, betalning mot befintlig händelse, avgifter, kassa-/skatteöverföringar, lån och ränta. |
 | Bokföring | Gemensam huvudbok, manuella verifikationer inom stödda konton, balansering, bevarade original och länkade rättelser. Dokumentstyrda konton hanteras i sina egna flöden. |
 | Lön | Anställda, månads-/timlön, manuella frånvaro-, semester-, förmåns- och utläggsbelopp, lönebesked, bokföring, simulerad utbetalning och skatte-/avgiftsreglering. AGI exporteras som gransknings-CSV. |
@@ -35,6 +35,26 @@ Spara först ett utkast. Från fakturans sida kan du granska och utfärda, regis
 Artikelnummer, enhet, referenser och leveransuppgifter är dokumentuppgifter. Rabatter, avgifter och prisets momsgrund påverkar däremot beräkningen, moms, ROT-underlag och verifikation. Kostnadsställe och prislistnamn är märkning i denna version; de ger ingen automatisk dimensionsrapport eller prisuppslagning.
 
 Se [jämförelsen med de visade Fortnox-bilderna](fakturering-jamforelse.md) för skillnaden mellan vad som finns, vad som är avgränsat och vad som återstår. Exempelvis OCR, kontantfaktura, återkommande fakturor, flera valutor, RUT och kundfakturans intäktsperiodisering ingår inte ännu.
+
+### Leverantörsfakturor och inkomna underlag
+
+**Inköp → Inkomna underlag** öppnar en lokal inkorg. Välj **Ladda upp fil**, dra in filer eller använd **Ta foto** på en mobil som stöder kameravalet. PDF, JPEG, PNG och WebP stöds: högst 15 MB per fil, 10 filer åt gången, 100 MB totalt och 20 kopplade underlag per faktura. Identiska filinnehåll känns igen med SHA-256 även om filnamnet är ett annat.
+
+Från ett okopplat underlag kan du välja **Skapa fakturautkast** eller **Koppla till befintlig**. En påminnelse eller komplettering ska kopplas till den befintliga fakturan i stället för att registreras som en ny skuld. Nytt och redigerat utkast öppnas på egen sida, med originalunderlaget bredvid fakturauppgifter och konteringsförslag på större skärmar. Bilder kan zoomas och roteras i visningen; originalfilen ändras inte. PDF visas med webbläsarens PDF-stöd och kan laddas ned.
+
+Fyll uppgifterna manuellt och spara utkastet innan du granskar och bokför. Ingen OCR-/AI-tolkning eller e-postmottagning är ansluten. OCR/betalningsreferens, bankgiro, plusgiro och IBAN är sparade dokumentuppgifter; de validerar inte betalningsmottagaren och utlöser ingen betalning. Kostnadsställe är märkning, inte en färdig redovisningsdimension. Flera kostnadsrader, blandade momssatser, verklig attest och fler kreditfall återstår.
+
+Kopplade originalfiler kontrolleras vid sparande och bokföring. Efter bokföring kan fler underlag läggas till som kompletteringar med historik, utan att ursprungliga uppgifter, bilagor, verifikation eller skuld skrivs om. Utkast kan få underlag bortkopplade; filer som är kopplade till sparade fakturor kan inte tas bort genom inkorgen. En fakturakopia får varken det gamla fakturanumret, originalets underlag eller betalningar.
+
+Filerna ligger separat i IndexedDB-databasen `scrapplanner-bokforing-documents-v1`; fakturadata innehåller dokumentens metadata och kopplingar. **Återställ demo återställer bokföringen och tar bort kopplingarna, men behåller uppladdade filer i inkorgen.** Filerna kan därefter kopplas på nytt eller tas bort som okopplade underlag. Rensad browserdata kan ta bort dem. Detta är ingen serverarkivering eller garanti för långsiktigt bevarande.
+
+Se [leverantörsflödet och förslagen för övriga arbetsytor](leverantorsfakturor-och-arbetsytor.md). Verifikationer, projekt/offerter, lön, bank och bokslut är fortsatt prioriterade för nästa utbyggnad.
+
+Prova uppladdningen med [ett fiktivt fakturaunderlag](exempel/leverantorsfaktura-demo.png). Spara bilden och välj den i **Inkomna underlag**, skapa sedan ett utkast och ange fakturans uppgifter. Bilden är märkt som testunderlag och innebär ingen verklig betalningsbegäran.
+
+[![Leverantörsfaktura med kopplat original](preview/leverantorsfaktura-detalj.png)](preview/leverantorsfaktura-detalj.png)
+
+[Ny leverantörsfaktura](preview/leverantorsfaktura-ny.png) · [Mobilvy](preview/leverantorsfaktura-mobil.png) · [Underlagsinkorg](preview/underlagsinkorg.png)
 
 Skärmbilder från den körbara ekonomidemon:
 
@@ -60,7 +80,7 @@ Modellen kräver balanserade konteringar, giltiga datum och konton samt heltalsb
 
 Sparade uppgifter kontrolleras även mot fakturor, reskontra, betalningar, löner, inventarier, lager, periodisering och moms. Två uppdaterade flikar samordnas med Web Locks och lagringsrevision. En ändring visas som sparad först efter lyckad skrivning och återläsning. Vid konflikt eller sparfel visas en banner; läs in senaste innan du fortsätter. Ogiltiga tidigare data bevaras tills du uttryckligen väljer reset.
 
-Den utökade versionen använder nyckeln `scrapplanner-bokforing-suite-v2`. Den tidigare inköpsdemons nyckel `scrapplanner-bokforing-demo-v1` lämnas orörd. **Återställ demo** kräver bekräftelse och ersätter bara den nya versionens fiktiva data. Browserlagring och modellkontroller skyddar inte mot en person som ändrar data direkt i webbläsaren.
+Den utökade versionen använder nyckeln `scrapplanner-bokforing-suite-v2`. Den tidigare inköpsdemons nyckel `scrapplanner-bokforing-demo-v1` lämnas orörd. **Återställ demo** kräver bekräftelse och ersätter den nya versionens fiktiva bokföringsdata. Uppladdade filer i den separata dokumentdatabasen behålls, medan kopplingarna till fakturorna återställs. Browserlagring och modellkontroller skyddar inte mot en person som ändrar data direkt i webbläsaren.
 
 ### Den här versionens gränser
 
@@ -68,15 +88,15 @@ Detta är en sammanhängande testversion med stödda affärsfall, inte ett färd
 
 ROT stöder en person per faktura och kundbetalningar under 2026, med hela kunddelen betald före begäran. Faktisk rätt till avdrag och personens utrymme verifieras inte. Kredit av en redan betald faktura, återbetalning, vissa rättelser och ytterligare moms-/lönefall kräver fortsatt utveckling. Materiallager registreras separat och värderas som handelsvaror på 1460/4960; pågående arbeten och produktion ingår inte. Projektförbrukning skapar inte automatiskt lageruttag. Periodiseringen avser förutbetald kostnad; upplupna kostnader kan behöva en granskad manuell verifikation.
 
-Granskningspaket, AGI-CSV och balanser för nästa år är arbetsmaterial. De är inte färdiga myndighetsfiler, en årsredovisning eller en inkomstdeklaration. Serverlagring, användarbehörigheter, verklig underlagshantering, arkivering, säkerhetskopiering, SIE och externa API-/myndighetsanslutningar återstår inför en skarp produkt. Ingen full regelefterlevnad eller extern redovisningsgranskning är verifierad genom denna demo.
+Granskningspaket, AGI-CSV och balanser för nästa år är arbetsmaterial. De är inte färdiga myndighetsfiler, en årsredovisning eller en inkomstdeklaration. Den lokala filinkorgen ersätter inte serverlagring, användarbehörigheter, e-postmottagning, långsiktig arkivering, säkerhetskopiering, SIE eller externa API-/myndighetsanslutningar. Dessa delar återstår inför en skarp produkt. Ingen full regelefterlevnad eller extern redovisningsgranskning är verifierad genom denna demo.
 
 ### Körning och verifiering
 
 Bygg med `npm run build` och starta med `npm start`. [Driftguiden](../docs/drift/README.md#uppdatera-och-kontrollera) beskriver separat publicering på Render. Inga nya miljövariabler, databasändringar eller produktionsanslutningar införs.
 
-Modell- och lagringstester finns i `server/bokforing-suite-*.test.mjs` och `server/bokforing-invoice-model.test.mjs`; browserflöden i `tests/bokforing-suite.spec.ts` och `tests/bokforing-invoice-pages.spec.ts`. Regressionstesterna för den tidigare versionen är kvar. Se även [provgranskningen av den äldre versionen](granskning/2026-10-22.md) och dess [uppföljning](granskning/2026-10-22-uppfoljning.md).
+Modell- och lagringstester finns i `server/bokforing-suite-*.test.mjs`, `server/bokforing-invoice-model.test.mjs` och `server/bokforing-purchase-model.test.mjs`; browserflöden i `tests/bokforing-suite.spec.ts`, `tests/bokforing-invoice-pages.spec.ts`, `tests/bokforing-purchase-pages.spec.ts` och `tests/bokforing-documents.spec.ts`. Regressionstesterna för den tidigare versionen är kvar. Se även [provgranskningen av den äldre versionen](granskning/2026-10-22.md) och dess [uppföljning](granskning/2026-10-22-uppfoljning.md).
 
-**Lokalt verifierat 2026-10-23:** produktionsbygge, 200 modell-/lagringstester inklusive den tidigare demon, ett HTTP-integrationstest och 30 browserfall. Browserproven täcker egna fakturasidor, bakåt/framåt, osparade ändringar, äldre sparade fakturor, rabatter/avgifter, låsta dokumentuppgifter, pris inklusive moms, kopiering, ROT per rad, betalningar, krediter, lön, momsspärrar, lager, periodisering, samtidiga flikar, sparfel, reset och mobil. Efter den sista reset-rättelsen byggdes klienten om och det nya reset-provet kördes igen. Skärmbildskörningen registrerade inga JavaScript-fel eller horisontellt sidöverflöde vid 1600 respektive 390 pixlar. Detta är teknisk verifiering av demofallen, ingen redovisningscertifiering.
+**Lokalt verifierat 2026-10-23:** produktionsbygge, 211 modell-/lagringstester inklusive den tidigare demon, ett HTTP-integrationstest och 49 browserfall mot den byggda servern. Proven täcker egna kund- och leverantörsfakturasidor, PDF/bilder, riktig IndexedDB-lagring, dubbletter, filgränser, kvotfel, ändrade original, bilagekomplettering utan ny skuld, osparade ändringar och sena svar efter navigering/reset. Tidigare betalnings-, kredit-, ROT-, löne-, moms-, lager- och periodiseringsflöden ingår också. Drag och släpp samt visning vid 1600 och 390 pixlar har provats manuellt utan JavaScript-fel eller horisontellt sidöverflöde. Kameraprovet använder filinput med kameraattribut; fysisk kamerahårdvara har inte provats. Detta är teknisk verifiering av demofallen, ingen redovisningscertifiering.
 
 ## Tidigare inköpsdemo
 
@@ -104,7 +124,7 @@ Skärmbilder från den körbara demon:
 [![Översikt i den klickbara demon](preview/oversikt.png)](preview/oversikt.png)
 [![Underlag och kontering i den klickbara demon](preview/kontering.png)](preview/kontering.png)
 
-Bygg med `npm run build` och starta med `npm start`. Appens vanliga driftinställningar gäller. Publicering på app-domänen följer [driftguidens manuella Render-deploy](../docs/drift/README.md#uppdatera-och-kontrollera); en GitHub-push betyder inte ensam att den nya versionen är live.
+Bygg med `npm run build` och starta med `npm start`. Appens vanliga driftinställningar gäller. Följ [driftguidens kontroll av Render-deploy](../docs/drift/README.md#uppdatera-och-kontrollera); faktisk version och deploystatus ska kontrolleras efter en GitHub-push oavsett om tjänsten använder automatisk eller manuell deploy.
 
 Verifierat lokalt efter rättningarna: produktionsbygge, 48 modelltester, 23 lagringstester, sex pilotpolicytester och ett HTTP-integrationstest. Tio browserregressioner täcker bland annat två flikar, sparfel, osäker kvittens, reset och pekarklick på femradig kontering på dator/mobil. Se [uppföljningen med rättningar och avgränsning](granskning/2026-10-22-uppfoljning.md).
 

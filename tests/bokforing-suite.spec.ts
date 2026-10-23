@@ -349,11 +349,13 @@ test('materiallager: bokfört inköp kan värderas på 1460 och uttag över sald
 test('periodisering: bokförd IT-kostnad fördelas via 1790 och samma månad kan inte upprepas', async ({ page }) => {
   await open(page, 'purchases');
   await action(page, 'new-bill').click();
-  await modal(page).locator('[name="supplier"]').fill('IT-leverantör · browserprov');
-  await modal(page).locator('[name="number"]').fill('BROWSER-IT-001');
-  await modal(page).locator('[name="netCents"]').fill('1200');
-  await modal(page).locator('[name="account"]').selectOption('6540');
-  await saveDialog(page);
+  const purchaseForm = page.locator('#purchase-page-form');
+  await purchaseForm.locator('[name="supplier"]').fill('IT-leverantör · browserprov');
+  await purchaseForm.locator('[name="number"]').fill('BROWSER-IT-001');
+  await purchaseForm.locator('[name="netCents"]').fill('1200');
+  await purchaseForm.locator('[name="account"]').selectOption('6540');
+  await purchaseForm.locator('button[type="submit"]').click();
+  await expect(purchaseForm).toHaveCount(0);
   await action(page, 'book-bill').click();
   await reviewed(page);
   await page.goto(`${demo}#accruals`);

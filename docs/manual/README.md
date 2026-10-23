@@ -32,16 +32,41 @@ markerar du vilka arbetsrader som ger underlag; material och avgifter ingår int
 betalningar och **Skriv ut / spara PDF**. Lämnar du ett osparat utkast visas
 en varning. Se [faktureringens omfattning och återstående delar](../../bokforing/fakturering-jamforelse.md).
 
-I **Projekt & offerter** kan du registrera tid/material och skapa offert.
-**Inköp** hanterar leverantörsfakturor. Välj en befintlig kontohändelse i
+I **Inköp** öppnar du leverantörsfakturan på en egen sida. Välj **Ny
+leverantörsfaktura** för en arbetsyta med fakturauppgifter, konteringsförslag
+och underlag bredvid varandra på större skärmar. Spara utkastet och granska
+sedan innan du bokför. Demon använder en kostnadsrad per faktura.
+
+Under **Inkomna underlag** kan du välja **Ladda upp fil**, dra in filer eller
+välja **Ta foto** på en mobil som stöder det. PDF, JPEG, PNG och WebP stöds;
+gränserna är 15 MB per fil, 10 filer åt gången och 100 MB totalt. Filerna
+sparas lokalt i den här webbläsaren. Identiskt filinnehåll återanvänder
+det befintliga underlaget även om filnamnet är nytt.
+
+Välj **Skapa fakturautkast** för en ny faktura eller **Koppla till befintlig**
+för exempelvis en påminnelse eller kompletterande bild. Flera underlag kan
+kopplas till samma faktura. Ett kopplat underlag går att visa och ladda ned;
+bilder kan även zoomas och roteras utan att originalfilen ändras. Ingen
+automatisk fakturatolkning eller e-postmottagning ingår.
+
+På en bokförd faktura kan underlag kompletteras utan att en ny skuld skapas
+eller ursprungliga fakturauppgifter ändras. Ett utkast kan redigeras och få
+underlag bortkopplade. **Kopiera till ny** börjar med tomt fakturanummer och
+utan gamla underlag eller betalningar. Välj en befintlig kontohändelse i
 betalningsformuläret om betalningen redan finns i **Bank & kassa**.
+
+I **Projekt & offerter** kan du registrera tid/material och skapa offert.
 **Lön**, **Inventarier**, **Materiallager** och **Periodisering** har egna
 granskningssteg. **Bokföring**, **Moms & ROT** och **Rapporter** följer samma
 verifikationer. **Bokslut** visar återstående avstämningar och periodlåsning.
 
 **Fråga Ande** öppnar en demoassistent med exempelbaserade svar.
 Ändringarna sparas i den egna webbläsaren. **Återställ demo** tar tillbaka
-exempeluppgifterna efter bekräftelse. Inga verkliga betalningar, fakturor,
+exempeluppgifterna efter bekräftelse och återställer fakturornas
+underlagskopplingar. Uppladdade filer behålls i inkorgen; de kan kopplas på
+nytt eller tas bort när de är okopplade. Rensar du browserdata kan även
+filerna försvinna; den lokala inkorgen är inget serverarkiv.
+Inga verkliga betalningar, fakturor,
 ROT-begäranden eller deklarationer skickas. Löne- och skattebelopp bygger på
 angivna demoantaganden. Läs [omfattning och avgränsning](../../bokforing/README.md#den-här-versionens-gränser)
 före en genomgång med redovisningskunnig.

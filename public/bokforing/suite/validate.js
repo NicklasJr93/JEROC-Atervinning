@@ -7,6 +7,7 @@ import { getReports, getVatPeriodBounds, getVatReport, validatePayrollRun } from
 import { accrualBookingSnapshot, getAccrualRemaining } from './periodization.js';
 import { validateInventoryState } from './inventory.js';
 import { validateInvoiceDetails } from './invoice-data.js';
+import { billSnapshot, validateBillDetails, validateBillAttachments, validateBillAttachmentAdditions } from './purchase-data.js';
 
 const debit = (account, amount) => ({ account, debitCents: amount, creditCents: 0 });
 const credit = (account, amount) => ({ account, debitCents: 0, creditCents: amount });
@@ -206,10 +207,13 @@ export function validateSuiteState(state) {
     const expectedVat = bill.vatMode === 'standard' ? roundRate(bill.netCents, bill.vatRate, 100) : 0;
     assert(bill.vatCents === expectedVat && bill.totalCents === bill.netCents + expectedVat && (bill.vatMode !== 'no-vat' || bill.vatRate === 0), 'Leverantörsfakturans belopp stämmer inte.');
     assert(bill.vatMode === 'reverse-construction' ? bill.account === '4425' && bill.vatRate === 25 : ['4010', '5010', '5410', '5460', '6110', '6540', '6570', '6991'].includes(bill.account), 'Leverantörsfakturans kostnadskonto är ogiltigt.');
+    if (bill.details !== undefined) validateBillDetails(bill.details);
+    if (bill.attachments !== undefined) validateBillAttachments(bill.attachments);
+    validateBillAttachmentAdditions(bill);
     requireArray(bill.payments, 'Leverantörsbetalningarna'); unique(bill.payments, 'id', 'Leverantörsbetalningarna');
     if (bill.status === 'draft') { noEntry(bill, 'Leverantörsfakturan'); assert(bill.payments.length === 0 && !bill.creditEntryId, 'Fakturautkastet har en betalning eller kredit.'); }
     else {
-      assert(bill.bookingSnapshot === JSON.stringify([bill.supplier, bill.number, bill.date, bill.dueDate, bill.netCents, bill.vatRate, bill.vatMode, bill.account, bill.vatCents, bill.totalCents, bill.reverseConfirmed, bill.projectId ?? null]), 'Den bokförda leverantörsfakturans uppgifter har ändrats.');
+      assert(bill.bookingSnapshot === billSnapshot(bill), 'Den bokförda leverantörsfakturans uppgifter har ändrats.');
       const entry = getEntry(bill.entryId, 'bill', bill.id, bill.date);
       const expected = [debit(bill.account, bill.netCents), credit('2440', bill.totalCents)];
       if (expectedVat) expected.push(debit('2641', expectedVat));

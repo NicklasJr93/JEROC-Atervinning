@@ -109,8 +109,9 @@ skilj testresultatet från konfigurationsstatusen.
 
 Den publika bokföringsdemon ligger på `/bokforing` och `/bokforing/` i
 apptjänsten. `public/bokforing/` kopieras av webbbygget och serveras separat
-från kontorets inloggade gränssnitt. Demon använder endast fiktiva uppgifter
-i besökarens webbläsare; den kräver inga nya miljövariabler eller databasändringar.
+från kontorets inloggade gränssnitt. Demons startuppgifter är fiktiva och
+besökaren kan välja egna lokala underlagsfiler. Den kräver inga nya
+miljövariabler eller databasändringar på servern.
 Kontrollera efter publicering att båda adresserna och deras JS/CSS svarar utan
 inloggning, att `/readyz` är redo och att vanliga API:er fortfarande kräver session.
 Se [demon och dess avgränsning](../../bokforing/README.md).
@@ -129,6 +130,22 @@ sida. Prova sparande, omladdning och navigering med osparade ändringar.
 Ändringen behåller v2-lagringsnyckeln och ska kunna läsa tidigare sparade
 demofakturor utan reset. Nya dokumentuppgifter fryses vid utfärdande.
 
+Leverantörsflödet använder `suite/purchase-page.js`, `suite/purchase-page.css`,
+`suite/purchase-workspace.js`, `suite/purchase-data.js` och `suite/documents.js`.
+Prova listan `#purchases`, arbetsytan `#purchases/new`, en sparad faktura på
+`#purchases/<id>` och underlagsinkorgen `#purchases/inbox`. Den lokala
+IndexedDB-databasen `scrapplanner-bokforing-documents-v1` innehåller
+originalfilerna; bokföringens v2-data innehåller deras metadata och kopplingar.
+Ingen uppladdning görs till servern och ingen inkommande e-posttjänst aktiveras.
+
+Underlag stöder PDF/JPEG/PNG/WebP med kontroll av typ, filsignatur, storlek och
+SHA-256. Gränserna är 15 MB per fil, 10 filer per import, 100 MB totalt och
+20 underlag per faktura. Detta är lokala demokontroller, inte en garanti för
+skadlighetskontroll eller långsiktigt arkiv. Vid driftprov ska uppladdning,
+omladdning, saknat original, bokföring med bilaga och komplettering av en
+bokförd faktura provas. **Återställ demo** återställer bokföringskopplingar
+men behåller uppladdade filer. Rensning av browserdata kan radera filerna.
+
 Demons lokala skrivningar kräver en säker browserkontext med Web Locks
 (HTTPS på app-domänen eller localhost vid utveckling). Vid uppdatering ska
 besökaren stänga/ladda om äldre demoflikar så att de använder samma lagringskod.
@@ -136,15 +153,17 @@ Ogiltiga äldre exempel bevaras för explicit reset; giltiga gamla exempel kan
 läsas och får en ny lagringsrevision vid nästa lyckade skrivning.
 
 Pilotens Blueprint har **On Commit** för både hemsidan och appen. Nya commits
-på `main` startar automatiskt en deploy utan att invänta GitHub-kontrollerna.
-Blueprintens **Auto Sync** är en separat inställning och ska hanteras separat
-från appkodens deployment.
+på `main` ska starta en deploy utan att invänta GitHub-kontrollerna.
+Blueprintens **Auto Sync** är en separat inställning. Kontrollera den faktiska
+tjänstens inställningar och Events för att se vilken commit som byggs och
+när den blivit Live.
 
 1. Granska ändringen och relevanta prov enligt [utvecklingsguiden](../utveckling.md).
    Notera vilken commit som ska driftsättas och om databasmodeller/migrationer ändras.
-2. Push till `main` startar deployen på `scrapplanner-app`. Kontrollera i Render
-   att rätt commit byggs. Vid en ompublicering kan **Manual Deploy** användas;
-   **Deploy latest commit** använder senaste commit på tjänstens branch.
+2. Push till `main` ska starta deployen på `scrapplanner-app`. Kontrollera
+   **Events** för den avsedda committen. Vid en ompublicering kan **Manual
+   Deploy** användas; **Deploy latest commit** använder senaste commit på
+   tjänstens branch. Kontrollera att det är den avsedda versionen.
 3. Behåll byggkommandot `npm ci --include=dev --no-audit --no-fund && npm run build:render`
    och startkommandot `npm start`. Node-versionen i Blueprinten är 24.19.0.
 4. Följ bygg- och startloggar tills Render visar **Live**. Kontrollera commit,
