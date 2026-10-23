@@ -1,3 +1,4 @@
+import { revenuePrincipal } from './revenue-credit.js';
 import { money, toCents, assert } from './core.js';
 import { saveArticle, setArticleActive, saveCustomerPrice, createArticleInvoice, createRecurringPlan, generateRecurringInvoices, setRecurringActive, prepareReminder, getReminderAmount, issueProjectStock, createRevenueSchedule, recognizeRevenueMonth, addProjectWorkpaper, nextRecurringDate } from './commercial.js';
 
@@ -38,9 +39,10 @@ export function renderWorkspace(state) {
   const remainder = table(['Faktura', 'Datum', 'Belopp då', 'Text'], (state.commercialReminders ?? []).map(item => [e(state.invoices.find(invoice => invoice.id === item.invoiceId)?.number), e(item.date), e(money(item.outstandingCents)), e(item.note)]));
   const stocks = table(['Projekt', 'Artikel', 'Antal', 'Kostnad', 'Datum'], (state.projectStockLinks ?? []).map(item => [e(state.projects.find(project => project.id === item.projectId)?.name), e(state.inventoryItems.find(stock => stock.id === item.inventoryItemId)?.name), e(item.quantity), e(money(item.costCents)), e(item.date)]));
   const schedules = table(['Plan', 'Faktura', 'Kvar att intäktsföra', 'Fördelat', 'Nästa månad'], (state.revenueSchedules ?? []).map(item => {
-    const remaining = item.amountCents - item.postings.reduce((total, posting) => total + posting.amountCents, 0);
+    const corrected=revenuePrincipal(state,item);
+    const remaining = corrected.principalCents - item.postings.reduce((total, posting) => total + posting.amountCents, 0)+corrected.recognizedCreditCents;
     const month = new Date(`${item.startMonth}-01T12:00:00Z`); month.setUTCMonth(month.getUTCMonth() + item.postings.length);
-    return [e(item.name), e(state.invoices.find(invoice => invoice.id === item.invoiceId)?.number), e(money(remaining)), `${item.postings.length}/${item.months}`, item.status === 'completed' ? 'Färdig' : form('recognize-revenue', `<input type="hidden" name="id" value="${e(item.id)}">${input('Bokföringsdatum', 'date', month.toISOString().slice(0, 10), 'date', 'required')}`, month.toISOString().slice(0, 7), 'Bokför månad')];
+    return [e(item.name), e(state.invoices.find(invoice => invoice.id === item.invoiceId)?.number), e(money(remaining)), `${item.postings.length}/${item.months}`, item.status === 'cancelled' ? 'Helt krediterad' : item.status === 'completed' ? 'Färdig' : form('recognize-revenue', `<input type="hidden" name="id" value="${e(item.id)}">${input('Bokföringsdatum', 'date', month.toISOString().slice(0, 10), 'date', 'required')}`, month.toISOString().slice(0, 7), 'Bokför månad')];
   }));
   const papers = table(['Projekt', 'Datum', 'Färdigställt', 'Kostnad', 'Bedömning'], (state.projectWorkpapers ?? []).map(item => [e(state.projects.find(project => project.id === item.projectId)?.name), e(item.date), `${item.completionBps / 100} %`, e(money(item.completedCostCents)), `${e(item.reviewNote)}<br><small>${e(item.reviewer)}</small>`]));
   return `<div class="commercial-workspace"><header class="page-heading"><div><span class="eyebrow">Projekt & fakturering</span><h1>Artiklar, avtal och intäkter</h1><p>Från kundpris och lageruttag till fakturautkast och månatlig intäktsföring.</p></div></header>

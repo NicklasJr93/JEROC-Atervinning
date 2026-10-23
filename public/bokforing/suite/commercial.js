@@ -5,6 +5,7 @@ import { createInvoice, getInvoiceTotals, getInvoiceOutstanding, invoiceBookingS
 import { recordStockMovement } from './inventory.js';
 import { calculateLineAmounts } from './rot.js';
 import { fiscalPeriodForDate } from './fiscal-periods.js';
+import { revenuePrincipal, revenueTarget } from './revenue-credit.js';
 
 const collections = ['commercialArticles', 'commercialPrices', 'commercialInvoiceOrigins', 'recurringPlans', 'commercialReminders', 'projectStockLinks', 'revenueSchedules', 'projectWorkpapers'];
 const txt = (value, label, max = 300) => { assert(typeof value === 'string' && value.trim() && value.length <= max, `Ange ${label} (högst ${max} tecken).`); return value.trim(); };
@@ -211,12 +212,14 @@ export function recognizeRevenueMonth(state, id, { date }) {
   return apply(state, draft => {
     const item = get(draft.revenueSchedules, id, 'Intäktsperiodiseringen');
     assert(item.status === 'active', 'Periodiseringen är färdig.'); requireOpenPeriod(draft, date);
+    assert((draft.settlements??[]).filter(record=>record.kind==='credit'&&record.side==='customer'&&record.documentId===item.invoiceId).every(record=>date>=record.date),'Intäktsföringen får inte bakdateras före senaste kredit; periodisera färdigt tidigare månader före kreditering.');
     const month = monthName(monthIndex(item.startMonth) + item.postings.length);
     assert(date.slice(0, 7) === month && date >= item.date, `Bokför nästa planerade månad ${month}.`);
-    const prior = sum(item.postings.map(posting => posting.amountCents));
-    const amountCents = target(item.amountCents, item.postings.length + 1, item.months) - prior;
+    const principal=revenuePrincipal(draft,item).principalCents;
+    assert(principal>0,'Periodiseringen är helt krediterad.');
+    const amountCents=revenueTarget(principal,item.postings.length+1,item.months)-revenueTarget(principal,item.postings.length,item.months);
     const entryId = amountCents ? appendEntry(draft, { date, description: `Intäktsföring ${month} · ${item.name}`, sourceType: 'revenue-recognition', sourceId: `${item.id}:${month}`, rows: [row('2990', amountCents, 0), row(item.revenueAccount, 0, amountCents)] }).id : null;
-    item.postings.push({ month, date, amountCents, entryId });
+    item.postings.push({ month, date, amountCents, entryId, ...(!entryId?{entryCount:draft.entries.length}: {}) });
     if (item.postings.length === item.months) item.status = 'completed';
     addActivity(draft, `Intäkt för ${month} förd enligt plan`, item.id);
   });
@@ -225,6 +228,7 @@ export function recognizeRevenueMonth(state, id, { date }) {
 export function getRevenueDueMonths(state, throughMonth = state.company.fiscalYearEnd.slice(0, 7)) {
   assert(/^\d{4}-(?:0[1-9]|1[0-2])$/.test(throughMonth), 'Kontrollmånaden är ogiltig.');
   return (state.revenueSchedules ?? []).flatMap(item => {
+    if(revenuePrincipal(state,item).principalCents===0)return [];
     const due = [];
     for (let index = item.postings.length; index < item.months; index++) {
       const month = monthName(monthIndex(item.startMonth) + index);
@@ -318,7 +322,7 @@ export function validateCommercialState(state) {
   const allocated = new Map();
   for (const item of state.revenueSchedules ?? []) {
     const invoice = get(state.invoices, item.invoiceId, 'Periodiseringens faktura');
-    assert(invoice.kind === 'invoice' && invoice.status === 'issued' && !invoice.rot && !(invoice.settlementCreditCents > 0), 'Periodiseringen kräver en okrediterad faktura utan ROT.');
+    assert(invoice.kind === 'invoice' && invoice.status === 'issued' && !invoice.rot, 'Periodiseringen kräver en utfärdad faktura utan ROT.');
     assert(item.snapshot === revenueSnapshot(item) && item.revenueAccount === (invoice.vatMode === 'reverse-construction' ? '3231' : '3000'), 'Periodiseringens grunduppgifter har ändrats.');
     cents(item.amountCents, false); safeDate(item.date); assert(item.date >= invoice.date, 'Periodiseringen ligger före fakturan.');
     assert(fiscalPeriodForDate(state, invoice.date)?.start === fiscalPeriodForDate(state, item.date)?.start, 'Intäktsperiodiseringen tillhör inte fakturans räkenskapsår.');
@@ -327,13 +331,19 @@ export function validateCommercialState(state) {
     claim(item.entryId, 'revenue-deferral', item.id, item.date, [row(item.revenueAccount, item.amountCents, 0), row('2990', 0, item.amountCents)]);
     let recognized = 0;
     for (const [index, posting] of item.postings.entries()) {
-      const month = monthName(monthIndex(item.startMonth) + index); const cumulative = target(item.amountCents, index + 1, item.months); const amount = cumulative - recognized;
+      const month = monthName(monthIndex(item.startMonth) + index);
+      const principal=posting.entryId?revenuePrincipal(state,item,posting.entryId).principalCents:posting.entryCount!==undefined?revenuePrincipal({...state,settlements:(state.settlements??[]).filter(record=>state.entries.findIndex(entry=>entry.id===record.entryId)<posting.entryCount)},item).principalCents:item.amountCents;
+      const amount=revenueTarget(principal,index+1,item.months)-revenueTarget(principal,index,item.months);
       assert(posting.month === month && safeDate(posting.date).slice(0, 7) === month && posting.date >= item.date && posting.amountCents === amount, 'Intäktsföringens månad eller belopp stämmer inte.');
       if (amount) claim(posting.entryId, 'revenue-recognition', `${item.id}:${month}`, posting.date, [row('2990', amount, 0), row(item.revenueAccount, 0, amount)]);
-      else assert(posting.entryId === null, 'Ett nollbelopp ska inte skapa en verifikation.');
-      recognized = cumulative;
+      else assert(posting.entryId === null && (posting.entryCount===undefined||Number.isSafeInteger(posting.entryCount)&&posting.entryCount>=0&&posting.entryCount<=state.entries.length), 'Ett nollbelopp ska inte skapa en verifikation.');
+      recognized += amount;
     }
-    assert((item.postings.length === item.months ? 'completed' : 'active') === item.status, 'Periodiseringens status stämmer inte.'); deferred += item.amountCents - recognized;
+    const current=revenuePrincipal(state,item);
+    recognized-=current.recognizedCreditCents;
+    assert((current.principalCents===0?'cancelled':item.postings.length===item.months?'completed':'active')===item.status,'Periodiseringens status stämmer inte.');
+    assert(recognized>=0&&recognized<=current.principalCents,'Periodiseringens krediterade intäkt är fel.');
+    deferred+=current.principalCents-recognized;
   }
   for (const paper of state.projectWorkpapers ?? []) {
     get(state.projects, paper.projectId, 'Underlagets projekt'); safeDate(paper.date); cents(paper.completedCostCents); cents(paper.agreedRevenueCents);

@@ -1,4 +1,4 @@
-import { ACCOUNTS, money, toCents, assert } from './core.js';
+import { ACCOUNTS, money, toCents, assert, createEmptyState, addActivity } from './core.js';
 import * as Sales from './sales.js';
 import * as Operations from './operations.js';
 import * as Finance from './finance.js';
@@ -91,6 +91,7 @@ function render(){
  const editStatus=document.querySelector('#invoice-editor-status');if(editStatus)editStatus.textContent=invoiceDirty?'Osparade ändringar':'Utkast';
  updateChrome();
  ande.refreshContext();
+ if(featureModules[ui.view]?.mount)Promise.resolve(featureModules[ui.view].mount(document.querySelector('#suite-main'),{getState:()=>state})).catch(showError);
  if(ui.view==='purchases')purchaseWorkspace.mount().catch(showError);
 }
 function route(){
@@ -165,6 +166,7 @@ function confirmAction(action,id,title,text,{date=false,reason=false,dateValue=T
 async function action(name,id,el){
  if(purchaseWorkspace.handlesAction(name)){await purchaseWorkspace.action(name,id,el);return;}
  switch(name){
+ case 'new-empty-company':openDialog('Nytt tomt övningsbolag','new-empty-company',`${field('Företagsnamn','name','Nytt övningsbolag AB','text','required maxlength="150"')}${field('Organisationsnummer eller DEMO','orgNumber','DEMO','text','required maxlength="40"')}<div class="form-grid">${dateField('start','Räkenskapsårets start','2026-01-01')}${dateField('end','Räkenskapsårets slut','2026-12-31')}</div>${check('Jag vill ersätta den lokala bokföringen med ett tomt övningsbolag. Jag har exporterat det jag vill behålla.','resetConfirmed',false,'required')}${help('Faktureringsmetoden och SEK används. Uppladdade filer behålls i inkorgen utan kopplingar. Kontantmetoden har ett eget startflöde i menyn.')}`,'Starta tomt övningsbolag');return;
  case 'close-dialog':dialog.close();return;
  case 'reload':reload();return;
  case 'toggle-assistant':ui.assistantOpen=!ui.assistantOpen;updateChrome();if(ui.assistantOpen)ande.open();else ande.close();return;
@@ -228,7 +230,7 @@ async function action(name,id,el){
  case 'lock-period':confirmAction(name,id,'Stäm av och lås '+id,'Alla kontohändelser och utkast i perioden måste vara hanterade. Nya bokningar i den låsta månaden stoppas.',{checkbox:'Jag har granskat periodens avstämningar',submit:'Lås perioden'});return;
  case 'unlock-period':confirmAction(name,id,'Öppna perioden '+id,'Öppningen kräver en orsak och sparas i behandlingshistoriken.',{reason:true,submit:'Öppna perioden'});return;
  case 'close-year':openDialog('Bokför årets resultat','close-year',`${dateField('date','Bokslutsdatum',state.company.fiscalYearEnd)}${check('Jag har granskat samtliga avstämningar och bokslutsunderlaget','confirmed',false,'required')}${help('Alla kontroller måste vara klara. Resultatet bokförs och ingående balanser för nästa år förbereds som arbetsmaterial.')}`,'Bokför årsresultat');return;
- case 'edit-company':openDialog('Företagsuppgifter','company',`${field('Företagsnamn','name',state.company.name,'text','required maxlength="200"')}${field('Organisationsnummer (demo)','orgNumber',state.company.orgNumber,'text','required maxlength="50"')}${select('Momsperiod','vatPeriod',[['quarter','Kvartal'],['month','Månad']],state.company.vatPeriod)}${help('Demon använder SEK, kalenderår 2026 och faktureringsmetoden. År och metod ändras inte på befintlig bokföring.')}`);return;
+ case 'edit-company':openDialog('Företagsuppgifter','company',`${field('Företagsnamn','name',state.company.name,'text','required maxlength="200"')}${field('Organisationsnummer (demo)','orgNumber',state.company.orgNumber,'text','required maxlength="50"')}${select('Momsperiod','vatPeriod',[['quarter','Kvartal'],['month','Månad']],state.company.vatPeriod)}${help('Redovisningsvalutan är SEK. Räkenskapsår och metod ändras inte på befintlig bokföring. Starta en separat kontantövning i Kontantmetoden om du vill byta metod.')}`);return;
  case 'export-ledger':exportLedger();return;
  case 'export-reports':exportReports();return;
  case 'export-review':exportReview();return;
@@ -242,6 +244,13 @@ async function submit(form){
  const d=new FormData(form), get=name=>String(d.get(name)??''), amount=name=>toCents(get(name)), checked=name=>d.get(name)!==null,id=get('id');
  let transition,message='Uppgifterna är sparade i demon.',after;
  switch(form.dataset.form){
+ case 'new-empty-company':{
+  assert(checked('resetConfirmed'),'Bekräfta att den lokala övningsbokföringen ska ersättas.');
+  assert(canReset(),'Läs in senaste demodata innan du byter övningsbolag.');
+  transition=()=>{const next=createEmptyState();Object.assign(next.company,{name:get('name').trim(),orgNumber:get('orgNumber').trim(),fiscalYearStart:get('start'),fiscalYearEnd:get('end')});addActivity(next,'Tomt övningsbolag skapat med faktureringsmetoden.');return next;};
+  after=()=>{invoiceDirty=false;featureDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);ande.reset();Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});};
+  message='Tomt övningsbolag startat. Du kan nu importera SIE eller registrera egna verifikationer.';break;
+ }
  case 'invoice-page':{
   const payload=readInvoiceEditor(form),invoiceId=payload.id||'';
   transition=s=>invoiceId?Sales.updateInvoiceDraft(s,invoiceId,payload):Sales.createInvoice(s,payload);
@@ -298,8 +307,13 @@ async function runFeature(element) {
  const key=element.dataset.featureForm||element.dataset.featureAction;
  const module=featureModules[key];assert(module,'Arbetsytan kunde inte hittas.');
  const data=featureData(element),name=element.dataset.action;
- const file=featureDownload(state,key,name,data);
- if(file){download(typeof file.value==='string'?file.value:JSON.stringify(file.value,null,2),file.name,file.type||'application/json;charset=utf-8');return;}
+ if(key==='cash'&&name==='start-cash'){
+  if(!canReset())throw new Error('Läs in senaste demodata innan du startar ett nytt övningsbolag.');
+  if(!window.confirm('Detta ersätter bokföringen i den här webbläsaren med ett nytt tomt övningsbolag för kontantmetoden. Exportera det du vill behålla först. Uppladdade filer ligger kvar. Vill du fortsätta?'))return;
+  await write(current=>module.handleAction(current,name,data),'Nytt övningsbolag med kontantmetoden startat.',{after:()=>{featureDirty=false;invoiceDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);ande.reset();Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});}});return;
+ }
+ const file=await featureDownload(state,key,name,data);
+ if(file){const binary=file.value instanceof Blob||file.value instanceof ArrayBuffer||ArrayBuffer.isView(file.value);download(typeof file.value==='string'||binary?file.value:JSON.stringify(file.value,null,2),file.name,file.type||'application/json;charset=utf-8');return;}
  await write(current=>module.handleAction(current,name,data),'Uppgifterna är kontrollerade och sparade i demon.',{after:()=>{featureDirty=false;}});
 }
 

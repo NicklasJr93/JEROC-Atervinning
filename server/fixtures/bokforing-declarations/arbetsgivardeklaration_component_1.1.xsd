@@ -1,0 +1,1587 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns="http://xmls.skatteverket.se/se/skatteverket/da/komponent/schema/1.1"
+           targetNamespace="http://xmls.skatteverket.se/se/skatteverket/da/komponent/schema/1.1"
+           elementFormDefault="qualified" attributeFormDefault="unqualified" version="1.1">
+
+  <xs:element name="Avsandare">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Programnamn" minOccurs="1" maxOccurs="1" type="TEXT50"/>
+        <xs:element name="Organisationsnummer" minOccurs="1" maxOccurs="1" type="IDENTITET"/>
+        <xs:element ref="TekniskKontaktperson" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="Skapad" minOccurs="1" maxOccurs="1" type="TIDPUNKT"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Blankettgemensamt">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="Arbetsgivare" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Arbetsgivare">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="AgRegistreradId" type="IDENTITET"/>
+        <xs:element ref="Kontaktperson" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Kontaktperson">
+    <xs:complexType>
+      <xs:all>
+        <xs:element name="Namn" minOccurs="1" maxOccurs="1" type="TEXT50"/>
+        <xs:element name="Telefon" minOccurs="1" maxOccurs="1" type="TEXT20"/>
+        <xs:element name="Epostadress" minOccurs="1" maxOccurs="1" type="EPOST"/>
+        <xs:element name="Sakomrade" minOccurs="0" maxOccurs="1" type="TEXT50"/>
+      </xs:all>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="TekniskKontaktperson">
+    <xs:complexType>
+      <xs:all>
+        <xs:element name="Namn" minOccurs="1" maxOccurs="1" type="TEXT50"/>
+        <xs:element name="Telefon" minOccurs="1" maxOccurs="1" type="TEXT20"/>
+        <xs:element name="Epostadress" minOccurs="1" maxOccurs="1" type="EPOST"/>
+        <xs:element name="Utdelningsadress1" minOccurs="0" maxOccurs="1" type="TEXT50"/>
+        <xs:element name="Utdelningsadress2" minOccurs="0" maxOccurs="1" type="TEXT50"/>
+        <xs:element name="Postnummer" minOccurs="0" maxOccurs="1" type="POSTNUMMER"/>
+        <xs:element name="Postort" minOccurs="0" maxOccurs="1" type="TEXT50"/>
+      </xs:all>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Blankett">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="Arendeinformation" minOccurs="1" maxOccurs="1"/>
+        <xs:element ref="Blankettinnehall" minOccurs="1" maxOccurs="1"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Arendeinformation">
+    <xs:complexType>
+      <xs:all>
+        <xs:element name="Arendeagare" minOccurs="1" maxOccurs="1" type="IDENTITET"/>
+        <xs:element name="Period" minOccurs="1" maxOccurs="1" type="TEXT20"/>
+        <xs:element name="Arendenummer" minOccurs="0" maxOccurs="1" type="TEXT50"/>
+      </xs:all>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Blankettinnehall">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="Uppgift" minOccurs="1" maxOccurs="1"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Uppgift" abstract="true" type="UppgiftsTYPE"/>
+
+  <xs:complexType name="UppgiftsTYPE"/>
+
+  <xs:element name="IU" type="IUTYPE" substitutionGroup="Uppgift"/>
+
+  <xs:complexType name="IUTYPE">
+    <xs:complexContent>
+      <xs:extension base="UppgiftsTYPE">
+        <xs:all>
+          <xs:element ref="ArbetsgivareIUGROUP"/>
+          <xs:element ref="BetalningsmottagareIUGROUP"/>
+          <xs:element ref="AmbassadanstISvMAvtal" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="AndelStyrelsearvode" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="AndraKostnadsers" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="AntalDagarSjoinkomst" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ArbetsplatsensGatuadress" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ArbetsplatsensOrt" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="Arbetsstallenummer" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="AvdrPrelSkatt" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="AvdrSkattASINK" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="AvdrSkattSINK" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="AvdragUtgiftArbetet" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="AvrakningAvgiftsfriErs" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="BetForDrivmVidBilformanUlagAG" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="Bilersattning" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="Borttag" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="BostadsformanEjSmahusEjUlagSA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="BostadsformanEjSmahusUlagAG" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="BostadsformanEjSmahusUlagEA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="BostadsformanSmahusEjUlagSA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="BostadsformanSmahusUlagAG" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="BostadsformanSmahusUlagEA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="DrivmVidBilformanEjUlagSA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="DrivmVidBilformanUlagAG" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="DrivmVidBilformanUlagEA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="EjFastDriftstalleIndivid" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="EjskatteavdragEjbeskattningSv" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ErsEjSocAvgEjJobbavd" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ErsFormanBostadMmSINK" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ErsattningsBelopp1" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ErsattningsBelopp2" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ErsattningsBelopp3" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ErsattningsBelopp4" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ErsattningsKod1" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ErsattningsKod2" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ErsattningsKod3" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ErsattningsKod4" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="FartygetsNamn" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="Fartygssignal" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="FormanHarJusterats" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="FormanSomPensionEjUlagSA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="Forskarskattenamnden" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="ForstaAnstalld" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="Hyresersattning" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="KontantErsattningEjUlagSA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="KontantErsattningUlagAG" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="KontantErsattningUlagEA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="KonventionMed" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="LandskodArbetsland" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="Lokalanstalld" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="NarfartFjarrfart" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="Personaloption" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="RedovisningsPeriod" minOccurs="1" maxOccurs="1"/>
+          <xs:element ref="SkattebefrEnlAvtal" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="SkatteplBilformanEjUlagSA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="SkatteplBilformanUlagAG" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="SkatteplBilformanUlagEA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="SkatteplOvrigaFormanerEjUlagSA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="SkatteplOvrigaFormanerUlagAG" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="SkatteplOvrigaFormanerUlagEA" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="Specifikationsnummer" minOccurs="1" maxOccurs="1"/>
+          <xs:element ref="Tjanstepension" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="Traktamente" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="UnderlagRotarbete" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="UnderlagRutarbete" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="UtsandUnderTid" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="VaxaStod" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="VerksamhetensArt" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="VissaAvdrag" minOccurs="0" maxOccurs="1"/>
+        </xs:all>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:element name="ArbetsgivareIUGROUP" type="ArbetsgivareIUTYPE"/>
+
+  <xs:complexType name="ArbetsgivareIUTYPE">
+    <xs:all>
+      <xs:element ref="AgRegistreradId" minOccurs="1" maxOccurs="1"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:element name="BetalningsmottagareIUGROUP" type="BetalningsmottagareIUTYPE"/>
+
+  <xs:complexType name="BetalningsmottagareIUTYPE">
+    <xs:all>
+      <xs:element ref="BetalningsmottagareIDChoice" minOccurs="1" maxOccurs="1"/>
+      <xs:element ref="Efternamn" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="Fodelseort" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="Fornamn" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="FriAdress" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="Gatuadress" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="Gatuadress2" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="LandskodFodelseort" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="LandskodMedborgare" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="LandskodPostort" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="LandskodTIN" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="OrgNamn" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="Postnummer" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="Postort" minOccurs="0" maxOccurs="1"/>
+      <xs:element ref="TIN" minOccurs="0" maxOccurs="1"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:element name="HU" type="HUTYPE" substitutionGroup="Uppgift"/>
+
+  <xs:complexType name="HUTYPE">
+    <xs:complexContent>
+      <xs:extension base="UppgiftsTYPE">
+        <xs:all>
+          <xs:element ref="ArbetsgivareHUGROUP"/>
+          <xs:element ref="AvdragFoU" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="AvdragRederiRegress" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="AvdragRegionaltStod" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="RedovisningsPeriod" minOccurs="1" maxOccurs="1"/>
+          <xs:element ref="SkatteavdrPensFors" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="SkatteavdrRantaUtd" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="SlfVinstandelFK486" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="SummaArbAvgSlf" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="SummaSkatteavdr" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="TotalSjuklonekostnad" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="UlagFoU" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="UlagRederiRegress" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="UlagRegionaltStod" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="UlagSkatteavdrPensFors" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="UlagSkatteavdrRantaUtd" minOccurs="0" maxOccurs="1"/>
+          <xs:element ref="UlagSlfVinstandel" minOccurs="0" maxOccurs="1"/>
+        </xs:all>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:element name="ArbetsgivareHUGROUP" type="ArbetsgivareHUTYPE"/>
+
+  <xs:complexType name="ArbetsgivareHUTYPE">
+    <xs:all>
+      <xs:element ref="AgRegistreradId" minOccurs="1" maxOccurs="1"/>
+      <xs:element ref="EjFastDriftstalleISv" minOccurs="0" maxOccurs="1"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:element name="BetalningsmottagareIDChoice" type="BetalningsmottagareIDChoiceType"/>
+
+  <xs:complexType name="BetalningsmottagareIDChoiceType">
+    <xs:choice>
+      <xs:sequence>
+        <xs:element ref="BetalningsmottagarId"/>
+        <xs:element ref="Fodelsetid" minOccurs="0"/>
+        <xs:element ref="AnnatId" minOccurs="0"/>
+      </xs:sequence>
+      <xs:sequence>
+        <xs:element ref="Fodelsetid"/>
+        <xs:element ref="AnnatId" minOccurs="0"/>
+      </xs:sequence>
+      <xs:element ref="AnnatId"/>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:element name="AgRegistreradId">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="IDENTITET">
+          <xs:attribute name="faltkod" fixed="201" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AmbassadanstISvMAvtal">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="094" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AndelStyrelsearvode">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="023" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AndraKostnadsers">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="020" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AnnatId">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT50">
+          <xs:attribute name="faltkod" fixed="224" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AntalDagarSjoinkomst">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="DAGAR">
+          <xs:attribute name="faltkod" fixed="027" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ArbetsplatsensGatuadress">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT50">
+          <xs:attribute name="faltkod" fixed="245" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ArbetsplatsensOrt">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT50">
+          <xs:attribute name="faltkod" fixed="246" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Arbetsstallenummer">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="ARBETSSTALLENUMMER">
+          <xs:attribute name="faltkod" fixed="060" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AvdrPrelSkatt">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="001" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AvdrSkattASINK">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="275" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AvdrSkattSINK">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="274" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AvdragFoU">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP7">
+          <xs:attribute name="faltkod" fixed="475" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AvdragRederiRegress">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="477" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AvdragRegionaltStod">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP6">
+          <xs:attribute name="faltkod" fixed="476" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AvdragUtgiftArbetet">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP8">
+          <xs:attribute name="faltkod" fixed="019" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="AvrakningAvgiftsfriErs">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP7">
+          <xs:attribute name="faltkod" fixed="010" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="BetForDrivmVidBilformanUlagAG">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP7">
+          <xs:attribute name="faltkod" fixed="098" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="BetalningsmottagarId">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="IDENTITET">
+          <xs:attribute name="faltkod" fixed="215" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Bilersattning">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="050" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Borttag">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="205" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="BostadsformanEjSmahusEjUlagSA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="138" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="BostadsformanEjSmahusUlagAG">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="043" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="BostadsformanEjSmahusUlagEA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="124" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="BostadsformanSmahusEjUlagSA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="137" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="BostadsformanSmahusUlagAG">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="041" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="BostadsformanSmahusUlagEA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="123" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="DrivmVidBilformanEjUlagSA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP7">
+          <xs:attribute name="faltkod" fixed="134" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="DrivmVidBilformanUlagAG">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP7">
+          <xs:attribute name="faltkod" fixed="018" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="DrivmVidBilformanUlagEA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP7">
+          <xs:attribute name="faltkod" fixed="128" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Efternamn">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT50">
+          <xs:attribute name="faltkod" fixed="217" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="EjFastDriftstalleISv">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="302" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="EjFastDriftstalleIndivid">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="303" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="EjskatteavdragEjbeskattningSv">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="276" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ErsEjSocAvgEjJobbavd">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="032" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ErsFormanBostadMmSINK">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="036" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ErsattningsBelopp1">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="005" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ErsattningsBelopp2">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="085" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ErsattningsBelopp3">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="087" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ErsattningsBelopp4">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="089" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ErsattningsKod1">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="ERSATTNINGSKOD">
+          <xs:attribute name="faltkod" fixed="004" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ErsattningsKod2">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="ERSATTNINGSKOD">
+          <xs:attribute name="faltkod" fixed="084" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ErsattningsKod3">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="ERSATTNINGSKOD">
+          <xs:attribute name="faltkod" fixed="086" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ErsattningsKod4">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="ERSATTNINGSKOD">
+          <xs:attribute name="faltkod" fixed="088" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FartygetsNamn">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT50">
+          <xs:attribute name="faltkod" fixed="223" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Fartygssignal">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="FARTYGSSIGNAL">
+          <xs:attribute name="faltkod" fixed="026" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Fodelseort">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT50">
+          <xs:attribute name="faltkod" fixed="077" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Fodelsetid">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="FODELSETID">
+          <xs:attribute name="faltkod" fixed="222" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FormanHarJusterats">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="048" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FormanSomPensionEjUlagSA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="136" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Fornamn">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT50">
+          <xs:attribute name="faltkod" fixed="216" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Forskarskattenamnden">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="035" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="ForstaAnstalld">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="062" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FranvaroBorttag">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="820" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FranvaroDatum">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="DATUM">
+          <xs:attribute name="faltkod" fixed="821" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FranvaroProcentFP">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="PROCENT">
+          <xs:attribute name="faltkod" fixed="826" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FranvaroProcentTFP">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="PROCENT">
+          <xs:attribute name="faltkod" fixed="824" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FranvaroSpecifikationsnummer">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="SPECIFIKATIONSNUMMER">
+          <xs:attribute name="faltkod" fixed="822" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FranvaroTimmarFP">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TIMMAR">
+          <xs:attribute name="faltkod" fixed="827" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FranvaroTimmarTFP">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TIMMAR">
+          <xs:attribute name="faltkod" fixed="825" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FranvaroTyp">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="FRANVAROTYP">
+          <xs:attribute name="faltkod" fixed="823" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="FriAdress">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT200">
+          <xs:attribute name="faltkod" fixed="230" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Gatuadress">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT50">
+          <xs:attribute name="faltkod" fixed="218" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Gatuadress2">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT50">
+          <xs:attribute name="faltkod" fixed="228" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Hyresersattning">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP8">
+          <xs:attribute name="faltkod" fixed="039" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="KontantErsattningEjUlagSA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="131" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="KontantErsattningUlagAG">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="011" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="KontantErsattningUlagEA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="125" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="KonventionMed">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KONVENTION">
+          <xs:attribute name="faltkod" fixed="305" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="LandskodArbetsland">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="LANDSKOD">
+          <xs:attribute name="faltkod" fixed="090" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="LandskodFodelseort">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="LANDSKOD">
+          <xs:attribute name="faltkod" fixed="078" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="LandskodMedborgare">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="LANDSKOD">
+          <xs:attribute name="faltkod" fixed="081" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="LandskodPostort">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="LANDSKOD">
+          <xs:attribute name="faltkod" fixed="221" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="LandskodTIN">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="LANDSKOD">
+          <xs:attribute name="faltkod" fixed="076" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Lokalanstalld">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="253" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="NarfartFjarrfart">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="NARFARTFJARRFART">
+          <xs:attribute name="faltkod" fixed="028" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="OrgNamn">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT200">
+          <xs:attribute name="faltkod" fixed="226" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Personaloption">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="059" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Postnummer">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="POSTNUMMER">
+          <xs:attribute name="faltkod" fixed="219" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Postort">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT50">
+          <xs:attribute name="faltkod" fixed="220" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="RedovisningsPeriod">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="REDOVISNINGSPERIOD">
+          <xs:attribute name="faltkod" fixed="006" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SkatteavdrPensFors">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="495" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SkatteavdrRantaUtd">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="496" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SkattebefrEnlAvtal">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="114" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SkatteplBilformanEjUlagSA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP7">
+          <xs:attribute name="faltkod" fixed="133" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SkatteplBilformanUlagAG">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP7">
+          <xs:attribute name="faltkod" fixed="013" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SkatteplBilformanUlagEA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP7">
+          <xs:attribute name="faltkod" fixed="127" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SkatteplOvrigaFormanerEjUlagSA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="132" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SkatteplOvrigaFormanerUlagAG">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="012" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SkatteplOvrigaFormanerUlagEA">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="126" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SlfVinstandelFK486">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="486" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Specifikationsnummer">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="SPECIFIKATIONSNUMMER">
+          <xs:attribute name="faltkod" fixed="570" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SummaArbAvgSlf">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="487" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="SummaSkatteavdr">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="497" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="TIN">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT20">
+          <xs:attribute name="faltkod" fixed="252" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Tjanstepension">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP10">
+          <xs:attribute name="faltkod" fixed="030" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="TotalSjuklonekostnad">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="499" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Traktamente">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="051" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="UlagFoU">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="470" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="UlagRederiRegress">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="472" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="UlagRegionaltStod">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="471" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="UlagSkatteavdrPensFors">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="491" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="UlagSkatteavdrRantaUtd">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="492" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="UlagSlfVinstandel">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP12">
+          <xs:attribute name="faltkod" fixed="481" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="UnderlagRotarbete">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP6">
+          <xs:attribute name="faltkod" fixed="022" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="UnderlagRutarbete">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP6">
+          <xs:attribute name="faltkod" fixed="021" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="UtsandUnderTid">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="SANDUNDERTID">
+          <xs:attribute name="faltkod" fixed="091" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="VaxaStod">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="KRYSS">
+          <xs:attribute name="faltkod" fixed="063" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="VerksamhetensArt">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="TEXT50">
+          <xs:attribute name="faltkod" fixed="112" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="VissaAvdrag">
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="BELOPP8">
+          <xs:attribute name="faltkod" fixed="037" use="required" type="xs:string"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:simpleType name="ARBETSSTALLENUMMER">
+    <xs:restriction base="xs:long">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="99999"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="BELOPP10">
+    <xs:restriction base="xs:long">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="9999999999"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="BELOPP12">
+    <xs:restriction base="xs:long">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="999999999999"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="BELOPP6">
+    <xs:restriction base="xs:long">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="999999"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="BELOPP7">
+    <xs:restriction base="xs:long">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="9999999"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="BELOPP8">
+    <xs:restriction base="xs:long">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="99999999"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="DAGAR">
+    <xs:restriction base="xs:long">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="34"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="DATUM">
+    <xs:restriction base="xs:date">
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="EPOST">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="5"/>
+      <xs:maxLength value="254"/>
+      <xs:pattern value="[a-zA-Z0-9_]+([-+.&apos;][a-zA-Z0-9_]+)*@[a-zA-Z0-9_]+([-.][a-zA-Z0-9_]+)*\.[a-zA-Z0-9_]+([-.][a-zA-Z0-9_]+)*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ERSATTNINGSKOD">
+    <xs:restriction base="xs:long">
+      <xs:minInclusive value="100"/>
+      <xs:maxInclusive value="999"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="FARTYGSSIGNAL">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="4"/>
+      <xs:maxLength value="5"/>
+      <xs:pattern value="[A-Za-z0-9]+"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="FODELSEAR">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="4"/>
+      <xs:maxLength value="4"/>
+      <xs:pattern value="(19|20)\d{2}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="FODELSETID">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="11"/>
+      <xs:maxLength value="11"/>
+      <xs:pattern value="((((19|20)[0-9][0-9])(((01|03|05|07|08|10|12)(0[1-9]|1[0-9]|2[0-9]|3[0-1]))|((04|06|09|11)(0[1-9]|1[0-9]|2[0-9]|30))|((02)(0[1-9]|1[0-9]|2[0-8]))))|(((19|20)(04|08|12|16|20|24|28|32|36|40|44|48|52|56|60|64|68|72|76|80|84|88|92|96)(0229))|(20000229)))[0-9]{3}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="FRANVAROTYP">
+    <xs:restriction base="xs:token">
+      <xs:pattern value="TILLFALLIG_FORALDRAPENNING|FORALDRAPENNING"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="IDENTITET">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="12"/>
+      <xs:maxLength value="12"/>
+      <xs:pattern value="(((19|20)[0-9][0-9])((((01|03|05|07|08|10|12)(6[1-9]|7[0-9]|8[0-9]|9[0-1]))|((04|06|09|11)(6[1-9]|7[0-9]|8[0-9]|90))|((02)(6[1-9]|7[0-9]|8[0-8])))|00[6-9][0-9]|[0-9][0-9]60)|(((19|20)(04|08|12|16|20|24|28|32|36|40|44|48|52|56|60|64|68|72|76|80|84|88|92|96)(0289))|(20000289)))(00[1-9]|0[1-9][0-9]|[1-9][0-9][0-9])[0-9]|16(1[0-9]|2[0-9]|3[0-9]|5[0-9]|6[0-4]|66|68|7[0-9]|8[0-9]|9[0-9])[2-9]\d{7}|((((19|20)[0-9][0-9])(((01|03|05|07|08|10|12)(0[1-9]|1[0-9]|2[0-9]|3[0-1]))|((04|06|09|11)(0[1-9]|1[0-9]|2[0-9]|30))|((02)(0[1-9]|1[0-9]|2[0-8]))))|(((19|20)(04|08|12|16|20|24|28|32|36|40|44|48|52|56|60|64|68|72|76|80|84|88|92|96)(0229))|(20000229)))(00[1-9]|0[1-9][0-9]|[1-9][0-9][0-9])[0-9]"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="KONVENTION">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="2"/>
+      <xs:maxLength value="2"/>
+      <xs:pattern value="[1-9][A-Z]"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="KRYSS">
+    <xs:restriction base="xs:boolean">
+      <xs:pattern value="1|true"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="LANDSKOD">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="2"/>
+      <xs:maxLength value="2"/>
+      <xs:pattern value="[A-Z]+"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="NARFARTFJARRFART">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+      <xs:maxLength value="1"/>
+      <xs:pattern value="[NF]"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="POSTNUMMER">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+      <xs:maxLength value="9"/>
+      <xs:pattern value="[A-Za-z0-9 -]+"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PROCENT">
+    <xs:restriction base="xs:decimal">
+      <xs:minInclusive value="0.01"/>
+      <xs:maxInclusive value="100.00"/>
+      <xs:fractionDigits value="2"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="REDOVISNINGSPERIOD">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="6"/>
+      <xs:maxLength value="6"/>
+      <xs:pattern value="20(18(0[7-9]|1[012])|19(0[1-9]|1[012])|[2-9][0-9](0[1-9]|1[012]))"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="SANDUNDERTID">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+      <xs:maxLength value="1"/>
+      <xs:pattern value="[ABC]"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="SPECIFIKATIONSNUMMER">
+    <xs:restriction base="xs:long">
+      <xs:minInclusive value="1"/>
+      <xs:maxInclusive value="9999999999"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TEXT20">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+      <xs:maxLength value="20"/>
+      <xs:pattern value="[^&lt;&gt;]*[^&lt;&gt;\s][^&lt;&gt;]*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TEXT200">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+      <xs:maxLength value="200"/>
+      <xs:pattern value="[^&lt;&gt;]*[^&lt;&gt;\s][^&lt;&gt;]*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TEXT50">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+      <xs:maxLength value="50"/>
+      <xs:pattern value="[^&lt;&gt;]*[^&lt;&gt;\s][^&lt;&gt;]*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TIDPUNKT">
+    <xs:restriction base="xs:dateTime">
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TIMMAR">
+    <xs:restriction base="xs:decimal">
+      <xs:minInclusive value="0.01"/>
+      <xs:maxInclusive value="24.00"/>
+      <xs:fractionDigits value="2"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:element name="Franvarouppgift">
+    <xs:complexType>
+      <xs:all>
+        <xs:element ref="AgRegistreradId" minOccurs="1" maxOccurs="1"/>
+        <xs:element ref="BetalningsmottagarId" minOccurs="1" maxOccurs="1"/>
+        <xs:element ref="FranvaroBorttag" minOccurs="0" maxOccurs="1"/>
+        <xs:element ref="FranvaroDatum" minOccurs="1" maxOccurs="1"/>
+        <xs:element ref="FranvaroProcentFP" minOccurs="0" maxOccurs="1"/>
+        <xs:element ref="FranvaroProcentTFP" minOccurs="0" maxOccurs="1"/>
+        <xs:element ref="FranvaroSpecifikationsnummer" minOccurs="1" maxOccurs="1"/>
+        <xs:element ref="FranvaroTimmarFP" minOccurs="0" maxOccurs="1"/>
+        <xs:element ref="FranvaroTimmarTFP" minOccurs="0" maxOccurs="1"/>
+        <xs:element ref="FranvaroTyp" minOccurs="1" maxOccurs="1"/>
+        <xs:element ref="RedovisningsPeriod" minOccurs="1" maxOccurs="1"/>
+      </xs:all>
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>

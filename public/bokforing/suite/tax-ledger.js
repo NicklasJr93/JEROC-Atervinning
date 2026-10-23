@@ -2,6 +2,8 @@
 import { appendEntry, assert, cents, nextId, addActivity, requireOpenPeriod, transact, validDate } from './core.js';
 import { calculateLineAmounts } from './rot.js';
 import { calculatePurchaseLines } from './purchase-lines.js';
+import { getFxTaxRows } from './fx.js';
+import { getCashTaxRows } from './cash-method.js';
 
 export const VAT_SOURCE = 'https://www.skatteverket.se/foretag/moms/deklareramoms/fyllaimomsdeklarationen.4.3a2a542410ab40a421c80004214.html';
 export const VAT_RULE_VERSION = 'SE-VAT-2026-10-23';
@@ -180,6 +182,11 @@ export function getTaxDeclarationReport(state, { from = state.company.fiscalYear
     add(bill.entryId, bill.date, values, `${bill.supplier} ${bill.number}`);
     if (bill.creditEntryId) { const creditEntry = state.entries.find(item => item.id === bill.creditEntryId); if (creditEntry) add(creditEntry.id, creditEntry.date, Object.fromEntries(Object.entries(values).map(([key, amount]) => [key, -amount])), `Kredit ${bill.number}`); }
   }
+  for(const item of getFxTaxRows(state)){
+    const values=item.side==='supplier'?{'48':item.vatCents}:{'05':item.baseCents,...(item.vatCents?{[ordinaryBox(item.vatRate)]:item.vatCents}:{})};
+    add(item.entryId,item.date,values,'Valutafaktura');
+  }
+  for(const item of getCashTaxRows(state))add(item.entryId,item.date,item.boxes,item.description);
   for (const record of state.taxTransactions ?? []) add(record.entryId, record.date, record.boxes, record.reference);
   for (const asset of state.assets) if (asset.disposalEntryId) add(asset.disposalEntryId, asset.disposalDate, { '05': asset.proceedsCents, '10': round(asset.proceedsCents, 25, 100) }, `Avyttring ${asset.name}`);
   // Use the selected original net rows for credit bases and the actual credit
@@ -212,13 +219,13 @@ export function getTaxDeclarationReport(state, { from = state.company.fiscalYear
   const unclassifiedEntries = state.entries.filter(entry => inPeriod(entry.date) && !covered.has(entry.id) && !['vat-return', 'vat-transfer', 'vat-settlement'].includes(entry.sourceType) && entry.rows.some(row => [...OUTPUT, ...INPUT].includes(row.account))).map(entry => ({ id: entry.id, number: entry.number, description: entry.description }));
   if (unclassifiedEntries.length) warnings.push(`${unclassifiedEntries.length} momsverifikationer saknar fullständig deklarationsklassning.`);
   if (ledgerOutputCents !== outputCents || ledgerInputCents !== boxes['48']) warnings.push('Deklarationsfälten stämmer inte med huvudbokens moms. Utred differensen före användning.');
-  return { from, to, boxes, evidence, unsupportedBoxes: [...unsupported], unclassifiedEntries, warnings: [...new Set(warnings)], ledgerOutputCents, ledgerInputCents, outputDifferenceCents: ledgerOutputCents - outputCents, inputDifferenceCents: ledgerInputCents - boxes['48'], reconciled: ledgerOutputCents === outputCents && ledgerInputCents === boxes['48'] && unclassifiedEntries.length === 0, ruleVersion: VAT_RULE_VERSION };
+  return { from, to, boxes, evidence, unsupportedBoxes: unsupported.filter(box=>box!=='42'||!evidence.some(item=>Object.hasOwn(item.boxes,'42'))), unclassifiedEntries, warnings: [...new Set(warnings)], ledgerOutputCents, ledgerInputCents, outputDifferenceCents: ledgerOutputCents - outputCents, inputDifferenceCents: ledgerInputCents - boxes['48'], reconciled: ledgerOutputCents === outputCents && ledgerInputCents === boxes['48'] && unclassifiedEntries.length === 0, ruleVersion: VAT_RULE_VERSION };
 }
 
 export function taxReportCsv(state, period) {
   const report = getTaxDeclarationReport(state, period);
   const rows = ['MOMSUNDERLAG;Granskningsfil, inte myndighetsinlämning', `Period;${report.from};${report.to}`, 'Fält;Beskrivning;Belopp i ören;Hela kronor;Status'];
-  for (const box of VAT_BOXES) rows.push(`${box.id};${box.title};${report.boxes[box.id]};${Math.trunc(report.boxes[box.id] / 100)};${unsupported.includes(box.id) ? 'Kräver separat bedömning' : 'Beräknat för stödda affärsfall'}`);
+  for (const box of VAT_BOXES) rows.push(`${box.id};${box.title};${report.boxes[box.id]};${Math.trunc(report.boxes[box.id] / 100)};${report.unsupportedBoxes.includes(box.id) ? 'Kräver separat bedömning' : 'Beräknat för stödda affärsfall'}`);
   rows.push(`Avstämning;${report.reconciled ? 'STÄMMER FÖR KLASSADE POSTER' : 'DIFFERENS – GRANSKA'}`);
   return '\uFEFF' + rows.join('\r\n');
 }

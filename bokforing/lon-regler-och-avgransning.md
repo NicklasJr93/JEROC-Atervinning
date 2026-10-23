@@ -22,13 +22,13 @@ Den nya lönearbetsytan använder riktiga tabellvärden för skatteavdrag, indiv
 
 Lönekolumn och skattetabell hämtas inte från den anställdes verkliga A-skattsedel. Användaren måste kontrollera dem. Månadstabellernas procentintervall över 80 000 kronor, andra år, tvåveckorslön, sjömän och utlandsfall ingår inte i tabellautomatiken. Engångsbelopp utan regelbunden lön, slutreglering efter anställningens upphörande och andra kolumner kräver separat granskning. Ingen skatteberäkning ersätts med en påhittad tabell.
 
-Anställningsavtal, kollektivavtal, arbetsschema, rätt till sjuklön, karensbefrielse, återinsjuknande och semesterlönegrundande frånvaro behöver bedömas. Motorn fastställer inte arbetstagarens rättigheter genom att bara räkna fram ett belopp. Det finns inte komplett semesterintjäning, semesterårsskifte, slutlön, tjänstepension eller försäkringsrapportering.
+Anställningsavtal, kollektivavtal, arbetsschema, rätt till sjuklön, karensbefrielse, återinsjuknande och semesterlönegrundande frånvaro behöver bedömas. Motorn fastställer inte arbetstagarens rättigheter genom att bara räkna fram ett belopp. Den senare [semesterutbyggnaden](lon-komplettering.md) tillför granskad intjäning, individuella saldon, uttag och slutlig semesterersättning för uttryckliga regler. Samtliga semesterårs-/avtalsvarianter, tjänstepension och försäkringsrapportering är inte täckta.
 
 Arbetsgivaren bekräftar vanlig svensk anställning och att årsersättningen är över avgiftsgränsen. Växa-stöd, forskning, regionala avdrag, utsändning och andra särskilda avgiftsfall ingår inte.
 
-Negativ rättelse efter att pengar betalats ut kräver ett separat granskat återkravs- och deklarationsflöde. Systemet raderar inte en faktisk utbetalning för att låtsas att den aldrig inträffat. Kvittning, återbetalningskrav och rättelse av redan inlämnad AGI återstår.
+Negativ rättelse efter att pengar betalats ut görs i det separata [bruttolöneåterkravsflödet](lon-komplettering.md). Originalutbetalningen bevaras, en fordran bokförs och faktiska inbetalningar samt eventuell skattekreditering registreras separat. Det ger korrigerat AGI-underlag i ursprungsmånaden utan minskat skatteavdrag. Allmän nettokvittning och direkt rättelse/inlämning hos Skatteverket ingår inte; rättsliga förutsättningar och tidpunkt måste granskas.
 
-CSV-exporten är **granskningsunderlag**. Den är inte Skatteverkets AGI-XML eller en skickad arbetsgivardeklaration. Inga löner eller skatter betalas via bank i denna demo.
+Löneområdets CSV är **granskningsunderlag**. Den separata [deklarationsarbetsytan](deklarationer.md) skapar AGI XML för stödda 2026-fall efter granskning. Ingen arbetsgivardeklaration skickas och inga löner eller skatter betalas via bank i denna demo.
 
 ## Tekniska kontrollpunkter
 

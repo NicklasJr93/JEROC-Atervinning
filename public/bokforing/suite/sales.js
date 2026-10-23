@@ -228,6 +228,7 @@ export function acceptQuote(state, id) {
 }
 
 export function invoiceFromQuote(state, id, payload) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.');
   return transact(state, draft => {
     const quote = draft.quotes.find(item => item.id === id);
     assert(quote && quote.status === 'accepted' && !quote.invoiceId, 'Godkänn offerten först. En offert kan bara faktureras en gång i demon.');
@@ -241,6 +242,7 @@ export function invoiceFromQuote(state, id, payload) {
 }
 
 export function createInvoice(state, payload) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.');
   return transact(state, draft => {
     const invoice = draftInvoice(draft, payload);
     draft.invoices.push(invoice);
@@ -249,6 +251,7 @@ export function createInvoice(state, payload) {
 }
 
 export function updateInvoiceDraft(state, id, payload) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.');
   return transact(state, draft => {
     const invoice = invoiceFor(draft, id);
     assert(invoice.status === 'draft' && invoice.kind === 'invoice', 'En utfärdad faktura kan inte skrivas om. Skapa en kreditfaktura.');
@@ -260,9 +263,11 @@ export function updateInvoiceDraft(state, id, payload) {
   });
 }
 
-export function issueInvoice(state, id) { return transact(state, draft => issueInDraft(draft, id)); }
+export function issueInvoice(state, id) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.'); return transact(state, draft => issueInDraft(draft, id)); }
 
 export function copyInvoice(state, id, { date, dueDate }) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.');
   return transact(state, draft => {
     const source = invoiceFor(draft, id);
     if (source.status !== 'draft') assert(source.bookingSnapshot === invoiceBookingSnapshot(source), 'Originalfakturans frysta uppgifter har ändrats.');
@@ -277,6 +282,8 @@ export function copyInvoice(state, id, { date, dueDate }) {
 }
 
 export function creditInvoice(state, id, { date, reason }) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.');
+  assert(!(state.rotCreditEvents ?? []).some(event => event.invoiceId === id), 'Fakturan har en ROT-rättelse. Hantera fler krediter i kredit- och återbetalningsflödet.');
   return transact(state, draft => {
     const invoice = standardInvoice(draft, id);
     assert(!invoice.settlementLastDate, 'Fakturan har redan krediter eller kvittningar. Använd kredit- och återbetalningsflödet.');
@@ -303,6 +310,7 @@ export function creditInvoice(state, id, { date, reason }) {
 }
 
 export function receivePayment(state, id, { date, amountCents, payer = 'customer', reference = '', bankEventId = null }) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.');
   return transact(state, draft => {
     const invoice = standardInvoice(draft, id);
     dateField(date, 'Betalningsdatum');
@@ -312,6 +320,9 @@ export function receivePayment(state, id, { date, amountCents, payer = 'customer
     cents(amountCents);
     assert(amountCents > 0, 'Betalningen måste vara större än noll.');
     assert(['customer', 'tax'].includes(payer), 'Välj kund eller Skatteverket som betalare.');
+    const rotCorrections = (draft.rotCreditEvents ?? []).filter(event => event.invoiceId === id);
+    assert(payer !== 'tax' || !rotCorrections.length, 'Fakturan har en ROT-rättelse. Registrera Skatteverkets betalning i det korrigerade ROT-flödet.');
+    assert(rotCorrections.every(event => date >= event.date), 'Betalningen får inte dateras före fakturans senaste ROT-rättelse.');
     assert(payer !== 'tax' || !(draft.rotPlans ?? []).some(plan => plan.invoiceId === id), 'Registrera utbetalningen i ROT-arbetsytan för fakturans delbegäran.');
     if (invoice.rot && payer === 'customer') assert(Number(date.slice(0, 4)) === invoice.rot.paymentYear, 'ROT-demon kräver att kundbetalningen ligger under det angivna betalningsåret.');
     const paymentReference = reference ? text(reference, 'Betalningsreferens', 100) : bankEventId ? `bank:${bankEventId}` : `${payer}:${date}:${amountCents}`;
@@ -352,6 +363,7 @@ export function recordReminder(state, id) {
 }
 
 export function requestRot(state, id, { date, workCompletedConfirmed = false, electronicPaymentConfirmed = false }) {
+  assert(!(state.rotCreditEvents ?? []).some(event => event.invoiceId === id), 'Fakturan har en ROT-rättelse. Förbered begäran i det korrigerade ROT-flödet.');
   return transact(state, draft => {
     const invoice = standardInvoice(draft, id);
     assert(!(draft.rotPlans ?? []).some(plan => plan.invoiceId === id), 'Förbered delbegäran i ROT-arbetsytan för den befintliga personfördelningen.');
@@ -376,6 +388,7 @@ export function requestRot(state, id, { date, workCompletedConfirmed = false, el
 }
 
 export function decideRot(state, id, { date, approvedCents, reason = '' }) {
+  assert(!(state.rotCreditEvents ?? []).some(event => event.invoiceId === id), 'Fakturan har en ROT-rättelse. Registrera beslutet i det korrigerade ROT-flödet.');
   return transact(state, draft => {
     const invoice = standardInvoice(draft, id);
     assert(!(draft.rotPlans ?? []).some(plan => plan.invoiceId === id), 'Registrera beslutet i ROT-arbetsytan för fakturans delbegäran.');

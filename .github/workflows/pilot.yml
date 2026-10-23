@@ -47,6 +47,11 @@ jobs:
             expo/package-lock.json
       - run: npm ci --include=dev --no-audit --no-fund
       - run: npm --prefix expo ci --include=dev --no-audit --no-fund
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the AGI schema test validator
+        run: python -m pip install lxml==6.0.2
       - run: npm run build
       - run: npm run expo:check
       - name: Require the isolated PostgreSQL service
@@ -86,6 +91,12 @@ jobs:
           tests/bokforing-tax-rot.spec.ts
           tests/bokforing-commercial.spec.ts
           tests/bokforing-year-workspace.spec.ts
+          tests/bokforing-cash-method.spec.ts
+          tests/bokforing-fx.spec.ts
+          tests/bokforing-sie.spec.ts
+          tests/bokforing-payroll-completion.spec.ts
+          tests/bokforing-rot-credit-completion.spec.ts
+          tests/bokforing-declarations.spec.ts
           tests/company-register-entrypoints.spec.ts
           tests/customer-form.spec.ts
           tests/customer-intake.spec.ts

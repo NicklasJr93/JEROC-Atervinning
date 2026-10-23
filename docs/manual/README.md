@@ -94,8 +94,8 @@ före en genomgång med redovisningskunnig.
 
 - **Krediter & återbetalningar:** välj faktura, ange nettobelopp per originalrad
   och orsak. Krediten bevarar originalet. Tillgodon kan återbetalas eller kvittas
-  mot samma motparts faktura. ROT- och intäktsperiodiserade kundfakturor kräver
-  egna rättelseflöden och spärras här.
+  mot samma motparts faktura. ROT- och intäktsperiodiserade kundfakturor har
+  ett särskilt granskningssteg som visar följdändringarna före kreditering.
 - **Artiklar & avtal:** artikelregister, kundpris, återkommande fakturautkast,
   påminnelseunderlag, projektets lageruttag och intäktsperiodisering. Planerna
   skapar utkast att granska; inget skickas automatiskt.
@@ -108,8 +108,19 @@ före en genomgång med redovisningskunnig.
   [moms- och ROT-avgränsning](../../bokforing/moms-och-rot-utbyggnad.md).
 - **Bokslut & räkenskapsår:** dokumentera och granska bokslutsbilagor,
   stäng året och öppna nästa. Historiska poster, öppna fakturor och planer
-  behålls. Årsredovisnings- och skatteexport är granskningsunderlag, inte
-  inlämningsklara dokument. Se [årshanteringen](../../bokforing/bokslut-och-rakenskapsar.md).
+  behålls. Se [årshanteringen](../../bokforing/bokslut-och-rakenskapsar.md).
+- **SIE · import/export:** ladda upp SIE 4, granska kontomappning och importera
+  verifikationer. Exportera riktig SIE-fil för överföring eller extern granskning.
+  SIE skapar inte automatiskt reskontra eller bilagor.
+- **Valutafakturor:** skapa EUR-/USD-fakturor, registrera betalningar i SEK,
+  krediter och återbetalningar samt granska valutakurser vid årsslut.
+- **Kontantmetoden:** starta ett tomt övningsbolag och hantera fakturor som
+  bokförs vid betalning eller årsslut. Starten ersätter den lokala demoboken
+  efter bekräftelse; exportera först om du vill behålla det tidigare exemplet.
+- **Deklarationer & årsredovisning:** skapa granskade AGI- och moms-XML-filer,
+  INK2/INK2R/INK2S i SRU-format för 2026P4 och ett utskrivbart K2-dokument
+  för den stödda bolagstypen. Filerna lämnas in manuellt. Läs
+  [format, år och begränsningar](../../bokforing/deklarationer.md).
 
 Förslaget till en framtida personlig SaaS-assistent beskrivs i
 [Ande per kundbolag](../../bokforing/ai-ande-saas.md). Den publika

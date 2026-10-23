@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://xmls.skatteverket.se/se/skatteverket/da/instans/schema/1.1"
+           xmlns="http://xmls.skatteverket.se/se/skatteverket/da/instans/schema/1.1"
+           xmlns:agd="http://xmls.skatteverket.se/se/skatteverket/da/komponent/schema/1.1"
+           elementFormDefault="qualified" attributeFormDefault="unqualified" version="1.1">
+
+  <xs:import namespace="http://xmls.skatteverket.se/se/skatteverket/da/komponent/schema/1.1"
+             schemaLocation="arbetsgivardeklaration_component_1.1.xsd"/>
+
+  <xs:annotation>
+    <xs:appinfo>
+      <SchemaMetadata xmlns="se/skatteverket/zl/SchemaMetadata/1.0"
+        xmlns:dc="http://purl.org/dc/elements/1.1/"
+        xmlns:dcq="http://purl.org/dc/terms/">
+        <dc:title>Individuppgifter</dc:title>
+        <dc:description>Individuppgifter för Skatteverket</dc:description>
+        <dc:publisher>Skatteverket</dc:publisher>
+        <dc:creator>
+          <dcq:contact>IDAG projektet</dcq:contact>
+          <dcq:owner>Underhåll/Drift</dcq:owner>
+        </dc:creator>
+        <dc:date>
+          <dcq:created>2025-03-17 - Version 1.1.</dcq:created>
+        </dc:date>
+        <dc:subject>Hanterar individuppgifter för arbetsgivardeklarationer.</dc:subject>
+      </SchemaMetadata>
+    </xs:appinfo>
+  </xs:annotation>
+
+  <xs:element name="Skatteverket">
+    <xs:annotation>
+        <xs:documentation>Huvuduppgift, individuppgifter och frånvarouppgifter</xs:documentation>
+    </xs:annotation>
+
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="agd:Avsandare"/>
+        <xs:element ref="agd:Blankettgemensamt"/>
+        <xs:choice>
+          <xs:sequence>
+            <xs:element ref="agd:Blankett" maxOccurs="unbounded"/>
+            <xs:element ref="agd:Franvarouppgift" maxOccurs="unbounded" minOccurs="0"/>
+          </xs:sequence>
+          <xs:sequence>
+            <xs:element ref="agd:Franvarouppgift" maxOccurs="unbounded"/>
+          </xs:sequence>
+        </xs:choice>
+      </xs:sequence>
+      <xs:attribute name="omrade" type="xs:string" use="required"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

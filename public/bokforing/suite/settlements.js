@@ -6,6 +6,8 @@ import { invoiceBookingSnapshot, getInvoiceTotals } from './sales.js';
 import { billSnapshot } from './purchase-data.js';
 import * as Purchases from './operations.js';
 import { fiscalPeriodForDate } from './fiscal-periods.js';
+import { calculateRevenueCreditAdjustments, revenuePrincipal } from './revenue-credit.js';
+import { applyRotCreditDraft, getRotCreditState, rotCreditLimit, syncRotCredit, validateRotCreditEvents } from './rot-credit.js';
 
 const MIRRORS = ['settlementCreditCents', 'settlementRefundCents', 'settlementOffsetInCents', 'settlementOffsetOutCents'];
 const row = (account, debitCents = 0, creditCents = 0) => ({ account, debitCents, creditCents });
@@ -21,8 +23,6 @@ function sourceDocument(state, side, id) {
   assert(['customer', 'supplier'].includes(side), 'Välj kund eller leverantör.');
   const source = (side === 'customer' ? state.invoices : state.bills).find(item => item.id === id);
   assert(source && (side === 'customer' ? source.kind === 'invoice' && source.status === 'issued' : source.status === 'booked'), 'Välj en bokförd originalfaktura.');
-  assert(!source.rot && !state.rotClaims.some(claim => claim.invoiceId === source.id), 'ROT-fakturans skattereduktion måste hanteras i ett särskilt rättelseflöde. Den kan inte krediteras eller kvittas här.');
-  assert(side !== 'customer' || !(state.revenueSchedules ?? []).some(schedule => schedule.invoiceId === source.id), 'Fakturans intäktsperiodisering behöver återföras innan kredit eller kvittning kan göras.');
   assert(source.bookingSnapshot === documentSnapshot(side, source), 'Originalfakturans frysta uppgifter har ändrats.');
   const entry = state.entries.find(item => item.id === source.entryId);
   assert(entry && entry.sourceId === source.id && entry.sourceType === (side === 'customer' ? 'invoice' : 'bill'), 'Originalfakturans bokföring saknas.');
@@ -33,7 +33,7 @@ export function getDocumentBalance(side, document) {
   const gross = side === 'customer' ? getInvoiceTotals(document).grossCents : document.totalCents;
   return sum([gross, -sum((document.payments ?? []).map(payment => payment.amountCents)),
     -(document.settlementCreditCents ?? 0), document.settlementRefundCents ?? 0,
-    document.settlementOffsetOutCents ?? 0, -(document.settlementOffsetInCents ?? 0)]);
+    document.settlementOffsetOutCents ?? 0, -(document.settlementOffsetInCents ?? 0), side === 'customer' ? document.rotRepaymentCents ?? 0 : 0]);
 }
 
 export function getDocumentSettlementSummary(side, document) {
@@ -64,7 +64,7 @@ export function getCreditSourceLines(state, side, id) {
   });
 }
 
-function creditRows(state, side, id, selections, priorCredits = null) {
+function creditRows(state, side, id, selections, priorCredits = null, beforeEntryId = null) {
   assert(Array.isArray(selections) && selections.length > 0 && selections.length <= 100, 'Välj minst en rad att kreditera.');
   const lines = getCreditSourceLines(state, side, id);
   const seen = new Set(), selected = [], posting = [];
@@ -89,7 +89,15 @@ function creditRows(state, side, id, selections, priorCredits = null) {
     if (priorCredits) priorCredits.set(selection.index, before + amount);
   }
   const amountCents = sum(posting.filter(item => item.account === control).map(item => side === 'customer' ? item.creditCents : item.debitCents));
-  return { lines: selected, rows: posting, amountCents: cents(amountCents, false) };
+  const revenueAdjustments=side==='customer'?calculateRevenueCreditAdjustments(state,id,sum(selected.map(item=>item.netCents)),beforeEntryId):[];
+  for(const adjustment of revenueAdjustments){
+    let remaining=adjustment.deferredCents;
+    const plan=(state.revenueSchedules??[]).find(item=>item.id===adjustment.planId);
+    for(const item of posting)if(item.account===plan.revenueAccount&&item.debitCents&&remaining){const take=Math.min(item.debitCents,remaining);item.debitCents-=take;remaining-=take;}
+    assert(remaining===0,'Periodiseringskrediten överstiger intäktsraden.');
+    if(adjustment.deferredCents)posting.push(row('2990',adjustment.deferredCents));
+  }
+  return { lines: selected, rows: posting.filter(item=>item.debitCents||item.creditCents), amountCents: cents(amountCents, false), revenueAdjustments };
 }
 
 const recordSnapshot = record => JSON.stringify(Object.fromEntries(Object.entries(record).filter(([name]) => name !== 'snapshot')));
@@ -153,15 +161,43 @@ function uniqueReference(state, side, kind, sourceId, reference) {
   assert(!records(state).some(record => record.side === side && record.kind === kind && record.documentId === sourceId && record.reference === reference), 'Åtgärden med den här referensen är redan bokförd.');
 }
 
-export function createCreditNote(state, { side, documentId, date, reason, reference, lines }) {
+// A preview is calculated from the original journal and current correction history.
+// The fingerprint prevents a saved review from silently applying to a new balance.
+export function previewCreditNote(state,payload) {
+  const {side,documentId,date}=payload,source=sourceDocument(state,side,documentId);
+  operationDate(state,side,source,date);
+  text(payload.reason,'Krediteringsorsak');text(payload.reference,'Kreditens referens',100);
+  uniqueReference(state,side,'credit',documentId,payload.reference);
+  assert((state.revenueSchedules??[]).filter(item=>item.invoiceId===documentId).every(item=>item.date<=date&&item.postings.every(posting=>posting.date<=date)),'Krediten får inte dateras före intäktsperiodiseringens start eller redan bokförd intäktsföring.');
+  const calculated=creditRows(state,side,documentId,payload.lines);
+  const hasRevenue=side==='customer'&&(state.revenueSchedules??[]).some(item=>item.invoiceId===documentId);
+  let rot=null;
+  if(source.rot){
+    const current=getRotCreditState(state,documentId),before=current?.allowedCents??source.rot.approvedCents??source.rot.reservedCents;
+    const temporary={...state,settlements:[...records(state),{kind:'credit',side,documentId,lines:calculated.lines,amountCents:calculated.amountCents}]};
+    const after=Math.min(before,rotCreditLimit(temporary,documentId));
+    const paid=sum(source.payments.filter(item=>item.payer==='tax').map(item=>item.amountCents))-(source.rotRepaymentCents??0);
+    rot={beforeCents:before,afterCents:after,taxRepaymentCents:Math.max(0,paid-after)};
+  }
+  const input=JSON.stringify([state.entries,state.invoices,state.bills,state.settlements,state.rotCreditEvents,state.revenueSchedules]);
+  let hash=2166136261;for(let i=0;i<input.length;i++)hash=Math.imul(hash^input.charCodeAt(i),16777619);
+  return {payload:{side,documentId,date,reason:payload.reason,reference:payload.reference,lines:calculated.lines},fingerprint:(hash>>>0).toString(16),hasRevenue,rot,...calculated};
+}
+
+export function createCreditNote(state, { side, documentId, date, reason, reference, lines, specialReviewed=false, rotCaseAdjusted=false, taxRefundConfirmed=false, taxReference='' }) {
   return transition(state, draft => {
     const source = sourceDocument(draft, side, documentId);
     operationDate(draft, side, source, date);
+    assert((draft.revenueSchedules??[]).filter(item=>item.invoiceId===documentId).every(item=>item.date<=date&&item.postings.every(posting=>posting.date<=date)),'Krediten får inte dateras före intäktsperiodiseringens start eller redan bokförd intäktsföring.');
     reason = text(reason, 'Krediteringsorsak'); reference = text(reference, 'Kreditens referens', 100);
     uniqueReference(draft, side, 'credit', documentId, reference);
     const calculated = creditRows(draft, side, documentId, lines);
-    addRecord(draft, { kind: 'credit', side, documentId, sourceEntryId: source.entryId, sourceSnapshot: documentSnapshot(side, source),
-      date, reason, reference, number: nextCreditNumber(draft, side), lines: calculated.lines, amountCents: calculated.amountCents }, calculated.rows);
+    const hasRevenue=side==='customer'&&(draft.revenueSchedules??[]).some(item=>item.invoiceId===documentId);
+    if(hasRevenue||source.rot)assert(specialReviewed===true,'Granska och bekräfta ROT eller intäktsperiodisering före bokföring.');
+    const record=addRecord(draft, { kind: 'credit', side, documentId, sourceEntryId: source.entryId, sourceSnapshot: documentSnapshot(side, source),
+      date, reason, reference, number: nextCreditNumber(draft, side), lines: calculated.lines, amountCents: calculated.amountCents, ...(hasRevenue?{revenueAdjustments:calculated.revenueAdjustments,specialReviewed:true}:{}) }, calculated.rows);
+    if(source.rot)applyRotCreditDraft(draft,source,record,{rotCaseAdjusted,taxRefundConfirmed,taxReference,reason});
+    for(const plan of draft.revenueSchedules??[])if(plan.invoiceId===documentId&&revenuePrincipal(draft,plan).principalCents===0)plan.status='cancelled';
   });
 }
 
@@ -182,6 +218,7 @@ export function refundCredit(state, { side, documentId, date, amountCents, refer
       date, reference, amountCents, bankEventId: bankEventId || nextId(draft, 'bank') }, posting);
     if (bank) bank.matchedEntryId = record.entryId;
     else draft.bankTransactions.push({ id: record.bankEventId, date, description: `Återbetalning · ${source.number} · ${reference}`, account: '1930', amountCents: sign * amountCents, matchedEntryId: record.entryId });
+    if(source.rot&&getRotCreditState(draft,source.id))syncRotCredit(draft,source.id);
   });
 }
 
@@ -191,6 +228,7 @@ function sameParty(side, source, target) {
 export function offsetCredit(state, { side, documentId, targetDocumentId, date, amountCents, reference }) {
   return transition(state, draft => {
     const source = sourceDocument(draft, side, documentId), target = sourceDocument(draft, side, targetDocumentId);
+    assert(!source.rot&&!target.rot,'ROT-fakturor kvittas inte; använd spårbar kundbetalning eller återbetalning.');
     assert(source.id !== target.id && sameParty(side, source, target), 'Kvittning kräver två olika fakturor för samma kund eller leverantör.');
     operationDate(draft, side, source, date, target.id); operationDate(draft, side, target, date, source.id);
     amountCents = cents(amountCents, false); reference = text(reference, 'Kvittningsreferens', 100);
@@ -219,9 +257,12 @@ export function validateSettlements(state) {
   const all = records(state), ids = new Set(), entryIds = new Set(), numbers = new Set(state.invoices.map(item => item.number).filter(Boolean)), references = new Set();
   const prior = [], byLine = new Map(), mirrored = new Map();
   const take = (side, id) => { const idKey = key(side, id); if (!mirrored.has(idKey)) mirrored.set(idKey, { ...mirrorValues(), settlementLastDate: '' }); return mirrored.get(idKey); };
-  const balanceBefore = (side, source, date) => {
-    const values = mirrored.get(key(side, source.id)) ?? mirrorValues();
-    return getDocumentBalance(side, { ...source, payments: source.payments.filter(payment => payment.date <= date), ...values });
+  const balanceBefore = (side, source, record) => {
+    const values = mirrored.get(key(side, source.id)) ?? mirrorValues(), index=state.entries.findIndex(entry=>entry.id===record.entryId);
+    const priorEntry=id=>state.entries.findIndex(entry=>entry.id===id)<index;
+    const corrected=getRotCreditState(state,source.id);
+    const repayments=corrected?corrected.events[0].original.rotRepaymentCents+sum(corrected.events.filter(event=>(event.kind==='credit'||event.kind==='recovery')&&event.entryId&&priorEntry(event.entryId)).map(event=>event.kind==='credit'?event.taxRepaymentCents:event.amountCents)):source.rotRepaymentCents??0;
+    return getDocumentBalance(side, { ...source, rotRepaymentCents:repayments,payments: source.payments.filter(payment => payment.date <= record.date&&priorEntry(payment.entryId)), ...values });
   };
   for (const record of all) {
     assert(record && typeof record.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(record.id) && !ids.has(record.id), 'Kredit- eller återbetalnings-ID är ogiltigt eller återanvänt.'); ids.add(record.id);
@@ -238,16 +279,18 @@ export function validateSettlements(state) {
     let expected;
     if (record.kind === 'credit') {
       text(record.reason, 'Krediteringsorsak');
+      if(record.side==='customer')assert((state.revenueSchedules??[]).filter(plan=>plan.invoiceId===record.documentId).every(plan=>plan.date<=record.date),'Krediten får inte dateras före intäktsperiodiseringens start.');
       assert(new RegExp(`^${record.side === 'customer' ? 'K' : 'LK'}-\\d{4,}$`).test(record.number) && !numbers.has(record.number), 'Kreditnotans nummer är ogiltigt eller återanvänt.'); numbers.add(record.number);
       assert(record.sourceSnapshot === documentSnapshot(record.side, source), 'Kreditnotans originaluppgifter har ändrats.');
       const idKey = key(record.side, source.id); if (!byLine.has(idKey)) byLine.set(idKey, new Map());
       const replay = { ...state, settlements: prior };
-      const calculated = creditRows(replay, record.side, source.id, record.lines, byLine.get(idKey));
+      const calculated = creditRows(replay, record.side, source.id, record.lines, byLine.get(idKey),record.entryId);
+      assert(JSON.stringify(record.revenueAdjustments??[])===JSON.stringify(calculated.revenueAdjustments)&&(!calculated.revenueAdjustments.length||record.specialReviewed===true),'Kreditens periodiseringsrättelse har ändrats.');
       assert(calculated.amountCents === record.amountCents && JSON.stringify(calculated.lines) === JSON.stringify(record.lines), 'Kreditnotans belopp eller rader har ändrats.');
       expected = calculated.rows;
       values.settlementCreditCents = cents(values.settlementCreditCents + record.amountCents);
     } else if (record.kind === 'refund') {
-      assert(record.amountCents <= -balanceBefore(record.side, source, record.date), 'Återbetalningen saknar ett tillräckligt tillgodobelopp vid betalningsdatumet.');
+      assert(record.amountCents <= -balanceBefore(record.side, source, record), 'Återbetalningen saknar ett tillräckligt tillgodobelopp vid betalningsdatumet.');
       const sign = record.side === 'customer' ? -1 : 1;
       expected = record.side === 'customer' ? [row(control, record.amountCents), row('1930', 0, record.amountCents)] : [row('1930', record.amountCents), row(control, 0, record.amountCents)];
       const bank = state.bankTransactions.filter(item => item.matchedEntryId === record.entryId);
@@ -256,7 +299,7 @@ export function validateSettlements(state) {
     } else {
       const target = sourceDocument(state, record.side, record.targetDocumentId);
       assert(source.id !== target.id && sameParty(record.side, source, target) && record.targetEntryId === target.entryId && record.date >= target.date, 'Kvittningens målfaktura eller motpart är ogiltig.');
-      assert(record.amountCents <= -balanceBefore(record.side, source, record.date) && record.amountCents <= balanceBefore(record.side, target, record.date), 'Kvittningen överstiger tillgodobelopp eller obetald faktura.');
+      assert(record.amountCents <= -balanceBefore(record.side, source, record) && record.amountCents <= balanceBefore(record.side, target, record), 'Kvittningen överstiger tillgodobelopp eller obetald faktura.');
       expected = [row(control, record.amountCents), row(control, 0, record.amountCents)];
       values.settlementOffsetOutCents = cents(values.settlementOffsetOutCents + record.amountCents);
       const targetValues = take(record.side, target.id);
@@ -281,7 +324,9 @@ export function validateSettlements(state) {
     }
   }
   validateManagedCostCoverage(state, all);
-  return { claimedEntryIds: [...entryIds], receivableAdjustmentCents, payableAdjustmentCents };
+  const rotCredits=validateRotCreditEvents(state);
+  rotCredits.claimedEntryIds.forEach(id=>{assert(!entryIds.has(id),'ROT-återbetalningen har dubbel bokföringsreferens.');entryIds.add(id);});
+  return { claimedEntryIds: [...entryIds], receivableAdjustmentCents:receivableAdjustmentCents+rotCredits.receivableAdjustmentCents, payableAdjustmentCents };
 }
 
 function validateManagedCostCoverage(state, all) {

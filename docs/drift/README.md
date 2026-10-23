@@ -192,7 +192,9 @@ Ogiltiga äldre exempel bevaras för explicit reset; giltiga gamla exempel kan
 läsas och får en ny lagringsrevision vid nästa lyckade skrivning.
 
 GitHub-kontrollen i `.github/workflows/pilot.yml` omfattar browserproven för
-de fem nya arbetsytorna tillsammans med tidigare bokföringsregressioner.
+ekonomiarbetsytorna, SIE, valuta, kontantmetod och deklarationer tillsammans
+med tidigare bokföringsregressioner. AGI-schemaproven kräver Python 3 och
+`lxml`; CI installerar den låsta testvalidatorn innan servertesterna körs.
 Lokalt eller i CI ska resultatet för den faktiska committen dokumenteras;
 antal från en tidigare etapp är inte testbevis för en senare version.
 

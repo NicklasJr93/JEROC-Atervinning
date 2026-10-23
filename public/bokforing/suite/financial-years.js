@@ -21,6 +21,29 @@ const financialReportSignature = report => JSON.stringify({
     .sort((a, b) => a.number.localeCompare(b.number)),
 });
 
+// Keep original evidence available alongside the year-specific journal. Some
+// evidence is created after balance day (for example the annual declaration),
+// so select it by the period it describes rather than its creation timestamp.
+function sourceExtensionsThrough(state, end) {
+  const dateFor = (key, record) => {
+    if (key === 'declarations') return record.payload?.to ?? record.payload?.end ?? (record.payload?.month ? `${record.payload.month}-01` : record.date);
+    if (key === 'sieImports') return record.year?.start;
+    if (key === 'creditPreviews') return record.payload?.date;
+    if (key === 'invoiceCreditAdjustments') return record.date ?? record.payload?.date ?? state.entries.find(entry => entry.id === record.entryId)?.date ?? state.invoices.find(invoice => invoice.id === record.invoiceId)?.date;
+    return record.date;
+  };
+  return Object.fromEntries([
+    'taxTransactions', 'rotPlans', 'rotApplications', 'rotRepayments', 'rotCreditEvents',
+    'payrollProfiles', 'payrollBatches', 'payrollVacationYears', 'payrollRecoveries', 'settlements',
+    'commercialArticles', 'commercialPrices', 'commercialInvoiceOrigins', 'recurringPlans', 'commercialReminders',
+    'projectStockLinks', 'revenueSchedules', 'projectWorkpapers', 'invoiceCreditAdjustments', 'creditPreviews',
+    'fxDocuments', 'fxEvents', 'cashDocuments', 'cashEvents', 'sieImports', 'declarations',
+  ].filter(key => Array.isArray(state[key])).map(key => [key, clone(state[key].filter(record => {
+    const date = dateFor(key, record);
+    return !date || date <= end;
+  }))]));
+}
+
 
 function archiveSnapshot(state, closure) {
   const start = closure.fiscalYearStart; const end = closure.fiscalYearEnd;
@@ -34,9 +57,7 @@ function archiveSnapshot(state, closure) {
     assets: clone(state.assets.filter(onOrBefore)), accruals: clone(state.accruals.filter(onOrBefore)),
     inventoryItems: clone(state.inventoryItems), vatReturns: clone(state.vatReturns.filter(onOrBefore)),
     payrollRuns: clone(state.payrollRuns.filter(onOrBefore)),
-    extensions: Object.fromEntries(['taxTransactions', 'rotPlans', 'rotApplications', 'rotRepayments', 'payrollProfiles', 'payrollBatches', 'settlements',
-      'commercialArticles', 'commercialPrices', 'commercialInvoiceOrigins', 'recurringPlans', 'commercialReminders', 'projectStockLinks', 'revenueSchedules', 'projectWorkpapers']
-      .filter(key => Array.isArray(state[key])).map(key => [key, clone(state[key].filter(onOrBefore))])),
+    extensions: sourceExtensionsThrough(state, end),
     workpapers: clone((state.yearWorkpapers ?? []).filter(item => item.fiscalYearStart === start && item.fiscalYearEnd === end)),
   };
 }
@@ -207,6 +228,7 @@ export function exportYearReview(state, start = state.company.fiscalYearStart, e
   assert(period, 'Välj ett registrerat räkenskapsår.');
   return { kind: 'Bokslutspaket för granskning', version: 1, period: { start, end }, company: clone(period.snapshot?.company ?? state.company),
     report: getYearReports(state, { start, end }), archivedSnapshot: period.snapshot ? clone(period.snapshot) : null,
+    sourceExtensions: period.snapshot ? clone(period.snapshot.extensions) : sourceExtensionsThrough(state, end),
     workpapers: clone((state.yearWorkpapers ?? []).filter(item => item.fiscalYearStart === start && item.fiscalYearEnd === end)),
     annualReportDraft: annualReportDraft(state, { start, end }), generatedAt: new Date().toISOString(), submissionReady: false };
 }

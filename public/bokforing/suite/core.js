@@ -8,6 +8,7 @@ export const ACCOUNTS = Object.freeze([
   ['1460', 'Lager av handelsvaror'],
   ['1510', 'Kundfordringar'],
   ['1630', 'Skattekonto'],
+  ['1680', 'Andra kortfristiga fordringar'],
   ['1710', 'Förutbetalda hyreskostnader'],
   ['1790', 'Övriga förutbetalda kostnader och upplupna intäkter'],
   ['1910', 'Kassa'],
@@ -18,6 +19,7 @@ export const ACCOUNTS = Object.freeze([
   ['2099', 'Årets resultat'],
   ['2350', 'Långfristiga lån'],
   ['2440', 'Leverantörsskulder'],
+  ['2490', 'Övriga kortfristiga skulder'],
   ['2510', 'Skatteskulder'],
   ['2611', 'Utgående moms 25 %'],
   ['2614', 'Utgående moms, omvänd betalningsskyldighet'],
@@ -38,6 +40,7 @@ export const ACCOUNTS = Object.freeze([
   ['2990', 'Övriga upplupna kostnader och förutbetalda intäkter'],
   ['3000', 'Försäljning inom Sverige'],
   ['3231', 'Försäljning inom byggsektorn, omvänd moms'],
+  ['3960', 'Valutakursvinster på rörelsefordringar och rörelseskulder'],
   ['3973', 'Vinst vid avyttring av inventarier'],
   ['4010', 'Inköp av varor och material'],
   ['4425', 'Inköpta tjänster i Sverige, omvänd moms 25 %'],
@@ -55,6 +58,7 @@ export const ACCOUNTS = Object.freeze([
   ['7390', 'Övriga kostnadsersättningar och förmåner'],
   ['7510', 'Arbetsgivaravgifter'],
   ['7832', 'Avskrivningar på inventarier och verktyg'],
+  ['7960', 'Valutakursförluster på rörelsefordringar och rörelseskulder'],
   ['7973', 'Förlust vid avyttring av inventarier'],
   ['8310', 'Ränteintäkter'],
   ['8410', 'Räntekostnader'],
@@ -64,7 +68,7 @@ export const ACCOUNTS = Object.freeze([
 
 const accountNumbers = new Set(ACCOUNTS.map(account => account.number));
 const arrays = Object.freeze(['entries', 'activity', 'customers', 'suppliers', 'projects', 'quotes', 'invoices', 'bills', 'bankTransactions', 'employees', 'payrollRuns', 'assets', 'accruals', 'inventoryItems', 'inventoryValuations', 'vatReturns', 'rotClaims', 'yearClosures']);
-const optionalArrays = Object.freeze(['settlements', 'payrollProfiles', 'payrollBatches', 'fiscalYears', 'yearWorkpapers', 'taxTransactions', 'rotPlans', 'rotApplications', 'rotRepayments', 'commercialArticles', 'commercialPrices', 'commercialInvoiceOrigins', 'recurringPlans', 'commercialReminders', 'projectStockLinks', 'revenueSchedules', 'projectWorkpapers']);
+const optionalArrays = Object.freeze(['settlements', 'payrollProfiles', 'payrollBatches', 'fiscalYears', 'yearWorkpapers', 'taxTransactions', 'rotPlans', 'rotApplications', 'rotRepayments', 'rotCreditEvents', 'commercialArticles', 'commercialPrices', 'commercialInvoiceOrigins', 'recurringPlans', 'commercialReminders', 'projectStockLinks', 'revenueSchedules', 'projectWorkpapers', 'sieImports', 'payrollVacationYears', 'payrollRecoveries', 'declarations', 'invoiceCreditAdjustments', 'creditPreviews', 'fxDocuments', 'fxEvents', 'cashDocuments', 'cashEvents']);
 const identifier = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value);
 const boundedText = (value, maximum = 500) => typeof value === 'string' && value.trim().length > 0 && value.length <= maximum && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value);
 const timestamp = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) && validDate(value.slice(0, 10)) && Number.isFinite(Date.parse(value));
@@ -211,7 +215,7 @@ export function validateState(state) {
   assert(Number.isSafeInteger(state.sequence) && state.sequence >= 0, 'Demons ID-serie är ogiltig.');
   const company = state.company;
   assert(company && boundedText(company.name, 150) && boundedText(company.orgNumber, 40), 'Företagsuppgifterna är ogiltiga.');
-  assert(company.currency === 'SEK' && company.method === 'invoice' && ['month', 'quarter', 'year'].includes(company.vatPeriod),
+  assert(company.currency === 'SEK' && ['invoice', 'cash'].includes(company.method) && ['month', 'quarter', 'year'].includes(company.vatPeriod),
     'Demons företagsinställningar stöds inte.');
   assert(validDate(company.fiscalYearStart) && validDate(company.fiscalYearEnd) && company.fiscalYearStart <= company.fiscalYearEnd,
     'Räkenskapsåret är ogiltigt.');

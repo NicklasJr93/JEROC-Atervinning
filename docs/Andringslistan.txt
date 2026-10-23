@@ -4184,3 +4184,27 @@ Status: Rättning 2026-10-23 efter ett återskapat fel på offentlig demo.
 - Kända serverfel mappas till fasta användartexter; råa leverantörsfel och
   hemligheter visas inte. Publik åtkomst och bokföringens spärrar är oförändrade.
 - Riktade prov och begränsningar: bokforing/granskning/2026-10-23-ande-svar.md.
+
+
+ÄL 169 – Fungerande bokföringsflöden, SIE och deklarationsfiler
+Status: Implementerad funktionsetapp 2026-10-23. Slutlig verifiering dokumenteras
+i bokforing/granskning/2026-10-23-funktionskomplettering.md.
+- SIE 4 med riktig PC8/CP437, importgranskning, kontomappning, atomisk
+  import, ursprungsfil, dubblettskydd och binär export. Reskontra och
+  dokumentbilagor skapas inte ur en SIE-fil. Otolkade dimensioner och
+  redan resultatbokade 8999-verifikationer stoppas uttryckligen.
+- EUR/USD-fakturor, delbetalningar i SEK, bankavgifter, kursdifferenser,
+  krediter, återbetalningar och granskad balansdagsvärdering.
+- Separat kontantmetodsbolag efter uttrycklig demo-reset: flera rader,
+  betalningsmoms, krediter, återbetalningar och obetalda poster över årsbyte.
+- Individuell semesterintjäning samt bruttolöneåterkrav med fordran,
+  återbetalningar, skattereglering och korrigerat AGI-underlag.
+- Granskad radkredit för ROT och intäktsperiodisering. Ursprung och
+  tidigare beslut bevaras; datum och följdändringar kontrolleras.
+- Verkliga AGI-/moms-XML-filer, INK2/INK2R/INK2S i SRU-ZIP för 2026P4
+  samt utskrivbar årsredovisning för det avgränsade K2-fallet.
+  AGI provas mot officiell XSD. Ingen myndighetsinlämning sker automatiskt.
+- Gemensam huvudbok, kontroller av nya reskontrasaldon, blockerade
+  utkast/årsslutsvärderingar och nya källunderlag i granskningspaket.
+- Uppdaterade wikiartiklar, användarguide och Andes kunskapspaket.
+  Browserlagring och publik demo kvarstår enligt den valda etappindelningen.

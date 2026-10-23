@@ -129,6 +129,7 @@ function billValues(draft, payload, excludeId = null) {
 }
 
 export function createBill(state, payload) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.');
   return transact(state, draft => {
     const bill = { id: nextId(draft, 'bill'), ...billValues(draft, payload), status: 'draft', payments: [] };
     draft.bills.push(bill);
@@ -137,6 +138,7 @@ export function createBill(state, payload) {
 }
 
 export function updateBillDraft(state, id, payload) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.');
   return transact(state, draft => {
     const bill = findBill(draft, id);
     assert(bill.status === 'draft', 'Endast ett leverantörsfakturautkast kan redigeras.');
@@ -201,6 +203,7 @@ export function addBillAttachments(state, id, attachments) {
 }
 
 export function bookBill(state, id) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.');
   return transact(state, draft => {
     const bill = findBill(draft, id);
     assert(bill.status === 'draft', 'Leverantörsfakturan är redan bokförd.');
@@ -217,6 +220,7 @@ export function bookBill(state, id) {
 }
 
 export function payBill(state, id, payload) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.');
   return transact(state, draft => {
     const bill = findBill(draft, id);
     assert(bill.status === 'booked', 'Bokför fakturan innan du registrerar en betalning.');
@@ -244,6 +248,7 @@ export function payBill(state, id, payload) {
 }
 
 export function creditBill(state, id, payload) {
+  assert(state.company.method !== 'cash', 'Detta bolag använder kontantmetoden. Öppna arbetsytan Kontantmetoden för fakturor och betalningar.');
   return transact(state, draft => {
     const bill = findBill(draft, id);
     assert(bill.status === 'booked', 'Endast en bokförd faktura kan krediteras.');
@@ -334,7 +339,7 @@ export function bookBankEvent(state, id, payload) {
 }
 
 function manualAccountAllowed(account) {
-  return typeof account === 'string' && !['1220', '1229', '1460', '1510', '1710', '1790', '2440', '2910', '2099', '3973', '4960', '7832', '7973', '8999'].includes(account) && !/^(26|27)/.test(account);
+  return typeof account === 'string' && !['1220', '1229', '1460', '1510', '1680', '1710', '1790', '2440', '2490', '2910', '2099', '3973', '4960', '7832', '7973', '8999'].includes(account) && !/^(26|27)/.test(account);
 }
 
 export function postManualEntry(state, payload) {

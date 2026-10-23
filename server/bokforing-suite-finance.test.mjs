@@ -237,9 +237,9 @@ test('årsavslut spärras vid lagerrörelse efter senaste värdering och släpps
   assert.equal(state.yearClosures[0].openingBalances.find(row => row.account === '1460').debitCents, 90_000);
 });
 
-test('bolagsinställningar tillåter inte flytt av bokförda år eller osupporterad metod', () => {
+test('bolagsinställningar tillåter inte flytt av bokförda år eller metodbyte på befintlig bokföring', () => {
   const state = opened();
   journalUnchanged(state, () => updateCompany(state, { fiscalYearStart: '2025-01-01' }), /inte flyttas/);
-  journalUnchanged(state, () => updateCompany(state, { method: 'cash' }), /faktureringsmetoden/);
+  journalUnchanged(state, () => updateCompany(state, { method: 'cash' }), /Metoden kan inte bytas/);
   const updated = updateCompany(state, { name: 'Fiktiva Hantverk AB', vatPeriod: 'month' }); assert.equal(updated.company.name, 'Fiktiva Hantverk AB'); assert.equal(updated.company.vatPeriod, 'month');
 });

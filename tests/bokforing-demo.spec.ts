@@ -169,6 +169,9 @@ test('osäker återläsningskvittens spärrar nytt försök och reload hittar ex
 });
 
 test('reset med sparfel bevarar demoboken och lyckad reset kräver en ny bekräftelse', async ({ page }) => {
+  // Two full reloads plus rejected and successful writes need a total budget
+  // independent of the strict per-assertion timeouts on a loaded CI worker.
+  test.setTimeout(90_000);
   await page.addInitScript(key => {
     const original = Storage.prototype.setItem;
     const browser = window as typeof window & { failNextDemoWrite?: boolean };

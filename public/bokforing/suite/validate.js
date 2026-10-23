@@ -16,6 +16,11 @@ import { validatePayrollBatches } from './payroll-engine.js';
 import { validateCommercialState } from './commercial.js';
 import { validateTaxTransactions } from './tax-ledger.js';
 import { validateRotApplications } from './rot-extended.js';
+import { validateSieImports } from './sie.js';
+import { validateFxState } from './fx.js';
+import { validateCashState } from './cash-method.js';
+import { getRotCreditState, rotCreditHistoricalInvoice } from './rot-credit.js';
+import { validateDeclarations } from './declarations.js';
 
 const debit = (account, amount) => ({ account, debitCents: amount, creditCents: 0 });
 const credit = (account, amount) => ({ account, debitCents: 0, creditCents: amount });
@@ -30,7 +35,7 @@ const unique = (items, key, label) => assert(new Set(items.map(item => item[key]
 const requireArray = (items, label, max = 20000) => assert(Array.isArray(items) && items.length <= max, `${label} har fel format.`);
 const positiveFields = (object, fields) => fields.forEach(key => cents(object[key]));
 const monthIndex = value => Number(value.slice(0, 4)) * 12 + Number(value.slice(5, 7)) - 1;
-const manualProtected = new Set(['1220', '1229', '1460', '1510', '1710', '1790', '2440', '2910', '2099', '8999', '4960', '7832', '3973', '7973']);
+const manualProtected = new Set(['1220', '1229', '1460', '1510', '1680', '1710', '1790', '2440', '2490', '2910', '2099', '8999', '4960', '7832', '3973', '7973']);
 
 function sides(rows) {
   const accounts = new Map();
@@ -156,10 +161,11 @@ export function validateSuiteState(state) {
     const customerPaid = total(invoice.payments.filter(item => item.payer === 'customer').map(item => item.amountCents));
     const taxPaid = total(invoice.payments.filter(item => item.payer === 'tax').map(item => item.amountCents));
     const extendedRot = (state.rotPlans ?? []).some(plan => plan.invoiceId === invoice.id);
-    const netTaxPaid = taxPaid - (extendedRot ? cents(invoice.rotRepaymentCents ?? 0) : 0);
+    const correctedRot = getRotCreditState(state, invoice.id);
+    const netTaxPaid = taxPaid - cents(invoice.rotRepaymentCents ?? 0);
     assert(netTaxPaid >= 0 && customerPaid <= totals.customerCents && netTaxPaid <= totals.rotCents && customerPaid + netTaxPaid <= totals.grossCents, 'Kundbetalningar överstiger fakturans kvarvarande belopp.');
     if (!invoice.rot) assert(taxPaid === 0, 'Skatteverkets betalning saknar ROT-underlag.');
-    else if (!extendedRot) {
+    else if (!extendedRot && !correctedRot) {
       const rot = invoice.rot; const calculation = calculateRot(invoice);
       if (invoice.status !== 'draft') {
         cents(rot.reservedCents, false); cents(rot.remainingCents);
@@ -194,7 +200,8 @@ export function validateSuiteState(state) {
   rotUse.forEach(value => assert(value <= ROT_RULES_2026.capCents, 'Samma persons registrerade ROT-reservationer överstiger årstaket.'));
   unique(state.rotClaims, 'invoiceId', 'ROT-begäran');
   for (const claim of state.rotClaims) {
-    const invoice = maps.invoices.get(claim.invoiceId);
+    const actualInvoice = maps.invoices.get(claim.invoiceId);
+    const invoice = actualInvoice ? rotCreditHistoricalInvoice(state, actualInvoice) : undefined;
     assert(invoice?.kind === 'invoice' && invoice.status === 'issued' && invoice.rot?.claimId === claim.id && ['prepared', 'approved', 'denied'].includes(claim.status), 'ROT-begäran saknar en giltig faktura.');
     date(claim.date, 'ROT-begäran'); cents(claim.requestedCents, false);
     const paidBeforeClaim = total(invoice.payments.filter(item => item.payer === 'customer' && item.date <= claim.date).map(item => item.amountCents));
@@ -378,8 +385,12 @@ export function validateSuiteState(state) {
   const commercialValidation = validateCommercialState(state);
   const taxValidation = validateTaxTransactions(state);
   const rotValidation = validateRotApplications(state);
+  const sieValidation = validateSieImports(state);
+  const fxValidation = validateFxState(state);
+  const cashValidation = validateCashState(state);
   validateYearWorkpapers(state);
-  for (const id of [...validateFiscalYears(state), ...settlementValidation.claimedEntryIds, ...payrollValidation.entryIds, ...commercialValidation.entryIds, ...taxValidation.claimedEntryIds, ...rotValidation.claimedEntryIds]) {
+  validateDeclarations(state);
+  for (const id of [...validateFiscalYears(state), ...settlementValidation.claimedEntryIds, ...payrollValidation.entryIds, ...commercialValidation.entryIds, ...taxValidation.claimedEntryIds, ...rotValidation.claimedEntryIds, ...sieValidation.claimedEntryIds, ...fxValidation.claimedEntryIds, ...cashValidation.claimedEntryIds]) {
     assert(!claimedEntries.has(id), 'En verifikation får inte användas av flera underlag.');
     claimedEntries.add(id);
   }
@@ -401,11 +412,11 @@ export function validateSuiteState(state) {
       const amount = Math.abs(event.amountCents); sameRows(entry.rows, event.amountCents > 0 ? [debit(eventAccount, amount), credit(others[0], amount)] : [debit(others[0], amount), credit(eventAccount, amount)], 'Bankverifikationen');
     } else assert(false, `Verifikationen ${entry.number} saknar ett giltigt underlag för ${entry.sourceType}.`);
   }
-  const openingBalance = account => sum(state.entries.filter(entry => entry.sourceType === 'opening').flatMap(entry => entry.rows.filter(row => row.account === account).map(row => row.debitCents - row.creditCents)));
+  const openingBalance = account => sum(state.entries.filter(entry => entry.sourceType === 'opening').flatMap(entry => entry.rows.filter(row => row.account === account).map(row => row.debitCents - row.creditCents))) + (sieValidation.accountAdjustments[account] ?? 0);
   const receivable = sum(state.invoices.filter(invoice => invoice.kind === 'invoice' && invoice.status === 'issued').map(invoice => getInvoiceTotals(invoice).grossCents - sum(invoice.payments.map(payment => payment.amountCents))));
   const payable = sum(state.bills.filter(bill => bill.status === 'booked').map(bill => bill.totalCents - sum(bill.payments.map(payment => payment.amountCents))));
-  assert(accountBalance(state, '1510') === openingBalance('1510') + receivable + settlementValidation.receivableAdjustmentCents + rotValidation.receivableAdjustmentCents, 'Kundreskontran stämmer inte med huvudboken.');
-  assert(accountBalance(state, '2440') === openingBalance('2440') - payable - settlementValidation.payableAdjustmentCents, 'Leverantörsreskontran stämmer inte med huvudboken.');
+  assert(accountBalance(state, '1510') === openingBalance('1510') + receivable + settlementValidation.receivableAdjustmentCents + rotValidation.receivableAdjustmentCents + fxValidation.receivableAdjustmentCents + cashValidation.receivableAdjustmentCents, 'Kundreskontran stämmer inte med huvudboken.');
+  assert(accountBalance(state, '2440') === openingBalance('2440') - payable - settlementValidation.payableAdjustmentCents - fxValidation.payableAdjustmentCents - cashValidation.payableAdjustmentCents, 'Leverantörsreskontran stämmer inte med huvudboken.');
   const activeAssets = state.assets.filter(asset => asset.status === 'active');
   for (const allocation of [...state.assets.map(asset => ({ date: asset.date, account: '5410' })), ...state.accruals.map(accrual => ({ date: accrual.date, account: accrual.expenseAccount }))]) {
     const available = sum(getExpenseBasisEntries(state, allocation.date).filter(entry => entry.date <= allocation.date)
@@ -440,6 +451,8 @@ export function validateSuiteState(state) {
   assert(accountBalance(state, '2910') === openingBalance('2910') - sum(postedPayroll.filter(run => run.status === 'posted').flatMap(run => run.lines.map(line => line.netCents))) + (payrollValidation.accountBalances['2910'] ?? 0), 'Löneskulden stämmer inte med obetalda lönekörningar.');
   assert(accountBalance(state, '2710') === openingBalance('2710') - sum(postedPayroll.filter(run => !run.taxesSettled).flatMap(run => run.lines.map(line => line.withholdingCents))) + (payrollValidation.accountBalances['2710'] ?? 0), 'Personalskatten stämmer inte med lönekörningarna.');
   assert(accountBalance(state, '2731') === openingBalance('2731') - sum(postedPayroll.filter(run => !run.taxesSettled).flatMap(run => run.lines.map(line => line.employerCents))) + (payrollValidation.accountBalances['2731'] ?? 0), 'Arbetsgivaravgifterna stämmer inte med lönekörningarna.');
+  assert(accountBalance(state, '1680') === openingBalance('1680') + (payrollValidation.accountBalances['1680'] ?? 0) + (cashValidation.accountAdjustments?.['1680'] ?? 0), 'Fordringsregistren stämmer inte med huvudboken.');
+  assert(accountBalance(state, '2490') === openingBalance('2490') + (cashValidation.accountAdjustments?.['2490'] ?? 0), 'Kreditnotornas återbetalningsskulder stämmer inte med huvudboken.');
   assert(accountBalance(state, '2650') === openingBalance('2650') - sum(state.vatReturns.filter(record => record.status === 'filed').map(record => record.payableCents)), 'Momsskulden stämmer inte med fastställda och oreglerade perioder.');
   const report = getReports(state);
   assert(report.balanced && ACCOUNTS.every(account => Number.isSafeInteger(accountBalance(state, account.number))), 'Rapporterna balanserar inte eller innehåller för stora belopp.');

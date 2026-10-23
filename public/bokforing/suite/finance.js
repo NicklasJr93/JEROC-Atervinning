@@ -5,6 +5,10 @@ import { getStockValue } from './inventory.js';
 import { currentYearIsClosed, historicalCompany } from './fiscal-periods.js';
 import { getYearReports } from './fiscal-reports.js';
 import { getRevenueDueMonths } from './commercial.js';
+import { getCashClosingIssues } from './cash-method.js';
+import { getFxClosingIssues } from './fx.js';
+import { getRotCreditState, getRotCreditClosingIssues } from './rot-credit.js';
+import { assertLegacyPayrollPaymentMonth } from './payroll-engine.js';
 
 const copy = value => structuredClone(value);
 const debit = (account, value) => ({ account, debitCents: value, creditCents: 0 });
@@ -138,6 +142,7 @@ export function payPayroll(state, id, { date }) {
     const run = lookup(draft, 'payrollRuns', id); assert(run.status === 'posted', 'Bokför lönekörningen först. Utbetalning kan registreras en gång.');
     validatePayrollRun(draft, run);
     assert(date >= run.date, 'Utbetalningen kan inte ligga före lönedatumet.');
+    assertLegacyPayrollPaymentMonth(draft, run, date);
     const total = getPayrollTotals(run).netCents;
     if (total) {
       const entry = appendEntry(draft, { date, description: `Löneutbetalning ${run.month}`, sourceType: 'payroll-payment', sourceId: id,
@@ -318,10 +323,14 @@ export function lockPeriod(state, month) {
     checkUnclosed(draft); checkedMonth(draft, month);
     assert(!draft.lockedPeriods.includes(month), 'Perioden är redan låst.');
     assert(!draft.bankTransactions.some(item => item.date.startsWith(month) && !item.matchedEntryId), 'Stäm av periodens kontohändelser före låsning.');
-    assert(![...draft.invoices, ...draft.bills].some(item => item.date.startsWith(month) && item.status === 'draft'), 'Perioden innehåller fakturautkast som behöver behandlas.');
+    assert(![...draft.invoices, ...draft.bills, ...(draft.fxDocuments ?? []), ...(draft.cashDocuments ?? [])].some(item => item.date.startsWith(month) && item.status === 'draft'), 'Perioden innehåller fakturautkast som behöver behandlas.');
     assert(!draft.payrollRuns.some(item => item.month === month && item.status === 'draft'), 'Perioden innehåller en lönekörning som behöver behandlas.');
     assert(!(draft.payrollBatches ?? []).some(item => item.date.startsWith(month) && item.status === 'draft'), 'Perioden innehåller ett individuellt löneutkast som behöver behandlas.');
     assert(!getRevenueDueMonths(draft, month).some(item => item.month === month), 'Perioden innehåller intäktsperiodiseringar som behöver bokföras.');
+    if (month === draft.company.fiscalYearEnd.slice(0, 7)) {
+      assert(!getCashClosingIssues(draft).length, 'Bokslutsboka kontantmetodens obetalda poster före låsning av årets sista månad.');
+      assert(!getFxClosingIssues(draft).length, 'Granska valutaposternas balansdagsvärdering före låsning av årets sista månad.');
+    }
     draft.lockedPeriods.push(month); draft.lockedPeriods.sort(); addActivity(draft, `Perioden ${month} låst.`, month);
   });
 }
@@ -337,11 +346,12 @@ export function unlockPeriod(state, month, reason) {
 export function getCloseChecklist(state) {
   const months = monthsBetween(state.company.fiscalYearStart, state.company.fiscalYearEnd);
   const unlocked = months.filter(month => !state.lockedPeriods.includes(month));
-  const draftDocs = [...state.invoices, ...state.bills].filter(item => item.status === 'draft');
+  const draftDocs = [...state.invoices, ...state.bills, ...(state.fxDocuments ?? []), ...(state.cashDocuments ?? [])].filter(item => item.status === 'draft');
   const unmatched = state.bankTransactions.filter(item => !item.matchedEntryId);
   const draftPayroll = [...state.payrollRuns, ...(state.payrollBatches ?? [])].filter(item => item.status === 'draft');
   const openRot = state.invoices.filter(invoice => {
     if (!invoice.rot || invoice.kind === 'credit' || invoice.status !== 'issued') return false;
+    if (getRotCreditState(state, invoice.id)) return false;
     if ((state.rotPlans ?? []).some(plan => plan.invoiceId === invoice.id)) return false;
     const claim = state.rotClaims.find(item => item.invoiceId === invoice.id);
     if (!claim || claim.status === 'prepared') return true;
@@ -365,6 +375,7 @@ export function getCloseChecklist(state) {
   const currentStockValue = getStockValue(state);
   const revenueDueMonths = getRevenueDueMonths(state);
   const extendedRotOpen = (state.rotPlans ?? []).filter(plan => {
+    if (getRotCreditState(state, plan.invoiceId)) return false;
     const applications = (state.rotApplications ?? []).filter(item => item.planId === plan.id);
     return sum(applications.map(item => item.requestedCents)) < plan.reservedCents || applications.some(item => !item.decision ||
       sum((item.decision?.personLines ?? []).map(person => person.approvedCents)) >
@@ -372,17 +383,21 @@ export function getCloseChecklist(state) {
   });
   const stockReconciles = accountBalance(state, '1460') === currentStockValue;
   const inventoryDone = pendingStockMovements.length === 0 && stockReconciles;
+  const cashIssues = getCashClosingIssues(state), fxIssues = getFxClosingIssues(state);
+  const correctedRotIssues = getRotCreditClosingIssues(state);
   return [
     { id: 'periods', label: 'Perioder låsta', done: unlocked.length === 0, detail: unlocked.length ? `${unlocked.length} perioder återstår: ${unlocked.join(', ')}` : 'Samtliga perioder är låsta.' },
     { id: 'documents', label: 'Fakturautkast behandlade', done: draftDocs.length === 0, detail: `${draftDocs.length} utkast återstår.` },
     { id: 'bank', label: 'Bank och skattekonto avstämda', done: unmatched.length === 0, detail: `${unmatched.length} omatchade händelser.` },
     { id: 'payroll', label: 'Lönekörningar bokförda', done: draftPayroll.length === 0, detail: `${draftPayroll.length} löneutkast återstår.` },
     { id: 'vat', label: 'Momsunderlag fastställda', done: !outstandingVat, detail: outstandingVat ? 'Moms finns kvar på ingående eller utgående momskonton.' : 'Momskontona är omförda till redovisningskonto.' },
-    { id: 'rot', label: 'ROT-ärenden genomgångna', done: openRot.length + extendedRotOpen.length === 0, detail: `${openRot.length + extendedRotOpen.length} öppna ärenden återstår.` },
+    { id: 'rot', label: 'ROT-ärenden genomgångna', done: openRot.length + extendedRotOpen.length + correctedRotIssues.length === 0, detail: `${openRot.length + extendedRotOpen.length + correctedRotIssues.length} öppna ärenden återstår.` },
     { id: 'assets', label: 'Årets avskrivningar genomgångna', done: unfinishedAssets.length === 0, detail: `${unfinishedAssets.length} inventarier behöver avskrivning till årets sista månad.` },
     { id: 'accruals', label: 'Periodiseringar genomgångna', done: outstandingAccrualMonths.length === 0, detail: `${outstandingAccrualMonths.length} planerade månadsbokningar återstår för räkenskapsåret. Framtida års kostnader förs vidare.` },
     { id: 'revenue-accruals', label: 'Intäktsperiodiseringar genomgångna', done: revenueDueMonths.length === 0, detail: `${revenueDueMonths.length} planerade intäktsmånader återstår för räkenskapsåret.` },
     { id: 'inventory', label: 'Materiallager inventerat och värderat', done: inventoryDone, detail: pendingStockMovements.length ? `${pendingStockMovements.length} lagerrörelser behöver följas upp med en ny värdering.` : stockReconciles ? 'Aktuellt lagervärde stämmer med konto 1460.' : 'Aktuellt lagervärde stämmer inte med konto 1460.' },
+    { id: 'cash-year-end', label: 'Kontantmetodens obetalda poster bokslutsbokade', done: cashIssues.length === 0, detail: `${cashIssues.length} kontantmetodsposter återstår att hantera.` },
+    { id: 'fx-year-end', label: 'Valutaposter värderade vid bokslut', done: fxIssues.length === 0, detail: `${fxIssues.length} öppna valutaposter behöver balansdagsvärdering.` },
     { id: 'year', label: 'Året kan avslutas', done: !currentYearIsClosed(state), detail: currentYearIsClosed(state) ? 'Året är redan avslutat.' : 'Bokslutsbedömningar, skatt och periodiseringar behöver bekräftas av dig.' },
   ];
 }
@@ -412,7 +427,7 @@ export function updateCompany(state, payload) {
     checkUnclosed(draft);
     if (payload.name !== undefined) draft.company.name = label(payload.name, 'Företagsnamn');
     if (payload.orgNumber !== undefined) draft.company.orgNumber = label(payload.orgNumber, 'Organisationsnummer');
-    if (payload.method !== undefined) { assert(payload.method === 'invoice', 'Denna demoversion stödjer faktureringsmetoden.'); draft.company.method = payload.method; }
+    if (payload.method !== undefined) { assert(payload.method === draft.company.method, 'Metoden kan inte bytas på befintlig bokföring. Starta ett nytt övningsbolag för att välja kontantmetoden.'); }
     if (payload.vatPeriod !== undefined) { assert(['month', 'quarter', 'year'].includes(payload.vatPeriod), 'Välj månad, kvartal eller år för moms.'); assert(!draft.vatReturns.length || payload.vatPeriod === draft.company.vatPeriod, 'Momsperioden kan inte ändras efter fastställt underlag.'); draft.company.vatPeriod = payload.vatPeriod; }
     for (const key of ['fiscalYearStart', 'fiscalYearEnd']) if (payload[key] !== undefined) {
       checkDate(payload[key]); assert(!draft.entries.length || payload[key] === draft.company[key], 'Räkenskapsåret kan inte flyttas när verifikationer finns.'); draft.company[key] = payload[key];

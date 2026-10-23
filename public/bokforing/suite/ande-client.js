@@ -54,8 +54,8 @@ export function buildAndeContext(state, ui = {}) {
     schemaVersion: 1, source: 'browser-demo', view, route: `#${view}`, label: labels.get(view) ?? 'Översikt',
     fiscalYear: { start: date(state.company?.fiscalYearStart), end: date(state.company?.fiscalYearEnd) },
     overview: {
-      invoiceDrafts: (state.invoices ?? []).filter(item => item.status === 'draft').length,
-      purchaseDrafts: (state.bills ?? []).filter(item => item.status === 'draft').length,
+      invoiceDrafts: [...(state.invoices ?? []), ...(state.fxDocuments ?? []).filter(item => item.side === 'customer'), ...(state.cashDocuments ?? []).filter(item => item.side === 'customer')].filter(item => item.status === 'draft').length,
+      purchaseDrafts: [...(state.bills ?? []), ...(state.fxDocuments ?? []).filter(item => item.side === 'supplier'), ...(state.cashDocuments ?? []).filter(item => item.side === 'supplier')].filter(item => item.status === 'draft').length,
       unmatchedBankEvents: (state.bankTransactions ?? []).filter(item => !item.matchedEntryId).length,
       journalEntries: count(state.entries), figures,
     }, selected: null,

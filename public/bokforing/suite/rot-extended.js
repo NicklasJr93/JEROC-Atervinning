@@ -4,6 +4,7 @@
 import { assert, cents, validDate, nextId, addActivity, appendEntry, requireOpenPeriod, transact } from './core.js';
 import { calculateRot } from './rot.js';
 import { getInvoiceTotals } from './sales.js';
+import { getRotCreditState, rotCreditHistoricalInvoice, validateRotCreditEvents } from './rot-credit.js';
 
 export const ROT_EXTENDED_SOURCE = 'https://www.skatteverket.se/foretagorganisationer/sjalvservice/svarpavanligafragor/rotochrutarbete/foretagrotochrutarbetefaq/narskajagsomutforareansokaomutbetalningdakundenbetalatbaraendelavfakturabeloppetexempelvisviddelfaktureringochvadhanderombetalningargorspabadasidornaavettarsskifte.5.71004e4c133e23bf6db800013003.html';
 const cap = 5_000_000;
@@ -59,7 +60,7 @@ function syncInvoice(state, plan) {
   invoice.rot.status = paid - invoice.rotRepaymentCents === getInvoiceTotals(invoice).grossCents ? 'settled' : 'awaiting-customer';
 }
 
-export function validateRotApplications(state) {
+function validateOriginalRotApplications(state) {
   const plans = state.rotPlans ?? [], apps = state.rotApplications ?? [], repayments = state.rotRepayments ?? [];
   assert(Array.isArray(plans) && Array.isArray(apps) && Array.isArray(repayments) && plans.length <= 20000 && apps.length <= 20000 && repayments.length <= 20000, 'ROT-historiken har fel format.');
   const planIds = new Set(), invoiceIds = new Set(), appIds = new Set(), repaymentIds = new Set(), used = new Map(), claimedEntryIds = new Set();
@@ -130,10 +131,20 @@ export function validateRotApplications(state) {
   return { claimedEntryIds, receivableAdjustmentCents: sum(repayments.map(item => item.amountCents)) };
 }
 
+export function validateRotApplications(state) {
+  const corrected=new Set((state.rotCreditEvents??[]).map(item=>item.invoiceId));
+  if(!corrected.size)return validateOriginalRotApplications(state);
+  validateRotCreditEvents(state);
+  const historical={...state,invoices:state.invoices.map(invoice=>rotCreditHistoricalInvoice(state,invoice)),
+    settlements:(state.settlements??[]).filter(item=>!corrected.has(item.documentId))};
+  return validateOriginalRotApplications(historical);
+}
+
 export function createRotPlan(state, invoiceId, payload) {
   validateRotApplications(state);
   return transact(state, draft => {
     const invoice = invoiceFor(draft, invoiceId);
+    assert(!getRotCreditState(draft,invoiceId),'Använd ROT-rättelseflödet för den krediterade fakturan.');
     assert(!draft.rotPlans?.some(item => item.invoiceId === invoiceId) && !draft.rotClaims.some(item => item.invoiceId === invoiceId) && !invoice.payments.some(item => item.payer === 'tax'), 'Fakturan har redan en ROT-fördelning eller begäran.');
     dateCheck(payload.date); assert(payload.date >= invoice.date && invoice.rot.paymentYear === 2026, 'Denna regelversion stöder ROT-betalningar 2026.');
     const participants = participantValues(payload.participants), reservedCents = invoice.rot.reservedCents;
@@ -148,6 +159,7 @@ export function prepareRotApplication(state, planId, payload) {
   validateRotApplications(state);
   return transact(state, draft => {
     const plan = planFor(draft, planId), invoice = invoiceFor(draft, plan.invoiceId); dateCheck(payload.date);
+    assert(!getRotCreditState(draft,invoice.id),'Använd ROT-rättelseflödet för den krediterade fakturan.');
     assert(payload.workCompletedConfirmed === true && payload.electronicPaymentConfirmed === true, 'Bekräfta utfört arbete och elektronisk kundbetalning.');
     assert(payload.date <= `${plan.paymentYear + 1}-01-31`, 'Begäran ska lämnas senast 31 januari efter betalningsåret.');
     const basisPayments = invoice.payments.filter(payment => payment.payer === 'customer' && payment.date <= payload.date && payment.date.slice(0, 4) === String(plan.paymentYear)).map(({ id, date, amountCents }) => ({ id, date, amountCents }));
@@ -163,7 +175,7 @@ export function prepareRotApplication(state, planId, payload) {
 export function decideRotApplication(state, id, payload) {
   validateRotApplications(state);
   return transact(state, draft => {
-    const app = appFor(draft, id); assert(!app.decision, 'ROT-delbegäran har redan ett beslut.');
+    const app = appFor(draft, id); assert(!getRotCreditState(draft,planFor(draft,app.planId).invoiceId),'Använd ROT-rättelseflödet för den krediterade fakturan.'); assert(!app.decision, 'ROT-delbegäran har redan ett beslut.');
     const personLines = app.personLines.map(person => ({ personId: person.personId, approvedCents: whole(payload.approvedByPerson?.[person.personId] ?? person.amountCents) }));
     app.decision = { date: payload.date, personLines, reason: String(payload.reason ?? '').trim() }; app.decision.bookingSnapshot = decisionSnapshot(app.decision);
     syncInvoice(draft, planFor(draft, app.planId)); addActivity(draft, 'Demobeslut registrerat för ROT-delbegäran; avslag återstår hos kunden.', id); validateRotApplications(draft);
@@ -174,6 +186,7 @@ export function receiveRotApplicationPayment(state, id, { date, amountCents, ref
   validateRotApplications(state);
   return transact(state, draft => {
     const app = appFor(draft, id), plan = planFor(draft, app.planId), invoice = invoiceFor(draft, plan.invoiceId);
+    assert(!getRotCreditState(draft,invoice.id),'Använd ROT-rättelseflödet för den krediterade fakturan.');
     assert(app.decision, 'Registrera ROT-beslutet före utbetalningen.'); requireOpenPeriod(draft, date); assert(date >= app.decision.date, 'Utbetalningen får inte ligga före beslutet.'); cents(amountCents, false);
     const ref = txt(reference, 'unik utbetalningsreferens', 100); assert(!invoice.payments.some(item => item.reference === ref), 'Utbetalningsreferensen är redan registrerad.');
     const approved = sum(app.decision.personLines.map(person => person.approvedCents)), received = sum(invoice.payments.filter(item => item.rotApplicationId === id).map(item => item.amountCents)); assert(received + amountCents <= approved, 'Utbetalningen överstiger godkänt ROT.');
@@ -188,7 +201,7 @@ export function receiveRotApplicationPayment(state, id, { date, amountCents, ref
 export function repayRotApplication(state, id, { date, amountCents, reason, reference }) {
   validateRotApplications(state);
   return transact(state, draft => {
-    const app = appFor(draft, id), plan = planFor(draft, app.planId), invoice = invoiceFor(draft, plan.invoiceId); requireOpenPeriod(draft, date); cents(amountCents, false);
+    const app = appFor(draft, id), plan = planFor(draft, app.planId), invoice = invoiceFor(draft, plan.invoiceId); assert(!getRotCreditState(draft,invoice.id),'Använd ROT-rättelseflödet för den krediterade fakturan.'); requireOpenPeriod(draft, date); cents(amountCents, false);
     const ref = txt(reference, 'unik återbetalningsreferens', 100); txt(reason, 'orsak till återbetalningen', 300);
     assert(!(draft.rotRepayments ?? []).some(item => item.reference === ref), 'Återbetalningen är redan registrerad.');
     const record = { id: nextId(draft, 'rot-repay'), applicationId: id, invoiceId: invoice.id, date, amountCents, reason, reference: ref };
