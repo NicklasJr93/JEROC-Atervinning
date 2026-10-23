@@ -1,0 +1,427 @@
+{
+  "date": "2026-10-23",
+  "revision": "1520d83face442a29c8ebbf5dcc8c2362806e44f",
+  "baseline": "6d4af4f08c3d321f13fce23e1ad0ef0f18a92fe7",
+  "demoUrl": "https://app.scrapplanner.com/bokforing/",
+  "wikiUrl": "https://app.scrapplanner.com/bokforing/wiki/",
+  "codeUrl": "https://github.com/NicklasJr93/JEROC-Atervinning/tree/1520d83face442a29c8ebbf5dcc8c2362806e44f",
+  "testListUrl": "https://app.scrapplanner.com/bokforing/granskning/testresultat-2026-10-23.csv",
+  "tests": {
+    "newPassed": 1798,
+    "totalPassed": 2253,
+    "failed": 0,
+    "skipped": 0,
+    "startedAt": "2026-10-23T18:27:58.535471+00:00",
+    "finishedAt": "2026-10-23T18:28:48.365Z",
+    "logSha256": "a3f0fb2b5e657578332af576eeb471a030880f50851c5ca0ce3988fc2eb8d89e",
+    "regressionPassed": 455,
+    "durationMs": 49713.025099
+  },
+  "conclusion": "Granskningen har lett till rättningar och skyddsspärrar. Sluttesterna är gröna, men full regelefterlevnad är inte styrkt. Demonstrationen behöver fortsatt sakgranskning och kompletteringar före skarp bokföring.",
+  "summary": [
+    "Granskningen omfattar separata, reproducerbara testfall för bokföring, fakturor, krediter, moms, ROT, lön, valuta, kontantmetod, bokslut och deklarationsfiler.",
+    "Rapporten redovisar både rättade fel och kvarstående luckor. Vissa godkända tester bekräftar uttryckligen en begränsning; gröna tester betyder inte att samtliga lagkrav är uppfyllda.",
+    "Prioriterade återstående frågor är komplett fakturainnehåll, beständig originalarkivering, identifierade användare, bolagsisolering och särskilda löne-/skattefall.",
+    "Redovisaren ombeds bedöma reglernas tillämpning på verkliga affärer och de kvarstående punkterna, inte enbart kontrollera att programmet räknar konsekvent."
+  ],
+  "method": [
+    "Utgångspunkten är den publicerade demon före denna granskning. Koden lästes och prövades med både giltiga affärskedjor och avsiktligt felaktiga indata. Konkreta fel återskapades före rättning och försågs med regressionstester.",
+    "Nya auditfall registreras som separata top-level-tester med stabila AUDIT-ID:n. Parametrisering varierar relevanta belopp, momssatser, avdragsandelar, tidpunkter, betalningsförlopp och korruptionsmönster. Assertioner och omkörningar räknas inte som nya fall. Överlappande regler provas i flera affärsflöden; antalet är inte ett statistiskt mått på hur stor del av lagstiftningen som täcks.",
+    "Facit bygger på oberoende heltals-/rationell aritmetik, handskrivna förväntade saldon, officiella skattetabellrader, kända kodnings-/hashvektorer och myndighetens XSD/filformat. Produktionens beräkningsresultat används inte ensamt som facit. Oberoende facit betyder här separat beräkningskod eller källdata; det är inte ett påstående om oberoende extern revision.",
+    "Väsentliga flöden valideras efter bokföring och JSON-återläsning. Felaktiga åtgärder kontrolleras mot tidigare state så att misslyckanden inte lämnar delvis bokförda händelser. Testerna använder fiktiva uppgifter och utlöser inga verkliga betalningar eller deklarationsinlämningar.",
+    "Granskningen är avgränsad till de angivna regelversionerna och affärsfallen. Den omfattar ingen extern revision, penetrationstestning, fullständig granskning av samtliga kollektivavtal eller juridisk bedömning av ett visst företags avdragsrätt.",
+    "Kodreferensen låser bokföringskoden och testsviterna. Rapporten och den uppdaterade wikin publiceras i en separat dokumentationscommit. De sex wikikontrollerna avser dessa uppdaterade dokumentationsfiler; bokföringskodens innehåll är det som kodreferensen anger."
+  ],
+  "domains": [
+    {
+      "prefix": "AUDIT-LEDGER",
+      "label": "Kärnbokföring och SIE",
+      "count": 365,
+      "description": "Belopp/datum, obruten serie, rättelser, periodlås, korruption, handskrivna SIE-filer, kodning och dubbletter."
+    },
+    {
+      "prefix": "AUDIT-SALES",
+      "label": "Fakturor och krediter",
+      "count": 307,
+      "description": "Pris/rabatt/moms, fler rader, delkredit, återbetalning, kvittning, periodiserad intäkt och utskrift."
+    },
+    {
+      "prefix": "AUDIT-CASHFX",
+      "label": "Kontantmetod och valuta",
+      "count": 302,
+      "description": "Delbetalning, blandad moms, kursdifferens, avgift, kredit, årsslut och nästa år."
+    },
+    {
+      "prefix": "AUDIT-PAYROLL",
+      "label": "Lön och semester",
+      "count": 244,
+      "description": "Oberoende 2026-tabellrader, engångsskatt, avgifter, förmåner, frånvaro, semester och återkrav."
+    },
+    {
+      "prefix": "AUDIT-TAXROT",
+      "label": "Moms och ROT",
+      "count": 340,
+      "description": "Deklarationsrutor, avdragsandelar, person-/årsutrymme, delbegäran, avrundning, beslut och återkrav."
+    },
+    {
+      "prefix": "AUDIT-CLOSE",
+      "label": "Bokslut och export",
+      "count": 240,
+      "description": "Årsöverföring, jämförelser, arbetsbilagor, bruttoreskontra, AGI-XSD, moms-XML, SRU och K2-underlag."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F01",
+      "severity": "Medel",
+      "status": "Rättat",
+      "title": "Återställd ID-räknare kunde ligga efter journalen",
+      "trigger": "En sparad bok ändrades så att sequence låg under redan använda entry-/activity-ID:n.",
+      "before": "Återläsningen godkändes; nästa bokning kunde återanvända ett käll-ID och blockeras som dubblett.",
+      "after": "Återläsning kräver att säkert identifierade systemgenererade journal- och historik-ID:n ryms i räknaren. Externa ID-format bevaras.",
+      "tests": "AUDIT-LEDGER-347–355; core.js."
+    },
+    {
+      "id": "F02",
+      "severity": "Hög",
+      "status": "Rättat",
+      "title": "ROT kunde överskrida angivet kvarvarande årsutrymme",
+      "trigger": "remainingCents angavs större än det av användaren uppgivna availableCents.",
+      "before": "Beräkningen kunde använda det högre värdet och ge för stort planerat avdrag.",
+      "after": "Avdrag begränsas samtidigt av arbetsunderlag, personens tak, uppgivet utrymme och beräknat kvarvarande utrymme.",
+      "tests": "AUDIT-TAXROT; rot.js. Faktiskt skatteutrymme verifieras fortfarande inte hos Skatteverket."
+    },
+    {
+      "id": "F03",
+      "severity": "Hög",
+      "status": "Rättat",
+      "title": "Ny ROT-delbetalning kunde minska en tidigare personandel",
+      "trigger": "Flera personreservationer fördelades i hela kronor vid två successiva delbetalningar.",
+      "before": "Ny avrundning kunde minska redan begärt belopp för en person och stoppa en i övrigt giltig delbegäran.",
+      "after": "Tidigare begärda personandelar blir golv. Nya andelar håller totalsumman och respektive reservation utan negativa tillägg.",
+      "tests": "AUDIT-TAXROT-315–316 samt fortsatt slutallokering; rot-extended.js. Detta är en dokumenterad teknisk avrundningspolicy."
+    },
+    {
+      "id": "F04",
+      "severity": "Medel",
+      "status": "Rättat",
+      "title": "Kedja av semesteruttag kunde inte återföras färdigt",
+      "trigger": "Två bokförda uttag återfördes i omvänd ordning.",
+      "before": "Återföring av det första uttaget kunde göra det senare, redan återförda uttagets historiska saldo ogiltigt.",
+      "after": "Historisk semesterkontext återskapas enligt verifikationernas ordning. Ursprungliga löneuppgifter skrivs inte om.",
+      "tests": "AUDIT-PAYROLL-215–220 och 244; payroll-engine.js."
+    },
+    {
+      "id": "F05",
+      "severity": "Hög",
+      "status": "Rättat",
+      "title": "Framtida återföring kunde frigöra semesterdagar retroaktivt",
+      "trigger": "Ett majuttag återfördes 1 juli; ett nytt uttag daterades 25 juni.",
+      "before": "Juniberäkningen kunde använda dagar som blev tillgängliga först i juli.",
+      "after": "Nytt uttag för samma semesterår kan inte dateras före en redan registrerad återföring som påverkar saldot. Samma dag följer journalordningen.",
+      "tests": "AUDIT-PAYROLL-241–244; andra semesterår provas separat."
+    },
+    {
+      "id": "F06",
+      "severity": "Medel",
+      "status": "Rättat",
+      "title": "Kreditnotans utskrift saknade hänvisning till originalet",
+      "trigger": "En helkredit hade originalInvoiceId i modellen men skrevs ut separat.",
+      "before": "HTML-utskriften visade kreditnumret men ingen otvetydig referens till den ursprungliga fakturan.",
+      "after": "Originalnummer, originaldatum och krediteringsorsak visas på utskriften utan ändring av originaldata.",
+      "tests": "AUDIT-SALES-261–264; invoice-page.js. Relevant ML 17 kap. 22 och 28 §§."
+    },
+    {
+      "id": "F07",
+      "severity": "Hög",
+      "status": "Rättat",
+      "title": "Återläsning kunde godta tidsfel för intäktskredit",
+      "trigger": "En intäktsföringspost flyttades till ett datum efter den kredit som redan återfört intäkten.",
+      "before": "Skapandeflödet hade datumkontroll, men motsvarande manipulerade återläsningsfall kunde godkännas.",
+      "after": "Återläsning kontrollerar datum för de intäktsföringar som faktiskt låg till grund för kreditens fördelning. Senare legitima månader godtas.",
+      "tests": "AUDIT-SALES-265–270; settlements.js."
+    },
+    {
+      "id": "F08",
+      "severity": "Medel",
+      "status": "Rättat",
+      "title": "Pris inklusive moms saknade uttryckligt enhetspris exklusive moms",
+      "trigger": "En fakturarad registrerades med enhetspris inklusive moms.",
+      "before": "Utskriften visade bruttopris och radnetto men inte uttryckligt enhetspris exklusive skatt.",
+      "after": "Utskriften visar härlett nettopris före rabatt med tillräcklig decimalprecision och anger när värdet är avrundat. Beräkning och prissnapshot ändras inte.",
+      "tests": "AUDIT-SALES-271–290; invoice-page.js. Relevant ML 17 kap. 24 § 9."
+    },
+    {
+      "id": "F09",
+      "severity": "Medel",
+      "status": "Rättat",
+      "title": "Kontantmetoden kunde fastna i ett journalfritt årsslutsfall",
+      "trigger": "Mycket små betalnings- och kreditbelopp fördelades på flera rader så att radfördelningen ändrades men totalbokningen blev noll.",
+      "before": "Årsavslut krävde hantering, men bokslutsåtgärden nekades eftersom det inte fanns något nettobelopp att bokföra.",
+      "after": "En dokumenterad årsslutshändelse kan hantera verklig radomfördelning utan att skapa en nollverifikation. Ändrade momsbasrutor behåller sitt underlag.",
+      "tests": "AUDIT-CASHFX-189–204 och 285–288; cash-method.js."
+    },
+    {
+      "id": "F10",
+      "severity": "Hög",
+      "status": "Rättat",
+      "title": "Fastställd moms behövde skydda även momsunderlag utan momsbelopp",
+      "trigger": "En momsfri, omvänd eller mycket liten affär ändrade en deklarationsbas utan att journalen innehöll ett momsbelopp.",
+      "before": "Spärr som bara såg momskonton kunde missa förändringen av deklarationsrutor efter fastställande.",
+      "after": "Relevanta affärsflöden kontrollerar även om momsdeklarationens underlag ändras. Rena regleringar utan sådan förändring ska fortsatt kunna bokföras.",
+      "tests": "AUDIT-CASHFX-289–302 och AUDIT-SALES-291–307; cash-method.js, fx.js, sales.js och settlements.js."
+    },
+    {
+      "id": "F11",
+      "severity": "Medel",
+      "status": "Rättat",
+      "title": "AGI kunde exportera belopp utanför XSD:s tillåtna storlek",
+      "trigger": "Ett individbelopp överskred BELOPP10 eller summerad avdragen skatt överskred BELOPP12.",
+      "before": "XML skapades men underkändes av Skatteverkets officiella schema.",
+      "after": "Gränserna kontrolleras före export för 001, 011, 012 och HU 497. Exakt max och max+1 prövas.",
+      "tests": "AUDIT-CLOSE-221–228; declarations.js; officiellt AGI-komponentschema 1.1."
+    },
+    {
+      "id": "F12",
+      "severity": "Medel",
+      "status": "Rättat",
+      "title": "Ogiltigt kalenderdatum kunde läggas i AGI:s tidsstämpel",
+      "trigger": "Exempelvis 2026-02-30 normaliserades av JavaScripts Date.parse.",
+      "before": "Ett ogiltigt xs:dateTime-värde kunde hamna i filen.",
+      "after": "Tidsstämpelns datum valideras som ett faktiskt kalenderdatum före export.",
+      "tests": "AUDIT-CLOSE-229–230; declarations.js."
+    },
+    {
+      "id": "F13",
+      "severity": "Hög",
+      "status": "Spärr införd",
+      "title": "0 % moms kunde tyst behandlas som momspliktig svensk försäljning",
+      "trigger": "En vanlig kundfaktura eller direkt svensk försäljningspost hade 0 % utan explicit rättslig momsklassning.",
+      "before": "Underlaget hamnade automatiskt i ruta 05. Enbart procentsatsen avgör inte om ruta 05, 42 eller någon annan ruta är korrekt.",
+      "after": "Sådana underlag varnas nu och stoppar momsdeklarationens XML-export. Ingen automatisk omklassning till ruta 42 görs. Explicit klassningsstöd återstår.",
+      "tests": "AUDIT-TAXROT-332–340; tax-ledger.js; kända EU-fall och uttryckligt granskad momsfri kontantmetod prövas separat."
+    }
+  ],
+  "compliance": [
+    {
+      "requirement": "Registreringsordning, huvudbok och balansering",
+      "assessment": "Tekniskt prövat i namngivna fall. Att en bokning balanserar avgör inte om rätt konto, period eller affär har använts.",
+      "source": "BFL 5:1; BFN 2.2–2.3"
+    },
+    {
+      "requirement": "Sidoordnad redovisning / reskontra",
+      "assessment": "Avstämning prövad för de inbyggda flödena. SIE skapar inte saknade underregister; importerade kontrollsaldon kräver separat specifikation.",
+      "source": "BFL 5:4"
+    },
+    {
+      "requirement": "Rättelser och samband till original",
+      "assessment": "Länkade rättelser och bevarade modelloriginal prövade. Fast aktör och direktåtkomst till lokal JSON ger inte styrkt användaridentitet eller manipulationssäkert arkiv.",
+      "source": "BFL 5:5; BFN 2.17–2.18"
+    },
+    {
+      "requirement": "Verifikationens innehåll och identifiering",
+      "assessment": "Tekniska fält-, datum- och seriekontroller finns. Äkta underlag, rätt motpart och fullständighet har inte verifierats.",
+      "source": "BFL 5:6–7; BFN 5.9–5.10"
+    },
+    {
+      "requirement": "Systemdokumentation och behandlingshistorik",
+      "assessment": "Källkod, wiki och lokal händelselista finns. Produktionsmässig historik över åtkomst, regelversioner och driftförändringar är inte komplett.",
+      "source": "BFL 5:11; BFN 9.15–9.16"
+    },
+    {
+      "requirement": "Bevarande av räkenskapsinformation",
+      "assessment": "Efterlevnad är inte styrkt genom denna demo. Browserlagring och reset utgör ingen verifierad bevarandeprocess; normaliserad SIE-text kräver bedömning av innehållsbevarande och eventuell överföring.",
+      "source": "BFL 7:1–2, 6"
+    },
+    {
+      "requirement": "Faktura och kreditnota",
+      "assessment": "Kreditreferens och nettopris har rättats. Fullständiga namn/adresser, VAT-identitet och relevanta utförandedatum behöver säkras innan skarpa fakturor.",
+      "source": "ML 17:22–24, 26, 28"
+    },
+    {
+      "requirement": "Moms, kontantmetod och valuta",
+      "assessment": "Deklarationsrutor, avdrag som indata, betalningstidpunkt och årsskifte prövade i stödda fall. Den materiella avdragsrätten kräver sakbedömning.",
+      "source": "BFL 5:2; SKV moms; K2 13.5/17.8"
+    },
+    {
+      "requirement": "ROT och person-/årsgränser",
+      "assessment": "Beräkning och flöden prövade. Ägande, F-skatt, faktisk skattekapacitet och arbetsvillkor verifieras inte av beräkningen.",
+      "source": "HUSFL 5, 7–8 §§; SKV ROT"
+    },
+    {
+      "requirement": "Lön, AGI och bokslutsfiler",
+      "assessment": "Valda 2026-regler och filformat kontrollerade. Alla lönefall, K2-undantag, skattebilagor och mottagarens affärsregler är inte täckta.",
+      "source": "SKVFS 2025:20/21; AGI XSD; K2"
+    }
+  ],
+  "gaps": [
+    {
+      "id": "K01",
+      "priority": "Hög – före skarp drift",
+      "title": "Beständig lagring, behörigheter och bolagsisolering",
+      "detail": "Lokala uppgifter kan raderas eller ändras utanför programmets vanliga funktioner. Återställ demo är avsiktligt tillgänglig. Händelser har fast demouppgift om aktör.",
+      "action": "Inför servertransaktioner, identifierade användare, bolagsisolering, kontrollerad rättelse-/åtkomsthistorik, säkerhetskopior och provad återläsning. Testa sedan lösningen igen som fleranvändarsystem."
+    },
+    {
+      "id": "K02",
+      "priority": "Hög – före skarpa fakturor",
+      "title": "Obligatoriska fakturauppgifter är inte fullständigt garanterade",
+      "detail": "Den vanliga fakturan kan ha tom säljar-/köparadress. Säljarens momsregistreringsnummer och köparens vid relevant omvänd moms behöver egna kontroller. Leverans-/utförandedatum behöver krävas när reglerna kräver det. Förenklad faktura är ett särskilt fall, inte en generell lösning.",
+      "action": "Fastställ fakturatyper med redovisaren och bygg fullständighetskontroll vid utfärdande, inklusive separata regler för VAT-nummer, motpart och avvikande utförandedatum."
+    },
+    {
+      "id": "K03",
+      "priority": "Hög – före originalarkivering",
+      "title": "Dokumentarkiv och SIE-original behöver en produktionslösning",
+      "detail": "SIE bevaras som avkodad och radslutsnormaliserad text, inte som separat originalbytefil. Underlag och bilagor finns lokalt. Bevarandetid och faktisk åtkomlighet kan inte styrkas av testerna. Laglig överföring av räkenskapsinformation kan vara möjlig, men ingen produktionsprocess för att styrka oförändrat och fullständigt innehåll har verifierats här.",
+      "action": "Granska mottaget format, tillåten överföring och innehållsbevarande enligt BFL 7 kap. 1–2 och 6 §§. Inför dokumenterad arkivering med metadata, kontrollsumma, samband till verifikation och provad återläsning."
+    },
+    {
+      "id": "K04",
+      "priority": "Medel – inför användning av lön",
+      "title": "Årlig avgiftströskel och särskilda lönefall",
+      "detail": "Automatisk hantering av den årliga 1 000-kronorsgränsen för arbetsgivaravgift saknas. Kollektivavtal, särskilda internationella regler, komplex återinsjukning och semestergrundande frånvaro kräver mer hantering.",
+      "action": "Begränsa första kundernas lönefall eller komplettera motorn och låt lönekunnig granska regelval, ingående värden och årsackumulatorer."
+    },
+    {
+      "id": "K05",
+      "priority": "Medel – vid migrering",
+      "title": "SIE är inte en fullständig flytt av ett ekonomisystem",
+      "detail": "Öppna fakturor, originalbilagor och andra underregister skapas inte ur SIE. Anonyma verifikationer utan stabil serie/nummer kan återimporteras via ändrade filer trots filhashkontroll. Flera dimensioner och färdigresultatbokade år är spärrade.",
+      "action": "Kräv separat migrerings-/avstämningsprotokoll för huvudbok, reskontra, tillgångar och original. Identifiera anonyma affärer före import."
+    },
+    {
+      "id": "K06",
+      "priority": "Hög – före skarp momshantering",
+      "title": "Rätt momstyp och ROT-rätt kan inte avgöras av beloppen",
+      "detail": "Användaren anger bland annat avdragsandel, momstyp, arbetsrader, utrymme och intyganden. Programmet kan inte styrka affärens verkliga innehåll eller villkor hos motpart/myndighet. Native standardförsäljning med 0 % utan uttrycklig rättslig grund stoppar nu XML-export; fullständig klassning och fakturatext behöver byggas.",
+      "action": "Dokumentera beslutsregler, underlagskrav och avvikelsehantering med redovisaren. Verifiera representativa affärer för den tänkta branschen."
+    },
+    {
+      "id": "K07",
+      "priority": "Medel – löpande regelunderhåll",
+      "title": "Regelår, deklarationsformat och årsredovisning har begränsat stöd",
+      "detail": "Skattetabeller och många skatteflöden avser 2026; SRU avser 2026P4. K2-underlaget gäller en begränsad bolagstyp. Inlämning, signering, kvittenser och alla bilagor ingår inte.",
+      "action": "Inför versionsstyrt regelunderhåll, granskning inför nytt år och en tydlig process för manuella eller integrerade myndighetsinlämningar."
+    },
+    {
+      "id": "K08",
+      "priority": "Medel – användning av AI",
+      "title": "Ande är ett rådgivande stöd med begränsad kontext",
+      "detail": "AI:n har inte yrkesauktorisation och kan ge fel förslag. Den ser bara den kontext som uttryckligen skickas och har inga bokförings-/betalningsverktyg. Granskningen är inte en verifiering av varje tänkbart AI-svar.",
+      "action": "Behåll mänskligt godkännande, tydliga källor och kontrollerad datadelning. Utvärdera dataskydd och företagsgränser inför skarp SaaS-drift."
+    }
+  ],
+  "reviewerChecklist": [
+    "Bekräfta företagsform, redovisningsregelverk, bokföringsmetod, momsperiod och vilka affärsfall första kunden faktiskt behöver.",
+    "Granska minst en vanlig faktura, en faktura med blandad moms, en omvänd byggmoms och en kreditnota mot lagens krav på fakturainnehåll.",
+    "Följ en hel affär från originalunderlag via delbetalning och kredit till kund-/leverantörsreskontra, huvudbok och momsrapport.",
+    "Prova ROT med två personer, delbetalning, delavslag och återkrav. Bedöm verkliga villkor och inte bara den matematiska fördelningen.",
+    "Stäm av en lönekörning mot eget facit: skatt, avgift, förmån, frånvaro, semester, utbetalning och ett efterföljande återkrav.",
+    "Prova ett årsskifte med obetalda fakturor enligt kontantmetoden och med valutafordran/-skuld. Kontrollera att nästa års betalning inte ger dubbel moms.",
+    "Jämför ingående och utgående balans, årets resultat och bruttoreskontra mot en oberoende avstämning. Granska även särskilda bokslutsposter.",
+    "Validera exporter för det aktuella bolaget och regelåret i relevanta mottagartjänster utan att lämna in fiktiva deklarationer.",
+    "Bedöm K01–K08 och dokumentera vad som måste vara åtgärdat före pilot med verklig information.",
+    "Ange tydligt vilka delar som granskats, vilka testfall som körts och vilka reservationer eller kompletteringar som återstår."
+  ],
+  "sources": [
+    {
+      "id": "S1",
+      "title": "Bokföringslag (1999:1078), konsoliderad text",
+      "url": "https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/bokforingslag-19991078_sfs-1999-1078/",
+      "detail": "Särskilt 5 kap. 1–7 och 11 §§ samt 7 kap. 1–2 §§. Arkivering till och med sjunde året efter kalenderåret då räkenskapsåret avslutades. Även 7 kap. 6 § om tillåten överföring behöver bedömas för arkiveringslösningen."
+    },
+    {
+      "id": "S2",
+      "title": "BFN:s vägledning Bokföring / BFNAR 2013:2",
+      "url": "https://www.bfn.se/wp-content/uploads/vl13-2-bokforing.pdf",
+      "detail": "Version uppdaterad 2024-09-16. Bland annat 2.1–2.3, 2.17–2.18, 5.9–5.10 och 9.15–9.16."
+    },
+    {
+      "id": "S3",
+      "title": "Mervärdesskattelag (2023:200)",
+      "url": "https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/mervardesskattelag-2023200_sfs-2023-200/",
+      "detail": "Särskilt 17 kap. 22–24, 26 och 28 §§ om ändringsfaktura, obligatoriska uppgifter och förenklad faktura."
+    },
+    {
+      "id": "S4",
+      "title": "SIE-Gruppen: filformat version 4C",
+      "url": "https://sie.se/wp-content/uploads/2026/02/SIE_filformat_ver_4C_2025-08-06.pdf",
+      "detail": "Branschspecifikation 2025-08-06: PC8/CP437, kontrollposter, verifikationer och behandlingen av BTRANS/RTRANS. Inte en myndighetscertifiering."
+    },
+    {
+      "id": "S5",
+      "title": "Skatteverket: fylla i momsdeklarationen",
+      "url": "https://www.skatteverket.se/foretag/moms/deklareramoms/fyllaimomsdeklarationen.4.3a2a542410ab40a421c80004214.html",
+      "detail": "Deklarationsrutor för inhemska och angivna utländska affärer, avdragsgill ingående moms samt moms att betala/få tillbaka."
+    },
+    {
+      "id": "S6",
+      "title": "Skatteverket: deklarationstidpunkt och bokslutsmetoden",
+      "url": "https://www.skatteverket.se/foretag/moms/deklareramoms/narskajagdeklareramoms.4.6d02084411db6e252fe80008988.html",
+      "detail": "Betalningstidpunkt, obetalda fakturor i sista perioden och hantering som undviker dubbel moms vid senare betalning."
+    },
+    {
+      "id": "S7",
+      "title": "Skatteverket: så fungerar ROT-avdraget",
+      "url": "https://www.skatteverket.se/privat/fastigheterochbostad/rotarbeteochrutarbete/safungerarrotavdraget.4.5947400c11f47f7f9dd80004014.html",
+      "detail": "2026 års regler, arbetskostnad, person-/årsgräns, delbetalning, betalningsår och sista ansökningsdag."
+    },
+    {
+      "id": "S8",
+      "title": "Lag (2009:194) om förfarandet vid skattereduktion för hushållsarbete",
+      "url": "https://data.riksdagen.se/dokument/sfs-2009-194.html",
+      "detail": "Särskilt 5 samt 7–8 §§; hela kronor och begäran om utbetalning. Testernas personfördelningsalgoritm är en teknisk policy, inte en föreskriven myndighetsalgoritm."
+    },
+    {
+      "id": "S9",
+      "title": "Skatteverket: officiellt AGI-schema 1.1",
+      "url": "https://xmls.skatteverket.se/se/skatteverket/da/arbetsgivardeklaration/arbetsgivardeklaration_1.1.xsd",
+      "detail": "Huvud-XSD SHA-256 821f4a5b896cb13bda1bb700f5ca3302f2a30b6e7446c5c96c9790c0690e4b4b. Komponentschemat prövar bl.a. BELOPP10, BELOPP12 och tidsstämpel."
+    },
+    {
+      "id": "S10",
+      "title": "Skatteverket: SRU 2026P4",
+      "url": "https://www.skatteverket.se/download/18.5fb2fa71a0b0adb74a18b3/1791362773267/_Nyheter_from_beskattningsperiod_2026P4.zip",
+      "detail": "Officiell fältkatalog. ZIP SHA-256 6fb927bf49196a17e838e802f233a753c51a2e7840cbecfc66dc4ddc46332efe."
+    },
+    {
+      "id": "S11",
+      "title": "BFN: K2 för mindre företag, konsoliderad 2025",
+      "url": "https://www.bfn.se/wp-content/uploads/vl16-10-k2ar-kons2025.pdf",
+      "detail": "För de aktuella reglerna från 2026. Bland annat 13.5/17.8 om valutaposter och krav på kommentar vid omsättningsvariation över 30 procent. PDF SHA-256 4f113d6bfee16eec01958f8ec29c1b13df2ad247d82bf83bf6dda5d6639d48a1."
+    },
+    {
+      "id": "S12",
+      "title": "Skatteverket: engångsbelopp och skattetabeller",
+      "url": "https://www.skatteverket.se/foretag/arbetsgivare/arbetsgivaravgifterochskatteavdrag/skatteavdrag/engangsbelopp.4.361dc8c15312eff6fd3225e.html",
+      "detail": "SKVFS 2025:20 och 2025:21 för inkomstår 2026. 14 officiella månadstabeller 29–42 jämförs mot fasta facit; PDF-URL/checksumma anges i varje relevant lönetests källa."
+    }
+  ],
+  "commands": [
+    "Miljö: Node.js 24.19, Python 3.12 med lxml och Chromium. npm ci installerar projektets JS-beroenden.",
+    "node --test --test-reporter=tap --test-concurrency=2 server/bokforing-*.test.mjs",
+    "npm run build",
+    "PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npx playwright test -c scripts/playwright-bokforing.config.mjs tests/bokforing-{invoice-pages,settlements,rot-credit-completion,tax-rot,payroll-workspace,payroll-completion,cash-method,fx,sie,year-workspace,declarations}.spec.ts",
+    "PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npx playwright test -c scripts/playwright-bokforing.config.mjs tests/bokforing-wiki.spec.ts"
+  ],
+  "build": {
+    "status": "passed",
+    "command": "npm run build",
+    "includes": "TypeScript-typkontroll och Vite-produktionsbygge"
+  },
+  "browser": {
+    "flowPassed": 41,
+    "wikiPassed": 6,
+    "totalPassed": 47,
+    "finalFailed": 0,
+    "firstWikiRun": {
+      "passed": 5,
+      "failed": 1,
+      "cause": "Testet jämförde 2252 med dokumentationens svenska talformat 2 252. Förväntan anpassades till sv-SE; hela wikiserien kördes om."
+    },
+    "summary": "41 berörda affärsfall och 6 wiki-fall är godkända i Chromium mot det byggda systemet, totalt 47 unika fall. Första wikiomgången hade ett fel i testets jämförelse av svenskt tusentalsformat; förväntan rättades och samtliga sex wiki-fall kördes om och passerade. Tidigare versions 107 browserfall räknas inte som omkörda här.",
+    "logUrl": "https://app.scrapplanner.com/bokforing/granskning/webblasarprov-2026-10-23.txt",
+    "logSha256": "bb35419f4b884095850b6b9addf3622305cd1362b7b27ba56ad3bb6f7f480f92"
+  }
+}

@@ -129,7 +129,7 @@ test('planerade funktioner hålls isär från testad demo och verifieringsartike
     const path = '/bokforing/wiki/content.js';
     return (await import(path)).wikiMeta;
   });
-  await expect(page.locator('#wiki-main')).toContainText(String(metadata.verification.model));
+  await expect(page.locator('#wiki-main')).toContainText(new Intl.NumberFormat('sv-SE').format(metadata.verification.model));
   await expect(page.locator('#wiki-main')).toContainText(String(metadata.verification.browser));
   await expect(page.locator('#wiki-main')).toContainText(metadata.version);
   const sources = await page.locator('.sources-card a').evaluateAll(links => links.map(link => ({ href: link.getAttribute('href')!, target: link.getAttribute('target'), rel: link.getAttribute('rel') || '' })));

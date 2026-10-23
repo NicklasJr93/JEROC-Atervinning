@@ -1,6 +1,6 @@
 // Editorial snapshot for the public, read-only bookkeeping wiki.
 // Text describes the verified demo version below, not a production certification.
-const revision = 'b512afc770c0fcd29c4268f69445ce3b560995da';
+const revision = '1520d83face442a29c8ebbf5dcc8c2362806e44f';
 const repository = `https://github.com/NicklasJr93/JEROC-Atervinning/blob/${revision}`;
 const source = (label, path) => ({ label, url: `${repository}/${path}` });
 const historicalSource = (label, path) => ({ label, url: `https://github.com/NicklasJr93/JEROC-Atervinning/blob/c5134ecddc624c1e3a0e30e3e3f6058bcc8d0b95/${path}` });
@@ -11,11 +11,11 @@ const updated = '2026-10-23';
 export const wikiMeta = {
   title: 'Bokföringswikin',
   product: 'ScrapPlanner',
-  version: 'b512afc',
+  version: revision.slice(0, 7),
   asOf: updated,
   versionUrl: `https://github.com/NicklasJr93/JEROC-Atervinning/commit/${revision}`,
   scope: 'Dokumentation av den lokala bokföringsdemon',
-  verification: { model: 454, http: 1, browser: 107 },
+  verification: { model: 2252, http: 1, browser: 47 },
   description: 'Förstå arbetssätten, följ kontrollerna till koden och se vad som återstår.',
 };
 
@@ -29,6 +29,108 @@ export const categories = [
 ];
 
 export const articles = [
+  {
+  "id": "regelgranskning-2026",
+  "category": "granskning",
+  "title": "Teknisk regelgranskning: rapport för redovisaren",
+  "summary": "1 798 nya auditfall, 13 fynd med åtgärder och en PDF med kravmatris, testbevis och kvarstående luckor.",
+  "status": "guide",
+  "updated": "2026-10-23",
+  "tags": [
+    "PDF",
+    "rapport",
+    "regelefterlevnad",
+    "granskning",
+    "redovisare",
+    "1798",
+    "2253",
+    "testresultat"
+  ],
+  "sections": [
+    {
+      "id": "resultat",
+      "title": "Verifierat resultat i denna etapp",
+      "table": {
+        "headers": [
+          "Kontroll",
+          "Resultat"
+        ],
+        "rows": [
+          [
+            "Nya auditfall",
+            "1 798 godkända, fördelade på sex områden."
+          ],
+          [
+            "Hela automatiska sviten",
+            "2 253 godkända: 2 252 modell-/lagrings-/AI-fall och 1 HTTP-test. Inga underkända eller överhoppade."
+          ],
+          [
+            "Webbläsarprov",
+            "41 berörda affärsfall och 6 wiki-fall, totalt 47 godkända. Det är en riktad omkörning, inte alla tidigare browserfall."
+          ],
+          [
+            "Produktionsbygge",
+            "Godkänt med typkontroll."
+          ],
+          [
+            "Fynd",
+            "13 fynd har rättats eller fått en skyddsspärr."
+          ]
+        ]
+      }
+    },
+    {
+      "id": "atgarder",
+      "title": "Vad som har rättats",
+      "bullets": [
+        "ID-serien kontrolleras vid återläsning så att nästa bokning inte återanvänder ett genererat ID.",
+        "ROT begränsas av uppgivet utrymme. Personfördelning vid nya delbegäranden kan inte minska redan begärda andelar.",
+        "Semesteråterföringar hanterar historiska saldon och kan inte frigöra framtida dagar för ett tidigare daterat uttag.",
+        "Kreditnotor anger originalfaktura och skäl. Utskrifter visar nettopris även när priset matats in inklusive moms.",
+        "Återläsning skyddar tidsordningen vid krediter av periodiserad intäkt.",
+        "Fastställd moms skyddar även deklarationsunderlag där själva momsbeloppet är noll.",
+        "Kontantmetodens årsslut kan hantera verklig radomfördelning utan en konstgjord nollverifikation.",
+        "AGI-export kontrollerar schemats beloppsgränser och verkliga kalenderdatum.",
+        "Svensk standardförsäljning med 0 % och oklar rättslig grund varnas och blockerar moms-XML. Ingen automatisk omklassning görs."
+      ]
+    },
+    {
+      "id": "kvarstar",
+      "title": "Vad resultatet inte styrker",
+      "callout": {
+        "title": "Full regelefterlevnad är inte styrkt",
+        "text": "Före skarp användning återstår bland annat obligatoriska fakturauppgifter, uttrycklig klassning av vissa 0 %-fall, beständig arkivering, identifierade användare och bolagsisolering. Lön saknar automatisk hantering av den årliga 1 000-kronorsgränsen för arbetsgivaravgift. Affärernas verkliga innehåll och avdragsrätt behöver bedömas av redovisare.",
+        "tone": "info"
+      }
+    },
+    {
+      "id": "underlag",
+      "title": "Läs och granska rapporten",
+      "paragraphs": [
+        "PDF:en beskriver metod, varje fynd med test-ID, lag-/källhänvisningar, kvarstående risker och en checklista för extern granskning. CSV-filen listar samtliga 2 253 automatiska testfall. Källkodsversionen anges i rapporten. Antalet tester är inte ett antal godkända lagkrav."
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "label": "Ladda ned granskningsrapporten (PDF)",
+      "url": "/bokforing/granskning/granskningsrapport-2026-10-23.pdf"
+    },
+    {
+      "label": "Fullständig testförteckning (CSV)",
+      "url": "/bokforing/granskning/testresultat-2026-10-23.csv"
+    },
+    {
+      "label": "Rå testlogg (TAP, gzip)",
+      "url": "/bokforing/granskning/testlogg-2026-10-23.tap.gz"
+    }
+  ],
+  "related": [
+    "for-revisorn",
+    "verifiering",
+    "kanda-begransningar"
+  ]
+},
   {
     id: 'borja-har', category: 'kom-igang', title: 'Börja här: så använder du demon',
     summary: 'En kort introduktion till Åkes Hantverk AB, de egna fakturasidorna och dina lokala demodata.',
@@ -57,7 +159,7 @@ export const articles = [
     status: 'guide', updated, tags: ['revisor', 'redovisningskonsult', 'granskning', 'checklista', 'bevis'],
     sections: [
       { id: 'ordning', title: 'Rekommenderad ordning', steps: [
-        'Läs Systemets omfattning och Kända begränsningar. Välj vilket avgränsat affärsfall du vill bedöma.',
+        'Börja med PDF-rapporten under Teknisk regelgranskning. Läs Systemets omfattning och Kända begränsningar och välj ett avgränsat affärsfall.',
         'Prova en kund- eller leverantörsfaktura. Jämför uppgifter, underlag, summa och kontering innan den bokförs.',
         'Följ fakturans verifikation, betalning och eventuella kredit. Kontrollera att samma belopp återfinns i rapporterna.',
         'Prova en spärr: ett felaktigt belopp, en överbetalning eller bokning i en låst period.',
@@ -78,7 +180,7 @@ export const articles = [
       ] },
     ],
     sources: [source('Omfattning, kontroller och export', 'bokforing/README.md'), source('Rapporter och granskningsåtgärder', 'public/bokforing/suite/app.js')],
-    related: ['omfattning', 'verifiering', 'kanda-begransningar', 'bokslut-rapporter'],
+    related: ['regelgranskning-2026', 'omfattning', 'verifiering', 'kanda-begransningar', 'bokslut-rapporter'],
   },
   {
     id: 'omfattning', category: 'kom-igang', title: 'Systemets omfattning',
@@ -430,6 +532,11 @@ export const articles = [
     summary: 'Historiska testresultat, de nya funktionernas provfiler och vad verifieringen kan visa.',
     status: 'guide', updated, tags: ['tester', 'bevis', 'testresultat', 'kvalitet', '320', '75', 'version'],
     sections: [
+      { id: 'audit-resultat', title: 'Aktuell regelgranskning', paragraphs: [
+        `Version ${revision.slice(0, 7)}: 1 798 nya auditfall och 455 tidigare tester, totalt 2 253 godkända. Av dessa är 2 252 modell-/lagrings-/AI-fall och 1 HTTP-test. Inga underkända eller överhoppade.`,
+        '41 berörda affärsfall och 6 wiki-fall har körts i webbläsaren, totalt 47 godkända. Produktionsbygge och typkontroll är godkända. Det är en riktad browserkörning; de 107 äldre fallen nedan är historiska.',
+        '13 fynd har fått rättningar eller skyddsspärrar. PDF-rapporten redovisar varje fynd, lagstöd, test-ID och återstående luckor. Full regelefterlevnad är inte styrkt.',
+      ] },
       { id: 'resultat', title: 'Historiskt resultat: version c5134ec', table: {
         headers: ['Kontroll', 'Resultat i den tidigare versionen'],
         rows: [
@@ -440,7 +547,7 @@ export const articles = [
           ['Manuella visuella prov', 'Skrivbords- och mobilvyer; inga noterade JavaScript-fel eller horisontellt sidöverflöde i genomförda prov.'],
         ],
       } },
-      { id: 'nya-prov', title: 'Prov för den senaste etappen', paragraphs: [
+      { id: 'nya-prov', title: 'Historiska prov: version b512afc', paragraphs: [
         'Version b512afc: godkänt produktionsbygge och typkontroll, 454 modell-, lagrings- och AI-kontroller, 1 separat HTTP-test och 107 unika webbläsarfall efter grundkörning och omprov.',
         'SIE, valutafakturor, kontantmetoden, semesterkonton, löneåterkrav, ROT-krediter och deklarationsexport har egna modell- och webbläsarprov. Slutrapporten beskriver grundkörningen, rättningar och omprov; testantalen avser denna kodversion.',
         'AGI-prov använder även Skatteverkets XSD. En SIE-fil från den fiktiva demoboken har kontrollerats i SIE-gruppens publika testtjänst utan syntax- eller radfel. Det visar hur de testade filerna är uppbyggda; det är ingen myndighetsinlämning eller certifiering.',
@@ -457,8 +564,8 @@ export const articles = [
         'Kameraprovet använder filinput med kameraattribut; fysisk telefonkamera har inte provats. Tester av de stödda fallen är inte en redovisningscertifiering eller en kontroll av varje tänkbart affärsfall.',
       ] },
     ],
-    sources: [source('Aktuell slutrapport och omprov', 'bokforing/granskning/2026-10-23-funktionskomplettering.md'), historicalSource('Historisk verifiering och omprov för c5134ec', 'bokforing/granskning/2026-10-23-utbyggnad.md'), source('Aktuell omfattning', 'bokforing/README.md'), source('SIE-prov', 'server/bokforing-sie.test.mjs'), source('Semester och löneåterkrav', 'server/bokforing-payroll-completion.test.mjs'), source('Löneåterkrav till AGI med XSD-kontroll', 'server/bokforing-declaration-payroll-integration.test.mjs'), source('Kontroll vid återläsning', 'server/bokforing-suite-validation.test.mjs')],
-    related: ['for-revisorn', 'kanda-begransningar', 'andringar'],
+    sources: [{ label: 'Aktuell granskningsrapport (PDF)', url: '/bokforing/granskning/granskningsrapport-2026-10-23.pdf' }, source('Historisk slutrapport för b512afc', 'bokforing/granskning/2026-10-23-funktionskomplettering.md'), historicalSource('Historisk verifiering och omprov för c5134ec', 'bokforing/granskning/2026-10-23-utbyggnad.md'), source('Aktuell omfattning', 'bokforing/README.md'), source('SIE-prov', 'server/bokforing-sie.test.mjs'), source('Semester och löneåterkrav', 'server/bokforing-payroll-completion.test.mjs'), source('Löneåterkrav till AGI med XSD-kontroll', 'server/bokforing-declaration-payroll-integration.test.mjs'), source('Kontroll vid återläsning', 'server/bokforing-suite-validation.test.mjs')],
+    related: ['regelgranskning-2026', 'for-revisorn', 'kanda-begransningar', 'andringar'],
   },
   {
     id: 'kanda-begransningar', category: 'granskning', title: 'Kända begränsningar och kvarstående arbete',
@@ -466,6 +573,8 @@ export const articles = [
     status: 'planned', updated, tags: ['begränsningar', 'luckor', 'planerat', 'regelefterlevnad', 'säkerhet', 'server', 'API'],
     sections: [
       { id: 'produktion', title: 'Inför en skarp produkt', bullets: [
+        'Fullständighetskrav för fakturans adresser, momsregistreringsnummer och relevanta utförandedatum.',
+        'Uttrycklig rättslig klassning av vissa svenska 0 %-fakturor; XML-exporten är spärrad tills underlaget kan granskas.',
         'Delad serverlagring, bolagsavgränsning, användarbehörigheter och identifierade gransknings-/attestroller.',
         'Hållbart dokumentarkiv, säkerhetskopiering och provad återläsning.',
         'Produktions-API och externa anslutningar för bank, e-post, fakturautskick och myndighetsinlämning. SIE-huvudbok och funktionella deklarationsexporter finns i demon.',
@@ -476,7 +585,7 @@ export const articles = [
         'Valutabankkonton, fler valutor än EUR/USD, kombinationer av kontantmetod och internationella/ROT-affärer samt återstående momssärregler. Verklig avdragsrätt, motpart och underlag behöver granskas.',
         'Automatiska utskick och serverstyrd schemaläggning av återkommande fakturor, indexering, dröjsmålsränta och inkassoflöden.',
         'RUT, kundbetalningar under andra ROT-regelår och fullständig hantering av beslut som ändras efter utbetalning.',
-        'Återstående lönefall och avtalsregler, bokförd värdering av pågående arbeten, K3 och särskilda K2-/deklarationsbilagor. Digital underskrift, fastställelseintyg, myndighetsinlämning och kvittenser skapas inte automatiskt.',
+        'Automatisk hantering av årsgränsen 1 000 kr för arbetsgivaravgifter. Återstående lönefall och avtalsregler, bokförd värdering av pågående arbeten, K3 och särskilda K2-/deklarationsbilagor. Digital underskrift, fastställelseintyg, myndighetsinlämning och kvittenser skapas inte automatiskt.',
       ] },
       { id: 'ansvar', title: 'Vad systemet inte kan bevisa', callout: {
         title: 'Begränsningarna är en del av dokumentationen', text: 'Demon kan inte garantera att varje verklig affär är rätt klassificerad eller att all regelefterlevnad är uppfylld. Affärens innebörd, underlagets kvalitet och de relevanta reglerna behöver fortfarande granskas.', tone: 'info',
@@ -497,11 +606,12 @@ export const articles = [
           ['Egna kundfakturasidor', 'Stor editor, egna adresser, fakturauppgifter, rabatter/avgifter, kopiering och frysta dokumentuppgifter.'],
           ['Leverantörssidor och underlagsinkorg', 'Egna sidor, lokal fil-/kamerainmatning, originalvisning, dubblettkontroll och kompletteringar efter bokföring.'],
           ['Utbyggda ekonomiflöden', 'Fler inköpsrader, delkrediter/återbetalningar, individuella löner, utökad moms/ROT, artikel-/avtalsflöden och fortsatt bokföring nästa år.'],
+          ['Teknisk regelgranskning', '1 798 nya auditfall, 13 fynd med åtgärder och PDF-rapport för extern redovisningsgranskning.'],
           ['Bokföringsfunktioner och filutbyte', 'SIE 4, EUR/USD-fakturor, kontantmetod, semesterkonton, löneåterkrav, ROT-/periodiseringskrediter samt AGI-, moms- och INK2/SRU-export.'],
         ],
       } },
       { id: 'den-har-wikin', title: 'Den här wikins version', paragraphs: [
-        'Funktionsbeskrivningarna omfattar den senaste etappen den 23 oktober 2026. Kod och testbevis är bundna till version b512afc. Testantalen från c5134ec är separat märkta som historiska; de har inte återanvänts som resultat för ny kod.',
+        `Funktionsbeskrivningarna omfattar regelgranskningen den 23 oktober 2026. Kod och testbevis är bundna till version ${revision.slice(0, 7)}. Äldre resultat för c5134ec och b512afc är separat märkta som historiska.`,
         'En GitHub-push och en färdig publicering är olika händelser. Faktisk driftversion behöver kontrolleras mot den tjänst som serverar appen.',
       ] },
       { id: 'nasta-prioriteringar', title: 'Prioriterad fortsättning', bullets: [

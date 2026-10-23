@@ -1,0 +1,138 @@
+41 BERÖRDA AFFÄRSFALL – SLUTKÖRNING
+[WebServer] (node:60907) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 41 tests using 1 worker
+
+(node:60932) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 tests/bokforing-cash-method.spec.ts:26:1 › cash setup requires explicit reset and issued documents wait for payment before booking (6.2s)
+  ✓   2 tests/bokforing-cash-method.spec.ts:36:1 › paid cash invoice credit waits for refund and preserves the frozen original (4.4s)
+  ✓   3 tests/bokforing-cash-method.spec.ts:42:1 › year-end cash recognition carries a receivable that settles next year without VAT twice (5.0s)
+  ✓   4 tests/bokforing-cash-method.spec.ts:54:1 › cash workspace fits a mobile screen and adds invoice rows (2.4s)
+  ✓   5 tests/bokforing-declarations.spec.ts:20:1 › AGI requires checked identity and reviews, persists version and downloads actual XML (5.0s)
+  ✓   6 tests/bokforing-declarations.spec.ts:26:1 › moms cannot export a monthly slice for a quarterly company (3.6s)
+  ✓   7 tests/bokforing-declarations.spec.ts:31:1 › reviewed INK2 creates a binary ZIP containing official SRU forms (3.6s)
+  ✓   8 tests/bokforing-declarations.spec.ts:35:1 › K2 annual report downloads printable full document after all required disclosures (6.3s)
+  ✓   9 tests/bokforing-declarations.spec.ts:41:1 › declarations remain usable on a narrow screen (2.2s)
+  ✓  10 tests/bokforing-fx.spec.ts:35:1 › EUR invoice records partial/final settlement and keeps foreign and SEK balances after reload (4.9s)
+  ✓  11 tests/bokforing-fx.spec.ts:46:1 › paid supplier invoice supports a partial credit and a separate refund (4.7s)
+  ✓  12 tests/bokforing-fx.spec.ts:57:1 › mobile overpayment is rejected without a new journal entry (3.4s)
+  ✓  13 tests/bokforing-invoice-pages.spec.ts:40:1 › fakturalistan öppnar egen adress som klarar omladdning och bakåt/framåt (2.9s)
+  ✓  14 tests/bokforing-invoice-pages.spec.ts:60:1 › ny faktura använder hela arbetsytan och behåller inmatning när ett belopp nekas (3.0s)
+  ✓  15 tests/bokforing-invoice-pages.spec.ts:82:1 › osparad faktura kräver beslut innan användaren lämnar sidan (2.5s)
+  ✓  16 tests/bokforing-invoice-pages.spec.ts:96:1 › sparad v2-faktura utan nya uppgifter öppnas utan reset eller ändrade original (2.0s)
+  ✓  17 tests/bokforing-invoice-pages.spec.ts:131:1 › referenser, leverans, rabatter och avgifter följer fakturan, bokföringen och låst utskrift (7.6s)
+  ✓  18 tests/bokforing-invoice-pages.spec.ts:198:1 › byte till priser inklusive moms bevarar priset och ny bruttoinmatning räknas rätt (5.8s)
+  ✓  19 tests/bokforing-invoice-pages.spec.ts:222:1 › arbetsrad utan ROT räknas bort och följer med till en självständig fakturakopia (4.6s)
+  ✓  20 tests/bokforing-invoice-pages.spec.ts:252:1 › återställning från osparad fakturasida rensar utkast och återgår till listan (4.2s)
+  ✓  21 tests/bokforing-payroll-completion.spec.ts:32:1 › payroll completion: earned vacation balance is reserved in the real salary form (3.6s)
+  ✓  22 tests/bokforing-payroll-completion.spec.ts:60:1 › payroll completion: paid salary can be reclaimed and collected without deleting original salary (6.9s)
+  ✓  23 tests/bokforing-payroll-workspace.spec.ts:43:1 › bokforing-payroll: individual review, official tax, posting and simulated payment (3.7s)
+  ✓  24 tests/bokforing-payroll-workspace.spec.ts:62:1 › bokforing-payroll: mobile profile and unsupported tax year show actionable error (2.5s)
+  ✓  25 tests/bokforing-payroll-workspace.spec.ts:76:1 › bokforing-payroll: integrated app persists a reviewed payroll and its payment (8.6s)
+  ✓  26 tests/bokforing-rot-credit-completion.spec.ts:23:1 › ROT-credit shows accounting preview and requires explicit review before posting (6.6s)
+  ✓  27 tests/bokforing-rot-credit-completion.spec.ts:30:1 › revenue-credit preview separates earned and deferred portions and survives restore (3.9s)
+  ✓  28 tests/bokforing-settlements.spec.ts:43:1 › settlements: betald kundfaktura kan delkrediteras och återbetalas utan att originalet skrivs om (4.8s)
+  ✓  29 tests/bokforing-settlements.spec.ts:72:1 › settlements: blandad leverantörsfaktura krediterar vald rad och stoppar för stor kredit (3.4s)
+  ✓  30 tests/bokforing-settlements.spec.ts:94:1 › settlements: mobil arbetsyta kan användas utan horisontellt sidöverflöde (2.7s)
+  ✓  31 tests/bokforing-sie.spec.ts:18:1 › SIE file upload previews Swedish content, imports real ledger entries and blocks replay after reload (5.4s)
+  ✓  32 tests/bokforing-sie.spec.ts:44:1 › SIE download preserves PC8 bytes and matches the selected ledger year (2.1s)
+  ✓  33 tests/bokforing-sie.spec.ts:60:1 › mobile SIE workspace previews safely and rejects unsupported dimensions without a write (3.7s)
+  ✓  34 tests/bokforing-sie.spec.ts:72:1 › empty practice company receives matching external opening balance through the ordinary UI (6.6s)
+  ✓  35 tests/bokforing-tax-rot.spec.ts:34:1 › moms: EU-inköp med halv avdragsrätt bokförs, visas i deklarationsfält och återläses (5.5s)
+  ✓  36 tests/bokforing-tax-rot.spec.ts:44:1 › moms: fel EU-land stoppas och formulärets uppgifter behålls (5.4s)
+  ✓  37 tests/bokforing-tax-rot.spec.ts:49:1 › ROT: två personer, delbegäran, avslag, utbetalning och återkrav sparas i samma fakturakedja (6.4s)
+  ✓  38 tests/bokforing-tax-rot.spec.ts:62:1 › momsarbetsyta ryms på mobil och visar formulär och deklarationsunderlag (2.1s)
+  ✓  39 tests/bokforing-year-workspace.spec.ts:27:1 › year workspace saves reviewed workpapers and preserves revision history after reload (3.8s)
+  ✓  40 tests/bokforing-year-workspace.spec.ts:51:1 › year workspace closes the year and opens the next year with retained archive and reload (4.0s)
+  ✓  41 tests/bokforing-year-workspace.spec.ts:73:1 › year workspace exports draft review material and fits a mobile screen (2.6s)
+
+  41 passed (3.1m)
+
+WIKI – FÖRSTA KÖRNINGEN OCH FORMATAVVIKELSE
+[WebServer] (node:63006) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 6 tests using 1 worker
+
+(node:63030) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/bokforing-wiki.spec.ts:32:1 › wikin läser dokumentationen utan åtkomst till besökarens bokföring eller produktions-API (1.9s)
+  ✓  2 tests/bokforing-wiki.spec.ts:73:1 › svensk fulltextsökning hittar samma artiklar utan accenter och stöder delbara adresser (3.0s)
+  ✓  3 tests/bokforing-wiki.spec.ts:97:1 › kategorifilter avgränsar sökträffar och en okänd sökfras hanteras som text (2.2s)
+  ✘  4 tests/bokforing-wiki.spec.ts:116:1 › planerade funktioner hålls isär från testad demo och verifieringsartikeln länkar till versionsbundna bevis (6.6s)
+(node:63288) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  5 tests/bokforing-wiki.spec.ts:143:1 › revisorns guide leder från kontroller till källor och den körbara demon (1.9s)
+  ✓  6 tests/bokforing-wiki.spec.ts:155:1 › mobilmenyn öppnar en läsbar artikel utan horisontellt sidöverflöde (1.9s)
+
+
+  1) tests/bokforing-wiki.spec.ts:116:1 › planerade funktioner hålls isär från testad demo och verifieringsartikeln länkar till versionsbundna bevis 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('#wiki-main')
+    Timeout: 5000ms
+    - Expected substring  - 1
+    + Received string     + 6
+
+    - 2252
+    + Wikin/Granskning & tester
+    +     Granskning & testerVerifiering: vad har testats?Historiska testresultat, de nya funktionernas provfiler och vad verifieringen kan visa.Guide23 oktober 2026Demoversion 1520d83Kopiera länk
+    +     Aktuell regelgranskningVersion 1520d83: 1 798 nya auditfall och 455 tidigare tester, totalt 2 253 godkända. Av dessa är 2 252 modell-/lagrings-/AI-fall och 1 HTTP-test. Inga underkända eller överhoppade.41 berörda affärsfall och 6 wiki-fall har körts i webbläsaren, totalt 47 godkända. Produktionsbygge och typkontroll är godkända. Det är en riktad browserkörning; de 107 äldre fallen nedan är historiska.13 fynd har fått rättningar eller skyddsspärrar. PDF-rapporten redovisar varje fynd, lagstöd, test-ID och återstående luckor. Full regelefterlevnad är inte styrkt.Historiskt resultat: version c5134ecKontrollResultat i den tidigare versionenProduktionsbyggeGodkänt lokalt.Modell- och lagringstester320 godkända.HTTP-integrationstest1 godkänt.Browserfall mot den byggda servern75 godkända.Manuella visuella provSkrivbords- och mobilvyer; inga noterade JavaScript-fel eller horisontellt sidöverflöde i genomförda prov.Historiska prov: version b512afcVersion b512afc: godkänt produktionsbygge och typkontroll, 454 modell-, lagrings- och AI-kontroller, 1 separat HTTP-test och 107 unika webbläsarfall efter grundkörning och omprov.SIE, valutafakturor, kontantmetoden, semesterkonton, löneåterkrav, ROT-krediter och deklarationsexport har egna modell- och webbläsarprov. Slutrapporten beskriver grundkörningen, rättningar och omprov; testantalen avser denna kodversion.AGI-prov använder även Skatteverkets XSD. En SIE-fil från den fiktiva demoboken har kontrollerats i SIE-gruppens publika testtjänst utan syntax- eller radfel. Det visar hur de testade filerna är uppbyggda; det är ingen myndighetsinlämning eller certifiering.Exempel på testade felFelaktiga belopp, överbetalning, dubbla källbokningar och bokning i låst period.Gammal flik, misslyckad skrivning, återläsning och explicit demo-reset.Fel filtyp, för stor import, kvotfel, ändrade originalbytes och saknad fil.Bilagekoppling som slutförs efter sidbyte eller reset ska inte hamna på fel utkast eller återinföra gamla ändringar.Frysta fakturauppgifter, ROT, bankmatchning, lön, lager och periodisering.Så ska resultatet läsasDe historiska antalen ovan avser den lokalt verifierade versionen c5134ec, inte en löpande mätning av den senast publicerade appen. Den historiska rapportlänken är låst till den versionen. Nya provfiler länkas till den senaste dokumenterade etappen.Kameraprovet använder filinput med kameraattribut; fysisk telefonkamera har inte provats. Tester av de stödda fallen är inte en redovisningscertifiering eller en kontroll av varje tänkbart affärsfall.
+    +     Källor och fördjupningFölj beskrivningen till koden, testerna eller regelunderlaget.Aktuell granskningsrapport (PDF)Historisk slutrapport för b512afcHistorisk verifiering och omprov för c5134ecAktuell omfattningSIE-provSemester och löneåterkravLöneåterkrav till AGI med XSD-kontrollKontroll vid återläsning
+    +     Läs vidareGuideTeknisk regelgranskning: rapport för redovisaren1 798 nya auditfall, 13 fynd med åtgärder och en PDF med kravmatris, testbevis och kvarstående luckor.Öppna artikel GuideFör revisorn: en väg genom granskningenBörja med omfattningen, välj ett affärsfall och följ dess belopp, original och rättelser.Öppna artikel PlaneratKända begränsningar och kvarstående arbeteEn samlad lista över sådant som demon inte täcker eller inte kan avgöra.Öppna artikel GuideÄndringslogg och dokumenterad versionDe senaste stegen från enkel ekonomidemo till egna fakturasidor och lokal underlagsinkorg.Öppna artikel 
+    +     PÅ DEN HÄR SIDANAktuell regelgranskningHistoriskt resultat: version c5134ecHistoriska prov: version b512afcExempel på testade felSå ska resultatet läsasKällor och fördjupningTydliga avgränsningarStatusen beskriver vad som finns i denna demo. Läs alltid artikelns omfattning och kvarstående arbete.Kända begränsningar 
+
+    Call log:
+      - Expect "toContainText" locator('#wiki-main') with timeout 5000ms
+      - waiting for locator('#wiki-main')
+        13 × locator resolved to <main tabindex="-1" id="wiki-main">…</main>
+           - unexpected value "Wikin/Granskning & tester
+        Granskning & testerVerifiering: vad har testats?Historiska testresultat, de nya funktionernas provfiler och vad verifieringen kan visa.Guide23 oktober 2026Demoversion 1520d83Kopiera länk
+        Aktuell regelgranskningVersion 1520d83: 1 798 nya auditfall och 455 tidigare tester, totalt 2 253 godkända. Av dessa är 2 252 modell-/lagrings-/AI-fall och 1 HTTP-test. Inga underkända eller överhoppade.41 berörda affärsfall och 6 wiki-fall har körts i webbläsaren, totalt 47 godkända. Produktionsbygge och typkontroll är godkända. Det är en riktad browserkörning; de 107 äldre fallen nedan är historiska.13 fynd har fått rättningar eller skyddsspärrar. PDF-rapporten redovisar varje fynd, lagstöd, test-ID och återstående luckor. Full regelefterlevnad är inte styrkt.Historiskt resultat: version c5134ecKontrollResultat i den tidigare versionenProduktionsbyggeGodkänt lokalt.Modell- och lagringstester320 godkända.HTTP-integrationstest1 godkänt.Browserfall mot den byggda servern75 godkända.Manuella visuella provSkrivbords- och mobilvyer; inga noterade JavaScript-fel eller horisontellt sidöverflöde i genomförda prov.Historiska prov: version b512afcVersion b512afc: godkänt produktionsbygge och typkontroll, 454 modell-, lagrings- och AI-kontroller, 1 separat HTTP-test och 107 unika webbläsarfall efter grundkörning och omprov.SIE, valutafakturor, kontantmetoden, semesterkonton, löneåterkrav, ROT-krediter och deklarationsexport har egna modell- och webbläsarprov. Slutrapporten beskriver grundkörningen, rättningar och omprov; testantalen avser denna kodversion.AGI-prov använder även Skatteverkets XSD. En SIE-fil från den fiktiva demoboken har kontrollerats i SIE-gruppens publika testtjänst utan syntax- eller radfel. Det visar hur de testade filerna är uppbyggda; det är ingen myndighetsinlämning eller certifiering.Exempel på testade felFelaktiga belopp, överbetalning, dubbla källbokningar och bokning i låst period.Gammal flik, misslyckad skrivning, återläsning och explicit demo-reset.Fel filtyp, för stor import, kvotfel, ändrade originalbytes och saknad fil.Bilagekoppling som slutförs efter sidbyte eller reset ska inte hamna på fel utkast eller återinföra gamla ändringar.Frysta fakturauppgifter, ROT, bankmatchning, lön, lager och periodisering.Så ska resultatet läsasDe historiska antalen ovan avser den lokalt verifierade versionen c5134ec, inte en löpande mätning av den senast publicerade appen. Den historiska rapportlänken är låst till den versionen. Nya provfiler länkas till den senaste dokumenterade etappen.Kameraprovet använder filinput med kameraattribut; fysisk telefonkamera har inte provats. Tester av de stödda fallen är inte en redovisningscertifiering eller en kontroll av varje tänkbart affärsfall.
+        Källor och fördjupningFölj beskrivningen till koden, testerna eller regelunderlaget.Aktuell granskningsrapport (PDF)Historisk slutrapport för b512afcHistorisk verifiering och omprov för c5134ecAktuell omfattningSIE-provSemester och löneåterkravLöneåterkrav till AGI med XSD-kontrollKontroll vid återläsning
+        Läs vidareGuideTeknisk regelgranskning: rapport för redovisaren1 798 nya auditfall, 13 fynd med åtgärder och en PDF med kravmatris, testbevis och kvarstående luckor.Öppna artikel GuideFör revisorn: en väg genom granskningenBörja med omfattningen, välj ett affärsfall och följ dess belopp, original och rättelser.Öppna artikel PlaneratKända begränsningar och kvarstående arbeteEn samlad lista över sådant som demon inte täcker eller inte kan avgöra.Öppna artikel GuideÄndringslogg och dokumenterad versionDe senaste stegen från enkel ekonomidemo till egna fakturasidor och lokal underlagsinkorg.Öppna artikel 
+        PÅ DEN HÄR SIDANAktuell regelgranskningHistoriskt resultat: version c5134ecHistoriska prov: version b512afcExempel på testade felSå ska resultatet läsasKällor och fördjupningTydliga avgränsningarStatusen beskriver vad som finns i denna demo. Läs alltid artikelns omfattning och kvarstående arbete.Kända begränsningar "
+
+
+      130 |     return (await import(path)).wikiMeta;
+      131 |   });
+    > 132 |   await expect(page.locator('#wiki-main')).toContainText(String(metadata.verification.model));
+          |                                            ^
+      133 |   await expect(page.locator('#wiki-main')).toContainText(String(metadata.verification.browser));
+      134 |   await expect(page.locator('#wiki-main')).toContainText(metadata.version);
+      135 |   const sources = await page.locator('.sources-card a').evaluateAll(links => links.map(link => ({ href: link.getAttribute('href')!, target: link.getAttribute('target'), rel: link.getAttribute('rel') || '' })));
+        at /workspace/jeroc-bokforing-demo/tests/bokforing-wiki.spec.ts:132:44
+
+    Error Context: test-results/bokforing/bokforing-wiki-planerade-f-9a06d-r-till-versionsbundna-bevis/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/bokforing/bokforing-wiki-planerade-f-9a06d-r-till-versionsbundna-bevis/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/bokforing/bokforing-wiki-planerade-f-9a06d-r-till-versionsbundna-bevis/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/bokforing-wiki.spec.ts:116:1 › planerade funktioner hålls isär från testad demo och verifieringsartikeln länkar till versionsbundna bevis 
+  5 passed (25.9s)
+
+WIKI – OMPROV EFTER KORRIGERAD TESTFÖRVÄNTAN
+[WebServer] (node:63491) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 6 tests using 1 worker
+
+(node:63515) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/bokforing-wiki.spec.ts:32:1 › wikin läser dokumentationen utan åtkomst till besökarens bokföring eller produktions-API (2.1s)
+  ✓  2 tests/bokforing-wiki.spec.ts:73:1 › svensk fulltextsökning hittar samma artiklar utan accenter och stöder delbara adresser (2.7s)
+  ✓  3 tests/bokforing-wiki.spec.ts:97:1 › kategorifilter avgränsar sökträffar och en okänd sökfras hanteras som text (2.9s)
+  ✓  4 tests/bokforing-wiki.spec.ts:116:1 › planerade funktioner hålls isär från testad demo och verifieringsartikeln länkar till versionsbundna bevis (4.0s)
+  ✓  5 tests/bokforing-wiki.spec.ts:143:1 › revisorns guide leder från kontroller till källor och den körbara demon (5.6s)
+  ✓  6 tests/bokforing-wiki.spec.ts:155:1 › mobilmenyn öppnar en läsbar artikel utan horisontellt sidöverflöde (3.5s)
+
+  6 passed (26.9s)
