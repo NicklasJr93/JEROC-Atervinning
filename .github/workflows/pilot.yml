@@ -80,6 +80,7 @@ jobs:
           tests/bokforing-purchase-pages.spec.ts
           tests/bokforing-documents.spec.ts
           tests/bokforing-wiki.spec.ts
+          tests/bokforing-ande.spec.ts
           tests/bokforing-settlements.spec.ts
           tests/bokforing-payroll-workspace.spec.ts
           tests/bokforing-tax-rot.spec.ts

@@ -1,0 +1,34 @@
+.ande-connected-panel{width:min(430px,calc(100vw - 44px));color:#334764}
+.ande-connected-panel[hidden]{display:none}
+.ande-connected-panel>header small{display:block;color:#6a7388;font-size:10px}
+.ande-toolbar{display:flex;justify-content:space-between;gap:10px;padding:10px 16px 0}
+.ande-text-button{padding:4px 0;border:0;background:none;color:#4e62a0;text-decoration:underline;font-size:10px}
+.ande-text-button:disabled{opacity:.5}
+.ande-connection{margin:8px 16px;font-size:11px;line-height:1.5;color:#7a6242}
+.ande-connection[data-available=true]{color:#396e5b}
+.ande-login{display:block;margin:0 16px 10px;font-size:12px;color:#245fc9}
+.ande-login[hidden]{display:none}
+.ande-context{margin:0 16px;padding:9px 11px;border:1px solid #e9e6f2;border-radius:8px;font-size:10px;color:#69758d;background:#fbfaff}
+.ande-context summary{cursor:pointer;color:#5d5182;overflow-wrap:anywhere}
+.ande-context p{line-height:1.6;margin:8px 0}
+.ande-context-choice{display:flex;flex-direction:row;align-items:center;gap:7px;margin:10px 0 0;font-size:11px}
+.ande-context pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:135px;overflow:auto;font-size:9px;color:#5e6e83;margin:8px 0 0}
+.ande-connected-panel .assistant-messages{min-height:75px;padding-top:14px}
+.ande-connected-panel .chat-bubble{font-size:12px;color:#51466f;overflow-wrap:anywhere;white-space:normal}
+.ande-connected-panel .chat-bubble.user{color:#344f86}
+.ande-message-context{display:block;font-size:9px;font-weight:600;opacity:.75;margin-bottom:4px}
+.ande-message-text{white-space:pre-wrap}
+.ande-thinking{color:#7d8192!important;font-style:italic}
+.ande-citations{display:flex;flex-direction:column;gap:5px;margin-top:10px;font-size:10px}
+.ande-citations a{color:#4269aa;overflow-wrap:anywhere}
+.ande-error{margin:0 16px 10px;padding:10px 12px;background:#fff4ee;border:1px solid #f0d2bd;border-radius:8px;color:#8a4e36;font-size:11px;line-height:1.5}
+.ande-error[hidden]{display:none}
+.ande-connected-panel .assistant-suggestions{padding-bottom:9px}
+.ande-connected-panel .assistant-suggestions button{color:#68528d;font-size:10px}
+.ande-connected-panel .assistant-suggestions button:disabled{opacity:.5}
+.ande-connected-panel form{padding:10px 14px;align-items:flex-end;gap:7px}
+.ande-connected-panel form textarea{font-size:12px;min-height:56px;max-height:120px;margin:0;resize:vertical;border-color:#d9d9ed;line-height:1.5}
+.ande-connected-panel form button{flex-shrink:0;min-height:38px}
+.ande-connected-panel #ande-stop[hidden]{display:none}
+.ande-boundary{margin:0;padding:0 15px 12px;color:#7c8396;font-size:9px;line-height:1.6}
+@media(max-width:700px){.ande-connected-panel{inset:76px 8px 8px;width:auto}.ande-connected-panel .assistant-messages{min-height:70px}.ande-context{font-size:10px}.ande-connected-panel form textarea{font-size:16px}.ande-toolbar{padding-top:7px}.ande-connected-panel>header{padding:12px 15px}.ande-boundary{font-size:9px;padding-bottom:10px}.ande-context pre{max-height:95px}}

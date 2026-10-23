@@ -4148,3 +4148,23 @@ i bokforing/README.md och den sökbara bokföringswikin.
   Ande per kundbolag. Ingen extern AI eller ny produktionsanslutning aktiveras.
 - Fortsatt lokal provmiljö. Behörigheter, beständigt serverarkiv, SIE,
   fullständig lön/årsredovisning/deklaration, valuta och kontantmetod återstår.
+
+
+ÄL 167 – OpenAI-ansluten Ande i den publika bokföringsdemon
+Status: Implementerad 2026-10-23. Verifiering finns i
+bokforing/granskning/2026-10-23-ande.md.
+- Fråga Ande använder OpenAI på servern med separat BOKFORING_OPENAI_API_KEY.
+  API-nyckeln lämnas aldrig till webbläsaren. Modellens svar är förslag och
+  ger ingen rätt att bokföra, betala, deklarera eller ändra periodlås.
+- Ingen inloggning krävs. Tillfällig demosession, CSRF, korta spamgränser och
+  atomiska samtidighetsreservationer skyddar anropen. Ingen total kredit-
+  eller dygnsgräns begränsar användningen i denna testversion.
+- Aktuell demovy, rapportsummor och högst tolv valda dokumentrader kan
+  bifogas. Kontexten kan granskas och stängas av. Varken kundregister,
+  personnummerfält, bankuppgifter eller originalfiler hämtas automatiskt.
+- Daterat kunskapspaket och serverstyrda källhänvisningar. Inga påståenden
+  om yrkesauktorisation, fullständig regelkunskap eller oberoende revision.
+- Avbryt stoppar den pågående modellhämtningen. Nytt samtal, ny demosession
+  och ändrad vy hindrar gammal historik eller gamla svar från att återanvändas.
+- Uppdaterad wiki, användar-/driftguide och separat anslutningsguide.
+  Företagsspecifikt beständigt SaaS-minne och skarp bolagsbokföring återstår.

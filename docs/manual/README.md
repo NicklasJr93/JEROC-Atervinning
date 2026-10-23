@@ -74,7 +74,11 @@ I **Projekt & offerter** kan du registrera tid/material och skapa offert.
 granskningssteg. **Bokföring**, **Moms & ROT** och **Rapporter** följer samma
 verifikationer. **Bokslut** visar återstående avstämningar och periodlåsning.
 
-**Fråga Ande** öppnar en demoassistent med exempelbaserade svar.
+**Fråga Ande** öppnar en AI-assistent utan inloggning. Frågan och vald
+demokontext skickas till OpenAI via servern. **Underlag till Ande** visar
+vilka fält som följer med och låter dig välja bort kontexten. Använd bara
+fiktiva uppgifter. Ande förklarar och föreslår men ändrar inte bokföringen.
+**Nytt samtal** rensar konversationen, som bara hålls i den öppna fliken.
 Ändringarna sparas i den egna webbläsaren. **Återställ demo** tar tillbaka
 exempeluppgifterna efter bekräftelse och återställer fakturornas
 underlagskopplingar. Uppladdade filer behålls i inkorgen; de kan kopplas på
@@ -108,7 +112,9 @@ före en genomgång med redovisningskunnig.
   inlämningsklara dokument. Se [årshanteringen](../../bokforing/bokslut-och-rakenskapsar.md).
 
 Förslaget till en framtida personlig SaaS-assistent beskrivs i
-[Ande per kundbolag](../../bokforing/ai-ande-saas.md). Ingen extern AI är ansluten.
+[Ande per kundbolag](../../bokforing/ai-ande-saas.md). Den publika
+[OpenAI-kopplingen](../../bokforing/ande-openai-test.md) är ett separat demotest;
+beständigt företagsminne och AI-åtkomst till skarp bokföring återstår.
 
 I den uppdaterade demon stoppas sparandet vid konflikt mellan flikar eller
 lagringsfel. Läs bannern och välj **Läs in senaste** för att fortsätta;

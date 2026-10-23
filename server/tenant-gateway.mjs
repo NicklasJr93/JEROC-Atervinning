@@ -34,6 +34,7 @@ import { createPublicCustomerIntake } from './public-customer-intake.mjs';
 import { createGlobalEmployeeLogin } from './mobile-global-login.mjs';
 import { createMobilePlatformSupport } from './mobile-platform-support.mjs';
 import { attachMobileSupport, mobileSupportIdentity, withMobileSupportAuthorization } from './mobile-support-identity.mjs';
+import { createBokforingAndeApi } from './bokforing-ande.mjs';
 
 const legacyId = 'jeroc-demo';
 const knownPages = new Set(['/kontor', '/kontor/', '/mobil', '/mobil/', '/', '/terminal', '/terminal/', '/chauffor', '/chauffor/', '/kund', '/kund/', '/akeri', '/akeri/']);
@@ -387,8 +388,12 @@ export async function createTenantGateway({ env = process.env, makeServices = cr
   const personRegisterApi = createPersonRegisterApi({ lookup: personLookup, authorize: req => authorizeAssistance(req) });
   const addressAssistanceApi = createAddressAssistanceApi({ validator: addressValidation ?? createGoogleAddressValidation({ env }),
     env, authorize: req => authorizeAssistance(req, true) });
+  // Isolated public AI demo. Its cookie never grants platform/business access;
+  // no selected company's business data is supplied to the model.
+  const bokforingAndeApi = createBokforingAndeApi({ repository, env });
   const api = async (req, res, url) => {
     if (!url.pathname.startsWith('/api/')) return false;
+    if (await bokforingAndeApi(req, res, url)) return true;
     if (await customerApprovalLinks.handle(req, res, url)) return true;
     if (await customerIntakeLinks.handle(req, res, url)) return true;
     if (await mobilePlatformSupport.handle(req, res, url)) return true;

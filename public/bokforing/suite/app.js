@@ -6,6 +6,7 @@ import * as Periodization from './periodization.js';
 import * as Inventory from './inventory.js';
 import { createSuiteStorage } from './storage.js';
 import { createPurchaseWorkspace } from './purchase-workspace.js';
+import { createAndeClient } from './ande-client.js';
 import { featureModules, featureNavigation, featureData, featureDownload } from './feature-workspaces.js';
 import { renderView, escapeHtml as e, icon, ghost, nav, numberInput } from './views.js';
 import { createInvoiceEditorDraft, renderInvoiceEditor, readInvoiceEditor, renderInvoiceSummary,
@@ -40,6 +41,7 @@ const canWrite=()=>!busy&&!stale&&!snapshot.error&&snapshot.writable;
 const canReset=()=>!busy&&!stale&&typeof navigator.locks?.request==='function'&&(snapshot.revision===null||typeof snapshot.revision==='string')&&(!snapshot.error||snapshot.error.code==='INVALID_DATA');
 
 root.innerHTML=`<div class="suite-shell"><button id="suite-backdrop" class="sidebar-backdrop" aria-label="Stäng meny" hidden></button><aside id="suite-sidebar"><a href="#overview" class="brand"><span>${icon('ledger')}</span><strong>Bokföring<small>en del av ScrapPlanner</small></strong></a><p class="nav-caption">DIN ARBETSPLATS</p><nav>${displayNav.map(([view,label])=>`<a href="#${view}" data-nav="${view}">${icon(({inventory:'assets',accruals:'close'})[view]||view)}<span>${e(label)}</span></a>`).join('')}<a href="/bokforing/wiki/" target="_blank" rel="noopener noreferrer">${icon('ledger')}<span>Wiki &amp; granskning ↗</span></a></nav><div class="sidebar-bottom"><div class="sidebar-ande">${ghost()}<strong>En hjälpande ande.</strong><p>Fråga, förstå och kom vidare.</p><button data-action="toggle-assistant">${icon('sparkle')}Prata med Ande</button></div><button class="reset-link" data-action="reset">${icon('refresh')}Återställ demo</button><a href="/bokforing/klassisk.html" class="classic-link">Tidigare inköpsdemo ↗</a></div></aside><div class="suite-workspace"><header class="topbar"><button id="suite-menu" class="icon-button" aria-label="Öppna meny" aria-expanded="false">${icon('menu')}</button><span class="breadcrumb" id="breadcrumb">Översikt</span><span class="demo-badge">DEMO</span><label class="global-search">${icon('search')}<input id="suite-search" placeholder="Sök faktura eller verifikation…" aria-label="Sök faktura eller verifikation"></label><strong id="company-name"></strong><span class="year-label">2026</span><span class="avatar">ÅH</span><button class="ande-launcher" data-action="toggle-assistant" aria-label="Fråga Ande">${ghost()}<span>Fråga Ande</span></button></header><div id="suite-storage-notice" class="storage-notice" hidden><p></p><button class="button secondary" data-action="reload">Läs in senaste</button></div><main id="suite-main" tabindex="-1"></main><footer class="suite-footer"><span id="save-status">Fiktiva uppgifter · sparas i din webbläsare</span><span>Inga betalningar eller deklarationer skickas</span></footer></div></div><dialog id="suite-dialog" aria-labelledby="dialog-title"><div class="dialog-heading"><h2 id="dialog-title"></h2><button class="icon-button" data-action="close-dialog" aria-label="Stäng dialog">${icon('x')}</button></div><div id="dialog-body"></div></dialog><aside id="suite-assistant" class="assistant-panel" aria-label="Samtal med Ande" hidden><header>${ghost()}<div><strong>Ande</strong><small>Exempelbaserad demoassistent</small></div><button class="icon-button" data-action="toggle-assistant" aria-label="Stäng Ande">${icon('x')}</button></header><div id="assistant-messages" class="assistant-messages" aria-live="polite"></div><div class="assistant-suggestions"><button data-question="Vad behöver jag göra nu?">Mitt nästa steg</button><button data-question="Hur fungerar ROT?">Förklara ROT</button><button data-question="Varför balanserar bokföringen?">Debet och kredit</button></div><form id="assistant-form"><label class="sr-only" for="assistant-input">Fråga Ande</label><input id="assistant-input" placeholder="Ställ en fråga…" required maxlength="700"><button class="button primary" aria-label="Skicka fråga">${icon('arrow')}</button></form></aside><div id="suite-toast" class="toast" role="status"></div><div id="print-area"></div>`;
+const ande=createAndeClient({getState:()=>state,getUi:()=>ui});
 const dialog=document.querySelector('#suite-dialog');
 const body=document.querySelector('#dialog-body');
 
@@ -88,6 +90,7 @@ function render(){
  }catch(err){document.querySelector('#suite-main').innerHTML=`<div class="panel error-panel"><h1>Vyn kunde inte öppnas</h1><p>${e(errorMessage(err))}</p><a class="button secondary" href="${ui.view==='purchases'?'#purchases':'#sales'}">Till fakturalistan</a></div>`;}
  const editStatus=document.querySelector('#invoice-editor-status');if(editStatus)editStatus.textContent=invoiceDirty?'Osparade ändringar':'Utkast';
  updateChrome();
+ ande.refreshContext();
  if(ui.view==='purchases')purchaseWorkspace.mount().catch(showError);
 }
 function route(){
@@ -146,7 +149,7 @@ async function write(transition,message,{close=true,after}={}){
  catch(err){if(err.code){snapshot={...snapshot,error:err};if(err.code==='STALE_STATE')stale=true;}showError(err);return false;}
  finally{busy=false;updateChrome();}
 }
-function reload(){snapshot=store.load();state=snapshot.state;stale=false;invoiceDirty=false;featureDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);dialog.close();render();toast(snapshot.error?errorMessage(snapshot.error):'Senaste demodata är inlästa. Osparade ändringar har återställts.',!!snapshot.error);}
+function reload(){snapshot=store.load();state=snapshot.state;ande.reset();stale=false;invoiceDirty=false;featureDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);dialog.close();render();toast(snapshot.error?errorMessage(snapshot.error):'Senaste demodata är inlästa. Osparade ändringar har återställts.',!!snapshot.error);}
 function download(text,filename,type='text/csv;charset=utf-8'){const blob=new Blob([type.startsWith('text/csv')?'\uFEFF':'',text],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function csv(rows){return rows.map(row=>row.map(v=>{let s=String(v??'');if(/^[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';}).join(';')).join('\r\n');}
 function exportLedger(){download(csv([['Verifikation','Datum','Beskrivning','Konto','Debet','Kredit','Källa','Rättar'],...state.entries.flatMap(x=>x.rows.map(r=>[x.number,x.date,x.description,r.account,fmt(r.debitCents),fmt(r.creditCents),x.sourceType,x.correctsEntryId||'']))]),'huvudbok-demo.csv');}
@@ -164,7 +167,7 @@ async function action(name,id,el){
  switch(name){
  case 'close-dialog':dialog.close();return;
  case 'reload':reload();return;
- case 'toggle-assistant':ui.assistantOpen=!ui.assistantOpen;updateChrome();return;
+ case 'toggle-assistant':ui.assistantOpen=!ui.assistantOpen;updateChrome();if(ui.assistantOpen)ande.open();else ande.close();return;
  case 'add-line':document.querySelector('#line-editor')?.insertAdjacentHTML('beforeend',lineRow());return;
  case 'remove-line':el.closest('[data-line]')?.remove();return;
  case 'add-entry-row':document.querySelector('#entry-rows')?.insertAdjacentHTML('beforeend',entryRow());return;
@@ -284,27 +287,12 @@ async function submit(form){
  }
  case 'reset':{
   if(busy||stale)return;busy=true;updateChrome();
-  try{snapshot=await store.reset(snapshot);state=snapshot.state;stale=false;invoiceDirty=false;featureDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});dialog.close();if(ui.view==='sales')navigate('#sales');else if(ui.view==='purchases')navigate('#purchases');else render();toast('Demon är återställd till fiktiva startuppgifter. Uppladdade underlag finns kvar i inkorgen.');}catch(err){if(err.code)snapshot={...snapshot,error:err};showError(err);}finally{busy=false;updateChrome();}return;
+  try{snapshot=await store.reset(snapshot);state=snapshot.state;ande.reset();stale=false;invoiceDirty=false;featureDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});dialog.close();if(ui.view==='sales')navigate('#sales');else if(ui.view==='purchases')navigate('#purchases');else render();toast('Demon är återställd till fiktiva startuppgifter. Uppladdade underlag finns kvar i inkorgen.');}catch(err){if(err.code)snapshot={...snapshot,error:err};showError(err);}finally{busy=false;updateChrome();}return;
  }
  default:throw new Error('Formuläret kan inte sparas.');
  }
  await write(transition,message,{after});
 }
-
-function answer(question){
- const lower=question.toLowerCase(),r=Finance.getReports(state);
- if(/lager|inventer/.test(lower))return 'Materiallagret är ett separat register i demon. Registrera artikelns kostnad och antalet vid inleverans, uttag eller inventering. När du bokför lagervärderingen omförs skillnaden mellan lager och kostnad. Materialinköpet måste vara bokfört först. I Artiklar & avtal kan du registrera ett lageruttag och motsvarande projektmaterial i samma åtgärd; övrig projektregistrering skapar inte automatiskt lageruttag.';
- if(/periodiser|förutbetald/.test(lower))return 'En förutbetald kostnad hör till kommande månader. Bokför inköpet först, lägg upp en periodiseringsplan och flytta beloppet till 1790. Sedan bokför du planens månadsbelopp tillbaka till kostnadskontot, i turordning. Planen och varje bokning behåller länkar i historiken.';
- if(/rot|avdrag/.test(lower))return 'I 2026 års exempel är ROT 30 % av arbetskostnaden inklusive moms, inom personens uppgivna återstående årsutrymme och högst 50 000 kr per år. Material och resor räknas bort. Öppna fakturan, granska villkoren och registrera kundens del innan du förbereder begäran. En behörighetsbedömning och Skatteverkets besked behövs fortfarande.';
- if(/debet|kredit|balans/.test(lower))return `Varje bokförd verifikation ska ha lika mycket i debet och kredit. Bokfört saldo på företagskontot är ${money(r.bankCents)}. Tillgångarna är ${money(r.assetsCents)} och eget kapital plus skulder ${money(r.liabilitiesEquityCents)}. Systemet stoppar en obalanserad verifikation, men valet av redovisningsregel behöver också vara rätt.`;
- if(/moms/.test(lower))return 'Momsöversikten räknas från huvudbokens momskonton. Kontrollera affärernas momstyp och avdragsrätt före momsavslut. Omvänd byggmoms kräver en egen bedömning av köparens och arbetets förutsättningar. Demon förbereder och bokför underlaget, men lämnar ingen deklaration.';
- if(/lön|lone|skatt/.test(lower))return 'Löneutkastet använder grundlön, de skatteavdrag och arbetsgivaravgifter du angivit samt valda avdrag, semester, förmåner och utlägg. Den nya individuella arbetsytan använder versionerade officiella tabeller för stödda 2026-fall. Granska profil, inkomsttyp och varje lönebesked före bokföring. Äldre demokörningar använder fortfarande manuella skattevärden; fler lönefall återstår.';
- if(/bokslut|stäng|lås|period/.test(lower))return 'Börja med kontohändelser, kund- och leverantörsposter. Kontrollera moms, löner och inventarier. I Bokslut ser du vilka kontroller som återstår. Periodlås stoppar nya bokningar i månaden; en öppning kräver skäl i historiken. Granskningspaketet är arbetsmaterial för din rådgivare.';
- if(/kostnad|inventarie|avskriv/.test(lower))return 'Ett inköp kan behöva kostnadsföras direkt eller redovisas som tillgång. I denna demo registrerar du först ett utrustningsinköp på 5410 och flyttar sedan beloppet till 1220 när du lägger upp inventarien. Nyttjandeperiod och restvärde styr månadsavskrivningen och ska granskas.';
- if(/faktura|kund|betal/.test(lower))return 'Spara ett fakturautkast med kund, datum, rader och momstyp. Granska och utfärda fakturan för att bokföra kundfordran. Registrera sedan kundens betalning och följ kvarvarande skuld. I Krediter & återbetalningar kan en faktura krediteras helt eller delvis, även efter betalning. Tillgodon kan återbetalas eller kvittas. ROT och intäktsperiodiserade fakturor kräver särskilda rättelseflöden. Originalet bevaras.';
- return `Just nu finns ${state.invoices.filter(x=>x.status==='draft').length} fakturautkast, ${state.bills.filter(x=>x.status==='draft').length} inköpsutkast och ${state.bankTransactions.filter(x=>!x.matchedEntryId).length} omatchade kontohändelser. Du tittar på ${nav.find(x=>x[0]===ui.view)?.[1]}. Jag kan förklara exempelvis ROT, kontering, moms, lön och bokslut. Svaren är exempelbaserade; jag utför ingen självständig redovisningsgranskning.`;
-}
-function chat(question){const list=document.querySelector('#assistant-messages');const add=(text,cls)=>{const bubble=document.createElement('div');bubble.className='chat-bubble '+cls;bubble.textContent=text;list.append(bubble);};if(question)add(question,'user');add(question?answer(question):'Hej Åke! Jag är Ande. Fråga om vyn du arbetar i, eller be mig förklara nästa steg. Mina svar i demon är exempelbaserade och ändrar inte din bokföring.','assistant');list.scrollTop=list.scrollHeight;}
 
 async function runFeature(element) {
  const key=element.dataset.featureForm||element.dataset.featureAction;
@@ -324,10 +312,9 @@ document.addEventListener('click',event=>{
  const selectMap={selectInvoice:'invoiceId',selectBill:'billId',selectEntry:'entryId',selectProject:'projectId',selectBank:'bankId',selectPayroll:'payrollId',selectAsset:'assetId'};
  for(const [key,target] of Object.entries(selectMap)){if(el.dataset[key]){if(key==='selectInvoice'){event.preventDefault();navigate(invoiceLocation(el.dataset[key]));return;}if(key==='selectBill'){event.preventDefault();navigate('#purchases/'+encodeURIComponent(el.dataset[key]));return;}if(el.tagName!=='A')event.preventDefault();ui[target]=el.dataset[key];render();return;}}
  if(el.dataset.bankAccount){ui.bankAccount=el.dataset.bankAccount;ui.bankId=null;render();return;}
- if(el.dataset.question){chat(el.dataset.question);return;}
  if(el.dataset.action){event.preventDefault();Promise.resolve(action(el.dataset.action,el.dataset.id||'',el)).catch(showError);}
 });
-document.addEventListener('submit',event=>{const form=event.target;if(form.dataset.featureForm){event.preventDefault();runFeature(form).catch(showError);return;}if(form.id==='assistant-form'){event.preventDefault();const input=document.querySelector('#assistant-input');chat(input.value);input.value='';return;}if(form.dataset.form){event.preventDefault();submit(form).catch(showError);}});
+document.addEventListener('submit',event=>{const form=event.target;if(form.dataset.featureForm){event.preventDefault();runFeature(form).catch(showError);return;}if(form.dataset.form){event.preventDefault();submit(form).catch(showError);}});
 document.addEventListener('input',event=>{if(event.target.closest('[data-feature-form]'))featureDirty=true;if(event.target.closest('#invoice-page-form'))refreshInvoiceSummary();purchaseWorkspace.input(event.target);});
 document.addEventListener('dragover',event=>{const zone=event.target.closest('[data-document-drop][data-upload-enabled="true"]');if(zone){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='copy';}});
 document.addEventListener('drop',event=>{const zone=event.target.closest('[data-document-drop][data-upload-enabled="true"]');if(!zone)return;event.preventDefault();const input=zone.querySelector('[data-document-upload][data-source="file"]');if(input&&event.dataTransfer?.files.length){input.files=event.dataTransfer.files;purchaseWorkspace.change(input).catch(showError);}});
@@ -366,4 +353,4 @@ window.addEventListener('hashchange',route);
 window.addEventListener('beforeunload',event=>{if(invoiceDirty||featureDirty||purchaseWorkspace.isDirty()){event.preventDefault();event.returnValue='';}});
 window.addEventListener('storage',event=>{if(event.key===STORE_KEY||event.key===null){stale=true;updateChrome();}});
 dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});
-chat();route();
+route();

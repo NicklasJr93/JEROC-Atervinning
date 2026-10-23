@@ -13,6 +13,8 @@ test('public bookkeeping demo serves its own assets without granting office acce
   const env = {
     PATH: process.env.PATH, NODE_ENV: 'test', DATABASE_URL: '',
     SCRAPPLANNER_DEPLOYMENT_MODE: 'demo', JEROC_DEMO_AUTO_SESSION: 'false',
+    // Only status and rejected requests are tested; this value must never be used upstream.
+    BOKFORING_OPENAI_API_KEY: 'synthetic-ande-http-test-never-use-upstream',
     SCRAPPILOT_PLATFORM_ADMIN_PASSWORD: 'Isolated-Bookkeeping-Demo-Test-2026!',
     JEROC_APPLICATION_DB_PATH: join(directory, 'application.sqlite'),
     JEROC_PLATFORM_DB_PATH: join(directory, 'platform.sqlite'),
@@ -48,6 +50,34 @@ test('public bookkeeping demo serves its own assets without granting office acce
       assert.equal(response.status, 200, path);
       assert.match(response.headers.get('content-type'), /javascript/);
     }
+    for (const [path, type] of [['suite/ande-client.js', /javascript/], ['suite/ande.css', /text\/css/]]) {
+      const response = await fetch(`${url}/bokforing/${path}`);
+      assert.equal(response.status, 200, path);
+      assert.match(response.headers.get('content-type'), type);
+      assert.ok(!(await response.text()).includes(env.BOKFORING_OPENAI_API_KEY));
+    }
+    const andeStatus = await fetch(`${url}/api/bokforing/ande/status`);
+    assert.equal(andeStatus.status, 200);
+    const status = await andeStatus.json();
+    assert.equal(status.available, true);
+    assert.equal(status.authmode, 'public-demo');
+    assert.ok(status.csrfToken);
+    assert.ok(!JSON.stringify(status).includes(env.BOKFORING_OPENAI_API_KEY));
+    const setCookie = andeStatus.headers.get('set-cookie');
+    assert.match(setCookie, /HttpOnly/);
+    assert.match(setCookie, /SameSite=Strict/);
+    assert.match(setCookie, /Path=\/api\/bokforing\/ande/);
+    const cookie = setCookie.split(';')[0];
+    const noCsrf = await fetch(`${url}/api/bokforing/ande/chat`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'Hej' }) });
+    assert.equal(noCsrf.status, 403);
+    const invalidContext = await fetch(`${url}/api/bokforing/ande/chat`, { method: 'POST', headers: {
+      Cookie: cookie, 'X-CSRF-Token': status.csrfToken, 'Content-Type': 'application/json',
+    }, body: JSON.stringify({ question: 'Hej', context: { companyId: 'private-company' } }) });
+    assert.equal(invalidContext.status, 422, 'arbitrary company selection never reaches OpenAI');
+    const crossOrigin = await fetch(`${url}/api/bokforing/ande/status`, { headers: { Origin: 'https://unrelated.invalid' } });
+    assert.equal(crossOrigin.status, 403);
+    assert.equal((await fetch(`${url}/api/employee/session?view=bootstrap`, { headers: { Cookie: cookie } })).status, 401,
+      'an Ande demo cookie must never authenticate an office account');
     const invoiceStyles = await fetch(`${url}/bokforing/suite/invoice-page.css`);
     assert.equal(invoiceStyles.status, 200);
     assert.match(invoiceStyles.headers.get('content-type'), /text\/css/);

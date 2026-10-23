@@ -1,18 +1,56 @@
 # Ande: personlig redovisningsassistent per kundbolag
 
-Status 2026-10-23: arkitektur och produktgräns för nästa etapp. Den publicerade
-demons svar är fortfarande lokala exempel. Ingen extern modell är ansluten,
-ingen modellnyckel ligger i klienten och ingen företagsdata skickas till en
-modell i denna version.
+Status 2026-10-23: en första läsande OpenAI-koppling finns för den lokala
+bokföringsdemon. Resten av dokumentet beskriver även den större, ännu
+planerade SaaS-arkitekturen. [Testversion, driftsättning och kontrollpunkter](ande-openai-test.md)
+beskriver exakt vad som är anslutet och hur det verifieras.
 
-## Hur åtkomsten fungerar
+## Implementerat: läsande AI-test i bokföringsdemon
+
+Ande anropar OpenAI Responses API via servern. Nyckeln
+`BOKFORING_OPENAI_API_KEY` ligger endast på servern; den skickas aldrig till
+webbläsaren. Modellen väljs på servern med `BOKFORING_ANDE_MODEL`, med
+`gpt-5-mini` som förval. AI-testet och ekonomidemon är publika och kräver
+ingen ScrapPlanner-inloggning. AI-anrop har en separat, kortlivad demosession
+med cookie och CSRF-skydd; den ger ingen åtkomst till kundbolag.
+
+Vid en fråga skickas samtalets begränsade historik och, när användaren valt
+det, utvalda strukturerade demofält för den aktuella sidan. Hela bokföringen,
+uppladdade original, personnummer och bankuppgifter hämtas inte automatiskt.
+Servern hämtar inga produktionsuppgifter från kundbolag och behandlar inte
+browserkontext som verifierade registerdata. En användare kan själv skriva
+känsliga uppgifter i en fråga; fiktiva uppgifter ska därför användas i testet.
+
+Servern lägger till ett versionsmärkt kunskapspaket om stödda demoflöden och
+deras begränsningar. Källhänvisningar länkar till fördefinierade wikiartiklar
+och myndighetsvägvisare. Ingen aktuell webbsökning eller automatisk inläsning
+av lagtext sker. Paketet är inte ett fullständigt, expertgodkänt regelverk.
+
+Svaren är förklaringar och förslag. Modellen har inga verktyg för att ändra
+bokföringen, betala, deklarera, låsa upp perioder eller radera. Det finns ännu
+ingen knapp som verkställer ett konteringsförslag. Programkontrollerna måste
+fortfarande passeras när användaren själv registrerar en åtgärd.
+
+Anropen har korta spamgränser och begränsningar för indata och svar. Det finns
+ingen dygnskvot eller beloppsgräns för denna publika testversion.
+Vår server sparar användningsmetadata, inte frågor, svar eller kontext.
+Konversationen hålls i den öppna webbläsarfliken. `store: false` skickas till
+OpenAI men innebär inte en garanti om noll lagring hos leverantören; dess
+aktuella villkor och organisationens eventuella lagringsavtal gäller.
+
+Den anslutna testversionen innehåller inte beständigt personligt minne,
+kundbolagsavgränsad redovisningsdatabas eller kontinuerlig övervakning av
+alla transaktioner. Det är den fortsatta produktplanen nedan.
+
+## Planerad SaaS: modellåtkomst och kunskap
 
 SaaS-tjänsten använder en modellleverantör via ett server-API. Leverantörens
 API-nyckel förvaras som serverhemlighet, med separat nyckel och budget för
 utveckling och produktion. Slutanvändaren behöver normalt ingen egen nyckel.
 En API-nyckel ger åtkomst; tokens är de textenheter som används och debiteras
-för frågor, inhämtad kontext och svar. Exakta priser och modellval bestäms
-när leverantören väljs, inte genom antagna priser i denna plan.
+för frågor, inhämtad kontext och svar. För testversionens modellval, se ovan.
+Produktionsmodell, exakta priser och budget behöver fastställas för den
+avsedda användningen.
 
 Vi behöver inte träna en separat grundmodell för varje kund. Samma modell kan
 användas med tre avgränsade informationslager:
@@ -29,7 +67,7 @@ användas med tre avgränsade informationslager:
    exempelvis vanligt kostnadskonto är ett förslag, inte ett undantag från
    redovisningsregler eller periodlåsning.
 
-## Servern upprätthåller bolagsgränsen
+## Planerad SaaS: servern upprätthåller bolagsgränsen
 
 Föreslaget flöde:
 
@@ -55,7 +93,7 @@ assistenten. En faktura får exempelvis inte kunna begära åtkomst till ett ann
 bolags filer eller ändra assistentens behörighet. Regleringen sker i servern
 och datalagret, inte bara i modellens instruktioner.
 
-## Vad Ande får göra i första anslutna versionen
+## Fortsatt utbyggnad: läsverktyg och granskbara förslag
 
 - Förklara den aktuella sidan och följa en rapportsiffra till underliggande
   verifikationer och underlag inom användarens behörighet.
@@ -66,10 +104,10 @@ och datalagret, inte bara i modellens instruktioner.
   beloppet avviker från historiken.
 - Förbereda frågor och granskningsunderlag till redovisningskonsulten.
 
-Modellen får i första versionen inga verktyg som bokför, betalar, deklarerar,
-låser upp perioder eller raderar. Ett godkänt förslag skickas genom samma
-kontroller och transaktionsgräns som en manuellt registrerad post. En rättad
-bedömning ändrar framtida förslag, inte tidigare bokförda original.
+Den nuvarande testversionen har inga skrivverktyg. När ett strukturerat
+godkännandeflöde byggs ska ett godkänt förslag skickas genom samma kontroller
+och transaktionsgräns som en manuellt registrerad post. En rättad bedömning
+ska ändra framtida förslag, inte tidigare bokförda original.
 
 ## Kunskap, kvalitet och ansvar
 
@@ -80,19 +118,19 @@ granskning är olika uppgifter. Ande kan hjälpa till med förberedelserna och
 göra regelkunskap tillgänglig utan att ge sken av att ha lämnat ett
 revisionsuttalande.
 
-Första kunskapspaketet ska definiera en avgränsad målgrupp, exempelvis svenskt
+Ett framtida produktionspaket ska definiera en avgränsad målgrupp, exempelvis svenskt
 mindre aktiebolag med K2, faktureringsmetod och SEK. Regler uppdateras med
 giltighetsdatum och granskarens ändringshistorik. Svar ska ange vilket år och
 vilka källor som använts. Finjustering kan senare förbättra språk och format,
 men är inte ett substitut för aktuella regelkällor och kontrollerbar matematik.
 
-Före anslutning behövs en uppsättning expertgranskade fall med förväntad
+Inför skarp rådgivningsanvändning behövs en uppsättning expertgranskade fall med förväntad
 bedömning och acceptabla alternativa konteringar. Fallen omfattar vanliga
 affärer, felaktiga underlag, ofullständiga frågor, regeländringar och försök
 att komma åt ett annat bolag. Vi mäter källstöd, beräkningsriktighet, andelen
 osäkra fall som lämnas för granskning samt otillåtna verktygsanrop.
 
-## Kostnad och spårbarhet
+## Planerad SaaS: kostnad och spårbarhet
 
 Varje anrop registrerar bolag, användare, modell/version, regelpaket,
 kontextreferenser, förslagets ID och tokenanvändning. Begränsa innehållet i
@@ -107,7 +145,7 @@ skickas. Företagsminne får inte återanvändas som ett annat bolags kontext el
 som gemensamma träningsexempel utan ett separat, tydligt beslut och lämplig
 hantering av uppgifterna.
 
-## Leveransordning
+## Fortsatt leveransordning för kundbolag
 
 1. Beständig bolagsavgränsad serverlagring, autentisering och roller.
 2. Gemensamt granskat regelpaket samt läsverktyg med bolagskontroll.

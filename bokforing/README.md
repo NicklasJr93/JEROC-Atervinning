@@ -14,7 +14,7 @@ Här samlas designförslag för ett **fristående bokföringsprogram med egen we
 - **[Moms och ROT](https://app.scrapplanner.com/bokforing/#tax-v2):** klassificerade betalda EU-/utlandsaffärer och importmoms, deklarationsfält, periodval och fastställande. ROT kan fördelas på flera personer och delas upp efter kundbetalningar, med beslut, utbetalningar och återkrav. [Omfattning och gränser](moms-och-rot-utbyggnad.md).
 - **[Artiklar och avtal](https://app.scrapplanner.com/bokforing/#commercial):** artikelregister, kundpriser, återkommande fakturautkast, påminnelseunderlag, lageruttag till projekt och intäktsperiodisering. Pågående arbeten har ett dokumenterat bedömningsunderlag. [Kommersiella flöden](utveckling/kommersiella-floden.md).
 - **[Bokslut och nästa år](https://app.scrapplanner.com/bokforing/#year-end):** versionshistorik för bokslutsbilagor, granskningsunderlag för bolagsskatt/årsredovisning och fortsatt bokföring med bevarade äldre år, öppna fakturor och planer. [Årshantering](bokslut-och-rakenskapsar.md).
-- **Ande:** [arkitektur för personlig assistent per kundbolag](ai-ande-saas.md). Detta är en plan; extern AI, bolagsavgränsad serveråtkomst och personligt minne är inte anslutna i demon.
+- **Ande:** [publikt läsande OpenAI-test med servernyckel](ande-openai-test.md). Assistenten får en begränsad, uttryckligt bifogad demokontext och kan förklara eller föreslå utan att bokföra. Ingen inloggning krävs. Beständigt personligt minne och bolagsavgränsad åtkomst till verklig redovisning är fortfarande [planerade](ai-ande-saas.md).
 
 Flera valutor och kontantmetoden är fortfarande planerade. [Den tekniska genomgången](utveckling/valuta-och-kontantmetod.md) beskriver vilka beräkningar, modelländringar och provfall som behövs; inga tomma valutaval eller metodväxlingar har aktiverats.
 
@@ -36,7 +36,7 @@ Wikietappen är lokalt verifierad med produktionsbygge, ett HTTP-integrationstes
 
 ## Klickbar demo
 
-Efter publicering öppnas den utökade versionen på **https://app.scrapplanner.com/bokforing**. Den tidigare inköpsversionen finns då på `/bokforing/klassisk.html` med sina tidigare sparade exempel. Ingen inloggning, betalning eller extern anslutning behövs för att prova ekonomidemon.
+Efter publicering öppnas den utökade versionen på **https://app.scrapplanner.com/bokforing**. Den tidigare inköpsversionen finns då på `/bokforing/klassisk.html` med sina tidigare sparade exempel. Ingen inloggning eller betalning behövs för att prova ekonomiflödena och det publika AI-testet. Ande behöver serverkonfiguration och åtkomst till OpenAI.
 
 | Område | Vad som går att prova |
 | --- | --- |
@@ -116,7 +116,7 @@ Den utökade versionen använder nyckeln `scrapplanner-bokforing-suite-v2`. Den 
 
 ### Den här versionens gränser
 
-Detta är en sammanhängande testversion med avgränsade affärsfall, inte ett färdiggranskat redovisningsprogram för skarp drift. Ande ger exempelbaserade förklaringar; ingen extern språkmodell eller auktorisation ingår. Lönearbetsytan har officiella tabeller 29–42, kolumn 1/3, för stödda 2026-fall upp till 80 000 kr/månad. Profiler, avtal och faktisk rätt till avdrag kräver bedömning. Full semesterintjäning, kollektivavtal, pension, negativa rättelser efter utbetalning och ytterligare skattesituationer återstår.
+Detta är en sammanhängande testversion med avgränsade affärsfall, inte ett färdiggranskat redovisningsprogram för skarp drift. Ande kan använda OpenAI via servern för publika testare. Assistenten är inte auktoriserad revisor, ser inte automatiskt hela bokföringen och har inga skrivverktyg. Lönearbetsytan har officiella tabeller 29–42, kolumn 1/3, för stödda 2026-fall upp till 80 000 kr/månad. Profiler, avtal och faktisk rätt till avdrag kräver bedömning. Full semesterintjäning, kollektivavtal, pension, negativa rättelser efter utbetalning och ytterligare skattesituationer återstår.
 
 Grundfakturans ROT-beräkning använder en person. Den nya ROT-arbetsytan kan fördela fakturans redan reserverade totalbelopp på upp till tio personer, utan att öka totalen, och förbereda proportionella delbegäranden. Stöd finns för betalningar under 2026 och begäran till januari 2027; andra betalningsår är spärrade. Faktisk avdragsrätt, ägande och skatteutrymme verifieras inte. RUT, generella ROT-krediter och mer omfattande husarbetsfall återstår.
 
@@ -126,7 +126,7 @@ Granskningspaket, AGI-CSV, bolagsskatteberäkning och årsredovisningsunderlag �
 
 ### Körning och verifiering
 
-Bygg med `npm run build` och starta med `npm start`. [Driftguiden](../docs/drift/README.md#uppdatera-och-kontrollera) beskriver separat publicering på Render. Inga nya miljövariabler, databasändringar eller produktionsanslutningar införs.
+Bygg med `npm run build` och starta med `npm start`. [Driftguiden](../docs/drift/README.md#uppdatera-och-kontrollera) beskriver separat publicering på Render. Ekonomidemon använder fortfarande lokal bokföringslagring. För det separata AI-testet behövs `BOKFORING_OPENAI_API_KEY` på appservern; kortlivad sessions- och användningsmetadata sparas på servern. [Andes drift- och testguide](ande-openai-test.md) beskriver konfiguration, spamgränser och vilka data som skickas.
 
 Modell- och lagringstester finns i `server/bokforing-*.test.mjs`. Browserproven i `tests/bokforing-*.spec.ts` omfattar även de nya arbetsytorna för krediter, individuell lön, moms/ROT, kommersiella flöden och årshantering. Regressionstesterna för den tidigare versionen är kvar. Se även [provgranskningen av den äldre versionen](granskning/2026-10-22.md) och dess [uppföljning](granskning/2026-10-22-uppfoljning.md).
 
@@ -151,7 +151,7 @@ Sparandet samordnas mellan uppdaterade demoflikar med Web Locks och kontroll av 
 
 Stäng och öppna äldre demoflikar efter publicering av rättningarna. Samordningen skyddar flikar som använder den uppdaterade koden; tidigare öppna versioner och direkt ändring av localStorage omfattas inte. Om webbläsaren saknar stöd för Web Locks visas demon i läsläge. Det är fortfarande browserlokal demodata, inte ett serverarkiv eller ett skydd mot manipulation.
 
-Demon kräver ingen inloggning. Den använder en egen lagringsnyckel i webbläsaren och gör inga anrop till appens produktions-API:er, betalningstjänster eller externa AI-leverantörer. AI-svaren i denna version är exempelbaserade. Underlag och rapporter avser enbart Exempelbolaget AB.
+Den historiska inköpsversionen på `/bokforing/klassisk.html` kräver ingen inloggning. Den använder en egen lagringsnyckel i webbläsaren och gör inga anrop till appens produktions-API:er, betalningstjänster eller externa AI-leverantörer. AI-svaren i den äldre versionen är exempelbaserade. Underlag och rapporter där avser enbart Exempelbolaget AB. Det separata OpenAI-testet ovan gäller den nya ekonomidemon.
 
 Appservern mappar exakt `/bokforing` och `/bokforing/` till den fristående demosidan. Övrig autentisering och åtkomst till bolag ändras inte. Källkoden finns i [public/bokforing](../public/bokforing/).
 

@@ -43,6 +43,7 @@ hemligheter ska inte ha `VITE_`-prefix eller läggas på den statiska hemsidan.
 | `JEROC_DEMO_AUTO_SESSION` | `false` i pilotens Blueprint |
 | `APP_URL`, `MOBILE_URL` | Betrodda HTTPS-ursprung för kontor respektive mobil, utan sökväg |
 | `RESEND_API_KEY` | Gemensamma systemmejl via Resend |
+| `BOKFORING_OPENAI_API_KEY`, `BOKFORING_ANDE_MODEL` | Separat servernyckel och valfri modell för den publika bokföringsdemons Ande; se [anslutning och kostnadsgränser](../../bokforing/ande-openai-test.md) |
 | `ELKS_API_USERNAME`, `ELKS_API_PASSWORD` | API-inloggning för SMS via 46elks |
 | `SCB_API_KEY` | Företagsuppslag via SCB |
 | `ROARING_CONSUMER_KEY`, `ROARING_CONSUMER_SECRET` | Serverns personuppslag via Roaring |
@@ -166,12 +167,16 @@ Kontrollera särskilt att krediter inte ändrar original, att dubbla körningar
 inte skapar dubbla fakturautkast och att nästa år bevarar äldre journaler och
 fortsatta planer.
 
-Den här utbyggnaden inför inga nya servermiljövariabler, databasändringar,
-betalningsanslutningar eller myndighetsutskick. Skattetabellerna är versionerade
-statiska data med dokumenterad avgränsning. Den personliga AI-anden per
-kundbolag beskrivs i [arkitekturplanen](../../bokforing/ai-ande-saas.md); någon
-extern AI-tjänst, API-nyckel eller bolagsavgränsat minne aktiveras inte av
-denna deploy. Den befintliga assistenten ger fortfarande exempelbaserade svar.
+Ekonomiflödenas utbyggnad i ÄL 166 införde inga betalningsanslutningar eller
+myndighetsutskick. Skattetabellerna är versionerade statiska data med
+dokumenterad avgränsning. I den efterföljande ÄL 167 ansluts Ande via
+`/api/bokforing/ande/status` och `/api/bokforing/ande/chat`. Den separata
+servernyckeln aktiverar offentliga AI-anrop utan plattformsinloggning, med
+korttidsgränser mot spam men utan dygnsbudget. Demosessioner och kort
+användningshistorik lagras atomiskt i plattformsregistrets separata
+`bokforingAndeUsage`-fält; ingen samtalstext eller tenantbokföring lagras där.
+Se [Andes testdrift](../../bokforing/ande-openai-test.md). Bolagsavgränsat
+företagsminne är fortfarande [planerat](../../bokforing/ai-ande-saas.md).
 
 Den publika läswikin ligger på `/bokforing/wiki` och `/bokforing/wiki/`.
 Båda mappar till `public/bokforing/wiki/index.html` efter webbbygget. Kontrollera
