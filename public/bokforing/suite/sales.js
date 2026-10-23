@@ -1,5 +1,6 @@
 import { transact, appendEntry, nextId, addActivity, assert, cents, validDate, requireOpenPeriod } from './core.js';
 import { calculateLineAmounts, calculateRot, ROT_RULES_2026 } from './rot.js';
+import { normalizeInvoiceDetails, validateInvoiceDetails } from './invoice-data.js';
 
 const text = (value, label, max = 300) => {
   assert(typeof value === 'string' && value.trim() && value.length <= max, `${label} saknas eller är för lång.`);
@@ -28,22 +29,37 @@ const dateField = (value, label) => { assert(validDate(value), `${label} måste 
 
 export function invoiceBookingSnapshot(invoice) {
   const rot = invoice.rot ? Object.fromEntries(['paymentYear', 'property', 'personId', 'eligibleConfirmed', 'availableCents', 'reservedCents', 'remainingCents'].map(key => [key, invoice.rot[key] ?? null])) : null;
-  return JSON.stringify({
+  const snapshot = {
     id: invoice.id, number: invoice.number, kind: invoice.kind, originalInvoiceId: invoice.originalInvoiceId ?? null,
     customerId: invoice.customerId, projectId: invoice.projectId ?? null, date: invoice.date, dueDate: invoice.dueDate,
     vatMode: invoice.vatMode, buyerConstructionConfirmed: invoice.buyerConstructionConfirmed,
-    lines: invoice.lines.map(({ description, kind, quantity, unitCents, vatRate }) => ({ description, kind, quantity, unitCents, vatRate })),
+    lines: invoice.lines.map(line => {
+      const { description, kind, quantity, unitCents, vatRate } = line;
+      const frozen = { description, kind, quantity, unitCents, vatRate };
+      for (const key of ['articleNumber', 'unit', 'discountBps', 'unitPriceIncludesVat', 'rotEligible', 'chargeType']) if (line[key] !== undefined) frozen[key] = line[key];
+      return frozen;
+    }),
     reason: invoice.reason ?? null, rot,
-  });
+  };
+  // Missing fields deliberately remain missing for pre-upgrade issued invoices:
+  // their existing immutable snapshot remains byte-for-byte compatible.
+  if (invoice.details !== undefined) snapshot.details = invoice.details;
+  if (invoice.invoiceDiscountBps !== undefined) snapshot.invoiceDiscountBps = invoice.invoiceDiscountBps;
+  if (invoice.copiedFromId !== undefined) snapshot.copiedFromId = invoice.copiedFromId;
+  return JSON.stringify(snapshot);
 }
 
 function linesFor(lines) {
   assert(Array.isArray(lines) && lines.length >= 1 && lines.length <= 100, 'Ange 1–100 fakturarader.');
-  return lines.map(line => {
+  const result = lines.map(line => {
     const clean = { description: text(line.description, 'Radbeskrivning'), kind: line.kind, quantity: line.quantity, unitCents: line.unitCents, vatRate: line.vatRate ?? 25 };
+    for (const key of ['articleNumber', 'unit', 'discountBps', 'unitPriceIncludesVat', 'rotEligible', 'chargeType']) if (line[key] !== undefined) clean[key] = line[key];
     calculateLineAmounts(clean);
     return clean;
   });
+  const charges = result.filter(line => line.chargeType).map(line => line.chargeType);
+  assert(new Set(charges).size === charges.length, 'Frakt och fakturaavgift får bara förekomma en gång vardera.');
+  return result;
 }
 
 function nextNumber(state, prefix, list) {
@@ -61,7 +77,7 @@ function projectFor(state, id, customerId) {
 export function getInvoiceTotals(invoice) {
   assert(invoice && Array.isArray(invoice.lines) && invoice.lines.length, 'Fakturan saknar rader.');
   assert(['standard', 'reverse-construction'].includes(invoice.vatMode), 'Ogiltig momstyp.');
-  const lines = invoice.lines.map(line => calculateLineAmounts(line, invoice.vatMode));
+  const lines = invoice.lines.map(line => calculateLineAmounts(line, invoice.vatMode, invoice.invoiceDiscountBps ?? 0));
   const netCents = sum(lines.map(line => line.netCents));
   const vatCents = sum(lines.map(line => line.vatCents));
   const grossCents = cents(netCents + vatCents);
@@ -116,6 +132,8 @@ function draftInvoice(state, payload) {
       availableCents: cents(payload.rot.availableCents),
     } : null,
     payments: [], reminders: [],
+    details: normalizeInvoiceDetails(state, payload),
+    invoiceDiscountBps: payload.invoiceDiscountBps ?? 0,
   };
   if (invoice.rot) {
     calculateRot(invoice);
@@ -129,17 +147,20 @@ function issueInDraft(state, id) {
   assert(invoice.kind === 'invoice' && invoice.status === 'draft', 'Fakturan är redan utfärdad eller krediterad.');
   customerFor(state, invoice.customerId);
   requireOpenPeriod(state, invoice.date);
+  invoice.details = normalizeInvoiceDetails(state, invoice);
+  validateInvoiceDetails(invoice.details);
   if (invoice.vatMode === 'reverse-construction') {
     assert(invoice.buyerConstructionConfirmed === true, 'Bekräfta köparens verksamhet och villkoren för omvänd byggmoms.');
     assert(!invoice.rot, 'Omvänd byggmoms och ROT får inte kombineras.');
   }
   validateRotRoom(state, invoice);
   const totals = getInvoiceTotals(invoice);
+  assert(totals.grossCents > 0, 'Fakturans totalbelopp måste vara större än noll innan den utfärdas.');
   invoice.number = nextNumber(state, 'F', state.invoices);
   const rows = [row('1510', totals.grossCents), row(invoice.vatMode === 'reverse-construction' ? '3231' : '3000', 0, totals.netCents)];
   if (invoice.vatMode === 'standard') {
     for (const [rate, account] of [[25, '2611'], [12, '2621'], [6, '2631']]) {
-      const amount = sum(invoice.lines.filter(line => line.vatRate === rate).map(line => calculateLineAmounts(line, invoice.vatMode).vatCents));
+      const amount = sum(invoice.lines.filter(line => line.vatRate === rate).map(line => calculateLineAmounts(line, invoice.vatMode, invoice.invoiceDiscountBps ?? 0).vatCents));
       if (amount) rows.push(row(account, 0, amount));
     }
   }
@@ -227,13 +248,29 @@ export function updateInvoiceDraft(state, id, payload) {
   return transact(state, draft => {
     const invoice = invoiceFor(draft, id);
     assert(invoice.status === 'draft' && invoice.kind === 'invoice', 'En utfärdad faktura kan inte skrivas om. Skapa en kreditfaktura.');
-    const replacement = draftInvoice(draft, { ...invoice, ...payload });
+    const combined = { ...invoice, ...payload };
+    if (payload.customerId && payload.customerId !== invoice.customerId && payload.details === undefined) delete combined.details;
+    const replacement = draftInvoice(draft, combined);
     Object.assign(invoice, replacement, { id: invoice.id, sourceQuoteId: invoice.sourceQuoteId });
     addActivity(draft, 'Kundfakturautkast uppdaterat', invoice.id);
   });
 }
 
 export function issueInvoice(state, id) { return transact(state, draft => issueInDraft(draft, id)); }
+
+export function copyInvoice(state, id, { date, dueDate }) {
+  return transact(state, draft => {
+    const source = invoiceFor(draft, id);
+    if (source.status !== 'draft') assert(source.bookingSnapshot === invoiceBookingSnapshot(source), 'Originalfakturans frysta uppgifter har ändrats.');
+    const rot = source.rot ? Object.fromEntries(['paymentYear', 'property', 'personId', 'eligibleConfirmed', 'availableCents'].map(key => [key, source.rot[key]])) : null;
+    const invoice = draftInvoice(draft, { customerId: source.customerId, projectId: source.projectId, date, dueDate,
+      vatMode: source.vatMode, buyerConstructionConfirmed: source.buyerConstructionConfirmed,
+      lines: structuredClone(source.lines), details: structuredClone(source.details), invoiceDiscountBps: source.invoiceDiscountBps ?? 0, rot });
+    invoice.copiedFromId = source.id;
+    draft.invoices.push(invoice);
+    addActivity(draft, `Fakturautkast kopierat från ${source.number || 'utkast'}`, invoice.id);
+  });
+}
 
 export function creditInvoice(state, id, { date, reason }) {
   return transact(state, draft => {

@@ -76,6 +76,7 @@ jobs:
           npx playwright test
           tests/bokforing-demo.spec.ts
           tests/bokforing-suite.spec.ts
+          tests/bokforing-invoice-pages.spec.ts
           tests/company-register-entrypoints.spec.ts
           tests/customer-form.spec.ts
           tests/customer-intake.spec.ts

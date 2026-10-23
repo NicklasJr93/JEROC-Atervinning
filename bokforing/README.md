@@ -4,7 +4,7 @@ Här samlas designförslag för ett **fristående bokföringsprogram med egen we
 
 **Nytt: [Tio mockuper för hela ekonomiarbetet i Åkes Hantverk AB](helhet-mockups/README.md)** – företagsstart, offert och faktura, inköp, betalningar, lön, inventarier, moms och bokslut i en sammanhängande designserie. Bilderna visar planerad funktionalitet; de första tio stilförslagen finns kvar nedan.
 
-**Status 2026-10-23:** en utökad ekonomidemo är kodad i `public/bokforing/suite/`. Arbetsflödena använder en gemensam verifikationsbok och fiktiva uppgifter för Åkes Hantverk AB. Den tidigare inköpsdemon och båda serierna med bildmockuper bevaras. GitHub-version och publicering på app-domänen är separata steg; en push publicerar inte automatiskt på Render.
+**Status 2026-10-23:** en utökad ekonomidemo är kodad i `public/bokforing/suite/`. Faktureringen har egna sidor för lista, nytt utkast, redigering och visning. Arbetsflödena använder en gemensam verifikationsbok och fiktiva uppgifter för Åkes Hantverk AB. Den tidigare inköpsdemon och båda serierna med bildmockuper bevaras. GitHub-version och publicering på app-domänen är separata steg; en push publicerar inte automatiskt på Render.
 
 ## Klickbar demo
 
@@ -14,8 +14,8 @@ Efter publicering öppnas den utökade versionen på **https://app.scrapplanner.
 | --- | --- |
 | Företaget | Bolagsuppgifter, momsperiod, räkenskapsår och insyn i demobolagets ingående balanser. Kalenderår 2026, SEK och faktureringsmetoden används. |
 | Projekt och offert | Kunder, projekt, tid/material, offert, registrerat kundgodkännande och fakturautkast från offert. |
-| Kundfakturor | Redigerbara utkast, utfärdande med verifikation och fakturanummer, utskrift/spara som PDF, delbetalningar, förberedda påminnelser och länkad helkredit av obetald faktura. |
-| ROT | Arbete/material/övrigt, 2026-beräkning, uppgivet personutrymme, kundbetalning, demobegäran, demobeslut, delvis/helt avslag och separat skatteutbetalning. [Regler och avgränsning](rot-regler.md). |
+| Kundfakturor | Egna fakturasidor, kund-/leveransuppgifter, referenser, villkor, artikelnummer/enhet, rabatter, avgifter och pris inklusive/exklusive moms. Utfärdande med verifikation och fakturanummer, kopia till nytt utkast, utskrift/spara som PDF, delbetalningar, förberedda påminnelser och länkad helkredit av obetald faktura. |
+| ROT | Markerade arbetsrader efter rabatt, 2026-beräkning, uppgivet personutrymme, kundbetalning, demobegäran, demobeslut, delvis/helt avslag och separat skatteutbetalning. Material, resor, frakt och fakturaavgift ingår inte i underlaget. [Regler och avgränsning](rot-regler.md). |
 | Inköp | Leverantörsfakturor, kvitto-/utläggsexempel, vanlig moms, inköp utan moms och bekräftad omvänd byggmoms. Bokföring, delbetalning och helkredit av obetalda fakturor. |
 | Bank, kassa och skatt | Fiktiva kontohändelser, matchning, betalning mot befintlig händelse, avgifter, kassa-/skatteöverföringar, lån och ränta. |
 | Bokföring | Gemensam huvudbok, manuella verifikationer inom stödda konton, balansering, bevarade original och länkade rättelser. Dokumentstyrda konton hanteras i sina egna flöden. |
@@ -26,12 +26,23 @@ Efter publicering öppnas den utökade versionen på **https://app.scrapplanner.
 | Moms och rapporter | Momsunderlag med verifikationskoppling, fastställande av komplett momsperiod, reglering via skattekonto, resultat, balans och CSV-export. |
 | Avslut och granskning | Avstämningschecklista, periodlåsning, dokumenterad upplåsning, bokning av årets resultat, ingående balansunderlag för nästa år och granskningspaket i JSON. |
 
+### Fakturering på egna sidor
+
+**Kundfakturor** visar listan. Klick på en faktura öppnar dess egen sida med uppgifter, summering, betalningar och historik. **Ny kundfaktura** öppnar en stor arbetsyta med sektioner för villkor, kund, leverans, fakturarader, ROT och avgifter. En varning skyddar osparade ändringar när du lämnar arbetsytan.
+
+Spara först ett utkast. Från fakturans sida kan du granska och utfärda, registrera betalning, kopiera till nytt utkast eller skriva ut/spara PDF. Utfärdade uppgifter fryses; en rättelse sker genom det kreditflöde som stöds. Kund- och säljaruppgifter på nya fakturor sparas som egna dokumentuppgifter, så senare registerändringar inte ändrar återutskriften. Äldre sparade demofakturor kan fortsatt öppnas utan reset.
+
+Artikelnummer, enhet, referenser och leveransuppgifter är dokumentuppgifter. Rabatter, avgifter och prisets momsgrund påverkar däremot beräkningen, moms, ROT-underlag och verifikation. Kostnadsställe och prislistnamn är märkning i denna version; de ger ingen automatisk dimensionsrapport eller prisuppslagning.
+
+Se [jämförelsen med de visade Fortnox-bilderna](fakturering-jamforelse.md) för skillnaden mellan vad som finns, vad som är avgränsat och vad som återstår. Exempelvis OCR, kontantfaktura, återkommande fakturor, flera valutor, RUT och kundfakturans intäktsperiodisering ingår inte ännu.
+
 Skärmbilder från den körbara ekonomidemon:
 
 [![Översikt i den utökade ekonomidemon](preview/ekonomi-overview.png)](preview/ekonomi-overview.png)
-[![Kundfaktura med ROT i den utökade ekonomidemon](preview/ekonomi-rot.png)](preview/ekonomi-rot.png)
+[![Ny kundfaktura på egen arbetsyta](preview/faktura-ny.png)](preview/faktura-ny.png)
+[![Fakturans egen sida med betalningar och historik](preview/faktura-detalj.png)](preview/faktura-detalj.png)
 
-[Öppna mobilbilden](preview/ekonomi-mobile.png).
+[Öppna fakturans mobilbild](preview/faktura-mobil.png) eller [ekonomiöversikten på mobil](preview/ekonomi-mobile.png). Den tidigare [ROT-bilden](preview/ekonomi-rot.png) visar gränssnittet före ombyggnaden av fakturasidorna.
 
 ### Prova ett sammanhängande ROT-flöde
 
@@ -63,9 +74,9 @@ Granskningspaket, AGI-CSV och balanser för nästa år är arbetsmaterial. De ä
 
 Bygg med `npm run build` och starta med `npm start`. [Driftguiden](../docs/drift/README.md#uppdatera-och-kontrollera) beskriver separat publicering på Render. Inga nya miljövariabler, databasändringar eller produktionsanslutningar införs.
 
-Modell- och lagringstester finns i `server/bokforing-suite-*.test.mjs`; browserflöden i `tests/bokforing-suite.spec.ts`. Regressionstesterna för den tidigare versionen är kvar. Se även [provgranskningen av den äldre versionen](granskning/2026-10-22.md) och dess [uppföljning](granskning/2026-10-22-uppfoljning.md).
+Modell- och lagringstester finns i `server/bokforing-suite-*.test.mjs` och `server/bokforing-invoice-model.test.mjs`; browserflöden i `tests/bokforing-suite.spec.ts` och `tests/bokforing-invoice-pages.spec.ts`. Regressionstesterna för den tidigare versionen är kvar. Se även [provgranskningen av den äldre versionen](granskning/2026-10-22.md) och dess [uppföljning](granskning/2026-10-22-uppfoljning.md).
 
-**Lokalt verifierat 2026-10-23:** produktionsbygge, 189 modell-/lagringstester inklusive den tidigare demon, ett HTTP-integrationstest och 22 browserregressioner. Browserproven täcker fullständigt ROT-flöde och avslag, bankmatchning, lön, momsspärrar, lager, periodisering, samtidiga flikar, sparfel, reset och mobil. De nya vyerna har även provats manuellt; skärmbildskörningen registrerade inga JavaScript-fel eller externa anrop. Detta är teknisk verifiering av de beskrivna demofallen, ingen redovisningscertifiering.
+**Lokalt verifierat 2026-10-23:** produktionsbygge, 200 modell-/lagringstester inklusive den tidigare demon, ett HTTP-integrationstest och 30 browserfall. Browserproven täcker egna fakturasidor, bakåt/framåt, osparade ändringar, äldre sparade fakturor, rabatter/avgifter, låsta dokumentuppgifter, pris inklusive moms, kopiering, ROT per rad, betalningar, krediter, lön, momsspärrar, lager, periodisering, samtidiga flikar, sparfel, reset och mobil. Efter den sista reset-rättelsen byggdes klienten om och det nya reset-provet kördes igen. Skärmbildskörningen registrerade inga JavaScript-fel eller horisontellt sidöverflöde vid 1600 respektive 390 pixlar. Detta är teknisk verifiering av demofallen, ingen redovisningscertifiering.
 
 ## Tidigare inköpsdemo
 

@@ -122,6 +122,13 @@ ROT-flödet efter publicering. Den tidigare inköpsdemon finns på
 `/bokforing/klassisk.html` och använder fortsatt sin gamla lagringsnyckel.
 En reset i den nya versionen påverkar inte de tidigare exemplen.
 
+Faktureringen använder även `suite/invoice-page.js`, `suite/invoice-page.css`
+och `suite/invoice-data.js`. Efter publicering ska `#sales` visa listan,
+`#sales/new` den egna sidan för nytt utkast och `#sales/<id>` en fakturas egen
+sida. Prova sparande, omladdning och navigering med osparade ändringar.
+Ändringen behåller v2-lagringsnyckeln och ska kunna läsa tidigare sparade
+demofakturor utan reset. Nya dokumentuppgifter fryses vid utfärdande.
+
 Demons lokala skrivningar kräver en säker browserkontext med Web Locks
 (HTTPS på app-domänen eller localhost vid utveckling). Vid uppdatering ska
 besökaren stänga/ladda om äldre demoflikar så att de använder samma lagringskod.

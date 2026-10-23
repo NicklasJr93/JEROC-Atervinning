@@ -34,6 +34,7 @@ test('public bookkeeping demo serves its own assets without granting office acce
       assert.match(html, /Bokföring/i);
       assert.match(html, /\/bokforing\/suite\/app\.js/);
       assert.match(html, /\/bokforing\/suite\/styles\.css/);
+      assert.match(html, /\/bokforing\/suite\/invoice-page\.css/);
     }
     for (const [path, type] of [['klassisk.html', /text\/html/], ['styles.css', /text\/css/], ['app.js', /javascript/], ['model.js', /javascript/], ['storage.js', /javascript/], ['suite/app.js', /javascript/], ['suite/styles.css', /text\/css/], ['suite/core.js', /javascript/], ['suite/sales.js', /javascript/], ['suite/rot.js', /javascript/], ['suite/operations.js', /javascript/], ['suite/finance.js', /javascript/], ['suite/seed.js', /javascript/], ['suite/storage.js', /javascript/], ['suite/validate.js', /javascript/]]) {
       const response = await fetch(`${url}/bokforing/${path}`);
@@ -41,11 +42,14 @@ test('public bookkeeping demo serves its own assets without granting office acce
       assert.match(response.headers.get('content-type'), type);
       assert.ok((await response.text()).length > 100, path);
     }
-    for (const path of ['suite/inventory.js', 'suite/periodization.js']) {
+    for (const path of ['suite/inventory.js', 'suite/periodization.js', 'suite/invoice-page.js', 'suite/invoice-data.js']) {
       const response = await fetch(`${url}/bokforing/${path}`);
       assert.equal(response.status, 200, path);
       assert.match(response.headers.get('content-type'), /javascript/);
     }
+    const invoiceStyles = await fetch(`${url}/bokforing/suite/invoice-page.css`);
+    assert.equal(invoiceStyles.status, 200);
+    assert.match(invoiceStyles.headers.get('content-type'), /text\/css/);
     const head = await fetch(`${url}/bokforing`, { method: 'HEAD' });
     assert.equal(head.status, 200);
     assert.equal(await head.text(), '');

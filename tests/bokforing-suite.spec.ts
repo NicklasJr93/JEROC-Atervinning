@@ -33,6 +33,11 @@ async function saveDialog(page: Page) {
   await modal(page).locator('button[type="submit"]').click();
   await expect(modal(page)).not.toBeVisible();
 }
+async function saveInvoicePage(page: Page) {
+  await page.locator('#invoice-page-form button[type="submit"]').click();
+  await expect(page.locator('#invoice-page-form')).toHaveCount(0);
+  await expect(page).toHaveURL(/#sales\/[^/]+$/);
+}
 async function reviewed(page: Page) {
   await modal(page).locator('[name="reviewed"]').check();
   await saveDialog(page);
@@ -87,7 +92,7 @@ test('ROT 33 000 → kund 26 400 + skattebetalning 6 600 följer samma huvudbok 
   expect(related.flatMap((entry: { rows: unknown[] }) => entry.rows).filter((row: { account: string }) => row.account === '1510')
     .reduce((sum: number, row: { debitCents: number; creditCents: number }) => sum + row.debitCents - row.creditCents, 0)).toBe(0);
   await page.reload();
-  await page.locator(`[data-select-invoice="${id}"]`).click();
+  await expect(page).toHaveURL(new RegExp(`#sales/${id}$`));
   await expect(value(page, 'Kvar totalt')).toHaveText(/0(?:,00)?\s*kr/);
   saved = await state(page);
   invoice = saved.invoices.find((item: { id: string }) => item.id === id);
@@ -200,9 +205,9 @@ test('fastställd moms stoppar nya momsverifikationer i perioden', async ({ page
   expect((await state(page)).vatReturns).toHaveLength(1);
   await page.goto(`${demo}#sales`);
   await action(page, 'new-invoice').click();
-  await modal(page).locator('[name="date"]').fill('2026-02-15');
-  await modal(page).locator('[name="dueDate"]').fill('2026-03-15');
-  await saveDialog(page);
+  await page.locator('#invoice-page-form [name="date"]').fill('2026-02-15');
+  await page.locator('#invoice-page-form [name="dueDate"]').fill('2026-03-15');
+  await saveInvoicePage(page);
   await action(page, 'issue-invoice').click();
   await modal(page).locator('[name="reviewed"]').check();
   await modal(page).locator('button[type="submit"]').click();
@@ -273,13 +278,15 @@ test('mobil kan spara och utfärda fem fakturarader utan att Ande skymmer knappe
   await selectRot(page);
   await action(page, 'edit-invoice').click();
   for (let count = 0; count < 2; count++) {
-    await modal(page).locator('[data-action="add-line"]').click();
-    const row = modal(page).locator('[data-line]').last();
+    await page.locator('#invoice-page-form [data-action="add-invoice-line"]').first().click();
+    const row = page.locator('#invoice-page-form [data-invoice-line]').last();
     await row.locator('[data-line-field="kind"]').selectOption('material');
     await row.locator('[data-line-field="description"]').fill(`Extra material ${count + 1}`);
     await row.locator('[data-line-field="unitCents"]').fill('100');
   }
-  await saveDialog(page);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth) + 1);
+  await saveInvoicePage(page);
   expect((await state(page)).invoices.find((invoice: { rot?: unknown }) => invoice.rot).lines).toHaveLength(5);
   await action(page, 'issue-invoice').click();
   await reviewed(page);

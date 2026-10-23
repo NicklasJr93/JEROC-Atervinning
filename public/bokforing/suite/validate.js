@@ -6,6 +6,7 @@ import { calculateLineAmounts, calculateRot, ROT_RULES_2026 } from './rot.js';
 import { getReports, getVatPeriodBounds, getVatReport, validatePayrollRun } from './finance.js';
 import { accrualBookingSnapshot, getAccrualRemaining } from './periodization.js';
 import { validateInventoryState } from './inventory.js';
+import { validateInvoiceDetails } from './invoice-data.js';
 
 const debit = (account, amount) => ({ account, debitCents: amount, creditCents: 0 });
 const credit = (account, amount) => ({ account, debitCents: 0, creditCents: amount });
@@ -100,6 +101,13 @@ export function validateSuiteState(state) {
     projectFor(invoice.projectId, invoice.customerId); inYear(invoice.date, 'Fakturan'); date(invoice.dueDate, 'Förfallodagen');
     assert(invoice.dueDate >= invoice.date && typeof invoice.buyerConstructionConfirmed === 'boolean', 'Fakturans datum eller momsbedömning är ogiltig.');
     fieldLines(invoice.lines, 'Kundfakturan'); requireArray(invoice.payments, 'Kundbetalningarna'); requireArray(invoice.reminders, 'Påminnelserna');
+    if (invoice.details !== undefined) {
+      validateInvoiceDetails(invoice.details);
+      assert(invoice.lines.every(line => (line.unitPriceIncludesVat ?? false) === invoice.details.pricesIncludeVat), 'Fakturans prisinställning och fakturaraderna stämmer inte överens.');
+    }
+    const charges = invoice.lines.filter(line => line.chargeType).map(line => line.chargeType);
+    assert(new Set(charges).size === charges.length, 'Fakturan har dubbla frakt- eller fakturaavgifter.');
+    if (invoice.copiedFromId !== undefined) assert(invoice.copiedFromId !== invoice.id && maps.invoices.has(invoice.copiedFromId), 'Den kopierade fakturans originalreferens saknas.');
     unique(invoice.payments, 'id', 'Kundbetalningarna'); unique(invoice.payments, 'reference', 'Kundbetalningarnas referenser'); unique(invoice.reminders, 'id', 'Påminnelserna');
     invoice.reminders.forEach(reminder => { assert(text(reminder.id, 200) && text(reminder.note), 'Påminnelsen är ogiltig.'); date(reminder.date, 'Påminnelsen'); });
     const totals = getInvoiceTotals(invoice);
@@ -122,7 +130,7 @@ export function validateSuiteState(state) {
       } else {
         const expected = [debit('1510', totals.grossCents), credit(invoice.vatMode === 'reverse-construction' ? '3231' : '3000', totals.netCents)];
         if (invoice.vatMode === 'standard') for (const [rate, account] of [[25, '2611'], [12, '2621'], [6, '2631']]) {
-          const value = total(invoice.lines.filter(line => line.vatRate === rate).map(line => calculateLineAmounts(line).vatCents));
+          const value = total(invoice.lines.filter(line => line.vatRate === rate).map(line => calculateLineAmounts(line, invoice.vatMode, invoice.invoiceDiscountBps ?? 0).vatCents));
           if (value) expected.push(credit(account, value));
         }
         sameRows(entry.rows, expected, 'Kundfakturan');

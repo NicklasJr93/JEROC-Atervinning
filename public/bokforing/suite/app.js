@@ -5,13 +5,17 @@ import * as Finance from './finance.js';
 import * as Periodization from './periodization.js';
 import * as Inventory from './inventory.js';
 import { createSuiteStorage } from './storage.js';
-import { renderView, escapeHtml as e, icon, ghost, nav, numberInput, invoicePrint } from './views.js';
+import { renderView, escapeHtml as e, icon, ghost, nav, numberInput } from './views.js';
+import { createInvoiceEditorDraft, renderInvoiceEditor, readInvoiceEditor, renderInvoiceSummary,
+ renderInvoiceDetail, renderInvoiceList, invoiceDocumentHTML, createInvoiceLineHTML,
+ applyInvoiceCustomer, applyInvoicePriceMode, updateInvoiceLineKind } from './invoice-page.js';
 
 const TODAY='2026-10-23';
 const STORE_KEY='scrapplanner-bokforing-suite-v2';
 const root=document.querySelector('#app');
 const store=createSuiteStorage();
 let snapshot=store.load(), state=snapshot.state, busy=false, stale=false, toastTimer;
+let invoiceDraft=null, invoiceDraftRoute='', invoiceDirty=false, acceptedHash=location.hash||'#overview';
 const ui={view:'overview',search:'',invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null,bankAccount:'1930',vatFrom:'2026-10-01',vatTo:'2026-12-31',assistantOpen:false};
 const validViews=new Set(nav.map(x=>x[0]));
 const fmt=numberInput;
@@ -45,18 +49,78 @@ function updateChrome(){
  document.querySelector('#save-status').textContent=busy?'Sparar…':stale||snapshot.error?'Sparandet är pausat':'Fiktiva uppgifter · sparas i din webbläsare';
  document.querySelector('#suite-main').setAttribute('aria-busy',String(busy));
  document.querySelector('#suite-assistant').hidden=!ui.assistantOpen;
- document.querySelectorAll('button[data-action]').forEach(el=>{const exempt=['toggle-assistant','close-dialog','reload','reset','print-invoice','export-ledger','export-reports','export-review','export-agi','show-entry','show-invoice','add-line','remove-line','add-entry-row','remove-entry-row'];if(!exempt.includes(el.dataset.action))el.disabled=!canWrite();});
+ document.querySelectorAll('button[data-action]').forEach(el=>{const exempt=['toggle-assistant','close-dialog','reload','reset','print-invoice','export-ledger','export-reports','export-review','export-agi','show-entry','show-invoice','invoice-back','add-line','remove-line','add-entry-row','remove-entry-row'];if(!exempt.includes(el.dataset.action))el.disabled=!canWrite();});
  document.querySelectorAll('#suite-main button[type="submit"],#suite-dialog button[type="submit"]').forEach(el=>{el.disabled=el.dataset.blocked==='true'||(el.closest('form')?.dataset.form==='reset'?!canReset():!canWrite());});
  document.querySelector('[data-action="reset"]').disabled=!canReset();
 }
-function render(){try{document.querySelector('#suite-main').innerHTML=renderView(state,ui);}catch(err){document.querySelector('#suite-main').innerHTML=`<div class="panel error-panel"><h1>Vyn kunde inte öppnas</h1><p>${e(errorMessage(err))}</p><button class="button secondary" data-action="reload">Läs in senaste</button></div>`;}updateChrome();}
-function route(){const name=location.hash.slice(1).split('/')[0]||'overview';ui.view=validViews.has(name)?name:'overview';document.querySelector('#suite-sidebar').classList.remove('open');document.querySelector('#suite-backdrop').hidden=true;document.querySelector('#suite-menu').setAttribute('aria-expanded','false');render();}
+function invoiceEditorOpen(){return ui.view==='sales'&&['new','edit'].includes(ui.invoiceMode);}
+function invoiceLocation(id,edit=false){return '#sales/'+encodeURIComponent(id)+(edit?'/edit':'');}
+function navigate(hash){if(location.hash===hash)route();else location.hash=hash;}
+function render(){
+ try{
+  let html;
+  if(ui.view!=='sales')html=renderView(state,ui);
+  else if(ui.invoiceMode==='list')html=renderInvoiceList(state,ui.search);
+  else if(ui.invoiceMode==='detail'){
+   const invoice=selected(ui.invoiceId,state.invoices);
+   if(!invoice)throw new Error('Fakturan finns inte. Gå tillbaka till fakturalistan.');
+   html=renderInvoiceDetail(state,invoice);
+  }else{
+   const key=ui.invoiceMode==='new'?'new':ui.invoiceId;
+   if(invoiceDraftRoute!==key){
+    const invoice=ui.invoiceMode==='edit'?selected(ui.invoiceId,state.invoices):null;
+    if(ui.invoiceMode==='edit'&&(!invoice||invoice.status!=='draft'))throw new Error('Bara fakturautkast kan redigeras.');
+    invoiceDraft=createInvoiceEditorDraft(state,invoice);invoiceDraftRoute=key;invoiceDirty=false;
+   }
+   html=renderInvoiceEditor(state,invoiceDraft,{isNew:ui.invoiceMode==='new',busy});
+  }
+  document.querySelector('#suite-main').innerHTML=html;
+ }catch(err){document.querySelector('#suite-main').innerHTML=`<div class="panel error-panel"><h1>Vyn kunde inte öppnas</h1><p>${e(errorMessage(err))}</p><a class="button secondary" href="#sales">Till fakturalistan</a></div>`;}
+ const editStatus=document.querySelector('#invoice-editor-status');if(editStatus)editStatus.textContent=invoiceDirty?'Osparade ändringar':'Utkast';
+ updateChrome();
+}
+function route(){
+ const target=location.hash||'#overview';
+ const changed=target!==acceptedHash;
+ if(invoiceDirty&&target!==acceptedHash){
+  if(!window.confirm('Du har osparade ändringar på fakturan. Vill du lämna sidan och kasta ändringarna?')){
+   history.replaceState(null,'',acceptedHash);return;
+  }
+  invoiceDirty=false;
+ }
+ if(target!==acceptedHash){invoiceDraft=null;invoiceDraftRoute='';}
+ acceptedHash=target;
+ let parts;try{parts=target.slice(1).split('/').map(decodeURIComponent);}catch{parts=['sales'];}
+ ui.view=validViews.has(parts[0])?parts[0]:'overview';
+ ui.invoiceMode=!parts[1]?'list':parts[1]==='new'?'new':parts[2]==='edit'?'edit':'detail';
+ if(ui.view==='sales')ui.invoiceId=['list','new'].includes(ui.invoiceMode)?null:parts[1];
+ document.querySelector('#suite-sidebar').classList.remove('open');document.querySelector('#suite-backdrop').hidden=true;
+ document.querySelector('#suite-menu').setAttribute('aria-expanded','false');render();
+ if(changed){window.scrollTo(0,0);document.querySelector('#suite-main').focus({preventScroll:true});}
+}
+function refreshInvoiceSummary(markDirty=true){
+ const form=document.querySelector('#invoice-page-form');if(!form)return;
+ if(markDirty)invoiceDirty=true;
+ const box=document.querySelector('#invoice-live-summary');
+ try{invoiceDraft=readInvoiceEditor(form);if(box)box.innerHTML=renderInvoiceSummary(invoiceDraft);}
+ catch(err){if(box)box.innerHTML=`<p class="form-help">${e(errorMessage(err))}</p>`;}
+ const status=document.querySelector('#invoice-editor-status');if(status)status.textContent=invoiceDirty?'Osparade ändringar':'Utkast';
+}
+function invoiceDueDate(form){
+ const date=form.elements.namedItem('date'),terms=form.elements.namedItem('paymentTermsDays');
+ const due=form.elements.namedItem('dueDate');
+ if(!date?.value||!terms||!due)return;
+ const days=Number(terms.value),parsed=new Date(date.value+'T12:00:00Z');
+ if(Number.isInteger(days)&&days>=0&&days<=365&&Number.isFinite(parsed.getTime())){
+  parsed.setUTCDate(parsed.getUTCDate()+days);due.value=parsed.toISOString().slice(0,10);
+ }
+}
 function openDialog(title,formName,content,submit='Spara',extra=''){
  document.querySelector('#dialog-title').textContent=title;
  body.innerHTML=`<form data-form="${e(formName)}" ${extra}><div id="dialog-error" class="form-error" role="alert" hidden></div>${content}<div class="dialog-actions"><button type="button" class="button secondary" data-action="close-dialog">Avbryt</button><button type="submit" class="button primary">${e(submit)}</button></div></form>`;
  dialog.showModal();updateChrome();setTimeout(()=>body.querySelector('input:not([type="hidden"]),select,textarea')?.focus(),20);
 }
-function showError(err){const box=document.querySelector('#dialog-error');if(dialog.open&&box){box.textContent=errorMessage(err);box.hidden=false;}else toast(errorMessage(err),true);}
+function showError(err){const box=document.querySelector('#dialog-error'),pageBox=document.querySelector('#invoice-page-error');if(dialog.open&&box){box.textContent=errorMessage(err);box.hidden=false;}else if(pageBox&&invoiceEditorOpen()){pageBox.textContent=errorMessage(err);pageBox.hidden=false;pageBox.scrollIntoView({block:'nearest'});}else toast(errorMessage(err),true);}
 async function write(transition,message,{close=true,after}={}){
  if(!canWrite()){showError(new Error(stale?'Läs in senaste demodata innan du fortsätter.':snapshot.error?.message||'Sparandet är pausat.'));return false;}
  busy=true;updateChrome();
@@ -64,7 +128,7 @@ async function write(transition,message,{close=true,after}={}){
  catch(err){if(err.code){snapshot={...snapshot,error:err};if(err.code==='STALE_STATE')stale=true;}showError(err);return false;}
  finally{busy=false;updateChrome();}
 }
-function reload(){snapshot=store.load();state=snapshot.state;stale=false;dialog.close();render();toast(snapshot.error?errorMessage(snapshot.error):'Senaste demodata är inlästa.',!!snapshot.error);}
+function reload(){snapshot=store.load();state=snapshot.state;stale=false;invoiceDirty=false;invoiceDraft=null;invoiceDraftRoute='';dialog.close();render();toast(snapshot.error?errorMessage(snapshot.error):'Senaste demodata är inlästa. Osparade ändringar har återställts.',!!snapshot.error);}
 function download(text,filename,type='text/csv;charset=utf-8'){const blob=new Blob([type.startsWith('text/csv')?'\uFEFF':'',text],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function csv(rows){return rows.map(row=>row.map(v=>{let s=String(v??'');if(/^[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';}).join(';')).join('\r\n');}
 function exportLedger(){download(csv([['Verifikation','Datum','Beskrivning','Konto','Debet','Kredit','Källa','Rättar'],...state.entries.flatMap(x=>x.rows.map(r=>[x.number,x.date,x.description,r.account,fmt(r.debitCents),fmt(r.creditCents),x.sourceType,x.correctsEntryId||'']))]),'huvudbok-demo.csv');}
@@ -74,10 +138,6 @@ function exportReview(){download(JSON.stringify({kind:'Fiktivt granskningsunderl
 function lineRow(line={description:'',kind:'labor',quantity:1,unitCents:0,vatRate:25}){return `<div class="invoice-line" data-line><label>Typ<select data-line-field="kind">${[['labor','Arbete'],['material','Material'],['other','Övrigt']].map(x=>option(...x,line.kind===x[0])).join('')}</select></label><label class="line-description">Beskrivning<input data-line-field="description" value="${e(line.description)}" required maxlength="300"></label><label>Antal / timmar<input data-line-field="quantity" value="${e(line.quantity)}" inputmode="decimal" required></label><label>À-pris exkl. moms<input data-line-field="unitCents" value="${e(fmt(line.unitCents))}" inputmode="decimal" required></label><label>Moms<select data-line-field="vatRate">${[25,12,6,0].map(v=>option(String(v),v+' %',line.vatRate===v)).join('')}</select></label><button type="button" class="icon-button remove-row" data-action="remove-line" aria-label="Ta bort raden">${icon('x')}</button></div>`;}
 function lineEditor(lines){return `<div class="form-section"><h3>Fakturarader</h3><div id="line-editor">${lines.map(lineRow).join('')}</div><button class="button secondary small" type="button" data-action="add-line">${icon('plus')}Lägg till rad</button></div>`;}
 function readLines(form){const lines=[...form.querySelectorAll('[data-line]')].map(row=>{const val=name=>row.querySelector(`[data-line-field="${name}"]`).value;const q=val('quantity').trim().replace(',','.');assert(/^\d+(?:\.\d{1,2})?$/.test(q),'Antal ska vara positivt med högst två decimaler.');return {kind:val('kind'),description:val('description').trim(),quantity:Number(q),unitCents:toCents(val('unitCents')),vatRate:Number(val('vatRate'))};});assert(lines.length,'Lägg till minst en fakturarad.');return lines;}
-function invoiceForm(id){
- const x=selected(id,state.invoices), fallbackCustomer=state.customers[0]?.id||'', lines=x?.lines||[{description:'Snickeriarbete',kind:'labor',quantity:1,unitCents:55000,vatRate:25}];
- openDialog(x?'Redigera fakturautkast':'Ny kundfaktura','invoice',`<input type="hidden" name="id" value="${e(id||'')}"><div class="form-grid">${select('Kund','customerId',customerOptions(),x?.customerId||fallbackCustomer)}${select('Projekt','projectId',projectOptions(),x?.projectId||'',false)}${dateField('date','Fakturadatum',x?.date||TODAY)}${dateField('dueDate','Förfallodag',x?.dueDate||'2026-11-22')}${select('Momstyp','vatMode',[['standard','Vanlig moms'],['reverse-construction','Omvänd byggmoms']],x?.vatMode||'standard')}</div>${check('Köparens förutsättningar för omvänd byggmoms är granskade','buyerConstructionConfirmed',x?.buyerConstructionConfirmed)}${lineEditor(lines)}<div class="form-section">${check('Använd ROT-avdrag','rotEnabled',!!x?.rot)}<div class="rot-fields" ${!x?.rot?'hidden':''}><p class="form-help">2026: 30 % av arbetskostnaden inklusive moms, högst 50 000 kr per person och år. Demon stöder en person per faktura. Material och resor ger inget ROT-avdrag. Ange faktiskt arbetade timmar som antal på arbetsraderna; fastpris-ROT med separat timunderlag ingår inte ännu.</p><div class="form-grid">${field('Fastighet / bostad','property',x?.rot?.property||'')}${field('Person-ID (fiktivt i demon)','personId',x?.rot?.personId||'DEMO-001')}${field('Betalningsår','paymentYear',x?.rot?.paymentYear||2026,'number','min="2026" max="2026"')}${moneyField('Uppgivet årsutrymme före demofakturorna (efter övriga ROT/RUT)','availableCents',x?.rot?.availableCents??5000000)}</div>${check('Ägande, arbetstyp och övriga villkor har granskats; kunden har uppgivet skatteutrymme','eligibleConfirmed',x?.rot?.eligibleConfirmed)}${help('Systemet kontrollerar belopp och demofakturor. Det verifierar inte personens rätt till skattereduktion hos Skatteverket.')}<p><a href="https://www.skatteverket.se/foretag/skatterochavdrag/rotochrut/safungerarrotavdraget.4.2ef18e6a125660db8b080002709.html" target="_blank" rel="noopener noreferrer">Läs ROT-villkoren hos Skatteverket ↗</a></p></div></div>`,'Spara utkast');
-}
 function entryRow(row={account:'6570',side:'debit',amountCents:0}){return `<div class="journal-line" data-entry-row>${select('Konto','unused',ACCOUNTS.map(a=>[a.number,a.number+' · '+a.name]),row.account)}${select('Sida','unused',[['debit','Debet'],['credit','Kredit']],row.side)}${moneyField('Belopp','unused',row.amountCents)}<button type="button" class="icon-button" data-action="remove-entry-row" aria-label="Ta bort konteringsrad">${icon('x')}</button></div>`;}
 function confirmAction(action,id,title,text,{date=false,reason=false,dateValue=TODAY,checkbox='Jag har granskat uppgifterna',submit='Bekräfta'}={}){openDialog(title,'confirm-action',`<input type="hidden" name="action" value="${e(action)}"><input type="hidden" name="id" value="${e(id)}"><p>${e(text)}</p>${date?dateField('date','Datum',dateValue):''}${reason?field('Orsak','reason','','text','required maxlength="500"'):''}${check(checkbox,'reviewed',false,'required')}`,submit);}
 
@@ -91,9 +151,23 @@ async function action(name,id,el){
  case 'add-entry-row':document.querySelector('#entry-rows')?.insertAdjacentHTML('beforeend',entryRow());return;
  case 'remove-entry-row':el.closest('[data-entry-row]')?.remove();return;
  case 'show-entry':ui.entryId=id;location.hash='ledger';if(ui.view==='ledger')render();return;
- case 'show-invoice':ui.invoiceId=id;location.hash='sales';if(ui.view==='sales')render();return;
- case 'new-invoice':invoiceForm();return;
- case 'edit-invoice':invoiceForm(id);return;
+ case 'show-invoice':navigate(invoiceLocation(id));return;
+ case 'invoice-back':navigate('#sales');return;
+ case 'new-invoice':navigate('#sales/new');return;
+ case 'edit-invoice':navigate(invoiceLocation(id,true));return;
+ case 'copy-invoice':{
+  const invoice=selected(id,state.invoices),days=invoice?.details?.paymentTermsDays??30,date=new Date(TODAY+'T12:00:00Z');
+  date.setUTCDate(date.getUTCDate()+days);
+  await write(s=>Sales.copyInvoice(s,id,{date:TODAY,dueDate:date.toISOString().slice(0,10)}),'Ett nytt fakturautkast har skapats.',{after:s=>{invoiceDirty=false;navigate(invoiceLocation(s.invoices.at(-1).id,true));}});return;
+ }
+ case 'add-invoice-line':{
+  const container=document.querySelector('#invoice-page-lines');if(!container)return;
+  const includesVat=document.querySelector('#invoice-page-form [name="pricesIncludeVat"]')?.checked||false;
+  const rotEnabled=document.querySelector('#invoice-page-form [name="rotEnabled"]')?.checked||false;
+  container.insertAdjacentHTML('beforeend',createInvoiceLineHTML({description:'',kind:'labor',quantity:1,unitCents:0,vatRate:25,unit:'tim',articleNumber:'',discountBps:0,unitPriceIncludesVat:includesVat,rotEligible:true},container.querySelectorAll('[data-invoice-line]').length,{includesVat,rotEnabled}));
+  refreshInvoiceSummary();return;
+ }
+ case 'remove-invoice-line':el.closest('[data-invoice-line]')?.remove();refreshInvoiceSummary();return;
  case 'new-customer':openDialog('Ny kund','customer',`${field('Namn','name','','text','required maxlength="200"')}${field('E-post','email','','email','maxlength="250"')}${field('Adress','address','','text','maxlength="300"')}`);return;
  case 'new-project':openDialog('Nytt projekt','project',`${field('Projektnamn','name','','text','required maxlength="200"')}${select('Kund','customerId',customerOptions())}${moneyField('Budget exkl. moms','budgetCents',0)}`);return;
  case 'project-item':openDialog('Registrera tid eller material','project-item',`<input type="hidden" name="projectId" value="${e(id)}">${select('Typ','kind',[['labor','Arbete'],['material','Material'],['other','Övrigt']])}${field('Beskrivning','description','','text','required maxlength="300"')}<div class="form-grid">${field('Antal (timmar / stycken)','quantity',1,'text','required inputmode="decimal"')}${moneyField('À-pris exkl. moms','unitCents',55000)}</div>`);return;
@@ -101,7 +175,7 @@ async function action(name,id,el){
  case 'accept-quote':await write(s=>Sales.acceptQuote(s,id),'Offerten är godkänd i demon.');return;
  case 'invoice-quote':openDialog('Skapa faktura från offert','invoice-quote',`<input type="hidden" name="id" value="${e(id)}"><div class="form-grid">${dateField('date','Fakturadatum')}${dateField('dueDate','Förfallodag','2026-11-22')}</div>${help('Offertens rader följer med till ett redigerbart fakturautkast.')}`,'Skapa fakturautkast');return;
  case 'issue-invoice':{const x=selected(id,state.invoices);confirmAction(name,id,'Granska och utfärda faktura',`Fakturan till ${state.customers.find(c=>c.id===x.customerId)?.name} är på ${money(Sales.getInvoiceTotals(x).grossCents)}. Fakturan bokförs och låses för direkt ändring. Inget mejl eller betalningskrav skickas.`,{submit:'Utfärda och bokför'});return;}
- case 'print-invoice':{document.querySelector('#print-area').innerHTML=invoicePrint(state,selected(id,state.invoices));window.print();return;}
+ case 'print-invoice':{document.querySelector('#print-area').innerHTML=invoiceDocumentHTML(state,selected(id,state.invoices));window.print();return;}
  case 'invoice-payment':{const x=selected(id,state.invoices),claim=state.rotClaims.find(c=>c.invoiceId===id);const t=Sales.getInvoiceTotals(x),paid=(x.payments||[]).filter(p=>p.payer==='customer').reduce((a,p)=>a+p.amountCents,0);openDialog('Registrera fakturabetalning','invoice-payment',`<input type="hidden" name="id" value="${e(id)}">${bankEventField('in')}${dateField()}${select('Betalare','payer',[['customer','Kunden'],...(claim?.status==='approved'?[['tax','Skatteverket (demobetalning)']]:[])])}${moneyField('Betalt belopp','amountCents',Math.max(0,t.customerCents-paid))}${field('Betalningsreferens','reference','','text','maxlength="200"')}${help('Det här registrerar en redan genomförd, fiktiv betalning. Ingen banköverföring görs.')}`,'Bokför betalning');return;}
  case 'credit-invoice':confirmAction(name,id,'Kreditera hela fakturan','En obetald faktura får en egen kreditfaktura med länk till originalet. Originalposterna bevaras.',{date:true,reason:true,submit:'Skapa kreditfaktura'});return;
  case 'remind-invoice':await write(s=>Sales.recordReminder(s,id),'Påminnelse noterad i historiken. Inget meddelande skickat.');return;
@@ -147,12 +221,17 @@ async function submit(form){
  const d=new FormData(form), get=name=>String(d.get(name)??''), amount=name=>toCents(get(name)), checked=name=>d.get(name)!==null,id=get('id');
  let transition,message='Uppgifterna är sparade i demon.',after;
  switch(form.dataset.form){
- case 'invoice':{const payload={customerId:get('customerId'),projectId:get('projectId')||undefined,date:get('date'),dueDate:get('dueDate'),vatMode:get('vatMode'),buyerConstructionConfirmed:checked('buyerConstructionConfirmed'),lines:readLines(form),rot:checked('rotEnabled')?{paymentYear:Number(get('paymentYear')),property:get('property'),personId:get('personId'),availableCents:amount('availableCents'),eligibleConfirmed:checked('eligibleConfirmed')}:null};transition=s=>id?Sales.updateInvoiceDraft(s,id,payload):Sales.createInvoice(s,payload);message='Fakturautkastet är sparat.';after=s=>{ui.invoiceId=id||s.invoices.at(-1).id;location.hash='sales';};break;}
+ case 'invoice-page':{
+  const payload=readInvoiceEditor(form),invoiceId=payload.id||'';
+  transition=s=>invoiceId?Sales.updateInvoiceDraft(s,invoiceId,payload):Sales.createInvoice(s,payload);
+  message='Fakturautkastet är sparat.';
+  after=s=>{invoiceDirty=false;invoiceDraft=null;invoiceDraftRoute='';navigate(invoiceLocation(invoiceId||s.invoices.at(-1).id));};break;
+ }
  case 'customer':transition=s=>Sales.createCustomer(s,{name:get('name'),email:get('email'),address:get('address')});message='Kunden är sparad.';break;
  case 'project':transition=s=>Sales.createProject(s,{name:get('name'),customerId:get('customerId'),budgetCents:amount('budgetCents')});after=s=>{ui.projectId=s.projects.at(-1).id;};break;
  case 'project-item':{const quantity=Number(get('quantity').replace(',','.'));transition=s=>Sales.recordProjectItem(s,{projectId:get('projectId'),description:get('description'),kind:get('kind'),quantity,unitCents:amount('unitCents')});break;}
  case 'quote':{const payload={customerId:get('customerId'),projectId:get('projectId')||undefined,date:get('date'),validUntil:get('validUntil'),lines:readLines(form)};transition=s=>Sales.createQuote(s,payload);message='Offerten är sparad.';break;}
- case 'invoice-quote':transition=s=>Sales.invoiceFromQuote(s,id,{date:get('date'),dueDate:get('dueDate')});after=s=>{ui.invoiceId=s.invoices.at(-1).id;location.hash='sales';};message='Ett fakturautkast har skapats från offerten.';break;
+ case 'invoice-quote':transition=s=>Sales.invoiceFromQuote(s,id,{date:get('date'),dueDate:get('dueDate')});after=s=>{navigate(invoiceLocation(s.invoices.at(-1).id,true));};message='Ett fakturautkast har skapats från offerten.';break;
  case 'invoice-payment':transition=s=>Sales.receivePayment(s,id,{date:get('date'),amountCents:amount('amountCents'),payer:get('payer'),reference:get('reference'),bankEventId:get('bankEventId')||undefined});message='Fakturabetalningen är bokförd.';break;
  case 'request-rot':transition=s=>Sales.requestRot(s,id,{date:get('date'),workCompletedConfirmed:checked('workCompletedConfirmed'),electronicPaymentConfirmed:checked('electronicPaymentConfirmed')});message='ROT-begäran är förberedd som demounderlag.';break;
  case 'decide-rot':transition=s=>Sales.decideRot(s,id,{date:get('date'),approvedCents:amount('approvedCents'),reason:get('reason')});message='Demobeslutet är registrerat.';break;
@@ -188,7 +267,7 @@ async function submit(form){
  }
  case 'reset':{
   if(busy||stale)return;busy=true;updateChrome();
-  try{snapshot=await store.reset(snapshot);state=snapshot.state;stale=false;Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});dialog.close();render();toast('Demon är återställd till fiktiva startuppgifter.');}catch(err){if(err.code)snapshot={...snapshot,error:err};showError(err);}finally{busy=false;updateChrome();}return;
+  try{snapshot=await store.reset(snapshot);state=snapshot.state;stale=false;invoiceDirty=false;invoiceDraft=null;invoiceDraftRoute='';Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});dialog.close();if(ui.view==='sales')navigate('#sales');else render();toast('Demon är återställd till fiktiva startuppgifter.');}catch(err){if(err.code)snapshot={...snapshot,error:err};showError(err);}finally{busy=false;updateChrome();}return;
  }
  default:throw new Error('Formuläret kan inte sparas.');
  }
@@ -211,19 +290,48 @@ function answer(question){
 function chat(question){const list=document.querySelector('#assistant-messages');const add=(text,cls)=>{const bubble=document.createElement('div');bubble.className='chat-bubble '+cls;bubble.textContent=text;list.append(bubble);};if(question)add(question,'user');add(question?answer(question):'Hej Åke! Jag är Ande. Fråga om vyn du arbetar i, eller be mig förklara nästa steg. Mina svar i demon är exempelbaserade och ändrar inte din bokföring.','assistant');list.scrollTop=list.scrollHeight;}
 
 document.addEventListener('click',event=>{
- const el=event.target.closest('button,a');if(!el)return;if(el.classList.contains('skip-link')){event.preventDefault();document.querySelector('#suite-main').focus();return;}
+ const el=event.target.closest('button,a');
+ if(!el){const row=event.target.closest('[data-invoice-row]');if(row)navigate(invoiceLocation(row.dataset.invoiceRow));return;}
+ if(el.dataset.invoiceSection){event.preventDefault();const section=document.getElementById(el.dataset.invoiceSection);if(section){if(section.tagName==='DETAILS')section.open=true;section.scrollIntoView({behavior:'smooth',block:'start'});}return;}
+ if(el.classList.contains('skip-link')){event.preventDefault();document.querySelector('#suite-main').focus();return;}
  const selectMap={selectInvoice:'invoiceId',selectBill:'billId',selectEntry:'entryId',selectProject:'projectId',selectBank:'bankId',selectPayroll:'payrollId',selectAsset:'assetId'};
- for(const [key,target] of Object.entries(selectMap)){if(el.dataset[key]){if(el.tagName!=='A')event.preventDefault();ui[target]=el.dataset[key];render();return;}}
+ for(const [key,target] of Object.entries(selectMap)){if(el.dataset[key]){if(key==='selectInvoice'){event.preventDefault();navigate(invoiceLocation(el.dataset[key]));return;}if(el.tagName!=='A')event.preventDefault();ui[target]=el.dataset[key];render();return;}}
  if(el.dataset.bankAccount){ui.bankAccount=el.dataset.bankAccount;ui.bankId=null;render();return;}
  if(el.dataset.question){chat(el.dataset.question);return;}
  if(el.dataset.action){event.preventDefault();Promise.resolve(action(el.dataset.action,el.dataset.id||'',el)).catch(showError);}
 });
 document.addEventListener('submit',event=>{const form=event.target;if(form.id==='assistant-form'){event.preventDefault();const input=document.querySelector('#assistant-input');chat(input.value);input.value='';return;}if(form.dataset.form){event.preventDefault();submit(form).catch(showError);}});
-document.addEventListener('change',event=>{if(event.target.name==='bankEventId'&&event.target.value){const payment=state.bankTransactions.find(x=>x.id===event.target.value);if(payment){const form=event.target.form;form.querySelector('[name="date"]').value=payment.date;form.querySelector('[name="amountCents"]').value=fmt(Math.abs(payment.amountCents));}}if(event.target.name==='rotEnabled'){const target=document.querySelector('.rot-fields');if(target)target.hidden=!event.target.checked;}if(event.target.name==='vatMode'&&event.target.value==='reverse-construction'){const box=dialog.querySelector('[name="rotEnabled"]');if(box){box.checked=false;dialog.querySelector('.rot-fields').hidden=true;}}});
-document.querySelector('#suite-search').addEventListener('input',event=>{ui.search=event.target.value;if(ui.search&&!['sales','ledger'].includes(ui.view)){ui.view=/^A\d/i.test(ui.search)?'ledger':'sales';location.hash=ui.view;}render();});
+document.addEventListener('input',event=>{if(event.target.closest('#invoice-page-form'))refreshInvoiceSummary();});
+document.addEventListener('change',event=>{
+ try{
+ const target=event.target,form=target.closest('#invoice-page-form');
+ if(form){
+  if(target.name==='customerId')applyInvoiceCustomer(form,state,target.value);
+  if(target.name==='paymentTermsDays'||target.name==='date')invoiceDueDate(form);
+  if(target.name==='dueDate'){
+   const date=form.elements.namedItem('date').value,days=(Date.parse(target.value+'T12:00:00Z')-Date.parse(date+'T12:00:00Z'))/86400000;
+   if(Number.isInteger(days)&&days>=0&&days<=365)form.elements.namedItem('paymentTermsDays').value=String(days);
+  }
+  if(target.name==='pricesIncludeVat')applyInvoicePriceMode(form,target.checked);
+  if(target.name==='vatMode'&&target.value==='reverse-construction')form.elements.namedItem('rotEnabled').checked=false;
+  const rotEnabled=form.elements.namedItem('rotEnabled')?.checked||false;
+  const fields=form.querySelector('.invoice-rot-fields');if(fields)fields.hidden=!rotEnabled;
+  for(const row of form.querySelectorAll('[data-invoice-line]'))updateInvoiceLineKind(row,rotEnabled);
+  refreshInvoiceSummary();return;
+ }
+ if(target.name==='bankEventId'&&target.value){const payment=state.bankTransactions.find(x=>x.id===target.value);if(payment){const parent=target.form;parent.querySelector('[name="date"]').value=payment.date;parent.querySelector('[name="amountCents"]').value=fmt(Math.abs(payment.amountCents));}}
+ }catch(error){showError(error);}
+});
+document.querySelector('#suite-search').addEventListener('input',event=>{
+ ui.search=event.target.value;
+ if(invoiceEditorOpen()){navigate('#sales');return;}
+ if(ui.search&&!['sales','ledger'].includes(ui.view)){navigate(/^A\d/i.test(ui.search)?'#ledger':'#sales');return;}
+ render();
+});
 document.querySelector('#suite-menu').addEventListener('click',()=>{document.querySelector('#suite-sidebar').classList.add('open');document.querySelector('#suite-backdrop').hidden=false;document.querySelector('#suite-menu').setAttribute('aria-expanded','true');});
 document.querySelector('#suite-backdrop').addEventListener('click',()=>{document.querySelector('#suite-sidebar').classList.remove('open');document.querySelector('#suite-backdrop').hidden=true;document.querySelector('#suite-menu').setAttribute('aria-expanded','false');});
 window.addEventListener('hashchange',route);
+window.addEventListener('beforeunload',event=>{if(invoiceDirty){event.preventDefault();event.returnValue='';}});
 window.addEventListener('storage',event=>{if(event.key===STORE_KEY||event.key===null){stale=true;updateChrome();}});
 dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});
 chat();route();

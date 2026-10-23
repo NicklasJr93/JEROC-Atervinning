@@ -12,7 +12,8 @@ Arbetets art, bostadens typ, ägande och användning behöver bedömas. Småhus,
 
 ## Vad demoflödet hanterar
 
-- En fiktiv ROT-person per faktura, i SEK, med arbetsrader som har 25 procent moms. På dessa rader avser antalet faktiskt arbetade timmar. Fastpris-ROT med separat timredovisning återstår. Material och övriga rader räknas aldrig in i ROT-underlaget.
+- En fiktiv ROT-person per faktura, i SEK, med markerade arbetsrader som har 25 procent moms. På dessa rader avser antalet faktiskt arbetade timmar. En arbetsrad som inte avser berättigat ROT-arbete kan avmarkeras. Fastpris-ROT med separat timredovisning återstår. Material och övriga rader räknas aldrig in i ROT-underlaget.
+- Arbetskostnaden beräknas efter radrabatt och fakturarabatt, inklusive moms. Pris inklusive/exklusive moms följer radens prisgrund. Frakt och fakturaavgift är separata övriga rader med egen momssats och bidrar inte till ROT-underlaget.
 - Ett uppgivet årsutrymme före demofakturorna, där användaren redan ska ha tagit hänsyn till annan ROT/RUT och skatteutrymme. Utfärdade fakturor i demoboken reserverar utrymme för samma person och år. Detta är en lokal planeringskontroll, inte uppgifter från Skatteverket.
 - Fakturering och kundbetalningar under 2026. Betalningar över årsskiftet och tidigare tillfälliga procentsatser ingår inte i denna version.
 - Hela kundens del ska vara betald innan demobegäran förbereds. Reglerna tillåter även proportionella begäranden vid delbetalning, men den första demon har ett snävare flöde. Delbetalningar kan fortfarande registreras.
@@ -33,6 +34,8 @@ Fakturan bokförs med hela beloppet inklusive moms som kundfordran. Kundens beta
 | Totalt | 26 400 kr | 6 600 kr | 33 000 kr |
 
 Med tillräckligt uppgivet utrymme blir preliminärt ROT **6 600 kr**, alltså 30 procent av 22 000 kr. Kunden betalar **26 400 kr**. En simulerad godkänd ROT-utbetalning på 6 600 kr reglerar resten. Blir demobeslutet i stället 5 000 kr återstår 1 600 kr att få från kunden.
+
+Exemplet saknar rabatter och avgifter. En rabatt på det berättigade arbetet minskar både arbetskostnaden och ROT-underlaget. Tillagda frakt-/fakturaavgifter ökar fakturans belopp enligt sin momssats, men ökar inte ROT-avdraget.
 
 ## Fortsatt utveckling
 

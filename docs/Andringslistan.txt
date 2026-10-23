@@ -4048,3 +4048,29 @@ Status: Implementerad testversion 2026-10-23; separat Render-publicering krävs.
   BAS 2026-källkontroll: bland annat 3000, 4425, 1460/4960 och 1790.
   Detta är en lokal demomodell, inte verifiering av full regelefterlevnad
   eller en produktionsklar ersättning för etablerade bokföringsprogram.
+
+
+ÄL 163 – Egna fakturasidor och utökade fakturauppgifter
+Status: Implementerad och lokalt verifierad demofunktion 2026-10-23; separat publicering återstår.
+- Kundfakturalistan öppnar varje faktura på egen sida. Nytt och redigerat
+  utkast använder en stor arbetsyta med sektioner, rader och summering.
+  Navigering varnar för osparade ändringar; äldre v2-demofakturor bevaras.
+- Fakturaspecifika kund-/leveransuppgifter, referenser, ordernummer,
+  betalningsvillkor, artikelnummer, enhet och fakturatext kan sparas.
+  Nya utfärdade dokument fryser kund-/säljaruppgifter för återutskrift.
+- Radrabatt, fakturarabatt och pris inklusive/exklusive moms påverkar
+  samma beräkning som moms, kundfordran och bokföring. Frakt-/fakturaavgifter
+  är separata rader med uttrycklig momssats och undantas från fakturarabatt.
+- ROT väljs per arbetsrad och räknas på rabattjusterat arbete inkl. moms.
+  Material, resor, frakt och fakturaavgift ger inget ROT-underlag.
+- Faktura kan kopieras till nytt utkast utan att överföra tidigare
+  betalningar, verifikation eller ROT-begäran. Utskrift använder sparade
+  dokumentuppgifter; utfärdade fakturor rättas genom det kreditflöde som stöds.
+- Jämförelse med användarens två Fortnox-bilder finns i
+  bokforing/fakturering-jamforelse.md. Kostnadsställe/prislistnamn är märkning,
+  inte automatisk dimension/prismotor. Bland annat OCR, kontantfaktura,
+  återkommande fakturor, intäktsperiodisering, valuta, RUT, delkrediter,
+  återbetalningar och externa utskick/fakturatjänster återstår.
+- Lokalt verifierat: produktionsbygge, 200 modell-/lagringstester, ett
+  HTTP-integrationstest och 30 browserfall inklusive reset från fakturasida.
+  Nya skärmbilder visar egna fakturasidor på dator och mobil.

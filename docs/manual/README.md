@@ -23,6 +23,15 @@ raderna. Utfärda fakturan och registrera kundens del av betalningen. Därefter
 kan du förbereda en ROT-demobegäran, registrera ett demobeslut och en
 simulerad skatteutbetalning. Se [hela ROT-övningen](../../bokforing/README.md#prova-ett-sammanhängande-rot-flöde).
 
+En faktura öppnas nu på en egen sida. **Ny kundfaktura** och **Redigera**
+öppnar en stor arbetsyta med kund- och leveransuppgifter, betalningsvillkor,
+referenser, fakturarader och summering. Ange radrabatt eller fakturarabatt,
+pris inklusive/exklusive moms och eventuella avgifter där. På ROT-fakturor
+markerar du vilka arbetsrader som ger underlag; material och avgifter ingår inte.
+**Spara utkast** tar dig till fakturans sida. Där finns utfärdande, kopiering,
+betalningar och **Skriv ut / spara PDF**. Lämnar du ett osparat utkast visas
+en varning. Se [faktureringens omfattning och återstående delar](../../bokforing/fakturering-jamforelse.md).
+
 I **Projekt & offerter** kan du registrera tid/material och skapa offert.
 **Inköp** hanterar leverantörsfakturor. Välj en befintlig kontohändelse i
 betalningsformuläret om betalningen redan finns i **Bank & kassa**.
