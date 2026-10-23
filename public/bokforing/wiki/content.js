@@ -4,7 +4,7 @@ const revision = 'c5134ecddc624c1e3a0e30e3e3f6058bcc8d0b95';
 const repository = `https://github.com/NicklasJr93/JEROC-Atervinning/blob/${revision}`;
 const source = (label, path) => ({ label, url: `${repository}/${path}` });
 // The accounting baseline keeps its own verified revision; Ande is a supplement.
-const andeRepository = 'https://github.com/NicklasJr93/JEROC-Atervinning/blob/45d107d2ae800893c52d0dd5207bbe30179f5aa3';
+const andeRepository = 'https://github.com/NicklasJr93/JEROC-Atervinning/blob/456ce65625ad1acda46f021c53747b1c667caeb4';
 const andeSource = (label, path) => ({ label, url: `${andeRepository}/${path}` });
 const updated = '2026-10-23';
 
@@ -513,6 +513,7 @@ export const articles = [
     sections: [
       { id: 'nuvarande-funktion', title: 'Det Ande gör nu', paragraphs: [
         'Öppna Fråga Ande. Du behöver inte logga in. När serverns OpenAI-nyckel är konfigurerad skickas frågan till modellen. Anslutningsstatusen skiljer konfiguration från ett faktiskt mottaget AI-svar; vid fel visas ett felmeddelande, inte ett förskrivet ersättningssvar.',
+        'Om modellen når svarslängdsgränsen, inte hinner svara eller lämnar ett ofullständigt svar visas orsaken i chatten. Frågan behålls i skrivfältet för ett nytt försök. Ett ofärdigt AI-svar behandlas inte som ett färdigt bokföringsförslag.',
         'Ande får en avgränsad bild av aktuell demovy: rapportsummor, antal öppna poster och i relevanta vyer vald faktura eller verifikation med högst tolv rader. Den får inte automatiskt hela bokföringen, uppladdade original eller andra företags uppgifter. Osparade formulärändringar ingår inte.',
         'Underlag till Ande visar vilka fält som skickas och låter dig välja bort dem. Dina egna frågor och radtexter kan också innehålla information, så använd fiktiva uppgifter. Samtalet finns i flikens minne och kan tömmas med Nytt samtal.',
         'Svar kan innehålla förslag och hänvisningar till ett daterat kunskapspaket. Bara serverns tillåtna källor blir klickbara hänvisningar. En källhänvisning bevisar inte att modellens tolkning är riktig.',
