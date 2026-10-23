@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 // These checks use only the public, synthetic browser-local page. They need
 // neither an authenticated account nor any business API or production data.
 const storageKey = 'scrapplanner-bokforing-demo-v1';
-const demoPath = '/bokforing/index.html';
+const demoPath = '/bokforing/klassisk.html';
 
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
 test.setTimeout(30_000);

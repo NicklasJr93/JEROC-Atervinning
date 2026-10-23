@@ -17,23 +17,37 @@ knappar visas efter kontots behörigheter och företagets aktiverade funktioner.
 
 Efter publicering öppnas demon på
 [app.scrapplanner.com/bokforing](https://app.scrapplanner.com/bokforing)
-utan inloggning. Välj **Granska underlag**, kontrollera fakturan och ändra
-konteringsraderna. **Godkänn och bokför** aktiveras när debet och kredit
-balanserar; övriga fel förklaras vid bokföringsförsöket. Följ sedan posten i
-**Bokföring**, **Moms** och **Rapporter**. I **Bank** kan du prova matchning.
+utan inloggning. Den utökade versionen använder fiktiva uppgifter för
+**Åkes Hantverk AB**. Börja i **Kundfakturor**, välj ROT-utkastet och granska
+raderna. Utfärda fakturan och registrera kundens del av betalningen. Därefter
+kan du förbereda en ROT-demobegäran, registrera ett demobeslut och en
+simulerad skatteutbetalning. Se [hela ROT-övningen](../../bokforing/README.md#prova-ett-sammanhängande-rot-flöde).
+
+I **Projekt & offerter** kan du registrera tid/material och skapa offert.
+**Inköp** hanterar leverantörsfakturor. Välj en befintlig kontohändelse i
+betalningsformuläret om betalningen redan finns i **Bank & kassa**.
+**Lön**, **Inventarier**, **Materiallager** och **Periodisering** har egna
+granskningssteg. **Bokföring**, **Moms & ROT** och **Rapporter** följer samma
+verifikationer. **Bokslut** visar återstående avstämningar och periodlåsning.
 
 **Fråga Ande** öppnar en demoassistent med exempelbaserade svar.
 Ändringarna sparas i den egna webbläsaren. **Återställ demo** tar tillbaka
-exempeluppgifterna efter bekräftelse. Allt avser Exempelbolaget AB och används
-för att prova arbetsflödet; inga verkliga underlag eller betalningar hanteras.
+exempeluppgifterna efter bekräftelse. Inga verkliga betalningar, fakturor,
+ROT-begäranden eller deklarationer skickas. Löne- och skattebelopp bygger på
+angivna demoantaganden. Läs [omfattning och avgränsning](../../bokforing/README.md#den-här-versionens-gränser)
+före en genomgång med redovisningskunnig.
 
 I den uppdaterade demon stoppas sparandet vid konflikt mellan flikar eller
-lagringsfel. Läs bannern och välj **Läs in senaste demodata** för att fortsätta;
+lagringsfel. Läs bannern och välj **Läs in senaste** för att fortsätta;
 osparade konteringsändringar återställs. En osäker sparningskvittens kan betyda
 att bokningen redan finns, så läs in innan du försöker igen. Ogiltiga äldre
 demouppgifter ersätts först efter uttrycklig återställning. Stäng och öppna gamla
 demoflikar när en ny version publicerats. Utan stöd för samordning mellan flikar
 är demon i läsläge.
+
+Den tidigare inköpsdemon finns efter publicering på
+`/bokforing/klassisk.html`. Dess sparade exempel påverkas inte av den nya
+ekonomidemon eller dess resetknapp.
 
 ## Logga in och hitta rätt
 

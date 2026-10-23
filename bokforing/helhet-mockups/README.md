@@ -6,6 +6,8 @@ En sammanhängande designserie för ett planerat, fristående bokföringssystem 
 
 [Till bokföringsprojektet och demon](../README.md) · [Öppna den klickbara demon](https://app.scrapplanner.com/bokforing) · [De första tio stilförslagen](../README.md#bildmockuper)
 
+**Uppföljning 2026-10-23:** en sammanhängande ekonomidemo är nu kodad utifrån flödena. Se [aktuella funktioner och gränser](../README.md#klickbar-demo); denna sida behåller de ursprungliga designbilderna. Publicering på app-domänen görs separat.
+
 ## Åkes ekonomiarbete under året
 
 Åke startar bolaget och lägger upp räkenskapsåret, lämnar offerter, registrerar tid och material och fakturerar sina kunder. Inköp, kundbetalningar och löner bokförs och stäms av. Inventarier och moms följs upp innan perioder avslutas och årets rapporter förbereds för granskning.

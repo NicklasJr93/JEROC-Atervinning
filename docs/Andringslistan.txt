@@ -4016,3 +4016,35 @@ Status: Statiska designförslag 2026-10-22; ingen appkod eller drift ändras.
 - De första tio stilförslagen och den befintliga klickbara demon bevaras.
   Ingen bokföringsfunktion, integration eller regelvalidering implementeras
   genom denna bildleverans.
+
+
+ÄL 162 – Sammanhängande ekonomidemo med ROT för Åkes Hantverk AB
+Status: Implementerad testversion 2026-10-23; separat Render-publicering krävs.
+- Ny fristående ekonomidemo på /bokforing med företag, kunder, projekt,
+  tid/material, offerter, kundfakturor, leverantörsfakturor och betalningar.
+- ROT 2026 med separata arbets-/materialrader, 30 procent på arbete inkl.
+  moms, heltalskronor, uppgivet personutrymme och reservation mellan fakturor.
+  Kundbetalning, demobegäran, beslut, avslag och skatteutbetalning följs.
+- Gemensam append-only verifikationsbok med öresbelopp, källreferenser,
+  balansering, periodspärrar, kontrollerade serier och länkade rättelser.
+- Bank/kassa/skattekonto, partiella betalningar, matchning mot befintlig
+  kontohändelse, avgifter, överföringar, lån och ränta använder samma bok.
+- Löneutkast, lönebesked, bokföring, utbetalning och skatte-/avgiftsreglering.
+  Skatteavdrag och avgifter är manuella demoantaganden; AGI är gransknings-CSV.
+- Inventarier, avskrivningar och avyttring; separat materiallager med
+  inventering och periodisk värdering; förutbetalda kostnader på 1790.
+- Momsunderlag, fastställelse av hel momsperiod, resultat/balans,
+  periodlås/upplåsning, årsresultat och granskningspaket med spårbar historik.
+- Återlästa data stäms av mot källor och reskontra. Befintlig lagringsmodul
+  återanvänds med egen v2-nyckel, Web Locks, revisionskontroll och återläsning.
+  Reset kräver bekräftelse och lämnar gamla inköpsdemons data orörda.
+- Tidigare demo bevaras på /bokforing/klassisk.html. Ande har reserverad plats
+  och ger exempelbaserat stöd. Inga externa anrop, betalningar, nya konton,
+  databasändringar eller miljövariabler införs.
+- Källkod: public/bokforing/suite/. Arbetsgång, testunderlag och kvarstående
+  gränser: bokforing/README.md. ROT-källor: bokforing/rot-regler.md.
+- Verifierat lokalt: produktionsbygge, 189 modell-/lagringstester, ett
+  HTTP-integrationstest och 22 browserregressioner för ny och tidigare demo.
+  BAS 2026-källkontroll: bland annat 3000, 4425, 1460/4960 och 1790.
+  Detta är en lokal demomodell, inte verifiering av full regelefterlevnad
+  eller en produktionsklar ersättning för etablerade bokföringsprogram.

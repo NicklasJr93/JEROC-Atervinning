@@ -32,14 +32,19 @@ test('public bookkeeping demo serves its own assets without granting office acce
       assert.equal(response.headers.get('set-cookie'), null, 'demo must not select a tenant or allocate an authenticated session');
       const html = await response.text();
       assert.match(html, /Bokföring/i);
-      assert.match(html, /\/bokforing\/app\.js/);
-      assert.match(html, /\/bokforing\/styles\.css/);
+      assert.match(html, /\/bokforing\/suite\/app\.js/);
+      assert.match(html, /\/bokforing\/suite\/styles\.css/);
     }
-    for (const [path, type] of [['styles.css', /text\/css/], ['app.js', /javascript/], ['model.js', /javascript/], ['storage.js', /javascript/]]) {
+    for (const [path, type] of [['klassisk.html', /text\/html/], ['styles.css', /text\/css/], ['app.js', /javascript/], ['model.js', /javascript/], ['storage.js', /javascript/], ['suite/app.js', /javascript/], ['suite/styles.css', /text\/css/], ['suite/core.js', /javascript/], ['suite/sales.js', /javascript/], ['suite/rot.js', /javascript/], ['suite/operations.js', /javascript/], ['suite/finance.js', /javascript/], ['suite/seed.js', /javascript/], ['suite/storage.js', /javascript/], ['suite/validate.js', /javascript/]]) {
       const response = await fetch(`${url}/bokforing/${path}`);
       assert.equal(response.status, 200, path);
       assert.match(response.headers.get('content-type'), type);
       assert.ok((await response.text()).length > 100, path);
+    }
+    for (const path of ['suite/inventory.js', 'suite/periodization.js']) {
+      const response = await fetch(`${url}/bokforing/${path}`);
+      assert.equal(response.status, 200, path);
+      assert.match(response.headers.get('content-type'), /javascript/);
     }
     const head = await fetch(`${url}/bokforing`, { method: 'HEAD' });
     assert.equal(head.status, 200);

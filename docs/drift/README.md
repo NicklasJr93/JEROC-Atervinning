@@ -115,6 +115,13 @@ Kontrollera efter publicering att båda adresserna och deras JS/CSS svarar utan
 inloggning, att `/readyz` är redo och att vanliga API:er fortfarande kräver session.
 Se [demon och dess avgränsning](../../bokforing/README.md).
 
+Den utökade ekonomidemon använder `/bokforing/suite/app.js` och
+`/bokforing/suite/styles.css` samt en egen browsernyckel
+`scrapplanner-bokforing-suite-v2`. Kontrollera också modulernas svar och
+ROT-flödet efter publicering. Den tidigare inköpsdemon finns på
+`/bokforing/klassisk.html` och använder fortsatt sin gamla lagringsnyckel.
+En reset i den nya versionen påverkar inte de tidigare exemplen.
+
 Demons lokala skrivningar kräver en säker browserkontext med Web Locks
 (HTTPS på app-domänen eller localhost vid utveckling). Vid uppdatering ska
 besökaren stänga/ladda om äldre demoflikar så att de använder samma lagringskod.

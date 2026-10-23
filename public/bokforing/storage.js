@@ -31,6 +31,8 @@ export function createDemoStorage({
   locks = globalThis.navigator?.locks,
   key = STORAGE_KEY,
   makeRevision = freshRevision,
+  createState: makeState = createState,
+  validateState: checkState = validateState,
 } = {}) {
   const lockName = `scrapplanner:bookkeeping-demo:${key}`;
   const coordinationAvailable = () => typeof locks?.request === 'function';
@@ -49,8 +51,8 @@ export function createDemoStorage({
 
   function decode(raw) {
     try {
-      const value = raw === null ? createState() : JSON.parse(raw);
-      validateState(value);
+      const value = raw === null ? makeState() : JSON.parse(raw);
+      checkState(value);
       return copy(value);
     } catch (error) {
       fail('INVALID_DATA', 'Sparade demodata kunde inte godkännas. De har bevarats. Läs in igen eller återställ demon uttryckligen.', error);
@@ -73,7 +75,7 @@ export function createDemoStorage({
     } catch (error) {
       // Keep the observed raw revision for an explicit reset. A read failure
       // leaves it undefined, so it can never masquerade as a fresh empty book.
-      return snapshot(createState(), raw, error);
+      return snapshot(makeState(), raw, error);
     }
   }
 
@@ -96,9 +98,9 @@ export function createDemoStorage({
         if (raw !== expected.revision) {
           fail('STALE_STATE', 'Demodata har ändrats i en annan flik. Din ändring har inte sparats. Läs in senaste demodata och granska underlaget igen.');
         }
-        const current = resetting ? createState() : decode(raw);
+        const current = resetting ? makeState() : decode(raw);
         const next = await transition(copy(current));
-        try { validateState(next); }
+        try { checkState(next); }
         catch (error) { fail('INVALID_DATA', 'Den nya demobokföringen kunde inte godkännas. Ingen ändring har sparats.', error); }
         const token = makeRevision();
         let previousToken;
@@ -137,6 +139,6 @@ export function createDemoStorage({
   return {
     load,
     commit: (expected, transition) => write(expected, transition, false),
-    reset: expected => write(expected, () => createState(), true),
+    reset: expected => write(expected, () => makeState(), true),
   };
 }

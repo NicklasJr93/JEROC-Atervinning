@@ -4,11 +4,72 @@ Här samlas designförslag för ett **fristående bokföringsprogram med egen we
 
 **Nytt: [Tio mockuper för hela ekonomiarbetet i Åkes Hantverk AB](helhet-mockups/README.md)** – företagsstart, offert och faktura, inköp, betalningar, lön, inventarier, moms och bokslut i en sammanhängande designserie. Bilderna visar planerad funktionalitet; de första tio stilförslagen finns kvar nedan.
 
-**Status 2026-10-22:** klickbar demo i `public/bokforing/`, med efterföljande rättningar av kända konterings-, lagrings- och layoutfel. Publicering av rättningarna på Render är ett separat steg; den ursprungliga liveversionen är verifierad. De tio bildmockuperna nedan finns kvar som designunderlag. Detta är en testmiljö med fiktiv bokföring, inte ett system för skarp redovisning.
+**Status 2026-10-23:** en utökad ekonomidemo är kodad i `public/bokforing/suite/`. Arbetsflödena använder en gemensam verifikationsbok och fiktiva uppgifter för Åkes Hantverk AB. Den tidigare inköpsdemon och båda serierna med bildmockuper bevaras. GitHub-version och publicering på app-domänen är separata steg; en push publicerar inte automatiskt på Render.
 
 ## Klickbar demo
 
-Publik demo, verifierad 2026-10-22: **https://app.scrapplanner.com/bokforing**.
+Efter publicering öppnas den utökade versionen på **https://app.scrapplanner.com/bokforing**. Den tidigare inköpsversionen finns då på `/bokforing/klassisk.html` med sina tidigare sparade exempel. Ingen inloggning, betalning eller extern anslutning behövs för att prova ekonomidemon.
+
+| Område | Vad som går att prova |
+| --- | --- |
+| Företaget | Bolagsuppgifter, momsperiod, räkenskapsår och insyn i demobolagets ingående balanser. Kalenderår 2026, SEK och faktureringsmetoden används. |
+| Projekt och offert | Kunder, projekt, tid/material, offert, registrerat kundgodkännande och fakturautkast från offert. |
+| Kundfakturor | Redigerbara utkast, utfärdande med verifikation och fakturanummer, utskrift/spara som PDF, delbetalningar, förberedda påminnelser och länkad helkredit av obetald faktura. |
+| ROT | Arbete/material/övrigt, 2026-beräkning, uppgivet personutrymme, kundbetalning, demobegäran, demobeslut, delvis/helt avslag och separat skatteutbetalning. [Regler och avgränsning](rot-regler.md). |
+| Inköp | Leverantörsfakturor, kvitto-/utläggsexempel, vanlig moms, inköp utan moms och bekräftad omvänd byggmoms. Bokföring, delbetalning och helkredit av obetalda fakturor. |
+| Bank, kassa och skatt | Fiktiva kontohändelser, matchning, betalning mot befintlig händelse, avgifter, kassa-/skatteöverföringar, lån och ränta. |
+| Bokföring | Gemensam huvudbok, manuella verifikationer inom stödda konton, balansering, bevarade original och länkade rättelser. Dokumentstyrda konton hanteras i sina egna flöden. |
+| Lön | Anställda, månads-/timlön, manuella frånvaro-, semester-, förmåns- och utläggsbelopp, lönebesked, bokföring, simulerad utbetalning och skatte-/avgiftsreglering. AGI exporteras som gransknings-CSV. |
+| Inventarier | Omklassificering av ett redan bokfört utrustningsinköp, nyttjandeperiod, månadsavskrivning, utrangering och försäljning. |
+| Materiallager | Artiklar, inleveranser, uttag, inventering och periodisk lagervärdering med bokföringsunderlag. |
+| Periodisering | Förutbetalda kostnader från redan bokförd kostnad och månatlig kostnadsföring enligt en spårbar plan. |
+| Moms och rapporter | Momsunderlag med verifikationskoppling, fastställande av komplett momsperiod, reglering via skattekonto, resultat, balans och CSV-export. |
+| Avslut och granskning | Avstämningschecklista, periodlåsning, dokumenterad upplåsning, bokning av årets resultat, ingående balansunderlag för nästa år och granskningspaket i JSON. |
+
+Skärmbilder från den körbara ekonomidemon:
+
+[![Översikt i den utökade ekonomidemon](preview/ekonomi-overview.png)](preview/ekonomi-overview.png)
+[![Kundfaktura med ROT i den utökade ekonomidemon](preview/ekonomi-rot.png)](preview/ekonomi-rot.png)
+
+[Öppna mobilbilden](preview/ekonomi-mobile.png).
+
+### Prova ett sammanhängande ROT-flöde
+
+1. Öppna **Kundfakturor** och välj ROT-utkastet för Maria. Arbete 17 600 kr, material 8 000 kr och resa 800 kr ger 33 000 kr inklusive moms.
+2. Granska och utfärda fakturan. Planerat ROT blir 6 600 kr och kundens del 26 400 kr.
+3. Registrera kundbetalningen på 26 400 kr. Förbered sedan demobegäran och bekräfta utfört arbete samt elektronisk betalning.
+4. Registrera ett demobeslut: 6 600 kr för fullt godkännande eller exempelvis 5 000 kr för delvis avslag.
+5. Registrera skatteutbetalningen. Vid ett beslut på 5 000 kr ligger 1 600 kr kvar att få från kunden. Följ samma belopp i huvudboken och rapporterna.
+
+På **Bank & kassa** finns också tre omatchade exempel. Kund- och leverantörsbetalningarnas formulär kan använda en befintlig kontohändelse, så att en andra händelse inte skapas för samma betalning. Bankavgiften bokförs direkt i bankvyn.
+
+### Kontroller och sparande
+
+Modellen kräver balanserade konteringar, giltiga datum och konton samt heltalsbelopp i ören. Den stoppar bland annat dubbla källbokningar, överbetalning, bokning i låsta perioder, samma ROT-utrymme på flera demofakturor och ändring/radering av befintliga verifikationer genom programmets funktioner. Utfärdade fakturor fryses och rättas med kredit. Behandlingshistoriken registrerar modellåtgärder; den är inte en extern revisionslogg.
+
+Sparade uppgifter kontrolleras även mot fakturor, reskontra, betalningar, löner, inventarier, lager, periodisering och moms. Två uppdaterade flikar samordnas med Web Locks och lagringsrevision. En ändring visas som sparad först efter lyckad skrivning och återläsning. Vid konflikt eller sparfel visas en banner; läs in senaste innan du fortsätter. Ogiltiga tidigare data bevaras tills du uttryckligen väljer reset.
+
+Den utökade versionen använder nyckeln `scrapplanner-bokforing-suite-v2`. Den tidigare inköpsdemons nyckel `scrapplanner-bokforing-demo-v1` lämnas orörd. **Återställ demo** kräver bekräftelse och ersätter bara den nya versionens fiktiva data. Browserlagring och modellkontroller skyddar inte mot en person som ändrar data direkt i webbläsaren.
+
+### Den här versionens gränser
+
+Detta är en sammanhängande testversion med stödda affärsfall, inte ett färdiggranskat redovisningsprogram för skarp drift. Ande ger kontextbundna, exempelbaserade förklaringar; ingen extern språkmodell eller auktorisation ingår. Skatteavdrag, arbetsgivaravgift, frånvaro och nyttjandeperioder bygger på angivna demoantaganden, utan automatisk skattetabell eller arbetsrättslig beräkning.
+
+ROT stöder en person per faktura och kundbetalningar under 2026, med hela kunddelen betald före begäran. Faktisk rätt till avdrag och personens utrymme verifieras inte. Kredit av en redan betald faktura, återbetalning, vissa rättelser och ytterligare moms-/lönefall kräver fortsatt utveckling. Materiallager registreras separat och värderas som handelsvaror på 1460/4960; pågående arbeten och produktion ingår inte. Projektförbrukning skapar inte automatiskt lageruttag. Periodiseringen avser förutbetald kostnad; upplupna kostnader kan behöva en granskad manuell verifikation.
+
+Granskningspaket, AGI-CSV och balanser för nästa år är arbetsmaterial. De är inte färdiga myndighetsfiler, en årsredovisning eller en inkomstdeklaration. Serverlagring, användarbehörigheter, verklig underlagshantering, arkivering, säkerhetskopiering, SIE och externa API-/myndighetsanslutningar återstår inför en skarp produkt. Ingen full regelefterlevnad eller extern redovisningsgranskning är verifierad genom denna demo.
+
+### Körning och verifiering
+
+Bygg med `npm run build` och starta med `npm start`. [Driftguiden](../docs/drift/README.md#uppdatera-och-kontrollera) beskriver separat publicering på Render. Inga nya miljövariabler, databasändringar eller produktionsanslutningar införs.
+
+Modell- och lagringstester finns i `server/bokforing-suite-*.test.mjs`; browserflöden i `tests/bokforing-suite.spec.ts`. Regressionstesterna för den tidigare versionen är kvar. Se även [provgranskningen av den äldre versionen](granskning/2026-10-22.md) och dess [uppföljning](granskning/2026-10-22-uppfoljning.md).
+
+**Lokalt verifierat 2026-10-23:** produktionsbygge, 189 modell-/lagringstester inklusive den tidigare demon, ett HTTP-integrationstest och 22 browserregressioner. Browserproven täcker fullständigt ROT-flöde och avslag, bankmatchning, lön, momsspärrar, lager, periodisering, samtidiga flikar, sparfel, reset och mobil. De nya vyerna har även provats manuellt; skärmbildskörningen registrerade inga JavaScript-fel eller externa anrop. Detta är teknisk verifiering av de beskrivna demofallen, ingen redovisningscertifiering.
+
+## Tidigare inköpsdemo
+
+Den ursprungliga versionen verifierades på app-domänen 2026-10-22. Efter publicering av den nya ekonomidemon ligger den tidigare versionen på **https://app.scrapplanner.com/bokforing/klassisk.html**.
 
 - Översikt med beräknade nyckeltal och senaste verifikationer.
 - Underlagsinkorg och fakturavy med redigerbara konteringsrader.
