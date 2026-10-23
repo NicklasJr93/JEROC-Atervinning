@@ -135,15 +135,16 @@ besökaren stänga/ladda om äldre demoflikar så att de använder samma lagring
 Ogiltiga äldre exempel bevaras för explicit reset; giltiga gamla exempel kan
 läsas och får en ny lagringsrevision vid nästa lyckade skrivning.
 
-Pilotens Blueprint har hemsidans automatiska deploy på commit och appens
-automatiska deploy avstängd. Blueprintens **Auto Sync** är en separat inställning
-och ska hanteras separat från appkodens deployment.
+Pilotens Blueprint har **On Commit** för både hemsidan och appen. Nya commits
+på `main` startar automatiskt en deploy utan att invänta GitHub-kontrollerna.
+Blueprintens **Auto Sync** är en separat inställning och ska hanteras separat
+från appkodens deployment.
 
 1. Granska ändringen och relevanta prov enligt [utvecklingsguiden](../utveckling.md).
    Notera vilken commit som ska driftsättas och om databasmodeller/migrationer ändras.
-2. Push till rätt branch. På **scrapplanner-app → Manual Deploy**, välj den
-   granskade versionen. **Deploy latest commit** använder senaste commit på
-   tjänstens branch; kontrollera att det verkligen är den avsedda versionen.
+2. Push till `main` startar deployen på `scrapplanner-app`. Kontrollera i Render
+   att rätt commit byggs. Vid en ompublicering kan **Manual Deploy** användas;
+   **Deploy latest commit** använder senaste commit på tjänstens branch.
 3. Behåll byggkommandot `npm ci --include=dev --no-audit --no-fund && npm run build:render`
    och startkommandot `npm start`. Node-versionen i Blueprinten är 24.19.0.
 4. Följ bygg- och startloggar tills Render visar **Live**. Kontrollera commit,

@@ -1,6 +1,6 @@
 # Full ScrapPlanner pilot environment. This does not change the old demo.
 # Import this file as ONE Blueprint in the new ScrapPlanner Live workspace.
-# Keep Blueprint Auto Sync off. The website deploys on commits; the app is manual.
+# Keep Blueprint Auto Sync off. The website and app deploy on commits.
 services:
   - type: web
     runtime: static
@@ -47,7 +47,7 @@ services:
     runtime: node
     name: scrapplanner-app
     branch: main
-    autoDeployTrigger: 'off'
+    autoDeployTrigger: 'commit'
     region: frankfurt
     plan: 0.5c-512mb
     numInstances: 1

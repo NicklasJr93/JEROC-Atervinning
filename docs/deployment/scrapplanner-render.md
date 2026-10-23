@@ -36,16 +36,17 @@ Om du bara har skapat workspacen:
    och en ny PostgreSQL-databas**. Kontrollera de betalda planerna och totalen
    innan du väljer **Deploy Blueprint**.
 5. Öppna sedan Blueprintens **Settings** och sätt **Auto Sync → No**.
-   Hemsidan har `autoDeployTrigger: 'commit'` och publicerar nya commits
-   automatiskt. Appen behåller `autoDeployTrigger: 'off'` och manuell deploy.
+   Hemsidan och appen har `autoDeployTrigger: 'commit'` och publicerar nya
+   commits på `main` automatiskt (**On Commit**).
    Blueprintens automatiska infrastruktursynk är en separat inställning.
 
-För en redan skapad hemsida med automatisk deploy avstängd: öppna
-**scrapplanner-website → Settings → Build & Deploy → Auto-Deploy → On Commit**.
+För en redan skapad tjänst med automatisk deploy avstängd: öppna
+**Settings → Build & Deploy → Auto-Deploy → On Commit** för både
+`scrapplanner-website` och `scrapplanner-app`.
 Att pusha den uppdaterade YAML-filen ändrar inte den befintliga tjänsten när
 Blueprintens Auto Sync är avstängd. Publicera den senaste versionen direkt med
-**Manual Deploy → Deploy latest commit**; följande hemsidescommits publiceras
-automatiskt. Appens inställningar behöver inte ändras.
+**Manual Deploy → Deploy latest commit**; följande commits på `main` publiceras
+automatiskt. **On Commit** väntar inte på att GitHub-kontrollerna blir klara.
 
 Render ansluter automatiskt den nya databasen via `DATABASE_URL`. Kopiera inte
 den gamla demodatabasens anslutningssträng eller gamla integrationshemligheter.
@@ -152,8 +153,9 @@ produktionsuppgifter i en sandboxinställning och förvänta dig skarp bokförin
   kontrollera nödvändig databasåtkomst innan instansen får trafik.
 - Håll appen på **en instans** i den första piloten. Skalning och separata
   bakgrundsarbetare är senare driftsteg med egna samtidighetstester.
-- Hemsidan publicerar nya commits automatiskt; publicera granskad appkod med
-  **Manual Deploy** på `scrapplanner-app`. Använd **Manual Sync** när själva
+- Hemsidan och appen publicerar nya commits på `main` automatiskt med
+  **On Commit**. **Manual Deploy** kan användas för en ompublicering.
+  Använd **Manual Sync** när själva
   Blueprint-konfigurationen ska ändras. Kontrollera
   app, mobilinloggning och databas efter uppdatering. Återställning av en tidigare
   koddeploy återställer inte automatiskt databasen.
