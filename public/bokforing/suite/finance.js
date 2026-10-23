@@ -8,7 +8,7 @@ import { getRevenueDueMonths } from './commercial.js';
 import { getCashClosingIssues } from './cash-method.js';
 import { getFxClosingIssues } from './fx.js';
 import { getRotCreditState, getRotCreditClosingIssues } from './rot-credit.js';
-import { assertLegacyPayrollPaymentMonth } from './payroll-engine.js';
+import { assertLegacyPayrollPaymentMonth, assertPayrollAnnualPaymentAllowed } from './payroll-engine.js';
 import { getTaxDeclarationReport } from './tax-ledger.js';
 
 const copy = value => structuredClone(value);
@@ -144,6 +144,7 @@ export function payPayroll(state, id, { date }) {
     validatePayrollRun(draft, run);
     assert(date >= run.date, 'Utbetalningen kan inte ligga före lönedatumet.');
     assertLegacyPayrollPaymentMonth(draft, run, date);
+    assertPayrollAnnualPaymentAllowed(draft, run.lines.map(person => person.employeeId), date);
     const total = getPayrollTotals(run).netCents;
     if (total) {
       const entry = appendEntry(draft, { date, description: `Löneutbetalning ${run.month}`, sourceType: 'payroll-payment', sourceId: id,

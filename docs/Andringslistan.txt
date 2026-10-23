@@ -4251,3 +4251,16 @@ kodrevision redovisas i bokforing/granskning/2026-10-23-atgarder.json.
   åtgärdsrapporten och aktuella testprotokollet kompletterar ÄL 170.
 - Serverlagring, inloggning, bolagsisolering och hållbar arkivering kvarstår
   i den av användaren valda senare driftetappen.
+
+
+ÄL 172 – Andra testomgången och två rättade granskningsspärrar
+Status: 66 nya modell-/integrationstester och omkörd fullsvit: 2 451 godkända.
+- Tidigare bokförd men obetald lön får inte upphäva en slutlig årsbedömning.
+  Gemensam betalningsspärr i ny och äldre lönemodul kräver ny årsavstämning.
+- Återföring av en separat momsregistrering får inte ändra deklarationsrutor
+  i fastställd momsperiod, även när momsbeloppet är noll. Rättelser i nästa
+  öppna period och momsneutrala inköpsrättelser är fortsatt möjliga.
+- Nya prov för uppdelade betalningar/återbetalningar, flera fakturaflöden,
+  frysta original, momsgrunder, AGI, återkrav och tillstånd efter nekad åtgärd.
+- Två nya browserfall. Riktade omprov och aktuell rapport redovisas i
+  bokforing/granskning/2026-10-23-andra-testomgangen.json och wikin.

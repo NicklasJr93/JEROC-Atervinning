@@ -38,6 +38,15 @@ function assertModernPayrollMonth(state, employeeId, month) {
   });
   assert(!shifted, shiftedLegacyMessage);
 }
+export function assertPayrollAnnualPaymentAllowed(state, employeeIds, date) {
+  assert(validDate(date), 'Ange ett giltigt utbetalningsdatum.');
+  const year = Number(date.slice(0, 4));
+  for (const employeeId of new Set(employeeIds)) {
+    const latest = [...(state.payrollContributionReviews ?? [])].reverse().find(item => item.employeeId === employeeId && item.year === year);
+    assert(!latest?.finalBelowThreshold, 'Året har slutligt granskats som under 1 000 kr. Gör en uttrycklig ny årsavstämning innan ytterligare löneutbetalning.');
+  }
+}
+
 export function assertLegacyPayrollPaymentMonth(state, run, date) {
   const paymentMonth = date.slice(0, 7);
   if (paymentMonth === run.month) return;
@@ -324,6 +333,7 @@ export function discardLegacyPayrollDraft(state, id) {
 export function payPayrollBatch(state, id, { date }) {
   return payrollTransaction(state, draft => {
     const batch = find(draft, id); assert(batch.status === 'posted', 'Lönen måste vara bokförd och obetald.'); requireOpenPeriod(draft, date); assert(date === batch.date, 'Utbetalningen ska ske på lönekörningens skatteberäkningsdatum. Skapa annars ett nytt granskat underlag.');
+    assertPayrollAnnualPaymentAllowed(draft, batch.people.map(person => person.employeeId), date);
     const amount = getPayrollBatchTotals(batch).netCents;
     if (amount) {
       const entry = appendEntry(draft, { date, description: `Nettolön ${batch.month}`, sourceType: 'payroll-v2-payment', sourceId: id, rows: [debit('2910', amount), credit('1930', amount)] });

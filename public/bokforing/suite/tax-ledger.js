@@ -159,6 +159,10 @@ export function reverseTaxTransaction(state, id, { date, reason }) {
     requireOpenPeriod(draft, date);
     const original = draft.taxTransactions?.find(item => item.id === id); assert(original && !original.originalId, 'Välj en ursprunglig momsregistrering.');
     assert(date >= original.date && !draft.taxTransactions.some(item => item.originalId === id), 'Momsregistreringen är redan återförd eller datumet är för tidigt.');
+    // Even a zero-tax reversal can change a filed declaration's sales bases.
+    // Pure non-VAT movements have no declaration delta and remain reversible.
+    const changesVat = Object.values(original.boxes).some(amount => amount !== 0);
+    assert(!changesVat || !draft.vatReturns.some(period => date >= period.from && date <= period.to), 'Momsperioden är redan fastställd. Gör rättelsen i en öppen momsperiod.');
     label(reason, 'orsak till återföringen');
     const record = { ...structuredClone(original), id: nextId(draft, 'tax-reversal'), originalId: id, date, reference: `Rättelse ${original.reference}`, reason,
       rows: original.rows.map(row => ({ account: row.account, debitCents: row.creditCents, creditCents: row.debitCents })), boxes: Object.fromEntries(Object.entries(original.boxes).map(([key, amount]) => [key, -amount])) };
