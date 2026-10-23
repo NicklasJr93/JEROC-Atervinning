@@ -4124,3 +4124,27 @@ Status: Implementerad och lokalt verifierad mockup 2026-10-23.
 - Verifierat: produktionsbygge, ett HTTP-integrationstest och sju browserfall
   (sex wikifall och en befintlig mobilregression). Skärmbilder av startsida,
   granskningsguide och mobilvy finns under bokforing/preview/.
+
+
+ÄL 166 – Fler ekonomiflöden och fortsatt bokföring över årsskifte
+Status: Implementerad utvecklingsetapp 2026-10-23; verifiering dokumenteras
+i bokforing/README.md och den sökbara bokföringswikin.
+- Leverantörsfakturor med flera konteringsrader, blandad moms, individuell
+  avdragsandel och bevarade original. Äldre demofakturor läses utan reset.
+- Spårbara delkrediter, krediter efter betalning, återbetalningar och kvittning.
+  ROT- och intäktsperiodiserade fakturor har uttryckliga rättelsebegränsningar.
+- Individuell lönearbetsyta med versionerade Skatteverket-tabeller för
+  stödda 2026-fall, separat engångsskatt, frånvaro-/semesterunderlag,
+  förmåner, kompletteringar och vissa länkade rättelser.
+- Klassificerade momsaffärer, periodens deklarationsunderlag och utökat
+  ROT-flöde med flera personer, delbegäranden, beslut och återkrav.
+- Artikelregister, kundpriser, återkommande utkast, påminnelseunderlag,
+  projektets lageruttag och intäktsperiodisering. Pågående arbete hanteras
+  som bedömningsunderlag, inte en fullständig automatisk värderingsmotor.
+- Bokslutsbilagor med versionshistorik och bevarade räkenskapsår.
+  Nästa år kan öppnas med fortsatta reskontraposter och planer utan att
+  tidigare års bokföring eller ingående balans dubbleras.
+- Uppdaterad wiki och dokumenterad arkitektur för en framtida personlig
+  Ande per kundbolag. Ingen extern AI eller ny produktionsanslutning aktiveras.
+- Fortsatt lokal provmiljö. Behörigheter, beständigt serverarkiv, SIE,
+  fullständig lön/årsredovisning/deklaration, valuta och kontantmetod återstår.

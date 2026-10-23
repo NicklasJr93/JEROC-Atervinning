@@ -131,9 +131,11 @@ sida. Prova sparande, omladdning och navigering med osparade ändringar.
 demofakturor utan reset. Nya dokumentuppgifter fryses vid utfärdande.
 
 Leverantörsflödet använder `suite/purchase-page.js`, `suite/purchase-page.css`,
-`suite/purchase-workspace.js`, `suite/purchase-data.js` och `suite/documents.js`.
+`suite/purchase-workspace.js`, `suite/purchase-data.js`, `suite/purchase-lines.js`
+och `suite/documents.js`.
 Prova listan `#purchases`, arbetsytan `#purchases/new`, en sparad faktura på
-`#purchases/<id>` och underlagsinkorgen `#purchases/inbox`. Den lokala
+`#purchases/<id>` och underlagsinkorgen `#purchases/inbox`. Kontrollera flera
+konteringsrader med blandade momssatser/momstyper och avdragsandelar. Den lokala
 IndexedDB-databasen `scrapplanner-bokforing-documents-v1` innehåller
 originalfilerna; bokföringens v2-data innehåller deras metadata och kopplingar.
 Ingen uppladdning görs till servern och ingen inkommande e-posttjänst aktiveras.
@@ -145,6 +147,31 @@ skadlighetskontroll eller långsiktigt arkiv. Vid driftprov ska uppladdning,
 omladdning, saknat original, bokföring med bilaga och komplettering av en
 bokförd faktura provas. **Återställ demo** återställer bokföringskopplingar
 men behåller uppladdade filer. Rensning av browserdata kan radera filerna.
+
+Den senaste utbyggnaden har fem ytterligare arbetsytor inom samma demosida:
+
+| Adressdel efter `/bokforing/` | Arbetsyta och statiska moduler att kontrollera |
+| --- | --- |
+| `#settlements` | Krediter, återbetalningar och kvittning: `suite/settlements.js`, `suite/credit-workspace.js` och tillhörande CSS. |
+| `#payroll-v2` | Individuell lön: `suite/payroll-engine.js`, `suite/payroll-tax-tables-2026.js`, `suite/payroll-workspace.js` och tillhörande CSS. |
+| `#tax-v2` | Utökad moms och ROT: `suite/tax-ledger.js`, `suite/rot-extended.js`, `suite/tax-workspace.js` och tillhörande CSS. |
+| `#commercial` | Artiklar, kundpriser, återkommande utkast, projektmaterial och intäktsperiodisering: `suite/commercial.js`, `suite/commercial-workspace.js` och tillhörande CSS. |
+| `#year-end` | Bokslutsbilagor och fortsatt räkenskapsår: `suite/financial-years.js`, `suite/fiscal-periods.js`, `suite/fiscal-reports.js`, `suite/year-workspace.js` och tillhörande CSS. |
+
+Arbetsytorna registreras i `suite/feature-workspaces.js`. Hashdelarna behöver
+inga nya serverrutter; samma publika HTML laddar arbetsytan. Alla statiska
+moduler och CSS-filer måste finnas med i byggresultatet. Prova sparande och
+omladdning på varje arbetsyta samt att äldre demodata kan öppnas utan reset.
+Kontrollera särskilt att krediter inte ändrar original, att dubbla körningar
+inte skapar dubbla fakturautkast och att nästa år bevarar äldre journaler och
+fortsatta planer.
+
+Den här utbyggnaden inför inga nya servermiljövariabler, databasändringar,
+betalningsanslutningar eller myndighetsutskick. Skattetabellerna är versionerade
+statiska data med dokumenterad avgränsning. Den personliga AI-anden per
+kundbolag beskrivs i [arkitekturplanen](../../bokforing/ai-ande-saas.md); någon
+extern AI-tjänst, API-nyckel eller bolagsavgränsat minne aktiveras inte av
+denna deploy. Den befintliga assistenten ger fortfarande exempelbaserade svar.
 
 Den publika läswikin ligger på `/bokforing/wiki` och `/bokforing/wiki/`.
 Båda mappar till `public/bokforing/wiki/index.html` efter webbbygget. Kontrollera
@@ -158,6 +185,11 @@ Demons lokala skrivningar kräver en säker browserkontext med Web Locks
 besökaren stänga/ladda om äldre demoflikar så att de använder samma lagringskod.
 Ogiltiga äldre exempel bevaras för explicit reset; giltiga gamla exempel kan
 läsas och får en ny lagringsrevision vid nästa lyckade skrivning.
+
+GitHub-kontrollen i `.github/workflows/pilot.yml` omfattar browserproven för
+de fem nya arbetsytorna tillsammans med tidigare bokföringsregressioner.
+Lokalt eller i CI ska resultatet för den faktiska committen dokumenteras;
+antal från en tidigare etapp är inte testbevis för en senare version.
 
 Pilotens Blueprint har **On Commit** för både hemsidan och appen. Nya commits
 på `main` ska starta en deploy utan att invänta GitHub-kontrollerna.

@@ -4,7 +4,19 @@ Här samlas designförslag för ett **fristående bokföringsprogram med egen we
 
 **Nytt: [Tio mockuper för hela ekonomiarbetet i Åkes Hantverk AB](helhet-mockups/README.md)** – företagsstart, offert och faktura, inköp, betalningar, lön, inventarier, moms och bokslut i en sammanhängande designserie. Bilderna visar planerad funktionalitet; de första tio stilförslagen finns kvar nedan.
 
-**Status 2026-10-23:** en utökad ekonomidemo är kodad i `public/bokforing/suite/`. Kund- och leverantörsfakturor har egna sidor för lista, nytt utkast, redigering och visning. Leverantörsflödet har även en lokalt verifierad inkorg för PDF och bilder. Arbetsflödena använder en gemensam verifikationsbok och fiktiva uppgifter för Åkes Hantverk AB. Den tidigare inköpsdemon och båda serierna med bildmockuper bevaras. En GitHub-push måste följas upp mot faktisk deploystatus: Render kan vara inställt på automatisk deploy, men en push bevisar inte att versionen är live.
+**Status 2026-10-23:** en utökad ekonomidemo är kodad i `public/bokforing/suite/`. Kund- och leverantörsfakturor har egna arbetsytor. Flerkontering, krediter/återbetalningar, individuella löner, utökad moms/ROT, kommersiella flöden och fortsatt bokföring nästa år delar samma verifikationsbok. Uppgifterna är fiktiva och sparas lokalt. Den tidigare inköpsdemon och bildmockuperna bevaras. En GitHub-push måste följas upp mot faktisk deploystatus: automatisk deploy innebär inte att versionen redan är live.
+
+### Den senaste utbyggnaden
+
+- **[Krediter och återbetalningar](https://app.scrapplanner.com/bokforing/#settlements):** delkrediter, krediter efter betalning, återbetalningar och kvittning mellan samma motparts fakturor. Originalen bevaras. ROT och intäktsperiodiserade kundfakturor spärras tills särskilda återföringsflöden finns.
+- **Leverantörsfakturor:** flera konteringsrader med individuell momssats, momstyp och avdragsandel. Blandad svensk moms, momsfritt och omvänd byggmoms kan kombineras.
+- **[Individuell lön](https://app.scrapplanner.com/bokforing/#payroll-v2):** versionerade officiella 2026-tabeller, profiler, individuell frånvaro/semester/förmån, komplettering, bokföring, utbetalning och vissa rättelser. [Exakt löneomfattning](lon-regler-och-avgransning.md).
+- **[Moms och ROT](https://app.scrapplanner.com/bokforing/#tax-v2):** klassificerade betalda EU-/utlandsaffärer och importmoms, deklarationsfält, periodval och fastställande. ROT kan fördelas på flera personer och delas upp efter kundbetalningar, med beslut, utbetalningar och återkrav. [Omfattning och gränser](moms-och-rot-utbyggnad.md).
+- **[Artiklar och avtal](https://app.scrapplanner.com/bokforing/#commercial):** artikelregister, kundpriser, återkommande fakturautkast, påminnelseunderlag, lageruttag till projekt och intäktsperiodisering. Pågående arbeten har ett dokumenterat bedömningsunderlag. [Kommersiella flöden](utveckling/kommersiella-floden.md).
+- **[Bokslut och nästa år](https://app.scrapplanner.com/bokforing/#year-end):** versionshistorik för bokslutsbilagor, granskningsunderlag för bolagsskatt/årsredovisning och fortsatt bokföring med bevarade äldre år, öppna fakturor och planer. [Årshantering](bokslut-och-rakenskapsar.md).
+- **Ande:** [arkitektur för personlig assistent per kundbolag](ai-ande-saas.md). Detta är en plan; extern AI, bolagsavgränsad serveråtkomst och personligt minne är inte anslutna i demon.
+
+Flera valutor och kontantmetoden är fortfarande planerade. [Den tekniska genomgången](utveckling/valuta-och-kontantmetod.md) beskriver vilka beräkningar, modelländringar och provfall som behövs; inga tomma valutaval eller metodväxlingar har aktiverats.
 
 ## Sökbar wiki för användare och granskare
 
@@ -28,19 +40,21 @@ Efter publicering öppnas den utökade versionen på **https://app.scrapplanner.
 
 | Område | Vad som går att prova |
 | --- | --- |
-| Företaget | Bolagsuppgifter, momsperiod, räkenskapsår och insyn i demobolagets ingående balanser. Kalenderår 2026, SEK och faktureringsmetoden används. |
-| Projekt och offert | Kunder, projekt, tid/material, offert, registrerat kundgodkännande och fakturautkast från offert. |
-| Kundfakturor | Egna fakturasidor, kund-/leveransuppgifter, referenser, villkor, artikelnummer/enhet, rabatter, avgifter och pris inklusive/exklusive moms. Utfärdande med verifikation och fakturanummer, kopia till nytt utkast, utskrift/spara som PDF, delbetalningar, förberedda påminnelser och länkad helkredit av obetald faktura. |
-| ROT | Markerade arbetsrader efter rabatt, 2026-beräkning, uppgivet personutrymme, kundbetalning, demobegäran, demobeslut, delvis/helt avslag och separat skatteutbetalning. Material, resor, frakt och fakturaavgift ingår inte i underlaget. [Regler och avgränsning](rot-regler.md). |
-| Inköp | Egna leverantörsfakturasidor med underlagsvisare, lokal fil-/kamerainkorg, dokumentkoppling, kontakt-/betalningsreferenser och redigerbara utkast. Vanlig moms, inköp utan moms och bekräftad omvänd byggmoms, med en kostnadsrad per faktura. Bokföring, delbetalning och helkredit av obetalda fakturor. |
+| Företaget | Bolagsuppgifter, momsperiod och ingående balanser. Startbolaget använder kalenderår 2026, SEK och faktureringsmetoden. Efter årsavslut kan nästa räkenskapsår öppnas med bevarad historik. |
+| Projekt och offert | Kunder, projekt, tid/material, offert, registrerat kundgodkännande och fakturautkast från offert. Lageruttag kan kopplas till projektmaterial; pågående arbeten har ett separat bedömningsunderlag. |
+| Artiklar och avtal | Artikelregister, kundpriser och fakturautkast med frysta prisuppgifter. Återkommande planer skapar utkast en gång per period. Daterade påminnelseunderlag sparas utan att något skickas. |
+| Kundfakturor | Egna fakturasidor, kund-/leveransuppgifter, referenser, villkor, artikelnummer/enhet, rabatter, avgifter och pris inklusive/exklusive moms. Utfärdande med verifikation och fakturanummer, kopia till nytt utkast, utskrift/spara som PDF och delbetalningar. |
+| Krediter och återbetalningar | Separata kreditnotor för hela eller delar av fakturarader, även efter betalning, samt återbetalning och kvittning för samma motpart. Originalfakturans uppgifter bevaras. ROT och intäktsperiodiserade kundfakturor kräver särskilda återföringsflöden och spärras här. |
+| ROT | Markerade arbetsrader efter rabatt och beräkning för betalningsår 2026. Det reserverade totalbeloppet kan fördelas på flera personer och begäras i delar efter kundbetalning. Demobeslut, avslag, skatteutbetalning och återkrav kan följas. Material, resor och avgifter ingår inte i ROT-underlaget. [Aktuell omfattning](moms-och-rot-utbyggnad.md). |
+| Inköp | Egna leverantörsfakturasidor med underlagsvisare, lokal fil-/kamerainkorg, dokumentkoppling, kontakt-/betalningsreferenser och redigerbara utkast. Flera konteringsrader med individuell momssats, avdragsandel och vanlig moms, momsfritt eller bekräftad omvänd byggmoms. Bokföring och delbetalning samt separat kredit-/återbetalningsflöde. |
 | Bank, kassa och skatt | Fiktiva kontohändelser, matchning, betalning mot befintlig händelse, avgifter, kassa-/skatteöverföringar, lån och ränta. |
 | Bokföring | Gemensam huvudbok, manuella verifikationer inom stödda konton, balansering, bevarade original och länkade rättelser. Dokumentstyrda konton hanteras i sina egna flöden. |
-| Lön | Anställda, månads-/timlön, manuella frånvaro-, semester-, förmåns- och utläggsbelopp, lönebesked, bokföring, simulerad utbetalning och skatte-/avgiftsreglering. AGI exporteras som gransknings-CSV. |
+| Lön | Individuella löneprofiler, stödda officiella skattetabeller för 2026, månads-/timlön, frånvaro, semester, förmåner, utlägg och kompletteringar. Lönebesked, bokföring, demoutbetalning, skattereglering och vissa rättelser. AGI exporteras som gransknings-CSV; se löneområdets uttryckliga gränser. |
 | Inventarier | Omklassificering av ett redan bokfört utrustningsinköp, nyttjandeperiod, månadsavskrivning, utrangering och försäljning. |
-| Materiallager | Artiklar, inleveranser, uttag, inventering och periodisk lagervärdering med bokföringsunderlag. |
-| Periodisering | Förutbetalda kostnader från redan bokförd kostnad och månatlig kostnadsföring enligt en spårbar plan. |
-| Moms och rapporter | Momsunderlag med verifikationskoppling, fastställande av komplett momsperiod, reglering via skattekonto, resultat, balans och CSV-export. |
-| Avslut och granskning | Avstämningschecklista, periodlåsning, dokumenterad upplåsning, bokning av årets resultat, ingående balansunderlag för nästa år och granskningspaket i JSON. |
+| Materiallager | Artiklar, inleveranser, uttag, inventering och periodisk lagervärdering med bokföringsunderlag. Ett projektuttag minskar lagret och skapar en kopplad materialrad utan dubbel kostnadsbokning. |
+| Periodisering | Förutbetalda kostnader och intäkter med spårbara månadsplaner, exakt fördelning i ören och kontroller före period-/årsavslut. Planer kan fortsätta över årsskifte. |
+| Moms och rapporter | Momsunderlag med verifikationskoppling, stödda klassificerade betalda EU-/utlandsaffärer och importmoms, deklarationsfält, fastställande och reglering via skattekonto. Resultat, balans, jämförelse mellan räkenskapsår och gransknings-CSV. |
+| Avslut och granskning | Avstämningschecklista, periodlåsning, dokumenterad upplåsning, versionerade bokslutsbilagor och bokning av årets resultat. Nästa år kan öppnas med bevarad historik, reskontra och planer. Granskningspaket samt bolagsskatte- och årsredovisningsunderlag är arbetsmaterial. |
 
 ### Fakturering på egna sidor
 
@@ -48,9 +62,9 @@ Efter publicering öppnas den utökade versionen på **https://app.scrapplanner.
 
 Spara först ett utkast. Från fakturans sida kan du granska och utfärda, registrera betalning, kopiera till nytt utkast eller skriva ut/spara PDF. Utfärdade uppgifter fryses; en rättelse sker genom det kreditflöde som stöds. Kund- och säljaruppgifter på nya fakturor sparas som egna dokumentuppgifter, så senare registerändringar inte ändrar återutskriften. Äldre sparade demofakturor kan fortsatt öppnas utan reset.
 
-Artikelnummer, enhet, referenser och leveransuppgifter är dokumentuppgifter. Rabatter, avgifter och prisets momsgrund påverkar däremot beräkningen, moms, ROT-underlag och verifikation. Kostnadsställe och prislistnamn är märkning i denna version; de ger ingen automatisk dimensionsrapport eller prisuppslagning.
+Artikelnummer, enhet, referenser och leveransuppgifter är dokumentuppgifter. Rabatter, avgifter och prisets momsgrund påverkar beräkningen, moms, ROT-underlag och verifikation. Kostnadsställe är ännu märkning utan egen dimensionsrapport. Artikelregistret och kundpriserna kan skapa fakturautkast med frysta prisuppgifter.
 
-Se [jämförelsen med de visade Fortnox-bilderna](fakturering-jamforelse.md) för skillnaden mellan vad som finns, vad som är avgränsat och vad som återstår. Exempelvis OCR, kontantfaktura, återkommande fakturor, flera valutor, RUT och kundfakturans intäktsperiodisering ingår inte ännu.
+Se [den tidigare jämförelsen med Fortnox-bilderna](fakturering-jamforelse.md) för utgångsläget före den senaste etappen. OCR-generering, kontantfaktura, flera valutor och RUT återstår. Återkommande fakturautkast och intäktsperiodisering finns nu i Artiklar & avtal.
 
 ### Leverantörsfakturor och inkomna underlag
 
@@ -58,13 +72,13 @@ Se [jämförelsen med de visade Fortnox-bilderna](fakturering-jamforelse.md) fö
 
 Från ett okopplat underlag kan du välja **Skapa fakturautkast** eller **Koppla till befintlig**. En påminnelse eller komplettering ska kopplas till den befintliga fakturan i stället för att registreras som en ny skuld. Nytt och redigerat utkast öppnas på egen sida, med originalunderlaget bredvid fakturauppgifter och konteringsförslag på större skärmar. Bilder kan zoomas och roteras i visningen; originalfilen ändras inte. PDF visas med webbläsarens PDF-stöd och kan laddas ned.
 
-Fyll uppgifterna manuellt och spara utkastet innan du granskar och bokför. Ingen OCR-/AI-tolkning eller e-postmottagning är ansluten. OCR/betalningsreferens, bankgiro, plusgiro och IBAN är sparade dokumentuppgifter; de validerar inte betalningsmottagaren och utlöser ingen betalning. Kostnadsställe är märkning, inte en färdig redovisningsdimension. Flera kostnadsrader, blandade momssatser, verklig attest och fler kreditfall återstår.
+Fyll uppgifterna manuellt och spara utkastet innan du granskar och bokför. Flera konteringsrader kan ha olika konton, momssatser, momstyper och avdragsandelar. Ingen OCR-/AI-tolkning eller e-postmottagning är ansluten. OCR/betalningsreferens, bankgiro, plusgiro och IBAN är sparade dokumentuppgifter; de validerar inte betalningsmottagaren och utlöser ingen betalning. Kostnadsställe är märkning, inte en färdig redovisningsdimension. Verklig fleranvändarattest återstår. Kreditnotor, återbetalningar och kvittning hanteras i **Krediter & återbetalningar**.
 
 Kopplade originalfiler kontrolleras vid sparande och bokföring. Efter bokföring kan fler underlag läggas till som kompletteringar med historik, utan att ursprungliga uppgifter, bilagor, verifikation eller skuld skrivs om. Utkast kan få underlag bortkopplade; filer som är kopplade till sparade fakturor kan inte tas bort genom inkorgen. En fakturakopia får varken det gamla fakturanumret, originalets underlag eller betalningar.
 
 Filerna ligger separat i IndexedDB-databasen `scrapplanner-bokforing-documents-v1`; fakturadata innehåller dokumentens metadata och kopplingar. **Återställ demo återställer bokföringen och tar bort kopplingarna, men behåller uppladdade filer i inkorgen.** Filerna kan därefter kopplas på nytt eller tas bort som okopplade underlag. Rensad browserdata kan ta bort dem. Detta är ingen serverarkivering eller garanti för långsiktigt bevarande.
 
-Se [leverantörsflödet och förslagen för övriga arbetsytor](leverantorsfakturor-och-arbetsytor.md). Verifikationer, projekt/offerter, lön, bank och bokslut är fortsatt prioriterade för nästa utbyggnad.
+Se [leverantörsflödet och de tidigare förslagen för övriga arbetsytor](leverantorsfakturor-och-arbetsytor.md) för utgångsläget. Den senaste etappen tillför egna arbetsytor för lön, moms/ROT, krediter, artiklar/avtal och bokslut. Verifikationssidan, projekt-/offertredigering och bankavstämning har fortfarande utrymme för mer detaljerade arbetsflöden.
 
 Prova uppladdningen med [ett fiktivt fakturaunderlag](exempel/leverantorsfaktura-demo.png). Spara bilden och välj den i **Inkomna underlag**, skapa sedan ett utkast och ange fakturans uppgifter. Bilden är märkt som testunderlag och innebär ingen verklig betalningsbegäran.
 
@@ -81,6 +95,8 @@ Skärmbilder från den körbara ekonomidemon:
 [Öppna fakturans mobilbild](preview/faktura-mobil.png) eller [ekonomiöversikten på mobil](preview/ekonomi-mobile.png). Den tidigare [ROT-bilden](preview/ekonomi-rot.png) visar gränssnittet före ombyggnaden av fakturasidorna.
 
 ### Prova ett sammanhängande ROT-flöde
+
+Detta exempel använder grundflödet för en person. Flerpersonsfördelning, delbegäranden och återkrav provas i den nya arbetsytan **Moms & ROT** enligt [dess dokumenterade flöde](moms-och-rot-utbyggnad.md).
 
 1. Öppna **Kundfakturor** och välj ROT-utkastet för Maria. Arbete 17 600 kr, material 8 000 kr och resa 800 kr ger 33 000 kr inklusive moms.
 2. Granska och utfärda fakturan. Planerat ROT blir 6 600 kr och kundens del 26 400 kr.
@@ -100,19 +116,21 @@ Den utökade versionen använder nyckeln `scrapplanner-bokforing-suite-v2`. Den 
 
 ### Den här versionens gränser
 
-Detta är en sammanhängande testversion med stödda affärsfall, inte ett färdiggranskat redovisningsprogram för skarp drift. Ande ger kontextbundna, exempelbaserade förklaringar; ingen extern språkmodell eller auktorisation ingår. Skatteavdrag, arbetsgivaravgift, frånvaro och nyttjandeperioder bygger på angivna demoantaganden, utan automatisk skattetabell eller arbetsrättslig beräkning.
+Detta är en sammanhängande testversion med avgränsade affärsfall, inte ett färdiggranskat redovisningsprogram för skarp drift. Ande ger exempelbaserade förklaringar; ingen extern språkmodell eller auktorisation ingår. Lönearbetsytan har officiella tabeller 29–42, kolumn 1/3, för stödda 2026-fall upp till 80 000 kr/månad. Profiler, avtal och faktisk rätt till avdrag kräver bedömning. Full semesterintjäning, kollektivavtal, pension, negativa rättelser efter utbetalning och ytterligare skattesituationer återstår.
 
-ROT stöder en person per faktura och kundbetalningar under 2026, med hela kunddelen betald före begäran. Faktisk rätt till avdrag och personens utrymme verifieras inte. Kredit av en redan betald faktura, återbetalning, vissa rättelser och ytterligare moms-/lönefall kräver fortsatt utveckling. Materiallager registreras separat och värderas som handelsvaror på 1460/4960; pågående arbeten och produktion ingår inte. Projektförbrukning skapar inte automatiskt lageruttag. Periodiseringen avser förutbetald kostnad; upplupna kostnader kan behöva en granskad manuell verifikation.
+Grundfakturans ROT-beräkning använder en person. Den nya ROT-arbetsytan kan fördela fakturans redan reserverade totalbelopp på upp till tio personer, utan att öka totalen, och förbereda proportionella delbegäranden. Stöd finns för betalningar under 2026 och begäran till januari 2027; andra betalningsår är spärrade. Faktisk avdragsrätt, ägande och skatteutrymme verifieras inte. RUT, generella ROT-krediter och mer omfattande husarbetsfall återstår.
 
-Granskningspaket, AGI-CSV och balanser för nästa år är arbetsmaterial. De är inte färdiga myndighetsfiler, en årsredovisning eller en inkomstdeklaration. Den lokala filinkorgen ersätter inte serverlagring, användarbehörigheter, e-postmottagning, långsiktig arkivering, säkerhetskopiering, SIE eller externa API-/myndighetsanslutningar. Dessa delar återstår inför en skarp produkt. Ingen full regelefterlevnad eller extern redovisningsgranskning är verifierad genom denna demo.
+Materiallager värderas som handelsvaror på 1460/4960. Projektuttag kan kopplas till lagerrörelser, men pågående arbeten har bara bedömningsunderlag och ingen automatisk värderingsmotor. Upplupna kostnader kan behöva granskad manuell verifikation. Utlands-/momsstödet omfattar angivna klassificerade betalda affärer, inte varje internationellt fakturaflöde. Flera valutor och kontantmetoden saknas. Kredit-/återbetalningsflödet behåller signerade saldon i reskontran; automatisk bokslutsomklassificering av kundtillgodon och leverantörsfordringar återstår.
+
+Granskningspaket, AGI-CSV, bolagsskatteberäkning och årsredovisningsunderlag är arbetsmaterial. De är inte färdiga myndighetsfiler, en komplett K2/K3-årsredovisning eller inkomstdeklaration. Nästa räkenskapsår kan öppnas utan att historiken återställs. Den lokala filinkorgen ersätter inte serverlagring, behörigheter, e-postmottagning, långsiktig arkivering, säkerhetskopiering, SIE eller externa API-/myndighetsanslutningar. Ingen full regelefterlevnad eller extern redovisningsgranskning är verifierad.
 
 ### Körning och verifiering
 
 Bygg med `npm run build` och starta med `npm start`. [Driftguiden](../docs/drift/README.md#uppdatera-och-kontrollera) beskriver separat publicering på Render. Inga nya miljövariabler, databasändringar eller produktionsanslutningar införs.
 
-Modell- och lagringstester finns i `server/bokforing-suite-*.test.mjs`, `server/bokforing-invoice-model.test.mjs` och `server/bokforing-purchase-model.test.mjs`; browserflöden i `tests/bokforing-suite.spec.ts`, `tests/bokforing-invoice-pages.spec.ts`, `tests/bokforing-purchase-pages.spec.ts` och `tests/bokforing-documents.spec.ts`. Regressionstesterna för den tidigare versionen är kvar. Se även [provgranskningen av den äldre versionen](granskning/2026-10-22.md) och dess [uppföljning](granskning/2026-10-22-uppfoljning.md).
+Modell- och lagringstester finns i `server/bokforing-*.test.mjs`. Browserproven i `tests/bokforing-*.spec.ts` omfattar även de nya arbetsytorna för krediter, individuell lön, moms/ROT, kommersiella flöden och årshantering. Regressionstesterna för den tidigare versionen är kvar. Se även [provgranskningen av den äldre versionen](granskning/2026-10-22.md) och dess [uppföljning](granskning/2026-10-22-uppfoljning.md).
 
-**Lokalt verifierat 2026-10-23:** produktionsbygge, 211 modell-/lagringstester inklusive den tidigare demon, ett HTTP-integrationstest och 49 browserfall mot den byggda servern. Proven täcker egna kund- och leverantörsfakturasidor, PDF/bilder, riktig IndexedDB-lagring, dubbletter, filgränser, kvotfel, ändrade original, bilagekomplettering utan ny skuld, osparade ändringar och sena svar efter navigering/reset. Tidigare betalnings-, kredit-, ROT-, löne-, moms-, lager- och periodiseringsflöden ingår också. Drag och släpp samt visning vid 1600 och 390 pixlar har provats manuellt utan JavaScript-fel eller horisontellt sidöverflöde. Kameraprovet använder filinput med kameraattribut; fysisk kamerahårdvara har inte provats. Detta är teknisk verifiering av demofallen, ingen redovisningscertifiering.
+**Historisk verifiering av leverantörsetappen 2026-10-23:** produktionsbygge, 211 modell-/lagringstester inklusive den tidigare demon, ett HTTP-integrationstest och 49 browserfall mot den då byggda servern. De antalen gäller etappen före den senaste funktionsutbyggnaden. Proven täckte egna kund- och leverantörsfakturasidor, PDF/bilder, riktig IndexedDB-lagring, dubbletter, filgränser, kvotfel, ändrade original, bilagekomplettering utan ny skuld, osparade ändringar och sena svar efter navigering/reset. Tidigare betalnings-, kredit-, ROT-, löne-, moms-, lager- och periodiseringsflöden ingick också. Drag och släpp samt visning vid 1600 och 390 pixlar provades manuellt utan JavaScript-fel eller horisontellt sidöverflöde. Kameraprovet använde filinput med kameraattribut; fysisk kamerahårdvara provades inte. Detta är teknisk verifiering av demofallen, ingen redovisningscertifiering.
 
 ## Tidigare inköpsdemo
 
@@ -181,6 +199,6 @@ Klicka på en bild för att öppna PNG-originalet. Numren 01–10 används när 
 
 ## Fortsatt utveckling
 
-Den klickbara demon kombinerar den ljusa översikten, vyn för underlag och kontering samt den svävande AI-assistenten. Prova arbetsflödena före nästa designbeslut. Ett skarpt fristående system kräver bland annat eget server-API, behörigheter, beständig och spårbar bokföring, periodlåsning, säker dokumentarkivering och redovisningsgranskning. Dessa delar ingår inte i webbläsardemon.
+Den klickbara demon kombinerar den ljusa översikten, arbetsytor för ekonomiarbetet och den svävande demoassistenten. Prova arbetsflödena före nästa designbeslut. Ett skarpt fristående system kräver bland annat eget server-API, behörigheter, beständig och spårbar bokföring, säker dokumentarkivering och redovisningsgranskning. Periodlåsning och flera andra kontroller finns i den lokala modellen, men serverstödd lagring och åtkomstkontroll återstår.
 
 Bilderna ligger i [mockups/](mockups/). Övriga projektmockuper finns i [den gemensamma översikten](../docs/mockups/README.md).

@@ -1,6 +1,7 @@
 // Supplier document metadata for the local demo. Bank details are labels only;
 // they are never used to initiate payments. Attachment bytes live separately.
 import { assert, validDate } from './core.js';
+import { normalizePurchaseLines } from './purchase-lines.js';
 
 const record = value => value && typeof value === 'object' && !Array.isArray(value);
 const text = (value, label, maximum = 300, required = false) => {
@@ -82,6 +83,7 @@ export function billSnapshot(bill) {
     details: bill.details === undefined ? null : normalizeBillDetails(bill.details),
     attachments: bill.attachments === undefined ? null : normalizeBillAttachments(bill.attachments),
   });
+  if (bill.lines !== undefined) values.push({ lines: normalizePurchaseLines(bill.lines) });
   return JSON.stringify(values);
 }
 
@@ -92,6 +94,7 @@ export function copyBillPayload(bill, options = {}) {
     supplier: bill.supplier, number: '', date, dueDate, netCents: bill.netCents, vatRate: bill.vatRate,
     vatMode: bill.vatMode, account: bill.account, reverseConfirmed: false, projectId: bill.projectId ?? null,
     ...(bill.details === undefined ? {} : { details: normalizeBillDetails(bill.details) }),
+    ...(bill.lines === undefined ? {} : { lines: normalizePurchaseLines(bill.lines).map(line => ({ ...line, reverseConfirmed: false })) }),
     attachments: [],
   };
 }

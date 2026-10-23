@@ -1,6 +1,7 @@
 // Full-page supplier-invoice workspaces. File bytes are kept by documents.js;
 // these views only read invoice data and escaped document metadata.
 import { ACCOUNTS, assert, cents, money, toCents } from './core.js';
+import { calculatePurchaseLines } from './purchase-lines.js';
 import { getBillOutstanding, getBillBookingRows, getBillAttachments } from './operations.js';
 import { escapeHtml as e, icon, numberInput } from './views.js';
 
@@ -28,21 +29,59 @@ const detailsDefaults = () => ({ paymentReference: '', bankgiro: '', plusgiro: '
 const detailsFor = bill => ({ ...detailsDefaults(), ...bill?.details, supplier: { ...detailsDefaults().supplier, ...bill?.details?.supplier } });
 const attachmentsFor = bill => bill ? getBillAttachments(bill) : [];
 
+export function defaultPurchaseDate(state, date = TODAY) {
+  return date < state.company.fiscalYearStart ? state.company.fiscalYearStart
+    : date > state.company.fiscalYearEnd ? state.company.fiscalYearEnd : date;
+}
+
 export function createPurchaseEditorDraft(state, bill = null, options = {}) {
-  const date = bill?.date || options.date || TODAY;
-  const netCents = bill?.netCents || 0;
-  const vatMode = bill?.vatMode || 'standard';
-  const vatRate = vatMode === 'no-vat' ? 0 : vatMode === 'reverse-construction' ? 25 : bill?.vatRate ?? 25;
-  const vatCents = vatMode === 'standard' ? Number((BigInt(netCents) * BigInt(vatRate) + 50n) / 100n) : 0;
+  const date = bill?.date || defaultPurchaseDate(state, options.date || TODAY);
+  const lines = bill?.lines ? structuredClone(bill.lines) : [{ description: '', netCents: bill?.netCents || 0,
+    vatRate: bill?.vatRate ?? 25, vatMode: bill?.vatMode || 'standard', account: bill?.account || '4010',
+    deductibleBps: 10000, reverseConfirmed: bill?.reverseConfirmed === true }];
+  let totals = { netCents: 0, vatCents: 0, totalCents: 0, vatMode: 'mixed', vatRate: 0, account: 'mixed', reverseConfirmed: false };
+  if (lines.every(line => line.netCents > 0)) totals = calculatePurchaseLines(lines);
   return {
     id: bill?.id || '', supplier: bill?.supplier || '', number: bill?.number || '',
-    date, dueDate: bill?.dueDate || options.dueDate || dueAfter(date),
-    netCents, vatCents, totalCents: cents(netCents + vatCents),
-    vatRate, vatMode, account: bill?.account || '4010',
-    projectId: bill?.projectId || null, reverseConfirmed: bill?.reverseConfirmed === true,
-    status: 'draft', payments: [], details: detailsFor(bill),
+    date, dueDate: bill?.dueDate || options.dueDate || dueAfter(date), ...totals, lines,
+    projectId: bill?.projectId || null, status: 'draft', payments: [], details: detailsFor(bill),
     attachments: structuredClone(options.attachments || attachmentsFor(bill)),
   };
+}
+
+const lineName = (index, key) => index === 0 ? key : `line-${index}-${key}`;
+function renderPurchaseLine(line, index, state) {
+  const name = key => lineName(index, key), attr = key => `data-purchase-field="${key}"`;
+  return `<article class="purchase-line" data-purchase-line="${index}"><header><h3>Konteringsrad <span data-line-number>${index + 1}</span></h3>${button('Ta bort rad', 'purchase-remove-line', String(index), 'secondary', 'aria-label="Ta bort konteringsrad"')}</header>
+    <div class="purchase-grid purchase-grid-two">
+      ${field('Beskrivning', name('lineDescription'), line.description || '', { extra: `${attr('lineDescription')} maxlength="300"`, className: 'purchase-span-two' })}
+      ${field('Belopp exklusive moms', name('netCents'), numberInput(line.netCents || 0), { extra: `${attr('netCents')} required inputmode="decimal"` })}
+      ${select('Momstyp', name('vatMode'), [['standard', 'Vanlig svensk moms'], ['no-vat', 'Ingen moms'], ['reverse-construction', 'Omvänd byggmoms']], line.vatMode, attr('vatMode'))}
+      ${select('Momssats', name('vatRate'), [25, 12, 6, 0].map(rate => [rate, `${rate} %`]), line.vatRate, attr('vatRate'))}
+      ${select('Kostnadskonto', name('account'), line.vatMode === 'reverse-construction' ? [['4425', `4425 · ${accountName('4425')}`]] : expenseAccounts.map(account => [account, `${account} · ${accountName(account)}`]), line.account, attr('account'))}
+      ${field('Avdragsgill andel av moms (%)', name('deductiblePercent'), numberInput(line.deductibleBps ?? 10000), { extra: `${attr('deductiblePercent')} inputmode="decimal"`, help: 'Ange den granskade avdragsrätten. Ej avdragsgill moms förs till kostnaden.' })}
+      ${select('Projekt på raden', name('lineProjectId'), [['', 'Ingen särskild radkoppling'], ...state.projects.map(project => [project.id, project.name])], line.projectId || '', attr('lineProjectId'))}
+    </div><div data-purchase-reverse ${line.vatMode === 'reverse-construction' ? '' : 'hidden'}>${checkbox('Förutsättningarna för omvänd byggmoms har granskats', name('reverseConfirmed'), line.reverseConfirmed, attr('reverseConfirmed'))}</div></article>`;
+}
+
+export function changePurchaseLines(form, action, index, state) {
+  const list = form.querySelector('[data-purchase-lines]');
+  assert(list, 'Konteringsraderna saknas.');
+  if (action === 'purchase-add-line') {
+    assert(list.children.length < 100, 'Högst 100 konteringsrader kan användas.');
+    list.insertAdjacentHTML('beforeend', renderPurchaseLine({ netCents: 0, vatMode: 'standard', vatRate: 25, account: '4010', deductibleBps: 10000 }, list.children.length, state));
+  } else {
+    assert(list.children.length > 1, 'Behåll minst en konteringsrad.');
+    const line = list.querySelector(`[data-purchase-line="${Number(index)}"]`);
+    assert(line, 'Konteringsraden finns inte.'); line.remove();
+  }
+  [...list.children].forEach((line, idx) => {
+    line.dataset.purchaseLine = String(idx);
+    line.querySelector('[data-line-number]').textContent = String(idx + 1);
+    line.querySelector('[data-action="purchase-remove-line"]').dataset.id = String(idx);
+    line.querySelectorAll('[data-purchase-field]').forEach(field => { field.name = lineName(idx, field.dataset.purchaseField); });
+  });
+  applyPurchaseVatMode(form);
 }
 
 function tabs(active) {
@@ -50,6 +89,7 @@ function tabs(active) {
 }
 
 function invoiceStatus(bill) {
+  if (bill.status === 'booked' && bill.settlementCreditCents > 0) return badge(bill.settlementCreditCents >= bill.totalCents ? 'Krediterad' : 'Delkrediterad', 'credited');
   if (bill.status === 'booked' && getBillOutstanding(bill) === 0) return badge('Betald', 'settled');
   return badge(statusName[bill.status] || bill.status, bill.status);
 }
@@ -82,13 +122,10 @@ export function renderPurchaseEditor(state, draft, { isNew = !draft.id, error = 
           ${field('OCR / betalningsreferens', 'details.paymentReference', details.paymentReference, { extra: 'maxlength="100"', className: 'purchase-span-two' })}
           ${field('Fakturadatum', 'date', draft.date, { type: 'date', extra: 'required' })}
           ${field('Förfallodatum', 'dueDate', draft.dueDate, { type: 'date', extra: 'required' })}
-          ${field('Belopp exklusive moms', 'netCents', numberInput(draft.netCents), { extra: 'required inputmode="decimal"' })}
-          ${select('Momssats', 'vatRate', [25, 12, 6, 0].map(rate => [rate, `${rate} %`]), draft.vatRate)}
-          ${select('Momstyp', 'vatMode', [['standard', 'Vanlig svensk moms'], ['no-vat', 'Ingen moms'], ['reverse-construction', 'Omvänd byggmoms']], draft.vatMode)}
           ${field('Valuta', 'currency', 'SEK', { extra: 'readonly aria-readonly="true"' })}
-          ${select('Kostnadskonto', 'account', [...(draft.vatMode === 'reverse-construction' ? [['4425', `4425 · ${accountName('4425')}`]] : expenseAccounts.map(account => [account, `${account} · ${accountName(account)}`]))], draft.account)}
           ${select('Projekt', 'projectId', [['', 'Utan projekt'], ...state.projects.map(project => [project.id, project.name])], draft.projectId || '')}
-        </div><div data-purchase-reverse ${draft.vatMode === 'reverse-construction' ? '' : 'hidden'}>${checkbox('Förutsättningarna för omvänd byggmoms har granskats', 'reverseConfirmed', draft.reverseConfirmed)}</div><p class="purchase-help">Denna version bokför en kostnadsrad per faktura. Moms och leverantörsskuld räknas från beloppet och vald momstyp.</p>`)}
+        </div>`)}
+        ${card('Konteringsrader', 'Fördela fakturan på kostnader, momssatser och granskad avdragsrätt.', `<div data-purchase-lines>${draft.lines.map((line, index) => renderPurchaseLine(line, index, state)).join('')}</div><div class="actions">${button('Lägg till konteringsrad', 'purchase-add-line')}</div><p class="purchase-help">Summan av raderna ska motsvara leverantörens fakturabelopp. Avdragsrätten kräver egen bedömning; programmet beräknar den andel du anger.</p>`)}
         <div id="purchase-live-summary" aria-live="polite">${renderPurchaseSummary(draft)}</div>
         ${card('Betalning och referenser', 'Uppgifter från fakturan. Ingen betalning skickas härifrån.', `<div class="purchase-grid purchase-grid-two">
           ${field('Bankgiro', 'details.bankgiro', details.bankgiro, { extra: 'maxlength="50"' })}
@@ -114,38 +151,46 @@ export function renderPurchaseEditor(state, draft, { isNew = !draft.id, error = 
 
 export function readPurchaseEditor(form) {
   const value = name => String(form.elements.namedItem(name)?.value ?? '').trim();
-  const vatMode = value('vatMode');
-  const vatRate = vatMode === 'no-vat' ? 0 : vatMode === 'reverse-construction' ? 25 : Number(value('vatRate'));
-  assert([0, 6, 12, 25].includes(vatRate), 'Välj en giltig momssats.');
-  const netCents = toCents(value('netCents'));
-  const vatCents = vatMode === 'standard' ? Number((BigInt(netCents) * BigInt(vatRate) + 50n) / 100n) : 0;
+  const lines = [...form.querySelectorAll('[data-purchase-line]')].map(row => {
+    const field = key => row.querySelector(`[data-purchase-field="${key}"]`);
+    const read = key => String(field(key)?.value ?? '').trim();
+    const vatMode = read('vatMode');
+    return { description: read('lineDescription'), netCents: toCents(read('netCents')),
+      vatMode, vatRate: vatMode === 'no-vat' ? 0 : vatMode === 'reverse-construction' ? 25 : Number(read('vatRate')),
+      account: vatMode === 'reverse-construction' ? '4425' : read('account'),
+      deductibleBps: toCents(read('deductiblePercent')), reverseConfirmed: field('reverseConfirmed')?.checked === true,
+      ...(read('lineProjectId') ? { projectId: read('lineProjectId') } : {}) };
+  });
+  const { rows, deductibleVatCents, reverseVatCents, nonDeductibleVatCents, ...amounts } = calculatePurchaseLines(lines);
   let attachments;
   try { attachments = JSON.parse(form.dataset.attachments || '[]'); } catch { throw new Error('De kopplade underlagen kunde inte läsas.'); }
   assert(Array.isArray(attachments), 'De kopplade underlagen har fel format.');
   const details = Object.fromEntries(['paymentReference', 'bankgiro', 'plusgiro', 'iban', 'ourReference', 'supplierReference', 'costCenter', 'description'].map(key => [key, value(`details.${key}`)]));
   details.supplier = Object.fromEntries(['orgNumber', 'address', 'postalCode', 'city', 'email', 'phone'].map(key => [key, value(`details.supplier.${key}`)]));
   details.supplier.country = 'SE';
-  return { id: value('id'), supplier: value('supplier'), number: value('number'), date: value('date'), dueDate: value('dueDate'), netCents, vatCents, totalCents: cents(netCents + vatCents), vatRate, vatMode,
-    account: vatMode === 'reverse-construction' ? '4425' : value('account'), projectId: value('projectId') || null,
-    reverseConfirmed: form.elements.namedItem('reverseConfirmed')?.checked === true, details, attachments, status: 'draft', payments: [] };
+  return { id: value('id'), supplier: value('supplier'), number: value('number'), date: value('date'), dueDate: value('dueDate'), ...amounts,
+    projectId: value('projectId') || null, details, attachments, status: 'draft', payments: [] };
 }
 
 export function applyPurchaseVatMode(form) {
-  const mode = form.elements.namedItem('vatMode').value;
-  const account = form.elements.namedItem('account');
-  const rate = form.elements.namedItem('vatRate');
-  const normalAccount = expenseAccounts.includes(account.value) ? account.value : form.dataset.normalAccount || '4010';
-  if (mode === 'reverse-construction') {
-    form.dataset.normalAccount = normalAccount;
-    account.innerHTML = option('4425', `4425 · ${accountName('4425')}`, true);
-    rate.value = '25';
-  } else {
-    account.innerHTML = expenseAccounts.map(value => option(value, `${value} · ${accountName(value)}`, value === normalAccount)).join('');
-    if (mode === 'no-vat') rate.value = '0';
-  }
-  rate.disabled = mode !== 'standard';
-  const reverseFields = form.querySelector('[data-purchase-reverse]');
-  if (reverseFields) reverseFields.hidden = mode !== 'reverse-construction';
+  const lineCount = form.querySelectorAll('[data-purchase-line]').length;
+  form.querySelectorAll('[data-action="purchase-remove-line"]').forEach(button => { button.disabled = lineCount <= 1; });
+  form.querySelectorAll('[data-purchase-line]').forEach(line => {
+    const mode = line.querySelector('[data-purchase-field="vatMode"]').value;
+    const account = line.querySelector('[data-purchase-field="account"]');
+    const rate = line.querySelector('[data-purchase-field="vatRate"]');
+    const normalAccount = expenseAccounts.includes(account.value) ? account.value : line.dataset.normalAccount || '4010';
+    if (mode === 'reverse-construction') {
+      line.dataset.normalAccount = normalAccount;
+      account.innerHTML = option('4425', `4425 · ${accountName('4425')}`, true);
+      rate.value = '25';
+    } else {
+      account.innerHTML = expenseAccounts.map(value => option(value, `${value} · ${accountName(value)}`, value === normalAccount)).join('');
+      if (mode === 'no-vat') rate.value = '0';
+    }
+    rate.disabled = mode !== 'standard';
+    line.querySelector('[data-purchase-reverse]').hidden = mode !== 'reverse-construction';
+  });
 }
 
 function postingTable(rows) {
@@ -157,7 +202,8 @@ function postingTable(rows) {
 export function renderPurchaseSummary(draft) {
   try {
     const rows = getBillBookingRows(draft);
-    return `<section class="purchase-card"><header><div><h2>Konteringsförslag</h2><p>Så bokförs fakturan efter din granskning.</p></div>${badge('Ej bokfört', 'draft')}</header>${postingTable(rows)}<div class="purchase-card-body">${pair('Belopp exklusive moms', money(draft.netCents))}${pair('Moms på leverantörens faktura', money(draft.vatCents))}<div class="purchase-summary-total"><span>Fakturabelopp inklusive moms</span><strong>${e(money(draft.totalCents))}</strong><small>SEK</small></div>${draft.vatMode === 'reverse-construction' ? '<p class="purchase-help">Omvänd byggmoms beräknas i bokföringen. Leverantören debiterar ingen moms i detta fall.</p>' : ''}</div></section>`;
+    const allocation = draft.lines ? calculatePurchaseLines(draft.lines) : null;
+    return `<section class="purchase-card"><header><div><h2>Konteringsförslag</h2><p>Så bokförs fakturan efter din granskning.</p></div>${badge('Ej bokfört', 'draft')}</header>${postingTable(rows)}<div class="purchase-card-body">${pair('Belopp exklusive moms', money(draft.netCents))}${pair('Moms på leverantörens faktura', money(draft.vatCents))}${allocation ? pair('Avdragsgill moms enligt angiven andel', money(allocation.deductibleVatCents)) + pair('Ej avdragsgill moms som kostnad', money(allocation.nonDeductibleVatCents)) : ''}<div class="purchase-summary-total"><span>Fakturabelopp inklusive moms</span><strong>${e(money(draft.totalCents))}</strong><small>SEK</small></div>${draft.lines?.some(line => line.vatMode === 'reverse-construction') || draft.vatMode === 'reverse-construction' ? '<p class="purchase-help">På rader med omvänd byggmoms beräknas momsen i bokföringen och ingår inte i leverantörens fakturabelopp.</p>' : ''}</div></section>`;
   } catch (error) {
     return card('Konteringsförslag', '', `<p class="purchase-help">${e(error.message || 'Fyll i ett giltigt belopp för att se konteringen.')}</p>`);
   }
@@ -211,14 +257,16 @@ export function renderPurchaseDetail(state, bill, { selectedDocumentId = '', vie
   const entry = state.entries.find(item => item.id === bill.entryId);
   const relatedEntries = [bill.entryId, bill.creditEntryId, ...(bill.payments || []).map(payment => payment.entryId)].filter(Boolean).map(id => state.entries.find(item => item.id === id)).filter(Boolean);
   const activity = [...state.activity].reverse().filter(event => event.entityId === bill.id || relatedEntries.some(entry => entry.id === event.entityId));
+  const settlementLink = bill.status !== 'draft' ? '<a class="button secondary" href="#settlements">Krediter &amp; återbetalningar</a>' : '';
   const actions = bill.status === 'draft' ? `${button('Redigera', 'edit-bill', bill.id)}${button('Granska & bokför', 'book-bill', bill.id, 'primary')}` : bill.status === 'booked' && getBillOutstanding(bill) > 0 ? button('Registrera betalning', 'bill-payment', bill.id, 'primary') : '';
   return `<div class="purchase-workspace purchase-detail-page">
     <div class="purchase-breadcrumb"><a href="#purchases" data-action="purchase-back">${icon('arrow')}Leverantörsfakturor</a><span>/</span><span>${e(bill.number)}</span></div>
-    <header class="purchase-page-heading"><div><span class="eyebrow">INKÖP · LEVERANTÖRSFAKTURA</span><h1>${e(bill.number)}</h1><p>${e(bill.supplier)}</p></div><div class="actions">${invoiceStatus(bill)}${button('Kopiera till ny', 'copy-bill', bill.id)}${actions}</div></header>
+    <header class="purchase-page-heading"><div><span class="eyebrow">INKÖP · LEVERANTÖRSFAKTURA</span><h1>${e(bill.number)}</h1><p>${e(bill.supplier)}</p></div><div class="actions">${invoiceStatus(bill)}${button('Kopiera till ny', 'copy-bill', bill.id)}${settlementLink}${actions}</div></header>
     <div class="purchase-detail-layout"><div class="purchase-form-pane">
-      ${card('Fakturauppgifter', bill.status === 'draft' ? 'Granska utkastet före bokföring.' : 'Fakturauppgifterna är låsta efter bokföring.', `<div class="purchase-grid purchase-grid-two"><div>${supplierBlock(bill)}</div><div>${pair('Fakturadatum', bill.date)}${pair('Förfallodatum', bill.dueDate)}${pair('Projekt', projectName(state, bill.projectId))}</div></div><div class="purchase-grid purchase-grid-two">${pair('OCR / betalningsreferens', details.paymentReference)}${pair('Bankgiro', details.bankgiro)}${pair('Plusgiro', details.plusgiro)}${pair('IBAN', details.iban)}${pair('Vår referens', details.ourReference)}${pair('Leverantörens referens', details.supplierReference)}${pair('Kostnadsställe / märkning', details.costCenter)}${pair('Momstyp', bill.vatMode === 'reverse-construction' ? 'Omvänd byggmoms' : bill.vatMode === 'no-vat' ? 'Ingen moms' : `Svensk moms ${bill.vatRate} %`)}</div>${details.description ? `<p class="purchase-description">${e(details.description)}</p>` : ''}`)}
+      ${card('Fakturauppgifter', bill.status === 'draft' ? 'Granska utkastet före bokföring.' : 'Fakturauppgifterna är låsta efter bokföring.', `<div class="purchase-grid purchase-grid-two"><div>${supplierBlock(bill)}</div><div>${pair('Fakturadatum', bill.date)}${pair('Förfallodatum', bill.dueDate)}${pair('Projekt', projectName(state, bill.projectId))}</div></div><div class="purchase-grid purchase-grid-two">${pair('OCR / betalningsreferens', details.paymentReference)}${pair('Bankgiro', details.bankgiro)}${pair('Plusgiro', details.plusgiro)}${pair('IBAN', details.iban)}${pair('Vår referens', details.ourReference)}${pair('Leverantörens referens', details.supplierReference)}${pair('Kostnadsställe / märkning', details.costCenter)}${pair('Momstyp', bill.lines ? `${bill.lines.length} konteringsrader med individuell moms` : bill.vatMode === 'reverse-construction' ? 'Omvänd byggmoms' : bill.vatMode === 'no-vat' ? 'Ingen moms' : `Svensk moms ${bill.vatRate} %`)}</div>${details.description ? `<p class="purchase-description">${e(details.description)}</p>` : ''}`)}
+      ${bill.lines ? card('Fakturans konteringsrader', 'Ursprungliga uppgifter per kostnadsrad.', `<div class="table-scroll"><table><thead><tr><th>Beskrivning</th><th>Konto</th><th>Netto</th><th>Moms</th><th>Avdrag</th></tr></thead><tbody>${bill.lines.map(line => `<tr><td>${e(line.description || '—')}</td><td>${e(line.account)}</td><td>${e(money(line.netCents))}</td><td>${e(line.vatMode === 'no-vat' ? 'Ingen moms' : `${line.vatRate} %${line.vatMode === 'reverse-construction' ? ' omvänd' : ''}`)}</td><td>${e(((line.deductibleBps ?? 10000) / 100).toLocaleString('sv-SE'))} %</td></tr>`).join('')}</tbody></table></div>`) : ''}
       ${bill.status === 'draft' ? renderPurchaseSummary(bill) : `<section class="purchase-card"><header><div><h2>Bokförd kontering</h2><p>${e(entry?.number || '')} · ${e(entry?.date || bill.date)}</p></div>${entry ? button('Visa verifikation', 'show-entry', entry.id) : ''}</header>${postingTable(entry?.rows || [])}<div class="purchase-card-body">${pair('Belopp exklusive moms', money(bill.netCents))}${pair('Moms på fakturan', money(bill.vatCents))}<div class="purchase-summary-total"><span>Fakturabelopp</span><strong>${e(money(bill.totalCents))}</strong></div></div></section>`}
-      ${card('Betalningar och historik', '', `${pair('Kvar att betala', money(getBillOutstanding(bill)))}${bill.payments?.length ? `<div class="table-scroll"><table><thead><tr><th>Datum</th><th>Belopp</th><th>Verifikation</th></tr></thead><tbody>${bill.payments.map(payment => `<tr><td>${e(payment.date)}</td><td>${e(money(payment.amountCents))}</td><td>${button(state.entries.find(item => item.id === payment.entryId)?.number || 'Visa', 'show-entry', payment.entryId)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="purchase-help">Inga betalningar registrerade.</p>'}${bill.status === 'booked' && !bill.payments.length ? `<div class="actions">${button('Kreditera inköpet', 'credit-bill', bill.id, 'danger')}</div>` : ''}${bill.creditReason ? `<p class="purchase-description">Krediterad: ${e(bill.creditReason)}</p>` : ''}${relatedEntries.length ? `<div class="actions purchase-entry-links">${relatedEntries.map(item => button(`${item.number} · ${item.description}`, 'show-entry', item.id)).join('')}</div>` : ''}${activity.length ? `<h3>Fakturans händelser</h3><ol class="purchase-history">${activity.map(event => `<li><span>${e(event.label)}</span><small>${e(timeLabel(event.createdAt || event.date))} · ${e(event.actor || 'Åke')}</small></li>`).join('')}</ol>` : ''}`)}
+      ${card('Betalningar och historik', '', `${pair('Kvar att betala', money(getBillOutstanding(bill)))}${bill.settlementCreditCents !== undefined ? pair('Krediterat', money(bill.settlementCreditCents)) : ''}${bill.settlementRefundCents !== undefined ? pair('Återbetalt av leverantören', money(bill.settlementRefundCents)) : ''}${bill.payments?.length ? `<div class="table-scroll"><table><thead><tr><th>Datum</th><th>Belopp</th><th>Verifikation</th></tr></thead><tbody>${bill.payments.map(payment => `<tr><td>${e(payment.date)}</td><td>${e(money(payment.amountCents))}</td><td>${button(state.entries.find(item => item.id === payment.entryId)?.number || 'Visa', 'show-entry', payment.entryId)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="purchase-help">Inga betalningar registrerade.</p>'}${bill.status === 'booked' && !bill.payments.length && !bill.settlementLastDate && !bill.settlementCreditCents && !bill.settlementRefundCents && !bill.settlementOffsetInCents && !bill.settlementOffsetOutCents ? `<div class="actions">${button('Kreditera inköpet', 'credit-bill', bill.id, 'danger')}</div>` : ''}${bill.creditReason ? `<p class="purchase-description">Krediterad: ${e(bill.creditReason)}</p>` : ''}${relatedEntries.length ? `<div class="actions purchase-entry-links">${relatedEntries.map(item => button(`${item.number} · ${item.description}`, 'show-entry', item.id)).join('')}</div>` : ''}${activity.length ? `<h3>Fakturans händelser</h3><ol class="purchase-history">${activity.map(event => `<li><span>${e(event.label)}</span><small>${e(timeLabel(event.createdAt || event.date))} · ${e(event.actor || 'Åke')}</small></li>`).join('')}</ol>` : ''}`)}
     </div><aside class="purchase-document-pane">${renderDocumentPanel(attachments, { editable: false, allowUpload: bill.status !== 'draft', selectedDocumentId, viewer })}${bill.status === 'draft' ? '<p class="purchase-help">Välj Redigera för att lägga till eller koppla bort underlag i utkastet.</p>' : ''}</aside></div>
   </div>`;
 }

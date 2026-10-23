@@ -63,7 +63,8 @@ function linesFor(lines) {
 }
 
 function nextNumber(state, prefix, list) {
-  const numbers = list.map(item => new RegExp(`^${prefix}-(\\d+)$`).exec(item.number ?? '')).filter(Boolean).map(match => Number(match[1]));
+  const numbered = prefix === 'K' ? [...list, ...(state.settlements ?? [])] : list;
+  const numbers = numbered.map(item => new RegExp(`^${prefix}-(\\d+)$`).exec(item.number ?? '')).filter(Boolean).map(match => Number(match[1]));
   return `${prefix}-${String(Math.max(0, ...numbers) + 1).padStart(4, '0')}`;
 }
 
@@ -94,7 +95,10 @@ export function getInvoiceTotals(invoice) {
 export function getInvoiceOutstanding(invoice) {
   if (invoice.kind === 'credit' || invoice.status === 'credited') return 0;
   const paid = sum((invoice.payments ?? []).map(payment => cents(payment.amountCents)));
-  return cents(getInvoiceTotals(invoice).grossCents - paid);
+  const credit = cents(invoice.settlementCreditCents ?? 0), refund = cents(invoice.settlementRefundCents ?? 0);
+  const offsetIn = cents(invoice.settlementOffsetInCents ?? 0), offsetOut = cents(invoice.settlementOffsetOutCents ?? 0);
+  const rotRepaid = cents(invoice.rotRepaymentCents ?? 0);
+  return cents(Math.max(0, getInvoiceTotals(invoice).grossCents - paid - credit + refund + offsetOut - offsetIn + rotRepaid));
 }
 
 function validateRotRoom(state, invoice) {
@@ -275,6 +279,9 @@ export function copyInvoice(state, id, { date, dueDate }) {
 export function creditInvoice(state, id, { date, reason }) {
   return transact(state, draft => {
     const invoice = standardInvoice(draft, id);
+    assert(!invoice.settlementLastDate, 'Fakturan har redan krediter eller kvittningar. Använd kredit- och återbetalningsflödet.');
+    assert(!(draft.revenueSchedules ?? []).some(item => item.invoiceId === id), 'Fakturans intäktsperiodisering behöver återföras innan fakturan krediteras.');
+    assert(!(draft.rotPlans ?? []).some(item => item.invoiceId === id), 'ROT-fördelningen behöver hanteras i ett särskilt rättelseflöde innan fakturan krediteras.');
     dateField(date, 'Kreditdatum');
     assert(date >= invoice.date, 'Kreditdatum får inte ligga före originalfakturan.');
     assert(invoice.payments.length === 0, 'Denna demo krediterar bara helt obetalda fakturor. Hantera betalningen och återbetalningen separat före kreditering.');
@@ -301,9 +308,11 @@ export function receivePayment(state, id, { date, amountCents, payer = 'customer
     dateField(date, 'Betalningsdatum');
     requireOpenPeriod(draft, date);
     assert(date >= invoice.date, 'Betalningsdatum får inte ligga före fakturadatum.');
+    assert(!invoice.settlementLastDate || date >= invoice.settlementLastDate, 'Betalningen får inte dateras före fakturans senaste kredit eller kvittning.');
     cents(amountCents);
     assert(amountCents > 0, 'Betalningen måste vara större än noll.');
     assert(['customer', 'tax'].includes(payer), 'Välj kund eller Skatteverket som betalare.');
+    assert(payer !== 'tax' || !(draft.rotPlans ?? []).some(plan => plan.invoiceId === id), 'Registrera utbetalningen i ROT-arbetsytan för fakturans delbegäran.');
     if (invoice.rot && payer === 'customer') assert(Number(date.slice(0, 4)) === invoice.rot.paymentYear, 'ROT-demon kräver att kundbetalningen ligger under det angivna betalningsåret.');
     const paymentReference = reference ? text(reference, 'Betalningsreferens', 100) : bankEventId ? `bank:${bankEventId}` : `${payer}:${date}:${amountCents}`;
     assert(!invoice.payments.some(payment => payment.reference === paymentReference), 'Betalningen är redan registrerad. Ange en unik referens om det är en annan betalning med samma datum och belopp.');
@@ -345,6 +354,7 @@ export function recordReminder(state, id) {
 export function requestRot(state, id, { date, workCompletedConfirmed = false, electronicPaymentConfirmed = false }) {
   return transact(state, draft => {
     const invoice = standardInvoice(draft, id);
+    assert(!(draft.rotPlans ?? []).some(plan => plan.invoiceId === id), 'Förbered delbegäran i ROT-arbetsytan för den befintliga personfördelningen.');
     dateField(date, 'Begärandedatum');
     assert(invoice.rot && invoice.rot.status === 'awaiting-customer', 'Fakturan saknar en ROT-begäran att förbereda, eller så är begäran redan registrerad.');
     assert(workCompletedConfirmed === true, 'Bekräfta att arbetet är utfört innan ROT-underlaget förbereds.');
@@ -368,6 +378,7 @@ export function requestRot(state, id, { date, workCompletedConfirmed = false, el
 export function decideRot(state, id, { date, approvedCents, reason = '' }) {
   return transact(state, draft => {
     const invoice = standardInvoice(draft, id);
+    assert(!(draft.rotPlans ?? []).some(plan => plan.invoiceId === id), 'Registrera beslutet i ROT-arbetsytan för fakturans delbegäran.');
     dateField(date, 'Beslutsdatum');
     assert(invoice.rot?.status === 'requested', 'Förbered ROT-begäran innan ett demobeslut registreras.');
     const claim = draft.rotClaims.find(item => item.id === invoice.rot.claimId);

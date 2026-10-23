@@ -1,6 +1,7 @@
 // Periodic inventory valuation for fictional demo stock. Physical movements do
 // not claim to match a real purchase, delivery, bill or stock-management system.
 import { transact, appendEntry, nextId, addActivity, assert, cents, validDate, requireOpenPeriod } from './core.js';
+import { fiscalPeriodForDate } from './fiscal-periods.js';
 
 const identifier = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value);
 const shortText = (value, label, maximum = 200) => {
@@ -73,7 +74,7 @@ export function validateInventoryState(state) {
     for (const movement of item.movements) {
       assert(identifier(movement.id) && !movementIds.has(movement.id), 'Lagerrörelsen har ett ogiltigt eller dubbelt ID.');
       movementIds.add(movement.id);
-      assert(validDate(movement.date) && movement.date >= state.company.fiscalYearStart && movement.date <= state.company.fiscalYearEnd && movement.date >= previousDate,
+      assert(validDate(movement.date) && fiscalPeriodForDate(state, movement.date) && movement.date >= previousDate,
         'Lagerrörelser ska ha giltiga datum i tidsordning inom räkenskapsåret.');
       assert(kinds.has(movement.kind), 'Välj inleverans, uttag eller inventering.');
       shortText(movement.reason, 'en orsak till lagerrörelsen');
@@ -87,7 +88,7 @@ export function validateInventoryState(state) {
   }
   let priorDate = '';
   for (const valuation of state.inventoryValuations) {
-    assert(validDate(valuation.date) && valuation.date > priorDate && valuation.date >= state.company.fiscalYearStart && valuation.date <= state.company.fiscalYearEnd,
+    assert(validDate(valuation.date) && valuation.date > priorDate && fiscalPeriodForDate(state, valuation.date),
       'Lagervärderingar ska ha olika datum i tidsordning inom räkenskapsåret.');
     assert(Array.isArray(valuation.items), 'Lagervärderingens artikelspecifikation saknas.');
     const snapshotIds = new Set();

@@ -1,6 +1,7 @@
 // Prepaid-expense schedules for the synthetic accounting suite.
 // Recognition dates and expense classification are explicit user judgements.
 import { transact, appendEntry, nextId, addActivity, assert, cents, validDate, requireOpenPeriod } from './core.js';
+import { fiscalPeriodForDate } from './fiscal-periods.js';
 
 export const ACCRUAL_EXPENSE_ACCOUNTS = Object.freeze(['5010', '6540', '6991']);
 const debit = (account, amount) => ({ account, debitCents: amount, creditCents: 0 });
@@ -48,6 +49,15 @@ export function getAccrualRemaining(item) {
   return item.amountCents - validateSchedule(item);
 }
 
+// A new reclassification consumes an expense in that acquisition's own year.
+// A monthly release of an existing prepaid balance is not a fresh purchase
+// which can be deferred repeatedly. Historical schedules keep their own basis.
+export function getExpenseBasisEntries(state, date) {
+  const period = fiscalPeriodForDate(state, date);
+  assert(period, 'Kostnadens räkenskapsår saknas.');
+  return state.entries.filter(entry => entry.date >= period.start && entry.date <= period.end && entry.sourceType !== 'accrual-recognition');
+}
+
 export function createAccrual(state, payload) {
   return transact(state, draft => {
     assert(payload && typeof payload === 'object', 'Periodiseringens uppgifter saknas.');
@@ -60,13 +70,14 @@ export function createAccrual(state, payload) {
       status: 'active', postings: [],
     };
     validateSchedule(item);
-    const available = draft.entries.filter(entry => entry.date <= item.date)
+    const basisEntries = getExpenseBasisEntries(draft, item.date);
+    const available = basisEntries.filter(entry => entry.date <= item.date)
       .flatMap(entry => entry.rows).filter(row => row.account === item.expenseAccount)
       .reduce((sum, row) => sum + row.debitCents - row.creditCents, 0);
     assert(Number.isSafeInteger(available) && available >= item.amountCents,
-      'Bokför först kostnaden. Periodiseringen får inte överstiga bokförd nettokostnad på det valda kontot vid datumet.');
+      'Bokför först kostnaden i aktuellt räkenskapsår. Periodiseringen får inte överstiga bokförd nettokostnad på det valda kontot vid datumet.');
     const movements = new Map([[item.date, -item.amountCents]]);
-    for (const journal of draft.entries) {
+    for (const journal of basisEntries) {
       const movement = journal.rows.filter(row => row.account === item.expenseAccount)
         .reduce((sum, row) => sum + row.debitCents - row.creditCents, 0);
       movements.set(journal.date, (movements.get(journal.date) ?? 0) + movement);

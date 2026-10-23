@@ -1,7 +1,10 @@
 // Synthetic accounting workflows. Tax inputs are examples, never tax-table decisions.
 import { ACCOUNTS, accountBalance, addActivity, appendEntry, assert, cents, nextId, requireOpenPeriod, transact, validDate } from './core.js';
-import { getAccrualRemaining } from './periodization.js';
+import { getAccrualRemaining, getExpenseBasisEntries } from './periodization.js';
 import { getStockValue } from './inventory.js';
+import { currentYearIsClosed, historicalCompany } from './fiscal-periods.js';
+import { getYearReports } from './fiscal-reports.js';
+import { getRevenueDueMonths } from './commercial.js';
 
 const copy = value => structuredClone(value);
 const debit = (account, value) => ({ account, debitCents: value, creditCents: 0 });
@@ -13,7 +16,7 @@ const label = (value, name = 'Namn') => { assert(typeof value === 'string' && va
 const lookup = (state, collection, id) => { const value = state[collection].find(item => item.id === id); assert(value, 'Posten kunde inte hittas.'); return value; };
 const checkDate = date => assert(validDate(date), 'Ange ett giltigt datum.');
 const withinYear = (state, date) => { checkDate(date); assert(date >= state.company.fiscalYearStart && date <= state.company.fiscalYearEnd, 'Datumet måste ligga i räkenskapsåret.'); };
-const checkUnclosed = state => assert(!state.yearClosures.length, 'Räkenskapsåret är avslutat. Historiken är bevarad och kan inte ändras.');
+const checkUnclosed = state => assert(!currentYearIsClosed(state), 'Räkenskapsåret är avslutat. Historiken är bevarad och kan inte ändras.');
 const monthsBetween = (from, to) => {
   const result = [];
   let year = Number(from.slice(0, 4)); let month = Number(from.slice(5, 7));
@@ -59,6 +62,9 @@ export function createPayrollRun(state, payload) {
       const employee = lookup(draft, 'employees', id);
       assert(employee.active !== false, 'En inaktiv anställd kan inte ingå i lönekörningen.');
       assert(!draft.payrollRuns.some(run => run.month === payload.month && run.lines.some(line => line.employeeId === id)), `${employee.name} finns redan i en lönekörning för månaden.`);
+      assert(!(draft.payrollBatches ?? []).some(batch => batch.status !== 'reversed' && batch.month === payload.month &&
+        (batch.people ?? []).some(person => person.employeeId === id)),
+      `${employee.name} finns redan i en individuell lönekörning för månaden. Använd kompletterande lön eller rätta originalet först.`);
       const hours = employeeValue(payload.hours, id, 160);
       assert(typeof hours === 'number' && Number.isFinite(hours) && hours > 0 && hours <= 744 && Math.abs(Math.round(hours * 100) - hours * 100) < 0.000001, 'Timmar ska vara positiva med högst två decimaler.');
       const base = employee.payType === 'hourly' ? roundRate(employee.baseCents, Math.round(hours * 100), 100) : employee.baseCents;
@@ -89,7 +95,8 @@ export function getPayrollTotals(run) {
 /** Recalculate the saved assumptions before posting, paying or exporting a run. */
 export function validatePayrollRun(state, run) {
   assert(run && typeof run === 'object' && Array.isArray(run.lines) && run.lines.length > 0, 'Lönekörningens underlag saknas.');
-  checkedMonth(state, run.month); withinYear(state, run.date);
+  const periodState = { ...state, company: historicalCompany(state, run.date) };
+  checkedMonth(periodState, run.month); withinYear(periodState, run.date);
   assert(run.date.slice(0, 7) === run.month, 'Lönekörningens datum stämmer inte med månaden.');
   assert(new Set(run.lines.map(line => line.employeeId)).size === run.lines.length, 'En anställd förekommer flera gånger i lönekörningen.');
   for (const line of run.lines) {
@@ -180,10 +187,11 @@ export function createAsset(state, payload) {
     const name = label(payload.name); const costCents = cents(payload.costCents, false); const residualCents = cents(payload.residualCents ?? 0);
     assert(residualCents < costCents, 'Restvärdet ska vara lägre än anskaffningsvärdet.');
     assert(Number.isSafeInteger(payload.lifeMonths) && payload.lifeMonths >= 1 && payload.lifeMonths <= 600, 'Nyttjandeperioden ska vara 1–600 månader.');
-    const purchasesByDate = sum(draft.entries.filter(entry => entry.date <= payload.date).flatMap(entry => entry.rows).filter(row => row.account === '5410').map(row => row.debitCents - row.creditCents));
-    assert(purchasesByDate >= costCents, 'Bokför först inköpet på 5410. Omklassificeringen får inte överstiga bokfört inköp vid anskaffningsdatumet.');
+    const basisEntries = getExpenseBasisEntries(draft, payload.date);
+    const purchasesByDate = sum(basisEntries.filter(entry => entry.date <= payload.date).flatMap(entry => entry.rows).filter(row => row.account === '5410').map(row => row.debitCents - row.creditCents));
+    assert(purchasesByDate >= costCents, 'Bokför först inköpet på 5410 i aktuellt räkenskapsår. Omklassificeringen får inte överstiga bokfört inköp vid anskaffningsdatumet.');
     const expenseChanges = new Map([[payload.date, -costCents]]);
-    for (const journal of draft.entries) {
+    for (const journal of basisEntries) {
       const change = sum(journal.rows.filter(row => row.account === '5410').map(row => row.debitCents - row.creditCents));
       expenseChanges.set(journal.date, (expenseChanges.get(journal.date) ?? 0) + change);
     }
@@ -236,25 +244,11 @@ export function disposeAsset(state, id, { date, proceedsCents = 0 }) {
 }
 
 export function getReports(state) {
-  const accounts = ACCOUNTS.map(account => {
-    const rows = state.entries.flatMap(entry => entry.rows).filter(row => row.account === account.number);
-    const debitCents = sum(rows.map(row => row.debitCents)); const creditCents = sum(rows.map(row => row.creditCents));
-    return { ...account, debitCents, creditCents, balanceCents: debitCents - creditCents };
-  });
-  const operatingEntries = state.entries.filter(entry => entry.sourceType !== 'year-close');
-  const revenueCents = sum(operatingEntries.flatMap(entry => entry.rows).filter(row => /^3/.test(row.account)).map(row => row.creditCents - row.debitCents));
-  const expenseCents = sum(operatingEntries.flatMap(entry => entry.rows).filter(row => /^[4-8]/.test(row.account)).map(row => row.debitCents - row.creditCents));
-  const resultCents = revenueCents - expenseCents;
-  const unallocatedResultCents = -sum(accounts.filter(account => /^[3-8]/.test(account.number)).map(account => account.balanceCents));
-  const assetsCents = sum(accounts.filter(account => /^1/.test(account.number)).map(account => account.balanceCents));
-  const liabilitiesEquityCents = -sum(accounts.filter(account => /^2/.test(account.number)).map(account => account.balanceCents)) + unallocatedResultCents;
-  return { accounts, revenueCents, expenseCents, resultCents, unallocatedResultCents, assetsCents, liabilitiesEquityCents,
-    bankCents: accountBalance(state, '1930'), receivablesCents: accountBalance(state, '1510'), payablesCents: -accountBalance(state, '2440'),
-    balanced: sum(accounts.map(account => account.debitCents)) === sum(accounts.map(account => account.creditCents)) && assetsCents === liabilitiesEquityCents };
+  return getYearReports(state);
 }
 
-const outputAccounts = ['2611', '2621', '2631', '2614'];
-const inputAccounts = ['2641', '2647'];
+const outputAccounts = ['2611', '2621', '2631', '2614', '2615', '2624', '2625', '2634', '2635'];
+const inputAccounts = ['2641', '2647', '2645'];
 export function getVatPeriodBounds(state, date) {
   withinYear(state, date);
   if (state.company.vatPeriod === 'year') return { from: state.company.fiscalYearStart, to: state.company.fiscalYearEnd };
@@ -326,6 +320,8 @@ export function lockPeriod(state, month) {
     assert(!draft.bankTransactions.some(item => item.date.startsWith(month) && !item.matchedEntryId), 'Stäm av periodens kontohändelser före låsning.');
     assert(![...draft.invoices, ...draft.bills].some(item => item.date.startsWith(month) && item.status === 'draft'), 'Perioden innehåller fakturautkast som behöver behandlas.');
     assert(!draft.payrollRuns.some(item => item.month === month && item.status === 'draft'), 'Perioden innehåller en lönekörning som behöver behandlas.');
+    assert(!(draft.payrollBatches ?? []).some(item => item.date.startsWith(month) && item.status === 'draft'), 'Perioden innehåller ett individuellt löneutkast som behöver behandlas.');
+    assert(!getRevenueDueMonths(draft, month).some(item => item.month === month), 'Perioden innehåller intäktsperiodiseringar som behöver bokföras.');
     draft.lockedPeriods.push(month); draft.lockedPeriods.sort(); addActivity(draft, `Perioden ${month} låst.`, month);
   });
 }
@@ -343,9 +339,10 @@ export function getCloseChecklist(state) {
   const unlocked = months.filter(month => !state.lockedPeriods.includes(month));
   const draftDocs = [...state.invoices, ...state.bills].filter(item => item.status === 'draft');
   const unmatched = state.bankTransactions.filter(item => !item.matchedEntryId);
-  const draftPayroll = state.payrollRuns.filter(item => item.status === 'draft');
+  const draftPayroll = [...state.payrollRuns, ...(state.payrollBatches ?? [])].filter(item => item.status === 'draft');
   const openRot = state.invoices.filter(invoice => {
     if (!invoice.rot || invoice.kind === 'credit' || invoice.status !== 'issued') return false;
+    if ((state.rotPlans ?? []).some(plan => plan.invoiceId === invoice.id)) return false;
     const claim = state.rotClaims.find(item => item.invoiceId === invoice.id);
     if (!claim || claim.status === 'prepared') return true;
     if (claim.status === 'denied') return false;
@@ -366,6 +363,13 @@ export function getCloseChecklist(state) {
   const latestValuation = (state.inventoryValuations ?? []).at(-1);
   const pendingStockMovements = (state.inventoryItems ?? []).flatMap(item => item.movements).filter(movement => !latestValuation || movement.date > latestValuation.date);
   const currentStockValue = getStockValue(state);
+  const revenueDueMonths = getRevenueDueMonths(state);
+  const extendedRotOpen = (state.rotPlans ?? []).filter(plan => {
+    const applications = (state.rotApplications ?? []).filter(item => item.planId === plan.id);
+    return sum(applications.map(item => item.requestedCents)) < plan.reservedCents || applications.some(item => !item.decision ||
+      sum((item.decision?.personLines ?? []).map(person => person.approvedCents)) >
+      sum(state.invoices.flatMap(invoice => invoice.payments.filter(payment => payment.rotApplicationId === item.id).map(payment => payment.amountCents))));
+  });
   const stockReconciles = accountBalance(state, '1460') === currentStockValue;
   const inventoryDone = pendingStockMovements.length === 0 && stockReconciles;
   return [
@@ -374,11 +378,12 @@ export function getCloseChecklist(state) {
     { id: 'bank', label: 'Bank och skattekonto avstämda', done: unmatched.length === 0, detail: `${unmatched.length} omatchade händelser.` },
     { id: 'payroll', label: 'Lönekörningar bokförda', done: draftPayroll.length === 0, detail: `${draftPayroll.length} löneutkast återstår.` },
     { id: 'vat', label: 'Momsunderlag fastställda', done: !outstandingVat, detail: outstandingVat ? 'Moms finns kvar på ingående eller utgående momskonton.' : 'Momskontona är omförda till redovisningskonto.' },
-    { id: 'rot', label: 'ROT-ärenden genomgångna', done: openRot.length === 0, detail: `${openRot.length} öppna ärenden återstår.` },
+    { id: 'rot', label: 'ROT-ärenden genomgångna', done: openRot.length + extendedRotOpen.length === 0, detail: `${openRot.length + extendedRotOpen.length} öppna ärenden återstår.` },
     { id: 'assets', label: 'Årets avskrivningar genomgångna', done: unfinishedAssets.length === 0, detail: `${unfinishedAssets.length} inventarier behöver avskrivning till årets sista månad.` },
     { id: 'accruals', label: 'Periodiseringar genomgångna', done: outstandingAccrualMonths.length === 0, detail: `${outstandingAccrualMonths.length} planerade månadsbokningar återstår för räkenskapsåret. Framtida års kostnader förs vidare.` },
+    { id: 'revenue-accruals', label: 'Intäktsperiodiseringar genomgångna', done: revenueDueMonths.length === 0, detail: `${revenueDueMonths.length} planerade intäktsmånader återstår för räkenskapsåret.` },
     { id: 'inventory', label: 'Materiallager inventerat och värderat', done: inventoryDone, detail: pendingStockMovements.length ? `${pendingStockMovements.length} lagerrörelser behöver följas upp med en ny värdering.` : stockReconciles ? 'Aktuellt lagervärde stämmer med konto 1460.' : 'Aktuellt lagervärde stämmer inte med konto 1460.' },
-    { id: 'year', label: 'Året kan avslutas', done: state.yearClosures.length === 0, detail: state.yearClosures.length ? 'Året är redan avslutat.' : 'Bokslutsbedömningar, skatt och periodiseringar behöver bekräftas av dig.' },
+    { id: 'year', label: 'Året kan avslutas', done: !currentYearIsClosed(state), detail: currentYearIsClosed(state) ? 'Året är redan avslutat.' : 'Bokslutsbedömningar, skatt och periodiseringar behöver bekräftas av dig.' },
   ];
 }
 

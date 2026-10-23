@@ -125,11 +125,15 @@ test('planerade funktioner hålls isär från testad demo och verifieringsartike
   await expect(page.locator('#wiki-main .status-pill').first()).toContainText('Planerat');
   await expect(page.locator('.article-body')).toBeVisible();
   await page.goto(`${wiki}#artikel/verifiering`);
-  await expect(page.locator('#wiki-main')).toContainText('211');
-  await expect(page.locator('#wiki-main')).toContainText('49');
-  await expect(page.locator('#wiki-main')).toContainText('920a135');
+  const metadata = await page.evaluate(async () => {
+    const path = '/bokforing/wiki/content.js';
+    return (await import(path)).wikiMeta;
+  });
+  await expect(page.locator('#wiki-main')).toContainText(String(metadata.verification.model));
+  await expect(page.locator('#wiki-main')).toContainText(String(metadata.verification.browser));
+  await expect(page.locator('#wiki-main')).toContainText(metadata.version);
   const sources = await page.locator('.sources-card a').evaluateAll(links => links.map(link => ({ href: link.getAttribute('href')!, target: link.getAttribute('target'), rel: link.getAttribute('rel') || '' })));
-  expect(sources.some(source => source.href.includes('github.com/NicklasJr93/JEROC-Atervinning/') && source.href.includes('920a135'))).toBe(true);
+  expect(sources.some(source => source.href.includes('github.com/NicklasJr93/JEROC-Atervinning/') && source.href.includes(metadata.version))).toBe(true);
   for (const source of sources) {
     expect(source.href.startsWith('https://') || source.href.startsWith('/bokforing/')).toBe(true);
     if (source.target === '_blank') expect(source.rel.split(/\s+/)).toContain('noopener');

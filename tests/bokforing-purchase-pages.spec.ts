@@ -332,3 +332,49 @@ test('fördröjd koppling får inte återföra ändringar på en nollställd dem
   expect(after.entries).toEqual(resetState.entries);
   expect(await documents(page)).toHaveLength(1);
 });
+
+test('flera konteringsrader delar moms och avdragsrätt och bevaras efter bokföring', async ({ page }) => {
+  test.setTimeout(90_000);
+  await open(page, 'purchases/new'); await fillBill(page, 'MIXED-LINES-01');
+  await action(page, 'purchase-add-line').click();
+  const second = editor(page).locator('[data-purchase-line="1"]');
+  await second.locator('[data-purchase-field="lineDescription"]').fill('IT med begränsat momsavdrag');
+  await second.locator('[data-purchase-field="netCents"]').fill('500');
+  await second.locator('[data-purchase-field="account"]').selectOption('6540');
+  await second.locator('[data-purchase-field="vatRate"]').selectOption('12');
+  await second.locator('[data-purchase-field="deductiblePercent"]').fill('50');
+  await action(page, 'purchase-add-line').click();
+  const third = editor(page).locator('[data-purchase-line="2"]');
+  await third.locator('[data-purchase-field="netCents"]').fill('200');
+  await third.locator('[data-purchase-field="vatMode"]').selectOption('reverse-construction');
+  await third.locator('[data-purchase-field="reverseConfirmed"]').check();
+  await save(page); await book(page);
+  const state = await savedState(page), bill = state.bills.at(-1);
+  expect(bill.lines).toHaveLength(3); expect(bill.netCents).toBe(170000);
+  expect(bill.vatCents).toBe(31000); expect(bill.totalCents).toBe(201000);
+  expect(bill.lines[1].deductibleBps).toBe(5000);
+  const entry = state.entries.find((item: { id: string }) => item.id === bill.entryId);
+  const balance = (account: string) => entry.rows.filter((row: { account: string }) => row.account === account).reduce((sum: number, row: { debitCents: number; creditCents: number }) => sum + row.debitCents - row.creditCents, 0);
+  expect(balance('6540')).toBe(53000); expect(balance('2641')).toBe(28000);
+  expect(balance('2647')).toBe(5000); expect(balance('2614')).toBe(-5000); expect(balance('2440')).toBe(-201000);
+  await page.reload();
+  await expect(page.locator('#suite-storage-notice')).toBeHidden();
+  await expect(page.locator('#suite-main')).toContainText('IT med begränsat momsavdrag');
+  await expect(action(page, 'edit-bill')).toHaveCount(0);
+});
+
+test('ta bort en konteringsrad bevarar andra fält och renumrerar utan dubbel bokföring', async ({ page }) => {
+  test.setTimeout(90_000);
+  await open(page, 'purchases/new'); await fillBill(page, 'REMOVE-LINE-01');
+  await action(page, 'purchase-add-line').click();
+  await editor(page).locator('[data-purchase-line="1"] [data-purchase-field="netCents"]').fill('222');
+  await action(page, 'purchase-add-line').click();
+  await editor(page).locator('[data-purchase-line="2"] [data-purchase-field="netCents"]').fill('333');
+  await editor(page).locator('[data-purchase-line="1"] [data-action="purchase-remove-line"]').click();
+  await expect(editor(page).locator('[data-purchase-line]')).toHaveCount(2);
+  await expect(editor(page).locator('[name="line-1-netCents"]')).toHaveValue('333');
+  await expect(editor(page).locator('[name="number"]')).toHaveValue('REMOVE-LINE-01');
+  await save(page);
+  const state = await savedState(page); expect(state.bills.at(-1).totalCents).toBe(166625);
+  expect(state.bills.at(-1).lines).toHaveLength(2);
+});

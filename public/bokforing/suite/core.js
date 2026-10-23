@@ -1,5 +1,6 @@
 // Shared journal for the synthetic, browser-local accounting suite.
 // Validation is an application safeguard, not a tamper-proof server archive.
+import { fiscalPeriodForDate, currentYearIsClosed, assertFiscalHistoryPreserved } from './fiscal-periods.js';
 export const MAX_CENTS = 1_000_000_000_000;
 export const ACCOUNTS = Object.freeze([
   ['1220', 'Inventarier och verktyg'],
@@ -13,15 +14,22 @@ export const ACCOUNTS = Object.freeze([
   ['1930', 'Företagskonto'],
   ['2081', 'Aktiekapital'],
   ['2091', 'Balanserat resultat'],
+  ['2098', 'Vinst eller förlust från föregående år'],
   ['2099', 'Årets resultat'],
   ['2350', 'Långfristiga lån'],
   ['2440', 'Leverantörsskulder'],
   ['2510', 'Skatteskulder'],
   ['2611', 'Utgående moms 25 %'],
   ['2614', 'Utgående moms, omvänd betalningsskyldighet'],
+  ['2615', 'Utgående moms import, 25 %'],
   ['2621', 'Utgående moms 12 %'],
+  ['2624', 'Utgående moms, omvänd betalningsskyldighet 12 %'],
+  ['2625', 'Utgående moms import, 12 %'],
   ['2631', 'Utgående moms 6 %'],
+  ['2634', 'Utgående moms, omvänd betalningsskyldighet 6 %'],
+  ['2635', 'Utgående moms import, 6 %'],
   ['2641', 'Ingående moms'],
+  ['2645', 'Beräknad ingående moms på förvärv från utlandet'],
   ['2647', 'Ingående moms, omvänd betalningsskyldighet'],
   ['2650', 'Redovisningskonto för moms'],
   ['2710', 'Personalskatt'],
@@ -56,6 +64,7 @@ export const ACCOUNTS = Object.freeze([
 
 const accountNumbers = new Set(ACCOUNTS.map(account => account.number));
 const arrays = Object.freeze(['entries', 'activity', 'customers', 'suppliers', 'projects', 'quotes', 'invoices', 'bills', 'bankTransactions', 'employees', 'payrollRuns', 'assets', 'accruals', 'inventoryItems', 'inventoryValuations', 'vatReturns', 'rotClaims', 'yearClosures']);
+const optionalArrays = Object.freeze(['settlements', 'payrollProfiles', 'payrollBatches', 'fiscalYears', 'yearWorkpapers', 'taxTransactions', 'rotPlans', 'rotApplications', 'rotRepayments', 'commercialArticles', 'commercialPrices', 'commercialInvoiceOrigins', 'recurringPlans', 'commercialReminders', 'projectStockLinks', 'revenueSchedules', 'projectWorkpapers']);
 const identifier = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value);
 const boundedText = (value, maximum = 500) => typeof value === 'string' && value.trim().length > 0 && value.length <= maximum && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value);
 const timestamp = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) && validDate(value.slice(0, 10)) && Number.isFinite(Date.parse(value));
@@ -125,7 +134,7 @@ export function requireOpenPeriod(state, date) {
   assert(date >= state.company.fiscalYearStart && date <= state.company.fiscalYearEnd,
     'Bokföringsdatumet ligger utanför räkenskapsåret.');
   assert(!state.lockedPeriods.includes(date.slice(0, 7)), 'Perioden är låst. Öppna den med en dokumenterad orsak innan du bokför.');
-  assert(state.yearClosures.length === 0,
+  assert(!currentYearIsClosed(state),
     'Räkenskapsåret är avslutat.');
 }
 
@@ -173,7 +182,7 @@ export function appendEntry(draft, spec) {
   assert(!draft.entries.some(entry => entry.sourceType === spec.sourceType && entry.sourceId === spec.sourceId),
     'Den här händelsen är redan bokförd.');
   validateRows(spec.rows);
-  const hasVat = spec.rows.some(row => ['2611', '2621', '2631', '2614', '2641', '2647'].includes(row.account));
+  const hasVat = spec.rows.some(row => ['2611', '2621', '2631', '2614', '2615', '2624', '2625', '2634', '2635', '2641', '2645', '2647'].includes(row.account));
   assert(!hasVat || !draft.vatReturns.some(period => spec.date >= period.from && spec.date <= period.to),
     'Momsperioden är redan fastställd. En senare momsändring behöver bokföras i en öppen, ännu inte fastställd period.');
   if (spec.correctsEntryId !== undefined) {
@@ -210,7 +219,7 @@ export function validateState(state) {
     'Periodlåsningen är ogiltig.');
   assert(state.lockedPeriods.every(period => typeof period === 'string' && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(period) &&
     period >= company.fiscalYearStart.slice(0, 7) && period <= company.fiscalYearEnd.slice(0, 7)), 'Periodlåsningen avser en ogiltig period.');
-  for (const key of arrays) {
+  for (const key of [...arrays, ...optionalArrays.filter(key => state[key] !== undefined)]) {
     assert(Array.isArray(state[key]) && state[key].length <= 20_000, `Demodata för ${key} har fel format eller är för stora.`);
     const ids = new Set();
     for (const item of state[key]) {
@@ -223,7 +232,7 @@ export function validateState(state) {
   const corrected = new Set();
   state.entries.forEach((entry, index) => {
     assert(entry.number === `A${index + 1}`, 'Verifikationsserien måste vara sammanhängande och unik.');
-    assert(validDate(entry.date) && entry.date >= company.fiscalYearStart && entry.date <= company.fiscalYearEnd,
+    assert(validDate(entry.date) && fiscalPeriodForDate(state, entry.date),
       'En verifikation ligger utanför räkenskapsåret.');
     assert(boundedText(entry.description) && identifier(entry.sourceType) && identifier(entry.sourceId) && timestamp(entry.createdAt) && boundedText(entry.actor, 100),
       'En verifikations uppgifter eller källreferens är ogiltiga.');
@@ -275,6 +284,7 @@ export function transact(state, mutate) {
     'Bokförda verifikationer kan inte ändras eller raderas. Skapa en länkad rättelse.');
   assert(draft.activity.length >= state.activity.length && state.activity.every((event, index) => JSON.stringify(event) === JSON.stringify(draft.activity[index])),
     'Tidigare händelser i historiken kan inte ändras eller raderas.');
+  assertFiscalHistoryPreserved(state, draft);
   validateState(draft);
   return draft;
 }

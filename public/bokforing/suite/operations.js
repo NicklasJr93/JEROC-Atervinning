@@ -1,6 +1,7 @@
 // Supplier purchases, bank reconciliation and manual journals for the synthetic demo.
 // No function in this module sends a payment or accesses a bank.
 import { transact, appendEntry, nextId, addActivity, assert, cents, validDate, requireOpenPeriod, accountBalance } from './core.js';
+import { calculatePurchaseLines, validatePurchaseLineTotals } from './purchase-lines.js';
 import { billSnapshot, normalizeBillDetails, normalizeBillAttachments, validateBillDetails, validateBillAttachments, validateBillAttachmentAdditions, getBillAttachments } from './purchase-data.js';
 
 export { copyBillPayload, getBillAttachments } from './purchase-data.js';
@@ -30,17 +31,10 @@ const signedAmount = amount => {
 function findBill(state, id) {
   const bill = state.bills.find(item => item.id === id);
   assert(bill, 'Leverantörsfakturan finns inte.');
-  assert(BILL_MODES.has(bill.vatMode) && VAT_RATES.has(bill.vatRate), 'Leverantörsfakturans momstyp är ogiltig.');
+  validateBillFinancials(bill);
   assert(['draft', 'booked', 'credited'].includes(bill.status), 'Leverantörsfakturans status är ogiltig.');
   trim(bill.supplier, 'leverantör'); trim(bill.number, 'leverantörens fakturanummer', 100);
   assert(validDate(bill.date) && validDate(bill.dueDate) && bill.dueDate >= bill.date, 'Leverantörsfakturans datum är ogiltiga.');
-  assert(bill.vatMode === 'reverse-construction'
-    ? bill.account === '4425' && bill.vatRate === 25
-    : EXPENSE_ACCOUNTS.has(bill.account), 'Kostnadskontot hör inte till fakturans inköpstyp.');
-  assert(bill.vatMode !== 'no-vat' || bill.vatRate === 0, 'Ett inköp utan moms ska ha noll i momssats.');
-  cents(bill.netCents, false);
-  const expectedVat = bill.vatMode === 'standard' ? taxAmount(bill.netCents, bill.vatRate) : 0;
-  assert(bill.vatCents === expectedVat && bill.totalCents === bill.netCents + expectedVat, 'Leverantörsfakturans belopp stämmer inte med underlaget.');
   if (bill.details !== undefined) validateBillDetails(bill.details);
   if (bill.attachments !== undefined) validateBillAttachments(bill.attachments);
   validateBillAttachmentAdditions(bill);
@@ -93,7 +87,9 @@ export function getBillOutstanding(bill) {
     return cents(total + payment.amountCents);
   }, 0);
   assert(paid <= bill.totalCents, 'Betalningarna överstiger fakturabeloppet.');
-  return bill.totalCents - paid;
+  const settled = bill.totalCents - paid - cents(bill.settlementCreditCents ?? 0)
+    + cents(bill.settlementRefundCents ?? 0) + cents(bill.settlementOffsetOutCents ?? 0) - cents(bill.settlementOffsetInCents ?? 0);
+  return Math.max(0, settled);
 }
 
 function billValues(draft, payload, excludeId = null) {
@@ -104,6 +100,16 @@ function billValues(draft, payload, excludeId = null) {
     assert(validDate(payload.dueDate) && payload.dueDate >= date, 'Förfallodagen får inte ligga före fakturadagen.');
     assert(!draft.bills.some(item => item.id !== excludeId && item.supplier.toLocaleLowerCase('sv') === supplier.toLocaleLowerCase('sv') && item.number.toLocaleLowerCase('sv') === number.toLocaleLowerCase('sv')),
       'Leverantörens fakturanummer finns redan. Underlaget får inte registreras två gånger.');
+    if (payload.lines !== undefined) {
+      const amounts = calculatePurchaseLines(payload.lines);
+      for (const line of amounts.lines) if (line.projectId) assert(draft.projects.some(project => project.id === line.projectId), 'Konteringsradens projekt finns inte.');
+      if (payload.projectId) assert(draft.projects.some(project => project.id === payload.projectId), 'Projektet finns inte.');
+      const { rows, deductibleVatCents, reverseVatCents, nonDeductibleVatCents, ...values } = amounts;
+      return { supplier, number, date, dueDate: payload.dueDate, ...values,
+        ...(payload.projectId ? { projectId: payload.projectId } : {}),
+        ...(payload.details === undefined ? {} : { details: normalizeBillDetails(payload.details) }),
+        ...(payload.attachments === undefined ? {} : { attachments: normalizeBillAttachments(payload.attachments) }) };
+    }
     const vatMode = payload.vatMode ?? 'standard';
     assert(BILL_MODES.has(vatMode), 'Välj en momstyp som stöds av demon.');
     const vatRate = vatMode === 'no-vat' ? 0 : (payload.vatRate ?? 25);
@@ -142,7 +148,9 @@ export function updateBillDraft(state, id, payload) {
   });
 }
 
-export function getBillBookingRows(bill) {
+export function validateBillFinancials(bill, options = {}) {
+  assert(bill && typeof bill.reverseConfirmed === 'boolean', 'Leverantörsfakturans momsbekräftelse är ogiltig.');
+  if (bill?.lines !== undefined) return validatePurchaseLineTotals(bill, options);
   assert(bill && BILL_MODES.has(bill.vatMode) && VAT_RATES.has(bill.vatRate), 'Leverantörsfakturans momstyp är ogiltig.');
   assert(bill.vatMode === 'reverse-construction' ? bill.account === '4425' && bill.vatRate === 25 : EXPENSE_ACCOUNTS.has(bill.account), 'Kostnadskontot hör inte till fakturans inköpstyp.');
   assert(bill.vatMode !== 'no-vat' || bill.vatRate === 0, 'Ett inköp utan moms ska ha noll i momssats.');
@@ -150,6 +158,14 @@ export function getBillBookingRows(bill) {
   const expectedVat = bill.vatMode === 'standard' ? taxAmount(bill.netCents, bill.vatRate) : 0;
   cents(bill.netCents + expectedVat, false);
   assert(bill.vatCents === expectedVat && bill.totalCents === bill.netCents + expectedVat, 'Leverantörsfakturans belopp stämmer inte med underlaget.');
+  if (options.requireConfirmation && bill.vatMode === 'reverse-construction') assert(bill.reverseConfirmed, 'Bekräfta att villkoren för omvänd byggmoms är uppfyllda innan du bokför.');
+  return { netCents: bill.netCents, vatCents: bill.vatCents, totalCents: bill.totalCents };
+}
+
+export function getBillBookingRows(bill) {
+  const amounts = validateBillFinancials(bill);
+  if (bill.lines !== undefined) return amounts.rows;
+  const expectedVat = amounts.vatCents;
   const rows = [debit(bill.account, bill.netCents)];
   if (expectedVat) rows.push(debit('2641', expectedVat));
   if (bill.vatMode === 'reverse-construction') {
@@ -158,6 +174,17 @@ export function getBillBookingRows(bill) {
   }
   rows.push(credit('2440', bill.totalCents));
   return rows;
+}
+
+export function getBillLineBookingRows(bill, index) {
+  assert(Number.isSafeInteger(index) && index >= 0, 'Välj en giltig konteringsrad.');
+  validateBillFinancials(bill);
+  if (bill.lines !== undefined) {
+    assert(index < bill.lines.length, 'Konteringsraden finns inte.');
+    return calculatePurchaseLines([bill.lines[index]]).rows;
+  }
+  assert(index === 0, 'Den äldre fakturan har en konteringsrad.');
+  return getBillBookingRows(bill);
 }
 
 export function addBillAttachments(state, id, attachments) {
@@ -178,7 +205,7 @@ export function bookBill(state, id) {
     const bill = findBill(draft, id);
     assert(bill.status === 'draft', 'Leverantörsfakturan är redan bokförd.');
     checkedDate(draft, bill.date);
-    if (bill.vatMode === 'reverse-construction') assert(bill.reverseConfirmed, 'Bekräfta att villkoren för omvänd byggmoms är uppfyllda innan du bokför.');
+    validateBillFinancials(bill, { requireConfirmation: true });
     const rows = getBillBookingRows(bill);
     const entry = appendEntry(draft, { date: bill.date, description: `${bill.supplier} · ${bill.number}`,
       sourceType: 'bill', sourceId: bill.id, rows });
@@ -195,6 +222,7 @@ export function payBill(state, id, payload) {
     assert(bill.status === 'booked', 'Bokför fakturan innan du registrerar en betalning.');
     const date = checkedDate(draft, payload?.date);
     assert(date >= bill.date, 'Betalningen får inte ligga före fakturadagen.');
+    assert(!bill.settlementLastDate || date >= bill.settlementLastDate, 'Betalningen får inte ligga före den senaste kredit- eller avräkningshändelsen.');
     const amountCents = cents(payload.amountCents, false);
     assert(amountCents <= getBillOutstanding(bill), 'Betalningen överstiger fakturans återstående belopp.');
     let existingBankEvent;
@@ -219,6 +247,8 @@ export function creditBill(state, id, payload) {
   return transact(state, draft => {
     const bill = findBill(draft, id);
     assert(bill.status === 'booked', 'Endast en bokförd faktura kan krediteras.');
+    assert(!bill.settlementLastDate && !bill.settlementCreditCents && !bill.settlementRefundCents && !bill.settlementOffsetInCents && !bill.settlementOffsetOutCents,
+      'Fakturan har redan kredit- eller avräkningshändelser. Använd det sammanhängande kreditflödet.');
     assert(bill.payments.length === 0, 'Full kreditering i demon kräver en helt obetald faktura.');
     const date = checkedDate(draft, payload?.date);
     assert(date >= bill.date, 'Krediten får inte ligga före den ursprungliga fakturan.');
@@ -227,7 +257,7 @@ export function creditBill(state, id, payload) {
     const entry = appendEntry(draft, { date, description: `Kredit · ${bill.number} · ${reason}`,
       sourceType: 'bill-credit', sourceId: bill.id, correctsEntryId: original.id,
       rows: original.rows.map(row => ({ account: row.account, debitCents: row.creditCents, creditCents: row.debitCents })) });
-    assertManagedExpenseCoverage(draft, bill.account === '5410');
+    assertManagedExpenseCoverage(draft, bill.account === '5410' || bill.lines?.some(line => line.account === '5410'));
     bill.status = 'credited';
     bill.creditEntryId = entry.id;
     bill.creditReason = reason;

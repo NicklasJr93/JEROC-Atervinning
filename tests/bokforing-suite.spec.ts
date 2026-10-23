@@ -6,7 +6,9 @@ const storageKey = 'scrapplanner-bokforing-suite-v2';
 const oldStorageKey = 'scrapplanner-bokforing-demo-v1';
 const demo = '/bokforing/index.html';
 test.use({ viewport: { width: 1440, height: 1000 }, isMobile: false, hasTouch: false });
-test.setTimeout(45_000);
+// End-to-end accounting scenarios now validate additional linked workflows.
+// Keep assertion timeouts strict while allowing the complete multi-step journey.
+test.setTimeout(90_000);
 
 async function open(page: Page, view = 'sales') {
   await page.goto(`${demo}#${view}`);

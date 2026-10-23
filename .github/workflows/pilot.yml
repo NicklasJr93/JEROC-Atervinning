@@ -61,7 +61,7 @@ jobs:
     name: Isolated business workflow browser checks
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -80,6 +80,11 @@ jobs:
           tests/bokforing-purchase-pages.spec.ts
           tests/bokforing-documents.spec.ts
           tests/bokforing-wiki.spec.ts
+          tests/bokforing-settlements.spec.ts
+          tests/bokforing-payroll-workspace.spec.ts
+          tests/bokforing-tax-rot.spec.ts
+          tests/bokforing-commercial.spec.ts
+          tests/bokforing-year-workspace.spec.ts
           tests/company-register-entrypoints.spec.ts
           tests/customer-form.spec.ts
           tests/customer-intake.spec.ts

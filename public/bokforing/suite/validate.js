@@ -4,10 +4,18 @@ import { ACCOUNTS, MAX_CENTS, accountBalance, assert, cents, validDate, validate
 import { getInvoiceTotals, invoiceBookingSnapshot } from './sales.js';
 import { calculateLineAmounts, calculateRot, ROT_RULES_2026 } from './rot.js';
 import { getReports, getVatPeriodBounds, getVatReport, validatePayrollRun } from './finance.js';
-import { accrualBookingSnapshot, getAccrualRemaining } from './periodization.js';
+import { accrualBookingSnapshot, getAccrualRemaining, getExpenseBasisEntries } from './periodization.js';
 import { validateInventoryState } from './inventory.js';
 import { validateInvoiceDetails } from './invoice-data.js';
 import { billSnapshot, validateBillDetails, validateBillAttachments, validateBillAttachmentAdditions } from './purchase-data.js';
+import { validateBillFinancials, getBillBookingRows } from './operations.js';
+import { fiscalPeriodForDate, historicalCompany } from './fiscal-periods.js';
+import { validateFiscalYears, validateYearWorkpapers, getYearReports } from './financial-years.js';
+import { validateSettlements } from './settlements.js';
+import { validatePayrollBatches } from './payroll-engine.js';
+import { validateCommercialState } from './commercial.js';
+import { validateTaxTransactions } from './tax-ledger.js';
+import { validateRotApplications } from './rot-extended.js';
 
 const debit = (account, amount) => ({ account, debitCents: amount, creditCents: 0 });
 const credit = (account, amount) => ({ account, debitCents: 0, creditCents: amount });
@@ -64,7 +72,7 @@ export function validateSuiteState(state) {
     return entry;
   };
   const noEntry = (entity, label) => assert(!entity.entryId, `${label} är ett utkast men har en bokförd verifikation.`);
-  const inYear = (value, label) => { date(value, label); assert(value >= state.company.fiscalYearStart && value <= state.company.fiscalYearEnd, `${label} ligger utanför räkenskapsåret.`); };
+  const inYear = (value, label) => { date(value, label); assert(fiscalPeriodForDate(state, value), `${label} ligger utanför registrerade räkenskapsår.`); };
   const projectFor = (id, customerId) => {
     if (id == null || id === '') return;
     const project = maps.projects.get(id);
@@ -147,9 +155,11 @@ export function validateSuiteState(state) {
     }
     const customerPaid = total(invoice.payments.filter(item => item.payer === 'customer').map(item => item.amountCents));
     const taxPaid = total(invoice.payments.filter(item => item.payer === 'tax').map(item => item.amountCents));
-    assert(customerPaid <= totals.customerCents && taxPaid <= totals.rotCents && customerPaid + taxPaid <= totals.grossCents, 'Kundbetalningar överstiger fakturans kvarvarande belopp.');
+    const extendedRot = (state.rotPlans ?? []).some(plan => plan.invoiceId === invoice.id);
+    const netTaxPaid = taxPaid - (extendedRot ? cents(invoice.rotRepaymentCents ?? 0) : 0);
+    assert(netTaxPaid >= 0 && customerPaid <= totals.customerCents && netTaxPaid <= totals.rotCents && customerPaid + netTaxPaid <= totals.grossCents, 'Kundbetalningar överstiger fakturans kvarvarande belopp.');
     if (!invoice.rot) assert(taxPaid === 0, 'Skatteverkets betalning saknar ROT-underlag.');
-    else {
+    else if (!extendedRot) {
       const rot = invoice.rot; const calculation = calculateRot(invoice);
       if (invoice.status !== 'draft') {
         cents(rot.reservedCents, false); cents(rot.remainingCents);
@@ -203,10 +213,8 @@ export function validateSuiteState(state) {
     assert(!supplierNumbers.has(number), 'Leverantörens fakturanummer har registrerats två gånger.'); supplierNumbers.add(number);
     inYear(bill.date, 'Leverantörsfakturan'); date(bill.dueDate, 'Förfallodagen'); assert(bill.dueDate >= bill.date, 'Leverantörsfakturans förfallodag är ogiltig.');
     projectFor(bill.projectId); cents(bill.netCents, false); cents(bill.vatCents); cents(bill.totalCents, false);
-    assert([0, 6, 12, 25].includes(bill.vatRate) && ['standard', 'reverse-construction', 'no-vat'].includes(bill.vatMode) && typeof bill.reverseConfirmed === 'boolean', 'Leverantörsfakturans momstyp är ogiltig.');
-    const expectedVat = bill.vatMode === 'standard' ? roundRate(bill.netCents, bill.vatRate, 100) : 0;
-    assert(bill.vatCents === expectedVat && bill.totalCents === bill.netCents + expectedVat && (bill.vatMode !== 'no-vat' || bill.vatRate === 0), 'Leverantörsfakturans belopp stämmer inte.');
-    assert(bill.vatMode === 'reverse-construction' ? bill.account === '4425' && bill.vatRate === 25 : ['4010', '5010', '5410', '5460', '6110', '6540', '6570', '6991'].includes(bill.account), 'Leverantörsfakturans kostnadskonto är ogiltigt.');
+    validateBillFinancials(bill, { requireConfirmation: bill.status !== 'draft' });
+    for (const line of bill.lines ?? []) projectFor(line.projectId);
     if (bill.details !== undefined) validateBillDetails(bill.details);
     if (bill.attachments !== undefined) validateBillAttachments(bill.attachments);
     validateBillAttachmentAdditions(bill);
@@ -215,9 +223,7 @@ export function validateSuiteState(state) {
     else {
       assert(bill.bookingSnapshot === billSnapshot(bill), 'Den bokförda leverantörsfakturans uppgifter har ändrats.');
       const entry = getEntry(bill.entryId, 'bill', bill.id, bill.date);
-      const expected = [debit(bill.account, bill.netCents), credit('2440', bill.totalCents)];
-      if (expectedVat) expected.push(debit('2641', expectedVat));
-      if (bill.vatMode === 'reverse-construction') { assert(bill.reverseConfirmed, 'Omvänd byggmoms saknar bekräftad bedömning.'); const reverseVat = roundRate(bill.netCents, 25, 100); expected.push(debit('2647', reverseVat), credit('2614', reverseVat)); }
+      const expected = getBillBookingRows(bill);
       sameRows(entry.rows, expected, 'Leverantörsfakturan');
       if (bill.status === 'credited') {
         assert(bill.payments.length === 0 && text(bill.creditReason, 300), 'Krediterad leverantörsfaktura har betalningar eller saknar orsak.');
@@ -237,7 +243,7 @@ export function validateSuiteState(state) {
   }
   const employeeMonths = new Set();
   for (const run of state.payrollRuns) {
-    validatePayrollRun(state, run);
+    validatePayrollRun({ ...state, company: historicalCompany(state, run.date) }, run);
     inYear(run.date, 'Lönekörningen'); assert(run.date.startsWith(`${run.month}-`) && ['draft', 'posted', 'paid'].includes(run.status), 'Lönekörningens period eller status är ogiltig.');
     requireArray(run.lines, 'Lönekörningen', 1000); assert(run.lines.length, 'Lönekörningen saknar anställda.'); unique(run.lines, 'employeeId', 'Lönekörningen');
     for (const line of run.lines) {
@@ -272,6 +278,18 @@ export function validateSuiteState(state) {
         sameRows(getEntry(run.taxSettlementEntryIds[1], 'payroll-tax-settlement', run.id, run.taxSettledDate).rows, [debit('2710', totals.withholdingCents), debit('2731', totals.employerCents), credit('1630', taxAmount)], 'Löneskattens reglering');
       } else assert(run.taxSettlementEntryIds.length === 0, 'Nollbeloppet för löneskatt har en regleringsverifikation.');
     } else assert(!run.taxSettlementEntryIds?.length && !run.taxSettledDate, 'Löneskatten har regleringsuppgifter utan betald status.');
+  }
+
+  // Both payroll editors share one ordinary salary per employee and month.
+  // Explicit v2 supplements retain their separate, checked tax calculation.
+  for (const batch of state.payrollBatches ?? []) {
+    if (batch.status === 'reversed') continue;
+    for (const person of batch.people ?? []) {
+      if (person.input?.kind !== 'regular') continue;
+      const key = `${batch.month}:${person.employeeId}`;
+      assert(!employeeMonths.has(key), 'En anställd har flera ordinarie lönekörningar för samma månad i de två löneflödena.');
+      employeeMonths.add(key);
+    }
   }
 
   for (const asset of state.assets) {
@@ -322,12 +340,13 @@ export function validateSuiteState(state) {
   for (const record of state.vatReturns) {
     inYear(record.from, 'Momsperiodens start'); inYear(record.to, 'Momsperiodens slut'); inYear(record.date, 'Momsomföringen');
     assert(record.from <= record.to && record.date >= record.to && ['filed', 'settled'].includes(record.status), 'Momsperiodens datum eller status är ogiltig.');
-    const bounds = getVatPeriodBounds(state, record.from);
+    const yearState = { ...state, company: historicalCompany(state, record.from) };
+    const bounds = getVatPeriodBounds(yearState, record.from);
     assert(record.from === bounds.from && record.to === bounds.to, 'Fastställt momsunderlag följer inte företagets valda momsperiod.');
     assert(state.vatReturns.every(other => other.id === record.id || record.to < other.from || record.from > other.to), 'Momsperioderna överlappar.');
-    const report = getVatReport(state, record);
+    const report = getVatReport(yearState, record);
     assert(record.outputCents === report.outputCents && record.inputCents === report.inputCents && record.payableCents === report.payableCents && signed(record.payableCents), 'Det fastställda momsunderlaget har ändrats.');
-    assert(JSON.stringify(record.balances) === JSON.stringify(report.balances), 'Momskontonas omföringsunderlag har ändrats.'); sameList(record.evidenceEntryIds, report.entries.map(entry => entry.id), 'Momsunderlagets verifikationer');
+    assert(record.balances && Object.keys(record.balances).every(account => Object.hasOwn(report.balances, account)) && Object.entries(report.balances).every(([account, amount]) => (record.balances[account] ?? 0) === amount), 'Momskontonas omföringsunderlag har ändrats.'); sameList(record.evidenceEntryIds, report.entries.map(entry => entry.id), 'Momsunderlagets verifikationer');
     const expected = Object.entries(record.balances).flatMap(([account, value]) => value > 0 ? [credit(account, value)] : value < 0 ? [debit(account, -value)] : []);
     if (record.payableCents > 0) expected.push(credit('2650', record.payableCents)); else if (record.payableCents < 0) expected.push(debit('2650', -record.payableCents));
     if (expected.length) sameRows(getEntry(record.entryId, 'vat-return', record.id, record.date).rows, expected, 'Momsomföringen'); else assert(record.entryId === null, 'En tom momsperiod har en omföringsverifikation.');
@@ -343,19 +362,32 @@ export function validateSuiteState(state) {
     } else assert(record.settlementEntryIds.length === 0, 'En oreglerad momsperiod har betalningsverifikationer.');
   }
 
-  assert(state.yearClosures.length <= 1, 'Räkenskapsåret har avslutats flera gånger.');
+  const yearKeys = state.yearClosures.map(closure => `${closure.fiscalYearStart}:${closure.fiscalYearEnd}`);
+  assert(new Set(yearKeys).size === yearKeys.length, 'Räkenskapsåret har avslutats flera gånger.');
   for (const closure of state.yearClosures) {
-    assert(closure.date === state.company.fiscalYearEnd && closure.fiscalYearStart === state.company.fiscalYearStart && closure.fiscalYearEnd === state.company.fiscalYearEnd && signed(closure.resultCents), 'Årsavslutets räkenskapsår är ogiltigt.');
-    const report = getReports(state); assert(report.resultCents === closure.resultCents && report.balanced, 'Årsavslutets resultat stämmer inte.');
+    const period = fiscalPeriodForDate(state, closure.date);
+    assert(period && closure.date === period.end && closure.fiscalYearStart === period.start && closure.fiscalYearEnd === period.end && signed(closure.resultCents), 'Årsavslutets räkenskapsår är ogiltigt.');
+    const report = getYearReports(state, { start: period.start, end: period.end }); assert(report.resultCents === closure.resultCents && report.balanced, 'Årsavslutets resultat stämmer inte.');
     if (closure.resultCents) sameRows(getEntry(closure.entryId, 'year-close', closure.id, closure.date).rows, closure.resultCents > 0 ? [debit('8999', closure.resultCents), credit('2099', closure.resultCents)] : [debit('2099', -closure.resultCents), credit('8999', -closure.resultCents)], 'Årsresultatet');
     else assert(closure.entryId === null, 'Nollresultatet har en felaktig bokning.');
     sameList(closure.openingBalances, report.accounts.filter(account => /^[12]/.test(account.number) && account.balanceCents).map(account => ({ account: account.number, debitCents: Math.max(0, account.balanceCents), creditCents: Math.max(0, -account.balanceCents) })), 'Nästa års ingående balanser');
   }
 
+  const settlementValidation = validateSettlements(state);
+  const payrollValidation = validatePayrollBatches(state);
+  const commercialValidation = validateCommercialState(state);
+  const taxValidation = validateTaxTransactions(state);
+  const rotValidation = validateRotApplications(state);
+  validateYearWorkpapers(state);
+  for (const id of [...validateFiscalYears(state), ...settlementValidation.claimedEntryIds, ...payrollValidation.entryIds, ...commercialValidation.entryIds, ...taxValidation.claimedEntryIds, ...rotValidation.claimedEntryIds]) {
+    assert(!claimedEntries.has(id), 'En verifikation får inte användas av flera underlag.');
+    claimedEntries.add(id);
+  }
+
   for (const entry of state.entries) {
     if (claimedEntries.has(entry.id)) continue;
     if (entry.sourceType === 'opening') {
-      assert(entry.date === state.company.fiscalYearStart && entry.rows.every(row => /^[12]/.test(row.account)), 'Ingående balans får bara innehålla balanskonton vid årets början.');
+      assert(entry.date === fiscalPeriodForDate(state, entry.date)?.start && entry.rows.every(row => /^[12]/.test(row.account)), 'Ingående balans får bara innehålla balanskonton vid årets början.');
     } else if (entry.sourceType === 'manual') {
       assert(entry.rows.every(row => !manualProtected.has(row.account) && !/^(26|27)/.test(row.account)), 'En manuell verifikation får inte kringgå reskontra, inventarier, moms eller löneskulder.');
     } else if (entry.sourceType === 'manual-correction') {
@@ -372,14 +404,19 @@ export function validateSuiteState(state) {
   const openingBalance = account => sum(state.entries.filter(entry => entry.sourceType === 'opening').flatMap(entry => entry.rows.filter(row => row.account === account).map(row => row.debitCents - row.creditCents)));
   const receivable = sum(state.invoices.filter(invoice => invoice.kind === 'invoice' && invoice.status === 'issued').map(invoice => getInvoiceTotals(invoice).grossCents - sum(invoice.payments.map(payment => payment.amountCents))));
   const payable = sum(state.bills.filter(bill => bill.status === 'booked').map(bill => bill.totalCents - sum(bill.payments.map(payment => payment.amountCents))));
-  assert(accountBalance(state, '1510') === openingBalance('1510') + receivable, 'Kundreskontran stämmer inte med huvudboken.');
-  assert(accountBalance(state, '2440') === openingBalance('2440') - payable, 'Leverantörsreskontran stämmer inte med huvudboken.');
+  assert(accountBalance(state, '1510') === openingBalance('1510') + receivable + settlementValidation.receivableAdjustmentCents + rotValidation.receivableAdjustmentCents, 'Kundreskontran stämmer inte med huvudboken.');
+  assert(accountBalance(state, '2440') === openingBalance('2440') - payable - settlementValidation.payableAdjustmentCents, 'Leverantörsreskontran stämmer inte med huvudboken.');
   const activeAssets = state.assets.filter(asset => asset.status === 'active');
+  for (const allocation of [...state.assets.map(asset => ({ date: asset.date, account: '5410' })), ...state.accruals.map(accrual => ({ date: accrual.date, account: accrual.expenseAccount }))]) {
+    const available = sum(getExpenseBasisEntries(state, allocation.date).filter(entry => entry.date <= allocation.date)
+      .flatMap(entry => entry.rows.filter(row => row.account === allocation.account).map(row => row.debitCents - row.creditCents)));
+    assert(available >= 0, 'En ny inventarie eller periodisering saknar kostnadsunderlag i sitt eget räkenskapsår.');
+  }
   assert(accountBalance(state, '1220') === openingBalance('1220') + sum(activeAssets.map(asset => asset.costCents)), 'Inventarieregistret stämmer inte med huvudbokens anskaffningsvärde.');
   assert(accountBalance(state, '1229') === openingBalance('1229') - sum(activeAssets.flatMap(asset => asset.depreciations.map(item => item.amountCents))), 'Inventarieregistret stämmer inte med huvudbokens avskrivningar.');
   assert(accountBalance(state, '1790') === openingBalance('1790') + sum(state.accruals.map(getAccrualRemaining)), 'Periodiseringsplanerna stämmer inte med huvudbokens förutbetalda kostnader.');
   assert(accountBalance(state, '1460') === (state.inventoryValuations.at(-1)?.valueCents ?? openingBalance('1460')), 'Lagerregistret stämmer inte med huvudbokens senast värderade lagervärde.');
-  if (state.assets.length || state.bills.some(bill => bill.account === '5410' && bill.status === 'credited')) {
+  if (state.assets.length || state.bills.some(bill => (bill.account === '5410' || bill.lines?.some(line => line.account === '5410')) && bill.status === 'credited')) {
     let availableEquipment = 0;
     const chronological = state.entries.map((entry, index) => ({ entry, index })).sort((a, b) => a.entry.date.localeCompare(b.entry.date) || a.index - b.index);
     for (const { entry } of chronological) {
@@ -400,9 +437,9 @@ export function validateSuiteState(state) {
     }
   }
   const postedPayroll = state.payrollRuns.filter(run => run.status !== 'draft');
-  assert(accountBalance(state, '2910') === openingBalance('2910') - sum(postedPayroll.filter(run => run.status === 'posted').flatMap(run => run.lines.map(line => line.netCents))), 'Löneskulden stämmer inte med obetalda lönekörningar.');
-  assert(accountBalance(state, '2710') === openingBalance('2710') - sum(postedPayroll.filter(run => !run.taxesSettled).flatMap(run => run.lines.map(line => line.withholdingCents))), 'Personalskatten stämmer inte med lönekörningarna.');
-  assert(accountBalance(state, '2731') === openingBalance('2731') - sum(postedPayroll.filter(run => !run.taxesSettled).flatMap(run => run.lines.map(line => line.employerCents))), 'Arbetsgivaravgifterna stämmer inte med lönekörningarna.');
+  assert(accountBalance(state, '2910') === openingBalance('2910') - sum(postedPayroll.filter(run => run.status === 'posted').flatMap(run => run.lines.map(line => line.netCents))) + (payrollValidation.accountBalances['2910'] ?? 0), 'Löneskulden stämmer inte med obetalda lönekörningar.');
+  assert(accountBalance(state, '2710') === openingBalance('2710') - sum(postedPayroll.filter(run => !run.taxesSettled).flatMap(run => run.lines.map(line => line.withholdingCents))) + (payrollValidation.accountBalances['2710'] ?? 0), 'Personalskatten stämmer inte med lönekörningarna.');
+  assert(accountBalance(state, '2731') === openingBalance('2731') - sum(postedPayroll.filter(run => !run.taxesSettled).flatMap(run => run.lines.map(line => line.employerCents))) + (payrollValidation.accountBalances['2731'] ?? 0), 'Arbetsgivaravgifterna stämmer inte med lönekörningarna.');
   assert(accountBalance(state, '2650') === openingBalance('2650') - sum(state.vatReturns.filter(record => record.status === 'filed').map(record => record.payableCents)), 'Momsskulden stämmer inte med fastställda och oreglerade perioder.');
   const report = getReports(state);
   assert(report.balanced && ACCOUNTS.every(account => Number.isSafeInteger(accountBalance(state, account.number))), 'Rapporterna balanserar inte eller innehåller för stora belopp.');

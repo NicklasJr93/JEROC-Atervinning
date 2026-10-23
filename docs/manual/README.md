@@ -47,7 +47,9 @@ en varning. Se [faktureringens omfattning och återstående delar](../../bokfori
 I **Inköp** öppnar du leverantörsfakturan på en egen sida. Välj **Ny
 leverantörsfaktura** för en arbetsyta med fakturauppgifter, konteringsförslag
 och underlag bredvid varandra på större skärmar. Spara utkastet och granska
-sedan innan du bokför. Demon använder en kostnadsrad per faktura.
+sedan innan du bokför. Lägg till konteringsrader med eget kostnadskonto,
+momstyp, momssats och avdragsandel. Svensk moms, momsfritt och omvänd byggmoms
+kan kombineras på samma faktura; granska villkoren per rad.
 
 Under **Inkomna underlag** kan du välja **Ladda upp fil**, dra in filer eller
 välja **Ta foto** på en mobil som stöder det. PDF, JPEG, PNG och WebP stöds;
@@ -79,9 +81,34 @@ underlagskopplingar. Uppladdade filer behålls i inkorgen; de kan kopplas på
 nytt eller tas bort när de är okopplade. Rensar du browserdata kan även
 filerna försvinna; den lokala inkorgen är inget serverarkiv.
 Inga verkliga betalningar, fakturor,
-ROT-begäranden eller deklarationer skickas. Löne- och skattebelopp bygger på
-angivna demoantaganden. Läs [omfattning och avgränsning](../../bokforing/README.md#den-här-versionens-gränser)
+ROT-begäranden eller deklarationer skickas. Den individuella lönearbetsytan
+använder publicerade skattetabeller för sina stödda fall; tidigare demokörningar
+med manuella skattebelopp bevaras. Läs [omfattning och avgränsning](../../bokforing/README.md#den-här-versionens-gränser)
 före en genomgång med redovisningskunnig.
+
+### Utökade ekonomiarbetsytor
+
+- **Krediter & återbetalningar:** välj faktura, ange nettobelopp per originalrad
+  och orsak. Krediten bevarar originalet. Tillgodon kan återbetalas eller kvittas
+  mot samma motparts faktura. ROT- och intäktsperiodiserade kundfakturor kräver
+  egna rättelseflöden och spärras här.
+- **Artiklar & avtal:** artikelregister, kundpris, återkommande fakturautkast,
+  påminnelseunderlag, projektets lageruttag och intäktsperiodisering. Planerna
+  skapar utkast att granska; inget skickas automatiskt.
+- **Lön:** granska varje anställds profil och A-skattsedel, spara individuella
+  rader och granska beräkningen innan bokföring. Tabellstöd och återstående
+  lönefall framgår i [löneomfattningen](../../bokforing/lon-regler-och-avgransning.md).
+- **Moms & ROT:** klassificera stödda betalda internationella affärer, välj
+  rapportperiod och följ momsavslut. ROT-fördelning, delbegäranden, beslut,
+  utbetalningar och återkrav finns på samma arbetsyta. Se
+  [moms- och ROT-avgränsning](../../bokforing/moms-och-rot-utbyggnad.md).
+- **Bokslut & räkenskapsår:** dokumentera och granska bokslutsbilagor,
+  stäng året och öppna nästa. Historiska poster, öppna fakturor och planer
+  behålls. Årsredovisnings- och skatteexport är granskningsunderlag, inte
+  inlämningsklara dokument. Se [årshanteringen](../../bokforing/bokslut-och-rakenskapsar.md).
+
+Förslaget till en framtida personlig SaaS-assistent beskrivs i
+[Ande per kundbolag](../../bokforing/ai-ande-saas.md). Ingen extern AI är ansluten.
 
 I den uppdaterade demon stoppas sparandet vid konflikt mellan flikar eller
 lagringsfel. Läs bannern och välj **Läs in senaste** för att fortsätta;

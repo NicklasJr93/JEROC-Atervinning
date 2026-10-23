@@ -7,7 +7,7 @@ import { escapeHtml as e } from './views.js';
 import {
   createPurchaseEditorDraft, renderPurchaseList, renderPurchaseEditor,
   readPurchaseEditor, renderPurchaseSummary, renderPurchaseDetail,
-  renderDocumentInbox, renderDocumentPanel, renderDocumentViewer, renderDocumentPicker, applyPurchaseVatMode,
+  renderDocumentInbox, renderDocumentPanel, renderDocumentViewer, renderDocumentPicker, applyPurchaseVatMode, changePurchaseLines, defaultPurchaseDate,
 } from './purchase-page.js';
 
 const actions = new Set(['new-bill','show-bill','edit-bill','copy-bill','purchase-back',
@@ -15,7 +15,7 @@ const actions = new Set(['new-bill','show-bill','edit-bill','copy-bill','purchas
   'select-document','select-inbox-document','download-document','remove-inbox-document',
   'create-bill-from-document','link-document-existing','reload-documents',
   'document-zoom-in','document-zoom-out','document-rotate','document-reset','book-bill',
-  'purchase-inbox','close-document-picker','close-inbox-preview']);
+  'purchase-inbox','close-document-picker','close-inbox-preview','purchase-add-line','purchase-remove-line']);
 const forms = new Set(['purchase-page','document-picker','link-document','purchase-book']);
 const path = (id, edit=false) => '#purchases/'+encodeURIComponent(id)+(edit?'/edit':'');
 
@@ -130,7 +130,9 @@ export function createPurchaseWorkspace({ getState, readStoredState, write, toas
       if (current.mode === 'copy') {
         const original = findBill(current.sourceId);
         assert(original, 'Leverantörsfakturan finns inte.');
-        source = Purchases.copyBillPayload(original, { date:'2026-10-23', dueDate:'2026-11-22' });
+        const date=defaultPurchaseDate(state), due=new Date(`${date}T12:00:00Z`);
+        due.setUTCDate(due.getUTCDate()+30);
+        source = Purchases.copyBillPayload(original, { date, dueDate:due.toISOString().slice(0,10) });
       }
       draft = createPurchaseEditorDraft(state, source);
       if (current.mode === 'copy') { draft.id = ''; draft.number = ''; draft.attachments = []; }
@@ -218,13 +220,15 @@ export function createPurchaseWorkspace({ getState, readStoredState, write, toas
     }
     if (target.closest('#purchase-page-form')) {
       const form = editor();
-      if (target.name === 'vatMode') applyPurchaseVatMode(form);
+      if (target.dataset.purchaseField === 'vatMode') applyPurchaseVatMode(form);
       dirty = true; updateSummary();
     }
   }
   async function action(name,id,element) {
     if (!actions.has(name)) return false;
     switch (name) {
+      case 'purchase-add-line': case 'purchase-remove-line':
+        requireWritable(); changePurchaseLines(editor(), name, Number(id), getState()); dirty=true; updateSummary(); break;
       case 'new-bill': navigate('#purchases/new'); break;
       case 'show-bill': navigate(path(id)); break;
       case 'edit-bill': navigate(path(id,true)); break;
