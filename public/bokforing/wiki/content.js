@@ -3,6 +3,9 @@
 const revision = 'c5134ecddc624c1e3a0e30e3e3f6058bcc8d0b95';
 const repository = `https://github.com/NicklasJr93/JEROC-Atervinning/blob/${revision}`;
 const source = (label, path) => ({ label, url: `${repository}/${path}` });
+// The accounting baseline keeps its own verified revision; Ande is a supplement.
+const andeRepository = 'https://github.com/NicklasJr93/JEROC-Atervinning/blob/45d107d2ae800893c52d0dd5207bbe30179f5aa3';
+const andeSource = (label, path) => ({ label, url: `${andeRepository}/${path}` });
 const updated = '2026-10-23';
 
 export const wikiMeta = {
@@ -42,7 +45,7 @@ export const articles = [
         'Öppna Inköp för att prova en leverantörsfaktura med ett uppladdat underlag.',
       ] },
       { id: 'lokala-uppgifter', title: 'Dina uppgifter stannar i webbläsaren', callout: {
-        title: 'En provmiljö', text: 'Bokföring och uppladdade filer sparas lokalt. De delas inte automatiskt med revisorn eller en annan enhet. Inga betalningar eller deklarationer skickas.', tone: 'info',
+        title: 'En provmiljö', text: 'Bokföring och uppladdade filer sparas lokalt. De delas inte automatiskt med revisorn eller en annan enhet. Inga betalningar eller deklarationer skickas. När du frågar Ande skickas frågan och vald demokontext till OpenAI via servern; du kan välja bort kontexten.', tone: 'info',
       } },
     ],
     sources: [source('Översikt och provflöde', 'bokforing/README.md')],
@@ -504,20 +507,28 @@ export const articles = [
     related: ['verifiering', 'kanda-begransningar', 'omfattning'],
   },
   {
-    id: 'ande', category: 'utveckling', title: 'Ande: förklaringar i den nuvarande demon',
-    summary: 'Assistenten kan förklara exempel och nästa steg men utför ingen självständig redovisningsgranskning.',
+    id: 'ande', category: 'utveckling', title: 'Ande: AI-stöd direkt i bokföringsdemon',
+    summary: 'OpenAI-ansluten assistent med begränsad demokontext, källhänvisningar och förslag att granska.',
     status: 'limited', updated, tags: ['Ande', 'AI', 'assistent', 'förklaring', 'redovisning'],
     sections: [
       { id: 'nuvarande-funktion', title: 'Det Ande gör nu', paragraphs: [
-        'Ande ger kontextbundna, exempelbaserade svar om bland annat ROT, debet/kredit, moms, lön, periodisering och bokslut. Vissa svar använder demobokens aktuella antal eller belopp.',
+        'Öppna Fråga Ande. Du behöver inte logga in. När serverns OpenAI-nyckel är konfigurerad skickas frågan till modellen. Anslutningsstatusen skiljer konfiguration från ett faktiskt mottaget AI-svar; vid fel visas ett felmeddelande, inte ett förskrivet ersättningssvar.',
+        'Ande får en avgränsad bild av aktuell demovy: rapportsummor, antal öppna poster och i relevanta vyer vald faktura eller verifikation med högst tolv rader. Den får inte automatiskt hela bokföringen, uppladdade original eller andra företags uppgifter. Osparade formulärändringar ingår inte.',
+        'Underlag till Ande visar vilka fält som skickas och låter dig välja bort dem. Dina egna frågor och radtexter kan också innehålla information, så använd fiktiva uppgifter. Samtalet finns i flikens minne och kan tömmas med Nytt samtal.',
+        'Svar kan innehålla förslag och hänvisningar till ett daterat kunskapspaket. Bara serverns tillåtna källor blir klickbara hänvisningar. En källhänvisning bevisar inte att modellens tolkning är riktig.',
         'Svaren ändrar inte bokföringen. Bokning, betalning och andra ändringar görs i de vanliga granskade arbetsflödena.',
       ] },
+      { id: 'teknik', title: 'Åtkomst och kostnad', paragraphs: [
+        'API-nyckeln ligger på servern som BOKFORING_OPENAI_API_KEY och skickas inte till webbläsaren. Den publika demon använder en separat tillfällig demosession med cookie och skydd mot anrop från andra webbplatser.',
+        'Det finns ingen total kredit- eller dygnsgräns i denna testversion. Korta anropsgränser och ett begränsat antal samtidiga anrop skyddar mot spam; varje modellfråga kan kosta pengar för tjänstens ägare.',
+        'Servern sparar användningsmetadata, inte chattens fullständiga text. Modellanropet använder store:false, vilket inte i sig garanterar noll lagring hos leverantören.',
+      ] },
       { id: 'begransning', title: 'Det Ande inte är', paragraphs: [
-        'Ingen extern språkmodell, fakturatolkning eller yrkesauktorisation ingår i denna version. Assistenten ersätter inte en redovisningskonsult eller revisor.',
-        'Ett framtida AI-förslag behöver visa vilka uppgifter och regler det bygger på, skilja förslag från bokförda beslut och lämna osäkra fall för granskning.',
+        'Ande är inte auktoriserad revisor eller redovisningskonsult och utför ingen oberoende revision. Modellen kan dra fel slutsatser även när beloppen och källorna är riktiga.',
+        'Kunskapspaketet beskriver avgränsade 2026-fall och demofunktioner. Aktuella myndighetssidor hämtas inte vid varje fråga. Dokumenttolkning, fullständig regelbevakning, långsiktigt företagsminne och strukturerade bokföringsförslag med acceptflöde återstår.',
       ] },
     ],
-    sources: [source('Assistentens exempelbaserade svar', 'public/bokforing/suite/app.js'), source('Demons avgränsning', 'bokforing/README.md'), source('Plan för personlig SaaS-assistent', 'bokforing/ai-ande-saas.md')],
+    sources: [andeSource('Anslutning, test och avgränsningar', 'bokforing/ande-openai-test.md'), andeSource('Serveråtkomst och anropsgränser', 'server/bokforing-ande.mjs'), andeSource('OpenAI-anrop och instruktioner', 'server/bokforing-ande-provider.mjs'), andeSource('Daterat kunskapspaket', 'server/bokforing-ande-knowledge.mjs'), andeSource('Kontext och samtalsvy', 'public/bokforing/suite/ande-client.js')],
     related: ['ande-saas', 'for-revisorn', 'kontering', 'kanda-begransningar'],
   },
   {
@@ -564,7 +575,7 @@ export const articles = [
       ] },
       { id: 'rattelser', title: 'Rättelser och gränser', paragraphs: [
         'En bokförd men ännu inte utbetald lönekörning kan återföras med länk till originalet. Positiva kompletteringar finns för tidigare bokförd eller betald lön.',
-        'Negativa rättelser efter utbetalning, återkrav, engångsskatt, fler avgiftsnedsättningar, pensions-/försäkringshantering och fullständiga kollektivavtal återstår.',
+        'Stödda engångsbelopp kräver granskat helårslöneunderlag. Negativa rättelser efter utbetalning, återkrav, fler avgiftsnedsättningar, pensions-/försäkringshantering och fullständiga kollektivavtal återstår.',
         'Exporten är en gransknings-CSV. Den är inte AGI-XML och skickas inte till Skatteverket.',
       ] },
     ],
@@ -689,10 +700,10 @@ export const articles = [
       { id: 'forslag-och-ansvar', title: 'Förslag, granskning och ansvar', paragraphs: [
         'Första anslutna versionen är tänkt att läsa, förklara och föreslå kontering med källor och osäkerheter. Godkända förslag ska passera samma bokföringskontroller som manuell registrering.',
         'Kunskapsmålet är kvalificerat redovisningsstöd. En språkmodell blir inte auktoriserad revisor genom träning och kan inte lämna ett oberoende revisionsuttalande.',
-        'Detta är en plan. Den nuvarande Ande använder lokala exempelsvar; extern modell, SaaS-minne och serverbaserad bolagsisolering är inte implementerade i demon.',
+        'Personligt SaaS-minne och bolagsavgränsad åtkomst till riktig bokföring är fortfarande en plan. Den nuvarande offentliga Ande är OpenAI-ansluten med tillfälliga demosamtal och ett avgränsat underlag från webbläsaren. Den använder inte produktionsbolagens bokföring.',
       ] },
     ],
-    sources: [source('Arkitektur, ansvar och planerade API-kontrakt', 'bokforing/ai-ande-saas.md'), source('Nuvarande lokala assistent', 'public/bokforing/suite/app.js')],
+    sources: [andeSource('Arkitektur, ansvar och planerade API-kontrakt', 'bokforing/ai-ande-saas.md'), andeSource('Ansluten demoassistent', 'bokforing/ande-openai-test.md')],
     related: ['ande', 'for-revisorn', 'kanda-begransningar'],
   },
 ];
