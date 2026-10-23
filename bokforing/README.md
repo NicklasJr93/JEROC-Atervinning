@@ -12,6 +12,10 @@ Granskningen tillför **1 798 nya auditfall**. Tillsammans med **455 befintliga 
 
 Ovanstående resultat avser den första granskningen. Uppföljningen nedan rättar de då identifierade funktionsluckorna. Godkända tester är ingen garanti för full regelefterlevnad eller ett myndighetsgodkännande; en redovisare behöver bedöma tillämpningen på de verkliga affärerna.
 
+### Andra testomgången
+
+**66 nya automatiska testfall och 2 nya browserfall.** Hela den automatiska sviten omfattar nu **2 451 godkända tester**. De riktade webbläsarproven omfattar åtta arbetsflödesfall och sex wiki-fall. Två fel hittades och rättades: betalning av redan bokförd lön efter slutlig årsbedömning och momsfri återföring i fastställd momsperiod. [Kort rapport och metod](granskning/2026-10-23-andra-testomgangen.md). Tidigare resultat nedan är historiska.
+
 ### Åtgärder efter granskningen
 
 Nya kundfakturor i de ordinarie flödena, valuta- och kontantmetodsflödena kontrolleras före utfärdande: fullständiga parter och adresser, relevanta momsnummer, aktiebolagsuppgifter och uttryckligt bekräftat utförandedatum eller period. Kopior måste granskas på nytt; sparade original ändras inte. Förskott och framtida prestationer stoppas tills ett korrekt separat flöde finns.

@@ -1,6 +1,6 @@
 // Editorial snapshot for the public, read-only bookkeeping wiki.
 // Text describes the verified demo version below, not a production certification.
-const revision = 'ee235b3efbf0181dfbe5248861ae342604054923';
+const revision = '0b66b070cd8b31aa337999bc0db828ab57399193';
 const repository = `https://github.com/NicklasJr93/JEROC-Atervinning/blob/${revision}`;
 const source = (label, path) => ({ label, url: `${repository}/${path}` });
 const historicalSource = (label, path) => ({ label, url: `https://github.com/NicklasJr93/JEROC-Atervinning/blob/c5134ecddc624c1e3a0e30e3e3f6058bcc8d0b95/${path}` });
@@ -15,7 +15,7 @@ export const wikiMeta = {
   asOf: updated,
   versionUrl: `https://github.com/NicklasJr93/JEROC-Atervinning/commit/${revision}`,
   scope: 'Dokumentation av den lokala bokföringsdemon och åtgärdsversionen',
-  verification: { model: 2384, http: 1, browser: 115 },
+  verification: { model: 2450, http: 1, browser: 14 },
   description: 'Förstå arbetssätten, följ kontrollerna till koden och se vad som återstår.',
 };
 
@@ -30,9 +30,85 @@ export const categories = [
 
 export const articles = [
   {
+  "id": "andra-testomgangen-2026",
+  "category": "granskning",
+  "title": "Andra testomgången: 66 nya fall och två rättningar",
+  "summary": "2 451 automatiska tester samt riktade webbläsarprov. Två nya fel hittades och rättades.",
+  "status": "guide",
+  "updated": "2026-10-23",
+  "tags": [
+    "test",
+    "granskning",
+    "lön",
+    "årsbedömning",
+    "moms",
+    "återföring",
+    "66",
+    "2451"
+  ],
+  "sections": [
+    {
+      "id": "resultat",
+      "title": "Aktuellt testresultat",
+      "paragraphs": [
+        "66 nya automatiska testfall och samtliga 2 385 tidigare fall är godkända: totalt 2 451. Inga underkända eller överhoppade fall i slutkörningen.",
+        "Åtta riktade webbläsarfall är godkända, varav två nya. Därutöver kontrolleras de sex befintliga wiki-fallen efter uppdateringen. Det är ett urval för denna ändring; de 115 fallen i den föregående omgången är historiska resultat."
+      ]
+    },
+    {
+      "id": "ratta",
+      "title": "Två fel som hittades och rättades",
+      "bullets": [
+        "Lön: en redan bokförd, obetald körning kunde betalas efter en slutlig årsbedömning under 1 000 kr. Nu måste en uttrycklig ny årsavstämning göras innan ytterligare betalning. Det gäller både den nya och äldre lönemodulen, även noll nettolön och flerpersonskörning.",
+        "Moms: en separat momsfri affär kunde återföras inom en redan fastställd period. Nu stoppas återföringar som skulle ändra periodens deklarationsrutor, även om själva momsbeloppet är noll. Rättelser i nästa öppna period och momsneutrala inköpsrättelser fungerar fortfarande."
+      ]
+    },
+    {
+      "id": "metod",
+      "title": "Vad de nya testerna prövar",
+      "bullets": [
+        "15 fakturafall: ändrade kunder/bolagsuppgifter, krediter, kopior, frysta original och försök att kringgå kraven.",
+        "12 betalningsfall: olika uppdelningar av samma betalning och återbetalning i vanlig fakturering, valuta och kontantmetod ska bevara alla ören.",
+        "19 lönefall: årsgräns, AGI, förmåner, återkrav, perioder, flera personer och spärrarnas atomicitet.",
+        "20 momsfall: klassningar, krediter, periodgränser, deklarationer och kvarstående gamla oklassade underlag.",
+        "Två nya webbläsarfall: fakturaspärrar vid omladdning och kopiering samt oförändrade sparade data efter ett nekat, forcerat knapptryck."
+      ]
+    },
+    {
+      "id": "grans",
+      "title": "Resultatets gräns",
+      "callout": {
+        "title": "Teknisk testning av demon",
+        "text": "Antalet tester är inte ett antal godkända lagkrav. Testerna styrker de dokumenterade exemplen och spärrarna. Full regelefterlevnad, verkliga underlag och lämplighet för skarp drift behöver fortsatt granskning.",
+        "tone": "info"
+      }
+    }
+  ],
+  "sources": [
+    {
+      "label": "Kort rapport och metod",
+      "url": "https://github.com/NicklasJr93/JEROC-Atervinning/blob/0b66b070cd8b31aa337999bc0db828ab57399193/bokforing/granskning/2026-10-23-andra-testomgangen.md"
+    },
+    {
+      "label": "Hela testförteckningen (CSV)",
+      "url": "/bokforing/granskning/atgarder/testresultat-omtest-2-2026-10-23.csv"
+    },
+    {
+      "label": "Maskinläsbart testresultat",
+      "url": "/bokforing/granskning/atgarder/omtest-2-2026-10-23.json"
+    }
+  ],
+  "related": [
+    "for-revisorn",
+    "verifiering",
+    "atgarder-2026",
+    "kanda-begransningar"
+  ]
+},
+  {
   "id": "atgarder-2026",
   "category": "granskning",
-  "title": "Åtgärder: fakturakrav, moms och lönegräns",
+  "title": "Första åtgärdsomgången: fakturakrav, moms och lönegräns",
   "summary": "132 nya modellfall, fullständig regressionskörning och en kort uppföljande rapport.",
   "status": "guide",
   "updated": "2026-10-23",
@@ -244,7 +320,7 @@ export const articles = [
     status: 'guide', updated, tags: ['revisor', 'redovisningskonsult', 'granskning', 'checklista', 'bevis'],
     sections: [
       { id: 'ordning', title: 'Rekommenderad ordning', steps: [
-        'Börja med den korta PDF-rapporten under Åtgärder: fakturakrav, moms och lönegräns. Läs Systemets omfattning och Kända begränsningar och välj ett avgränsat affärsfall.',
+        'Börja med Andra testomgången för aktuellt resultat och rättningar; tidigare PDF-rapporter finns under Första åtgärdsomgången. Läs Systemets omfattning och Kända begränsningar och välj ett avgränsat affärsfall.',
         'Prova en kund- eller leverantörsfaktura. Jämför uppgifter, underlag, summa och kontering innan den bokförs.',
         'Följ fakturans verifikation, betalning och eventuella kredit. Kontrollera att samma belopp återfinns i rapporterna.',
         'Prova en spärr: ett felaktigt belopp, en överbetalning eller bokning i en låst period.',
@@ -265,7 +341,7 @@ export const articles = [
       ] },
     ],
     sources: [source('Omfattning, kontroller och export', 'bokforing/README.md'), source('Rapporter och granskningsåtgärder', 'public/bokforing/suite/app.js')],
-    related: ['atgarder-2026', 'regelgranskning-2026', 'omfattning', 'verifiering', 'kanda-begransningar', 'bokslut-rapporter'],
+    related: ['andra-testomgangen-2026', 'atgarder-2026', 'regelgranskning-2026', 'omfattning', 'verifiering', 'kanda-begransningar', 'bokslut-rapporter'],
   },
   {
     id: 'omfattning', category: 'kom-igang', title: 'Systemets omfattning',
@@ -617,7 +693,12 @@ export const articles = [
     summary: 'Historiska testresultat, de nya funktionernas provfiler och vad verifieringen kan visa.',
     status: 'guide', updated, tags: ['tester', 'bevis', 'testresultat', 'kvalitet', '320', '75', 'version'],
     sections: [
-      { id: 'atgarder-resultat', title: 'Aktuella åtgärder och slutprov', paragraphs: [
+      { id: 'omtest2-resultat', title: 'Senaste omtestet och rättningarna', paragraphs: [
+        'Version 0b66b07: 2 450 modell-/lagrings-/AI-fall och 1 HTTP-test, totalt 2 451 godkända. 66 nya fall ingår. Ingen underkänd eller överhoppad kontroll i slutkörningen.',
+        '14 riktade webbläsarfall ingår i denna verifiering: åtta för arbetsflöden (två nya) samt sex omkörda wiki-fall. Detta ersätter inte de tidigare bredare browserkörningarna; deras resultat behålls nedan som historik.',
+        'Två funktionsfel hittades och rättades: lönebetalning efter slutlig årsbedömning och momsfri återföring efter fastställd momsperiod.',
+      ] },
+      { id: 'atgarder-resultat', title: 'Första åtgärdsomgången: version ee235b3', paragraphs: [
         'Version ee235b3: 2 384 modell-/lagrings-/AI-fall och 1 HTTP-test, totalt 2 385 godkända. 132 nya fall avser åtgärderna efter den första granskningen.',
         '115 webbläsarfall är godkända. Bokföringskod och testfiler är versionsbundna; wikin och åtgärdsrapporten publiceras därefter och har egna slutprov.',
         'Fakturornas fältkrav, explicit momsundantag och den årliga avgiftsgränsen är implementerade inom dokumenterad omfattning. Rapporten beskriver kvarvarande drift- och specialfallsbegränsningar.',
@@ -655,7 +736,7 @@ export const articles = [
       ] },
     ],
     sources: [{ label: 'Aktuell granskningsrapport (PDF)', url: '/bokforing/granskning/granskningsrapport-2026-10-23.pdf' }, source('Historisk slutrapport för b512afc', 'bokforing/granskning/2026-10-23-funktionskomplettering.md'), historicalSource('Historisk verifiering och omprov för c5134ec', 'bokforing/granskning/2026-10-23-utbyggnad.md'), source('Aktuell omfattning', 'bokforing/README.md'), source('SIE-prov', 'server/bokforing-sie.test.mjs'), source('Semester och löneåterkrav', 'server/bokforing-payroll-completion.test.mjs'), source('Löneåterkrav till AGI med XSD-kontroll', 'server/bokforing-declaration-payroll-integration.test.mjs'), source('Kontroll vid återläsning', 'server/bokforing-suite-validation.test.mjs')],
-    related: ['atgarder-2026', 'regelgranskning-2026', 'for-revisorn', 'kanda-begransningar', 'andringar'],
+    related: ['andra-testomgangen-2026', 'atgarder-2026', 'regelgranskning-2026', 'for-revisorn', 'kanda-begransningar', 'andringar'],
   },
   {
     id: 'kanda-begransningar', category: 'granskning', title: 'Kända begränsningar och kvarstående arbete',
@@ -696,6 +777,7 @@ export const articles = [
           ['Egna kundfakturasidor', 'Stor editor, egna adresser, fakturauppgifter, rabatter/avgifter, kopiering och frysta dokumentuppgifter.'],
           ['Leverantörssidor och underlagsinkorg', 'Egna sidor, lokal fil-/kamerainmatning, originalvisning, dubblettkontroll och kompletteringar efter bokföring.'],
           ['Utbyggda ekonomiflöden', 'Fler inköpsrader, delkrediter/återbetalningar, individuella löner, utökad moms/ROT, artikel-/avtalsflöden och fortsatt bokföring nästa år.'],
+          ['Andra testomgången', '66 nya automatiska fall och två rättningar av löne-/momsspärrar.'],
           ['Fakturakrav, moms och årsgräns', 'Obligatoriska fakturauppgifter, explicit momsundantag, lönens årsgräns och uppföljande testprotokoll.'],
           ['Teknisk regelgranskning', '1 798 nya auditfall, 13 fynd med åtgärder och PDF-rapport för extern redovisningsgranskning.'],
           ['Bokföringsfunktioner och filutbyte', 'SIE 4, EUR/USD-fakturor, kontantmetod, semesterkonton, löneåterkrav, ROT-/periodiseringskrediter samt AGI-, moms- och INK2/SRU-export.'],

@@ -1,0 +1,163 @@
+
+> jeroc-gardsapp-demo@0.3.0 build
+> node scripts/build-domain-models.mjs && tsc -b && vite build --outDir /workspace/review2-build-output
+
+vite v6.4.4 building for production...
+
+(!) outDir /workspace/review2-build-output is not inside project root and will not be emptied.
+Use --emptyOutDir to override.
+
+transforming...
+✓ 1911 modules transformed.
+rendering chunks...
+computing gzip size...
+../review2-build-output/index.html                                          1.10 kB │ gzip:   0.49 kB
+../review2-build-output/assets/CustomerApprovalApp-CblBL9Rf.css             0.66 kB │ gzip:   0.31 kB
+../review2-build-output/assets/DemoLoginShortcuts-Crm5TbuL.css              1.06 kB │ gzip:   0.48 kB
+../review2-build-output/assets/types-BKFv6kKF.css                           1.11 kB │ gzip:   0.45 kB
+../review2-build-output/assets/VehicleRegistry-BV1ejIqB.css                 1.15 kB │ gzip:   0.44 kB
+../review2-build-output/assets/FacilitiesWorkspace-C132ec2L.css             1.39 kB │ gzip:   0.52 kB
+../review2-build-output/assets/CarrierApp-BUz6ouDr.css                      1.81 kB │ gzip:   0.62 kB
+../review2-build-output/assets/CompanyLookup-q8srpooz.css                   2.57 kB │ gzip:   0.73 kB
+../review2-build-output/assets/CompanySettingsWorkspace-w-TBNqqx.css        3.09 kB │ gzip:   0.76 kB
+../review2-build-output/assets/swish-integration-D09sLxIO.css               3.91 kB │ gzip:   1.22 kB
+../review2-build-output/assets/shared-data-Cjbxg2xj.css                     4.00 kB │ gzip:   1.07 kB
+../review2-build-output/assets/VismaSandboxWorkspace-DlLU2RLX.css           4.13 kB │ gzip:   1.01 kB
+../review2-build-output/assets/OpenPaymentsIntegrationPanel-BM6YuZFL.css    4.44 kB │ gzip:   1.31 kB
+../review2-build-output/assets/SettlementView-DjdYd2Vh.css                  4.81 kB │ gzip:   1.25 kB
+../review2-build-output/assets/EquipmentWorkspace-CMMFCxMr.css              5.23 kB │ gzip:   1.53 kB
+../review2-build-output/assets/WarehouseWorkspace-CAobnQzn.css              5.30 kB │ gzip:   1.49 kB
+../review2-build-output/assets/nvv-sandbox-OsHvdo_i.css                     5.89 kB │ gzip:   1.60 kB
+../review2-build-output/assets/VesselsWorkspace-Dr3cGXrG.css                6.77 kB │ gzip:   1.88 kB
+../review2-build-output/assets/person-lookup-DiDl6yuV.css                   7.47 kB │ gzip:   1.90 kB
+../review2-build-output/assets/driver-BV8HuQ-w.css                          8.57 kB │ gzip:   2.26 kB
+../review2-build-output/assets/WorkOrdersWorkspace-BMZwJLAr.css            14.50 kB │ gzip:   3.40 kB
+../review2-build-output/assets/FleetWorkspace-DehVzKk1.css                 14.90 kB │ gzip:   3.33 kB
+../review2-build-output/assets/leaflet-CIGW-MKW.css                        15.61 kB │ gzip:   6.46 kB
+../review2-build-output/assets/terminal-C39vwGYr.css                       16.26 kB │ gzip:   4.16 kB
+../review2-build-output/assets/PlatformGate-Cq_H0Jwr.css                   17.30 kB │ gzip:   3.96 kB
+../review2-build-output/assets/PersonalWorkspace-B9OQxPxA.css              17.86 kB │ gzip:   3.75 kB
+../review2-build-output/assets/voice-test-NnVM9xGB.css                     20.12 kB │ gzip:   4.61 kB
+../review2-build-output/assets/CustomerApp-DDxXJpnv.css                    28.45 kB │ gzip:   5.26 kB
+../review2-build-output/assets/AiSupportSettings-VA3JFD7V.css              29.71 kB │ gzip:   5.84 kB
+../review2-build-output/assets/IntegrationsWorkspace-C_51Dfir.css          29.75 kB │ gzip:   5.96 kB
+../review2-build-output/assets/TestCarApp-uz_fo-Dt.css                     29.96 kB │ gzip:   6.56 kB
+../review2-build-output/assets/index-CUJD4E6A.css                          40.65 kB │ gzip:   9.33 kB
+../review2-build-output/assets/TransportWorkspace-Yoq3f5hF.css             40.93 kB │ gzip:   8.68 kB
+../review2-build-output/assets/MobileAppEntry-BWAZfTjF.css                 53.05 kB │ gzip:  10.37 kB
+../review2-build-output/assets/OfficeApp-Bbwxmk_A.css                     200.85 kB │ gzip:  36.77 kB
+../review2-build-output/assets/index-DdkQkPMv.js                            0.07 kB │ gzip:   0.08 kB
+../review2-build-output/assets/use-tenant-company-Cn-zVV4o.js               0.29 kB │ gzip:   0.24 kB
+../review2-build-output/assets/check-DrXf6Ur7.js                            0.30 kB │ gzip:   0.25 kB
+../review2-build-output/assets/chevron-down-2BEj_9Tm.js                     0.31 kB │ gzip:   0.25 kB
+../review2-build-output/assets/chevron-right-q_F4RJBM.js                    0.31 kB │ gzip:   0.25 kB
+../review2-build-output/assets/chevron-left-BgqQ2W8E.js                     0.31 kB │ gzip:   0.25 kB
+../review2-build-output/assets/square-C35qYZb-.js                           0.33 kB │ gzip:   0.26 kB
+../review2-build-output/assets/navigation-CYtfMVHX.js                       0.33 kB │ gzip:   0.26 kB
+../review2-build-output/assets/x-DhSe9ls_.js                                0.33 kB │ gzip:   0.26 kB
+../review2-build-output/assets/arrow-right-Ce0wYPi5.js                      0.34 kB │ gzip:   0.27 kB
+../review2-build-output/assets/arrow-left-D3S45qyf.js                       0.34 kB │ gzip:   0.27 kB
+../review2-build-output/assets/arrow-up-right-BrlZ40tS.js                   0.35 kB │ gzip:   0.27 kB
+../review2-build-output/assets/gauge-L5wWnYao.js                            0.36 kB │ gzip:   0.28 kB
+../review2-build-output/assets/message-square-B0g1DOzi.js                   0.36 kB │ gzip:   0.28 kB
+../review2-build-output/assets/clock-3-kqWdtWH4.js                          0.36 kB │ gzip:   0.28 kB
+../review2-build-output/assets/rotate-ccw-BwW3VnxR.js                       0.38 kB │ gzip:   0.29 kB
+../review2-build-output/assets/info-S_-9RAKn.js                             0.38 kB │ gzip:   0.28 kB
+../review2-build-output/assets/circle-x-dh8yzoOk.js                         0.38 kB │ gzip:   0.29 kB
+../review2-build-output/assets/arrow-down-to-line-5jRawJ1x.js               0.39 kB │ gzip:   0.29 kB
+../review2-build-output/assets/undo-2-CHhsoZJj.js                           0.39 kB │ gzip:   0.29 kB
+../review2-build-output/assets/nvv-sandbox-5tLE63tR.js                      0.39 kB │ gzip:   0.28 kB
+../review2-build-output/assets/equipment-types-qSnVZT0Z.js                  0.40 kB │ gzip:   0.31 kB
+../review2-build-output/assets/circle-help-q7sD7Mmj.js                      0.41 kB │ gzip:   0.31 kB
+../review2-build-output/assets/history-D3UngITv.js                          0.42 kB │ gzip:   0.30 kB
+../review2-build-output/assets/link-2-BG0nFtG4.js                           0.42 kB │ gzip:   0.31 kB
+../review2-build-output/assets/database-B1ENrnjg.js                         0.42 kB │ gzip:   0.31 kB
+../review2-build-output/assets/circle-alert-B_2l-Ft8.js                     0.43 kB │ gzip:   0.30 kB
+../review2-build-output/assets/route-DDV4smv0.js                            0.43 kB │ gzip:   0.31 kB
+../review2-build-output/assets/map-pin-Rcx5ZXes.js                          0.43 kB │ gzip:   0.33 kB
+../review2-build-output/assets/file-check-2-DXkXWew6.js                     0.44 kB │ gzip:   0.31 kB
+../review2-build-output/assets/monitor-C3Akbpek.js                          0.44 kB │ gzip:   0.31 kB
+../review2-build-output/assets/triangle-alert-QVkxLfE7.js                   0.44 kB │ gzip:   0.32 kB
+../review2-build-output/assets/types-BUG7fNBv.js                            0.46 kB │ gzip:   0.32 kB
+../review2-build-output/assets/flask-conical-De8VKF2R.js                    0.48 kB │ gzip:   0.34 kB
+../review2-build-output/assets/clipboard-check-PifDKYz3.js                  0.48 kB │ gzip:   0.34 kB
+../review2-build-output/assets/shield-check-B33uhsO1.js                     0.50 kB │ gzip:   0.36 kB
+../review2-build-output/assets/refresh-cw-CanGSaoa.js                       0.50 kB │ gzip:   0.33 kB
+../review2-build-output/assets/terminal-BiybWQ3s.js                         0.50 kB │ gzip:   0.35 kB
+../review2-build-output/assets/file-text-B1ggykuh.js                        0.51 kB │ gzip:   0.32 kB
+../review2-build-output/assets/visma-sandbox-client-B-f46o0O.js             0.52 kB │ gzip:   0.27 kB
+../review2-build-output/assets/package-CRjfBZ4C.js                          0.57 kB │ gzip:   0.36 kB
+../review2-build-output/assets/phone-CBOy5bLi.js                            0.57 kB │ gzip:   0.37 kB
+../review2-build-output/assets/truck-CbrgY4F8.js                            0.58 kB │ gzip:   0.37 kB
+../review2-build-output/assets/clipboard-list-DjtTYJiH.js                   0.59 kB │ gzip:   0.37 kB
+../review2-build-output/assets/building-2-D09qvSlf.js                       0.62 kB │ gzip:   0.36 kB
+../review2-build-output/assets/unplug-DrIbkT1n.js                           0.62 kB │ gzip:   0.37 kB
+../review2-build-output/assets/wifi-off-Bq8FjGQf.js                         0.64 kB │ gzip:   0.38 kB
+../review2-build-output/assets/calendar-days-Dat_o7c0.js                    0.67 kB │ gzip:   0.37 kB
+../review2-build-output/assets/phone-call-ZgQqsB7j.js                       0.69 kB │ gzip:   0.41 kB
+../review2-build-output/assets/sparkles-BJ283yqM.js                         0.69 kB │ gzip:   0.41 kB
+../review2-build-output/assets/payment-details-CVX7ROsC.js                  0.69 kB │ gzip:   0.33 kB
+../review2-build-output/assets/play-CBZWkroQ.js                             0.72 kB │ gzip:   0.38 kB
+../review2-build-output/assets/sliders-horizontal-DQAtzKJ-.js               0.76 kB │ gzip:   0.37 kB
+../review2-build-output/assets/repeat-2-OiYm6T3x.js                         0.78 kB │ gzip:   0.39 kB
+../review2-build-output/assets/log-out-DJN_x2zX.js                          0.81 kB │ gzip:   0.43 kB
+../review2-build-output/assets/swish-integration-Dmj5tcSi.js                0.86 kB │ gzip:   0.50 kB
+../review2-build-output/assets/user-round-Dedn8eGF.js                       0.92 kB │ gzip:   0.38 kB
+../review2-build-output/assets/heart-pulse-CiRbjKSc.js                      0.92 kB │ gzip:   0.46 kB
+../review2-build-output/assets/tenant-public-context-uslq4J95.js            0.97 kB │ gzip:   0.60 kB
+../review2-build-output/assets/volume-2-1NdwinaV.js                         1.35 kB │ gzip:   0.54 kB
+../review2-build-output/assets/DemoLoginShortcuts-Dn7QnzDp.js               1.41 kB │ gzip:   0.81 kB
+../review2-build-output/assets/createLucideIcon-Bk3wUMy6.js                 1.58 kB │ gzip:   0.66 kB
+../review2-build-output/assets/client-LaGOrjZ4.js                           2.79 kB │ gzip:   1.25 kB
+../review2-build-output/assets/MobilePaymentFields-Bm3QBoeS.js              2.83 kB │ gzip:   1.23 kB
+../review2-build-output/assets/terminal-demo-client-D9MUPUi-.js             3.47 kB │ gzip:   1.57 kB
+../review2-build-output/assets/model-DQv_80or.js                            3.50 kB │ gzip:   1.61 kB
+../review2-build-output/assets/SettlementView-CFf2x-xw.js                   5.74 kB │ gzip:   2.06 kB
+../review2-build-output/assets/DriverLogistics-CRme4QrB.js                  5.96 kB │ gzip:   2.11 kB
+../review2-build-output/assets/data-KTV0R2pp.js                             7.87 kB │ gzip:   2.91 kB
+../review2-build-output/assets/VehicleRegistry-BwHvS9s5.js                  8.05 kB │ gzip:   3.23 kB
+../review2-build-output/assets/PublicCustomerIntakeApp-CPX3eB3l.js          8.49 kB │ gzip:   3.26 kB
+../review2-build-output/assets/BankSandboxWorkspace-CK3_Ewdo.js             9.99 kB │ gzip:   3.63 kB
+../review2-build-output/assets/PublicVoiceTestApp-gSXiT_pX.js              11.24 kB │ gzip:   4.03 kB
+../review2-build-output/assets/SwishSandboxWorkspace-DYqoVv_v.js           12.51 kB │ gzip:   4.73 kB
+../review2-build-output/assets/DriverApp-BPYLMAs7.js                       12.52 kB │ gzip:   4.33 kB
+../review2-build-output/assets/CompanyLookup-BLdhx40T.js                   12.97 kB │ gzip:   4.59 kB
+../review2-build-output/assets/CustomerApprovalApp-Dq9-APnn.js             13.43 kB │ gzip:   4.59 kB
+../review2-build-output/assets/model-Bkk6ti9r.js                           13.46 kB │ gzip:   4.59 kB
+../review2-build-output/assets/CarrierApp-DfJiZNcm.js                      13.85 kB │ gzip:   4.65 kB
+../review2-build-output/assets/WarehouseWorkspace-BWKj4WEE.js              14.32 kB │ gzip:   4.92 kB
+../review2-build-output/assets/FacilitiesWorkspace-DDpzpQ9S.js             14.60 kB │ gzip:   4.90 kB
+../review2-build-output/assets/mail-DTzEe4oA.js                            14.95 kB │ gzip:   5.77 kB
+../review2-build-output/assets/types-BqWQGU_N.js                           16.57 kB │ gzip:   6.64 kB
+../review2-build-output/assets/person-lookup-BP7hAlLI.js                   17.18 kB │ gzip:   6.16 kB
+../review2-build-output/assets/voice-test-NQiZMCJj.js                      18.23 kB │ gzip:   6.67 kB
+../review2-build-output/assets/OpenPaymentsIntegrationPanel-jQr9vLUX.js    18.88 kB │ gzip:   6.11 kB
+../review2-build-output/assets/EquipmentWorkspace-CkH-SKgX.js              19.19 kB │ gzip:   5.97 kB
+../review2-build-output/assets/VoiceTestApp-D-pxY4me.js                    19.50 kB │ gzip:   6.38 kB
+../review2-build-output/assets/MailWorkspace-WYbgfdg2.js                   21.30 kB │ gzip:   6.97 kB
+../review2-build-output/assets/NvvSandboxWorkspace-DegxeGEF.js             21.69 kB │ gzip:   7.53 kB
+../review2-build-output/assets/TerminalApp-yn7-5L7I.js                     23.12 kB │ gzip:   7.44 kB
+../review2-build-output/assets/CompanySettingsWorkspace-BN9r7XWG.js        24.46 kB │ gzip:   7.98 kB
+../review2-build-output/assets/VesselsWorkspace-BAczVM2u.js                25.71 kB │ gzip:   7.54 kB
+../review2-build-output/assets/CustomerApp-CezYW8nY.js                     28.13 kB │ gzip:   8.54 kB
+../review2-build-output/assets/shared-data-DotHFJp0.js                     40.62 kB │ gzip:  13.85 kB
+../review2-build-output/assets/AiSupportSettings-BTK_cCRV.js               42.58 kB │ gzip:  12.93 kB
+../review2-build-output/assets/VismaSandboxWorkspace-CAnir8Dq.js           48.28 kB │ gzip:  14.78 kB
+../review2-build-output/assets/TestCarApp-R_PDzcPA.js                      49.80 kB │ gzip:  15.78 kB
+../review2-build-output/assets/types-DCv4NB4k.js                           55.69 kB │ gzip:  12.76 kB
+../review2-build-output/assets/WorkOrdersWorkspace-DqZN7nvE.js             63.84 kB │ gzip:  17.60 kB
+../review2-build-output/assets/PlatformGate-BKuL4RRl.js                    73.58 kB │ gzip:  19.09 kB
+../review2-build-output/assets/FleetWorkspace-92sZzzPD.js                  88.86 kB │ gzip:  24.51 kB
+../review2-build-output/assets/IntegrationsWorkspace-VT2c0rrs.js           97.10 kB │ gzip:  27.25 kB
+../review2-build-output/assets/TransportWorkspace-Cm3sHrUe.js             123.60 kB │ gzip:  38.25 kB
+../review2-build-output/assets/leaflet-BKixq7HT.js                        149.60 kB │ gzip:  43.35 kB
+../review2-build-output/assets/PersonalWorkspace-DfduwINV.js              219.56 kB │ gzip:  56.26 kB
+../review2-build-output/assets/MobileAppEntry-rUy4xVvZ.js                 248.36 kB │ gzip:  68.66 kB
+../review2-build-output/assets/index-elGho3Kk.js                          274.28 kB │ gzip:  87.81 kB
+../review2-build-output/assets/OfficeApp-De6DUckh.js                      543.19 kB │ gzip: 147.36 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 31.52s

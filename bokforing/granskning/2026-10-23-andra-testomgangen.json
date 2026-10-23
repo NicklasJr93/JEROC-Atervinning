@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-23",
+  "revision": "0b66b070cd8b31aa337999bc0db828ab57399193",
+  "baseline": "87048ec",
+  "newModelCases": 66,
+  "modelPassed": 2451,
+  "modelFailed": 0,
+  "modelLogSha256": "3ec0c712d076c246d373cf34af62c5f0f8621608d6c07843b4ae3c04a3b72e56",
+  "startedAt": "2026-10-23T21:12:30.430759+00:00",
+  "finishedAt": "2026-10-23T21:13:34.003217+00:00",
+  "browser": {
+    "newCases": 2,
+    "targetedPassed": 8,
+    "wikiPassed": 6,
+    "existingRetested": 6,
+    "targetedLogSha256": "b77601fed7987bbfcf8f719fae36f1ef461174518ef7f173c0ec4be2ccc72aab",
+    "totalTargetedPassed": 14
+  },
+  "files": [
+    {
+      "file": "server/bokforing-review2-invoices.test.mjs",
+      "passed": 15
+    },
+    {
+      "file": "server/bokforing-review2-partitions.test.mjs",
+      "passed": 12
+    },
+    {
+      "file": "server/bokforing-review2-payroll.test.mjs",
+      "passed": 19
+    },
+    {
+      "file": "server/bokforing-review2-vat.test.mjs",
+      "passed": 20
+    }
+  ],
+  "findings": [
+    {
+      "id": "REVIEW2-PAY-008",
+      "title": "Betalning efter slutlig årsbedömning",
+      "result": "fixed",
+      "detail": "Tidigare bokförda, obetalda löner kunde kringgå en slutlig bedömning under 1 000 kr. Nu krävs uttrycklig ny årsavstämning före modern eller äldre löneutbetalning."
+    },
+    {
+      "id": "REVIEW2-VAT-001",
+      "title": "Momsfri återföring efter fastställande",
+      "result": "fixed",
+      "detail": "En momsfri affär kunde återföras inom redan fastställd momsperiod. Nu spärras ändringar av deklarationsrutor; rättelse i nästa öppna period och verkligt momsneutrala inköpsrättelser fungerar."
+    }
+  ],
+  "scope": "Tekniska tester av stödda demofall. Ingen garanti för full regelefterlevnad eller skarp drift. Tidigare PDF-rapporter behålls som historik.",
+  "build": {
+    "passed": true,
+    "command": "npm run build -- --outDir /workspace/review2-build-output",
+    "logSha256": "c523706248afd79bc8b21e8e253bce59af95318b68daa6c8d6907f255afec7ae"
+  },
+  "modelSkipped": 0,
+  "modelCancelled": 0,
+  "artifacts": {
+    "public/bokforing/granskning/atgarder/testlogg-omtest-2-2026-10-23.tap.gz": "32f0007e2e11d543dcfca7d7e0bb3bed52ebcaa041f627407c211f63d6197003",
+    "public/bokforing/granskning/atgarder/webblasarprov-omtest-2-2026-10-23.txt": "a851b42ac9c33c23e4c1e0756a7376e3943cb4a3bbdbb41a9cdc68840a34c5ba",
+    "public/bokforing/granskning/atgarder/testresultat-omtest-2-2026-10-23.csv": "2ffc2b3c83a4a96b8b57bd8d01f5b013e7460b24b30dbbd90e6ba5e8182b5b84",
+    "public/bokforing/granskning/atgarder/bygglogg-omtest-2-2026-10-23.txt": "c523706248afd79bc8b21e8e253bce59af95318b68daa6c8d6907f255afec7ae"
+  }
+}

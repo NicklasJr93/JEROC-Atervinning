@@ -1,0 +1,39 @@
+Åtta arbetsflödesfall (två nya, sex omprov) samt sex wiki-fall: 14 godkända.
+Detta är en riktad körning, inte hela den tidigare browser-sviten.
+
+[WebServer] (node:80015) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 8 tests using 2 workers
+
+(node:80040) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:80039) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 tests/bokforing-invoice-requirements.spec.ts:5:1 › invoice requirements: incomplete date remains a draft, can be completed and prints frozen identities (7.4s)
+  ✓  1 tests/bokforing-payroll-threshold.spec.ts:18:1 › small payroll UI records below-threshold salary and catches up when1000 is reached (7.9s)
+  ✓  4 tests/bokforing-payroll-threshold.spec.ts:25:1 › annual review UI rejects exemption above1000 without losing entered reference (6.5s)
+  ✓  3 tests/bokforing-invoice-requirements.spec.ts:26:1 › invoice requirements: explicit zero-VAT classification survives the editor and posting (10.5s)
+  ✓  5 tests/bokforing-review2-guards.spec.ts:8:1 › REVIEW2-UI unpaid incomplete draft stays blocked through assistant refresh, reload and a forced click (15.5s)
+  ✓  6 tests/bokforing-vat-classification.spec.ts:17:1 › explicit domestic exemption is required, persisted and visible after reload (13.7s)
+  ✓  8 tests/bokforing-vat-classification.spec.ts:27:1 › ordinary VAT remains usable with exemption fields empty on mobile (8.9s)
+  ✓  7 tests/bokforing-review2-guards.spec.ts:27:1 › REVIEW2-UI copied issued invoice requires a fresh performance review and preserves the original (10.7s)
+
+  8 passed (47.8s)
+
+WIKI EFTER DOKUMENTATIONSUPPDATERING
+[WebServer] (node:80665) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 6 tests using 1 worker
+
+(node:80697) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/bokforing-wiki.spec.ts:32:1 › wikin läser dokumentationen utan åtkomst till besökarens bokföring eller produktions-API (1.8s)
+  ✓  2 tests/bokforing-wiki.spec.ts:73:1 › svensk fulltextsökning hittar samma artiklar utan accenter och stöder delbara adresser (2.3s)
+  ✓  3 tests/bokforing-wiki.spec.ts:97:1 › kategorifilter avgränsar sökträffar och en okänd sökfras hanteras som text (2.4s)
+  ✓  4 tests/bokforing-wiki.spec.ts:116:1 › planerade funktioner hålls isär från testad demo och verifieringsartikeln länkar till versionsbundna bevis (1.3s)
+  ✓  5 tests/bokforing-wiki.spec.ts:143:1 › revisorns guide leder från kontroller till källor och den körbara demon (1.2s)
+  ✓  6 tests/bokforing-wiki.spec.ts:155:1 › mobilmenyn öppnar en läsbar artikel utan horisontellt sidöverflöde (1.5s)
+
+  6 passed (17.8s)
