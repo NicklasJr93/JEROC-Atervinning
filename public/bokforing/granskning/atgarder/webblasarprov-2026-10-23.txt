@@ -1,0 +1,399 @@
+Webbläsarprov för åtgärdsversionen, 2026-10-23.
+Slutresultat: 115 unika fall godkända i 21 filer.
+
+Del A: 12 Ande-fall och 5 kontantmetodsfall godkända i första körningen.
+Den första körningen avbröts för att fördela återstående arbete på tre workers.
+Dess extra kommersiella fall och avbrutna fall räknas inte i del A.
+Del B: de återstående 98 fallen kördes. Ett fakturaprov hittade en UI-spärr
+som återaktiverades av den gemensamma knapputvärderingen. Produktfelet rättades.
+Två kreditfixturer kompletterades med de obligatoriska köparadresserna.
+Ett nytt momsprov fick en korrigerad assertion för modellens befintliga lazy-array.
+Två fall överskred tidsgränsen under parallell belastning och fick omprov.
+Del C: berörda faktura- och momsprov kördes om. Varje tidigare underkänt fall
+har ett godkänt slutprov. Upprepade godkända fall räknas bara en gång.
+Alla kommersiella fall, även det avbrutna, finns med i del B.
+Separat slutprov av uppdaterad wiki dokumenteras efter publicerad metadata.
+
+--- RÅ LOGG A ---
+[WebServer] (node:68828) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 115 tests using 1 worker
+
+(node:68906) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓    1 tests/bokforing-ande.spec.ts:31:1 › Ande kontaktar servern först när panelen öppnas och ändrar inte demoboken (6.7s)
+  ✓    2 tests/bokforing-ande.spec.ts:46:1 › saknad anslutning visas utan inloggningskrav och gör inga modellanrop (5.4s)
+  ✓    3 tests/bokforing-ande.spec.ts:56:1 › fakturakontext går att stänga av och utelämnar kund-, personnummer- och betalningsfält (9.4s)
+  ✓    4 tests/bokforing-ande.spec.ts:82:1 › AI-text körs aldrig som HTML och bara godkända källänkar blir klickbara (6.9s)
+  ✓    5 tests/bokforing-ande.spec.ts:99:1 › kvotfel visas ärligt utan fabricerat AI-svar eller ändrad bokföring (6.1s)
+  ✓    6 tests/bokforing-ande.spec.ts:117:3 › Ande förklarar ANDE_RESPONSE_LIMIT och behåller frågan för ett nytt försök (8.4s)
+  ✓    7 tests/bokforing-ande.spec.ts:117:3 › Ande förklarar ANDE_PROVIDER_TIMEOUT och behåller frågan för ett nytt försök (22.8s)
+  ✓    8 tests/bokforing-ande.spec.ts:117:3 › Ande förklarar ANDE_PROVIDER_PROTOCOL och behåller frågan för ett nytt försök (5.5s)
+  ✓    9 tests/bokforing-ande.spec.ts:139:1 › byte av vy avbryter ett gammalt svar och nästa fråga får den nya kontexten (5.1s)
+  ✓   10 tests/bokforing-ande.spec.ts:160:1 › nytt samtal och omladdning rensar chatten utan att spara den i webbläsarlagring (6.5s)
+  ✓   11 tests/bokforing-ande.spec.ts:174:1 › Ande fungerar med Enter och håller sig på mobilskärmen (4.5s)
+  ✓   12 tests/bokforing-ande.spec.ts:188:1 › förnyad demosession rensar gammal historik innan nästa modellanrop (5.9s)
+  ✓   13 tests/bokforing-cash-method.spec.ts:26:1 › cash setup requires explicit reset and issued documents wait for payment before booking (9.7s)
+  ✓   14 tests/bokforing-cash-method.spec.ts:36:1 › paid cash invoice credit waits for refund and preserves the frozen original (9.0s)
+  ✓   15 tests/bokforing-cash-method.spec.ts:42:1 › year-end cash recognition carries a receivable that settles next year without VAT twice (12.1s)
+  ✓   16 tests/bokforing-cash-method.spec.ts:54:1 › cash workspace fits a mobile screen and adds invoice rows (10.9s)
+  ✓   17 tests/bokforing-cash-method.spec.ts:58:1 › cash outgoing invoice remains a draft until postal details and performance are completed (22.5s)
+  ✓   18 tests/bokforing-commercial.spec.ts:24:1 › article and customer price produce a persistent invoice draft without changing the catalog price (14.7s)
+  ✘   19 tests/bokforing-commercial.spec.ts:44:1 › recurring UI creates one draft per period and repeated generation has no duplicates (12.8s)
+
+  1 interrupted
+    tests/bokforing-commercial.spec.ts:44:1 › recurring UI creates one draft per period and repeated generation has no duplicates 
+  96 did not run
+  18 passed (3.4m)
+
+--- RÅ LOGG B ---
+[WebServer] (node:70747) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 98 tests using 3 workers
+
+(node:70883) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:70882) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:70881) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 tests/bokforing-demo.spec.ts:38:1 › inköpseditorn erbjuder bara konton och moms som stöds av underlagets kategori (18.3s)
+  ✓   3 tests/bokforing-commercial.spec.ts:24:1 › article and customer price produce a persistent invoice draft without changing the catalog price (23.0s)
+  ✓   2 tests/bokforing-declarations.spec.ts:20:1 › AGI requires checked identity and reviews, persists version and downloads actual XML (29.5s)
+  ✓   4 tests/bokforing-demo.spec.ts:58:1 › balanserade inköpsrader med fel fakturatotal eller moms nekas utan att sparas (20.2s)
+  ✓   5 tests/bokforing-commercial.spec.ts:44:1 › recurring UI creates one draft per period and repeated generation has no duplicates (16.5s)
+  ✓   6 tests/bokforing-declarations.spec.ts:26:1 › moms cannot export a monthly slice for a quarterly company (14.2s)
+  ✓   7 tests/bokforing-demo.spec.ts:76:1 › bokföring bekräftas först efter sparande och dubbelklick ger en beständig verifikation (15.2s)
+  ✓   8 tests/bokforing-commercial.spec.ts:63:1 › revenue schedule UI preserves invoice VAT and creates sequential recognition (14.9s)
+  ✓   9 tests/bokforing-declarations.spec.ts:31:1 › reviewed INK2 creates a binary ZIP containing official SRU forms (17.6s)
+  ✓  11 tests/bokforing-commercial.spec.ts:82:1 › project material form makes one stock withdrawal and the matching project row (13.4s)
+  ✓  10 tests/bokforing-demo.spec.ts:92:1 › en gammal flik spärras och kan läsa in senaste före en andra bokning utan dataförlust (25.7s)
+  ✓  13 tests/bokforing-commercial.spec.ts:106:1 › commercial workspace remains usable on mobile without page overflow (15.5s)
+  ✓  12 tests/bokforing-declarations.spec.ts:35:1 › K2 annual report downloads printable full document after all required disclosures (27.9s)
+  ✓  14 tests/bokforing-demo.spec.ts:121:1 › simulerad full browserlagring ger fel och ingen bokförd vy eller lyckad kvittens (14.8s)
+  ✓  15 tests/bokforing-documents.spec.ts:15:1 › lokala originalfiler och metadata kan läsas efter återöppnad underlagslagring (9.6s)
+  ✓  16 tests/bokforing-declarations.spec.ts:41:1 › declarations remain usable on a narrow screen (12.2s)
+  ✓  17 tests/bokforing-demo.spec.ts:142:1 › osäker återläsningskvittens spärrar nytt försök och reload hittar exakt den sparade bokningen (10.2s)
+  ✓  18 tests/bokforing-documents.spec.ts:41:1 › identiska bytes återanvänds även med nytt filnamn och samtidiga importer (9.9s)
+  ✓  21 tests/bokforing-documents.spec.ts:56:1 › falska filtyper och ogiltig batch lämnar inkorgen oförändrad (7.3s)
+  ✓  22 tests/bokforing-documents.spec.ts:78:1 › storleksgräns och högst tio filer kontrolleras innan någon skrivning (6.7s)
+  ✓  20 tests/bokforing-demo.spec.ts:171:1 › reset med sparfel bevarar demoboken och lyckad reset kräver en ny bekräftelse (18.4s)
+  ✓  23 tests/bokforing-documents.spec.ts:96:1 › avbruten IDB-skrivning rullar tillbaka hela batchen och ger ingen lyckad kvittens (17.0s)
+  ✓  19 tests/bokforing-fx.spec.ts:38:1 › EUR invoice records partial/final settlement and keeps foreign and SEK balances after reload (40.1s)
+  ✓  25 tests/bokforing-documents.spec.ts:125:1 › hundra MB-gränsen räknar originalfiler och nekar hela den överskridande batchen (11.0s)
+  ✓  24 tests/bokforing-demo.spec.ts:209:1 › äldre ogiltiga demodata bevaras i läsläge tills användaren uttryckligen återställer (27.9s)
+  ✓  27 tests/bokforing-documents.spec.ts:146:1 › filkontrollen nekar ändrade dokumentuppgifter och en borttagen originalfil (10.5s)
+  ✓  29 tests/bokforing-documents.spec.ts:162:1 › ändrade originalbytes stoppas av SHA256-kontrollen trots samma filstorlek (11.3s)
+  ✓  28 tests/bokforing-demo.spec.ts:240:3 › Ande skymmer inte pekarklick på femradig kontering på dator (19.4s)
+  ✓  26 tests/bokforing-fx.spec.ts:49:1 › paid supplier invoice supports a partial credit and a separate refund (37.9s)
+  ✓  30 tests/bokforing-documents.spec.ts:185:1 › saknat IndexedDB-stöd ger ett tydligt fel i stället för låtsad lagring (10.2s)
+  ✓  31 tests/bokforing-demo.spec.ts:240:3 › Ande skymmer inte pekarklick på femradig kontering på mobil (16.6s)
+  ✓  33 tests/bokforing-invoice-pages.spec.ts:42:1 › fakturalistan öppnar egen adress som klarar omladdning och bakåt/framåt (16.5s)
+  ✓  32 tests/bokforing-fx.spec.ts:60:1 › mobile overpayment is rejected without a new journal entry (24.9s)
+  ✘  34 tests/bokforing-invoice-requirements.spec.ts:5:1 › invoice requirements: incomplete date remains a draft, can be completed and prints frozen identities (16.2s)
+(node:72867) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  35 tests/bokforing-invoice-pages.spec.ts:62:1 › ny faktura använder hela arbetsytan och behåller inmatning när ett belopp nekas (13.9s)
+  ✓  38 tests/bokforing-invoice-pages.spec.ts:84:1 › osparad faktura kräver beslut innan användaren lämnar sidan (25.7s)
+  ✓  36 tests/bokforing-fx.spec.ts:66:1 › FX exempt customer invoice requires reviewed legal grounds before issuance (41.0s)
+  ✓  39 tests/bokforing-invoice-pages.spec.ts:98:1 › sparad v2-faktura utan nya uppgifter öppnas utan reset eller ändrade original (15.7s)
+  ✓  37 tests/bokforing-invoice-requirements.spec.ts:26:1 › invoice requirements: explicit zero-VAT classification survives the editor and posting (43.0s)
+  ✓  40 tests/bokforing-payroll-completion.spec.ts:32:1 › payroll completion: earned vacation balance is reserved in the real salary form (25.7s)
+  ✓  42 tests/bokforing-payroll-threshold.spec.ts:18:1 › small payroll UI records below-threshold salary and catches up when1000 is reached (26.0s)
+  ✓  44 tests/bokforing-payroll-threshold.spec.ts:25:1 › annual review UI rejects exemption above1000 without losing entered reference (9.0s)
+  ✓  41 tests/bokforing-invoice-pages.spec.ts:133:1 › referenser, leverans, rabatter och avgifter följer fakturan, bokföringen och låst utskrift (39.9s)
+  ✓  43 tests/bokforing-payroll-completion.spec.ts:60:1 › payroll completion: paid salary can be reclaimed and collected without deleting original salary (22.3s)
+  ✓  45 tests/bokforing-payroll-workspace.spec.ts:44:1 › bokforing-payroll: individual review, official tax, posting and simulated payment (21.7s)
+  ✓  47 tests/bokforing-purchase-pages.spec.ts:98:1 › äldre leverantörsfaktura öppnas på egen adress via tangentbord utan att sparade data skrivs om (20.3s)
+  ✓  46 tests/bokforing-invoice-pages.spec.ts:200:1 › byte till priser inklusive moms bevarar priset och ny bruttoinmatning räknas rätt (25.1s)
+  ✓  48 tests/bokforing-payroll-workspace.spec.ts:63:1 › bokforing-payroll: mobile profile and unsupported tax year show actionable error (10.0s)
+  ✓  49 tests/bokforing-purchase-pages.spec.ts:124:1 › stor leverantörseditor behåller felaktig inmatning och sparar redigerbara fakturauppgifter (22.9s)
+  ✓  50 tests/bokforing-invoice-pages.spec.ts:224:1 › arbetsrad utan ROT räknas bort och följer med till en självständig fakturakopia (19.2s)
+  ✓  51 tests/bokforing-payroll-workspace.spec.ts:77:1 › bokforing-payroll: integrated app persists a reviewed payroll and its payment (33.5s)
+  ✓  53 tests/bokforing-invoice-pages.spec.ts:254:1 › återställning från osparad fakturasida rensar utkast och återgår till listan (20.1s)
+  ✓  52 tests/bokforing-purchase-pages.spec.ts:149:1 › PNG och PDF sparas som riktiga lokala filer och följer fakturan efter omladdning (25.4s)
+  ✘  54 tests/bokforing-rot-credit-completion.spec.ts:23:1 › ROT-credit shows accounting preview and requires explicit review before posting (12.9s)
+(node:74055) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  56 tests/bokforing-purchase-pages.spec.ts:170:1 › underlagsimport nekar falsk PDF och återanvänder samma fil utan dubletter (20.2s)
+  ✓  55 tests/bokforing-settlements.spec.ts:43:1 › settlements: betald kundfaktura kan delkrediteras och återbetalas utan att originalet skrivs om (25.5s)
+  ✘  57 tests/bokforing-rot-credit-completion.spec.ts:30:1 › revenue-credit preview separates earned and deferred portions and survives restore (11.2s)
+(node:74299) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  59 tests/bokforing-settlements.spec.ts:72:1 › settlements: blandad leverantörsfaktura krediterar vald rad och stoppar för stor kredit (21.0s)
+  ✓  58 tests/bokforing-purchase-pages.spec.ts:183:1 › bokförd leverantörsfaktura behåller originalet när en ny bilaga läggs till (29.7s)
+  ✓  61 tests/bokforing-settlements.spec.ts:94:1 › settlements: mobil arbetsyta kan användas utan horisontellt sidöverflöde (27.6s)
+  ✓  60 tests/bokforing-sie.spec.ts:18:1 › SIE file upload previews Swedish content, imports real ledger entries and blocks replay after reload (55.1s)
+  ✓  64 tests/bokforing-sie.spec.ts:44:1 › SIE download preserves PC8 bytes and matches the selected ledger year (10.0s)
+  ✘  62 tests/bokforing-purchase-pages.spec.ts:203:1 › inkorgen skapar fakturautkast och kopplar komplettering till befintlig faktura utan ny skuld (51.4s)
+(node:74975) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  65 tests/bokforing-sie.spec.ts:60:1 › mobile SIE workspace previews safely and rejects unsupported dimensions without a write (15.2s)
+  ✓  63 tests/bokforing-suite.spec.ts:79:1 › ROT 33 000 → kund 26 400 + skattebetalning 6 600 följer samma huvudbok efter omladdning (50.2s)
+  ✓  66 tests/bokforing-purchase-pages.spec.ts:232:1 › mobil visar hela leverantörsformuläret och erbjuder kamerafångst (15.4s)
+  ✓  67 tests/bokforing-sie.spec.ts:72:1 › empty practice company receives matching external opening balance through the ordinary UI (16.0s)
+  ✓  68 tests/bokforing-suite.spec.ts:106:1 › ROT-begäran stoppas utan intyganden och utan betald kundandel (16.0s)
+  ✓  69 tests/bokforing-purchase-pages.spec.ts:246:1 › osparade leverantörsuppgifter kan stanna kvar och demo-reset lämnar filerna i inkorgen (15.8s)
+  ✓  70 tests/bokforing-tax-rot.spec.ts:34:1 › moms: EU-inköp med halv avdragsrätt bokförs, visas i deklarationsfält och återläses (15.5s)
+  ✓  71 tests/bokforing-suite.spec.ts:123:1 › avslag på ROT behåller fordran och låter kunden betala återstoden (19.6s)
+  ✓  73 tests/bokforing-tax-rot.spec.ts:44:1 › moms: fel EU-land stoppas och formulärets uppgifter behålls (10.9s)
+  ✓  72 tests/bokforing-purchase-pages.spec.ts:268:1 › fördröjd koppling från inkorgen får inte hamna på ett nytt utkast efter navigering (19.4s)
+  ✓  74 tests/bokforing-suite.spec.ts:141:1 › befintlig bankinbetalning används en gång och skapar ingen extra bankhändelse (10.0s)
+  ✓  76 tests/bokforing-purchase-pages.spec.ts:303:1 › fördröjd koppling får inte återföra ändringar på en nollställd demobok (13.2s)
+  ✓  77 tests/bokforing-suite.spec.ts:161:1 › utfärdad faktura saknar redigering och rättas genom länkad kredit med bevarat original (15.2s)
+  ✓  79 tests/bokforing-suite.spec.ts:178:1 › lönekörning bokförs, betalas och kan exporteras som tydligt AGI-demounderlag (39.1s)
+  ✘  75 tests/bokforing-tax-rot.spec.ts:49:1 › ROT: två personer, delbegäran, avslag, utbetalning och återkrav sparas i samma fakturakedja (59.7s)
+  ✓  78 tests/bokforing-purchase-pages.spec.ts:336:1 › flera konteringsrader delar moms och avdragsrätt och bevaras efter bokföring (49.6s)
+(node:75713) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  80 tests/bokforing-suite.spec.ts:201:1 › fastställd moms stoppar nya momsverifikationer i perioden (17.1s)
+  ✓  81 tests/bokforing-purchase-pages.spec.ts:366:1 › ta bort en konteringsrad bevarar andra fält och renumrerar utan dubbel bokföring (11.5s)
+  ✓  82 tests/bokforing-tax-rot.spec.ts:62:1 › momsarbetsyta ryms på mobil och visar formulär och deklarationsunderlag (8.9s)
+  ✓  85 tests/bokforing-wiki.spec.ts:32:1 › wikin läser dokumentationen utan åtkomst till besökarens bokföring eller produktions-API (7.6s)
+  ✘  84 tests/bokforing-vat-classification.spec.ts:17:1 › explicit domestic exemption is required, persisted and visible after reload (14.7s)
+  ✓  83 tests/bokforing-suite.spec.ts:223:1 › två flikar stoppar gammal sparning och kan läsa in senaste utan dataförlust (17.8s)
+(node:76065) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  86 tests/bokforing-wiki.spec.ts:73:1 › svensk fulltextsökning hittar samma artiklar utan accenter och stöder delbara adresser (9.2s)
+  ✓  89 tests/bokforing-wiki.spec.ts:97:1 › kategorifilter avgränsar sökträffar och en okänd sökfras hanteras som text (8.1s)
+  ✓  88 tests/bokforing-vat-classification.spec.ts:26:1 › ordinary VAT remains usable with exemption fields empty on mobile (11.3s)
+  ✓  87 tests/bokforing-suite.spec.ts:247:1 › sparfel bekräftar ingen bokning och explicit reset bevarar den tidigare demonyckeln (14.7s)
+  ✓  90 tests/bokforing-wiki.spec.ts:116:1 › planerade funktioner hålls isär från testad demo och verifieringsartikeln länkar till versionsbundna bevis (3.8s)
+  ✓  93 tests/bokforing-wiki.spec.ts:143:1 › revisorns guide leder från kontroller till källor och den körbara demon (19.1s)
+  ✓  92 tests/bokforing-suite.spec.ts:278:1 › mobil kan spara och utfärda fem fakturarader utan att Ande skymmer knappen (27.7s)
+  ✓  94 tests/bokforing-wiki.spec.ts:155:1 › mobilmenyn öppnar en läsbar artikel utan horisontellt sidöverflöde (7.8s)
+  ✓  91 tests/bokforing-year-workspace.spec.ts:27:1 › year workspace saves reviewed workpapers and preserves revision history after reload (28.1s)
+  ✓  96 tests/bokforing-year-workspace.spec.ts:51:1 › year workspace closes the year and opens the next year with retained archive and reload (13.2s)
+  ✓  97 tests/bokforing-year-workspace.spec.ts:73:1 › year workspace exports draft review material and fits a mobile screen (4.1s)
+  ✓  95 tests/bokforing-suite.spec.ts:305:1 › materiallager: bokfört inköp kan värderas på 1460 och uttag över saldot stoppas (18.5s)
+  ✓  98 tests/bokforing-suite.spec.ts:352:1 › periodisering: bokförd IT-kostnad fördelas via 1790 och samma månad kan inte upprepas (10.9s)
+
+
+  1) tests/bokforing-invoice-requirements.spec.ts:5:1 › invoice requirements: incomplete date remains a draft, can be completed and prints frozen identities 
+
+    Error: expect(locator).toBeDisabled() failed
+
+    Locator:  locator('[data-action="issue-invoice"]')
+    Expected: disabled
+    Received: enabled
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toBeDisabled" locator('[data-action="issue-invoice"]') with timeout 5000ms
+      - waiting for locator('[data-action="issue-invoice"]')
+        13 × locator resolved to <button type="button" data-id="invoice-35" class="button primary" data-action="issue-invoice">Granska & utfärda</button>
+           - unexpected value "enabled"
+
+
+       9 |   await form.getByRole('button',{name:'Spara utkast',exact:true}).click();
+      10 |   await expect(page.getByRole('heading',{name:'Komplettera före utfärdande'})).toBeVisible();
+    > 11 |   await expect(page.locator('[data-action="issue-invoice"]')).toBeDisabled();
+         |                                                               ^
+      12 |   await page.locator('#suite-main [data-action="edit-invoice"]').first().click();
+      13 |   await form.locator('[name="performance.confirmed"]').check();
+      14 |   await form.getByRole('button',{name:'Spara utkast',exact:true}).click();
+        at /workspace/jeroc-bokforing-demo/tests/bokforing-invoice-requirements.spec.ts:11:63
+
+    Error Context: test-results/bokforing/bokforing-invoice-requirem-deb4b-nd-prints-frozen-identities/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/bokforing/bokforing-invoice-requirem-deb4b-nd-prints-frozen-identities/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/bokforing/bokforing-invoice-requirem-deb4b-nd-prints-frozen-identities/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) tests/bokforing-purchase-pages.spec.ts:203:1 › inkorgen skapar fakturautkast och kopplar komplettering till befintlig faktura utan ny skuld 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: locator.check: Test timeout of 45000ms exceeded.
+    Call log:
+      - waiting for locator('#suite-dialog [name="reviewed"]')
+        - locator resolved to <input required="" type="checkbox" name="reviewed"/>
+      - attempting click action
+        - waiting for element to be visible, enabled and stable
+
+
+      64 | async function book(page: Page) {
+      65 |   await action(page, 'book-bill').click();
+    > 66 |   await page.locator('#suite-dialog [name="reviewed"]').check();
+         |                                                         ^
+      67 |   await page.locator('#suite-dialog button[type="submit"]').click();
+      68 |   await expect(page.locator('#suite-dialog')).not.toBeVisible();
+      69 | }
+        at book (/workspace/jeroc-bokforing-demo/tests/bokforing-purchase-pages.spec.ts:66:57)
+        at /workspace/jeroc-bokforing-demo/tests/bokforing-purchase-pages.spec.ts:214:3
+
+    Error Context: test-results/bokforing/bokforing-purchase-pages-i-2b036-ntlig-faktura-utan-ny-skuld/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/bokforing/bokforing-purchase-pages-i-2b036-ntlig-faktura-utan-ny-skuld/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/bokforing/bokforing-purchase-pages-i-2b036-ntlig-faktura-utan-ny-skuld/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) tests/bokforing-rot-credit-completion.spec.ts:23:1 › ROT-credit shows accounting preview and requires explicit review before posting 
+
+    Error: page.evaluate: Error: Fakturan behöver kompletteras före utfärdande: Köparen: gatuadress saknas. Köparen: postnummer saknas. Köparen: ort saknas.
+        at assert (http://127.0.0.1:4179/bokforing/suite/core.js:77:25)
+        at assertInvoiceIssuanceReady (http://127.0.0.1:4179/bokforing/suite/invoice-requirements.js:91:3)
+        at issueInDraft (http://127.0.0.1:4179/bokforing/suite/sales.js:159:3)
+        at http://127.0.0.1:4179/bokforing/suite/sales.js:287:178
+        at transact (http://127.0.0.1:4179/bokforing/suite/core.js:298:19)
+        at Module.issueInvoice (http://127.0.0.1:4179/bokforing/suite/sales.js:287:153)
+        at eval (eval at evaluate (:311:30), <anonymous>:38:15)
+        at async <anonymous>:337:30
+        at assert (http://127.0.0.1:4179/bokforing/suite/core.js:77:25)
+        at assertInvoiceIssuanceReady (http://127.0.0.1:4179/bokforing/suite/invoice-requirements.js:91:3)
+        at issueInDraft (http://127.0.0.1:4179/bokforing/suite/sales.js:159:3)
+        at http://127.0.0.1:4179/bokforing/suite/sales.js:287:178
+        at transact (http://127.0.0.1:4179/bokforing/suite/core.js:298:19)
+        at Module.issueInvoice (http://127.0.0.1:4179/bokforing/suite/sales.js:287:153)
+        at eval (eval at evaluate (:311:30), <anonymous>:38:15)
+        at async <anonymous>:337:30
+        at seed (/workspace/jeroc-bokforing-demo/tests/bokforing-rot-credit-completion.spec.ts:6:13)
+        at /workspace/jeroc-bokforing-demo/tests/bokforing-rot-credit-completion.spec.ts:24:74
+
+    Error Context: test-results/bokforing/bokforing-rot-credit-compl-c33db-licit-review-before-posting/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/bokforing/bokforing-rot-credit-compl-c33db-licit-review-before-posting/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/bokforing/bokforing-rot-credit-compl-c33db-licit-review-before-posting/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) tests/bokforing-rot-credit-completion.spec.ts:30:1 › revenue-credit preview separates earned and deferred portions and survives restore 
+
+    Error: page.evaluate: Error: Fakturan behöver kompletteras före utfärdande: Köparen: gatuadress saknas. Köparen: postnummer saknas. Köparen: ort saknas.
+        at assert (http://127.0.0.1:4179/bokforing/suite/core.js:77:25)
+        at assertInvoiceIssuanceReady (http://127.0.0.1:4179/bokforing/suite/invoice-requirements.js:91:3)
+        at issueInDraft (http://127.0.0.1:4179/bokforing/suite/sales.js:159:3)
+        at http://127.0.0.1:4179/bokforing/suite/sales.js:287:178
+        at transact (http://127.0.0.1:4179/bokforing/suite/core.js:298:19)
+        at Module.issueInvoice (http://127.0.0.1:4179/bokforing/suite/sales.js:287:153)
+        at eval (eval at evaluate (:311:30), <anonymous>:38:15)
+        at async <anonymous>:337:30
+        at assert (http://127.0.0.1:4179/bokforing/suite/core.js:77:25)
+        at assertInvoiceIssuanceReady (http://127.0.0.1:4179/bokforing/suite/invoice-requirements.js:91:3)
+        at issueInDraft (http://127.0.0.1:4179/bokforing/suite/sales.js:159:3)
+        at http://127.0.0.1:4179/bokforing/suite/sales.js:287:178
+        at transact (http://127.0.0.1:4179/bokforing/suite/core.js:298:19)
+        at Module.issueInvoice (http://127.0.0.1:4179/bokforing/suite/sales.js:287:153)
+        at eval (eval at evaluate (:311:30), <anonymous>:38:15)
+        at async <anonymous>:337:30
+        at seed (/workspace/jeroc-bokforing-demo/tests/bokforing-rot-credit-completion.spec.ts:6:13)
+        at /workspace/jeroc-bokforing-demo/tests/bokforing-rot-credit-completion.spec.ts:31:2
+
+    Error Context: test-results/bokforing/bokforing-rot-credit-compl-62864-rtions-and-survives-restore/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/bokforing/bokforing-rot-credit-compl-62864-rtions-and-survives-restore/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/bokforing/bokforing-rot-credit-compl-62864-rtions-and-survives-restore/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) tests/bokforing-tax-rot.spec.ts:49:1 › ROT: två personer, delbegäran, avslag, utbetalning och återkrav sparas i samma fakturakedja 
+
+    Test timeout of 45000ms exceeded.
+
+    Error Context: test-results/bokforing/bokforing-tax-rot-ROT-två--3e7e0-sparas-i-samma-fakturakedja/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/bokforing/bokforing-tax-rot-ROT-två--3e7e0-sparas-i-samma-fakturakedja/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/bokforing/bokforing-tax-rot-ROT-två--3e7e0-sparas-i-samma-fakturakedja/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6) tests/bokforing-vat-classification.spec.ts:17:1 › explicit domestic exemption is required, persisted and visible after reload 
+
+    TypeError: expect(received).toHaveLength(expected)
+
+    Matcher error: received value must have a length property whose value must be a number
+
+    Received has value: undefined
+
+      18 |  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await open(page);const target=await fill(page,'0');
+      19 |  await target.getByRole('button',{name:'Granska och bokför affären'}).click();await expect(page.locator('#suite-toast')).toContainText('momsundantag');
+    > 20 |  expect((await read(page)).taxTransactions).toHaveLength(0);await expect(target.locator('[name="reference"]')).toHaveValue('MOMS-UI');
+         |                                             ^
+      21 |  await target.locator('[name="vatExemptionCode"]').selectOption('education');await target.locator('[name="vatExemptionLegalBasis"]').fill('Utbildningens anordnare och villkor enligt 10 kap. ML är granskade');await target.locator('[name="vatExemptionConfirmed"]').check();
+      22 |  await target.getByRole('button',{name:'Granska och bokför affären'}).click();await expect.poll(async()=>((await read(page)).taxTransactions??[]).length).toBe(1);
+      23 |  const record=(await read(page)).taxTransactions[0];expect(record.boxes).toEqual({'42':50000});expect(record.vatExemption.code).toBe('education');
+        at /workspace/jeroc-bokforing-demo/tests/bokforing-vat-classification.spec.ts:20:45
+
+    Error Context: test-results/bokforing/bokforing-vat-classificati-4a621-ed-and-visible-after-reload/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/bokforing/bokforing-vat-classificati-4a621-ed-and-visible-after-reload/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/bokforing/bokforing-vat-classificati-4a621-ed-and-visible-after-reload/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6 failed
+    tests/bokforing-invoice-requirements.spec.ts:5:1 › invoice requirements: incomplete date remains a draft, can be completed and prints frozen identities 
+    tests/bokforing-purchase-pages.spec.ts:203:1 › inkorgen skapar fakturautkast och kopplar komplettering till befintlig faktura utan ny skuld 
+    tests/bokforing-rot-credit-completion.spec.ts:23:1 › ROT-credit shows accounting preview and requires explicit review before posting 
+    tests/bokforing-rot-credit-completion.spec.ts:30:1 › revenue-credit preview separates earned and deferred portions and survives restore 
+    tests/bokforing-tax-rot.spec.ts:49:1 › ROT: två personer, delbegäran, avslag, utbetalning och återkrav sparas i samma fakturakedja 
+    tests/bokforing-vat-classification.spec.ts:17:1 › explicit domestic exemption is required, persisted and visible after reload 
+  92 passed (11.9m)
+
+--- RÅ LOGG C: FAKTUROR EFTER UI-RÄTTNING ---
+[WebServer] (node:76718) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 16 tests using 2 workers
+
+(node:76742) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:76743) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 tests/bokforing-invoice-pages.spec.ts:42:1 › fakturalistan öppnar egen adress som klarar omladdning och bakåt/framåt (5.8s)
+  ✓   2 tests/bokforing-invoice-requirements.spec.ts:5:1 › invoice requirements: incomplete date remains a draft, can be completed and prints frozen identities (8.0s)
+  ✓   3 tests/bokforing-invoice-pages.spec.ts:62:1 › ny faktura använder hela arbetsytan och behåller inmatning när ett belopp nekas (30.0s)
+  ✓   5 tests/bokforing-invoice-pages.spec.ts:84:1 › osparad faktura kräver beslut innan användaren lämnar sidan (5.5s)
+  ✓   4 tests/bokforing-invoice-requirements.spec.ts:26:1 › invoice requirements: explicit zero-VAT classification survives the editor and posting (33.3s)
+  ✓   6 tests/bokforing-invoice-pages.spec.ts:98:1 › sparad v2-faktura utan nya uppgifter öppnas utan reset eller ändrade original (4.6s)
+  ✓   7 tests/bokforing-purchase-pages.spec.ts:203:1 › inkorgen skapar fakturautkast och kopplar komplettering till befintlig faktura utan ny skuld (16.6s)
+  ✓   8 tests/bokforing-invoice-pages.spec.ts:133:1 › referenser, leverans, rabatter och avgifter följer fakturan, bokföringen och låst utskrift (17.2s)
+  ✓   9 tests/bokforing-rot-credit-completion.spec.ts:23:1 › ROT-credit shows accounting preview and requires explicit review before posting (9.8s)
+  ✓  10 tests/bokforing-invoice-pages.spec.ts:200:1 › byte till priser inklusive moms bevarar priset och ny bruttoinmatning räknas rätt (8.8s)
+  ✓  11 tests/bokforing-rot-credit-completion.spec.ts:30:1 › revenue-credit preview separates earned and deferred portions and survives restore (10.1s)
+  ✓  12 tests/bokforing-invoice-pages.spec.ts:224:1 › arbetsrad utan ROT räknas bort och följer med till en självständig fakturakopia (10.5s)
+  ✓  14 tests/bokforing-invoice-pages.spec.ts:254:1 › återställning från osparad fakturasida rensar utkast och återgår till listan (5.8s)
+  ✓  13 tests/bokforing-tax-rot.spec.ts:49:1 › ROT: två personer, delbegäran, avslag, utbetalning och återkrav sparas i samma fakturakedja (14.6s)
+  ✓  15 tests/bokforing-vat-classification.spec.ts:17:1 › explicit domestic exemption is required, persisted and visible after reload (6.9s)
+  ✓  16 tests/bokforing-vat-classification.spec.ts:27:1 › ordinary VAT remains usable with exemption fields empty on mobile (3.7s)
+
+  16 passed (1.8m)
+
+--- RÅ LOGG D: UPPDATERAD WIKI (SAMMA SEX FALL, INTE SEX NYA) ---
+[WebServer] (node:77747) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 6 tests using 1 worker
+
+(node:77771) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/bokforing-wiki.spec.ts:32:1 › wikin läser dokumentationen utan åtkomst till besökarens bokföring eller produktions-API (2.4s)
+  ✓  2 tests/bokforing-wiki.spec.ts:73:1 › svensk fulltextsökning hittar samma artiklar utan accenter och stöder delbara adresser (3.0s)
+  ✓  3 tests/bokforing-wiki.spec.ts:97:1 › kategorifilter avgränsar sökträffar och en okänd sökfras hanteras som text (2.2s)
+  ✓  4 tests/bokforing-wiki.spec.ts:116:1 › planerade funktioner hålls isär från testad demo och verifieringsartikeln länkar till versionsbundna bevis (1.9s)
+  ✓  5 tests/bokforing-wiki.spec.ts:143:1 › revisorns guide leder från kontroller till källor och den körbara demon (3.3s)
+  ✓  6 tests/bokforing-wiki.spec.ts:155:1 › mobilmenyn öppnar en läsbar artikel utan horisontellt sidöverflöde (2.0s)
+
+  6 passed (25.1s)

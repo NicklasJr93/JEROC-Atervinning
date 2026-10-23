@@ -1,6 +1,6 @@
 // Editorial snapshot for the public, read-only bookkeeping wiki.
 // Text describes the verified demo version below, not a production certification.
-const revision = '1520d83face442a29c8ebbf5dcc8c2362806e44f';
+const revision = 'ee235b3efbf0181dfbe5248861ae342604054923';
 const repository = `https://github.com/NicklasJr93/JEROC-Atervinning/blob/${revision}`;
 const source = (label, path) => ({ label, url: `${repository}/${path}` });
 const historicalSource = (label, path) => ({ label, url: `https://github.com/NicklasJr93/JEROC-Atervinning/blob/c5134ecddc624c1e3a0e30e3e3f6058bcc8d0b95/${path}` });
@@ -14,8 +14,8 @@ export const wikiMeta = {
   version: revision.slice(0, 7),
   asOf: updated,
   versionUrl: `https://github.com/NicklasJr93/JEROC-Atervinning/commit/${revision}`,
-  scope: 'Dokumentation av den lokala bokföringsdemon',
-  verification: { model: 2252, http: 1, browser: 47 },
+  scope: 'Dokumentation av den lokala bokföringsdemon och åtgärdsversionen',
+  verification: { model: 2384, http: 1, browser: 115 },
   description: 'Förstå arbetssätten, följ kontrollerna till koden och se vad som återstår.',
 };
 
@@ -30,9 +30,94 @@ export const categories = [
 
 export const articles = [
   {
+  "id": "atgarder-2026",
+  "category": "granskning",
+  "title": "Åtgärder: fakturakrav, moms och lönegräns",
+  "summary": "132 nya modellfall, fullständig regressionskörning och en kort uppföljande rapport.",
+  "status": "guide",
+  "updated": "2026-10-23",
+  "tags": [
+    "åtgärder",
+    "fakturakrav",
+    "momsfri",
+    "årsgräns",
+    "1000",
+    "rapport",
+    "PDF"
+  ],
+  "sections": [
+    {
+      "id": "resultat",
+      "title": "Verifierat i denna version",
+      "paragraphs": [
+        "2385 automatiska tester och 115 webbläsarfall är godkända. Detta är tekniska testresultat för de dokumenterade fallen; full regelefterlevnad är inte styrkt."
+      ]
+    },
+    {
+      "id": "faktura",
+      "title": "Nya fakturor kontrolleras före utfärdande",
+      "bullets": [
+        "Namn, fullständiga adresser, relevanta momsnummer och bekräftat leverans-/utförandedatum eller period.",
+        "Aktiebolags organisationsnummer, styrelsesäte och likvidationsuppgift. Igenkända svenska organisations-/personnummer jämförs med angivet VAT-nummer. Ingen myndighetskontroll av registrering görs.",
+        "Kontrollerna finns för ordinarie, valuta- och kontantfakturor. Frysta original och tillhörande kreditnotor behåller sina uppgifter.",
+        "Utkast kan sparas ofullständiga. Nya kopior behöver ny datumgranskning. Förskott eller fakturering före framtida prestation stöds inte i dessa vanliga flöden."
+      ]
+    },
+    {
+      "id": "moms",
+      "title": "0 % kräver uttrycklig bedömning",
+      "paragraphs": [
+        "Stödda svenska momsundantag väljs uttryckligen med grund, bedömning och bekräftelse. Sådana belopp hamnar i ruta 42. Undantagstexten avser bara de momsbefriade raderna, även på kreditnotor. Positiv moms kan inte kombineras med motstridig undantagsuppgift.",
+        "Gamla oklassade nollmomsunderlag ändras inte. De ger varning som stoppar fastställande och XML-export tills redovisningsmässig granskning/rättelse är gjord. Det gäller även äldre valuta- och kontantfakturor."
+      ]
+    },
+    {
+      "id": "lon",
+      "title": "Årsgräns för arbetsgivaravgifter",
+      "paragraphs": [
+        "Faktisk lön och skattepliktiga förmåner ackumuleras per anställdspost och år. Vid 1 000 kr hanteras tidigare avgiftsfri ersättning enligt reglerna för tröskelpassage. Skatteavdragets prognos är en separat bedömning.",
+        "AGI använder fälten 010, 011/012 och 131/132. Återkrav och avgiftsdifferenser får separat, spårbar årsavstämning utan att gamla löneoriginal skrivs om. Löneprofilen behöver en granskad årsprognos och referens."
+      ]
+    },
+    {
+      "id": "kvarstar",
+      "title": "Kvarstående avgränsningar",
+      "callout": {
+        "title": "Fortsatt granskning behövs",
+        "text": "Serverlagring, inloggning, bolagsisolering och hållbar arkivering återstår i driftetappen. Alla internationella skattefall, kollektivavtal, särskilda löne-/förmånsregler eller förskottsflöden omfattas inte. Riktiga identiteter och affärsvillkor behöver bedömas externt.",
+        "tone": "info"
+      }
+    }
+  ],
+  "sources": [
+    {
+      "label": "Kort åtgärdsrapport (PDF)",
+      "url": "/bokforing/granskning/atgardsrapport-2026-10-23.pdf"
+    },
+    {
+      "label": "Testförteckning för åtgärdsversionen",
+      "url": "/bokforing/granskning/atgarder/testresultat-2026-10-23.csv"
+    },
+    {
+      "label": "Ursprunglig granskning (historisk PDF)",
+      "url": "/bokforing/granskning/granskningsrapport-2026-10-23.pdf"
+    },
+    {
+      "label": "Årsgränsens regler och arbetsgång",
+      "url": "https://github.com/NicklasJr93/JEROC-Atervinning/blob/ee235b3efbf0181dfbe5248861ae342604054923/bokforing/lon-arsgrans-2026.md"
+    }
+  ],
+  "related": [
+    "for-revisorn",
+    "verifiering",
+    "kanda-begransningar",
+    "regelgranskning-2026"
+  ]
+},
+  {
   "id": "regelgranskning-2026",
   "category": "granskning",
-  "title": "Teknisk regelgranskning: rapport för redovisaren",
+  "title": "Tidigare regelgranskning: rapport för redovisaren",
   "summary": "1 798 nya auditfall, 13 fynd med åtgärder och en PDF med kravmatris, testbevis och kvarstående luckor.",
   "status": "guide",
   "updated": "2026-10-23",
@@ -49,7 +134,7 @@ export const articles = [
   "sections": [
     {
       "id": "resultat",
-      "title": "Verifierat resultat i denna etapp",
+      "title": "Historiska resultat för version 1520d83",
       "table": {
         "headers": [
           "Kontroll",
@@ -99,7 +184,7 @@ export const articles = [
       "title": "Vad resultatet inte styrker",
       "callout": {
         "title": "Full regelefterlevnad är inte styrkt",
-        "text": "Före skarp användning återstår bland annat obligatoriska fakturauppgifter, uttrycklig klassning av vissa 0 %-fall, beständig arkivering, identifierade användare och bolagsisolering. Lön saknar automatisk hantering av den årliga 1 000-kronorsgränsen för arbetsgivaravgift. Affärernas verkliga innehåll och avdragsrätt behöver bedömas av redovisare.",
+        "text": "Den första rapporten beskrev luckor i fakturauppgifter, momsklassning och lönegräns. Dessa har åtgärdats inom den dokumenterade omfattningen; läs Åtgärder: fakturakrav, moms och lönegräns för aktuellt resultat. Beständig arkivering, identifierade användare och bolagsisolering återstår. Affärernas verkliga innehåll och avdragsrätt behöver fortfarande bedömas av redovisare.",
         "tone": "info"
       }
     },
@@ -159,7 +244,7 @@ export const articles = [
     status: 'guide', updated, tags: ['revisor', 'redovisningskonsult', 'granskning', 'checklista', 'bevis'],
     sections: [
       { id: 'ordning', title: 'Rekommenderad ordning', steps: [
-        'Börja med PDF-rapporten under Teknisk regelgranskning. Läs Systemets omfattning och Kända begränsningar och välj ett avgränsat affärsfall.',
+        'Börja med den korta PDF-rapporten under Åtgärder: fakturakrav, moms och lönegräns. Läs Systemets omfattning och Kända begränsningar och välj ett avgränsat affärsfall.',
         'Prova en kund- eller leverantörsfaktura. Jämför uppgifter, underlag, summa och kontering innan den bokförs.',
         'Följ fakturans verifikation, betalning och eventuella kredit. Kontrollera att samma belopp återfinns i rapporterna.',
         'Prova en spärr: ett felaktigt belopp, en överbetalning eller bokning i en låst period.',
@@ -180,7 +265,7 @@ export const articles = [
       ] },
     ],
     sources: [source('Omfattning, kontroller och export', 'bokforing/README.md'), source('Rapporter och granskningsåtgärder', 'public/bokforing/suite/app.js')],
-    related: ['regelgranskning-2026', 'omfattning', 'verifiering', 'kanda-begransningar', 'bokslut-rapporter'],
+    related: ['atgarder-2026', 'regelgranskning-2026', 'omfattning', 'verifiering', 'kanda-begransningar', 'bokslut-rapporter'],
   },
   {
     id: 'omfattning', category: 'kom-igang', title: 'Systemets omfattning',
@@ -220,7 +305,7 @@ export const articles = [
       { id: 'arbetsgang', title: 'Arbetsgång', steps: [
         'Välj Ny kundfaktura. Ange kund, datum, villkor, rader, momstyp och eventuellt ROT.',
         'Komplettera referenser, fakturaadress, leveransuppgifter och fakturatext. Kontrollera den löpande summeringen.',
-        'Spara utkastet. Granska och utfärda från fakturans egen sida för att tilldela nummer och bokföra kundfordran.',
+        'Spara utkastet. Komplettera parter, relevanta momsnummer och bolagsuppgifter. Bekräfta utförandedatum eller period och eventuell grund för momsfri försäljning innan fakturan utfärdas och bokförs.',
         'Registrera betalning och följ kvarvarande fordran. Skriv vid behov ut eller spara dokumentet som PDF via webbläsaren.',
       ] },
       { id: 'berakning', title: 'Uppgifter som påverkar beräkningen', bullets: [
@@ -532,8 +617,13 @@ export const articles = [
     summary: 'Historiska testresultat, de nya funktionernas provfiler och vad verifieringen kan visa.',
     status: 'guide', updated, tags: ['tester', 'bevis', 'testresultat', 'kvalitet', '320', '75', 'version'],
     sections: [
-      { id: 'audit-resultat', title: 'Aktuell regelgranskning', paragraphs: [
-        `Version ${revision.slice(0, 7)}: 1 798 nya auditfall och 455 tidigare tester, totalt 2 253 godkända. Av dessa är 2 252 modell-/lagrings-/AI-fall och 1 HTTP-test. Inga underkända eller överhoppade.`,
+      { id: 'atgarder-resultat', title: 'Aktuella åtgärder och slutprov', paragraphs: [
+        'Version ee235b3: 2 384 modell-/lagrings-/AI-fall och 1 HTTP-test, totalt 2 385 godkända. 132 nya fall avser åtgärderna efter den första granskningen.',
+        '115 webbläsarfall är godkända. Bokföringskod och testfiler är versionsbundna; wikin och åtgärdsrapporten publiceras därefter och har egna slutprov.',
+        'Fakturornas fältkrav, explicit momsundantag och den årliga avgiftsgränsen är implementerade inom dokumenterad omfattning. Rapporten beskriver kvarvarande drift- och specialfallsbegränsningar.',
+      ] },
+      { id: 'audit-resultat', title: 'Tidigare granskning: version 1520d83', paragraphs: [
+        'Version 1520d83: 1 798 nya auditfall och 455 tidigare tester, totalt 2 253 godkända. Av dessa är 2 252 modell-/lagrings-/AI-fall och 1 HTTP-test. Inga underkända eller överhoppade i den körningen.',
         '41 berörda affärsfall och 6 wiki-fall har körts i webbläsaren, totalt 47 godkända. Produktionsbygge och typkontroll är godkända. Det är en riktad browserkörning; de 107 äldre fallen nedan är historiska.',
         '13 fynd har fått rättningar eller skyddsspärrar. PDF-rapporten redovisar varje fynd, lagstöd, test-ID och återstående luckor. Full regelefterlevnad är inte styrkt.',
       ] },
@@ -565,7 +655,7 @@ export const articles = [
       ] },
     ],
     sources: [{ label: 'Aktuell granskningsrapport (PDF)', url: '/bokforing/granskning/granskningsrapport-2026-10-23.pdf' }, source('Historisk slutrapport för b512afc', 'bokforing/granskning/2026-10-23-funktionskomplettering.md'), historicalSource('Historisk verifiering och omprov för c5134ec', 'bokforing/granskning/2026-10-23-utbyggnad.md'), source('Aktuell omfattning', 'bokforing/README.md'), source('SIE-prov', 'server/bokforing-sie.test.mjs'), source('Semester och löneåterkrav', 'server/bokforing-payroll-completion.test.mjs'), source('Löneåterkrav till AGI med XSD-kontroll', 'server/bokforing-declaration-payroll-integration.test.mjs'), source('Kontroll vid återläsning', 'server/bokforing-suite-validation.test.mjs')],
-    related: ['regelgranskning-2026', 'for-revisorn', 'kanda-begransningar', 'andringar'],
+    related: ['atgarder-2026', 'regelgranskning-2026', 'for-revisorn', 'kanda-begransningar', 'andringar'],
   },
   {
     id: 'kanda-begransningar', category: 'granskning', title: 'Kända begränsningar och kvarstående arbete',
@@ -573,8 +663,8 @@ export const articles = [
     status: 'planned', updated, tags: ['begränsningar', 'luckor', 'planerat', 'regelefterlevnad', 'säkerhet', 'server', 'API'],
     sections: [
       { id: 'produktion', title: 'Inför en skarp produkt', bullets: [
-        'Fullständighetskrav för fakturans adresser, momsregistreringsnummer och relevanta utförandedatum.',
-        'Uttrycklig rättslig klassning av vissa svenska 0 %-fakturor; XML-exporten är spärrad tills underlaget kan granskas.',
+        'Förskottsfakturering och fakturering före framtida prestation behöver separat stöd för korrekt kontering.',
+        'Fler momsundantag, internationella specialfall och rättelseflöde för äldre oklassade underlag kräver fortsatt granskning.',
         'Delad serverlagring, bolagsavgränsning, användarbehörigheter och identifierade gransknings-/attestroller.',
         'Hållbart dokumentarkiv, säkerhetskopiering och provad återläsning.',
         'Produktions-API och externa anslutningar för bank, e-post, fakturautskick och myndighetsinlämning. SIE-huvudbok och funktionella deklarationsexporter finns i demon.',
@@ -585,7 +675,7 @@ export const articles = [
         'Valutabankkonton, fler valutor än EUR/USD, kombinationer av kontantmetod och internationella/ROT-affärer samt återstående momssärregler. Verklig avdragsrätt, motpart och underlag behöver granskas.',
         'Automatiska utskick och serverstyrd schemaläggning av återkommande fakturor, indexering, dröjsmålsränta och inkassoflöden.',
         'RUT, kundbetalningar under andra ROT-regelår och fullständig hantering av beslut som ändras efter utbetalning.',
-        'Automatisk hantering av årsgränsen 1 000 kr för arbetsgivaravgifter. Återstående lönefall och avtalsregler, bokförd värdering av pågående arbeten, K3 och särskilda K2-/deklarationsbilagor. Digital underskrift, fastställelseintyg, myndighetsinlämning och kvittenser skapas inte automatiskt.',
+        'Återstående lönefall och avtalsregler, bokförd värdering av pågående arbeten, K3 och särskilda K2-/deklarationsbilagor. Digital underskrift, fastställelseintyg, myndighetsinlämning och kvittenser skapas inte automatiskt.',
       ] },
       { id: 'ansvar', title: 'Vad systemet inte kan bevisa', callout: {
         title: 'Begränsningarna är en del av dokumentationen', text: 'Demon kan inte garantera att varje verklig affär är rätt klassificerad eller att all regelefterlevnad är uppfylld. Affärens innebörd, underlagets kvalitet och de relevanta reglerna behöver fortfarande granskas.', tone: 'info',
@@ -606,6 +696,7 @@ export const articles = [
           ['Egna kundfakturasidor', 'Stor editor, egna adresser, fakturauppgifter, rabatter/avgifter, kopiering och frysta dokumentuppgifter.'],
           ['Leverantörssidor och underlagsinkorg', 'Egna sidor, lokal fil-/kamerainmatning, originalvisning, dubblettkontroll och kompletteringar efter bokföring.'],
           ['Utbyggda ekonomiflöden', 'Fler inköpsrader, delkrediter/återbetalningar, individuella löner, utökad moms/ROT, artikel-/avtalsflöden och fortsatt bokföring nästa år.'],
+          ['Fakturakrav, moms och årsgräns', 'Obligatoriska fakturauppgifter, explicit momsundantag, lönens årsgräns och uppföljande testprotokoll.'],
           ['Teknisk regelgranskning', '1 798 nya auditfall, 13 fynd med åtgärder och PDF-rapport för extern redovisningsgranskning.'],
           ['Bokföringsfunktioner och filutbyte', 'SIE 4, EUR/USD-fakturor, kontantmetod, semesterkonton, löneåterkrav, ROT-/periodiseringskrediter samt AGI-, moms- och INK2/SRU-export.'],
         ],
@@ -695,11 +786,11 @@ export const articles = [
       { id: 'rattelser', title: 'Rättelser och gränser', paragraphs: [
         'En bokförd men ännu inte utbetald lönekörning kan återföras med länk till originalet. Positiva kompletteringar finns för tidigare bokförd eller betald lön.',
         'Utbetald lön kan rättas genom ett granskat bruttolöneåterkrav. Originalet bevaras; 1680 visar fordran, delbetalningar matchar fordran och eventuell faktisk avgiftskreditering registreras på skattekontot. Innehållen skatt ändras inte.',
-        'AGI-underlaget ändras i ursprunglig utbetalningsmånad. Den rättsliga tidpunkten och förutsättningarna för bruttokravets AGI-rättelse måste granskas särskilt; Skatteverkets rättelsesida har inte verifierats i fulltext av implementationen.',
+        'Återkravet korrigerar AGI-underlaget i ursprunglig utbetalningsmånad. Årsgränsens följdändringar granskas i en separat avgiftsavstämning. Villkoren för det verkliga återkravet behöver bedömas; ett bokfört krav är inte en myndighetskvittens.',
         'Kollektivavtal, pensions-/försäkringsmotor, automatisk semesterlöneskuld, allmän nettokvittning och alla förmånsrättelser ingår inte. Skatte- och avgiftsreglerna gäller uttryckligen 2026. Deklarationsarbetsytan skapar AGI XML för de stödda fallen utan att skicka den.',
       ] },
     ],
-    sources: [source('Semester, löneåterkrav och gränser', 'bokforing/lon-komplettering.md'), source('Löneregler och grundomfattning', 'bokforing/lon-regler-och-avgransning.md'), source('Lönemotor', 'public/bokforing/suite/payroll-engine.js'), source('Semester- och återkravsprov', 'server/bokforing-payroll-completion.test.mjs')],
+    sources: [source('Årsgränsen 1 000 kr och AGI', 'bokforing/lon-arsgrans-2026.md'), source('Semester, löneåterkrav och gränser', 'bokforing/lon-komplettering.md'), source('Löneregler och grundomfattning', 'bokforing/lon-regler-och-avgransning.md'), source('Lönemotor', 'public/bokforing/suite/payroll-engine.js'), source('Semester- och återkravsprov', 'server/bokforing-payroll-completion.test.mjs')],
     related: ['lon', 'deklarationer', 'kontering', 'nytt-rakenskapsar', 'kanda-begransningar'],
   },
   {
@@ -715,7 +806,7 @@ export const articles = [
       { id: 'rapport', title: 'Rapport och avstämning', bullets: [
         'Rapporten hämtar stödda fakturor, blandade leverantörsrader, delkrediter och särskilt klassificerade momshändelser.',
         'Alla 28 visade momsrutor har beskrivning. Beloppen kan följas till underlag och jämföras med momskontona i huvudboken.',
-        'Rutor 06, 07, 08, 37, 38 och 42 är uttryckligen inte fullt klassificerade. Oklassificerade momsverifikationer och differenser visas som granskningspunkter.',
+        'Ruta 42 stöder valda svenska momsundantag med uttrycklig bedömning. Rutor 06, 07, 08, 37 och 38 samt andra undantag är inte fullt klassificerade. Oklassificerade momsverifikationer och differenser visas som granskningspunkter och stoppar fastställande och export.',
         'Ett granskningsunderlag kan exporteras som CSV. Fastställande och reglering i demon är skilda steg.',
       ] },
       { id: 'granser', title: 'Avgränsning', paragraphs: [

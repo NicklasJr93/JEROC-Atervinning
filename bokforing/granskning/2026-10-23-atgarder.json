@@ -1,0 +1,114 @@
+{
+  "date": "2026-10-23",
+  "revision": "ee235b3efbf0181dfbe5248861ae342604054923",
+  "demoUrl": "https://app.scrapplanner.com/bokforing/",
+  "evidenceUrl": "https://app.scrapplanner.com/bokforing/granskning/atgarder/testresultat-2026-10-23.csv",
+  "baseline": "8a1c143",
+  "baselineTestCount": 2253,
+  "actions": [
+    {
+      "title": "1. Fullständiga fakturauppgifter",
+      "text": "Nya kundfakturor kontrollerar namn, fullständiga adresser, relevant momsnummer och bekräftat datum eller period för utförandet. Aktiebolag har organisationsnummer, styrelsesäte och likvidationsuppgift. Uppgifterna fryses och skrivs ut. Kontrollerna finns också i valuta- och kontantmetodsflödena. Äldre utfärdade original behåller sina uppgifter."
+    },
+    {
+      "title": "2. Uttrycklig grund för momsfri försäljning",
+      "text": "0 % räcker inte för nya momsbefriade försäljningar. Användaren väljer ett stött svenskt undantag, dokumenterar sin bedömning och bekräftar villkoren. Stödda undantag går till ruta 42; krediter bevarar klassningen. Motsägande uppgifter stoppas. Gamla oklassade underlag behåller historiken och ger granskningsvarning som stoppar fastställande och export."
+    },
+    {
+      "title": "3. Årsgränsen för arbetsgivaravgifter",
+      "text": "Årsunderlaget följer lön och skattepliktiga förmåner per anställdspost. Vid 1 000 kr hanteras även tidigare avgiftsfri ersättning enligt reglerna för tröskelpassage. AGI använder 010, 011/012 och 131/132. Prognosen för skatteavdrag hålls skild från faktisk avgiftsgrund. Återkrav och avstämningsdifferenser rättas spårbart utan att ursprungliga löner skrivs om."
+    },
+    {
+      "title": "4. Sammanhängande spärrar",
+      "text": "Samma krav prövas vid utfärdande och återläsning av nya dokument. Utfärdandeknappen spärras när uppgifter saknas. Momsperioder kan inte fastställas med kvarstående klassningsvarningar. Kopior kräver ny bekräftelse av utförandedatum. Förskott och framtida prestationer stoppas i dessa vanliga fakturaflöden tills ett korrekt separat flöde finns."
+    }
+  ],
+  "conclusion": "De konkreta funktionsluckorna ovan har åtgärdats för de stödda demofallen. Full regelefterlevnad och lämplighet för skarp drift är fortfarande inte styrkta.",
+  "method": "Befintliga modell- och integrationstester körs tillsammans med nya negativa och positiva fall. De nya proven omfattar fältkrav, utskrift, saknad/motsägande momsgrund, gränsbelopp, återkrav, periodspärrar och oförändrade original. Faktiska sparade exempel skapade med tidigare kod används för bakåtkompatibilitet. Löneexempel jämförs med Skatteverkets exempel och AGI med dess XSD. Antalet tester är inte ett antal godkända lagkrav.",
+  "gaps": [
+    "Serverlagring, identifierade användare, bolagsisolering, säkerhetskopior och hållbar arkivering ingår fortsatt i den senare driftetappen.",
+    "Förskottsfakturering och fakturering före framtida prestation ingår inte i de ordinarie fakturaflödena. Alla bransch-, löne- och skattesärregler är inte täckta.",
+    "Inga registeruppslag styrker identitet, momsregistrering, verkligt utfört arbete eller rätt till moms-/ROT-avdrag. Gamla oklassade underlag kräver separat redovisningsmässig rättelse/granskning."
+  ],
+  "review": [
+    "Prova en ofullständig AB-faktura och kontrollera att rättning, utskrift och efterföljande kredit stämmer.",
+    "Följ en blandad momspliktig/momsfri faktura och delkredit till huvudbok och rätt deklarationsruta.",
+    "Stäm av lön under och över 1 000 kr, sedan återkrav, mot eget facit och AGI-underlaget."
+  ],
+  "sources": [
+    "Mervärdesskattelag (2023:200), 10 kap. och 17 kap. 24 §; aktiebolagslag (2005:551), 28 kap. 5 §.",
+    "Socialavgiftslag (2000:980), 2 kap. 14 och 24 §§; skatteförfarandelag (2011:1244), 10 kap. 4 §.",
+    "Skatteverkets anvisningar för momsdeklarationens ruta 42 och AGI-rutorna 010, 011/012, 131/132; officiellt AGI-XSD. Detaljerade källänkar finns i testfilerna och lönedokumentationen."
+  ],
+  "tests": {
+    "totalPassed": 2385,
+    "newPassed": 132,
+    "originalPassed": 2253,
+    "auditRetested": 1798,
+    "failed": 0,
+    "skipped": 0,
+    "startedAt": "2026-10-23T19:34:04.794229+00:00",
+    "finishedAt": "2026-10-23T19:36:55.217Z",
+    "durationMs": 169413.688883,
+    "logSha256": "f458d6b6bd9957845ce7fa71e1d0c3cce97723e8410b8de34462defd364968dd"
+  },
+  "browser": {
+    "passed": 115,
+    "files": 21,
+    "parts": [
+      {
+        "passed": 17,
+        "scope": "Ande och kontantmetod"
+      },
+      {
+        "passed": 92,
+        "scope": "Övriga arbetsflöden och wiki, före sista UI-rättningen"
+      },
+      {
+        "passed": 16,
+        "scope": "Faktura- och momsprov efter rättning, överlapp räknas en gång"
+      }
+    ],
+    "summary": "115 unika webbläsarfall i 21 filer är godkända efter slutprov. Ett UI-fel i utfärdandeknappen rättades. Berörda faktura-/momsprov, kompletterade testfixturer och tidsgränsavbrott fick godkända omprov. Överlapp räknas en gång. Fakturavyer, negativa kontroller, löneflöden, mobilvyer, AI-isolering och wiki ingår. Inga verkliga myndighetsinlämningar utfördes.",
+    "logSha256": "dc4647a6e06677779278e07c78282ea5aa549908fa14919b354438cda5b17261",
+    "wikiRecheck": {
+      "passed": 6,
+      "additionalUniqueCases": 0,
+      "scope": "Uppdaterad dokumentation, samma sex wiki-fall"
+    }
+  },
+  "testFiles": [
+    {
+      "file": "server/bokforing-invoice-requirements.test.mjs",
+      "passed": 36
+    },
+    {
+      "file": "server/bokforing-special-invoice-requirements.test.mjs",
+      "passed": 33
+    },
+    {
+      "file": "server/bokforing-vat-classification.test.mjs",
+      "passed": 32
+    },
+    {
+      "file": "server/bokforing-vat-finalization.test.mjs",
+      "passed": 3
+    },
+    {
+      "file": "server/bokforing-payroll-threshold.test.mjs",
+      "passed": 28
+    }
+  ],
+  "build": {
+    "command": "npm run build -- --outDir /workspace/remediation-build-output",
+    "result": "passed",
+    "logSha256": "0c82798800ff864da3f9781b6b1604e6c20bb1fc148bde52e2e3a865c8d048eb"
+  },
+  "artifacts": {
+    "public/bokforing/granskning/atgardsrapport-2026-10-23.pdf": "25d33b18f0202d0c0fe0edb055e21bbfbcab2bcb33c54e9f2f3cad7a40aefb8d",
+    "public/bokforing/granskning/atgarder/testresultat-2026-10-23.csv": "50bf8379cb164bcd208406397a5c530b645332330a8436e843218f3b15097617",
+    "public/bokforing/granskning/atgarder/testlogg-2026-10-23.tap.gz": "6ffa9fbb285dd1e48177a97b37b414eb157ee7c4fd8573f907ff4d11824e5ef4",
+    "public/bokforing/granskning/atgarder/bygglogg-2026-10-23.txt": "0c82798800ff864da3f9781b6b1604e6c20bb1fc148bde52e2e3a865c8d048eb",
+    "public/bokforing/granskning/atgarder/webblasarprov-2026-10-23.txt": "dc4647a6e06677779278e07c78282ea5aa549908fa14919b354438cda5b17261"
+  }
+}
