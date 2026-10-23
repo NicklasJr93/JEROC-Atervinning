@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { PlatformError } from './platform-auth.mjs';
-import { createBokforingAndeProvider, AndeProviderError } from './bokforing-ande-provider.mjs';
+import { createBokforingAndeProvider, AndeProviderError, ANDE_MAX_OUTPUT_TOKENS } from './bokforing-ande-provider.mjs';
 import { andeKnowledge, ANDE_KNOWLEDGE_VERSION, getAndeCitations } from './bokforing-ande-knowledge.mjs';
 import { clientAddressHash } from './client-address.mjs';
 
@@ -102,7 +102,7 @@ export function createBokforingAndeApi({ repository, env = process.env,
   if (!repository?.transact || !repository?.read)
     throw new TypeError('Ande requires durable demo-session storage.');
   const limits = Object.freeze({ perSessionMinute: 10, perAddressMinute: 20,
-    globalMinute: 30, concurrentGlobal: 5, maxOutputTokens: 1000 });
+    globalMinute: 30, concurrentGlobal: 5, maxOutputTokens: ANDE_MAX_OUTPUT_TOKENS });
   const hash = value => createHash('sha256').update(value).digest('hex');
   const csrf = token => createHash('sha256').update(`bokforing-ande-csrf:${token}`).digest('base64url');
   function cookieToken(req) {

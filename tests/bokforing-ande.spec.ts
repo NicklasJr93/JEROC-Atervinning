@@ -109,6 +109,33 @@ test('kvotfel visas ärligt utan fabricerat AI-svar eller ändrad bokföring', a
   expect(await page.evaluate(key => localStorage.getItem(key), storageKey)).toBe(before);
 });
 
+for (const [code, status, message] of [
+  ['ANDE_RESPONSE_LIMIT', 503, 'svar blev för långt'],
+  ['ANDE_PROVIDER_TIMEOUT', 504, 'hann inte svara'],
+  ['ANDE_PROVIDER_PROTOCOL', 503, 'ofullständigt svar'],
+] as const) {
+  test(`Ande förklarar ${code} och behåller frågan för ett nytt försök`, async ({ page }) => {
+    let attempts = 0;
+    const api = await mock(page, { reply: async route => {
+      attempts++;
+      return attempts === 1
+        ? route.fulfill({ status, json: { code, error: 'PRIVATE_PROVIDER_ERROR' } })
+        : route.fulfill({ json: { text: 'Fakturan är redan utfärdad. Kontrollera om betalningen kommit in.' } });
+    } });
+    await open(page);
+    const question = 'vad ska jag göra här på denna sida';
+    await ask(page, question);
+    await expect(page.locator('#ande-error')).toContainText(new RegExp(message, 'i'));
+    await expect(page.locator('#ande-error')).not.toContainText('PRIVATE_PROVIDER_ERROR');
+    await expect(page.locator('#assistant-input')).toHaveValue(question);
+    await page.locator('#ande-send').click();
+    await expect(page.locator('.ande-message-text').last()).toContainText('Fakturan är redan utfärdad');
+    expect(api.requests).toHaveLength(2);
+    expect(api.requests[1].history).toEqual([]);
+    await expect(page.locator('#ande-error')).toBeHidden();
+  });
+}
+
 test('byte av vy avbryter ett gammalt svar och nästa fråga får den nya kontexten', async ({ page }) => {
   let release: (() => void) | undefined;
   let count = 0;

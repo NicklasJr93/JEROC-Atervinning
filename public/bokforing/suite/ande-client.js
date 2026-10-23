@@ -6,6 +6,26 @@ import { ghost, icon, nav } from './views.js';
 import { featureNavigation } from './feature-workspaces.js';
 
 const ENDPOINT = '/api/bokforing/ande';
+// Map only known server codes. Raw upstream messages may contain private data.
+function answerError(status, code) {
+  const messages = {
+    ANDE_RESPONSE_LIMIT: 'Andes svar blev för långt och kunde inte slutföras. Prova en mer avgränsad fråga.',
+    ANDE_PROVIDER_TIMEOUT: 'AI-tjänsten hann inte svara. Försök igen eller ställ en kortare fråga.',
+    ANDE_PROVIDER_PROTOCOL: 'AI-tjänsten gav ett ofullständigt svar. Försök igen.',
+    ANDE_PROVIDER_RATE_LIMIT: 'OpenAI begränsar anropen just nu. Vänta en stund och försök igen.',
+    ANDE_PROVIDER_UNAVAILABLE: 'Det gick inte att få kontakt med AI-tjänsten. Försök igen om en stund.',
+    ANDE_PROVIDER_REFUSAL: 'Ande kunde inte hjälpa till med frågan. Prova att beskriva bokföringsfrågan på ett annat sätt.',
+    ande_busy: 'Ande arbetar fortfarande med en fråga. Vänta tills den är färdig och försök igen.',
+    ande_minute_limit: 'Ande har fått många frågor på kort tid. Vänta en minut och försök igen.',
+    ande_invalid_input: 'Frågan eller underlaget kunde inte läsas. Prova Nytt samtal och ställ frågan igen.',
+    ANDE_INVALID_INPUT: 'Frågan eller underlaget kunde inte läsas. Prova Nytt samtal och ställ frågan igen.',
+  };
+  if (typeof code === 'string' && Object.hasOwn(messages, code)) return messages[code];
+  if (status === 429) return 'AI-testets användningsgräns är nådd. Försök igen senare.';
+  if (status === 401) return 'Demosessionen behöver förnyas. Tryck på Kontrollera anslutning.';
+  if (status === 403) return 'Åtkomsten kunde inte bekräftas. Kontrollera anslutningen igen.';
+  return 'Ande kunde inte svara just nu. Ingen bokföring har ändrats.';
+}
 const labels = new Map([...nav, ...featureNavigation]);
 const cleanText = (value, maximum = 160) => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, maximum) : '';
 const amount = value => Number.isSafeInteger(value) && Math.abs(value) <= 1_000_000_000_000 ? value : 0;
@@ -201,11 +221,8 @@ export function createAndeClient({ getState, getUi, panel = document.querySelect
       if (id !== sequence || destroyed) return;
       if (!response.ok) {
         if (response.status === 401) { status = { available: false, reason: 'Demosessionen behöver förnyas. Tryck på Kontrollera anslutning.' }; showStatus(); }
-        const fallback = response.status === 429 ? 'AI-testets användningsgräns är nådd. Försök igen senare.'
-          : response.status === 401 ? 'Demosessionen behöver förnyas. Tryck på Kontrollera anslutning.'
-          : response.status === 403 ? 'Åtkomsten kunde inte bekräftas. Kontrollera anslutningen igen.'
-          : 'Ande kunde inte svara just nu. Ingen bokföring har ändrats.';
-        showError(fallback); return;
+        input.value = text;
+        showError(answerError(response.status, value?.code)); return;
       }
       if (typeof value?.text !== 'string' || !value.text.trim() || value.text.length > 20000) throw new Error('Ogiltigt svar');
       if (JSON.stringify(context()) !== submittedSignature) { showError('Underlaget ändrades. Ställ frågan igen med den nya vyn.'); return; }
@@ -214,6 +231,7 @@ export function createAndeClient({ getState, getUi, panel = document.querySelect
       history = history.slice(-6);
     } catch (cause) {
       if (id !== sequence || destroyed) return;
+      input.value = text;
       showError(cause?.name === 'AbortError' ? 'Ande hann inte svara. Du kan försöka igen.' : 'Ande kunde inte svara just nu. Ingen bokföring har ändrats.');
     } finally {
       clearTimeout(timeout); thinking.remove();

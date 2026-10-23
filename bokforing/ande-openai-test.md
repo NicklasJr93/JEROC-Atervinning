@@ -99,7 +99,10 @@ daglig anropsgräns eller inbyggd beloppsgräns.
 
 Hela anropet begränsas till 48 KiB, frågan till 2 000 tecken,
 historiken till åtta meddelanden och varje historiskt meddelande till
-3 000 tecken. Modellsvar begränsas till 1 000 output-tokens. Detta begränsar
+3 000 tecken. Modellsvar begränsas till 4 000 output-tokens, inklusive
+modellens interna resonemang. Den tidigare gränsen på 1 000 kunde avbryta
+svar även på vanliga följdfrågor. Ett svar som når gränsen presenteras inte
+som färdigt. Gränsen begränsar
 användningen men är inte en budgetgaranti i kronor; priset beror på vald
 modell och leverantörens aktuella debitering.
 
@@ -144,6 +147,8 @@ bevisa anslutningen.
   ge någon sådan åtgärd eller åtkomst.
 - Trasig modellanslutning, uppnådd spamgräns och avbrutet svar ska ge ett
   begripligt fel utan att ekonomidatan ändras.
+- Svar som når modellgränsen eller tidsgränsen ska förklaras i chatten.
+  Frågan ska ligga kvar i inmatningen så att den kan skickas igen.
 - **Nytt samtal** och omladdning ska inte hämta ett gammalt serversamtal.
 
 Tekniska prov ligger i `server/bokforing-ande*.test.mjs` och

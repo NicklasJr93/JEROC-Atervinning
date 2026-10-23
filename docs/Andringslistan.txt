@@ -4168,3 +4168,19 @@ bokforing/granskning/2026-10-23-ande.md.
   och ändrad vy hindrar gammal historik eller gamla svar från att återanvändas.
 - Uppdaterad wiki, användar-/driftguide och separat anslutningsguide.
   Företagsspecifikt beständigt SaaS-minne och skarp bolagsbokföring återstår.
+
+
+ÄL 168 – Tillförlitligare Ande-svar och tydliga felorsaker
+Status: Rättning 2026-10-23 efter ett återskapat fel på offentlig demo.
+- Frågan ”vad ska jag göra här på denna sida” kunde ge ett avvisat,
+  ofullständigt modellsvar. Den tidigare gränsen var 1 000 output-tokens,
+  vilket också räknar modellens interna resonemang. Gränsen är nu 4 000.
+- När svarslängdsgränsen nås returneras ett särskilt kontrollerat fel;
+  ett ofärdigt svar presenteras inte som en färdig redovisningsbedömning.
+- Chatten skiljer mellan tidsgräns, ofullständigt svar, svarslängdsgräns,
+  saknad kontakt och korttidsbegränsning. Frågan behålls för ett nytt försök.
+- Svarsinstruktionerna prioriterar korta konkreta nästa steg och naturliga
+  benämningar. Redan utfärdad/bokförd faktura ska inte föreslås bokföras igen.
+- Kända serverfel mappas till fasta användartexter; råa leverantörsfel och
+  hemligheter visas inte. Publik åtkomst och bokföringens spärrar är oförändrade.
+- Riktade prov och begränsningar: bokforing/granskning/2026-10-23-ande-svar.md.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { getEventListeners } from 'node:events';
-import { createBokforingAndeProvider } from './bokforing-ande-provider.mjs';
+import { ANDE_MAX_OUTPUT_TOKENS, createBokforingAndeProvider } from './bokforing-ande-provider.mjs';
 
 const KEY = 'sk-local-fixture-ande-not-a-real-key';
 const validAnswer = (extra = {}) => ({ status: 'completed', output: [
@@ -47,7 +47,8 @@ test('Responses request fixes endpoint, disables storage and tools, and quotes a
   assert.equal(request.url, 'https://api.openai.com/v1/responses');
   assert.equal(request.redirect, 'error');
   assert.equal(request.headers.Authorization, `Bearer ${KEY}`);
-  assert.equal(request.parsed.store, false); assert.equal(request.parsed.max_output_tokens, 1000);
+  assert.equal(request.parsed.store, false); assert.equal(request.parsed.max_output_tokens, ANDE_MAX_OUTPUT_TOKENS);
+  assert.equal(ANDE_MAX_OUTPUT_TOKENS, 4000);
   assert.deepEqual(request.parsed.tools, []); assert.equal(request.parsed.tool_choice, 'none');
   assert.equal(request.parsed.previous_response_id, undefined);
   assert.deepEqual(request.parsed.reasoning, { effort: 'low' });
@@ -108,7 +109,7 @@ test('provider refusal returns a safe refusal rather than quoted provider conten
 
 test('malformed, incomplete, unmetered and tool-call outputs fail closed', async () => {
   const answers = [null, {}, validAnswer({ status: 'incomplete' }), validAnswer({ usage: undefined }),
-    validAnswer({ usage: { input_tokens: 1, output_tokens: 1001 } }), validAnswer({ usage: { input_tokens: -1, output_tokens: 1 } }),
+    validAnswer({ usage: { input_tokens: 1, output_tokens: ANDE_MAX_OUTPUT_TOKENS + 1 } }), validAnswer({ usage: { input_tokens: -1, output_tokens: 1 } }),
     validAnswer({ output: [] }), validAnswer({ output: [{ type: 'function_call', name: 'book' }] }),
     validAnswer({ output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '' }] }] }),
     validAnswer({ output: [{ type: 'message', role: 'user', content: [{ type: 'output_text', text: 'Unexpected' }] }] })];
@@ -118,6 +119,29 @@ test('malformed, incomplete, unmetered and tool-call outputs fail closed', async
   }
   const f = fixture({ response: () => new Response(`Not JSON ${KEY}`) });
   await assert.rejects(f.provider.respond(requestInput()), e => safeFailure(e, 'ANDE_PROVIDER_PROTOCOL'));
+});
+
+test('reasoning and visible text may use the enlarged bounded output allowance', async () => {
+  const f = fixture({ response: () => Response.json(validAnswer({
+    usage: { input_tokens: 420, output_tokens: ANDE_MAX_OUTPUT_TOKENS, output_tokens_details: { reasoning_tokens: 3200 } },
+  })) });
+  const result = await f.provider.respond(requestInput());
+  assert.equal(result.usage.outputTokens, ANDE_MAX_OUTPUT_TOKENS);
+  assert.equal(result.text, 'Fakturan är obetald. [källa: fakturor]');
+});
+
+test('a response exhausted by reasoning or answer length has a specific safe error', async () => {
+  const f = fixture({ response: () => Response.json(validAnswer({
+    status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' },
+    output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: `Partial answer ${KEY}` }] }],
+    usage: { input_tokens: 420, output_tokens: ANDE_MAX_OUTPUT_TOKENS, output_tokens_details: { reasoning_tokens: 3800 } },
+  })) });
+  await assert.rejects(f.provider.respond(requestInput()), error => {
+    assert.equal(error.status, 503);
+    assert.match(error.message, /längdgränsen/);
+    assert.doesNotMatch(error.message, /Partial answer/);
+    return safeFailure(error, 'ANDE_RESPONSE_LIMIT');
+  });
 });
 
 test('header and streamed response size are bounded', async () => {
