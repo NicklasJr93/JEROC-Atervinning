@@ -1,21 +1,21 @@
 // Editorial snapshot for the public, read-only bookkeeping wiki.
 // Text describes the verified demo version below, not a production certification.
-const revision = 'c5134ecddc624c1e3a0e30e3e3f6058bcc8d0b95';
+const revision = 'b512afc770c0fcd29c4268f69445ce3b560995da';
 const repository = `https://github.com/NicklasJr93/JEROC-Atervinning/blob/${revision}`;
 const source = (label, path) => ({ label, url: `${repository}/${path}` });
-// The accounting baseline keeps its own verified revision; Ande is a supplement.
-const andeRepository = 'https://github.com/NicklasJr93/JEROC-Atervinning/blob/456ce65625ad1acda46f021c53747b1c667caeb4';
+const historicalSource = (label, path) => ({ label, url: `https://github.com/NicklasJr93/JEROC-Atervinning/blob/c5134ecddc624c1e3a0e30e3e3f6058bcc8d0b95/${path}` });
+const andeRepository = repository;
 const andeSource = (label, path) => ({ label, url: `${andeRepository}/${path}` });
 const updated = '2026-10-23';
 
 export const wikiMeta = {
   title: 'Bokföringswikin',
   product: 'ScrapPlanner',
-  version: 'c5134ec',
+  version: 'b512afc',
   asOf: updated,
   versionUrl: `https://github.com/NicklasJr93/JEROC-Atervinning/commit/${revision}`,
   scope: 'Dokumentation av den lokala bokföringsdemon',
-  verification: { model: 320, http: 1, browser: 75 },
+  verification: { model: 454, http: 1, browser: 107 },
   description: 'Förstå arbetssätten, följ kontrollerna till koden och se vad som återstår.',
 };
 
@@ -36,7 +36,7 @@ export const articles = [
     sections: [
       { id: 'din-arbetsplats', title: 'Din arbetsplats', paragraphs: [
         'Bokföringsdemon öppnas utan inloggning. Startuppgifterna gäller det fiktiva bolaget Åkes Hantverk AB och använder kalenderår 2026, SEK och faktureringsmetoden.',
-        'Menyn leder till bland annat kundfakturor, inköp, bokföring, bank, lön, moms och bokslut. Kund- och leverantörsfakturor öppnas på egna sidor med en egen adress i webbläsaren.',
+        'Menyn leder till kundfakturor, inköp, bokföring, bank, lön, moms och bokslut samt SIE, valutafakturor, kontantmetod och deklarationer. Kund- och leverantörsfakturor öppnas på egna sidor med en egen adress i webbläsaren.',
       ] },
       { id: 'prova-ett-flode', title: 'Prova ett sammanhängande flöde', steps: [
         'Öppna Kundfakturor och välj ROT-utkastet för Maria.',
@@ -89,13 +89,14 @@ export const articles = [
         'Kunder, projekt, tid/material, offerter och kundfakturor samt artiklar, kundpriser och återkommande fakturautkast.',
         'Leverantörsfakturor med flera konteringsrader, blandad moms, lokala PDF-/bildunderlag, betalning samt delkrediter och återbetalningar.',
         'Gemensam huvudbok, manuella verifikationer, bankavstämning och rapporter.',
-        'Individuella löneunderlag med avgränsat skattetabellstöd, inventarier, lager, kostnads-/intäktsperiodisering, momsrapport, bokslutsbilagor och fortsatt bokföring nästa år.',
+        'Individuella löneunderlag med 2026-tabeller, semesterkonton, bruttolöneåterkrav, inventarier, lager, periodisering, momsrapport, bokslutsbilagor och nästa räkenskapsår.',
+        'SIE 4-huvudbok, EUR/USD-fakturor, en separat kontantmetodsarbetsyta och granskade exportfiler för AGI, moms, INK2/SRU samt ett avgränsat K2-årsredovisningsdokument.',
       ] },
       { id: 'ramar', title: 'Gemensamma ramar', table: {
         headers: ['Område', 'Den dokumenterade versionen'],
         rows: [
-          ['År och valuta', 'Startår 2026, fortsatt bokföring efter årsavslut och SEK. ROT och officiella lönetabeller har särskilda årsgränser.'],
-          ['Metod', 'Faktureringsmetoden i ett fiktivt demobolag.'],
+          ['År och valuta', 'Startår 2026, fortsatt bokföring efter årsavslut och SEK som redovisningsvaluta. Separata EUR/USD-fakturor finns. ROT, lönetabeller och deklarationsformat har egna årsgränser.'],
+          ['Metod', 'Startbolaget använder faktureringsmetoden. Kontantmetoden kräver ett nytt tomt övningsbolag och använder ett separat fakturaflöde.'],
           ['Lagring', 'Bokföring i localStorage, underlagsfiler i IndexedDB.'],
           ['Användare', 'Ingen inloggning, rollstyrning eller delad bolagsbok.'],
           ['Externa tjänster', 'Ingen banköverföring, myndighetsinlämning, e-postmottagning eller extern AI-tolkning.'],
@@ -127,8 +128,8 @@ export const articles = [
         'Nya utfärdade fakturor behåller sina sparade kund- och säljaruppgifter även om registeruppgifter ändras senare.',
       ] },
       { id: 'avgransning', title: 'Avgränsning', paragraphs: [
-        'Artiklar, kundspecifika priser och återkommande fakturautkast finns i Artiklar & avtal. Krediter & återbetalningar har separata delkredit-, återbetalnings- och kvittningsflöden. Flera valutor, kontantmetoden, e-faktura och verkliga utskick återstår.',
-        'En utfärdad faktura redigeras inte i det vanliga formuläret. Delkrediter och krediter efter betalning bevarar originalet. ROT-fakturor och fakturor med intäktsperiodisering kräver ytterligare rättelseflöden och är spärrade i den nya kreditvyn.',
+        'Artiklar, kundspecifika priser och återkommande fakturautkast finns i Artiklar & avtal. Valutafakturor och kontantmetod har egna arbetsytor med uttryckliga gränser. E-faktura och verkliga utskick återstår.',
+        'En utfärdad faktura redigeras inte i det vanliga formuläret. Delkrediter och krediter efter betalning bevarar originalet. ROT- och intäktsperiodiserade fakturor har särskild förhandsgranskning och sammanhängande rättelseflöden i kreditvyn.',
       ] },
     ],
     sources: [source('Faktureringens funktioner och luckor', 'bokforing/fakturering-jamforelse.md'), source('Fakturans modell', 'public/bokforing/suite/sales.js'), source('Pris- och ROT-beräkning', 'public/bokforing/suite/rot.js')],
@@ -221,9 +222,10 @@ export const articles = [
         'Leverantörsfakturor kan krediteras per ursprungsrad med samma moms och avdragsandel. Ett återbetalningsbart saldo kan regleras eller kvittas mot samma motpart.',
         'Manuella rättelser använder en länk till den ursprungliga verifikationen.',
         'En bokförd leverantörsfaktura kan få kompletterande underlag utan ändring av det ursprungliga dokumentet eller dess skuld.',
+        'Utbetald lön kan rättas genom ett granskat bruttolöneåterkrav med egen fordran och registrerade återbetalningar. ROT och periodiserade intäkter har särskild kreditgranskning.',
       ] },
       { id: 'granser', title: 'Gränser för skyddet', paragraphs: [
-        'Krediter av ROT-fakturor och intäktsperiodiserade fakturor är spärrade tills underliggande ärenden kan rättas tillsammans. Utbetald lön saknar ännu ett negativt återkravsflöde. Automatiska bokslutsomklassificeringar av kreditbalanser återstår.',
+        'ROT-krediter kräver granskning av det externa ärendet och faktisk skatteåterbetalning när sådan behövs. Flerpersons-ROT kan inte automatiskt få en ny begäran efter kredit. Allmän lönekvittning, förmånsrättelser och samtliga automatiska bokslutsomklassificeringar ingår inte.',
         'Skyddet gäller programmets funktioner och konsistenskontroller. Lokal browserlagring och kontrollkopior är inte ett manipulationssäkert serverarkiv eller en extern revisionslogg.',
       ] },
     ],
@@ -326,7 +328,7 @@ export const articles = [
       ] },
       { id: 'begransningar', title: 'Gränser', paragraphs: [
         'Momsunderlaget bygger på huvudbokens momskonton. Fastställda perioder spärrar nya momsverifikationer i perioden.',
-        'Särregler såsom vinstmarginalbeskattning, uttag, vissa hyresfall, trepartshandel och övrig momsfri försäljning är inte automatiskt klassificerade. Rapporten visar begränsningar och oklassificerade poster. Ingen myndighetsfil, VIES-kontroll eller periodisk sammanställning ingår.',
+        'Särregler såsom vinstmarginalbeskattning, uttag, vissa hyresfall och trepartshandel är inte automatiskt klassificerade. Rapporten visar begränsningar och oklassificerade poster. Granskad moms-XML finns i Deklarationer; VIES-kontroll, periodisk sammanställning och myndighetsinlämning ingår inte.',
       ] },
     ],
     sources: [source('Momsrapport och klassificering', 'public/bokforing/suite/tax-ledger.js'), source('Moms och ROT: avgränsning', 'bokforing/moms-och-rot-utbyggnad.md'), source('Kontroller vid återläsning', 'public/bokforing/suite/validate.js')],
@@ -341,14 +343,14 @@ export const articles = [
         'Lägg upp en anställd och en individuell löneprofil med födelseår, arbetstid och skattetabell/kolumn enligt skatteunderlaget eller ett dokumenterat skattebeslut.',
         'Skapa löneutkast, granska lönebesked och kontrollera lön, avdrag, semester, förmåner och utlägg.',
         'Bokför lönekörningen och registrera demoutbetalning och reglering av skatt/avgifter.',
-        'Exportera vid behov AGI-underlag som gransknings-CSV.',
+        'Granska semesterkonto eller bruttolöneåterkrav när det behövs. Skapa AGI XML i Deklarationer efter kontroll av personuppgifter, specifikationsnummer och rättelser.',
       ] },
       { id: 'bedomning', title: 'Manuella antaganden', paragraphs: [
         'Den nya lönearbetsytan använder officiella månadstabeller 29–42, kolumn 1 och 3 för 2026, upp till 80 000 kr. Arbetsgivaravgifter beräknas för stödda födelseårs- och betalningsdatumfall. Äldre manuella lönekörningar bevaras.',
-        'Frånvaro, semester, förmåner och utlägg granskas individuellt i den nya arbetsytan. Beräkningarna täcker avgränsade standardfall, inte samtliga kollektivavtal, semesterårsbyten, pensions-/försäkringsregler eller negativa rättelser efter utbetalning.',
+        'Frånvaro, semester, förmåner och utlägg granskas individuellt. Semesterintjäning, uttag och slutlig ersättning finns för uttryckligt valda regler. Bruttolöneåterkrav efter utbetalning skapar en separat fordran; kollektivavtal, pensions-/försäkringsregler och allmän nettokvittning ingår inte.',
       ] },
       { id: 'export', title: 'Exportens status', callout: {
-        title: 'Arbetsmaterial', text: 'AGI-CSV är ett granskningsunderlag. Det är inte en färdig myndighetsfil och skickas inte till Skatteverket.', tone: 'info',
+        title: 'Fil och inlämning är skilda steg', text: 'Löne-CSV är granskningsunderlag. Deklarationsarbetsytan kan skapa en AGI XML-fil för stödda 2026-fall, men ingen fil skickas eller godkänns av Skatteverket härifrån.', tone: 'info',
       } },
     ],
     sources: [source('Individuell löneberäkning', 'public/bokforing/suite/payroll-engine.js'), source('Löneregler och avgränsning', 'bokforing/lon-regler-och-avgransning.md')],
@@ -417,7 +419,7 @@ export const articles = [
       ] },
       { id: 'dokumentens-status', title: 'Vad exporten inte är', paragraphs: [
         'Granskningspaket och nästa års balansunderlag är arbetsmaterial. De är inte en färdig årsredovisning, inkomstdeklaration eller revisionsberättelse.',
-        'Bokslutsbilagor med versioner och granskningsstatus, jämförelsetal mellan registrerade år samt skatte-/årsredovisningsunderlag finns. Fullständig årsredovisning, INK2, underskrifter och myndighetsinlämning återstår.',
+        'Bokslutsbilagor, jämförelsetal och nästa år finns. Deklarationsarbetsytan kan skapa INK2/INK2R/INK2S i SRU och ett utskrivbart årsredovisningsdokument för en avgränsad K2-tillämpning. Granskning av skattejusteringar och noter, underskrifter, fastställelseintyg och myndighetsinlämning återstår hos användaren.',
       ] },
     ],
     sources: [source('Rapporter, periodlås och årsavslut', 'public/bokforing/suite/finance.js'), source('Export av granskningspaket', 'public/bokforing/suite/app.js'), source('Bokslutets kontroller', 'server/bokforing-suite-finance.test.mjs')],
@@ -425,11 +427,11 @@ export const articles = [
   },
   {
     id: 'verifiering', category: 'granskning', title: 'Verifiering: vad har testats?',
-    summary: 'Spårbara testresultat för version c5134ec och deras praktiska gränser.',
+    summary: 'Historiska testresultat, de nya funktionernas provfiler och vad verifieringen kan visa.',
     status: 'guide', updated, tags: ['tester', 'bevis', 'testresultat', 'kvalitet', '320', '75', 'version'],
     sections: [
-      { id: 'resultat', title: 'Dokumenterat resultat', table: {
-        headers: ['Kontroll', 'Resultat i denna version'],
+      { id: 'resultat', title: 'Historiskt resultat: version c5134ec', table: {
+        headers: ['Kontroll', 'Resultat i den tidigare versionen'],
         rows: [
           ['Produktionsbygge', 'Godkänt lokalt.'],
           ['Modell- och lagringstester', '320 godkända.'],
@@ -438,6 +440,11 @@ export const articles = [
           ['Manuella visuella prov', 'Skrivbords- och mobilvyer; inga noterade JavaScript-fel eller horisontellt sidöverflöde i genomförda prov.'],
         ],
       } },
+      { id: 'nya-prov', title: 'Prov för den senaste etappen', paragraphs: [
+        'Version b512afc: godkänt produktionsbygge och typkontroll, 454 modell-, lagrings- och AI-kontroller, 1 separat HTTP-test och 107 unika webbläsarfall efter grundkörning och omprov.',
+        'SIE, valutafakturor, kontantmetoden, semesterkonton, löneåterkrav, ROT-krediter och deklarationsexport har egna modell- och webbläsarprov. Slutrapporten beskriver grundkörningen, rättningar och omprov; testantalen avser denna kodversion.',
+        'AGI-prov använder även Skatteverkets XSD. En SIE-fil från den fiktiva demoboken har kontrollerats i SIE-gruppens publika testtjänst utan syntax- eller radfel. Det visar hur de testade filerna är uppbyggda; det är ingen myndighetsinlämning eller certifiering.',
+      ] },
       { id: 'exempel', title: 'Exempel på testade fel', bullets: [
         'Felaktiga belopp, överbetalning, dubbla källbokningar och bokning i låst period.',
         'Gammal flik, misslyckad skrivning, återläsning och explicit demo-reset.',
@@ -446,11 +453,11 @@ export const articles = [
         'Frysta fakturauppgifter, ROT, bankmatchning, lön, lager och periodisering.',
       ] },
       { id: 'bevisets-grans', title: 'Så ska resultatet läsas', paragraphs: [
-        'Antalen avser den lokalt verifierade versionen c5134ec, inte en löpande mätning av den senast publicerade appen. Källänkarna nedan är låsta till samma kodversion.',
+        'De historiska antalen ovan avser den lokalt verifierade versionen c5134ec, inte en löpande mätning av den senast publicerade appen. Den historiska rapportlänken är låst till den versionen. Nya provfiler länkas till den senaste dokumenterade etappen.',
         'Kameraprovet använder filinput med kameraattribut; fysisk telefonkamera har inte provats. Tester av de stödda fallen är inte en redovisningscertifiering eller en kontroll av varje tänkbart affärsfall.',
       ] },
     ],
-    sources: [source('Slutlig verifiering och omprov', 'bokforing/granskning/2026-10-23-utbyggnad.md'), source('Dokumenterat testresultat', 'bokforing/README.md'), source('Leverantörsvyernas browserprov', 'tests/bokforing-purchase-pages.spec.ts'), source('Dokumentlagringens browserprov', 'tests/bokforing-documents.spec.ts'), source('Kundfakturornas browserprov', 'tests/bokforing-invoice-pages.spec.ts'), source('Sammanhängande browserflöden', 'tests/bokforing-suite.spec.ts'), source('Kontroll vid återläsning', 'server/bokforing-suite-validation.test.mjs')],
+    sources: [source('Aktuell slutrapport och omprov', 'bokforing/granskning/2026-10-23-funktionskomplettering.md'), historicalSource('Historisk verifiering och omprov för c5134ec', 'bokforing/granskning/2026-10-23-utbyggnad.md'), source('Aktuell omfattning', 'bokforing/README.md'), source('SIE-prov', 'server/bokforing-sie.test.mjs'), source('Semester och löneåterkrav', 'server/bokforing-payroll-completion.test.mjs'), source('Löneåterkrav till AGI med XSD-kontroll', 'server/bokforing-declaration-payroll-integration.test.mjs'), source('Kontroll vid återläsning', 'server/bokforing-suite-validation.test.mjs')],
     related: ['for-revisorn', 'kanda-begransningar', 'andringar'],
   },
   {
@@ -461,15 +468,15 @@ export const articles = [
       { id: 'produktion', title: 'Inför en skarp produkt', bullets: [
         'Delad serverlagring, bolagsavgränsning, användarbehörigheter och identifierade gransknings-/attestroller.',
         'Hållbart dokumentarkiv, säkerhetskopiering och provad återläsning.',
-        'Produktions-API, SIE och externa anslutningar för bank, e-post, fakturautskick och myndighetsunderlag.',
+        'Produktions-API och externa anslutningar för bank, e-post, fakturautskick och myndighetsinlämning. SIE-huvudbok och funktionella deklarationsexporter finns i demon.',
         'Fortsatt systemdokumentation, granskade redovisningsfall och extern bedömning av systemet.',
       ] },
       { id: 'affarsfall', title: 'Fler affärsfall', bullets: [
-        'Rättelse av ROT-fakturor och intäktsperiodiserade fakturor, negativa lönerättelser efter utbetalning och mer avancerad bankbetalningsfördelning.',
-        'Flera valutor, kontantmetoden, återstående momssärregler och verifiering av verklig avdragsrätt, motpart och underlag.',
+        'Nya automatiska begäranden efter flerpersons-ROT-kredit, allmän lönekvittning, förmånsrättelser och mer avancerad bankbetalningsfördelning.',
+        'Valutabankkonton, fler valutor än EUR/USD, kombinationer av kontantmetod och internationella/ROT-affärer samt återstående momssärregler. Verklig avdragsrätt, motpart och underlag behöver granskas.',
         'Automatiska utskick och serverstyrd schemaläggning av återkommande fakturor, indexering, dröjsmålsränta och inkassoflöden.',
         'RUT, kundbetalningar under andra ROT-regelår och fullständig hantering av beslut som ändras efter utbetalning.',
-        'Återstående lönefall och avtalsregler, AGI-inlämning, bokförd värdering av pågående arbeten, full årsredovisning och inkomstdeklaration.',
+        'Återstående lönefall och avtalsregler, bokförd värdering av pågående arbeten, K3 och särskilda K2-/deklarationsbilagor. Digital underskrift, fastställelseintyg, myndighetsinlämning och kvittenser skapas inte automatiskt.',
       ] },
       { id: 'ansvar', title: 'Vad systemet inte kan bevisa', callout: {
         title: 'Begränsningarna är en del av dokumentationen', text: 'Demon kan inte garantera att varje verklig affär är rätt klassificerad eller att all regelefterlevnad är uppfylld. Affärens innebörd, underlagets kvalitet och de relevanta reglerna behöver fortfarande granskas.', tone: 'info',
@@ -490,10 +497,11 @@ export const articles = [
           ['Egna kundfakturasidor', 'Stor editor, egna adresser, fakturauppgifter, rabatter/avgifter, kopiering och frysta dokumentuppgifter.'],
           ['Leverantörssidor och underlagsinkorg', 'Egna sidor, lokal fil-/kamerainmatning, originalvisning, dubblettkontroll och kompletteringar efter bokföring.'],
           ['Utbyggda ekonomiflöden', 'Fler inköpsrader, delkrediter/återbetalningar, individuella löner, utökad moms/ROT, artikel-/avtalsflöden och fortsatt bokföring nästa år.'],
+          ['Bokföringsfunktioner och filutbyte', 'SIE 4, EUR/USD-fakturor, kontantmetod, semesterkonton, löneåterkrav, ROT-/periodiseringskrediter samt AGI-, moms- och INK2/SRU-export.'],
         ],
       } },
       { id: 'den-har-wikin', title: 'Den här wikins version', paragraphs: [
-        'Innehållet beskriver källkodsversion c5134ec från den 23 oktober 2026. Wikins eget gränssnitt kan publiceras i en senare commit utan att den dokumenterade bokföringsversionen ändras.',
+        'Funktionsbeskrivningarna omfattar den senaste etappen den 23 oktober 2026. Kod och testbevis är bundna till version b512afc. Testantalen från c5134ec är separat märkta som historiska; de har inte återanvänts som resultat för ny kod.',
         'En GitHub-push och en färdig publicering är olika händelser. Faktisk driftversion behöver kontrolleras mot den tjänst som serverar appen.',
       ] },
       { id: 'nasta-prioriteringar', title: 'Prioriterad fortsättning', bullets: [
@@ -550,12 +558,12 @@ export const articles = [
         'Kvittning kräver samma motpart och får inte överstiga motfakturans återstående belopp. Datum, låsta perioder och dubbla referenser kontrolleras.',
       ] },
       { id: 'granser', title: 'Viktiga avgränsningar', paragraphs: [
-        'ROT-fakturor och fakturor med intäktsperiodisering är spärrade i detta kreditflöde. De behöver särskild rättelse av underliggande ärenden eller planer.',
+        'ROT-fakturor och intäktsperiodiserade fakturor har särskild kreditförhandsgranskning. ROT kräver bekräftad extern ärendehantering och eventuell faktisk skatteåterbetalning. Intäktskrediter fördelas över den ursprungliga avtalstiden; redan redovisad intäkt rättas separat från kvarvarande belopp på 2990.',
         'En leverantörskredit stoppas om den tar bort kostnaden som bär en inventarie, lagervärdering eller periodisering. Dessa samband måste först rättas genom ett granskat flöde.',
         'En återbetalning registreras bara i demoboken; ingen banköverföring skickas. Vid bokslut behöver eventuella kreditbalanser i kund- och leverantörsreskontra bedömas och vid behov klassificeras om.',
       ] },
     ],
-    sources: [source('Krediter och reglering', 'public/bokforing/suite/settlements.js'), source('Krediternas modellprov', 'server/bokforing-settlements.test.mjs'), source('Krediternas browserprov', 'tests/bokforing-settlements.spec.ts')],
+    sources: [source('Krediter och reglering', 'public/bokforing/suite/settlements.js'), source('ROT- och periodiseringskrediter', 'docs/bokforing/rot-credit-completion.md'), source('Krediternas modellprov', 'server/bokforing-settlements.test.mjs'), source('Utökade kreditprov', 'server/bokforing-rot-credit-completion.test.mjs')],
     related: ['rattelser', 'kundfakturor', 'leverantorsfakturor', 'bokslut-rapporter'],
   },
   {
@@ -570,18 +578,19 @@ export const articles = [
       ] },
       { id: 'personligt-underlag', title: 'Individuellt underlag och granskning', bullets: [
         'Månads- eller timlön, frånvaro, sjuklön och karens registreras per person. Arbetsschema och uppgifter om sjukperioden behöver granskas.',
-        'Semesterberäkning har avgränsade standardalternativ med uttryckligt underlag. Semesterintjäning, årsbyten och kollektivavtalsvarianter är inte en komplett motor.',
+        'Semesterkonton beräknar intjänade dagar från anställningstid och granskad frånvaro. Procentregeln räknar ett granskat löneunderlag; sammalöneregeln använder månadslön och tillägg. Uttag och slutlig ersättning minskar kontots saldo.',
         'Skattepliktiga förmåner och skattefria utlägg hålls isär i beräkning och lönebesked.',
         'Varje lönebesked granskas innan lönekörningen bokförs. Utbetalning och reglering av skatt/avgifter är separata demohändelser.',
       ] },
       { id: 'rattelser', title: 'Rättelser och gränser', paragraphs: [
         'En bokförd men ännu inte utbetald lönekörning kan återföras med länk till originalet. Positiva kompletteringar finns för tidigare bokförd eller betald lön.',
-        'Stödda engångsbelopp kräver granskat helårslöneunderlag. Negativa rättelser efter utbetalning, återkrav, fler avgiftsnedsättningar, pensions-/försäkringshantering och fullständiga kollektivavtal återstår.',
-        'Exporten är en gransknings-CSV. Den är inte AGI-XML och skickas inte till Skatteverket.',
+        'Utbetald lön kan rättas genom ett granskat bruttolöneåterkrav. Originalet bevaras; 1680 visar fordran, delbetalningar matchar fordran och eventuell faktisk avgiftskreditering registreras på skattekontot. Innehållen skatt ändras inte.',
+        'AGI-underlaget ändras i ursprunglig utbetalningsmånad. Den rättsliga tidpunkten och förutsättningarna för bruttokravets AGI-rättelse måste granskas särskilt; Skatteverkets rättelsesida har inte verifierats i fulltext av implementationen.',
+        'Kollektivavtal, pensions-/försäkringsmotor, automatisk semesterlöneskuld, allmän nettokvittning och alla förmånsrättelser ingår inte. Skatte- och avgiftsreglerna gäller uttryckligen 2026. Deklarationsarbetsytan skapar AGI XML för de stödda fallen utan att skicka den.',
       ] },
     ],
-    sources: [source('Löneregler och avgränsning', 'bokforing/lon-regler-och-avgransning.md'), source('Lönemotor', 'public/bokforing/suite/payroll-engine.js'), source('Källdata för skattetabeller', 'public/bokforing/suite/payroll-tax-tables-2026.js'), source('Löneprov', 'server/bokforing-payroll-engine.test.mjs')],
-    related: ['lon', 'kontering', 'nytt-rakenskapsar', 'kanda-begransningar'],
+    sources: [source('Semester, löneåterkrav och gränser', 'bokforing/lon-komplettering.md'), source('Löneregler och grundomfattning', 'bokforing/lon-regler-och-avgransning.md'), source('Lönemotor', 'public/bokforing/suite/payroll-engine.js'), source('Semester- och återkravsprov', 'server/bokforing-payroll-completion.test.mjs')],
+    related: ['lon', 'deklarationer', 'kontering', 'nytt-rakenskapsar', 'kanda-begransningar'],
   },
   {
     id: 'moms-utland', category: 'regler', title: 'Momsrutor, avdragsandel och utlandsaffärer',
@@ -600,7 +609,7 @@ export const articles = [
         'Ett granskningsunderlag kan exporteras som CSV. Fastställande och reglering i demon är skilda steg.',
       ] },
       { id: 'granser', title: 'Avgränsning', paragraphs: [
-        'Utlandsflödena är inte fakturering i andra valutor eller kontantmetoden. De särskilda transaktionerna avser redan betalda SEK-belopp.',
+        'De särskilda utlandstransaktionerna avser redan betalda SEK-belopp. Valutafakturor och kontantmetoden finns i egna arbetsytor; de ger inte automatiskt stöd för samtliga kombinationer med internationella momsfall.',
         'Ingen kontroll av VAT-nummer mot VIES, återbetalning av utländsk moms, periodisk sammanställning eller myndighetsinlämning är ansluten. Avdragsandelen är ett granskat användarval, inte en automatisk rättslig bedömning.',
       ] },
     ],
@@ -626,10 +635,10 @@ export const articles = [
       ] },
       { id: 'granser', title: 'År och rättelser', paragraphs: [
         'Stödet gäller kundbetalningar under 2026. Begärans metadata kan dateras till 31 januari 2027; det innebär inte stöd för kundbetalningar under 2027 eller alla årsskiftesfall.',
-        'RUT, ändring av ett redan registrerat beslut och kredit av själva ROT-fakturan behöver fler sammanhängande rättelseflöden. Inga kontroller eller ansökningar görs mot Skatteverket.',
+        'ROT-krediter har nu ett eget rättelseflöde: tidigare ärenden bevaras, det tillåtna avdraget minskar och nödvändig skatteåterbetalning registreras. För en person finns korrigerad begäran, beslut och utbetalning. Ny automatisk begäran efter flerpersonskredit är spärrad och kräver personvis avstämning. RUT och andra betalningsår ingår inte. Inga ansökningar skickas till Skatteverket.',
       ] },
     ],
-    sources: [source('ROT-planer och delbegäranden', 'public/bokforing/suite/rot-extended.js'), source('Regler och avgränsningar', 'bokforing/moms-och-rot-utbyggnad.md'), source('Verifiering av ROT-fallen', 'server/bokforing-tax-rot-extended.test.mjs')],
+    sources: [source('ROT-planer och delbegäranden', 'public/bokforing/suite/rot-extended.js'), source('ROT-krediternas arbetsgång och gränser', 'docs/bokforing/rot-credit-completion.md'), source('Rättelsemodell efter kredit', 'public/bokforing/suite/rot-credit.js'), source('Verifiering av ROT-krediter', 'server/bokforing-rot-credit-completion.test.mjs')],
     related: ['rot-2026', 'kundfakturor', 'bankavstamning', 'kanda-begransningar'],
   },
   {
@@ -646,6 +655,7 @@ export const articles = [
         'Ett projektanknutet lageruttag och motsvarande materialrad skapas tillsammans. Kostnadspris och försäljningspris hålls isär.',
         'Lagrets redovisade kostnad bokförs genom den periodiska lagervärderingen. Uttaget skapar inte en extra kostnadsbokning för samma material.',
         'Intäktsperiodisering för en utfärdad, okrediterad faktura utan ROT använder 2990 och en månadsplan med exakt sammanlagd öresfördelning. Planen kan fortsätta över årsskifte.',
+        'En senare intäktskredit rättar redan redovisad intäkt och återstående 2990 proportionellt över avtalstiden. Historiska månadsverifikationer bevaras och framtida planbelopp räknas om.',
         'Pågående arbeten har en dokumenterad bedömningsbilaga. Automatisk värderingsbokning eller fullständig successiv vinstavräkning ingår inte.',
       ] },
       { id: 'paminnelse', title: 'Påminnelseförberedelser', paragraphs: [
@@ -675,12 +685,113 @@ export const articles = [
       ] },
       { id: 'export', title: 'Exportens gränser', paragraphs: [
         'Årsarkivet innehåller en fryst ögonblicksbild och kan exporteras tillsammans med granskningsunderlag. Senare betalningar skriver inte om den sparade ögonblicksbilden.',
-        'Beräkningsunderlag för bolagsskatt och utkast till årsredovisningsunderlag finns. Skattemässiga bedömningar, tillämpligt K-regelverk, fullständiga noter, resultatdisposition, underskrifter, INK2 och myndighetsinlämning återstår.',
+        'Deklarationsarbetsytan skapar INK2/SRU för stödd beskattningsperiod och ett utskrivbart årsredovisningsdokument för ett mindre privat K2-aktiebolag. Användaren måste fylla och granska skattejusteringar, noter, jämförelsetal och resultatdisposition. K3, särskilda bilagor, underskrifter, fastställelseintyg och myndighetsinlämning ingår inte automatiskt.',
         'Kreditbalanser i reskontra kan behöva särskild bokslutsklassificering. Lokal webbläsarlagring är inte ett hållbart serverarkiv.',
       ] },
     ],
     sources: [source('Årsflödet och avgränsningar', 'bokforing/bokslut-och-rakenskapsar.md'), source('Årsöppning och bilagor', 'public/bokforing/suite/financial-years.js'), source('Rapporternas perioder', 'public/bokforing/suite/fiscal-reports.js'), source('Prov av fortsatt bokföring', 'server/bokforing-year-continuation.test.mjs')],
     related: ['bokslut-rapporter', 'lagring-och-reset', 'individuell-lon', 'artiklar-avtal'],
+  },
+  {
+    id: 'sie-import-export', category: 'arbetsfloden', title: 'SIE 4: flytta huvudbok mellan system',
+    summary: 'Granska en fil, mappa konton och importera huvudbok med bevarat original. Exportera ett valt år i PC8.',
+    status: 'limited', updated, tags: ['SIE', 'import', 'export', 'Fortnox', 'Visma', 'huvudbok', 'CP437', 'PC8'],
+    sections: [
+      { id: 'arbetsgang', title: 'Importera efter granskning', steps: [
+        'Kontrollera företag och räkenskapsår. En fullständig inflyttning kan provas i ett nytt tomt övningsbolag; det ersätter lokal demodata efter bekräftelse.',
+        'Öppna SIE, välj fil och kodning. Standard är PC8/IBM CP437; UTF-8 kräver ett uttryckligt importval.',
+        'Mappa vid behov okända konton till befintliga konton och granska redovisningsbetydelsen.',
+        'Granska företag, år, ingående balans, verifikationer, dubbletter och varningar. Förhandsgranskningen bokför ingenting.',
+        'Bekräfta importen. Fel avbryter hela transaktionen; ingen halv import ska bli kvar.',
+      ] },
+      { id: 'kontroller', title: 'Spårbarhet och filkontroll', paragraphs: [
+        'Originaltext, SHA-256, kontomappning och koppling till journalen sparas. Återläsning kontrollerar importerade verifikationer mot det sparade originalet. Identisk fil stoppas; samma bolag/år/källserie/nummer hoppas över när innehållet är identiskt och stoppas om innehållet ändrats.',
+        'Importen kontrollerar bland annat balanserade verifikationer, IB och deklarerade UB/RES, datum, ören, konton och periodlås. En redan registrerad ingående balans måste stämma; den bokas inte en gång till.',
+        'Exporten använder SIE 4 med PC8/IBM CP437 och CR/LF. En testfil kontrollerades i SIE-gruppens publika testtjänst utan syntax- eller radfel. Det är kontroll av filen, inte SIE-certifiering.',
+      ] },
+      { id: 'granser', title: 'Vad SIE inte flyttar', paragraphs: [
+        'SIE-importen flyttar huvudbok. Den skapar inte reskontrafakturor, bilagor, betalningsuppdrag, anställningskort, inventariekort eller ROT-ärenden. Ett importerat 1510-/2440-saldo behöver kompletterande reskontra för individuell uppföljning.',
+        'Okända konton kräver mappning. Objektdimensioner, avvikande transaktionsdatum och KSUMMA stöds inte i denna version. Filen är högst 2 MB med högst 5 000 verifikationer och 1 000 rader per verifikation. Import mot lagerkontot efter registervärdering behöver särskild avstämning och stoppas.',
+      ] },
+    ],
+    sources: [source('SIE-arbetsgång och oberoende kontroll', 'bokforing/sie.md'), source('SIE-parser och export', 'public/bokforing/suite/sie.js'), source('SIE-prov', 'server/bokforing-sie.test.mjs')],
+    related: ['omfattning', 'kontering', 'nytt-rakenskapsar', 'lagring-och-reset'],
+  },
+  {
+    id: 'valutafakturor', category: 'arbetsfloden', title: 'Valutafakturor: EUR och USD i en SEK-bok',
+    summary: 'Frysta kurser, delbetalningar, kursdifferenser, kreditnotor och balansdagsvärdering.',
+    status: 'limited', updated, tags: ['valuta', 'EUR', 'USD', 'kursvinst', 'kursförlust', 'utländsk valuta', 'balansdag'],
+    sections: [
+      { id: 'arbetsgang', title: 'Från utkast till betalning', steps: [
+        'Välj kund- eller leverantörsfaktura i Valutafakturor och ange EUR eller USD.',
+        'Ange SEK per valutaenhet, kursdatum och granskad kursreferens. Momstyp bedöms separat; den följer inte av valutan.',
+        'Granska och utfärda. Valutabelopp, SEK-värden, kurser och dokumentuppgifter fryses.',
+        'Registrera del- eller slutbetalning med faktiskt SEK-belopp och separat bankavgift. Kursdifferensen bokförs på 3960 eller 7960.',
+        'Vid balansdagen granskas kursen för kvarvarande monetära poster. Värderingen följer med till nästa år.',
+      ] },
+      { id: 'krediter', title: 'Krediter och exakta belopp', paragraphs: [
+        'Delkredit kan göras per originalrad före eller efter betalning. Moms och intäkt/kostnad återförs med originalets frysta SEK-belopp. När ett nytt tillgodo uppstår krävs granskad kurs för kreditdatumet.',
+        'Öresbelopp hanteras som heltal, och kursen som ett reducerat heltalsbråk. Netto och moms omräknas separat per rad. Sista betalningen eller krediten tar resterande ören exakt.',
+      ] },
+      { id: 'granser', title: 'Stödd kombination', paragraphs: [
+        'Faktureringsmetoden och SEK-redovisning krävs. EUR/USD är fakturavalutor; bankkontot är fortfarande i SEK. Svenska momssatser och dokumenterad ingen moms stöds. ROT, omvänd moms och särskilda EU-/exportkombinationer är inte kopplade till denna arbetsyta.',
+        'Ingen banköverföring eller kursinhämtning görs. Kreditbalanser i reskontran kan kräva särskild klassificering inför bokslut.',
+      ] },
+    ],
+    sources: [source('Valutafakturornas omfattning', 'bokforing/valutafakturor.md'), source('Valutamotor', 'public/bokforing/suite/fx.js'), source('Valutaprov', 'server/bokforing-fx.test.mjs')],
+    related: ['kundfakturor', 'leverantorsfakturor', 'bankavstamning', 'nytt-rakenskapsar', 'moms'],
+  },
+  {
+    id: 'kontantmetoden', category: 'arbetsfloden', title: 'Kontantmetoden: betalning, kredit och årsskifte',
+    summary: 'Ett separat flöde där betalning bokför affären och obetalda poster hanteras vid årsslut.',
+    status: 'limited', updated, tags: ['kontantmetod', 'bokslutsmetod', 'betalning', 'årsskifte', 'SEK', 'moms'],
+    sections: [
+      { id: 'starta', title: 'Ett nytt tomt övningsbolag', paragraphs: [
+        'Kontantmetoden väljs när ett nytt tomt övningsbolag skapas efter tydliga bekräftelser. Befintliga bokningar konverteras inte genom ett metodbyte. Exportera det du vill behålla innan lokal demodata ersätts.',
+        'Användaren bekräftar förutsättningarna för metoden och förväntad årsomsättning inom det stödda fallet, normalt högst tre miljoner kronor. Systemet verifierar inte den verkliga rättsliga rätten att använda metoden.',
+      ] },
+      { id: 'betalning', title: 'Betalning styr bokföring och moms', paragraphs: [
+        'En kund- eller leverantörsfaktura får ett fryst original och unikt nummer vid utfärdande men ingen intäkts-, kostnads-, moms- eller reskontrabokning. Betalningar bokför den betalda andelen av raderna och momsen.',
+        'Exempel: av en faktura på 1 250 kr inklusive 250 kr moms ger en betalning på 500 kr en intäkt på 400 kr och moms på 100 kr. Vid årsslut bokas kvarvarande 750 kr som 600 kr intäkt, 150 kr moms och 750 kr kundfordran. Nästa års betalning reglerar fordran utan ny moms.',
+        'Hel- och delkrediter får egna dokument och återbetalningar får egna bankhändelser. Kvarvarande kundtillgodo klassificeras på 2490 och leverantörstillgodo på 1680 vid årsslut.',
+      ] },
+      { id: 'granser', title: 'Avgränsning', paragraphs: [
+        'Svenska SEK-affärer med 0, 6, 12 eller 25 procent moms och granskad avdragsandel stöds. ROT, omvänd moms, internationella affärer, valuta, förskott och kvittning mellan fakturor ingår inte i detta flöde.',
+        'Krediter proportioneras över fakturan. Artikelregister, återkommande planer och den ordinarie bilduppladdningen är inte automatiskt integrerade med dessa separata dokument. Bokföring och dokument är fortfarande lokalt lagrade.',
+      ] },
+    ],
+    sources: [source('Kontantmetodens arbetsgång', 'bokforing/kontantmetoden.md'), source('Kontantmetodens motor', 'public/bokforing/suite/cash-method.js'), source('Kontantmetodens prov', 'server/bokforing-cash-method.test.mjs')],
+    related: ['omfattning', 'moms', 'nytt-rakenskapsar', 'lagring-och-reset'],
+  },
+  {
+    id: 'deklarationer', category: 'arbetsfloden', title: 'Deklarationer: AGI, moms, INK2 och årsredovisning',
+    summary: 'Granskade lokala exportfiler för stödda fall. Filskapande, underskrift och myndighetsinlämning är skilda steg.',
+    status: 'limited', updated, tags: ['deklaration', 'AGI', 'XML', 'INK2', 'SRU', 'K2', 'årsredovisning', 'Skatteverket'],
+    sections: [
+      { id: 'arbetsgang', title: 'Granska, spara version och hämta fil', steps: [
+        'Öppna Deklarationer och välj handling. Ange organisationsnummer, personuppgifter och övrigt underlag som saknas; DEMO är ingen giltig deklarationsidentitet.',
+        'Granska tillämpningsområde, period, belopp och obligatoriska uppgifter. Fiktiv bokföring ska inte lämnas in som en verklig deklaration.',
+        'Spara en granskningsversion och hämta dess fil. Sparade versioner skrivs inte över.',
+        'Om bokföringsunderlaget ändras, skapa och granska en ny version. En gammal export från ändrat underlag stoppas.',
+        'Underskrift, eventuell komplettering och inlämning görs separat. Hämta och bevara mottagningskvittens i den externa tjänsten.',
+      ] },
+      { id: 'format', title: 'Filer och avgränsningar', table: {
+        headers: ['Handling', 'Stöd och granskning'],
+        rows: [
+          ['AGI XML', 'Utbetald vanlig svensk lön under 2026, HU/IU och avgränsad föräldrafrånvaro. Personnummer kontrolleras mot födelseår och tidigare specifikationsnummer. Bruttolöneåterkrav rättar ursprungsmånaden utan sänkt skatteavdrag.'],
+          ['Moms XML', 'eSKDUpload 6.0 från en avstämd rapport. Perioden måste matcha bolagets registrerade period och hela kalendermånader. Ruta 49 räknas från de exporterade rutornas hela kronor.'],
+          ['INK2/SRU', 'INK2, INK2R och INK2S för aktiebolag med beskattningsperiod 2026P4. En ZIP innehåller två ISO-8859-1-filer. Användaren granskar kontomappning, skattejusteringar och samtliga rutor.'],
+          ['Årsredovisning', 'Utskrivbar HTML med jämförelsetal, förvaltningsberättelse, resultat/balans, noter, resultatdisposition och underskriftsrader för avgränsad K2-tillämpning. Avslutat år och granskat underlag krävs.'],
+        ],
+      } },
+      { id: 'granser', title: 'Vad filen inte intygar', paragraphs: [
+        'AGI-exporten täcker inte samtliga ersättningar, pensions-/utlandsfall eller identitetsborttagningar. N8/N9, andra företagsformer och andra SRU-perioder ingår inte. Bruttokravets rättsliga förutsättningar och tidpunkt måste granskas; implementationen har inte verifierat rättelsesidans fulltext.',
+        'Årsredovisningen gäller en mindre privat K2-aktiebolagstillämpning med granskning av de regler som gäller från 2026. K3, koncern och särskilda fall utanför kontomappningen omfattas inte. Särskilda noter och skattebedömningar kan behövas.',
+        'Ingen API-inlämning, digital underskrift, fastställelseintyg eller revisionsberättelse genereras. XSD- och filkontroller visar formatet, inte att en myndighet har tagit emot handlingen eller att en revisor godkänt innehållet.',
+      ] },
+    ],
+    sources: [source('Format, källor och avgränsning', 'bokforing/deklarationer.md'), source('Deklarationsmotor', 'public/bokforing/suite/declarations.js'), source('Scheman och filprov', 'server/bokforing-declarations.test.mjs'), source('Löneåterkrav till AGI', 'server/bokforing-declaration-payroll-integration.test.mjs')],
+    related: ['individuell-lon', 'moms', 'nytt-rakenskapsar', 'verifiering', 'kanda-begransningar'],
   },
   {
     id: 'ande-saas', category: 'utveckling', title: 'Plan: en personlig Ande per kundbolag',
