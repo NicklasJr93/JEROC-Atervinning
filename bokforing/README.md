@@ -18,6 +18,8 @@ Nya kundfakturor i de ordinarie flödena, valuta- och kontantmetodsflödena kont
 
 Momsfria försäljningsrader kräver ett stött, uttryckligt undantag med dokumenterad bedömning och går till ruta 42. Äldre oklassade underlag behåller sin historik och stoppar fastställande och XML-export. Lönen hanterar årsgränsen **1 000 kr för arbetsgivaravgifter**, tidigare avgiftsfri ersättning vid gränspassage, relevanta AGI-fält samt spårbara årsavstämningar efter återkrav. [Regler och arbetsgång för lönegränsen](lon-arsgrans-2026.md).
 
+Slutkörningen omfattar **2 385 godkända automatiska tester**, varav **132 nya åtgärdsfall** och samtliga tidigare **2 253** tester. Inga fall är underkända eller överhoppade.
+
 [Den korta åtgärdsrapporten (PDF)](../public/bokforing/granskning/atgardsrapport-2026-10-23.pdf) och [det nya testprotokollet (CSV)](../public/bokforing/granskning/atgarder/testresultat-2026-10-23.csv) kompletterar den ursprungliga rapporten. Serverlagring, identifierade användare, bolagsisolering och hållbar arkivering kvarstår i den senare driftetappen. Alla bransch-, löne- och skattesärregler omfattas ännu inte.
 
 ### Den senaste utbyggnaden

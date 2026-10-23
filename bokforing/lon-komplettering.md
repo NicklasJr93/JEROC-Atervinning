@@ -42,7 +42,7 @@ En utbetald lönekörning kan inte raderas eller återföras genom det obetalda 
 - Kravet har länk till originalkörning och originalverifikation, person, felaktigt löneslag, ursprunglig månad, egen bokföringsdag, orsak och unik referens.
 - Periodisk lön och engångslön hålls isär. Återkravet kan inte överstiga originalets kvarvarande belopp för löneslaget.
 - Annan lön i samma månad måste vara färdigbehandlad. Kravet kan inte bakdateras före de utbetalningar som ligger till grund för beräkningen.
-- Ett ytterligare krav räknar av tidigare krav. Arbetsgivaravgiftsminskningen räknas om från kvarvarande månadsunderlag, inklusive den stödda ungdomsgränsen.
+- Ett ytterligare krav räknar av tidigare krav. För äldre löneunderlag räknas arbetsgivaravgiftsminskningen från kvarvarande månadsunderlag, inklusive den stödda ungdomsgränsen. Löner som använder den nya årsregeln får i stället en separat årsavstämning; den kan korrigera avgifter och klassning i flera berörda AGI-perioder utan att skriva om löneoriginalen.
 
 ### Verifikationer
 
@@ -55,17 +55,17 @@ En utbetald lönekörning kan inte raderas eller återföras genom det obetalda 
 
 Återbetalning kan göras i flera delar. Varje del måste ha egen referens och får högst motsvara återstående fordran. Verifikation och avstämd bankhändelse skapas tillsammans och valideras mot varandra. Ingenting skickas till banken.
 
-Om arbetsgivaravgiften ännu inte reglerats minskar återkravet den senare betalningen mot skattekontot. Om den redan reglerats visas en separat avgiftsfordran tills en faktisk skattekontokreditering registreras. En återbetalning från den anställde registrerar aldrig automatiskt en kreditering från Skatteverket.
+I det äldre återkravsflödet minskar en ännu oreglerad arbetsgivaravgift den senare betalningen mot skattekontot. Om avgiften redan reglerats visas en separat avgiftsfordran tills en faktisk skattekontokreditering registreras. Den nya [årsregeln för 1 000-kronorsgränsen](lon-arsgrans-2026.md) bokför i stället avgiftsdifferensen i en separat årsavstämning, vars betalning eller kreditering registreras separat mot skattekontot. En återbetalning från den anställde registrerar aldrig automatiskt en kreditering från Skatteverket.
 
 ## Rättat AGI-underlag
 
-`getPayrollDeclarationPeople(state, month)` läser endast faktiskt utbetalda lönekörningar och tidigare faktiskt utbetalda körningar i det äldre registret. Obetalda och återförda körningar tas inte med. Återkrav minskar kontant bruttolön och arbetsgivaravgift i **ursprunglig utbetalningsmånad**. Avdragen skatt ligger kvar. Källkörningar, äldre körningar och återkravs-ID:n följer med.
+`getPayrollDeclarationPeople(state, month)` läser endast faktiskt utbetalda lönekörningar och tidigare faktiskt utbetalda körningar i det äldre registret. Obetalda och återförda körningar tas inte med. Återkrav minskar kontant bruttolön i **ursprunglig utbetalningsmånad**. Avdragen skatt ligger kvar. För äldre underlag korrigeras även månadens arbetsgivaravgift direkt; den nya årsregeln använder årsavstämningens periodfördelning och kan ändra fler berörda perioder när 1 000-kronorsgränsen påverkas. Källkörningar, äldre körningar och återkravs-ID:n följer med.
 
 Äldre lönekörningar deklareras enligt faktiskt registrerat utbetalningsdatum, även när löneperioden var en tidigare månad. Ett sådant manuellt underlag får inte blandas med den moderna motorns lön för samma person i den ursprungliga eller faktiska betalningsmånaden. Spärren gäller både när modern lön skapas och när en äldre betalning försöker flyttas, samt vid återläsning. Användaren hänvisas till granskning och korrigering i den moderna lönemotorn; historiska manuella belopp ändras inte automatiskt.
 
-Att fastställa ett krav kräver en särskild bekräftelse att just detta är ett bruttolöneåterkrav som ska rättas i den ursprungliga AGI-perioden utan minskat skatteavdrag. Flödet avgör inte själv när ett arbetsrättsligt krav är giltigt eller exakt när en AGI-rättelse ska lämnas i varje särskilt fall. Detta behöver kontrolleras mot Skatteverkets aktuella regler och det faktiska återkravsunderlaget. Vid implementeringen kunde Skatteverkets fullständiga rättelsesida inte hämtas; den granskningspunkten ska därför inte betraktas som rättsligt verifierad av denna implementation.
+Att fastställa ett krav kräver en särskild bekräftelse att just detta är ett bruttolöneåterkrav som ska rättas i den ursprungliga AGI-perioden utan minskat skatteavdrag. Flödet avgör inte själv när ett arbetsrättsligt krav är giltigt eller exakt när en AGI-rättelse ska lämnas i varje särskilt fall. Skatteverkets fullständiga rättelsevägledning hämtades och kontrollerades 2026-10-23. Den anger bruttokrav, rättelse i den ursprungliga perioden och oförändrat skatteavdrag när kravet ställs, även innan återbetalningen kommit in. Det styr den tekniska modellen; giltigheten hos ett visst krav och reglernas tillämpning på det faktiska underlaget behöver fortfarande bedömas.
 
-Förmånsrättelser, nettokvittning mot senare lön, återkrav över flera beskattningsår, tvistiga/efterskänkta fordringar och omfördelning av ungdomsavgift mellan körningar när avgiftsminskningen skulle överstiga originalkörningens avgift stoppas eller kräver ett separat flöde. Skatte- och avgiftsmotorn använder uttryckligen 2026 års regler.
+Förmånsrättelser, nettokvittning mot senare lön, återkrav över flera beskattningsår samt tvistiga/efterskänkta fordringar kräver fortsatt separat hantering. Det äldre återkravsflödet stoppar avgiftsminskningar över originalkörningens avgift. För underlag med den nya årsregeln kan [separata årsavstämningar](lon-arsgrans-2026.md) hantera avgiftsdifferenser utan denna begränsning, med spårbara periodunderlag. Skatte- och avgiftsmotorn använder uttryckligen 2026 års regler.
 
 ## Integrationskontrakt
 
@@ -73,14 +73,15 @@ Förmånsrättelser, nettokvittning mot senare lön, återkrav över flera beska
 - `getVacationBalance(state, vacationYearId)` returnerar bland annat `usedDays`, `remainingDays`, `usedMoneyCents` och `remainingMoneyCents`. För sammalöneregeln är kvarvarande pengar `null`; månadslönen vid uttaget avgör tillägget.
 - `createPayrollBatch` accepterar `vacationYearId`, `vacationHoursHundredths` och, för `kind: 'vacation-final'`, `finalDailyCents` och `finalCompensationReviewed`.
 - `createPayrollRecovery`, `receivePayrollRecovery` och `receivePayrollRecoveryTaxCredit` skapar `payrollRecoveries` och kopplade bokförings- och bankhändelser.
-- `getPayrollDeclarationPeople(state, month)` returnerar `{ employeeId, grossCents, benefitCents, withholdingCents, employerCents, sourceBatchIds, sourceLegacyRunIds, recoveryIds }[]`.
+- `getPayrollDeclarationPeople(state, month)` returnerar bland annat `{ employeeId, grossCents, benefitCents, withholdingCents, employerCents, sourceBatchIds, sourceLegacyRunIds, recoveryIds }[]`. Årsavstämda rader innehåller dessutom avgiftspliktiga/avgiftsfria kontant- och förmånsbelopp, `previouslyReportedCents` för AGI 010 och `contributionReviewId`.
+- `reviewPayrollAnnualContributions` och `settlePayrollContributionReview` skapar respektive reglerar separata `payrollContributionReviews`. [Årsregelns arbetsgång och källor](lon-arsgrans-2026.md).
 - `validatePayrollBatches` lämnar som tidigare `{ entryIds, accountBalances }` till systemets huvudvalidering, inklusive samtliga nya återkravsverifikationer.
 
 Mutationsfunktionerna är transaktionella: underlaget valideras före och efter ändringen. Fel lämnar inkommande state oförändrat. Pengar beräknas i heltalsören med BigInt för multiplikation/avrundning. Bokförda ögonblicksbilder och historiska beräkningsunderlag används även efter att aktuell löneprofil ändrats.
 
 ## Verifiering och källor
 
-`server/bokforing-payroll-completion.test.mjs` täcker bland annat dagintjäning, öresfördelning, slutlig ersättning, överuttag, överkrav, delbetalning, saknad bankhändelse, separat skattekreditering, oförändrad innehållen skatt, senare lönekörnings underlag och bevarad historik. `tests/bokforing-payroll-completion.spec.ts` provar arbetsytans semester- och återkravsflöden.
+`server/bokforing-payroll-completion.test.mjs` täcker bland annat dagintjäning, öresfördelning, slutlig ersättning, överuttag, överkrav, delbetalning, saknad bankhändelse, separat skattekreditering, oförändrad innehållen skatt, senare lönekörnings underlag och bevarad historik. `tests/bokforing-payroll-completion.spec.ts` provar arbetsytans semester- och återkravsflöden. `server/bokforing-payroll-threshold.test.mjs` och `tests/bokforing-payroll-threshold.spec.ts` tillför prov av årsgräns, AGI 010/131/132, återkrav över gränsen och separat årsavstämning.
 
 - [Semesterlag (1977:480), särskilt 7 och 16–22 §§](https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/semesterlag-1977480_sfs-1977-480/)
 - [Skatteverket: rätta en arbetsgivardeklaration](https://www.skatteverket.se/foretag/arbetsgivare/lamnaarbetsgivardeklaration/rattaenarbetsgivardeklaration.4.2cf1b5cd163796a5c8b6698.html)
