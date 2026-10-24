@@ -278,7 +278,12 @@ export function getPayrollBatchRows(batch) {
   const t = getPayrollBatchTotals(batch);
   return [debit('7010', t.salaryCents), debit('7082', t.vacationPayCents), debit('7331', t.reimbursementCents), debit('7510', t.employerCents), credit('2710', t.withholdingCents), credit('2731', t.employerCents), credit('2910', t.netCents)].filter(row => row.debitCents || row.creditCents);
 }
-const batchSnapshot = batch => JSON.stringify({ date: batch.date, month: batch.month, people: batch.people, ruleVersion: batch.ruleVersion, correctionOf: batch.correctionOf ?? null });
+function assertNonPostingBenefit(batch, rows = getPayrollBatchRows(batch)) {
+  const totals = getPayrollBatchTotals(batch);
+  assert(rows.length === 0 && totals.benefitCents > 0 && !totals.grossCents && !totals.withholdingCents && !totals.employerCents && !totals.reimbursementCents && !totals.netCents && batch.people.every(person => !person.input.vacationYearId && !person.input.vacationDays),
+    'Underlag utan verifikation stöder enbart förmån utan kontantlön, skatt, avgift, utlägg eller semesteruttag.');
+}
+const batchSnapshot = batch => JSON.stringify({ date: batch.date, month: batch.month, people: batch.people, ruleVersion: batch.ruleVersion, correctionOf: batch.correctionOf ?? null, ...(batch.postingActivityId !== undefined ? { postingActivityId: batch.postingActivityId } : {}) });
 
 export function createPayrollBatch(state, input) {
   return payrollTransaction(state, draft => {
@@ -312,8 +317,17 @@ export function postPayrollBatch(state, id, { reviewed = false } = {}) {
       const recalculated = calculatePayrollPerson(draft, person.input, { paymentDate: batch.date, month: batch.month, excludeId: batch.id });
       assert(JSON.stringify(recalculated) === JSON.stringify(person), 'Löneunderlaget har ändrats sedan utkastet skapades. Skapa ett nytt utkast.');
     }
-    const entry = appendEntry(draft, { date: batch.date, description: `Individuell lön ${batch.month}`, sourceType: 'payroll-v2', sourceId: batch.id, rows: getPayrollBatchRows(batch) });
-    batch.entryId = entry.id; batch.snapshot = batchSnapshot(batch); batch.status = 'posted'; addActivity(draft, `Individuell lön ${batch.month} bokförd efter granskning`, batch.id);
+    const rows = getPayrollBatchRows(batch);
+    if (rows.length) {
+      const entry = appendEntry(draft, { date: batch.date, description: `Individuell lön ${batch.month}`, sourceType: 'payroll-v2', sourceId: batch.id, rows });
+      batch.entryId = entry.id;
+      addActivity(draft, `Individuell lön ${batch.month} bokförd efter granskning`, batch.id);
+    } else {
+      assertNonPostingBenefit(batch, rows);
+      batch.entryId = null;
+      batch.postingActivityId = addActivity(draft, `Förmånsunderlag ${batch.month} registrerat utan verifikation efter granskning`, batch.id).id;
+    }
+    batch.snapshot = batchSnapshot(batch); batch.status = 'posted';
   });
 }
 
@@ -345,7 +359,7 @@ export function payPayrollBatch(state, id, { date }) {
       assert(person.context.annualContribution.events.every(event=>event.type==='modern'?find(draft,event.id).status==='paid':draft.payrollRuns.find(run=>run.id===event.id)?.status==='paid'),'Betala tidigare löner i årsunderlaget före denna utbetalning.');
       appendContributionReview(draft,{employeeId:person.employeeId,year:Number(batch.month.slice(0,4)),date,reference:`Utbetalning ${batch.id}`,reviewed:true,finalBelowThreshold:false,automatic:true});
     }
-    addActivity(draft, `Nettolön ${batch.month} registrerad som utbetald i demon`, id);
+    addActivity(draft, batch.entryId === null ? `Förmån ${batch.month} bekräftad utan utbetalning` : `Nettolön ${batch.month} registrerad som utbetald i demon`, id);
   });
 }
 
@@ -359,7 +373,7 @@ export function settlePayrollBatchTaxes(state, id, { date }) {
         rows: [debit('2710', t.withholdingCents), debit('2731', payableEmployer), credit('1630', amount)].filter(row => row.debitCents || row.creditCents) });
       entryId = entry.id; draft.bankTransactions.push({ id: nextId(draft, 'bank'), date, description: `Löneskatt ${batch.month}`, account: '1630', amountCents: -amount, matchedEntryId: entry.id });
     }
-    batch.taxSettlement = { date, amountCents: amount, entryId }; addActivity(draft, `Löneskatt ${batch.month} reglerad mot skattekontot i demon`, id);
+    batch.taxSettlement = { date, amountCents: amount, entryId }; addActivity(draft, batch.entryId === null ? `Förmån ${batch.month}: ingen skatt eller avgift att reglera` : `Löneskatt ${batch.month} reglerad mot skattekontot i demon`, id);
   });
 }
 
@@ -373,8 +387,15 @@ export function reversePayrollBatch(state, id, { date, reason }) {
     const position = draft.payrollBatches.findIndex(item => item.id === id);
     assert(!draft.payrollBatches.slice(position + 1).some(item => isActive(item) && item.people.some(person => years.has(person.input.vacationYearId))), 'En senare lönekörning använder samma semestersaldo. Rätta den först.');
     const original = draft.entries.find(entry => entry.id === batch.entryId);
-    const entry = appendEntry(draft, { date, description: `Rättelse lön ${batch.month} · ${reason}`, sourceType: 'payroll-v2-reversal', sourceId: id, correctsEntryId: original.id, rows: original.rows.map(row => ({ account: row.account, debitCents: row.creditCents, creditCents: row.debitCents })) });
-    batch.reversal = { date, reason: reason.trim(), entryId: entry.id }; batch.status = 'reversed'; addActivity(draft, `Lönekörning återförd med koppling till originalet: ${reason}`, id);
+    if (batch.entryId === null) {
+      assertNonPostingBenefit(batch);
+      batch.reversal = { date, reason: reason.trim(), entryId: null, activityId: addActivity(draft, `Förmånsunderlag återtaget utan verifikation: ${reason.trim()}`, id).id };
+    } else {
+      const entry = appendEntry(draft, { date, description: `Rättelse lön ${batch.month} · ${reason}`, sourceType: 'payroll-v2-reversal', sourceId: id, correctsEntryId: original.id, rows: original.rows.map(row => ({ account: row.account, debitCents: row.creditCents, creditCents: row.debitCents })) });
+      batch.reversal = { date, reason: reason.trim(), entryId: entry.id };
+      addActivity(draft, `Lönekörning återförd med koppling till originalet: ${reason}`, id);
+    }
+    batch.status = 'reversed';
   });
 }
 
@@ -447,7 +468,16 @@ export function validatePayrollBatches(state) {
     assert(Array.isArray(batch.payments) && batch.payments.length <= 1, 'Lönebetalningshistoriken är ogiltig.');
     if (batch.status === 'draft') { assert(!batch.entryId && !batch.snapshot && !batch.payments.length && !batch.taxSettlement && !batch.reversal, 'Ett löneutkast får inte vara bokfört.'); continue; }
     assert(batch.snapshot === batchSnapshot(batch), 'Bokfört löneunderlag får inte ändras.');
-    const original = addEntry(batch.entryId, 'payroll-v2', batch.id, batch.date, getPayrollBatchRows(batch));
+    const rows = getPayrollBatchRows(batch);
+    let original = null;
+    if (rows.length) {
+      assert(batch.postingActivityId === undefined, 'Bokförd lön får inte maskeras som underlag utan verifikation.');
+      original = addEntry(batch.entryId, 'payroll-v2', batch.id, batch.date, rows);
+    } else {
+      assertNonPostingBenefit(batch, rows);
+      assert(batch.entryId === null, 'Förmånsunderlag utan kontering får inte ha en verifikation.');
+      assert(state.activity.some(event => event.id === batch.postingActivityId && event.entityId === batch.id && event.label === `Förmånsunderlag ${batch.month} registrerat utan verifikation efter granskning`), 'Förmånsunderlagets spårbara registrering saknas.');
+    }
     const totals = getPayrollBatchTotals(batch);
     if (batch.status === 'paid') {
       if (totals.netCents) {
@@ -470,8 +500,12 @@ export function validatePayrollBatches(state) {
     }
     if (batch.status === 'reversed') {
       assert(batch.reversal && validDate(batch.reversal.date) && batch.reversal.date >= batch.date && text(batch.reversal.reason, 'rättelseorsak'), 'Lönerättelsen saknar underlag.');
-      const reversal = addEntry(batch.reversal.entryId, 'payroll-v2-reversal', batch.id, batch.reversal.date, original.rows.map(row => ({ account: row.account, debitCents: row.creditCents, creditCents: row.debitCents })));
-      assert(reversal.correctsEntryId === original.id, 'Lönerättelsen saknar originalreferens.');
+      if (original) {
+        const reversal = addEntry(batch.reversal.entryId, 'payroll-v2-reversal', batch.id, batch.reversal.date, original.rows.map(row => ({ account: row.account, debitCents: row.creditCents, creditCents: row.debitCents })));
+        assert(reversal.correctsEntryId === original.id, 'Lönerättelsen saknar originalreferens.');
+      } else {
+        assert(batch.reversal.entryId === null && state.activity.some(event => event.id === batch.reversal.activityId && event.entityId === batch.id && event.label === `Förmånsunderlag återtaget utan verifikation: ${batch.reversal.reason}`), 'Återtaget förmånsunderlag saknar spårbar händelse utan verifikation.');
+      }
     } else assert(!batch.reversal, 'En aktiv lön har en rättelse som inte har behandlats.');
   }
   validateVacationYears(state);

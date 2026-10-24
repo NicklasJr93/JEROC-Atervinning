@@ -4264,3 +4264,17 @@ Status: 66 nya modell-/integrationstester och omkörd fullsvit: 2 451 godkända.
   frysta original, momsgrunder, AGI, återkrav och tillstånd efter nekad åtgärd.
 - Två nya browserfall. Riktade omprov och aktuell rapport redovisas i
   bokforing/granskning/2026-10-23-andra-testomgangen.json och wikin.
+
+
+ÄL 173 – 1 000 nya kombinationsfall och rent förmånsunderlag
+Status: Nya fem testmatriser med 200 fall vardera; full automatisk slutkörning
+3 451/3 451 godkänd. Webbläsarprov och bygge redovisas i audit3-1000.json.
+- Testar sammansatta flöden inom försäljning, inköp/kontantmetod/valuta,
+  lön, moms samt huvudbok/SIE/årsbyte. Oberoende facit och negativa prov.
+- Tio nya scenarier fångade samma fel: ren förmån under årsgränsen kunde
+  inte registreras utan en tom verifikation. Granskat underlag får nu
+  sakna verifikation endast vid faktiskt frånvarande bokföringsrader.
+- Spårbar registrering och återtag, AGI, arkiv och manipulationskontroller.
+  Ingen bankbetalning eller myndighetsinlämning skapas för nollbelopp.
+- Tidigare testresultat bevaras som historik. Testerna är tekniska kontroller
+  av stödda fall och styrker inte full regelefterlevnad eller skarp drift.

@@ -12,12 +12,14 @@ Under 100 kr är inte en generell obligatorisk AGI-gräns. SFL 15 kap. 8 § inne
 ## Arbetsgång
 
 1. Öppna **Lön → Individuell lönehantering**. Granska eller uppdatera löneprofilen. Ange bedömd årsersättning och underlagsreferens. Äldre sparade profiler utan dessa fält har sina ursprungliga beräkningsregler kvar tills profilen uppdateras; bokförda löneoriginal skrivs inte om.
-2. Beräkna, granska, bokför och registrera utbetalningen. Årsunderlaget följer den anställde och betalningsåret. Tidigare löner i årsunderlaget måste betalas före senare löner som bygger på dem.
+2. Beräkna och granska. Bokför och registrera utbetalningen när lönen ger bokföringsposter; ett rent förmånsunderlag utan sådana poster registreras och bekräftas utan bankutbetalning. Årsunderlaget följer den anställde och betalningsåret. Tidigare löner i årsunderlaget måste betalas före senare löner som bygger på dem.
 3. Under årsgränsen klassas nya betalningar som avgiftsfria. När gränsen nås räknas även tidigare ännu inte avgiftsbelagda belopp med. Avgiftssatsen följer månaden då beloppen blir avgiftspliktiga, även för ungdomsnedsättningen.
 4. En separat årsavstämning följer utbetalningen. I normalfallet är differensen noll och ingen nollverifikation skapas. Vid rättelser kan en separat, spårbar verifikation justera konto 7510/2731. Det ursprungliga lönebeskedet och dess verifikation bevaras.
 5. Vid bruttolöneåterkrav korrigeras kontant ersättning i ursprunglig AGI-period. Avdragen skatt minskas inte. Årsavstämningen visar ändrad avgiftsklassning och eventuella avgiftsdifferenser. Redan skapade deklarationsfiler blir inaktuella om deras underlag ändras.
 6. Reglera en avgiftsdifferens först när motsvarande betalning eller kreditering finns på skattekontot. Samma differens kan inte regleras två gånger.
-7. Äldre löner kan granskas via **Årsgräns och arbetsgivaravgifter**. Ett uttryckligt slutligt under-1 000-besked kan korrigera äldre avgifter utan ändrade löneoriginal. Ny löneberäkning efter ett sådant slutbesked kräver ny årsavstämning.
+7. Äldre löner kan granskas via **Årsgräns och arbetsgivaravgifter**. Ett uttryckligt slutligt under-1 000-besked kan korrigera äldre avgifter utan ändrade löneoriginal. Ny löneberäkning och betalning av redan bokförd lön efter ett sådant slutbesked kräver en uttrycklig ny årsavstämning. Betalningsspärren gäller både den nya och äldre lönemodulen, även när nettolönen är noll.
+
+Ett rent skattepliktigt förmånsunderlag kan sakna verifikation när kontantlön, skatteavdrag, arbetsgivaravgift, utlägg och nettolön är noll. Det kräver positivt förmånsvärde och får inte innehålla semesteruttag. Underlaget, bekräftelsen och ett eventuellt återtag bevaras spårbart; ingen tom verifikation skapas. Förmånen finns kvar i AGI-underlaget. Kostnader som hör till förmånen måste vara bokförda genom relevanta underlag. Detta innebär ingen automatisk myndighetsinlämning.
 
 ## AGI-fält
 
