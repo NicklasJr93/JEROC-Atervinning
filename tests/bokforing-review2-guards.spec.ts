@@ -9,7 +9,12 @@ test('REVIEW2-UI unpaid incomplete draft stays blocked through assistant refresh
   await page.goto('/bokforing/#sales/new');
   await expect(form(page)).toBeVisible();
   await form(page).getByRole('button',{name:'Spara utkast',exact:true}).click();
+  // A click starts the coordinated save. Capture the baseline only after the
+  // saved draft opens, including when another Web Lock delays the write.
+  await expect(form(page)).toHaveCount(0);
+  await expect(page).toHaveURL(/#sales\/(?!new(?:$|\/))[^/]+$/);
   const before=await read(page);
+  expect(before).not.toBeNull();
   await expect(issue(page)).toBeDisabled();
   await page.locator('#suite-main').evaluate(()=>window.dispatchEvent(new Event('resize')));
   await page.locator('[data-action="toggle-assistant"]').first().click();
