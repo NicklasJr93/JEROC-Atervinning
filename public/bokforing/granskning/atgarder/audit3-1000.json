@@ -1,0 +1,113 @@
+{
+  "title": "Tredje testomgången: 1 000 nya kombinationsfall",
+  "revision": "cc4a2a25e2c605fd6cc5d2839c4e7565b8c728f2",
+  "intro": "1 000 nya deterministiska kombinationsfall, utöver den tidigare testsviten. Antalet scenarier är inte ett antal verifierade lagkrav.",
+  "demoUrl": "https://app.scrapplanner.com/bokforing/",
+  "evidenceUrl": "https://app.scrapplanner.com/bokforing/granskning/atgarder/testresultat-audit3.csv",
+  "actions": [
+    {
+      "title": "200 kundfakturor och krediter",
+      "text": "Blandade priser, rabatter och moms kombineras med delbetalning, kredit, återbetalning, kvittning, ROT och periodisering. Belopp, kundisolering och frysta original kontrolleras."
+    },
+    {
+      "title": "200 inköps-, kontant- och valutafall",
+      "text": "Avdragsandelar, delbetalningar, avgifter, valutakurser och krediter prövas med oberoende öresfacit. Kontantflöden passerar månadsgränser utan att ändra äldre momsunderlag."
+    },
+    {
+      "title": "200 lönefall",
+      "text": "Årsgräns, ålder, månadsgränser, förmåner, återkrav och skatteprognoser kombineras. Ett tidigare stopp för ren förmån utan bokföringsrader har rättats utan att skapa tomma verifikationer."
+    },
+    {
+      "title": "200 momsfall",
+      "text": "Blandade affärskällor, avdrag, återföringar, fastställda perioder och export kontrolleras. Deklarationens hela kronor stäms av separat mot huvudbokens ören."
+    },
+    {
+      "title": "200 huvudboks-, SIE- och årsskiftesfall",
+      "text": "Bokföringsportföljer, rättelser, import, periodlås, varierande räkenskapsår och arkiv testas mot oberoende saldofacit och bevarad historik."
+    }
+  ],
+  "findings": [
+    {
+      "id": "AUDIT3-PAY-161–170",
+      "title": "Ren förmån under årsgränsen kunde inte registreras",
+      "initialFailingCases": 10,
+      "rootCauses": 1,
+      "status": "fixed",
+      "detail": "Bokföringsmotorn krävde en verifikation trots att underlaget saknade bokföringsrader. Nu sparas ett kontrollerat förmånsunderlag med spårbar händelse, utan tom verifikation eller bankbetalning. Vanlig lön kräver fortfarande korrekt verifikation. Återtagning, AGI, årsarkiv och manipulationsspärrar prövas."
+    }
+  ],
+  "conclusion": "Ett nytt funktionsfel hittades och rättades. De testade kombinationerna fungerar enligt testernas facit. Detta är teknisk verifiering av avgränsade demofall, inte ett myndighetsgodkännande eller bevis för full regelefterlevnad.",
+  "method": "Fem nya testfiler med 200 namngivna fall vardera använder fasta, reproducerbara kombinationer. Förväntade belopp bygger på separat heltalsaritmetik, källtabeller eller jämförelser mellan olika händelsekedjor. Avslag ska lämna tillståndet oförändrat; återläsning och originalhistorik kontrolleras. En separat kodgranskning stärkte bland annat XML- och mellanliggande momsavstämningar. Alla tidigare automatiska tester kördes om.",
+  "browser": {
+    "passed": 15,
+    "workflowPassed": 9,
+    "newCases": 2,
+    "wikiPassed": 6,
+    "summary": "Nio riktade arbetsflödesfall, varav två nya, och sex omkörda wiki-fall ingår i denna verifiering. Proven omfattar förmånsregistrering och återtag utan verifikation, vanlig lön, semester, återkrav, sparande och dokumentation. Detta är inte en full omkörning av alla äldre webbläsarfall.",
+    "workflowLogSha256": "690395dc565a3f6d8a53a0b00bb8b8ecb0aeccbd8aa41e1a2ee25429e7f2b65a"
+  },
+  "gaps": [
+    "Verkliga identiteter, underlag, avdragsrätt och affärsvillkor verifieras inte av dessa tester.",
+    "Serverlagring, behörigheter, bolagsisolering och hållbar arkivering återstår i driftetappen.",
+    "Stödet är avgränsat, bland annat till 2026 års lönefall och valda moms-/bokslutsfall. Alla branscher, kollektivavtal och specialregler omfattas inte."
+  ],
+  "review": [
+    "Pröva företagets egna verkliga affärstyper och jämför mot ett oberoende redovisningsfacit.",
+    "Granska förmånsfallets rapportering och vilka kostnader som ska finnas bokförda genom andra underlag.",
+    "Bedöm arkivering, behörigheter och rättelsespår innan systemet används skarpt."
+  ],
+  "sources": [
+    "Bokföringslagen (1999:1078), BFNAR 2013:2; SIE-formatets specifikation.",
+    "Mervärdesskattelagen (2023:200); Skatteverkets deklarationsfält och AGI-XSD.",
+    "Socialavgiftslagen (2000:980) 2 kap. 14 och 24 §§; skatteförfarandelagen (2011:1244) 10 kap. 4 §. Detaljerade regelkällor finns i dokumentationen och testfilerna."
+  ],
+  "baseline": "78801b8",
+  "baselineTestCount": 2451,
+  "tests": {
+    "newPassed": 1000,
+    "totalPassed": 3451,
+    "failed": 0,
+    "skipped": 0,
+    "cancelled": 0,
+    "startedAt": "2026-10-24T17:05:36.160545+00:00",
+    "finishedAt": "2026-10-24T17:06:25.069Z",
+    "durationMs": 48813.713671,
+    "logSha256": "cf43d3d633aef801e796929abeff23c1668e22b28cb3e84ffa453a86c4bd319a"
+  },
+  "testFiles": [
+    {
+      "file": "server/bokforing-audit3-sales.test.mjs",
+      "passed": 200
+    },
+    {
+      "file": "server/bokforing-audit3-purchase-fx.test.mjs",
+      "passed": 200
+    },
+    {
+      "file": "server/bokforing-audit3-payroll.test.mjs",
+      "passed": 200
+    },
+    {
+      "file": "server/bokforing-audit3-vat.test.mjs",
+      "passed": 200
+    },
+    {
+      "file": "server/bokforing-audit3-ledger-year.test.mjs",
+      "passed": 200
+    }
+  ],
+  "build": {
+    "passed": true,
+    "command": "npm run build -- --outDir /workspace/audit3-build-output",
+    "logSha256": "071f60c407b9660dbbbb7f31e68dd1538aa3dace7cb916b66c68013f4c25c26b"
+  },
+  "independentReview": "Separat intern kodgenomgång stärkte XML-belopp och kontantmetodens mellanliggande avstämningar. Ingen extern revision eller myndighetscertifiering.",
+  "artifacts": {
+    "public/bokforing/granskning/atgarder/testlogg-audit3-payroll-fore-rattning.tap.gz": "445a53bef0ca6dd403808f3da0f35cc827842e55be0d14a038d2e4b15f25bd47",
+    "public/bokforing/granskning/atgarder/webblasarprov-audit3.txt": "213aa1724ad1ba44d9cc9d1289d93a7036ee54a7a10203bc0d03189ead57e723",
+    "public/bokforing/granskning/atgarder/bygglogg-audit3.txt": "071f60c407b9660dbbbb7f31e68dd1538aa3dace7cb916b66c68013f4c25c26b",
+    "public/bokforing/granskning/atgarder/testresultat-audit3.csv": "d6c261510f360b7744b51abf1cd642ff260fb08fb961e22f09ccfa21030d55b7",
+    "public/bokforing/granskning/atgarder/testlogg-audit3.tap.gz": "6db21805a7166575bd149f95853e7b663622e3de7a7f6e453a29771b37d706d5",
+    "public/bokforing/granskning/atgarder/audit3-1000.pdf": "d9f9a6d61c09487aea89d51a328d1583ea86693735fc9df35f68d9fdbab9051a"
+  }
+}

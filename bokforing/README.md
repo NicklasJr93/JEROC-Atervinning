@@ -12,6 +12,10 @@ Granskningen tillför **1 798 nya auditfall**. Tillsammans med **455 befintliga 
 
 Ovanstående resultat avser den första granskningen. Uppföljningen nedan rättar de då identifierade funktionsluckorna. Godkända tester är ingen garanti för full regelefterlevnad eller ett myndighetsgodkännande; en redovisare behöver bedöma tillämpningen på de verkliga affärerna.
 
+### 1 000 nya scenariotester
+
+**Tredje testomgången: 1 000 nya kombinationsfall, totalt 3 451 godkända automatiska tester.** Dessutom är 15 riktade webbläsarfall godkända, varav två nya. Ett funktionsfel hittades och rättades: ren förmån under årsgränsen kan registreras och bekräftas utan en tom verifikation eller påhittad utbetalning. [Kort rapport (PDF)](../public/bokforing/granskning/atgarder/audit3-1000.pdf) · [Metod och resultat](granskning/audit3-1000.md) · [Fullständig testförteckning](../public/bokforing/granskning/atgarder/testresultat-audit3.csv). Alla äldre resultat nedan bevaras som historik.
+
 ### Andra testomgången
 
 **66 nya automatiska testfall och 2 nya browserfall.** Hela den automatiska sviten omfattar nu **2 451 godkända tester**. De riktade webbläsarproven omfattar åtta arbetsflödesfall och sex wiki-fall. Två fel hittades och rättades: betalning av redan bokförd lön efter slutlig årsbedömning och momsfri återföring i fastställd momsperiod. [Kort rapport och metod](granskning/2026-10-23-andra-testomgangen.md). Tidigare resultat nedan är historiska.

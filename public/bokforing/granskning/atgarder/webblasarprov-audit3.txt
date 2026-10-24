@@ -1,0 +1,39 @@
+15 riktade slutprov: nio arbetsflödesfall (två nya) och sex omkörda wiki-fall. Äldre breda browserkörningar är historik och räknas inte in.
+
+[WebServer] (node:85991) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 9 tests using 2 workers
+
+(node:86032) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:86031) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/bokforing-audit3-benefits.spec.ts:23:1 › AUDIT3-UI-001 pure benefit below1000 registers, reports and restores without fake money or journal (11.0s)
+  ✓  2 tests/bokforing-payroll-completion.spec.ts:32:1 › payroll completion: earned vacation balance is reserved in the real salary form (7.7s)
+  ✓  3 tests/bokforing-audit3-benefits.spec.ts:32:1 › AUDIT3-UI-002 pure benefit reversal keeps the original and creates no empty reversal journal (7.8s)
+  ✓  4 tests/bokforing-payroll-completion.spec.ts:60:1 › payroll completion: paid salary can be reclaimed and collected without deleting original salary (7.1s)
+  ✓  6 tests/bokforing-payroll-workspace.spec.ts:44:1 › bokforing-payroll: individual review, official tax, posting and simulated payment (7.3s)
+  ✓  5 tests/bokforing-payroll-threshold.spec.ts:18:1 › small payroll UI records below-threshold salary and catches up when1000 is reached (8.3s)
+  ✓  7 tests/bokforing-payroll-workspace.spec.ts:63:1 › bokforing-payroll: mobile profile and unsupported tax year show actionable error (7.9s)
+  ✓  8 tests/bokforing-payroll-threshold.spec.ts:25:1 › annual review UI rejects exemption above1000 without losing entered reference (7.5s)
+  ✓  9 tests/bokforing-payroll-workspace.spec.ts:77:1 › bokforing-payroll: integrated app persists a reviewed payroll and its payment (7.7s)
+
+  9 passed (52.7s)
+
+WIKI EFTER UPPDATERING
+[WebServer] (node:86682) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 6 tests using 1 worker
+
+(node:86721) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/bokforing-wiki.spec.ts:32:1 › wikin läser dokumentationen utan åtkomst till besökarens bokföring eller produktions-API (3.0s)
+  ✓  2 tests/bokforing-wiki.spec.ts:73:1 › svensk fulltextsökning hittar samma artiklar utan accenter och stöder delbara adresser (5.0s)
+  ✓  3 tests/bokforing-wiki.spec.ts:97:1 › kategorifilter avgränsar sökträffar och en okänd sökfras hanteras som text (3.6s)
+  ✓  4 tests/bokforing-wiki.spec.ts:116:1 › planerade funktioner hålls isär från testad demo och verifieringsartikeln länkar till versionsbundna bevis (2.2s)
+  ✓  5 tests/bokforing-wiki.spec.ts:143:1 › revisorns guide leder från kontroller till källor och den körbara demon (2.2s)
+  ✓  6 tests/bokforing-wiki.spec.ts:155:1 › mobilmenyn öppnar en läsbar artikel utan horisontellt sidöverflöde (2.0s)
+
+  6 passed (24.5s)
