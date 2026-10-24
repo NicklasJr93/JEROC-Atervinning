@@ -1,6 +1,6 @@
 // Editorial snapshot for the public, read-only bookkeeping wiki.
 // Text describes the verified demo version below, not a production certification.
-const revision = 'cc4a2a25e2c605fd6cc5d2839c4e7565b8c728f2';
+const revision = '08d544c4798967052a023460823b1bf6ca3cb595';
 const repository = `https://github.com/NicklasJr93/JEROC-Atervinning/blob/${revision}`;
 const source = (label, path) => ({ label, url: `${repository}/${path}` });
 const historicalSource = (label, path) => ({ label, url: `https://github.com/NicklasJr93/JEROC-Atervinning/blob/c5134ecddc624c1e3a0e30e3e3f6058bcc8d0b95/${path}` });
@@ -10,12 +10,12 @@ const updated = '2026-10-23';
 
 export const wikiMeta = {
   title: 'Bokföringswikin',
-  product: 'ScrapPlanner',
+  product: 'Endor Bokföring',
   version: revision.slice(0, 7),
-  asOf: updated,
+  asOf: '2026-10-24',
   versionUrl: `https://github.com/NicklasJr93/JEROC-Atervinning/commit/${revision}`,
-  scope: 'Dokumentation av den lokala bokföringsdemon och åtgärdsversionen',
-  verification: { model: 3450, http: 1, browser: 15 },
+  scope: 'Lokal bokföringsdemo med simulerad byrååtkomst',
+  verification: { model: 3511, http: 1, browser: 128 },
   description: 'Förstå arbetssätten, följ kontrollerna till koden och se vad som återstår.',
 };
 
@@ -29,6 +29,42 @@ export const categories = [
 ];
 
 export const articles = [
+  {
+    id: 'byra-behorigheter', category: 'arbetsfloden', title: 'Byrå & behörigheter i Endor Bokföring',
+    summary: 'Bjud in en registrerad demoperson, välj behörigheter och växla mellan accepterade kundbolag.',
+    status: 'guide', updated: '2026-10-24', tags: ['Endor', 'byrå', 'Lexratio', 'personnummer', 'inbjudan', 'behörighet', 'bolagsbyte'],
+    sections: [
+      { id: 'prova', title: 'Prova båda sidor av inbjudan', bullets: [
+        'Öppna Byrå & behörigheter i menyn eller via Företaget. Välj Åke som Demoperson.',
+        'Ange Jennys fiktiva testnummer 20900303-0039, välj rättigheter och skapa inbjudan. Ankis testnummer är 20900404-0045.',
+        'Välj Jenny som Demoperson och acceptera inbjudan. Först därefter visas Åkes bolag bland hennes uppdrag.',
+        'Välj Arbeta i bolaget. Åke kan ändra rättigheter eller återkalla åtkomsten. Avböjda och återkallade inbjudningar finns kvar i historiken.',
+      ] },
+      { id: 'rattigheter', title: 'Separata rättigheter', table: { headers: ['Rättighet', 'Omfattning i demon'], rows: [
+        ['Läsa och granska', 'Grundåtkomst till bolagets vanliga bokföringsvyer.'],
+        ['Bokföra och fakturera', 'Skapa och redigera affärsunderlag samt bokföra stödda flöden.'],
+        ['Hantera lön', 'Öppna lönearbetsytan och arbeta med löneunderlag.'],
+        ['Moms, periodlåsning och bokslut', 'Fastställa perioder och använda bokslutsflöden.'],
+        ['Registrera betalningar', 'Registrera fiktiva kund-, leverantörs- och skattebetalningar; ingen banköverföring görs.'],
+        ['Exportera underlag', 'Ladda ned underlag. Fullständiga paket kräver även rättigheter till känsliga arbetsytor.'],
+      ] } },
+      { id: 'bolagsbyte', title: 'Bolagsbyte och spårbarhet', paragraphs: [
+        'Åkes befintliga bok bevaras under sin tidigare lagringsnyckel. Björks övningsbolag har en egen tom bok och en separat lokal filinkorg. Byte av bolag eller demoperson stänger formulär, rensar urval och nollställer Andes samtal.',
+        'Inbjudan ger ingen åtkomst innan mottagaren accepterar. Ändrade rättigheter kontrolleras även vid sparande, samordnat med återkallelser mellan flikar. Nya bokföringshändelser anger faktisk demoperson, byrå och bolags-ID.',
+      ] },
+      { id: 'grans', title: 'Vad light-versionen innebär', paragraphs: [
+        'Detta är en lokal demo med fiktiva framtida personnummer. Demopersonsväljaren är inte en inloggning. Personnumret används för att hitta en befintlig profil, inte för att styrka identiteten.',
+        'Inbjudningarna finns i den aktuella webbläsaren och kan delas mellan dess flikar. Inga mejl skickas och inget delas automatiskt mellan olika datorer. Lokal lagring är inte en säkerhetsgräns mot den som kontrollerar webbläsaren.',
+        'Inför riktig användning krävs identifierade konton, serverlagring, behörighetskontroll för varje serveroperation och serverbaserad bolagsisolering. Den delen har inte införts i denna etapp.',
+      ] },
+      { id: 'testat', title: 'Verifiering av byråflödet', paragraphs: [
+        '61 nya automatiska fall testar inbjudningar, rättighetskontroller, lagring och återkallelser. Den samlade automatiska bokföringssviten är 3 512 av 3 512 godkänd.',
+        'Nio nya webbläsarfall testar båda sidor av inbjudan, fel mottagare, spärrade formulär, återkallelse i en redan öppen flik, separata böcker och PDF-inkorgar, mobilvy och Andes bolagsbyte. Samtliga är godkända.',
+      ] },
+    ],
+    sources: [source('Arbetsgång och begränsningar', 'bokforing/byra-och-behorigheter.md'), source('Inbjudningar och rättigheter', 'public/bokforing/suite/agency.js'), source('Samordnad lagring och kontroll vid sparande', 'public/bokforing/suite/agency-storage.js'), source('Webbläsarprov för byråflödet', 'tests/bokforing-agency.spec.ts')],
+    related: ['verifiering', 'for-revisorn', 'ande-saas', 'kanda-begransningar'],
+  },
   {
   "id": "audit3-1000",
   "category": "granskning",
@@ -798,7 +834,12 @@ export const articles = [
     summary: 'Historiska testresultat, de nya funktionernas provfiler och vad verifieringen kan visa.',
     status: 'guide', updated, tags: ['tester', 'bevis', 'testresultat', 'kvalitet', '320', '75', 'version'],
     sections: [
-      { id: 'audit3-resultat', title: 'Aktuellt: 1 000 nya kombinationsfall', paragraphs: [
+      { id: 'byra-resultat', title: 'Aktuell byråutbyggnad', paragraphs: [
+        'Version 08d544c: 3 511 modell-/lagrings-/AI-fall och 1 HTTP-test, totalt 3 512 godkända. 61 nya fall avser byråinbjudan, rollkontroller och separata bolagsböcker.',
+        '128 unika webbläsarfall är godkända efter omprov, varav nio nya för byråflödet. Den breda körningen gav först 127 godkända och ett äldre prov som läste lagringen innan sparandet hade avslutats. Provet väntar nu på bekräftat sparande; båda berörda regressionsfallen har körts om med godkänt resultat. Bokföringskontrollen behövde inte ändras.',
+        'Bokföringens tidigare granskningsrapporter ligger kvar oförändrade. Det här är kontroller av en lokal demo, inte verifierad serverautentisering eller ett myndighetsgodkännande.',
+      ] },
+      { id: 'audit3-resultat', title: 'Tidigare testomgång: 1 000 nya kombinationsfall', paragraphs: [
         'Version cc4a2a2: 3 450 modell-/lagrings-/AI-fall och 1 HTTP-test, totalt 3 451 godkända. 1 000 nya kombinationsfall är fördelade över fem områden. Inga underkända eller överhoppade i slutkörningen.',
         '15 riktade webbläsarfall är godkända: nio arbetsflödesfall (två nya) och sex omkörda wiki-fall. Det är en avgränsad omkörning; tidigare bredare resultat finns kvar nedan.',
         'Ett nytt funktionsfel hittades och rättades: ren förmån utan kontantlön kunde inte registreras när ingen verifikation behövdes. Se den korta rapporten för metod, fynd och begränsningar.',

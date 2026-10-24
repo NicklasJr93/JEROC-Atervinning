@@ -4278,3 +4278,22 @@ Status: Nya fem testmatriser med 200 fall vardera; full automatisk slutkörning
   Ingen bankbetalning eller myndighetsinlämning skapas för nollbelopp.
 - Tidigare testresultat bevaras som historik. Testerna är tekniska kontroller
   av stödda fall och styrker inte full regelefterlevnad eller skarp drift.
+
+ÄL 174 – Endor Bokföring: lokal byrååtkomst och kundbolag
+Status: Implementerad light-demo, utan BankID eller inloggning.
+- Bolagsägaren bjuder in registrerad byråmedarbetare via fullständigt
+  personnummer och väljer rättigheter. Namngiven mottagare måste acceptera.
+- Separata rättigheter för läsning, bokföring, lön, moms/bokslut, betalningar
+  och export. Återkallelse och ändringar sparas i byråhistoriken.
+- Åkes befintliga bok bevaras. Björks övningsbolag har separat bok och
+  filinkorg. Byte av demoperson/bolag rensar formulär, urval och Ande.
+- Sparandet kontrollerar aktuell rättighet under samma samordningslås
+  som ändringar i åtkomsten. Nya bokföringshändelser anger person/byrå/bolag.
+- 61 nya automatiska tester samt nio nya webbläsarfall. Lokal lagring och
+  demopersonsväljaren ersätter inte serverautentisering eller SaaS-isolering.
+- Arbetsgång och begränsningar finns i bokforing/byra-och-behorigheter.md
+  och den nya wikiartikeln byra-behorigheter.
+
+  Samlad verifiering: 3 512 automatiska fall och 128 unika webbläsarfall
+  godkända efter omprov. Ett äldre browserprov fick en uttrycklig väntan
+  på bekräftat fakturasparande; ingen bokföringsspärr behövde ändras.
