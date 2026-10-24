@@ -19,8 +19,8 @@ const actions = new Set(['new-bill','show-bill','edit-bill','copy-bill','purchas
 const forms = new Set(['purchase-page','document-picker','link-document','purchase-book']);
 const path = (id, edit=false) => '#purchases/'+encodeURIComponent(id)+(edit?'/edit':'');
 
-export function createPurchaseWorkspace({ getState, readStoredState, write, toast, canWrite, navigate, openDialog, closeDialog, rerender }) {
-  const store = createDocumentStore();
+export function createPurchaseWorkspace({ getState, readStoredState, write, toast, canWrite, navigate, openDialog, closeDialog, rerender, documentStore, isActive = () => true }) {
+  const store = documentStore || createDocumentStore();
   let current = null, draft = null, draftKey = '', dirty = false;
   let documents = [], loaded = false, documentError = '', loading = null;
   let selectedId = null, objectUrl = null, viewerToken = 0, generation = 0, mutationGeneration = 0, zoom = 1, rotation = 0, importing = false;
@@ -28,7 +28,7 @@ export function createPurchaseWorkspace({ getState, readStoredState, write, toas
   const billFiles = bill => Purchases.getBillAttachments(bill);
   const editor = () => document.querySelector('#purchase-page-form');
   const linkedBills = id => getState().bills.filter(bill => billFiles(bill).some(file => file.id === id));
-  const requireWritable = () => assert(canWrite(), 'Sparandet är pausat. Läs in senaste demodata innan du fortsätter.');
+  const requireWritable = () => assert(isActive() && canWrite(), 'Du saknar skrivbehörighet eller bolaget har ändrats. Öppna underlaget igen.');
   const lock = task => navigator.locks?.request
     ? navigator.locks.request('scrapplanner-bokforing-document-links', task)
     : Promise.reject(new Error('Säker samordning av underlag kräver en uppdaterad webbläsare och HTTPS.'));
@@ -269,7 +269,9 @@ export function createPurchaseWorkspace({ getState, readStoredState, write, toas
       case 'document-rotate': rotation = (rotation + 90) % 360; await refreshViewer(); break;
       case 'document-reset': zoom = 1; rotation = 0; await refreshViewer(); break;
       case 'download-document': {
+        const version = generation;
         const record = await store.get(id || selectedId);
+        assert(isActive() && version === generation, 'Bolaget eller demopersonen har ändrats. Öppna underlaget igen.');
         assert(record?.blob, 'Originalfilen saknas i den här webbläsaren.');
         const url = URL.createObjectURL(record.blob), a = document.createElement('a');
         a.href = url; a.download = record.name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000); break;

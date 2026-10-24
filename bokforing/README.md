@@ -1,5 +1,9 @@
 # Bokföring
 
+**Endor Bokföring – byrådemo:** [Byrå & behörigheter](https://app.scrapplanner.com/bokforing/#agency) visar inbjudan till en registrerad demoperson via fullständigt personnummer, mottagarens acceptans och separata rättigheter för läsning, bokföring, lön, moms/bokslut, betalningar och export. Åke kan ändra rättigheter och återkalla åtkomst. Två lokala övningsbolag har separata böcker och filinkorgar. [Arbetsgång och begränsningar](byra-och-behorigheter.md).
+
+Demopersonsväljaren är en simulering, inte inloggning. Inbjudningar delas mellan flikar i samma webbläsare, inte mellan olika personers datorer. Ingen BankID-koppling eller serverbaserad bolagsisolering har införts.
+
 Här samlas designförslag för ett **fristående bokföringsprogram med egen webbapp, eget API och en AI-assistent**. Skrotappen är en tänkt ansluten källa; bokföringsprogrammet ska även kunna användas självständigt och ta emot underlag från andra system.
 
 **Nytt: [Tio mockuper för hela ekonomiarbetet i Åkes Hantverk AB](helhet-mockups/README.md)** – företagsstart, offert och faktura, inköp, betalningar, lön, inventarier, moms och bokslut i en sammanhängande designserie. Bilderna visar planerad funktionalitet; de första tio stilförslagen finns kvar nedan.

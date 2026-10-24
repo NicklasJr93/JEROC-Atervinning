@@ -4,7 +4,11 @@ import * as Operations from './operations.js';
 import * as Finance from './finance.js';
 import * as Periodization from './periodization.js';
 import * as Inventory from './inventory.js';
-import { createSuiteStorage } from './storage.js';
+import * as Agency from './agency.js';
+import { createAgencyCoordinator, AGENCY_STORAGE_KEY, companyStorageKey } from './agency-storage.js';
+import { renderAgencyWorkspace, renderAgencyControls } from './agency-workspace.js';
+import { requiredPermissions, canView, isReadAction } from './agency-policy.js';
+import { createDocumentStore, DOCUMENT_DB_NAME } from './documents.js';
 import { createPurchaseWorkspace } from './purchase-workspace.js';
 import { createAndeClient } from './ande-client.js';
 import { featureModules, featureNavigation, featureData, featureDownload } from './feature-workspaces.js';
@@ -14,17 +18,35 @@ import { createInvoiceEditorDraft, renderInvoiceEditor, readInvoiceEditor, rende
  applyInvoiceCustomer, applyInvoicePriceMode, updateInvoiceLineKind } from './invoice-page.js';
 
 let TODAY='2026-10-23';
-const STORE_KEY='scrapplanner-bokforing-suite-v2';
 const root=document.querySelector('#app');
-const store=createSuiteStorage();
-let snapshot=store.load(), state=snapshot.state, busy=false, stale=false, toastTimer;
+const coordinator=createAgencyCoordinator();
+let directorySnapshot=coordinator.load(), directory=directorySnapshot.state;
+const SESSION_KEY='endor-bokforing-demo-context-v1';
+let savedContext;try{savedContext=JSON.parse(sessionStorage.getItem(SESSION_KEY)||'null');}catch{}
+let demoUserId=directory.users.some(user=>user.id===savedContext?.userId&&user.active)?savedContext.userId:'user-ake';
+let companyId=savedContext?.userId===demoUserId?savedContext.companyId:directory.companies.find(company=>company.ownerId===demoUserId)?.id||null;
+if(!Agency.hasPermission(directory,demoUserId,companyId,'read'))companyId=null;
+const vacantState=()=>{const empty=createEmptyState();empty.company.name='Välj ett bolag';return empty;};
+const store={load:()=>companyId?coordinator.loadCompany({userId:demoUserId,companyId}):{state:vacantState(),revision:null,error:null,writable:false},reset:expected=>coordinator.commitCompany({userId:demoUserId,companyId,snapshot:expected,permissions:['manage'],reset:true})};
+let snapshot;try{snapshot=store.load();}catch(error){snapshot={state:vacantState(),revision:null,error,writable:false};}
+let state=snapshot.state, busy=false, stale=false, toastTimer, agencyError='', workspaceEpoch=0;
 let invoiceDraft=null, invoiceDraftRoute='', invoiceDirty=false, acceptedHash=location.hash||'#overview';
 const ui={view:'overview',search:'',invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null,bankAccount:'1930',vatFrom:'2026-10-01',vatTo:'2026-12-31',assistantOpen:false};
-const displayNav = nav.filter(([key]) => !['payroll', 'vat', 'close'].includes(key)).flatMap(item => [item, ...(item[0] === 'purchases' ? [featureNavigation[0]] : item[0] === 'projects' ? [featureNavigation[1]] : [])]).concat(featureNavigation.slice(2));
-const validViews=new Set([...nav, ...featureNavigation].map(x=>x[0]));
+const displayNav = nav.filter(([key]) => !['payroll', 'vat', 'close'].includes(key)).flatMap(item => [item, ...(item[0] === 'purchases' ? [featureNavigation[0]] : item[0] === 'projects' ? [featureNavigation[1]] : [])]).concat(featureNavigation.slice(2),[['agency','Byrå & behörigheter']]);
+const validViews=new Set([...nav,...featureNavigation,['agency','Byrå & behörigheter']].map(x=>x[0]));
 let featureDirty=false;
 const fmt=numberInput;
-const purchaseWorkspace=createPurchaseWorkspace({getState:()=>state,readStoredState:()=>{const latest=store.load();if(latest.error)throw latest.error;return latest.state;},write,toast,canWrite:()=>canWrite(),navigate,openDialog,closeDialog:()=>dialog.close(),rerender:render});
+function makePurchaseWorkspace(){
+ const epoch=workspaceEpoch,contextCompany=companyId,contextUser=demoUserId;
+ const current=()=>epoch===workspaceEpoch&&contextCompany===companyId&&contextUser===demoUserId&&canView(directory,demoUserId,companyId,'purchases');
+ return createPurchaseWorkspace({documentStore:createDocumentStore({dbName:contextCompany==='company-ake'?DOCUMENT_DB_NAME:`endor-bokforing-documents-${contextCompany||'none'}-v1`}),isActive:current,
+  getState:()=>{assert(current(),'Bolaget eller demopersonen har ändrats. Öppna underlaget igen.');return state;},
+  readStoredState:()=>{assert(current(),'Bolaget har ändrats.');const latest=store.load();if(latest.error)throw latest.error;return latest.state;},
+  write:(transition,message,options={})=>{assert(current(),'Bolaget har ändrats.');return write(transition,message,{...options,permissions:['read','bookkeeping']});},
+  toast:(message,isError)=>{if(current())toast(message,isError);},canWrite:()=>current()&&canWrite()&&Agency.hasPermission(directory,demoUserId,companyId,'bookkeeping'),navigate,openDialog,
+  closeDialog:()=>{if(current())dialog.close();},rerender:()=>{if(current())render();}});
+}
+let purchaseWorkspace=makePurchaseWorkspace();
 const selected=(id,list)=>list.find(x=>x.id===id);
 const option=(value,label,isSelected=false)=>`<option value="${e(value)}" ${isSelected?'selected':''}>${e(label)}</option>`;
 const select=(label,name,options,value='',required=true)=>`<label>${e(label)}<select name="${e(name)}" ${required?'required':''}>${options.map(x=>option(x[0],x[1],x[0]===value)).join('')}</select></label>`;
@@ -37,39 +59,67 @@ const customerOptions=()=>[['','Välj kund'],...state.customers.map(c=>[c.id,c.n
 const projectOptions=()=>[['','Utan projekt'],...state.projects.map(p=>[p.id,p.name])];
 const bankEventField = direction => select('Befintlig kontohändelse','bankEventId',[['','Ny demobetalning'],...state.bankTransactions.filter(x=>!x.matchedEntryId&&(x.account||'1930')==='1930'&&(direction==='in'?x.amountCents>0:x.amountCents<0)).map(x=>[x.id,x.date+' · '+money(x.amountCents)+' · '+x.description])],'',false);
 const errorMessage=err=>err?.message || 'Åtgärden kunde inte slutföras.';
-const canWrite=()=>!busy&&!stale&&!snapshot.error&&snapshot.writable;
-const canReset=()=>!busy&&!stale&&typeof navigator.locks?.request==='function'&&(snapshot.revision===null||typeof snapshot.revision==='string')&&(!snapshot.error||snapshot.error.code==='INVALID_DATA');
+const canWrite=()=>!busy&&!stale&&!directorySnapshot.error&&!snapshot.error&&snapshot.writable&&Agency.hasPermission(directory,demoUserId,companyId,'read');
+const canReset=()=>!busy&&!stale&&!directorySnapshot.error&&Agency.hasPermission(directory,demoUserId,companyId,'manage')&&typeof navigator.locks?.request==='function'&&(snapshot.revision===null||typeof snapshot.revision==='string')&&(!snapshot.error||snapshot.error.code==='INVALID_DATA');
+const may=permissions=>!directorySnapshot.error&&permissions.every(permission=>Agency.hasPermission(directory,demoUserId,companyId,permission));
+function checkOperation(meta){refreshDirectory();assert(may(requiredPermissions(meta)),'Din behörighet tillåter inte den här åtgärden.');}
 
-root.innerHTML=`<div class="suite-shell"><button id="suite-backdrop" class="sidebar-backdrop" aria-label="Stäng meny" hidden></button><aside id="suite-sidebar"><a href="#overview" class="brand"><span>${icon('ledger')}</span><strong>Bokföring<small>en del av ScrapPlanner</small></strong></a><p class="nav-caption">DIN ARBETSPLATS</p><nav>${displayNav.map(([view,label])=>`<a href="#${view}" data-nav="${view}">${icon(({inventory:'assets',accruals:'close'})[view]||view)}<span>${e(label)}</span></a>`).join('')}<a href="/bokforing/wiki/" target="_blank" rel="noopener noreferrer">${icon('ledger')}<span>Wiki &amp; granskning ↗</span></a></nav><div class="sidebar-bottom"><div class="sidebar-ande">${ghost()}<strong>En hjälpande ande.</strong><p>Fråga, förstå och kom vidare.</p><button data-action="toggle-assistant">${icon('sparkle')}Prata med Ande</button></div><button class="reset-link" data-action="reset">${icon('refresh')}Återställ demo</button><a href="/bokforing/klassisk.html" class="classic-link">Tidigare inköpsdemo ↗</a></div></aside><div class="suite-workspace"><header class="topbar"><button id="suite-menu" class="icon-button" aria-label="Öppna meny" aria-expanded="false">${icon('menu')}</button><span class="breadcrumb" id="breadcrumb">Översikt</span><span class="demo-badge">DEMO</span><label class="global-search">${icon('search')}<input id="suite-search" placeholder="Sök faktura eller verifikation…" aria-label="Sök faktura eller verifikation"></label><strong id="company-name"></strong><span class="year-label">2026</span><span class="avatar">ÅH</span><button class="ande-launcher" data-action="toggle-assistant" aria-label="Fråga Ande">${ghost()}<span>Fråga Ande</span></button></header><div id="suite-storage-notice" class="storage-notice" hidden><p></p><button class="button secondary" data-action="reload">Läs in senaste</button></div><main id="suite-main" tabindex="-1"></main><footer class="suite-footer"><span id="save-status">Fiktiva uppgifter · sparas i din webbläsare</span><span>Inga betalningar eller deklarationer skickas</span></footer></div></div><dialog id="suite-dialog" aria-labelledby="dialog-title"><div class="dialog-heading"><h2 id="dialog-title"></h2><button class="icon-button" data-action="close-dialog" aria-label="Stäng dialog">${icon('x')}</button></div><div id="dialog-body"></div></dialog><aside id="suite-assistant" class="assistant-panel" aria-label="Samtal med Ande" hidden><header>${ghost()}<div><strong>Ande</strong><small>Exempelbaserad demoassistent</small></div><button class="icon-button" data-action="toggle-assistant" aria-label="Stäng Ande">${icon('x')}</button></header><div id="assistant-messages" class="assistant-messages" aria-live="polite"></div><div class="assistant-suggestions"><button data-question="Vad behöver jag göra nu?">Mitt nästa steg</button><button data-question="Hur fungerar ROT?">Förklara ROT</button><button data-question="Varför balanserar bokföringen?">Debet och kredit</button></div><form id="assistant-form"><label class="sr-only" for="assistant-input">Fråga Ande</label><input id="assistant-input" placeholder="Ställ en fråga…" required maxlength="700"><button class="button primary" aria-label="Skicka fråga">${icon('arrow')}</button></form></aside><div id="suite-toast" class="toast" role="status"></div><div id="print-area"></div>`;
-const ande=createAndeClient({getState:()=>state,getUi:()=>ui});
+root.innerHTML=`<div class="suite-shell"><button id="suite-backdrop" class="sidebar-backdrop" aria-label="Stäng meny" hidden></button><aside id="suite-sidebar"><a href="#overview" class="brand"><span>${icon('ledger')}</span><strong>Endor<small>Bokföring</small></strong></a><p class="nav-caption">DIN ARBETSPLATS</p><nav>${displayNav.map(([view,label])=>`<a href="#${view}" data-nav="${view}">${icon(({inventory:'assets',accruals:'close'})[view]||view)}<span>${e(label)}</span></a>`).join('')}<a href="/bokforing/wiki/" target="_blank" rel="noopener noreferrer">${icon('ledger')}<span>Wiki &amp; granskning ↗</span></a></nav><div class="sidebar-bottom"><div class="sidebar-ande">${ghost()}<strong>En hjälpande ande.</strong><p>Fråga, förstå och kom vidare.</p><button data-action="toggle-assistant">${icon('sparkle')}Prata med Ande</button></div><button class="reset-link" data-action="reset">${icon('refresh')}Återställ demo</button><a href="/bokforing/klassisk.html" class="classic-link">Tidigare inköpsdemo ↗</a></div></aside><div class="suite-workspace"><header class="topbar"><button id="suite-menu" class="icon-button" aria-label="Öppna meny" aria-expanded="false">${icon('menu')}</button><span class="breadcrumb" id="breadcrumb">Översikt</span><span class="demo-badge">DEMO</span><label class="global-search">${icon('search')}<input id="suite-search" placeholder="Sök faktura eller verifikation…" aria-label="Sök faktura eller verifikation"></label><strong id="company-name"></strong><span class="year-label">2026</span><div id="agency-context-controls"></div><span class="avatar">ÅH</span><button class="ande-launcher" data-action="toggle-assistant" aria-label="Fråga Ande">${ghost()}<span>Fråga Ande</span></button></header><div id="suite-storage-notice" class="storage-notice" hidden><p></p><button class="button secondary" data-action="reload">Läs in senaste</button></div><main id="suite-main" tabindex="-1"></main><footer class="suite-footer"><span id="save-status">Fiktiva uppgifter · sparas i din webbläsare</span><span>Inga betalningar eller deklarationer skickas</span></footer></div></div><dialog id="suite-dialog" aria-labelledby="dialog-title"><div class="dialog-heading"><h2 id="dialog-title"></h2><button class="icon-button" data-action="close-dialog" aria-label="Stäng dialog">${icon('x')}</button></div><div id="dialog-body"></div></dialog><aside id="suite-assistant" class="assistant-panel" aria-label="Samtal med Ande" hidden><header>${ghost()}<div><strong>Ande</strong><small>Exempelbaserad demoassistent</small></div><button class="icon-button" data-action="toggle-assistant" aria-label="Stäng Ande">${icon('x')}</button></header><div id="assistant-messages" class="assistant-messages" aria-live="polite"></div><div class="assistant-suggestions"><button data-question="Vad behöver jag göra nu?">Mitt nästa steg</button><button data-question="Hur fungerar ROT?">Förklara ROT</button><button data-question="Varför balanserar bokföringen?">Debet och kredit</button></div><form id="assistant-form"><label class="sr-only" for="assistant-input">Fråga Ande</label><input id="assistant-input" placeholder="Ställ en fråga…" required maxlength="700"><button class="button primary" aria-label="Skicka fråga">${icon('arrow')}</button></form></aside><div id="suite-toast" class="toast" role="status"></div><div id="print-area"></div>`;
+const ande=createAndeClient({getState:()=>{const latest=coordinator.load();assert(!latest.error&&canView(latest.state,demoUserId,companyId,ui.view)&&ui.view!=='agency','Välj en tillgänglig bokföringsvy.');return state;},getUi:()=>ui});
 const dialog=document.querySelector('#suite-dialog');
 const body=document.querySelector('#dialog-body');
 
 function toast(message,isError=false){const el=document.querySelector('#suite-toast');el.textContent=message;el.className='toast visible'+(isError?' error':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),6000);}
+function elementPermissions(el){
+ const form=el.tagName==='FORM'?el:el.closest('form');
+ const feature=el.dataset.featureAction||form?.dataset.featureForm;
+ const action=el.dataset.action||form?.dataset.action||(form?.dataset.form==='confirm-action'?form.elements.namedItem('action')?.value:undefined);
+ return requiredPermissions({view:ui.view,action,form:form?.dataset.form,feature});
+}
 function updateChrome(){
  TODAY=['2026-10-23',state.company.fiscalYearStart].sort().at(-1);
  if(TODAY>state.company.fiscalYearEnd)TODAY=state.company.fiscalYearEnd;
- document.querySelector('#company-name').textContent=state.company.name;
- document.querySelector('#breadcrumb').textContent=[...nav,...featureNavigation].find(x=>x[0]===ui.view)?.[1]||'Översikt';
- document.querySelector('.year-label').textContent=state.company.fiscalYearStart.slice(0,4)+(state.company.fiscalYearEnd.slice(0,4)!==state.company.fiscalYearStart.slice(0,4)?'–'+state.company.fiscalYearEnd.slice(0,4):'');
- document.querySelectorAll('[data-nav]').forEach(el=>{el.classList.toggle('active',el.dataset.nav===ui.view);if(el.dataset.nav===ui.view)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
+ document.querySelector('#company-name').textContent=companyId?state.company.name:'Byråöversikt';
+ document.querySelector('#breadcrumb').textContent=displayNav.find(x=>x[0]===ui.view)?.[1]||'Översikt';
+ document.querySelector('.year-label').textContent=companyId?state.company.fiscalYearStart.slice(0,4)+(state.company.fiscalYearEnd.slice(0,4)!==state.company.fiscalYearStart.slice(0,4)?'–'+state.company.fiscalYearEnd.slice(0,4):''):'';
+ const controls=document.querySelector('#agency-context-controls');
+ controls.innerHTML=renderAgencyControls({directory,userId:demoUserId,companyId});
+ controls.querySelector('select').disabled=busy;
+ const user=directory.users.find(item=>item.id===demoUserId);
+ document.querySelector('.avatar').textContent=(user?.name||'Demo').split(' ').slice(0,2).map(x=>x[0]).join('');
+ document.querySelectorAll('[data-nav]').forEach(el=>{el.hidden=!!directorySnapshot.error||!canView(directory,demoUserId,companyId,el.dataset.nav);el.classList.toggle('active',el.dataset.nav===ui.view);if(el.dataset.nav===ui.view)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
+ document.querySelector('[data-nav="agency"]').hidden=false;
  const issue=document.querySelector('#suite-storage-notice');
- issue.hidden=!snapshot.error&&!stale;
- issue.querySelector('p').textContent=stale?'En annan flik har ändrat demoboken. Dina ändringar har inte skrivits över. Läs in senaste uppgifter innan du fortsätter.':errorMessage(snapshot.error);
- document.querySelector('#save-status').textContent=busy?'Sparar…':stale||snapshot.error?'Sparandet är pausat':'Fiktiva uppgifter · sparas i din webbläsare';
+ issue.hidden=!directorySnapshot.error&&!snapshot.error&&!stale;
+ issue.querySelector('p').textContent=directorySnapshot.error?errorMessage(directorySnapshot.error):stale?'En annan flik har ändrat demoboken. Dina ändringar har inte skrivits över. Läs in senaste uppgifter innan du fortsätter.':errorMessage(snapshot.error);
+ document.querySelector('#save-status').textContent=busy?'Sparar…':stale||snapshot.error||directorySnapshot.error?'Sparandet är pausat':'Fiktiva uppgifter · sparas i din webbläsare';
  document.querySelector('#suite-main').setAttribute('aria-busy',String(busy));
- document.querySelector('#suite-assistant').hidden=!ui.assistantOpen;
- document.querySelectorAll('button[data-action]').forEach(el=>{const exempt=['toggle-assistant','close-dialog','reload','reset','print-invoice','export-ledger','export-reports','export-review','export-agi','show-entry','show-invoice','invoice-back','purchase-back','show-bill','open-document-inbox','select-document','select-inbox-document','download-document','document-zoom-in','document-zoom-out','document-rotate','document-reset','reload-documents','add-line','remove-line','add-entry-row','remove-entry-row'];if(!exempt.includes(el.dataset.action))el.disabled=el.dataset.blocked==='true'||!canWrite();});
- document.querySelectorAll('#suite-main button[type="submit"],#suite-dialog button[type="submit"]').forEach(el=>{el.disabled=el.dataset.blocked==='true'||(el.closest('form')?.dataset.form==='reset'?!canReset():!canWrite());});
+ document.querySelector('#suite-assistant').hidden=!ui.assistantOpen||!companyId;
+ document.querySelectorAll('button[data-action]').forEach(el=>{
+  if(['close-dialog','reload'].includes(el.dataset.action)){el.disabled=busy;return;}
+  if(el.dataset.action==='toggle-assistant'){el.disabled=!companyId||!!directorySnapshot.error;return;}
+  const readOnlyAction=isReadAction(el.dataset.action);
+  el.disabled=el.dataset.blocked==='true'||(readOnlyAction?!may(elementPermissions(el)):!canWrite()||!may(elementPermissions(el)));
+ });
+ document.querySelectorAll('#suite-main button[type="submit"],#suite-dialog button[type="submit"],#suite-main form button:not([type]),#suite-dialog form button:not([type])').forEach(el=>{
+  if(el.closest('[data-agency-form]')){el.disabled=busy||!!directorySnapshot.error||!directorySnapshot.writable;return;}
+  const form=el.closest('form');
+  el.disabled=el.dataset.blocked==='true'||(form?.dataset.form==='reset'?!canReset():!canWrite()||!may(elementPermissions(el)));
+ });
+ document.querySelectorAll('[data-agency-action]').forEach(el=>{el.disabled=el.dataset.agencyAction==='work'&&el.dataset.id===companyId||busy||!!directorySnapshot.error;});
  document.querySelector('[data-action="reset"]').disabled=!canReset();
 }
 function invoiceEditorOpen(){return ui.view==='sales'&&['new','edit'].includes(ui.invoiceMode);}
 function invoiceLocation(id,edit=false){return '#sales/'+encodeURIComponent(id)+(edit?'/edit':'');}
 function navigate(hash){if(location.hash===hash)route();else location.hash=hash;}
 function render(){
+ refreshDirectory();
  try{
   let html;
-  if(featureModules[ui.view])html=featureModules[ui.view].renderWorkspace(state);
+  if(ui.view==='agency')html=renderAgencyWorkspace({directory,userId:demoUserId,companyId,companyName:companyId?state.company.name:'',error:agencyError||directorySnapshot.error?.message});
+  else if(directorySnapshot.error||!canView(directory,demoUserId,companyId,ui.view))html=`<section class="panel agency-denied"><h1>${companyId?'Du saknar behörighet till den här vyn':'Välj ett bolag att arbeta i'}</h1><p>${companyId?'Be bolagsägaren om rätt behörighet.':'Acceptera en inbjudan och välj sedan ett bolag i byråöversikten.'}</p><a class="button primary" href="#agency">Till byråöversikten</a></section>`;
+  else if((ui.view==='sales'&&['new','edit'].includes(ui.invoiceMode)||ui.view==='purchases'&&['new','edit','copy'].includes(ui.purchaseMode))&&!may(['read','bookkeeping']))html='<section class="panel agency-denied"><h1>Du har läsbehörighet</h1><p>Du behöver behörigheten Bokföra och fakturera för att skapa eller redigera fakturor.</p><a class="button secondary" href="#agency">Visa mina behörigheter</a></section>';
+  else if(featureModules[ui.view])html=featureModules[ui.view].renderWorkspace(state);
   else if(ui.view==='purchases')html=purchaseWorkspace.render(ui);
   else if(ui.view!=='sales')html=renderView(state,ui);
   else if(ui.invoiceMode==='list')html=renderInvoiceList(state,ui.search);
@@ -86,13 +136,15 @@ function render(){
    }
    html=renderInvoiceEditor(state,invoiceDraft,{isNew:ui.invoiceMode==='new',busy});
   }
+  if(ui.view==='overview')html=html.replace('God morgon, Åke','God morgon, '+e((directory.users.find(user=>user.id===demoUserId)?.name||'').split(' ')[0]));
+  if(ui.view==='setup'&&companyId)html='<div class="agency-settings-link"><a class="button secondary" href="#agency">Byrå &amp; behörigheter</a></div>'+html;
   document.querySelector('#suite-main').innerHTML=html;
  }catch(err){document.querySelector('#suite-main').innerHTML=`<div class="panel error-panel"><h1>Vyn kunde inte öppnas</h1><p>${e(errorMessage(err))}</p><a class="button secondary" href="${ui.view==='purchases'?'#purchases':'#sales'}">Till fakturalistan</a></div>`;}
  const editStatus=document.querySelector('#invoice-editor-status');if(editStatus)editStatus.textContent=invoiceDirty?'Osparade ändringar':'Utkast';
  updateChrome();
  ande.refreshContext();
- if(featureModules[ui.view]?.mount)Promise.resolve(featureModules[ui.view].mount(document.querySelector('#suite-main'),{getState:()=>state})).catch(showError);
- if(ui.view==='purchases')purchaseWorkspace.mount().catch(showError);
+ if(!directorySnapshot.error&&canView(directory,demoUserId,companyId,ui.view)&&featureModules[ui.view]?.mount)Promise.resolve(featureModules[ui.view].mount(document.querySelector('#suite-main'),{getState:()=>state})).catch(showError);
+ if(!directorySnapshot.error&&canView(directory,demoUserId,companyId,ui.view)&&ui.view==='purchases')purchaseWorkspace.mount().catch(showError);
 }
 function route(){
  const target=location.hash||'#overview';
@@ -143,14 +195,56 @@ function openDialog(title,formName,content,submit='Spara',extra=''){
  dialog.showModal();updateChrome();setTimeout(()=>body.querySelector('input:not([type="hidden"]),select,textarea')?.focus(),20);
 }
 function showError(err){const box=document.querySelector('#dialog-error'),pageBox=document.querySelector('#invoice-page-error')||document.querySelector('#purchase-page-error');if(dialog.open&&box){box.textContent=errorMessage(err);box.hidden=false;}else if(pageBox&&(invoiceEditorOpen()||purchaseWorkspace.isEditor())){pageBox.textContent=errorMessage(err);pageBox.hidden=false;pageBox.scrollIntoView({block:'nearest'});}else toast(errorMessage(err),true);}
-async function write(transition,message,{close=true,after}={}){
+async function write(transition,message,{close=true,after,permissions=requiredPermissions({view:ui.view})}={}){
  if(!canWrite()){showError(new Error(stale?'Läs in senaste demodata innan du fortsätter.':snapshot.error?.message||'Sparandet är pausat.'));return false;}
+ if(!may(permissions)){showError(new Error('Din behörighet tillåter inte den här åtgärden.'));return false;}
+ const epoch=workspaceEpoch,actorId=demoUserId,actingCompanyId=companyId;
  busy=true;updateChrome();
- try{const saved=await store.commit(snapshot,transition);snapshot=saved;state=saved.state;stale=false;if(close&&dialog.open)dialog.close();if(after)after(state);render();toast(message);return true;}
- catch(err){if(err.code){snapshot={...snapshot,error:err};if(err.code==='STALE_STATE')stale=true;}showError(err);return false;}
+ try{const saved=await coordinator.commitCompany({userId:actorId,companyId:actingCompanyId,snapshot,permissions,transition});if(epoch!==workspaceEpoch)return false;snapshot=saved;state=saved.state;stale=false;if(close&&dialog.open)dialog.close();if(after)after(state);render();toast(message);return true;}
+ catch(err){if(err.code&&err.code!=='ACCESS_DENIED'){snapshot={...snapshot,error:err};if(err.code==='STALE_STATE')stale=true;}if(err.code==='ACCESS_DENIED')refreshDirectory();showError(err);return false;}
  finally{busy=false;updateChrome();}
 }
-function reload(){snapshot=store.load();state=snapshot.state;ande.reset();stale=false;invoiceDirty=false;featureDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);dialog.close();render();toast(snapshot.error?errorMessage(snapshot.error):'Senaste demodata är inlästa. Osparade ändringar har återställts.',!!snapshot.error);}
+function reload(){refreshDirectory();try{snapshot=store.load();}catch(error){snapshot={state:vacantState(),revision:null,error,writable:false};}state=snapshot.state;ande.reset();stale=false;invoiceDirty=false;featureDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);dialog.close();render();toast(snapshot.error?errorMessage(snapshot.error):'Senaste demodata är inlästa. Osparade ändringar har återställts.',!!snapshot.error);}
+function saveContext(){try{sessionStorage.setItem(SESSION_KEY,JSON.stringify({userId:demoUserId,companyId}));}catch{/* The demo remains usable without persisted navigation. */}}
+function clearWorkspace(){
+ workspaceEpoch++;purchaseWorkspace.discard(true);invoiceDirty=false;featureDirty=false;invoiceDraft=null;invoiceDraftRoute='';stale=false;
+ Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null,search:'',assistantOpen:false});
+ document.querySelector('#suite-search').value='';document.querySelector('#print-area').replaceChildren();dialog.close();
+ purchaseWorkspace=makePurchaseWorkspace();ande.reset();
+}
+function refreshDirectory(){
+ directorySnapshot=coordinator.load();directory=directorySnapshot.state;
+ if(directorySnapshot.error||companyId&&!Agency.hasPermission(directory,demoUserId,companyId,'read')){
+  companyId=null;snapshot={state:vacantState(),revision:null,error:null,writable:false};state=snapshot.state;clearWorkspace();saveContext();
+ }
+}
+function switchContext(nextUserId,nextCompanyId,hash='#agency'){
+ assert(!busy,'Vänta tills pågående sparande är klart.');
+ if((invoiceDirty||featureDirty||purchaseWorkspace.isDirty())&&!window.confirm('Du har osparade ändringar. Vill du byta arbetsplats och kasta dem?')){updateChrome();return;}
+ refreshDirectory();assert(!directorySnapshot.error,'Byråregistret kunde inte läsas.');
+ const person=directory.users.find(user=>user.id===nextUserId&&user.active);assert(person,'Demopersonen är inte tillgänglig.');
+ if(nextCompanyId)assert(Agency.hasPermission(directory,nextUserId,nextCompanyId,'read'),'Du saknar tillgång till bolaget. Acceptera först din inbjudan.');
+ demoUserId=nextUserId;companyId=nextCompanyId;agencyError='';
+ snapshot=store.load();state=snapshot.state;clearWorkspace();saveContext();navigate(hash);
+}
+async function changeDirectory(transition,message){
+ assert(!busy,'Vänta tills pågående sparande är klart.');busy=true;agencyError='';updateChrome();
+ try{directorySnapshot=await coordinator.commit(directorySnapshot,transition);directory=directorySnapshot.state;refreshDirectory();render();toast(message);}
+ catch(error){agencyError=errorMessage(error);refreshDirectory();render();}
+ finally{busy=false;updateChrome();}
+}
+async function agencyAction(name,id){
+ if(name==='work'){switchContext(demoUserId,id,'#overview');return;}
+ const operations={accept:Agency.acceptInvitation,decline:Agency.declineInvitation,revoke:Agency.revokeInvitation,cancel:Agency.revokeInvitation};
+ const operation=operations[name];assert(operation,'Okänd byrååtgärd.');const actorId=demoUserId;
+ await changeDirectory(current=>operation(current,{actorId,invitationId:id}),name==='accept'?'Inbjudan är accepterad. Välj bolaget för att börja arbeta.':'Åtkomsten är uppdaterad. Historiken finns kvar.');
+}
+async function submitAgency(form){
+ const data=new FormData(form),actorId=demoUserId,actingCompanyId=companyId;
+ const permissions=data.getAll('permissions').map(String);
+ if(form.dataset.agencyForm==='invite')await changeDirectory(current=>Agency.inviteMember(current,{actorId,companyId:actingCompanyId,personalNumber:String(data.get('personalNumber')||''),permissions}),'Inbjudan är skapad och väntar på mottagarens svar.');
+ else if(form.dataset.agencyForm==='permissions')await changeDirectory(current=>Agency.updatePermissions(current,{actorId,invitationId:String(data.get('invitationId')||''),permissions}),'Behörigheterna är uppdaterade.');
+}
 function download(text,filename,type='text/csv;charset=utf-8'){const blob=new Blob([type.startsWith('text/csv')?'\uFEFF':'',text],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function csv(rows){return rows.map(row=>row.map(v=>{let s=String(v??'');if(/^[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';}).join(';')).join('\r\n');}
 function exportLedger(){download(csv([['Verifikation','Datum','Beskrivning','Konto','Debet','Kredit','Källa','Rättar'],...state.entries.flatMap(x=>x.rows.map(r=>[x.number,x.date,x.description,r.account,fmt(r.debitCents),fmt(r.creditCents),x.sourceType,x.correctsEntryId||'']))]),'huvudbok-demo.csv');}
@@ -164,6 +258,8 @@ function entryRow(row={account:'6570',side:'debit',amountCents:0}){return `<div 
 function confirmAction(action,id,title,text,{date=false,reason=false,dateValue=TODAY,checkbox='Jag har granskat uppgifterna',submit='Bekräfta'}={}){openDialog(title,'confirm-action',`<input type="hidden" name="action" value="${e(action)}"><input type="hidden" name="id" value="${e(id)}"><p>${e(text)}</p>${date?dateField('date','Datum',dateValue):''}${reason?field('Orsak','reason','','text','required maxlength="500"'):''}${check(checkbox,'reviewed',false,'required')}`,submit);}
 
 async function action(name,id,el){
+ if(!['close-dialog','reload'].includes(name))checkOperation({view:ui.view,action:name});
+ const writeAction=(transition,message,options={})=>write(transition,message,{...options,permissions:requiredPermissions({view:ui.view,action:name})});
  if(purchaseWorkspace.handlesAction(name)){await purchaseWorkspace.action(name,id,el);return;}
  switch(name){
  case 'new-empty-company':openDialog('Nytt tomt övningsbolag','new-empty-company',`${field('Företagsnamn','name','Nytt övningsbolag AB','text','required maxlength="150"')}${field('Organisationsnummer eller DEMO','orgNumber','DEMO','text','required maxlength="40"')}<div class="form-grid">${dateField('start','Räkenskapsårets start','2026-01-01')}${dateField('end','Räkenskapsårets slut','2026-12-31')}</div>${check('Jag vill ersätta den lokala bokföringen med ett tomt övningsbolag. Jag har exporterat det jag vill behålla.','resetConfirmed',false,'required')}${help('Faktureringsmetoden och SEK används. Uppladdade filer behålls i inkorgen utan kopplingar. Kontantmetoden har ett eget startflöde i menyn.')}`,'Starta tomt övningsbolag');return;
@@ -182,7 +278,7 @@ async function action(name,id,el){
  case 'copy-invoice':{
   const invoice=selected(id,state.invoices),days=invoice?.details?.paymentTermsDays??30,date=new Date(TODAY+'T12:00:00Z');
   date.setUTCDate(date.getUTCDate()+days);
-  await write(s=>Sales.copyInvoice(s,id,{date:TODAY,dueDate:date.toISOString().slice(0,10)}),'Ett nytt fakturautkast har skapats.',{after:s=>{invoiceDirty=false;navigate(invoiceLocation(s.invoices.at(-1).id,true));}});return;
+  await writeAction(s=>Sales.copyInvoice(s,id,{date:TODAY,dueDate:date.toISOString().slice(0,10)}),'Ett nytt fakturautkast har skapats.',{after:s=>{invoiceDirty=false;navigate(invoiceLocation(s.invoices.at(-1).id,true));}});return;
  }
  case 'add-invoice-line':{
   const container=document.querySelector('#invoice-page-lines');if(!container)return;
@@ -196,13 +292,13 @@ async function action(name,id,el){
  case 'new-project':openDialog('Nytt projekt','project',`${field('Projektnamn','name','','text','required maxlength="200"')}${select('Kund','customerId',customerOptions())}${moneyField('Budget exkl. moms','budgetCents',0)}`);return;
  case 'project-item':openDialog('Registrera tid eller material','project-item',`<input type="hidden" name="projectId" value="${e(id)}">${select('Typ','kind',[['labor','Arbete'],['material','Material'],['other','Övrigt']])}${field('Beskrivning','description','','text','required maxlength="300"')}<div class="form-grid">${field('Antal (timmar / stycken)','quantity',1,'text','required inputmode="decimal"')}${moneyField('À-pris exkl. moms','unitCents',55000)}</div>`);return;
  case 'new-quote':{const p=selected(id,state.projects);openDialog('Skapa offert','quote',`<input type="hidden" name="projectId" value="${e(id)}">${select('Kund','customerId',customerOptions(),p?.customerId||'')}<div class="form-grid">${dateField()}${dateField('validUntil','Giltig till','2026-11-22')}</div>${lineEditor(p?.items.length?p.items.map(x=>({...x,vatRate:25})):[{description:'Snickeriarbete',kind:'labor',quantity:1,unitCents:55000,vatRate:25}])}`,'Spara offert');return;}
- case 'accept-quote':await write(s=>Sales.acceptQuote(s,id),'Offerten är godkänd i demon.');return;
+ case 'accept-quote':await writeAction(s=>Sales.acceptQuote(s,id),'Offerten är godkänd i demon.');return;
  case 'invoice-quote':openDialog('Skapa faktura från offert','invoice-quote',`<input type="hidden" name="id" value="${e(id)}"><div class="form-grid">${dateField('date','Fakturadatum')}${dateField('dueDate','Förfallodag','2026-11-22')}</div>${help('Offertens rader följer med till ett redigerbart fakturautkast.')}`,'Skapa fakturautkast');return;
  case 'issue-invoice':{const x=selected(id,state.invoices);confirmAction(name,id,'Granska och utfärda faktura',`Fakturan till ${state.customers.find(c=>c.id===x.customerId)?.name} är på ${money(Sales.getInvoiceTotals(x).grossCents)}. Fakturan bokförs och låses för direkt ändring. Inget mejl eller betalningskrav skickas.`,{submit:'Utfärda och bokför'});return;}
  case 'print-invoice':{document.querySelector('#print-area').innerHTML=invoiceDocumentHTML(state,selected(id,state.invoices));window.print();return;}
  case 'invoice-payment':{const x=selected(id,state.invoices),claim=state.rotClaims.find(c=>c.invoiceId===id);const t=Sales.getInvoiceTotals(x),paid=(x.payments||[]).filter(p=>p.payer==='customer').reduce((a,p)=>a+p.amountCents,0);openDialog('Registrera fakturabetalning','invoice-payment',`<input type="hidden" name="id" value="${e(id)}">${bankEventField('in')}${dateField()}${select('Betalare','payer',[['customer','Kunden'],...(claim?.status==='approved'?[['tax','Skatteverket (demobetalning)']]:[])])}${moneyField('Betalt belopp','amountCents',Math.max(0,t.customerCents-paid))}${field('Betalningsreferens','reference','','text','maxlength="200"')}${help('Det här registrerar en redan genomförd, fiktiv betalning. Ingen banköverföring görs.')}`,'Bokför betalning');return;}
  case 'credit-invoice':confirmAction(name,id,'Kreditera hela fakturan','En obetald faktura får en egen kreditfaktura med länk till originalet. Originalposterna bevaras.',{date:true,reason:true,submit:'Skapa kreditfaktura'});return;
- case 'remind-invoice':await write(s=>Sales.recordReminder(s,id),'Påminnelse noterad i historiken. Inget meddelande skickat.');return;
+ case 'remind-invoice':await writeAction(s=>Sales.recordReminder(s,id),'Påminnelse noterad i historiken. Inget meddelande skickat.');return;
  case 'request-rot':openDialog('Förbered ROT-begäran','request-rot',`<input type="hidden" name="id" value="${e(id)}">${dateField('date','Datum för demobegäran')}${check('Arbetet är utfört','workCompletedConfirmed',false,'required')}${check('Kundens betalning är elektronisk och spårbar','electronicPaymentConfirmed',false,'required')}${help('Hela kundens del måste vara betald först. Begäran sparas som demounderlag och skickas inte till Skatteverket.')}`,'Förbered begäran');return;
  case 'decide-rot':{const claim=state.rotClaims.find(c=>c.invoiceId===id);openDialog('Registrera demobeslut om ROT','decide-rot',`<input type="hidden" name="id" value="${e(id)}">${dateField('date','Beslutsdatum')}${moneyField('Beviljat belopp i exemplet','approvedCents',claim?.requestedCents||0)}${field('Motivering','reason','','text','maxlength="500"')}${help('Ange 0 för avslag. En ej beviljad del blir återstående skuld för kunden. Det är inget beslut från Skatteverket.')}`,'Spara demobeslut');return;}
  case 'bill-payment':{const x=selected(id,state.bills);openDialog('Registrera leverantörsbetalning','bill-payment',`<input type="hidden" name="id" value="${e(id)}">${bankEventField('out')}${dateField()}${moneyField('Betalt belopp','amountCents',Operations.getBillOutstanding(x))}${help('Betalningen bokförs mellan leverantörsskuld och företagskonto. Ingen riktig betalning skickas.')}`,'Bokför betalning');return;}
@@ -240,6 +336,9 @@ async function action(name,id,el){
 }
 
 async function submit(form){
+ const actionName=form.dataset.form==='confirm-action'?String(new FormData(form).get('action')||''):undefined;
+ const permissions=requiredPermissions({view:ui.view,form:form.dataset.form,action:actionName});
+ checkOperation({view:ui.view,form:form.dataset.form,action:actionName});
  if(purchaseWorkspace.handlesForm(form.dataset.form)){await purchaseWorkspace.submit(form);return;}
  const d=new FormData(form), get=name=>String(d.get(name)??''), amount=name=>toCents(get(name)), checked=name=>d.get(name)!==null,id=get('id');
  let transition,message='Uppgifterna är sparade i demon.',after;
@@ -295,30 +394,36 @@ async function submit(form){
   };transition=actions[name];assert(transition,'Okänd åtgärd.');message='Åtgärden är bokförd och sparad i demon.';break;
  }
  case 'reset':{
-  if(busy||stale)return;busy=true;updateChrome();
-  try{snapshot=await store.reset(snapshot);state=snapshot.state;ande.reset();stale=false;invoiceDirty=false;featureDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});dialog.close();if(ui.view==='sales')navigate('#sales');else if(ui.view==='purchases')navigate('#purchases');else render();toast('Demon är återställd till fiktiva startuppgifter. Uppladdade underlag finns kvar i inkorgen.');}catch(err){if(err.code)snapshot={...snapshot,error:err};showError(err);}finally{busy=false;updateChrome();}return;
+  if(!canReset())throw new Error('Endast bolagsägaren kan återställa demon.');const resetEpoch=workspaceEpoch,resetCompany=companyId,resetUser=demoUserId,resetSnapshot=snapshot;busy=true;updateChrome();
+  try{const saved=await coordinator.commitCompany({userId:resetUser,companyId:resetCompany,snapshot:resetSnapshot,permissions:['manage'],reset:true});if(resetEpoch!==workspaceEpoch)return;snapshot=saved;state=snapshot.state;ande.reset();stale=false;invoiceDirty=false;featureDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});dialog.close();if(ui.view==='sales')navigate('#sales');else if(ui.view==='purchases')navigate('#purchases');else render();toast('Demon är återställd till fiktiva startuppgifter. Uppladdade underlag finns kvar i inkorgen.');}catch(err){if(resetEpoch!==workspaceEpoch)return;if(err.code)snapshot={...snapshot,error:err};showError(err);}finally{busy=false;updateChrome();}return;
  }
  default:throw new Error('Formuläret kan inte sparas.');
  }
- await write(transition,message,{after});
+ await write(transition,message,{after,permissions});
 }
 
 async function runFeature(element) {
  const key=element.dataset.featureForm||element.dataset.featureAction;
  const module=featureModules[key];assert(module,'Arbetsytan kunde inte hittas.');
  const data=featureData(element),name=element.dataset.action;
+ const permissions=requiredPermissions({view:ui.view,feature:key,action:name});
+ checkOperation({view:ui.view,feature:key,action:name});
+ const epoch=workspaceEpoch,commandCompany=companyId,commandUser=demoUserId;
+ const sameContext=()=>{assert(epoch===workspaceEpoch&&commandCompany===companyId&&commandUser===demoUserId,'Bolaget eller demopersonen har ändrats. Öppna formuläret igen.');};
  if(key==='cash'&&name==='start-cash'){
   if(!canReset())throw new Error('Läs in senaste demodata innan du startar ett nytt övningsbolag.');
   if(!window.confirm('Detta ersätter bokföringen i den här webbläsaren med ett nytt tomt övningsbolag för kontantmetoden. Exportera det du vill behålla först. Uppladdade filer ligger kvar. Vill du fortsätta?'))return;
-  await write(current=>module.handleAction(current,name,data),'Nytt övningsbolag med kontantmetoden startat.',{after:()=>{featureDirty=false;invoiceDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);ande.reset();Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});}});return;
+  await write(current=>module.handleAction(current,name,data),'Nytt övningsbolag med kontantmetoden startat.',{permissions,after:()=>{featureDirty=false;invoiceDirty=false;invoiceDraft=null;invoiceDraftRoute='';purchaseWorkspace.discard(true);ande.reset();Object.assign(ui,{invoiceId:null,billId:null,entryId:null,projectId:null,bankId:null,payrollId:null,assetId:null});}});return;
  }
  const file=await featureDownload(state,key,name,data);
- if(file){const binary=file.value instanceof Blob||file.value instanceof ArrayBuffer||ArrayBuffer.isView(file.value);download(typeof file.value==='string'||binary?file.value:JSON.stringify(file.value,null,2),file.name,file.type||'application/json;charset=utf-8');return;}
- await write(current=>module.handleAction(current,name,data),'Uppgifterna är kontrollerade och sparade i demon.',{after:()=>{featureDirty=false;}});
+ sameContext();
+ if(file){checkOperation({view:ui.view,feature:key,action:name,isDownload:true});sameContext();const binary=file.value instanceof Blob||file.value instanceof ArrayBuffer||ArrayBuffer.isView(file.value);download(typeof file.value==='string'||binary?file.value:JSON.stringify(file.value,null,2),file.name,file.type||'application/json;charset=utf-8');return;}
+ await write(current=>module.handleAction(current,name,data),'Uppgifterna är kontrollerade och sparade i demon.',{permissions,after:()=>{featureDirty=false;}});
 }
 
 document.addEventListener('click',event=>{
  const el=event.target.closest('button,a');
+ if(el?.dataset.agencyAction){event.preventDefault();agencyAction(el.dataset.agencyAction,el.dataset.id||'').catch(showError);return;}
  if(el?.dataset.featureAction){event.preventDefault();runFeature(el).catch(showError);return;}
  if(!el){const row=event.target.closest('[data-invoice-row]'),billRow=event.target.closest('[data-purchase-row]');if(row)navigate(invoiceLocation(row.dataset.invoiceRow));else if(billRow)navigate('#purchases/'+encodeURIComponent(billRow.dataset.purchaseRow));return;}
  if(el.dataset.invoiceSection){event.preventDefault();const section=document.getElementById(el.dataset.invoiceSection);if(section){if(section.tagName==='DETAILS')section.open=true;section.scrollIntoView({behavior:'smooth',block:'start'});}return;}
@@ -328,13 +433,14 @@ document.addEventListener('click',event=>{
  if(el.dataset.bankAccount){ui.bankAccount=el.dataset.bankAccount;ui.bankId=null;render();return;}
  if(el.dataset.action){event.preventDefault();Promise.resolve(action(el.dataset.action,el.dataset.id||'',el)).catch(showError);}
 });
-document.addEventListener('submit',event=>{const form=event.target;if(form.dataset.featureForm){event.preventDefault();runFeature(form).catch(showError);return;}if(form.dataset.form){event.preventDefault();submit(form).catch(showError);}});
+document.addEventListener('submit',event=>{const form=event.target;if(form.dataset.agencyForm){event.preventDefault();submitAgency(form).catch(showError);return;}if(form.dataset.featureForm){event.preventDefault();runFeature(form).catch(showError);return;}if(form.dataset.form){event.preventDefault();submit(form).catch(showError);}});
 document.addEventListener('input',event=>{if(event.target.closest('[data-feature-form]'))featureDirty=true;if(event.target.closest('#invoice-page-form'))refreshInvoiceSummary();purchaseWorkspace.input(event.target);});
 document.addEventListener('dragover',event=>{const zone=event.target.closest('[data-document-drop][data-upload-enabled="true"]');if(zone){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='copy';}});
 document.addEventListener('drop',event=>{const zone=event.target.closest('[data-document-drop][data-upload-enabled="true"]');if(!zone)return;event.preventDefault();const input=zone.querySelector('[data-document-upload][data-source="file"]');if(input&&event.dataTransfer?.files.length){input.files=event.dataTransfer.files;purchaseWorkspace.change(input).catch(showError);}});
 document.addEventListener('change',event=>{
  try{
  const target=event.target,form=target.closest('#invoice-page-form');
+ if(target.id==='agency-demo-profile'){const person=directory.users.find(user=>user.id===target.value);switchContext(target.value,directory.companies.find(company=>company.ownerId===person?.id)?.id||null);return;}
  if(purchaseWorkspace.handlesChange(target)){purchaseWorkspace.change(target).catch(showError);return;}
  if(form){
   if(target.name==='customerId')applyInvoiceCustomer(form,state,target.value);
@@ -371,6 +477,6 @@ document.querySelector('#suite-menu').addEventListener('click',()=>{document.que
 document.querySelector('#suite-backdrop').addEventListener('click',()=>{document.querySelector('#suite-sidebar').classList.remove('open');document.querySelector('#suite-backdrop').hidden=true;document.querySelector('#suite-menu').setAttribute('aria-expanded','false');});
 window.addEventListener('hashchange',route);
 window.addEventListener('beforeunload',event=>{if(invoiceDirty||featureDirty||purchaseWorkspace.isDirty()){event.preventDefault();event.returnValue='';}});
-window.addEventListener('storage',event=>{if(event.key===STORE_KEY||event.key===null){stale=true;updateChrome();}});
+window.addEventListener('storage',event=>{if(event.key===AGENCY_STORAGE_KEY||event.key===null){refreshDirectory();if(companyId&&!canView(directory,demoUserId,companyId,ui.view)){clearWorkspace();navigate('#agency');}render();}else if(companyId&&event.key===companyStorageKey(companyId)){stale=true;updateChrome();}});
 dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});
 route();
